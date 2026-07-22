@@ -1,0 +1,112 @@
+import type { ConversationTriageInput } from "../../contracts";
+
+export const MAIL_ACTION_IDS = ["mark_read", "mark_unread", "flag", "unflag", "archive", "junk", "trash", "move"] as const;
+export type MailActionId = (typeof MAIL_ACTION_IDS)[number];
+
+type MailActionDescriptor = {
+  id: MailActionId;
+  label: string;
+  description: string;
+  icon: string;
+  destructive?: boolean;
+};
+
+const ACTIONS = [
+  {
+    id: "archive",
+    label: "Archive",
+    description: "Move this conversation to the configured Archive folder.",
+    icon: "ti ti-archive",
+  },
+  {
+    id: "junk",
+    label: "Move to junk",
+    description: "Move this conversation to the configured Junk folder.",
+    icon: "ti ti-alert-octagon",
+  },
+  {
+    id: "trash",
+    label: "Delete",
+    description: "Move this conversation to the configured Trash folder.",
+    icon: "ti ti-trash",
+    destructive: true,
+  },
+  {
+    id: "mark_read",
+    label: "Mark as read",
+    description: "Mark this conversation as read in its provider folders.",
+    icon: "ti ti-mail-opened",
+  },
+  {
+    id: "mark_unread",
+    label: "Mark as unread",
+    description: "Mark this conversation as unread in its provider folders.",
+    icon: "ti ti-mail",
+  },
+  {
+    id: "flag",
+    label: "Flag",
+    description: "Flag this conversation in its provider folders.",
+    icon: "ti ti-flag",
+  },
+  {
+    id: "unflag",
+    label: "Remove flag",
+    description: "Remove flags from this conversation in its provider folders.",
+    icon: "ti ti-flag-off",
+  },
+  {
+    id: "move",
+    label: "Move to folder",
+    description: "Choose a provider folder for this conversation.",
+    icon: "ti ti-folder-symlink",
+  },
+] as const satisfies readonly MailActionDescriptor[];
+
+const actionById = new Map<MailActionId, MailActionDescriptor>(ACTIONS.map((action) => [action.id, action]));
+
+export const getMailAction = (id: MailActionId): MailActionDescriptor => {
+  const action = actionById.get(id);
+  if (!action) throw new Error(`Unknown Mail action: ${id}`);
+  return action;
+};
+
+export const buildMailActionInput = (params: {
+  actionId: MailActionId;
+  sourceFolderId: string;
+  destinationFolderId?: string;
+  idempotencyKey: string;
+  correlationId: string;
+}): ConversationTriageInput => {
+  if (params.actionId === "move") {
+    if (!params.destinationFolderId) throw new Error("Choose a destination folder before moving conversations.");
+    return {
+      kind: "move_to_folder",
+      sourceFolderId: params.sourceFolderId,
+      destinationFolderId: params.destinationFolderId,
+      idempotencyKey: params.idempotencyKey,
+      correlationId: params.correlationId,
+    };
+  }
+  if (params.actionId === "archive" || params.actionId === "junk" || params.actionId === "trash") {
+    return {
+      kind: "move_to_role",
+      sourceFolderId: params.sourceFolderId,
+      role: params.actionId,
+      idempotencyKey: params.idempotencyKey,
+      correlationId: params.correlationId,
+    };
+  }
+  return {
+    kind: "change_state",
+    sourceFolderId: params.sourceFolderId,
+    change: {
+      addFlags: params.actionId === "mark_read" ? ["seen"] : params.actionId === "flag" ? ["flagged"] : [],
+      removeFlags: params.actionId === "mark_unread" ? ["seen"] : params.actionId === "unflag" ? ["flagged"] : [],
+      addKeywords: [],
+      removeKeywords: [],
+    },
+    idempotencyKey: params.idempotencyKey,
+    correlationId: params.correlationId,
+  };
+};

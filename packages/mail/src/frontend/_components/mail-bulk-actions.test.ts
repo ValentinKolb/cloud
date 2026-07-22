@@ -11,7 +11,7 @@ describe("Mail bulk actions", () => {
       sourceFolderIds: index === 3 ? ["first", "fails"] : ["folder"],
     }));
     const result = await executeMailBulkAction({
-      commandId: "archive",
+      actionId: "archive",
       targets,
       submit: async (target, sourceFolderId) => {
         active += 1;
@@ -35,7 +35,7 @@ describe("Mail bulk actions", () => {
 
   test("fails targets without a provider placement explicitly", async () => {
     const result = await executeMailBulkAction({
-      commandId: "trash",
+      actionId: "trash",
       targets: [{ conversationId: "missing", label: "Missing", sourceFolderIds: [] }],
       submit: async () => undefined,
     });

@@ -10,7 +10,6 @@ import {
   Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
@@ -45,6 +44,7 @@ const ACTIVITY_LABELS: Readonly<Record<string, string>> = {
   "conversation.local_tags_added": "added tags",
   "conversation.local_tags_updated": "updated tags",
   "conversation.merged": "merged conversations",
+  "conversation.message_reassigned": "moved a message between conversations",
   "conversation.reference_allocated": "assigned a reference number",
   "conversation.split": "split the conversation",
 };
@@ -71,6 +71,7 @@ export default function MailDetailsPanel(props: {
   subject: string;
   dateConfig: DateContext;
   onClose: () => void;
+  onReconcile: () => void | Promise<void>;
 }) {
   const [state, setState] = createSignal(props.initialState);
   const [availableTags, setAvailableTags] = createSignal(props.initialLocalTags);
@@ -113,7 +114,7 @@ export default function MailDetailsPanel(props: {
     },
     onError: async (error) => {
       await prompts.error(error.message, { title: "Conversation changed" });
-      refreshCurrentPath();
+      await props.onReconcile();
     },
   });
 
@@ -138,7 +139,7 @@ export default function MailDetailsPanel(props: {
     },
     onError: async (error) => {
       await prompts.error(error.message, { title: "Conversation changed" });
-      refreshCurrentPath();
+      await props.onReconcile();
     },
   });
 

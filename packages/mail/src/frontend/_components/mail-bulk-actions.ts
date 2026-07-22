@@ -1,4 +1,4 @@
-import type { MailTriageCommandId } from "./mail-command-registry";
+import type { MailActionId } from "./mail-actions";
 
 export const MAIL_BULK_CONCURRENCY = 4;
 
@@ -8,20 +8,20 @@ export type MailBulkTarget = {
   sourceFolderIds: readonly string[];
 };
 
-export type MailBulkFailure = {
+type MailBulkFailure = {
   conversationId: string;
   label: string;
   message: string;
   submittedPlacements: number;
 };
 
-export type MailBulkResult = {
+type MailBulkResult = {
   succeededConversationIds: string[];
   failures: MailBulkFailure[];
 };
 
 export const executeMailBulkAction = async (params: {
-  commandId: MailTriageCommandId;
+  actionId: MailActionId;
   targets: readonly MailBulkTarget[];
   submit: (target: MailBulkTarget, sourceFolderId: string) => Promise<void>;
   concurrency?: number;
@@ -64,7 +64,7 @@ export const executeMailBulkAction = async (params: {
     failures.push({
       conversationId: result.target.conversationId,
       label: result.target.label,
-      message: result.error instanceof Error ? result.error.message : "The command could not be queued.",
+      message: result.error instanceof Error ? result.error.message : "The action could not be queued.",
       submittedPlacements: result.submittedPlacements,
     });
   }

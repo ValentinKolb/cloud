@@ -7,7 +7,7 @@ import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import { createConversationComment, setConversationWatcher } from "./collaboration";
-import { mergeConversations, splitConversation } from "./conversations";
+import { mergeConversations, reassignConversationMessage, splitConversation } from "./conversations";
 import { createLocalTag } from "./local-tags";
 import { createMailbox } from "./mailboxes";
 import { hydrateMessageFromSource } from "./message-hydration";
@@ -802,6 +802,93 @@ suite("mail manual conversation threading", () => {
     `;
     expect(uidValidityProjection).toEqual({ contents: 1, refs: 2, canonical_refs: 1 });
   }, 30_000);
+
+  test("reassigns one message atomically with permission and revision fencing", async () => {
+    const conversations = await sql<{ id: string; subject: string }[]>`
+      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES
+        (${mailboxId}::uuid, 'Reassign source', 'Customer', '2026-07-13T12:20:00.000Z'),
+        (${mailboxId}::uuid, 'Reassign target', 'Customer', '2026-07-13T12:30:00.000Z')
+      RETURNING id, subject
+    `;
+    const source = conversations.find((conversation) => conversation.subject === "Reassign source")!;
+    const target = conversations.find((conversation) => conversation.subject === "Reassign target")!;
+    const contents = await sql<{ id: string; subject: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
+      ) VALUES
+        (
+          ${mailboxId}::uuid, ${`<reassign-source-a-${suffix}@example.com>`}, 'Reassign source', 'reassign source',
+          '2026-07-13T12:10:00.000Z', 128, ${"1".repeat(64)}, 'complete'
+        ),
+        (
+          ${mailboxId}::uuid, ${`<reassign-source-b-${suffix}@example.com>`}, 'Reassign source', 'reassign source',
+          '2026-07-13T12:20:00.000Z', 128, ${"2".repeat(64)}, 'complete'
+        ),
+        (
+          ${mailboxId}::uuid, ${`<reassign-target-${suffix}@example.com>`}, 'Reassign target', 'reassign target',
+          '2026-07-13T12:30:00.000Z', 128, ${"3".repeat(64)}, 'complete'
+        )
+      RETURNING id, subject
+    `;
+    const sourceMessages = contents.filter((message) => message.subject === "Reassign source");
+    const targetMessage = contents.find((message) => message.subject === "Reassign target")!;
+    await sql`
+      INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
+      VALUES
+        (${source.id}::uuid, ${sourceMessages[0]!.id}::uuid, 1, 'headers'),
+        (${source.id}::uuid, ${sourceMessages[1]!.id}::uuid, 2, 'headers'),
+        (${target.id}::uuid, ${targetMessage.id}::uuid, 1, 'headers')
+    `;
+
+    const denied = await reassignConversationMessage({
+      context: readerContext,
+      mailboxId,
+      sourceConversationId: source.id,
+      messageId: sourceMessages[1]!.id,
+      input: { targetConversationId: target.id, expectedSourceRevision: 1, expectedTargetRevision: 1, confirm: true },
+    });
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.status).toBe(403);
+
+    const stale = await reassignConversationMessage({
+      context: writerContext,
+      mailboxId,
+      sourceConversationId: source.id,
+      messageId: sourceMessages[1]!.id,
+      input: { targetConversationId: target.id, expectedSourceRevision: 2, expectedTargetRevision: 1, confirm: true },
+    });
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.error.status).toBe(409);
+
+    const moved = await reassignConversationMessage({
+      context: writerContext,
+      mailboxId,
+      sourceConversationId: source.id,
+      messageId: sourceMessages[1]!.id,
+      input: {
+        targetConversationId: target.id,
+        expectedSourceRevision: 1,
+        expectedTargetRevision: 1,
+        reason: "Correct a provider thread",
+        confirm: true,
+      },
+    });
+    expect(moved.ok).toBe(true);
+    if (!moved.ok) return;
+    expect(moved.data).toMatchObject({
+      messageId: sourceMessages[1]!.id,
+      source: { id: source.id, revision: 2, messageCount: 1 },
+      target: { id: target.id, revision: 2, messageCount: 2 },
+    });
+    const [projection] = await sql<{ conversation_id: string; reason: string }[]>`
+      SELECT link.conversation_id::text, override.reason
+      FROM mail.conversation_messages link
+      JOIN mail.conversation_thread_overrides override ON override.message_id = link.message_id
+      WHERE link.message_id = ${sourceMessages[1]!.id}::uuid
+    `;
+    expect(projection).toEqual({ conversation_id: target.id, reason: "merge" });
+  });
 
   test("rolls back a split when a selected message disappears after validation", async () => {
     const [conversation] = await sql<{ id: string }[]>`

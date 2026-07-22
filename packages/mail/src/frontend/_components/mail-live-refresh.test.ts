@@ -94,23 +94,26 @@ describe("Mail live refresh coordinator", () => {
     coordinator.dispose();
   });
 
-  test("falls back without acknowledging a failed refresh", async () => {
+  test("retries a failed refresh without acknowledging its cursor", async () => {
     const applied: Array<string | null> = [];
-    let fallbacks = 0;
+    const failures: number[] = [];
+    let attempts = 0;
     const coordinator = createMailLiveRefreshCoordinator({
       delayMs: 1,
+      retryBaseMs: 1,
       isBlocked: () => false,
-      refresh: async () => "failed",
+      refresh: async () => (++attempts === 1 ? "failed" : "applied"),
       onApplied: (cursor) => applied.push(cursor),
-      onFailed: () => fallbacks++,
+      onFailed: (attempt) => failures.push(attempt),
     });
 
     coordinator.schedule("40-1");
-    await waitFor(() => fallbacks === 1);
+    await waitFor(() => failures.length === 1);
     expect(applied).toEqual([]);
-    coordinator.schedule("40-2");
-    await Bun.sleep(3);
-    expect(fallbacks).toBe(1);
+    await waitFor(() => applied.length === 1);
+    expect(failures).toEqual([1]);
+    expect(applied).toEqual(["40-1"]);
+    coordinator.dispose();
   });
 
   test("does not acknowledge an in-flight refresh after disposal", async () => {

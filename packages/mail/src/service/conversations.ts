@@ -1,7 +1,7 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { MergeConversationsInput, SplitConversationInput } from "../contracts";
+import type { MergeConversationsInput, ReassignConversationMessageInput, SplitConversationInput } from "../contracts";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import { mergeConversationReferencesInTransaction } from "./conversation-reference";
@@ -34,6 +34,13 @@ export type SplitConversationResult = {
   source: ConversationThreadState;
   created: ConversationThreadState;
   movedMessageCount: number;
+};
+
+export type ReassignConversationMessageResult = {
+  source: ConversationThreadState;
+  target: ConversationThreadState;
+  messageId: string;
+  movedCommentCount: number;
 };
 
 const actorIdentity = (context: MailRequestContext): ThreadActor => {
@@ -207,6 +214,51 @@ const refreshCoreNotificationTargets = async (params: { db: SqlClient; conversat
           'mail:reminder:' || delivery.source_id::text || ':' || delivery.source_revision::text || ':' || delivery.recipient_user_id::text
       END
   `;
+};
+
+const moveMessageComments = async (params: {
+  db: SqlClient;
+  sourceConversationId: string;
+  targetConversationId: string;
+  messageIds: string[];
+}): Promise<number> => {
+  const moved = await params.db<{ id: string }[]>`
+    WITH RECURSIVE selected_comments AS (
+      SELECT comment.id
+      FROM mail.conversation_comments comment
+      WHERE comment.conversation_id = ${params.sourceConversationId}::uuid
+        AND comment.referenced_message_id IN (
+          SELECT value::uuid FROM jsonb_array_elements_text(${params.messageIds}::jsonb)
+        )
+
+      UNION
+
+      SELECT child.id
+      FROM mail.conversation_comments child
+      JOIN selected_comments parent ON child.parent_comment_id = parent.id
+      WHERE child.conversation_id = ${params.sourceConversationId}::uuid
+    )
+    UPDATE mail.conversation_comments comment
+    SET
+      conversation_id = ${params.targetConversationId}::uuid,
+      parent_comment_id = CASE
+        WHEN comment.parent_comment_id IN (SELECT id FROM selected_comments) THEN comment.parent_comment_id
+        ELSE NULL
+      END
+    WHERE comment.id IN (SELECT id FROM selected_comments)
+    RETURNING comment.id
+  `;
+  if (moved.length === 0) return 0;
+  await params.db`
+    UPDATE mail.collaboration_notification_deliveries
+    SET conversation_id = ${params.targetConversationId}::uuid
+    WHERE kind = 'mention'
+      AND source_id IN (
+        SELECT value::uuid FROM jsonb_array_elements_text(${moved.map((comment) => comment.id)}::jsonb)
+      )
+  `;
+  await refreshCoreNotificationTargets({ db: params.db, conversationId: params.targetConversationId });
+  return moved.length;
 };
 
 const mergeConversationReminders = async (params: {
@@ -449,6 +501,165 @@ export const mergeConversations = async (params: {
   }
 };
 
+export const reassignConversationMessage = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  sourceConversationId: string;
+  messageId: string;
+  input: ReassignConversationMessageInput;
+}): Promise<Result<ReassignConversationMessageResult>> => {
+  if (params.sourceConversationId === params.input.targetConversationId) {
+    return fail(err.badInput("Source and target conversation must be different"));
+  }
+  try {
+    const events: Array<Omit<MailConversationChangedEvent, "type" | "at">> = [];
+    const result = await sql.begin(async (tx): Promise<Result<ReassignConversationMessageResult>> => {
+      const allowed = await lockMailbox(params.context, params.mailboxId, tx);
+      if (!allowed.ok) return allowed;
+
+      const conversationIds = [params.sourceConversationId, params.input.targetConversationId].sort();
+      const rows = await tx<LockedConversation[]>`
+        SELECT id, revision
+        FROM mail.conversations
+        WHERE mailbox_id = ${params.mailboxId}::uuid
+          AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(${conversationIds}::jsonb))
+        ORDER BY id
+        FOR UPDATE
+      `;
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const source = byId.get(params.sourceConversationId);
+      const target = byId.get(params.input.targetConversationId);
+      if (!source) return fail(err.notFound("Source conversation"));
+      if (!target) return fail(err.notFound("Target conversation"));
+      if (Number(source.revision) !== params.input.expectedSourceRevision) {
+        return fail(err.conflict("Source conversation was changed by another collaborator"));
+      }
+      if (Number(target.revision) !== params.input.expectedTargetRevision) {
+        return fail(err.conflict("Target conversation was changed by another collaborator"));
+      }
+
+      const notificationsAvailable = await lockConversationNotificationDeliveries({ db: tx, conversationIds });
+      if (!notificationsAvailable.ok) return notificationsAvailable;
+      const [counts] = await tx<{ total: number; selected: number }[]>`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE message_id = ${params.messageId}::uuid)::int AS selected
+        FROM mail.conversation_messages
+        WHERE conversation_id = ${params.sourceConversationId}::uuid
+      `;
+      if (!counts || counts.selected !== 1) return fail(err.notFound("Message in source conversation"));
+      if (counts.total <= 1) {
+        return fail(err.badInput("Move the whole conversation instead of removing its only message"));
+      }
+
+      const moved = await tx<{ message_id: string }[]>`
+        UPDATE mail.conversation_messages
+        SET conversation_id = ${params.input.targetConversationId}::uuid, added_by = 'manual'
+        WHERE conversation_id = ${params.sourceConversationId}::uuid
+          AND message_id = ${params.messageId}::uuid
+        RETURNING message_id
+      `;
+      if (moved.length !== 1)
+        throw Object.assign(new Error("Conversation message changed during reassignment"), { code: SPLIT_MESSAGES_CHANGED });
+
+      const movedCommentCount = await moveMessageComments({
+        db: tx,
+        sourceConversationId: params.sourceConversationId,
+        targetConversationId: params.input.targetConversationId,
+        messageIds: [params.messageId],
+      });
+      const actor = actorIdentity(params.context);
+      await pinConversationMessages({
+        db: tx,
+        mailboxId: params.mailboxId,
+        conversationId: params.sourceConversationId,
+        reason: "split",
+        actor,
+      });
+      await pinConversationMessages({
+        db: tx,
+        mailboxId: params.mailboxId,
+        conversationId: params.input.targetConversationId,
+        reason: "merge",
+        actor,
+      });
+      const sourceState = await recomputeConversation({
+        db: tx,
+        conversationId: params.sourceConversationId,
+        incrementRevision: true,
+        deriveCollaboration: false,
+      });
+      const targetState = await recomputeConversation({
+        db: tx,
+        conversationId: params.input.targetConversationId,
+        incrementRevision: true,
+        deriveCollaboration: true,
+      });
+      const metadata = {
+        messageId: params.messageId,
+        sourceConversationId: params.sourceConversationId,
+        targetConversationId: params.input.targetConversationId,
+        movedCommentCount,
+        reason: params.input.reason ?? null,
+        sourceRevision: sourceState.revision,
+        targetRevision: targetState.revision,
+      };
+      const sourceActivityId = await insertThreadActivity({
+        db: tx,
+        mailboxId: params.mailboxId,
+        conversationId: params.sourceConversationId,
+        context: params.context,
+        action: "conversation.message_reassigned",
+        metadata,
+      });
+      const targetActivityId = await insertThreadActivity({
+        db: tx,
+        mailboxId: params.mailboxId,
+        conversationId: params.input.targetConversationId,
+        context: params.context,
+        action: "conversation.message_reassigned",
+        metadata,
+      });
+      events.push(
+        {
+          mailboxId: params.mailboxId,
+          conversationId: params.sourceConversationId,
+          reason: "threading",
+          targetId: params.input.targetConversationId,
+          activityId: sourceActivityId,
+        },
+        {
+          mailboxId: params.mailboxId,
+          conversationId: params.input.targetConversationId,
+          reason: "threading",
+          targetId: params.sourceConversationId,
+          activityId: targetActivityId,
+        },
+      );
+      return ok({
+        source: sourceState,
+        target: targetState,
+        messageId: params.messageId,
+        movedCommentCount,
+      });
+    });
+    if (result.ok) await publishEvents(events);
+    return result;
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === SPLIT_MESSAGES_CHANGED) {
+      return fail(err.conflict("Conversation messages changed during reassignment; retry with the latest revision"));
+    }
+    log.error("Failed to reassign conversation message", {
+      mailboxId: params.mailboxId,
+      sourceConversationId: params.sourceConversationId,
+      targetConversationId: params.input.targetConversationId,
+      messageId: params.messageId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return fail(err.internal("Failed to reassign conversation message"));
+  }
+};
+
 export const splitConversation = async (params: {
   context: MailRequestContext;
   mailboxId: string;
@@ -516,43 +727,12 @@ export const splitConversation = async (params: {
         throw Object.assign(new Error("Conversation messages changed during split"), { code: SPLIT_MESSAGES_CHANGED });
       }
 
-      const movedComments = await tx<{ id: string }[]>`
-        WITH RECURSIVE selected_comments AS (
-          SELECT comment.id
-          FROM mail.conversation_comments comment
-          WHERE comment.conversation_id = ${params.conversationId}::uuid
-            AND comment.referenced_message_id IN (
-              SELECT value::uuid FROM jsonb_array_elements_text(${params.input.messageIds}::jsonb)
-            )
-
-          UNION
-
-          SELECT child.id
-          FROM mail.conversation_comments child
-          JOIN selected_comments parent ON child.parent_comment_id = parent.id
-          WHERE child.conversation_id = ${params.conversationId}::uuid
-        )
-        UPDATE mail.conversation_comments comment
-        SET
-          conversation_id = ${created.id}::uuid,
-          parent_comment_id = CASE
-            WHEN comment.parent_comment_id IN (SELECT id FROM selected_comments) THEN comment.parent_comment_id
-            ELSE NULL
-          END
-        WHERE comment.id IN (SELECT id FROM selected_comments)
-        RETURNING comment.id
-      `;
-      if (movedComments.length > 0) {
-        await tx`
-          UPDATE mail.collaboration_notification_deliveries
-          SET conversation_id = ${created.id}::uuid
-          WHERE kind = 'mention'
-            AND source_id IN (
-              SELECT value::uuid FROM jsonb_array_elements_text(${movedComments.map((comment) => comment.id)}::jsonb)
-            )
-        `;
-        await refreshCoreNotificationTargets({ db: tx, conversationId: created.id });
-      }
+      const movedCommentCount = await moveMessageComments({
+        db: tx,
+        sourceConversationId: params.conversationId,
+        targetConversationId: created.id,
+        messageIds: params.input.messageIds,
+      });
       await tx`
         INSERT INTO mail.conversation_watchers (conversation_id, user_id)
         SELECT ${created.id}::uuid, user_id
@@ -591,7 +771,7 @@ export const splitConversation = async (params: {
         sourceConversationId: params.conversationId,
         createdConversationId: created.id,
         movedMessageCount: moved.length,
-        movedCommentCount: movedComments.length,
+        movedCommentCount,
         reason: params.input.reason ?? null,
       };
       const sourceActivityId = await insertThreadActivity({

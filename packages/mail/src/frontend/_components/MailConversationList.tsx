@@ -1,7 +1,7 @@
-import { MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import {
   MAIL_QUICK_SEARCH_FIELDS,
@@ -15,7 +15,7 @@ import {
 import type { SavedConversationView } from "../../service/saved-views";
 import MailBulkActionBar from "./MailBulkActionBar";
 import { openMailSearchBuilder } from "./MailSearchBuilder";
-import type { MailTriageCommandId } from "./mail-command-registry";
+import { getMailAction, type MailActionId } from "./mail-actions";
 import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";
 import { buildMailListHref, buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
@@ -57,6 +57,7 @@ export default function MailConversationList(props: {
   savedViews: SavedConversationView[];
   activeSavedViewId: string | null;
   loading: boolean;
+  liveDegraded: boolean;
   onCollapse: () => void;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
   onNavigateItem: (href: string, item: MailListItem, activation: "keyboard" | "pointer") => void | Promise<void>;
@@ -64,15 +65,20 @@ export default function MailConversationList(props: {
   onToggleSelection: (item: MailListItem, range: boolean) => void;
   onClearSelection: () => void;
   onAddTags: () => void | Promise<void>;
-  onBulkCommand: (commandId: MailTriageCommandId) => void | Promise<void>;
-  onOpenCommands: () => void | Promise<void>;
+  onBulkAction: (actionId: MailActionId) => void | Promise<void>;
+  onItemAction: (item: MailListItem, actionId: MailActionId) => void | Promise<void>;
+  onMergeItem: (item: MailListItem) => void | Promise<void>;
   onPrefetch: (item: MailListItem) => void;
   onOpenHref: (href: string, replace?: boolean) => void | Promise<void>;
-  onLoadMore: (href: string) => void | Promise<void>;
+  onLoadMore: (href: string) => boolean | Promise<boolean>;
 }) {
   const requestUrl = () => new URL(props.requestUrl);
   const [searchValue, setSearchValue] = createSignal(props.query);
   const [searchFields, setSearchFields] = createSignal<MailQuickSearchField[]>(selectedQuickSearchFields(requestUrl()));
+  const [loadMoreElement, setLoadMoreElement] = createSignal<HTMLDivElement>();
+  const [failedLoadHref, setFailedLoadHref] = createSignal<string | null>(null);
+  let listScrollElement: HTMLDivElement | undefined;
+  let requestedLoadHref: string | null = null;
   const listHref = () => buildMailListHref(requestUrl());
   const parsedSearch = createMemo(() => parseMailSearchState(requestUrl()));
   const activeSavedView = createMemo(() => props.savedViews.find((view) => view.id === props.activeSavedViewId) ?? null);
@@ -158,6 +164,29 @@ export default function MailConversationList(props: {
     return `${next.pathname}${next.search}`;
   };
 
+  const loadNextPage = async (href: string) => {
+    if (props.loading || requestedLoadHref === href) return;
+    requestedLoadHref = href;
+    setFailedLoadHref(null);
+    const loaded = await props.onLoadMore(href);
+    if (!loaded && nextHref() === href) setFailedLoadHref(href);
+    if (nextHref() !== href) requestedLoadHref = null;
+  };
+
+  createEffect(() => {
+    const element = loadMoreElement();
+    const href = nextHref();
+    if (!element || !href || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadNextPage(href);
+      },
+      { root: listScrollElement ?? null, rootMargin: "480px 0px" },
+    );
+    observer.observe(element);
+    onCleanup(() => observer.disconnect());
+  });
+
   return (
     <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface-subtle)]">
       <header class="flex shrink-0 flex-col gap-2 p-3">
@@ -173,13 +202,12 @@ export default function MailConversationList(props: {
                     <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
                     <span class="sr-only">Loading view</span>
                   </Show>
+                  <Show when={props.liveDegraded}>
+                    <i class="ti ti-cloud-off" aria-hidden="true" />
+                    <span>Reconnecting</span>
+                  </Show>
                 </p>
               </div>
-              <Tooltip content="Mail commands">
-                <button type="button" class="icon-btn" aria-label="Search Mail commands" onClick={() => void props.onOpenCommands()}>
-                  <i class="ti ti-command" aria-hidden="true" />
-                </button>
-              </Tooltip>
               <Show when={props.canWrite}>
                 <Tooltip content="Select conversations">
                   <button
@@ -217,8 +245,7 @@ export default function MailConversationList(props: {
             busy={props.loading}
             onClear={props.onClearSelection}
             onAddTags={props.onAddTags}
-            onCommand={props.onBulkCommand}
-            onOpenCommands={props.onOpenCommands}
+            onAction={props.onBulkAction}
           />
         </Show>
         <form class="flex min-w-0 items-center gap-2" role="search" onSubmit={submitSearch}>
@@ -269,7 +296,13 @@ export default function MailConversationList(props: {
         </Show>
       </header>
 
-      <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-2" data-scroll-preserve={`mail-list-${props.mailboxId}`}>
+      <div
+        ref={(element) => {
+          listScrollElement = element;
+        }}
+        class="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+        data-scroll-preserve={`mail-list-${props.mailboxId}`}
+      >
         {props.error ? (
           <Placeholder
             state="error"
@@ -312,7 +345,7 @@ export default function MailConversationList(props: {
                 const bulkSelected = () => Boolean(item.conversationId && props.selectedConversationIds.has(item.conversationId));
                 return (
                   <div
-                    class="mail-list-entry"
+                    class="mail-list-entry group relative"
                     classList={{
                       "mail-list-entry-active": selected(),
                       "mail-list-entry-selected": bulkSelected(),
@@ -350,7 +383,9 @@ export default function MailConversationList(props: {
                         if (event.defaultPrevented || event.button !== 0 || event.altKey) return;
                         if (!props.canWrite && (event.shiftKey || event.metaKey || event.ctrlKey)) return;
                         const select = Boolean(
-                          item.conversationId && props.canWrite && (props.selectionMode || event.shiftKey || event.metaKey || event.ctrlKey),
+                          item.conversationId &&
+                            props.canWrite &&
+                            (props.selectionMode || event.shiftKey || event.metaKey || event.ctrlKey),
                         );
                         event.preventDefault();
                         if (select) props.onToggleSelection(item, event.shiftKey);
@@ -411,6 +446,45 @@ export default function MailConversationList(props: {
                         </time>
                       </span>
                     </a>
+                    <Show when={props.canWrite && !props.selectionMode && item.conversationId}>
+                      <div class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                        <Dropdown
+                          trigger={
+                            <button
+                              type="button"
+                              class="icon-btn icon-btn-sm bg-[var(--ui-surface)]"
+                              aria-label={`Actions for ${item.subject || "conversation"}`}
+                            >
+                              <i class="ti ti-dots" aria-hidden="true" />
+                            </button>
+                          }
+                          position="bottom-left"
+                          width="w-52"
+                          elements={[
+                            {
+                              label: getMailAction(item.unread ? "mark_read" : "mark_unread").label,
+                              icon: getMailAction(item.unread ? "mark_read" : "mark_unread").icon,
+                              action: () => props.onItemAction(item, item.unread ? "mark_read" : "mark_unread"),
+                            },
+                            {
+                              label: getMailAction(item.flagged ? "unflag" : "flag").label,
+                              icon: getMailAction(item.flagged ? "unflag" : "flag").icon,
+                              action: () => props.onItemAction(item, item.flagged ? "unflag" : "flag"),
+                            },
+                            ...(["archive", "move", "junk", "trash"] as const).map((actionId) => ({
+                              label: getMailAction(actionId).label,
+                              icon: getMailAction(actionId).icon,
+                              action: () => props.onItemAction(item, actionId),
+                            })),
+                            {
+                              label: "Merge with another conversation",
+                              icon: "ti ti-git-merge",
+                              action: () => props.onMergeItem(item),
+                            },
+                          ]}
+                        />
+                      </div>
+                    </Show>
                   </div>
                 );
               }}
@@ -418,11 +492,30 @@ export default function MailConversationList(props: {
           </div>
         )}
         <Show when={nextHref()}>
-          <div class="flex justify-center py-3">
-            <button type="button" class="btn-secondary btn-sm" disabled={props.loading} onClick={() => void props.onLoadMore(nextHref()!)}>
-              <i class="ti ti-chevron-down" aria-hidden="true" /> More conversations
-            </button>
-          </div>
+          {(href) => (
+            <div ref={(element) => setLoadMoreElement(element)} class="flex min-h-14 items-center justify-center py-3">
+              <a
+                href={href()}
+                class="btn-secondary btn-sm"
+                aria-disabled={props.loading}
+                onClick={(event) => {
+                  if (!props.loading) {
+                    event.preventDefault();
+                    requestedLoadHref = null;
+                    void loadNextPage(href());
+                  }
+                }}
+              >
+                <i
+                  class={
+                    props.loading ? "ti ti-loader-2 animate-spin" : failedLoadHref() === href() ? "ti ti-refresh" : "ti ti-chevron-down"
+                  }
+                  aria-hidden="true"
+                />
+                {props.loading ? "Loading conversations" : failedLoadHref() === href() ? "Retry loading" : "More conversations"}
+              </a>
+            </div>
+          )}
         </Show>
       </div>
     </div>

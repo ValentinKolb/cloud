@@ -21,6 +21,7 @@ import {
   messageStateChangeSchema,
   oneShotWorkflowInputSchema,
   preflightWorkflowInputSchema,
+  reassignConversationMessageInputSchema,
   scheduledSendPageSchema,
   splitConversationInputSchema,
   updateAutomaticReplyConfigurationSchema,
@@ -252,6 +253,21 @@ describe("mail collaboration contracts", () => {
         messageIds: [messageId, messageId],
         expectedRevision: 1,
         confirm: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      reassignConversationMessageInputSchema.safeParse({
+        targetConversationId: sourceConversationId,
+        expectedSourceRevision: 1,
+        expectedTargetRevision: 1,
+        confirm: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      reassignConversationMessageInputSchema.safeParse({
+        targetConversationId: sourceConversationId,
+        expectedSourceRevision: 1,
+        expectedTargetRevision: 1,
       }).success,
     ).toBe(false);
   });

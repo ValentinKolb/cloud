@@ -622,6 +622,61 @@ test("conversation split forwards the bounded selected message set", async () =>
   expect(JSON.parse(result.stdout)).toMatchObject({ movedMessageCount: 1 });
 });
 
+test("conversation reassign-message requires confirmation and forwards revision fencing", async () => {
+  let requests = 0;
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+      if (
+        request.method === "POST" &&
+        new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/messages/${MESSAGE_ID}/reassign`
+      ) {
+      requests += 1;
+      requestBody = await request.json();
+      return api({
+        source: { id: CONVERSATION_ID, revision: 6, messageCount: 1 },
+        target: { id: SOURCE_CONVERSATION_ID, revision: 3, messageCount: 2 },
+        messageId: MESSAGE_ID,
+        movedCommentCount: 0,
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const args = [
+    "--json",
+    "mail",
+    "conversation",
+    "reassign-message",
+    CONVERSATION_ID,
+    MESSAGE_ID,
+    SOURCE_CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--source-revision",
+    "5",
+    "--target-revision",
+    "2",
+    "--reason",
+    "correct provider thread",
+  ];
+  const denied = await runCli(`http://127.0.0.1:${server.port}`, args);
+  expect(denied.exitCode).toBe(1);
+  expect(denied.stderr).toContain("Pass --yes");
+  expect(requests).toBe(0);
+
+  const confirmed = await runCli(`http://127.0.0.1:${server.port}`, [...args, "--yes"]);
+  expect(confirmed.exitCode).toBe(0);
+  expect(requestBody).toEqual({
+    targetConversationId: SOURCE_CONVERSATION_ID,
+    expectedSourceRevision: 5,
+    expectedTargetRevision: 2,
+    reason: "correct provider thread",
+    confirm: true,
+  });
+  expect(JSON.parse(confirmed.stdout)).toMatchObject({ messageId: MESSAGE_ID, movedCommentCount: 0 });
+});
+
 test("reminder commands use revisioned create, reschedule, read, and cancel requests", async () => {
   const requests: Array<{ method: string; body: unknown }> = [];
   const reminder = {

@@ -1725,6 +1725,19 @@ export type SplitConversationInput = z.infer<
   typeof splitConversationInputSchema
 >;
 
+export const reassignConversationMessageInputSchema = z
+  .object({
+    targetConversationId: z.string().uuid(),
+    expectedSourceRevision: z.number().int().positive(),
+    expectedTargetRevision: z.number().int().positive(),
+    reason: z.string().trim().min(1).max(500).optional(),
+    confirm: z.literal(true),
+  })
+  .strict();
+export type ReassignConversationMessageInput = z.infer<
+  typeof reassignConversationMessageInputSchema
+>;
+
 export const updateConversationCollaborationSchema = z
   .object({
     expectedRevision: z.number().int().positive(),

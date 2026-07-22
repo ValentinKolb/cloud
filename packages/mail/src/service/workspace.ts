@@ -48,6 +48,7 @@ export type MailListItem = {
   snoozedUntil: string | null;
   sourceFolderId: string | null;
   unreadFolderIds: string[];
+  revision: number;
 };
 
 const EMPTY_VIEW_COUNTS: ConversationViewCounts = {
@@ -161,6 +162,7 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
   snoozedUntil: conversation.snoozedUntil,
   sourceFolderId: conversation.folderId,
   unreadFolderIds: conversation.unreadFolderIds,
+  revision: conversation.revision,
 });
 
 const loadConversationDetails = async (params: { context: MailRequestContext; mailboxId: string; conversationId: string }) => {
@@ -307,6 +309,7 @@ const loadListItems = async (params: {
         snoozedUntil: item.snoozedUntil,
         sourceFolderId: item.sourceFolderId,
         unreadFolderIds: item.unreadFolderIds,
+        revision: item.revision,
       })),
     };
   }

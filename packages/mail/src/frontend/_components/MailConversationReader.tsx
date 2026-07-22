@@ -10,7 +10,7 @@ import { readApiError } from "./api-response";
 import MailComposer from "./MailComposer";
 import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
-import { getMailCommand, type MailTriageCommandId } from "./mail-command-registry";
+import { getMailAction, type MailActionId } from "./mail-actions";
 import { deriveReplyRecipients } from "./mail-compose-derivation";
 import { buildMailListHref } from "./mail-navigation";
 
@@ -72,8 +72,11 @@ export default function MailConversationReader(props: {
   detailsOpen: boolean;
   onRestoreList: () => void;
   onToggleDetails: () => void;
-  commandPending: boolean;
-  onCommand: (commandId: MailTriageCommandId, options?: { silent?: boolean }) => void | Promise<void>;
+  actionPending: boolean;
+  onAction: (actionId: MailActionId, options?: { silent?: boolean }) => void | Promise<void>;
+  onMergeConversation: () => void | Promise<void>;
+  onReassignMessage: (messageId: string) => void | Promise<void>;
+  onSplitMessage: (messageId: string) => void | Promise<void>;
   onReconcile: () => Promise<void>;
   onComposerActiveChange: (active: boolean) => void;
   onClose: (event: LinkNavigateEvent) => void | Promise<void>;
@@ -384,33 +387,33 @@ export default function MailConversationReader(props: {
                   <button
                     type="button"
                     class="icon-btn"
-                    aria-label={getMailCommand("archive").label}
-                    disabled={props.commandPending}
-                    onClick={() => void props.onCommand("archive")}
+                    aria-label={getMailAction("archive").label}
+                    disabled={props.actionPending}
+                    onClick={() => void props.onAction("archive")}
                   >
-                    <i class={getMailCommand("archive").icon} aria-hidden="true" />
+                    <i class={getMailAction("archive").icon} aria-hidden="true" />
                   </button>
                 </Tooltip>
                 <Tooltip content="Move to junk">
                   <button
                     type="button"
                     class="icon-btn"
-                    aria-label={getMailCommand("junk").label}
-                    disabled={props.commandPending}
-                    onClick={() => void props.onCommand("junk")}
+                    aria-label={getMailAction("junk").label}
+                    disabled={props.actionPending}
+                    onClick={() => void props.onAction("junk")}
                   >
-                    <i class={getMailCommand("junk").icon} aria-hidden="true" />
+                    <i class={getMailAction("junk").icon} aria-hidden="true" />
                   </button>
                 </Tooltip>
                 <Tooltip content="Delete">
                   <button
                     type="button"
                     class="icon-btn"
-                    aria-label={getMailCommand("trash").label}
-                    disabled={props.commandPending}
-                    onClick={() => void props.onCommand("trash")}
+                    aria-label={getMailAction("trash").label}
+                    disabled={props.actionPending}
+                    onClick={() => void props.onAction("trash")}
                   >
-                    <i class={getMailCommand("trash").icon} aria-hidden="true" />
+                    <i class={getMailAction("trash").icon} aria-hidden="true" />
                   </button>
                 </Tooltip>
                 <Dropdown
@@ -423,19 +426,24 @@ export default function MailConversationReader(props: {
                   width="w-52"
                   elements={[
                     {
-                      label: getMailCommand(props.unread ? "mark_read" : "mark_unread").label,
-                      icon: getMailCommand(props.unread ? "mark_read" : "mark_unread").icon,
-                      action: () => props.onCommand(props.unread ? "mark_read" : "mark_unread"),
+                      label: getMailAction(props.unread ? "mark_read" : "mark_unread").label,
+                      icon: getMailAction(props.unread ? "mark_read" : "mark_unread").icon,
+                      action: () => props.onAction(props.unread ? "mark_read" : "mark_unread"),
                     },
                     {
-                      label: getMailCommand(props.flagged ? "unflag" : "flag").label,
-                      icon: getMailCommand(props.flagged ? "unflag" : "flag").icon,
-                      action: () => props.onCommand(props.flagged ? "unflag" : "flag"),
+                      label: getMailAction(props.flagged ? "unflag" : "flag").label,
+                      icon: getMailAction(props.flagged ? "unflag" : "flag").icon,
+                      action: () => props.onAction(props.flagged ? "unflag" : "flag"),
                     },
                     {
-                      label: getMailCommand("move").label,
-                      icon: getMailCommand("move").icon,
-                      action: () => props.onCommand("move"),
+                      label: getMailAction("move").label,
+                      icon: getMailAction("move").icon,
+                      action: () => props.onAction("move"),
+                    },
+                    {
+                      label: "Merge with another conversation",
+                      icon: "ti ti-git-merge",
+                      action: props.onMergeConversation,
                     },
                     {
                       label: "Print conversation",
@@ -560,6 +568,29 @@ export default function MailConversationReader(props: {
                             >
                               <i class="ti ti-blockquote" aria-hidden="true" /> Quote selection
                             </button>
+                            <Show when={props.totalMessageCount > 1}>
+                              <Dropdown
+                                trigger={
+                                  <button type="button" class="icon-btn icon-btn-sm" aria-label="Message organization actions">
+                                    <i class="ti ti-dots" aria-hidden="true" />
+                                  </button>
+                                }
+                                position="bottom-left"
+                                width="w-64"
+                                elements={[
+                                  {
+                                    label: "Move to another conversation",
+                                    icon: "ti ti-message-forward",
+                                    action: () => props.onReassignMessage(message.id),
+                                  },
+                                  {
+                                    label: "Start a new conversation",
+                                    icon: "ti ti-arrows-split-2",
+                                    action: () => props.onSplitMessage(message.id),
+                                  },
+                                ]}
+                              />
+                            </Show>
                           </div>
                         </Show>
                       </div>

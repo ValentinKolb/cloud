@@ -36,6 +36,7 @@ import {
   mailConversationContextSchema,
   maintenanceCommandInputSchema,
   mergeConversationsInputSchema,
+  reassignConversationMessageInputSchema,
   providerConnectionInputSchema,
   relatedMailPageSchema,
   relatedMailQuerySchema,
@@ -94,6 +95,8 @@ import workflowRoutes from "./workflows";
 
 const uuidParamSchema = z.object({ mailboxId: z.string().uuid() });
 const mailboxAndIdParamSchema = (name: string) => z.object({ mailboxId: z.string().uuid(), [name]: z.string().uuid() });
+const mailboxAndTwoIdsParamSchema = (first: string, second: string) =>
+  z.object({ mailboxId: z.string().uuid(), [first]: z.string().uuid(), [second]: z.string().uuid() });
 const limitQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(100),
 });
@@ -794,6 +797,28 @@ const mailOperationsApi = new Hono<AuthContext>()
           context: requestContext(c),
           mailboxId: params.mailboxId,
           conversationId: params.conversationId,
+          input: c.req.valid("json"),
+        }),
+      );
+    },
+  )
+  .post(
+    "/mailboxes/:mailboxId/conversations/:conversationId/messages/:messageId/reassign",
+    v("param", mailboxAndTwoIdsParamSchema("conversationId", "messageId")),
+    v("json", reassignConversationMessageInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as {
+        mailboxId: string;
+        conversationId: string;
+        messageId: string;
+      };
+      return respond(
+        c,
+        conversations.reassignConversationMessage({
+          context: requestContext(c),
+          mailboxId: params.mailboxId,
+          sourceConversationId: params.conversationId,
+          messageId: params.messageId,
           input: c.req.valid("json"),
         }),
       );

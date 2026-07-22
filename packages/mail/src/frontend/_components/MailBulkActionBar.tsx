@@ -1,17 +1,16 @@
 import { Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
-import { getMailCommand, type MailTriageCommandId } from "./mail-command-registry";
+import { getMailAction, type MailActionId } from "./mail-actions";
 
-const primaryCommands: readonly MailTriageCommandId[] = ["archive", "mark_read", "flag", "move", "trash"];
-const overflowCommands: readonly MailTriageCommandId[] = ["mark_unread", "unflag", "junk"];
+const primaryActions: readonly MailActionId[] = ["archive", "mark_read", "flag", "move", "trash"];
+const overflowActions: readonly MailActionId[] = ["mark_unread", "unflag", "junk"];
 
 export default function MailBulkActionBar(props: {
   selectedCount: number;
   busy: boolean;
   onClear: () => void;
   onAddTags: () => void | Promise<void>;
-  onCommand: (commandId: MailTriageCommandId) => void | Promise<void>;
-  onOpenCommands: () => void | Promise<void>;
+  onAction: (actionId: MailActionId) => void | Promise<void>;
 }) {
   return (
     <div class="flex min-w-0 items-center gap-1" role="toolbar" aria-label="Selected conversation actions">
@@ -30,60 +29,44 @@ export default function MailBulkActionBar(props: {
             <i class="ti ti-tags" aria-hidden="true" />
           </button>
         </Tooltip>
-        {primaryCommands.map((commandId) => {
-          const command = getMailCommand(commandId);
+        {primaryActions.map((actionId) => {
+          const action = getMailAction(actionId);
           return (
-            <Tooltip content={command.label}>
+            <Tooltip content={action.label}>
               <button
                 type="button"
                 class="icon-btn"
-                aria-label={`${command.label} ${props.selectedCount} selected conversations`}
+                aria-label={`${action.label} ${props.selectedCount} selected conversations`}
                 disabled={props.busy}
-                onClick={() => void props.onCommand(commandId)}
+                onClick={() => void props.onAction(actionId)}
               >
-                <i class={command.icon} aria-hidden="true" />
+                <i class={action.icon} aria-hidden="true" />
               </button>
             </Tooltip>
           );
         })}
         <Dropdown
           trigger={
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="More selected conversation actions"
-              disabled={props.busy}
-            >
+            <button type="button" class="icon-btn" aria-label="More selected conversation actions" disabled={props.busy}>
               <i class="ti ti-dots" aria-hidden="true" />
             </button>
           }
           position="bottom-left"
           width="w-56"
           elements={[
-            ...overflowCommands.map((commandId) => {
-              const command = getMailCommand(commandId);
+            ...overflowActions.map((actionId) => {
+              const action = getMailAction(actionId);
               return {
-                label: command.label,
-                icon: command.icon,
-                action: () => props.onCommand(commandId),
+                label: action.label,
+                icon: action.icon,
+                action: () => props.onAction(actionId),
               };
             }),
-            {
-              label: "Search all Mail commands",
-              icon: "ti ti-command",
-              action: props.onOpenCommands,
-            },
           ]}
         />
       </Show>
       <Tooltip content="Exit selection">
-        <button
-          type="button"
-          class="icon-btn"
-          aria-label="Exit conversation selection"
-          disabled={props.busy}
-          onClick={props.onClear}
-        >
+        <button type="button" class="icon-btn" aria-label="Exit conversation selection" disabled={props.busy} onClick={props.onClear}>
           <i class="ti ti-x" aria-hidden="true" />
         </button>
       </Tooltip>

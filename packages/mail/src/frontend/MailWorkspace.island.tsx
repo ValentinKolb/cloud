@@ -1,9 +1,9 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { AppWorkspace, openSpotlightSearch, prompts, toast } from "@valentinkolb/cloud/ui";
-import { documentNavigate, type LinkNavigateEvent, navigate } from "@valentinkolb/ssr/nav";
+import { AppWorkspace, openSpotlightSearch, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
+import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { hotkeys } from "@valentinkolb/stdlib/solid";
 import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { apiClient } from "../api/client";
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../live-events";
 import type { ConversationPresenceSnapshot } from "../service/presence";
@@ -15,17 +15,9 @@ import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
 import MailScheduledView from "./_components/MailScheduledView";
-import { openMailShortcutSettings, resolveMailShortcut } from "./_components/MailShortcutSettings";
 import MailSidebar from "./_components/MailSidebar";
 import { executeMailBulkAction, type MailBulkTarget } from "./_components/mail-bulk-actions";
-import {
-  buildMailTriageInput,
-  getMailCommand,
-  isMailTriageCommand,
-  MAIL_COMMANDS,
-  type MailProductivityCommandId,
-  type MailTriageCommandId,
-} from "./_components/mail-command-registry";
+import { buildMailActionInput, getMailAction, type MailActionId } from "./_components/mail-actions";
 import {
   emptyMailConversationSelection,
   findMailFocusAfterRemoval,
@@ -33,23 +25,14 @@ import {
   toggleMailConversationSelection,
 } from "./_components/mail-conversation-selection";
 import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
+import { mergeMailCursorPage } from "./_components/mail-cursor-page";
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
 import { buildMailListHref, buildMailSelectionHref } from "./_components/mail-navigation";
+import { mergeMailLiveSnapshot } from "./_components/mail-workspace-snapshot";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
-const isMailHotkeyBlocked = (): boolean => {
-  if (document.querySelector("[role='dialog'], [role='alertdialog']")) return true;
-  const target = document.activeElement;
-  if (!(target instanceof Element)) return false;
-  return Boolean(
-    target.closest(
-      "input, textarea, select, [contenteditable='true'], [role='dialog'], [role='alertdialog'], [data-mail-hotkeys-disabled]",
-    ),
-  );
-};
-
 const mailListScope = (href: string): string => {
   const url = new URL(href, "http://mail.local");
   url.searchParams.delete("conversation");
@@ -66,31 +49,52 @@ export default function MailWorkspace(props: {
   dateConfig: DateContext;
   initialPreferences: MailWorkspacePreferences;
 }) {
-  const [data, setData] = createSignal(props.data);
+  // A store keeps shell, list, and detail consumers granular even though the
+  // server snapshot remains one canonical contract.
+  const [data, setData] = createStore(props.data);
   const [requestUrl, setRequestUrl] = createSignal(props.requestUrl);
   const [routeLoading, setRouteLoading] = createSignal(false);
   const [selectionLoading, setSelectionLoading] = createSignal(false);
   const [listCollapsed, setListCollapsed] = createSignal(props.initialPreferences.listCollapsed);
-  const [detailsOpen, setDetailsOpen] = createSignal(false);
+  const [detailsOpen, setDetailsOpen] = createSignal(props.initialPreferences.detailsOpen);
   const [composerActive, setComposerActive] = createSignal(false);
   const [presence, setPresence] = createSignal<ConversationPresenceSnapshot>({
     participants: [],
   });
   const [settingsOpening, setSettingsOpening] = createSignal(false);
+  const [liveDegraded, setLiveDegraded] = createSignal(false);
+  const [loadedAdditionalPages, setLoadedAdditionalPages] = createSignal(false);
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
   const [selectionMode, setSelectionMode] = createSignal(false);
-  const [commandPending, setCommandPending] = createSignal(false);
+  const [actionPending, setActionPending] = createSignal(false);
   const mailboxId = props.data.mailbox.id;
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
   let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
   let updatePresenceMode: (() => void) | null = null;
   let routeRequest = 0;
   let selectionRequest = 0;
+  let liveRequest = 0;
   let routeController: AbortController | null = null;
+  let liveController: AbortController | null = null;
+  let firstPageItemIds = new Set(props.data.listItems.map((item) => item.id));
   const pendingReadConversationIds = new Set<string>();
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
-  const selectedConversationId = createMemo(() => data().selectedConversationId);
+  const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
+
+  const fetchWorkspaceRoute = async (href: string, signal: AbortSignal): Promise<MailboxPageData | null> => {
+    const target = new URL(href, window.location.origin);
+    if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${mailboxId}`) return null;
+    const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get(
+      {
+        param: { mailboxId },
+        query: { href: `${target.pathname}${target.search}` },
+      },
+      { init: { signal } },
+    );
+    if (!response.ok) return null;
+    return await response.json();
+  };
 
   const replaceWorkspaceRoute = async (href: string): Promise<"applied" | "failed" | "stale"> => {
     selectionRequest += 1;
@@ -102,21 +106,16 @@ export default function MailWorkspace(props: {
     setRouteLoading(true);
     try {
       const target = new URL(href, window.location.origin);
-      if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${data().mailbox.id}`) return "failed";
-      const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get(
-        {
-          param: { mailboxId: data().mailbox.id },
-          query: { href: `${target.pathname}${target.search}` },
-        },
-        { init: { signal: controller.signal } },
-      );
-      if (!response.ok) return "failed";
-      const next = await response.json();
+      if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${data.mailbox.id}`) return "failed";
+      const next = await fetchWorkspaceRoute(target.toString(), controller.signal);
+      if (!next) return "failed";
       if (request !== routeRequest) return "stale";
       const scopeChanged = mailListScope(requestUrl()) !== mailListScope(target.toString());
       batch(() => {
         setRequestUrl(target.toString());
-        setData(next);
+        setData(reconcile(next));
+        setLoadedAdditionalPages(false);
+        firstPageItemIds = new Set(next.listItems.map((item) => item.id));
         setConversationSelection((current) =>
           scopeChanged
             ? emptyMailConversationSelection()
@@ -126,7 +125,6 @@ export default function MailWorkspace(props: {
               ),
         );
         if (scopeChanged) setSelectionMode(false);
-        if (!next.collaborationState) setDetailsOpen(false);
       });
       if (scopeChanged) detailCache.clear();
       return "applied";
@@ -138,29 +136,54 @@ export default function MailWorkspace(props: {
     }
   };
 
+  const refreshLiveSnapshot = async (): Promise<"applied" | "failed" | "stale"> => {
+    const request = ++liveRequest;
+    liveController?.abort();
+    const controller = new AbortController();
+    liveController = controller;
+    const expectedHref = requestUrl();
+    const expectedConversationId = data.selectedConversationId;
+    try {
+      const fresh = await fetchWorkspaceRoute(expectedHref, controller.signal);
+      if (!fresh) return "failed";
+      if (request !== liveRequest || requestUrl() !== expectedHref || data.selectedConversationId !== expectedConversationId)
+        return "stale";
+      const preservedItemIds = loadedAdditionalPages()
+        ? new Set(data.listItems.filter((item) => !firstPageItemIds.has(item.id)).map((item) => item.id))
+        : new Set<string>();
+      setData(reconcile(mergeMailLiveSnapshot(data, fresh, preservedItemIds)));
+      firstPageItemIds = new Set(fresh.listItems.map((item) => item.id));
+      return "applied";
+    } catch (error) {
+      return isAbortError(error) ? "stale" : "failed";
+    } finally {
+      if (liveController === controller) liveController = null;
+    }
+  };
+
   const navigateWorkspace = async (nav: LinkNavigateEvent) => {
     const result = await replaceWorkspaceRoute(nav.href);
     if (result === "applied") nav.push(undefined, { scroll: "preserve" });
-    else if (result === "failed") nav.fallback();
+    else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
   };
 
   const closeConversation = async (nav: LinkNavigateEvent) => {
-    const previousConversationId = data().selectedConversationId;
+    const previousConversationId = data.selectedConversationId;
     const result = await replaceWorkspaceRoute(nav.href);
     if (result === "applied") {
       nav.push(undefined, { scroll: "preserve" });
       if (previousConversationId) focusConversation(previousConversationId, "row");
-    } else if (result === "failed") nav.fallback();
+    } else if (result === "failed") toast.error("Could not close this conversation. Your current view was kept.");
   };
 
   const openWorkspaceHref = async (href: string, replace = false) => {
     const result = await replaceWorkspaceRoute(href);
     if (result === "applied") navigate(href, { replace, scroll: "preserve" });
-    else if (result === "failed") documentNavigate(href, { replace });
+    else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
   };
 
-  const loadMoreConversations = async (href: string) => {
-    if (routeLoading()) return;
+  const loadMoreConversations = async (href: string): Promise<boolean> => {
+    if (routeLoading()) return false;
     const request = ++routeRequest;
     routeController?.abort();
     const controller = new AbortController();
@@ -169,30 +192,36 @@ export default function MailWorkspace(props: {
     setRouteLoading(true);
     try {
       const target = new URL(href, window.location.origin);
-      if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${data().mailbox.id}`)
+      if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${data.mailbox.id}`)
         throw new Error("Invalid mailbox page");
       const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get(
         {
-          param: { mailboxId: data().mailbox.id },
+          param: { mailboxId: data.mailbox.id },
           query: { href: `${target.pathname}${target.search}` },
         },
         { init: { signal: controller.signal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load more conversations"));
       const next = await response.json();
-      if (request !== routeRequest || requestUrl() !== sourceUrl) return;
-      setData((current) => {
-        const known = new Set(current.listItems.map((item) => item.id));
-        return {
-          ...current,
-          listItems: [...current.listItems, ...next.listItems.filter((item) => !known.has(item.id))],
-          nextListCursor: next.nextListCursor,
-          listError: next.listError,
-        };
+      if (request !== routeRequest || requestUrl() !== sourceUrl) return false;
+      const merged = mergeMailCursorPage({
+        currentItems: data.listItems,
+        currentNextCursor: data.nextListCursor,
+        pageItems: next.listItems,
+        pageNextCursor: next.nextListCursor,
       });
+      if (!merged.ok) {
+        throw new Error("The mailbox returned the same page twice. Retry after the next sync.");
+      }
+      setData("listItems", merged.items);
+      setData("nextListCursor", merged.nextCursor);
+      setData("listError", next.listError);
+      setLoadedAdditionalPages(true);
+      return true;
     } catch (error) {
       if (request === routeRequest && !isAbortError(error))
         toast.error(error instanceof Error ? error.message : "Could not load more conversations");
+      return false;
     } finally {
       if (routeController === controller) routeController = null;
       if (request === routeRequest) setRouteLoading(false);
@@ -204,8 +233,8 @@ export default function MailWorkspace(props: {
     preferenceTimer = setTimeout(
       () =>
         writeMailWorkspacePreferences({
-          ...props.initialPreferences,
           listCollapsed: listCollapsed(),
+          detailsOpen: detailsOpen(),
         }),
       120,
     );
@@ -275,12 +304,15 @@ export default function MailWorkspace(props: {
   const liveRefresh = createMailLiveRefreshCoordinator({
     delayMs: 180,
     isBlocked: () => composerActive() || routeLoading() || selectionLoading(),
-    refresh: () => replaceWorkspaceRoute(requestUrl()),
-    onApplied: (cursor) => markLiveApplied(cursor),
-    onFailed: () =>
-      documentNavigate(`${window.location.pathname}${window.location.search}`, {
-        replace: true,
-      }),
+    refresh: refreshLiveSnapshot,
+    onApplied: (cursor) => {
+      setLiveDegraded(false);
+      markLiveApplied(cursor);
+    },
+    onFailed: (attempt) => {
+      setLiveDegraded(true);
+      if (attempt === 1) toast("Live updates are reconnecting. Your current view remains available.", { title: "Mail is reconnecting" });
+    },
   });
 
   createEffect(() => {
@@ -297,7 +329,7 @@ export default function MailWorkspace(props: {
     setSettingsOpening(true);
     try {
       const result = await openMailboxSettingsDialog({
-        mailboxId: data().mailbox.id,
+        mailboxId: data.mailbox.id,
         currentUserId: props.currentUserId,
         currentUserEmail: props.currentUserEmail,
         dateConfig: props.dateConfig,
@@ -306,7 +338,7 @@ export default function MailWorkspace(props: {
       if (result.deleted) return documentNavigate("/app/mail");
       if (!result.workspaceChanged) return;
       const refreshResult = await replaceWorkspaceRoute(requestUrl());
-      if (refreshResult === "failed") documentNavigate(requestUrl(), { replace: true });
+      if (refreshResult === "failed") toast.error("Mailbox settings were saved, but this view could not be refreshed yet.");
     } finally {
       setSettingsOpening(false);
     }
@@ -381,14 +413,7 @@ export default function MailWorkspace(props: {
         }
         if (message.type === MAIL_LIVE_WS_TYPE.event) {
           if (message.payload.event.conversationId) detailCache.invalidate(message.payload.event.conversationId);
-          const selectedConversationId = data().selectedConversationId;
-          if (
-            !message.payload.event.conversationId ||
-            !selectedConversationId ||
-            message.payload.event.conversationId === selectedConversationId
-          ) {
-            liveRefresh.schedule(message.payload.cursor);
-          } else controls.markApplied(message.payload.cursor);
+          liveRefresh.schedule(message.payload.cursor);
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.revoked) {
@@ -396,45 +421,60 @@ export default function MailWorkspace(props: {
             code: message.payload.code,
             message: message.payload.message,
           });
+          return;
+        }
+        if (message.type === MAIL_LIVE_WS_TYPE.error) {
+          setLiveDegraded(true);
+          if (message.payload.code === "internal_error" || message.payload.code === "stream_failed") {
+            toast("Live updates are reconnecting. Your current view remains available.", { title: "Mail is reconnecting" });
+          }
         }
       },
-      onFatal: () => window.location.reload(),
+      classifyClose: ({ code, reason }) =>
+        code === 1008 ? { code: reason || "access_denied", message: "Mailbox access changed or expired." } : null,
+      onFatal: (error) => {
+        const current = `${window.location.pathname}${window.location.search}`;
+        if (error.code === "login_required") {
+          documentNavigate(`/auth/login?redirectTo=${encodeURIComponent(current)}`, { replace: true });
+        } else {
+          documentNavigate("/app/mail", { replace: true });
+        }
+      },
     });
     markLiveApplied = live.markApplied;
-    const handlePopState = () => {
-      void replaceWorkspaceRoute(`${window.location.pathname}${window.location.search}`).then((result) => {
-        if (result === "failed") documentNavigate(`${window.location.pathname}${window.location.search}`, { replace: true });
+    const stopPopState = listenPopState(({ url }) => {
+      void replaceWorkspaceRoute(`${url.pathname}${url.search}`).then((result) => {
+        if (result === "failed") toast.error("Could not restore this mailbox view. Your current view was kept.");
       });
-    };
+    });
     live.connect();
-    window.addEventListener("popstate", handlePopState);
     onCleanup(() => {
       live.dispose();
       markLiveApplied = () => undefined;
-      window.removeEventListener("popstate", handlePopState);
+      stopPopState();
     });
   });
 
   onCleanup(() => {
     if (preferenceTimer) clearTimeout(preferenceTimer);
     routeController?.abort();
+    liveController?.abort();
     detailCache.clear();
     liveRefresh.dispose();
   });
 
-  const canWrite = createMemo(() => rank(data().permission) >= 2);
-  const canAdmin = createMemo(() => rank(data().permission) >= 3);
-  const hasSelection = createMemo(() => Boolean(data().selectedConversationId || data().selectedMessageId));
-  const selectedListItem = createMemo(() => data().listItems.find((item) => item.conversationId === data().selectedConversationId));
+  const canWrite = createMemo(() => rank(data.permission) >= 2);
+  const canAdmin = createMemo(() => rank(data.permission) >= 3);
+  const hasSelection = createMemo(() => Boolean(data.selectedConversationId || data.selectedMessageId));
+  const selectedListItem = createMemo(() => data.listItems.find((item) => item.conversationId === data.selectedConversationId));
   const selectedUnread = createMemo(
-    () => selectedListItem()?.unread ?? data().detailMessages.some((message) => !message.flags.includes("\\Seen")),
+    () => selectedListItem()?.unread ?? data.detailMessages.some((message) => !message.flags.includes("\\Seen")),
   );
   const selectedFlagged = createMemo(
-    () => selectedListItem()?.flagged ?? data().detailMessages.some((message) => message.flags.includes("\\Flagged")),
+    () => selectedListItem()?.flagged ?? data.detailMessages.some((message) => message.flags.includes("\\Flagged")),
   );
-  const canShowDetails = createMemo(() =>
-    Boolean(data().selectedConversationId && data().collaborationState && data().conversationLocalTags),
-  );
+  const selectedConversationRevision = createMemo(() => selectedListItem()?.revision ?? data.collaborationState?.revision ?? null);
+  const canShowDetails = createMemo(() => Boolean(data.selectedConversationId));
 
   createEffect(() => {
     if (canWrite() || (!selectionMode() && conversationSelection().ids.size === 0)) return;
@@ -443,17 +483,11 @@ export default function MailWorkspace(props: {
   });
 
   const setConversationUnread = (conversationId: string, unread: boolean) => {
-    setData((current) => ({
-      ...current,
-      listItems: current.listItems.map((item) => (item.conversationId === conversationId ? { ...item, unread } : item)),
-    }));
+    setData("listItems", (items) => items.map((item) => (item.conversationId === conversationId ? { ...item, unread } : item)));
   };
 
   const setConversationFlagged = (conversationId: string, flagged: boolean) => {
-    setData((current) => ({
-      ...current,
-      listItems: current.listItems.map((item) => (item.conversationId === conversationId ? { ...item, flagged } : item)),
-    }));
+    setData("listItems", (items) => items.map((item) => (item.conversationId === conversationId ? { ...item, flagged } : item)));
   };
 
   const persistConversationRead = async (item: MailListItem) => {
@@ -468,7 +502,7 @@ export default function MailWorkspace(props: {
       const results = await Promise.allSettled(
         sourceFolderIds.map(async (sourceFolderId) => {
           const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post({
-            param: { mailboxId: data().mailbox.id, conversationId },
+            param: { mailboxId: data.mailbox.id, conversationId },
             json: {
               kind: "change_state",
               sourceFolderId,
@@ -505,14 +539,14 @@ export default function MailWorkspace(props: {
     });
 
   const prefetchConversation = (item: MailListItem) => {
-    if (!item.conversationId || item.conversationId === data().selectedConversationId) return;
+    if (!item.conversationId || item.conversationId === data.selectedConversationId) return;
     void loadConversationDetail(item.conversationId).catch((error) => {
       if (!isAbortError(error)) detailCache.invalidate(item.conversationId!);
     });
   };
 
   const prefetchNeighbors = (conversationId: string) => {
-    const items = data().listItems;
+    const items = data.listItems;
     const index = items.findIndex((item) => item.conversationId === conversationId);
     if (index < 0) return;
     const neighbors = [items[index - 1], items[index + 1]].filter((item): item is MailListItem => Boolean(item?.conversationId));
@@ -546,7 +580,7 @@ export default function MailWorkspace(props: {
     setRouteLoading(false);
     const request = ++selectionRequest;
     setSelectionLoading(true);
-    const items = data().listItems;
+    const items = data.listItems;
     const index = items.findIndex((candidate) => candidate.conversationId === item.conversationId);
     detailCache.retain(
       new Set(
@@ -560,14 +594,12 @@ export default function MailWorkspace(props: {
       if (request !== selectionRequest) return "stale";
       batch(() => {
         setRequestUrl(target.toString());
-        setData((current) => ({
-          ...current,
+        setData({
           ...detail,
           selectedConversationId: item.conversationId,
           selectedMessageId: null,
           selectedSubject: detail.selectedSubject || item.subject || "Message",
-        }));
-        if (!detail.collaborationState) setDetailsOpen(false);
+        });
       });
       void persistConversationRead(item);
       prefetchNeighbors(item.conversationId);
@@ -587,15 +619,15 @@ export default function MailWorkspace(props: {
   const navigateConversation = async (href: string, item: MailListItem, activation: "keyboard" | "pointer") => {
     const result = item.conversationId ? await applyConversationRoute(href, item, activation) : await replaceWorkspaceRoute(href);
     if (result === "applied") navigate(href, { scroll: "preserve", viewTransition: false });
-    else if (result === "failed") documentNavigate(href);
+    else if (result === "failed") toast.error("Could not open this conversation. Your current view was kept.");
   };
 
   const reconcileWorkspace = async () => {
     const result = await replaceWorkspaceRoute(requestUrl());
-    if (result === "failed") documentNavigate(requestUrl(), { replace: true });
+    if (result === "failed") toast.error("Could not refresh this mailbox yet. Your current view was kept.");
   };
 
-  const orderedConversationIds = () => data().listItems.flatMap((item) => (item.conversationId ? [item.conversationId] : []));
+  const orderedConversationIds = () => data.listItems.flatMap((item) => (item.conversationId ? [item.conversationId] : []));
 
   const toggleConversationSelection = (item: MailListItem, range: boolean) => {
     if (!canWrite() || !item.conversationId) return;
@@ -623,47 +655,50 @@ export default function MailWorkspace(props: {
     else setSelectionMode(true);
   };
 
-  const commandTargets = (commandId: MailTriageCommandId): MailBulkTarget[] => {
+  const actionTargetForItem = (item: MailListItem, actionId: MailActionId): MailBulkTarget | null => {
+    if (!item.conversationId) return null;
+    const sourceFolderIds =
+      actionId === "mark_read" && item.unreadFolderIds.length > 0
+        ? item.unreadFolderIds
+        : ["mark_unread", "flag", "unflag"].includes(actionId)
+          ? item.activeFolderIds
+          : [item.sourceFolderId].filter((folderId): folderId is string => Boolean(folderId));
+    return {
+      conversationId: item.conversationId,
+      label: item.subject || "(no subject)",
+      sourceFolderIds,
+    };
+  };
+
+  const actionTargets = (actionId: MailActionId): MailBulkTarget[] => {
     const selectedIds = selectedConversationIds();
-    const ids = selectedIds.size > 0 ? selectedIds : new Set(data().selectedConversationId ? [data().selectedConversationId] : []);
-    const targets = data().listItems.flatMap((item) => {
+    const ids = selectedIds.size > 0 ? selectedIds : new Set(data.selectedConversationId ? [data.selectedConversationId] : []);
+    const targets = data.listItems.flatMap((item) => {
       if (!item.conversationId || !ids.has(item.conversationId)) return [];
-      const activeFolderId = item.conversationId === data().selectedConversationId ? data().folderId : null;
-      const sourceFolderIds =
-        commandId === "mark_read" && item.unreadFolderIds.length > 0
-          ? item.unreadFolderIds
-          : ["mark_unread", "flag", "unflag"].includes(commandId)
-            ? item.activeFolderIds
-            : [activeFolderId ?? item.sourceFolderId].filter((folderId): folderId is string => Boolean(folderId));
-      return [
-        {
-          conversationId: item.conversationId,
-          label: item.subject || "(no subject)",
-          sourceFolderIds,
-        },
-      ];
+      const target = actionTargetForItem(item, actionId);
+      return target ? [target] : [];
     });
-    if (targets.length > 0 || selectedIds.size > 0 || !data().selectedConversationId) return targets;
-    const detailFolderIds = ["mark_read", "mark_unread", "flag", "unflag"].includes(commandId)
+    if (targets.length > 0 || selectedIds.size > 0 || !data.selectedConversationId) return targets;
+    const detailFolderIds = ["mark_read", "mark_unread", "flag", "unflag"].includes(actionId)
       ? [
           ...new Set(
-            data()
-              .detailMessages.filter((message) => commandId !== "mark_read" || !message.flags.includes("\\Seen"))
+            data.detailMessages
+              .filter((message) => actionId !== "mark_read" || !message.flags.includes("\\Seen"))
               .map((message) => message.folderId),
           ),
         ]
-      : [data().folderId ?? data().detailMessages.at(-1)?.folderId ?? null];
+      : [data.folderId ?? data.detailMessages.at(-1)?.folderId ?? null];
     return [
       {
-        conversationId: data().selectedConversationId!,
-        label: data().selectedSubject || "(no subject)",
+        conversationId: data.selectedConversationId!,
+        label: data.selectedSubject || "(no subject)",
         sourceFolderIds: detailFolderIds.filter((folderId): folderId is string => Boolean(folderId)),
       },
     ];
   };
 
   const chooseDestinationFolder = async () => {
-    const folders = data().folders.filter((folder) => folder.selectable && folder.discoveryState === "active");
+    const folders = data.folders.filter((folder) => folder.selectable && folder.discoveryState === "active");
     const selected = await openSpotlightSearch<{ folderId: string }>({
       title: "Move to folder",
       icon: "ti ti-folder-symlink",
@@ -684,16 +719,211 @@ export default function MailWorkspace(props: {
     return selected?.value?.folderId ?? null;
   };
 
-  const runTriageCommand = async (
-    commandId: MailTriageCommandId,
+  type ConversationTarget = { conversationId: string; revision: number; subject: string; participantSummary: string };
+  const chooseConversationTarget = async (excludedConversationId: string): Promise<ConversationTarget | null> => {
+    const loadedTargets = () =>
+      data.listItems
+        .filter((item) => item.conversationId && item.conversationId !== excludedConversationId)
+        .map((item) => ({
+          conversationId: item.conversationId!,
+          revision: item.revision,
+          subject: item.subject,
+          participantSummary: item.participantSummary,
+        }));
+    const selected = await openSpotlightSearch<ConversationTarget>({
+      title: "Choose conversation",
+      icon: "ti ti-messages",
+      placeholder: "Search by sender or subject...",
+      minQueryLength: 0,
+      emptyText: "Choose a recent conversation or search this mailbox.",
+      noResultsText: "No other conversation found.",
+      resolve: async ({ query, abortSignal }) => {
+        const trimmed = query.trim();
+        const targets = trimmed
+          ? await (async () => {
+              const response = await apiClient.mailboxes[":mailboxId"].search.$post(
+                {
+                  param: { mailboxId },
+                  json: {
+                    expression: { type: "text", field: "any", query: trimmed, match: "words" },
+                    sort: "newest",
+                    limit: 40,
+                  },
+                },
+                { init: { signal: abortSignal } },
+              );
+              if (!response.ok) throw new Error(await readApiError(response, "Could not search conversations"));
+              const page = await response.json();
+              const seen = new Set<string>();
+              return page.items.flatMap((item) => {
+                const conversationId = item.conversationId;
+                if (!conversationId || conversationId === excludedConversationId || seen.has(conversationId)) return [];
+                seen.add(conversationId);
+                return [{ conversationId, revision: item.revision, subject: item.subject, participantSummary: item.participantSummary }];
+              });
+            })()
+          : loadedTargets().slice(0, 40);
+        return targets.map((target) => ({
+          value: target,
+          label: target.subject || "(no subject)",
+          desc: target.participantSummary || "Unknown sender",
+          icon: "ti ti-message",
+        }));
+      },
+    });
+    return selected?.value ?? null;
+  };
+
+  const conversationHref = (conversationId: string): string => {
+    const current = new URL(buildMailListHref(new URL(requestUrl())), window.location.origin);
+    current.searchParams.set("conversation", conversationId);
+    return `${current.pathname}${current.search}`;
+  };
+
+  const mergeConversation = async (source: { conversationId: string; revision: number; subject: string }) => {
+    if (!canWrite() || actionPending()) return;
+    const { conversationId: sourceConversationId, revision: sourceRevision } = source;
+    const target = await chooseConversationTarget(sourceConversationId);
+    if (!target) return;
+    const confirmed = await prompts.confirm(
+      `Move every message, comment, draft, tag, and reference from “${source.subject || "this conversation"}” into “${target.subject || "the selected conversation"}”?`,
+      {
+        title: "Merge conversations?",
+        icon: "ti ti-git-merge",
+        confirmText: "Merge conversations",
+      },
+    );
+    if (!confirmed) return;
+    setActionPending(true);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].merge.$post({
+        param: { mailboxId, conversationId: target.conversationId },
+        json: {
+          sourceConversationId,
+          expectedTargetRevision: target.revision,
+          expectedSourceRevision: sourceRevision,
+          reason: "Merged from the Mail workspace",
+          confirm: true,
+        },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not merge conversations"));
+      detailCache.clear();
+      await openWorkspaceHref(conversationHref(target.conversationId), true);
+      toast.success("Conversations merged");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Could not merge conversations", {
+        title: "Conversation was not changed",
+      });
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const mergeSelectedConversation = () => {
+    const conversationId = data.selectedConversationId;
+    const revision = selectedConversationRevision();
+    if (!conversationId || !revision) return;
+    return mergeConversation({ conversationId, revision, subject: data.selectedSubject });
+  };
+
+  const reassignMessage = async (messageId: string) => {
+    const sourceConversationId = data.selectedConversationId;
+    const sourceRevision = selectedConversationRevision();
+    if (!canWrite() || !sourceConversationId || !sourceRevision || actionPending()) return;
+    if ((selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1) {
+      await prompts.error("This is the only message in the conversation. Merge the whole conversation instead.", {
+        title: "Message cannot be moved on its own",
+      });
+      return;
+    }
+    const target = await chooseConversationTarget(sourceConversationId);
+    if (!target) return;
+    const confirmed = await prompts.confirm(
+      `Move this message and its linked internal comments into “${target.subject || "the selected conversation"}”?`,
+      {
+        title: "Move message?",
+        icon: "ti ti-message-forward",
+        confirmText: "Move message",
+      },
+    );
+    if (!confirmed) return;
+    setActionPending(true);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].messages[":messageId"].reassign.$post({
+        param: { mailboxId, conversationId: sourceConversationId, messageId },
+        json: {
+          targetConversationId: target.conversationId,
+          expectedSourceRevision: sourceRevision,
+          expectedTargetRevision: target.revision,
+          reason: "Moved from the Mail workspace",
+          confirm: true,
+        },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not move message"));
+      detailCache.clear();
+      await reconcileWorkspace();
+      toast.success("Message moved to another conversation");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Could not move message", {
+        title: "Message was not moved",
+      });
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const splitMessage = async (messageId: string) => {
+    const conversationId = data.selectedConversationId;
+    const revision = selectedConversationRevision();
+    if (
+      !canWrite() ||
+      !conversationId ||
+      !revision ||
+      (selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1 ||
+      actionPending()
+    )
+      return;
+    const confirmed = await prompts.confirm("Create a separate conversation from this message and its linked internal comments?", {
+      title: "Start a new conversation?",
+      icon: "ti ti-arrows-split-2",
+      confirmText: "Create conversation",
+    });
+    if (!confirmed) return;
+    setActionPending(true);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].split.$post({
+        param: { mailboxId, conversationId },
+        json: {
+          messageIds: [messageId],
+          expectedRevision: revision,
+          reason: "Split from the Mail workspace",
+          confirm: true,
+        },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not create a separate conversation"));
+      const result = await response.json();
+      detailCache.clear();
+      await openWorkspaceHref(conversationHref(result.created.id), true);
+      toast.success("New conversation created");
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Could not create a separate conversation", {
+        title: "Conversation was not changed",
+      });
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const runAction = async (
+    actionId: MailActionId,
     options: {
       targets?: MailBulkTarget[];
       destinationFolderId?: string;
       silent?: boolean;
     } = {},
   ) => {
-    if (!canWrite() || commandPending()) return;
-    let targets = options.targets ?? commandTargets(commandId);
+    if (!canWrite() || actionPending()) return;
+    let targets = options.targets ?? actionTargets(actionId);
     if (targets.length === 0) {
       if (!options.silent) {
         await prompts.error("Open the conversation from a mailbox folder, then try this action again.", {
@@ -702,10 +932,10 @@ export default function MailWorkspace(props: {
       }
       return;
     }
-    const destinationFolderId = commandId === "move" ? (options.destinationFolderId ?? (await chooseDestinationFolder())) : undefined;
-    if (commandId === "move" && !destinationFolderId) return;
+    const destinationFolderId = actionId === "move" ? (options.destinationFolderId ?? (await chooseDestinationFolder())) : undefined;
+    if (actionId === "move" && !destinationFolderId) return;
 
-    if (commandId === "move") {
+    if (actionId === "move") {
       targets = targets
         .map((target) => ({
           ...target,
@@ -719,33 +949,32 @@ export default function MailWorkspace(props: {
     }
 
     const correlationId = crypto.randomUUID();
-    setCommandPending(true);
-    if (commandId === "mark_read" || commandId === "mark_unread") {
-      const unread = commandId === "mark_unread";
+    setActionPending(true);
+    if (actionId === "mark_read" || actionId === "mark_unread") {
+      const unread = actionId === "mark_unread";
       for (const target of targets) setConversationUnread(target.conversationId, unread);
     }
-    if (commandId === "flag" || commandId === "unflag") {
-      const flagged = commandId === "flag";
+    if (actionId === "flag" || actionId === "unflag") {
+      const flagged = actionId === "flag";
       for (const target of targets) setConversationFlagged(target.conversationId, flagged);
     }
 
     try {
       const result = await executeMailBulkAction({
-        commandId,
+        actionId,
         targets,
         submit: async (target, sourceFolderId) => {
           const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post({
             param: { mailboxId, conversationId: target.conversationId },
-            json: buildMailTriageInput({
-              commandId,
+            json: buildMailActionInput({
+              actionId,
               sourceFolderId,
               destinationFolderId: destinationFolderId ?? undefined,
               correlationId,
               idempotencyKey: crypto.randomUUID(),
             }),
           });
-          if (!response.ok)
-            throw new Error(await readApiError(response, `Could not ${getMailCommand(commandId).label.toLocaleLowerCase()}`));
+          if (!response.ok) throw new Error(await readApiError(response, `Could not ${getMailAction(actionId).label.toLocaleLowerCase()}`));
         },
       });
 
@@ -759,13 +988,13 @@ export default function MailWorkspace(props: {
       if (remainingIds.size === 0) setSelectionMode(false);
 
       const removesActiveConversation =
-        (commandId === "archive" || commandId === "junk" || commandId === "trash" || commandId === "move") &&
-        Boolean(data().selectedConversationId && succeeded.has(data().selectedConversationId!));
+        (actionId === "archive" || actionId === "junk" || actionId === "trash" || actionId === "move") &&
+        Boolean(data.selectedConversationId && succeeded.has(data.selectedConversationId!));
       if (result.succeededConversationIds.length > 0) {
         if (removesActiveConversation) {
           const focusAfterRemoval = findMailFocusAfterRemoval({
             orderedConversationIds: orderedConversationIds(),
-            activeConversationId: data().selectedConversationId,
+            activeConversationId: data.selectedConversationId,
             removedConversationIds: succeeded,
           });
           await openWorkspaceHref(buildMailListHref(new URL(requestUrl())), true);
@@ -774,11 +1003,11 @@ export default function MailWorkspace(props: {
         if (!options.silent) {
           toast.success(
             targets.length === 1
-              ? `${getMailCommand(commandId).label} queued`
-              : `${getMailCommand(commandId).label} queued for ${result.succeededConversationIds.length} conversations`,
+              ? `${getMailAction(actionId).label} queued`
+              : `${getMailAction(actionId).label} queued for ${result.succeededConversationIds.length} conversations`,
           );
         }
-      } else if (["mark_read", "mark_unread", "flag", "unflag"].includes(commandId)) {
+      } else if (["mark_read", "mark_unread", "flag", "unflag"].includes(actionId)) {
         await reconcileWorkspace();
       }
       if (result.failures.length > 0) {
@@ -794,17 +1023,17 @@ export default function MailWorkspace(props: {
         });
       }
     } finally {
-      setCommandPending(false);
+      setActionPending(false);
     }
   };
 
   const addTagsToSelection = async () => {
-    if (!canWrite() || commandPending()) return;
+    if (!canWrite() || actionPending()) return;
     const conversationIds = [...selectedConversationIds()];
     if (conversationIds.length === 0) return;
-    const tagIds = await chooseBulkTags(data().localTags);
+    const tagIds = await chooseBulkTags(data.localTags);
     if (!tagIds?.length) return;
-    setCommandPending(true);
+    setActionPending(true);
     try {
       const response = await apiClient.mailboxes[":mailboxId"].conversations["local-tags"].$post({
         param: { mailboxId },
@@ -823,99 +1052,29 @@ export default function MailWorkspace(props: {
     } catch (error) {
       await prompts.error(error instanceof Error ? error.message : "Could not add tags");
     } finally {
-      setCommandPending(false);
+      setActionPending(false);
     }
   };
-
-  const openRelativeConversation = async (delta: -1 | 1) => {
-    const items = data().listItems.filter((item): item is MailListItem & { conversationId: string } => Boolean(item.conversationId));
-    if (items.length === 0) return;
-    const currentIndex = items.findIndex((item) => item.conversationId === data().selectedConversationId);
-    const target = items[Math.min(Math.max((currentIndex < 0 ? (delta > 0 ? -1 : 1) : currentIndex) + delta, 0), items.length - 1)];
-    if (!target || target.conversationId === data().selectedConversationId) return;
-    const href = buildMailSelectionHref(new URL(requestUrl()), target);
-    if ((await applyConversationRoute(href, target, "keyboard")) === "applied") navigate(href, { scroll: "preserve" });
-  };
-
-  const openCommandPalette = async () => {
-    const hasTargets = commandTargets("archive").length > 0;
-    const selected = await openSpotlightSearch<{
-      commandId: MailProductivityCommandId;
-    }>({
-      title: "Mail commands",
-      icon: "ti ti-command",
-      placeholder: "Search commands...",
-      noResultsText: "No available command found.",
-      resolve: ({ query }) => {
-        const needle = query.trim().toLocaleLowerCase();
-        return MAIL_COMMANDS.filter((command) => {
-          if (command.id === "command_palette") return false;
-          if (command.scope === "conversation" && (!canWrite() || !hasTargets)) return false;
-          if (command.id === "clear_selection" && selectedConversationIds().size === 0) return false;
-          return !needle || `${command.label} ${command.description}`.toLocaleLowerCase().includes(needle);
-        }).map((command) => {
-          const shortcut = resolveMailShortcut(command.id, props.initialPreferences);
-          return {
-            label: command.label,
-            desc: shortcut ? `${command.description} · ${shortcut}` : command.description,
-            icon: command.icon,
-            value: { commandId: command.id },
-          };
-        });
-      },
-    });
-    if (selected?.value) await runProductivityCommand(selected.value.commandId);
-  };
-
-  const runProductivityCommand = async (commandId: MailProductivityCommandId) => {
-    if (isMailTriageCommand(commandId)) return await runTriageCommand(commandId);
-    if (commandId === "next") return await openRelativeConversation(1);
-    if (commandId === "previous") return await openRelativeConversation(-1);
-    if (commandId === "clear_selection") return clearConversationSelection();
-    if (commandId === "command_palette") return await openCommandPalette();
-    if (commandId === "configure_shortcuts") {
-      if (
-        await openMailShortcutSettings({
-          ...props.initialPreferences,
-          listCollapsed: listCollapsed(),
-        })
-      )
-        window.location.reload();
-    }
-  };
-
-  hotkeys.create(() => {
-    const entries: Record<string, { label: string; desc: string; run: () => void | Promise<void> }> = {};
-    for (const command of MAIL_COMMANDS) {
-      const shortcut = resolveMailShortcut(command.id, props.initialPreferences);
-      if (!shortcut) continue;
-      entries[shortcut] = {
-        label: command.label,
-        desc: command.description,
-        run: () => (isMailHotkeyBlocked() ? undefined : runProductivityCommand(command.id)),
-      };
-    }
-    return entries;
-  });
 
   let autoReadSelectionId: string | null = null;
   createEffect(() => {
     const item = selectedListItem();
-    const conversationId = item?.conversationId ?? data().selectedConversationId;
+    const conversationId = item?.conversationId ?? data.selectedConversationId;
     if (conversationId === autoReadSelectionId) return;
     autoReadSelectionId = conversationId;
     if (item?.unread) void persistConversationRead(item);
-    else if (conversationId && selectedUnread()) void runTriageCommand("mark_read", { silent: true });
+    else if (conversationId && selectedUnread()) void runAction("mark_read", { silent: true });
   });
 
   createEffect(() => {
-    const conversationId = data().selectedConversationId;
-    data().listItems;
+    const conversationId = data.selectedConversationId;
+    data.listItems;
     if (conversationId) prefetchNeighbors(conversationId);
   });
 
   const setDetailsVisible = (open: boolean) => {
     setDetailsOpen(open);
+    persistPreferences();
     requestAnimationFrame(() => {
       const target = open
         ? document.querySelector<HTMLElement>("[data-mail-details-heading]")
@@ -927,23 +1086,23 @@ export default function MailWorkspace(props: {
   return (
     <AppWorkspace>
       <MailSidebar
-        mailboxId={data().mailbox.id}
-        mailboxName={data().mailbox.name}
-        syncEnabled={data().mailbox.syncEnabled}
-        folders={data().folders}
-        savedViews={data().savedViews}
-        scheduledMode={data().scheduledMode}
-        scheduledCount={data().scheduledCount}
-        activeFolderId={data().folderId}
-        activeView={data().query ? null : data().activeView}
-        activeSavedViewId={data().savedViewId}
-        viewCounts={data().viewCounts}
+        mailboxId={data.mailbox.id}
+        mailboxName={data.mailbox.name}
+        syncEnabled={data.mailbox.syncEnabled}
+        folders={data.folders}
+        savedViews={data.savedViews}
+        scheduledMode={data.scheduledMode}
+        scheduledCount={data.scheduledCount}
+        activeFolderId={data.folderId}
+        activeView={data.query ? null : data.activeView}
+        activeSavedViewId={data.savedViewId}
+        viewCounts={data.viewCounts}
         canWrite={canWrite()}
         canAdmin={canAdmin()}
         settingsOpening={settingsOpening()}
         onOpenSettings={() => void openSettings()}
         onMoveConversation={(input) =>
-          runTriageCommand("move", {
+          runAction("move", {
             targets: [
               {
                 conversationId: input.conversationId,
@@ -959,7 +1118,7 @@ export default function MailWorkspace(props: {
       <AppWorkspace.Content>
         <AppWorkspace.Main class="p-0" aria-busy={routeLoading()} mobilePane={hasSelection() ? "main" : "conversations"}>
           <Show
-            when={data().scheduledMode}
+            when={data.scheduledMode}
             fallback={
               <>
                 <AppWorkspace.MainPane
@@ -971,23 +1130,24 @@ export default function MailWorkspace(props: {
                   maxSize={620}
                 >
                   <MailConversationList
-                    mailbox={data().mailbox}
-                    mailboxId={data().mailbox.id}
+                    mailbox={data.mailbox}
+                    mailboxId={data.mailbox.id}
                     requestUrl={requestUrl()}
-                    query={data().query}
-                    title={data().listTitle}
-                    items={data().listItems}
-                    error={data().listError}
-                    selectedConversationId={data().selectedConversationId}
-                    selectedMessageId={data().selectedMessageId}
+                    query={data.query}
+                    title={data.listTitle}
+                    items={data.listItems}
+                    error={data.listError}
+                    selectedConversationId={data.selectedConversationId}
+                    selectedMessageId={data.selectedMessageId}
                     selectedConversationIds={selectedConversationIds()}
                     selectionMode={selectionMode()}
-                    nextCursor={data().nextListCursor}
+                    nextCursor={data.nextListCursor}
                     dateConfig={props.dateConfig}
                     canWrite={canWrite()}
-                    savedViews={data().savedViews}
-                    activeSavedViewId={data().savedViewId}
+                    savedViews={data.savedViews}
+                    activeSavedViewId={data.savedViewId}
                     loading={routeLoading()}
+                    liveDegraded={liveDegraded()}
                     onCollapse={() => setCollapsed(true)}
                     onNavigate={navigateWorkspace}
                     onNavigateItem={navigateConversation}
@@ -995,35 +1155,45 @@ export default function MailWorkspace(props: {
                     onToggleSelection={toggleConversationSelection}
                     onClearSelection={clearConversationSelection}
                     onAddTags={addTagsToSelection}
-                    onBulkCommand={runTriageCommand}
-                    onOpenCommands={openCommandPalette}
+                    onBulkAction={runAction}
+                    onItemAction={(item, actionId) => {
+                      const target = actionTargetForItem(item, actionId);
+                      if (target) void runAction(actionId, { targets: [target] });
+                    }}
+                    onMergeItem={(item) => {
+                      if (item.conversationId)
+                        void mergeConversation({ conversationId: item.conversationId, revision: item.revision, subject: item.subject });
+                    }}
                     onPrefetch={prefetchConversation}
                     onOpenHref={openWorkspaceHref}
                     onLoadMore={loadMoreConversations}
                   />
                 </AppWorkspace.MainPane>
                 <MailConversationReader
-                  mailboxId={data().mailbox.id}
+                  mailboxId={data.mailbox.id}
                   requestUrl={requestUrl()}
                   canWrite={canWrite()}
                   canAdmin={canAdmin()}
-                  identities={data().identities}
-                  selectionKey={data().selectedConversationId ?? data().selectedMessageId}
-                  selectedConversationId={data().selectedConversationId}
+                  identities={data.identities}
+                  selectionKey={data.selectedConversationId ?? data.selectedMessageId}
+                  selectedConversationId={data.selectedConversationId}
                   unread={selectedUnread()}
                   flagged={selectedFlagged()}
-                  reference={data().selectedReference}
-                  subject={data().selectedSubject}
-                  messages={data().detailMessages}
-                  totalMessageCount={selectedListItem()?.messageCount ?? data().detailMessages.length}
-                  error={data().detailError}
+                  reference={data.selectedReference}
+                  subject={data.selectedSubject}
+                  messages={data.detailMessages}
+                  totalMessageCount={selectedListItem()?.messageCount ?? data.detailMessages.length}
+                  error={data.detailError}
                   dateConfig={props.dateConfig}
                   listCollapsed={listCollapsed()}
                   detailsOpen={detailsOpen()}
                   onRestoreList={() => setCollapsed(false)}
                   onToggleDetails={() => canShowDetails() && setDetailsVisible(!detailsOpen())}
-                  commandPending={commandPending()}
-                  onCommand={runTriageCommand}
+                  actionPending={actionPending()}
+                  onAction={runAction}
+                  onMergeConversation={mergeSelectedConversation}
+                  onReassignMessage={reassignMessage}
+                  onSplitMessage={splitMessage}
                   onReconcile={reconcileWorkspace}
                   onComposerActiveChange={updateComposerActive}
                   onClose={closeConversation}
@@ -1032,48 +1202,60 @@ export default function MailWorkspace(props: {
             }
           >
             <MailScheduledView
-              mailboxId={data().mailbox.id}
+              mailboxId={data.mailbox.id}
               page={
-                data().scheduledPage ?? {
+                data.scheduledPage ?? {
                   items: [],
                   nextCursor: null,
-                  total: data().scheduledCount,
+                  total: data.scheduledCount,
                 }
               }
-              error={data().scheduledError}
+              error={data.scheduledError}
               dateConfig={props.dateConfig}
               canWrite={canWrite()}
               loading={routeLoading()}
               onNavigate={navigateWorkspace}
               onRefresh={async () => {
                 const result = await replaceWorkspaceRoute(requestUrl());
-                if (result === "failed") documentNavigate(requestUrl(), { replace: true });
+                if (result === "failed") toast.error("Could not refresh scheduled messages yet. Your current view was kept.");
               }}
             />
           </Show>
         </AppWorkspace.Main>
         <AppWorkspace.Detail id="mail-context" open={detailsOpen() && canShowDetails()} width="lg" maxWidth={520}>
-          <Show when={data().selectedConversationId && data().collaborationState && data().conversationLocalTags}>
+          <Show
+            when={data.selectedConversationId && data.collaborationState && data.conversationLocalTags}
+            fallback={
+              <div class="flex h-full items-center justify-center p-4">
+                <Placeholder
+                  state={selectionLoading() ? "loading" : "error"}
+                  title={selectionLoading() ? "Loading conversation details" : "Conversation details are unavailable"}
+                  description={selectionLoading() ? undefined : (data.collaborationError ?? "Try refreshing this conversation.")}
+                />
+              </div>
+            }
+          >
             <MailDetailsPanel
-              mailboxId={data().mailbox.id}
-              conversationId={data().selectedConversationId!}
+              mailboxId={data.mailbox.id}
+              conversationId={data.selectedConversationId!}
               active={detailsOpen()}
               currentUserId={props.currentUserId}
               canWrite={canWrite()}
               canAdmin={canAdmin()}
-              initialState={data().collaborationState!}
-              initialLocalTags={data().localTags}
-              initialConversationLocalTags={data().conversationLocalTags!}
-              initialComments={data().comments}
-              assignableUsers={data().assignableUsers}
-              mentionableUsers={data().mentionableUsers}
+              initialState={data.collaborationState!}
+              initialLocalTags={data.localTags}
+              initialConversationLocalTags={data.conversationLocalTags!}
+              initialComments={data.comments}
+              assignableUsers={data.assignableUsers}
+              mentionableUsers={data.mentionableUsers}
               presence={presence().participants}
-              activity={data().activity}
-              initialReminder={data().reminder}
-              messages={data().detailMessages}
-              subject={data().selectedSubject}
+              activity={data.activity}
+              initialReminder={data.reminder}
+              messages={data.detailMessages}
+              subject={data.selectedSubject}
               dateConfig={props.dateConfig}
               onClose={() => setDetailsVisible(false)}
+              onReconcile={reconcileWorkspace}
             />
           </Show>
         </AppWorkspace.Detail>

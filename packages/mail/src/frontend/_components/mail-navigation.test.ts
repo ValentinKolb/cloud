@@ -21,6 +21,7 @@ const item: MailListItem = {
   snoozedUntil: null,
   sourceFolderId: null,
   unreadFolderIds: [],
+  revision: 1,
 };
 
 describe("Mail search navigation", () => {

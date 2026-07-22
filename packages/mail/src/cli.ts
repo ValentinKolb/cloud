@@ -71,7 +71,7 @@ import type {
   ConversationReferenceConfiguration,
   EnsureConversationReferenceResult,
 } from "./service/conversation-reference";
-import type { MergeConversationsResult, SplitConversationResult } from "./service/conversations";
+import type { MergeConversationsResult, ReassignConversationMessageResult, SplitConversationResult } from "./service/conversations";
 import type { ConversationLocalTags, LocalTag } from "./service/local-tags";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { DiscoveredMailConfiguration } from "./service/onboarding-discovery";
@@ -2687,6 +2687,49 @@ export default defineCliCommands({
         );
         if (printStructured(ctx, value)) return;
         ctx.print(`Split ${value.movedMessageCount} messages into ${value.created.id}.`);
+      },
+    }),
+    command("conversation reassign-message", {
+      summary: "Move one message from its current conversation into another conversation",
+      args: {
+        sourceConversationId: arg.required({ description: "Conversation that currently contains the message" }),
+        messageId: arg.required({ description: "Message id to move" }),
+        targetConversationId: arg.required({ description: "Conversation that receives the message" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        sourceRevision: flag.int({
+          name: "source-revision",
+          required: true,
+          min: 1,
+          description: "Expected source conversation revision",
+        }),
+        targetRevision: flag.int({
+          name: "target-revision",
+          required: true,
+          min: 1,
+          description: "Expected target conversation revision",
+        }),
+        reason: flag.string({ description: "Optional audit reason" }),
+        yes: confirmFlag("Confirm message reassignment"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to reassign the message.");
+        if (!flags.sourceRevision || !flags.targetRevision) throw new Error("Both expected conversation revisions are required.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<ReassignConversationMessageResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.sourceConversationId}/messages/${args.messageId}/reassign`,
+          jsonRequest("POST", {
+            targetConversationId: args.targetConversationId,
+            expectedSourceRevision: flags.sourceRevision,
+            expectedTargetRevision: flags.targetRevision,
+            reason: flags.reason,
+            confirm: true,
+          }),
+        );
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Moved message ${value.messageId} into ${value.target.id} at revision ${value.target.revision}.`);
       },
     }),
     command("conversation collaboration", {
