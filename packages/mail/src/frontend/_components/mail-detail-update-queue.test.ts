@@ -31,7 +31,6 @@ describe("Mail detail update queue", () => {
       responseNeeded: false,
       snoozedUntil: null,
       revision: 3,
-      watchers: [],
     };
     const assignee = {
       id: "00000000-0000-4000-8000-000000000003",

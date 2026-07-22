@@ -228,7 +228,6 @@ function SearchConditionValue(props: {
   const assigneeTerm = () => node() as Extract<MailSearchExpression, { type: "assignee" }>;
   const snoozedTerm = () => node() as Extract<MailSearchExpression, { type: "snoozed" }>;
   const folderTerm = () => node() as Extract<MailSearchExpression, { type: "folder_id" }>;
-  const watchedTerm = () => node() as Extract<MailSearchExpression, { type: "watched_by_me" }>;
 
   return (
     <>
@@ -359,17 +358,6 @@ function SearchConditionValue(props: {
           selectedLabel={() => (folderTerm().folderId ? undefined : "Choose a folder")}
           onChange={(folderId) => props.replace({ ...folderTerm(), folderId })}
           fetchData={props.fetchFolders}
-        />
-      </Show>
-      <Show when={node().type === "watched_by_me"}>
-        <Select
-          label="Following state"
-          value={() => String(watchedTerm().value)}
-          onChange={(value) => props.replace({ ...watchedTerm(), value: value === "true" })}
-          options={[
-            { id: "true", label: "Followed by me", icon: "ti ti-eye-check" },
-            { id: "false", label: "Not followed by me", icon: "ti ti-eye-off" },
-          ]}
         />
       </Show>
       <Show when={node().type === "assigned_to_me"}>

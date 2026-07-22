@@ -3,7 +3,7 @@ import { mailSearchStateSchema } from "./contracts";
 import { canonicalizeSavedViewFilter, migrateLegacySavedViewFilter } from "./saved-view-search-migration";
 
 describe("saved view search migration", () => {
-  test("preserves every legacy filter dimension in the canonical search AST", () => {
+  test("preserves supported legacy filters and drops the removed following condition", () => {
     const folderId = crypto.randomUUID();
     const userId = crypto.randomUUID();
     const migrated = migrateLegacySavedViewFilter({
@@ -30,10 +30,31 @@ describe("saved view search migration", () => {
           { type: "assignee", userId },
           { type: "response_needed", value: true },
           { type: "snoozed", value: false },
-          { type: "watched_by_me", value: true },
         ],
       },
       sort: "newest",
+    });
+  });
+
+  test("removes nested following conditions without discarding the rest of a canonical view", () => {
+    expect(
+      canonicalizeSavedViewFilter({
+        expression: {
+          type: "and",
+          expressions: [
+            { type: "text", field: "subject", query: "invoice", match: "words" },
+            { type: "not", expression: { type: "watched_by_me", value: false } },
+          ],
+        },
+        sort: "newest",
+      }),
+    ).toEqual({
+      state: {
+        expression: { type: "text", field: "subject", query: "invoice", match: "words" },
+        sort: "newest",
+      },
+      changed: true,
+      recovered: false,
     });
   });
 

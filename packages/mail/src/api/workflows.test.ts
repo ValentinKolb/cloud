@@ -124,7 +124,6 @@ describe("Mail workflow OpenAPI contracts", () => {
       "all",
       "folder_id",
       "assigned_to_me",
-      "watched_by_me",
       "and",
       "or",
       "not",

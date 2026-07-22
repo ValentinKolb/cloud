@@ -7,7 +7,6 @@ import type { CollaborationNotificationKind } from "./notification-outbox";
 type SqlClient = typeof sql;
 
 export const MAIL_NOTIFICATION_DEFINITION_IDS: Record<CollaborationNotificationKind, string> = {
-  mention: "mail.commentMention",
   reminder: "mail.conversationReminder",
 };
 
@@ -18,10 +17,8 @@ export const mailNotificationTargetHref = (params: {
 }): `/${string}` =>
   `/api/mail/mailboxes/${encodeURIComponent(params.mailboxId)}/notification-targets/${params.kind}/${encodeURIComponent(params.sourceId)}`;
 
-const conversationHref = (params: { mailboxId: string; conversationId: string; commentId?: string }): `/${string}` =>
-  `/app/mail/${encodeURIComponent(params.mailboxId)}?conversation=${encodeURIComponent(params.conversationId)}${
-    params.commentId ? `&comment=${encodeURIComponent(params.commentId)}` : ""
-  }`;
+const conversationHref = (params: { mailboxId: string; conversationId: string }): `/${string}` =>
+  `/app/mail/${encodeURIComponent(params.mailboxId)}?conversation=${encodeURIComponent(params.conversationId)}`;
 
 export const resolveMailNotificationTarget = async (params: {
   context: MailRequestContext;
@@ -33,19 +30,6 @@ export const resolveMailNotificationTarget = async (params: {
   const db = params.db ?? sql;
   const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read", db);
   if (!allowed.ok) return allowed;
-
-  if (params.kind === "mention") {
-    const [comment] = await db<{ conversation_id: string }[]>`
-      SELECT comment.conversation_id
-      FROM mail.conversation_comments comment
-      JOIN mail.conversations conversation ON conversation.id = comment.conversation_id
-      WHERE comment.id = ${params.sourceId}::uuid
-        AND conversation.mailbox_id = ${params.mailboxId}::uuid
-    `;
-    return comment
-      ? ok({ href: conversationHref({ mailboxId: params.mailboxId, conversationId: comment.conversation_id, commentId: params.sourceId }) })
-      : fail(err.notFound("Notification target"));
-  }
 
   const user = userBackedActor(params.context);
   if (!user) return fail(err.notFound("Notification target"));

@@ -6,7 +6,7 @@ import { app } from "../config";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
-import { createConversationComment, setConversationWatcher } from "./collaboration";
+import { createConversationComment } from "./collaboration";
 import { mergeConversations, reassignConversationMessage, splitConversation } from "./conversations";
 import { createLocalTag } from "./local-tags";
 import { createMailbox } from "./mailboxes";
@@ -195,19 +195,11 @@ suite("mail manual conversation threading", () => {
       WHERE message_id = ${sourceMessageId}::uuid
     `;
 
-    const watched = await setConversationWatcher({
-      context: writerContext,
-      mailboxId,
-      conversationId: sourceConversationId,
-      userId: reader.id,
-      watching: true,
-    });
-    if (!watched.ok) throw new Error(watched.error.message);
     const comment = await createConversationComment({
       context: readerContext,
       mailboxId,
       conversationId: sourceConversationId,
-      input: { body: "Context for the source message", referencedMessageId: sourceMessageId, mentionUserIds: [owner.id] },
+      input: { body: "Context for the source message", referencedMessageId: sourceMessageId },
     });
     if (!comment.ok) throw new Error(comment.error.message);
     sourceCommentId = comment.data.id;
@@ -409,7 +401,7 @@ suite("mail manual conversation threading", () => {
     await sql`
       UPDATE mail.collaboration_notification_deliveries
       SET state = 'sending', claim_id = ${mergeDeliveryClaimId}::uuid, claimed_at = now()
-      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+      WHERE kind = 'reminder' AND source_id = ${movedSourceReminder.data.id}::uuid
     `;
     const mergeDuringDelivery = await mergeConversations({
       context: writerContext,
@@ -427,21 +419,9 @@ suite("mail manual conversation threading", () => {
     await sql`
       UPDATE mail.collaboration_notification_deliveries
       SET state = 'pending', claim_id = NULL, claimed_at = NULL
-      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+      WHERE kind = 'reminder' AND source_id = ${movedSourceReminder.data.id}::uuid
     `;
-    const notificationIdempotencyKey = `mail:mention:${sourceCommentId}:${owner.id}`;
-    await notifications.send(app.notifications.commentMention, {
-      recipient: { userId: owner.id },
-      data: {
-        mailboxId,
-        conversationId: sourceConversationId,
-        sourceId: sourceCommentId,
-        subject: "Thread source",
-        actorDisplayName: reader.uid,
-        commentId: sourceCommentId,
-      },
-      idempotencyKey: notificationIdempotencyKey,
-    });
+    const movedReminderIdempotencyKey = `mail:reminder:${movedSourceReminder.data.id}:${movedSourceReminder.data.revision}:${owner.id}`;
     await notifications.send(app.notifications.conversationReminder, {
       recipient: { userId: owner.id },
       data: {
@@ -450,32 +430,34 @@ suite("mail manual conversation threading", () => {
         sourceId: movedSourceReminder.data.id,
         subject: "Thread source",
       },
-      idempotencyKey: notificationIdempotencyKey,
+      idempotencyKey: movedReminderIdempotencyKey,
     });
     await sql`
       UPDATE mail.collaboration_notification_deliveries
       SET state = 'sent', sent_at = now()
-      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid AND recipient_user_id = ${owner.id}::uuid
+      WHERE kind = 'reminder'
+        AND source_id = ${movedSourceReminder.data.id}::uuid
+        AND source_revision = ${movedSourceReminder.data.revision}
+        AND recipient_user_id = ${owner.id}::uuid
     `;
     const [notificationBeforeMerge] = await sql<{ target_href: string | null }[]>`
       SELECT target_href
       FROM notifications.events
-      WHERE definition_id = ${app.notifications.commentMention.id}
+      WHERE definition_id = ${app.notifications.conversationReminder.id}
         AND recipient_user_id = ${owner.id}::uuid
-        AND idempotency_key = ${notificationIdempotencyKey}
+        AND idempotency_key = ${movedReminderIdempotencyKey}
     `;
-    const stableMentionTarget = mailNotificationTargetHref({ mailboxId, kind: "mention", sourceId: sourceCommentId });
-    const stableReminderTarget = mailNotificationTargetHref({
+    const stableMovedReminderTarget = mailNotificationTargetHref({
       mailboxId,
       kind: "reminder",
       sourceId: movedSourceReminder.data.id,
     });
-    expect(notificationBeforeMerge?.target_href).toBe(stableMentionTarget);
+    expect(notificationBeforeMerge?.target_href).toBe(stableMovedReminderTarget);
     const resolvedBeforeMerge = await resolveMailNotificationTarget({
       context: ownerContext,
       mailboxId,
-      kind: "mention",
-      sourceId: sourceCommentId,
+      kind: "reminder",
+      sourceId: movedSourceReminder.data.id,
     });
     expect(resolvedBeforeMerge.ok && resolvedBeforeMerge.data.href).toContain(`conversation=${sourceConversationId}`);
 
@@ -529,7 +511,6 @@ suite("mail manual conversation threading", () => {
         source_exists: boolean;
         messages: number;
         overrides: number;
-        watchers: number;
         comments: number;
         drafts: number;
         participant_summary: string;
@@ -539,7 +520,6 @@ suite("mail manual conversation threading", () => {
         EXISTS (SELECT 1 FROM mail.conversations WHERE id = ${sourceConversationId}::uuid) AS source_exists,
         (SELECT COUNT(*)::int FROM mail.conversation_messages WHERE conversation_id = ${targetConversationId}::uuid) AS messages,
         (SELECT COUNT(*)::int FROM mail.conversation_thread_overrides WHERE conversation_id = ${targetConversationId}::uuid) AS overrides,
-        (SELECT COUNT(*)::int FROM mail.conversation_watchers WHERE conversation_id = ${targetConversationId}::uuid) AS watchers,
         (SELECT COUNT(*)::int FROM mail.conversation_comments WHERE conversation_id = ${targetConversationId}::uuid) AS comments,
         (SELECT COUNT(*)::int FROM mail.drafts WHERE conversation_id = ${targetConversationId}::uuid) AS drafts,
         (SELECT participant_summary FROM mail.conversations WHERE id = ${targetConversationId}::uuid) AS participant_summary
@@ -548,7 +528,6 @@ suite("mail manual conversation threading", () => {
       source_exists: false,
       messages: 2,
       overrides: 2,
-      watchers: 1,
       comments: 1,
       drafts: 1,
       participant_summary: "Customer",
@@ -574,18 +553,12 @@ suite("mail manual conversation threading", () => {
     );
     const [mergedDeliveries] = await sql<
       {
-        mention_conversation_id: string;
         conflicting_reminder_state: string;
         sent_conflicting_reminder_state: string;
         moved_reminder_conversation_id: string;
       }[]
     >`
       SELECT
-        (
-          SELECT conversation_id::text
-          FROM mail.collaboration_notification_deliveries
-          WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
-        ) AS mention_conversation_id,
         (
           SELECT state
           FROM mail.collaboration_notification_deliveries
@@ -605,7 +578,6 @@ suite("mail manual conversation threading", () => {
         ) AS moved_reminder_conversation_id
     `;
     expect(mergedDeliveries).toEqual({
-      mention_conversation_id: targetConversationId,
       conflicting_reminder_state: "skipped",
       sent_conflicting_reminder_state: "sent",
       moved_reminder_conversation_id: targetConversationId,
@@ -630,26 +602,18 @@ suite("mail manual conversation threading", () => {
     const [notificationAfterMerge] = await sql<{ target_href: string | null }[]>`
       SELECT target_href
       FROM notifications.events
-      WHERE definition_id = ${app.notifications.commentMention.id}
+      WHERE definition_id = ${app.notifications.conversationReminder.id}
         AND recipient_user_id = ${owner.id}::uuid
-        AND idempotency_key = ${notificationIdempotencyKey}
+        AND idempotency_key = ${movedReminderIdempotencyKey}
     `;
-    expect(notificationAfterMerge?.target_href).toBe(stableMentionTarget);
+    expect(notificationAfterMerge?.target_href).toBe(stableMovedReminderTarget);
     const resolvedAfterMerge = await resolveMailNotificationTarget({
       context: ownerContext,
       mailboxId,
-      kind: "mention",
-      sourceId: sourceCommentId,
+      kind: "reminder",
+      sourceId: movedSourceReminder.data.id,
     });
     expect(resolvedAfterMerge.ok && resolvedAfterMerge.data.href).toContain(`conversation=${targetConversationId}`);
-    const [foreignDefinitionAfterMerge] = await sql<{ target_href: string | null }[]>`
-      SELECT target_href
-      FROM notifications.events
-      WHERE definition_id = ${app.notifications.conversationReminder.id}
-        AND recipient_user_id = ${owner.id}::uuid
-        AND idempotency_key = ${notificationIdempotencyKey}
-    `;
-    expect(foreignDefinitionAfterMerge?.target_href).toBe(stableReminderTarget);
 
     const rejectWholeSplit = await splitConversation({
       context: writerContext,
@@ -664,7 +628,7 @@ suite("mail manual conversation threading", () => {
     await sql`
       UPDATE mail.collaboration_notification_deliveries
       SET state = 'sending', claim_id = ${splitDeliveryClaimId}::uuid, claimed_at = now()
-      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+      WHERE kind = 'reminder' AND source_id = ${movedSourceReminder.data.id}::uuid
     `;
     const splitDuringDelivery = await splitConversation({
       context: writerContext,
@@ -677,7 +641,7 @@ suite("mail manual conversation threading", () => {
     await sql`
       UPDATE mail.collaboration_notification_deliveries
       SET state = 'pending', claim_id = NULL, claimed_at = NULL
-      WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
+      WHERE kind = 'reminder' AND source_id = ${movedSourceReminder.data.id}::uuid
     `;
 
     const split = await splitConversation({
@@ -703,9 +667,7 @@ suite("mail manual conversation threading", () => {
         target_override: string;
         moved_override: string;
         moved_comments: number;
-        copied_watchers: number;
         source_drafts: number;
-        moved_mention_delivery: string;
         source_reminders: number;
       }[]
     >`
@@ -713,39 +675,16 @@ suite("mail manual conversation threading", () => {
         (SELECT conversation_id::text FROM mail.conversation_thread_overrides WHERE message_id = ${targetMessageId}::uuid) AS target_override,
         (SELECT conversation_id::text FROM mail.conversation_thread_overrides WHERE message_id = ${sourceMessageId}::uuid) AS moved_override,
         (SELECT COUNT(*)::int FROM mail.conversation_comments WHERE conversation_id = ${split.data.created.id}::uuid) AS moved_comments,
-        (SELECT COUNT(*)::int FROM mail.conversation_watchers WHERE conversation_id = ${split.data.created.id}::uuid) AS copied_watchers,
         (SELECT COUNT(*)::int FROM mail.drafts WHERE conversation_id = ${targetConversationId}::uuid) AS source_drafts,
-        (
-          SELECT conversation_id::text
-          FROM mail.collaboration_notification_deliveries
-          WHERE kind = 'mention' AND source_id = ${sourceCommentId}::uuid
-        ) AS moved_mention_delivery,
         (SELECT COUNT(*)::int FROM mail.conversation_reminders WHERE conversation_id = ${targetConversationId}::uuid) AS source_reminders
     `;
     expect(splitProjection).toEqual({
       target_override: targetConversationId,
       moved_override: split.data.created.id,
       moved_comments: 1,
-      copied_watchers: 1,
       source_drafts: 1,
-      moved_mention_delivery: split.data.created.id,
       source_reminders: 2,
     });
-    const [notificationAfterSplit] = await sql<{ target_href: string | null }[]>`
-      SELECT target_href
-      FROM notifications.events
-      WHERE definition_id = ${app.notifications.commentMention.id}
-        AND recipient_user_id = ${owner.id}::uuid
-        AND idempotency_key = ${notificationIdempotencyKey}
-    `;
-    expect(notificationAfterSplit?.target_href).toBe(stableMentionTarget);
-    const resolvedAfterSplit = await resolveMailNotificationTarget({
-      context: ownerContext,
-      mailboxId,
-      kind: "mention",
-      sourceId: sourceCommentId,
-    });
-    expect(resolvedAfterSplit.ok && resolvedAfterSplit.data.href).toContain(`conversation=${split.data.created.id}`);
     const [sourceCommentActivityAfterSplit] = await sql<{ conversation_id: string }[]>`
       SELECT conversation_id::text
       FROM mail.activity_events

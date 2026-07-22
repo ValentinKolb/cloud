@@ -14,15 +14,14 @@ Cloud collaboration stays attached to a conversation while the underlying email 
 - **Status** is **Open**, **Awaiting reply**, or **Done**. Awaiting reply means the team's next step depends on someone else; incoming mail returns the conversation to Open.
 - **Response needed** marks that an external reply is still required. It is unavailable after the conversation is Done.
 - **Snooze until** removes the conversation from active work until the selected time. Use it when the next step depends on time rather than another person. New mail ends the snooze early, and snoozing does not change provider folders.
-- **Follow** adds you as a follower so followed views and collaboration context can include the conversation.
 
 Incoming mail can reopen collaboration work when the configured behavior requires it. Treat **Done** as a team state, not as an email archive action.
 
-## Add internal comments and mentions {icon="point"}
+## Add internal comments {icon="point"}
 
 Internal comments are visible to people who can read the mailbox and are never sent to email recipients. Use them for handoffs, decisions, and reply context.
 
-You can reply to an earlier comment and select people under **Mention people**. Mentioned users receive a Cloud notification only if they still have mailbox access when the notification is delivered.
+You can reply to an earlier comment to keep related context together. Mail does not notify individual people about comments, so use assignment when a specific collaborator is responsible for the next step.
 
 Comment authors can edit or delete their own comments; mailbox administrators can moderate comments. Deleted comments leave a tombstone in the thread instead of silently removing the event from team history.
 
@@ -39,7 +38,7 @@ Mailbox access is granted in **Settings > Access**.
 | Permission | What it allows |
 | --- | --- |
 | Read | Read and search mail, download attachments, view collaboration context, write internal comments, and use personal reminders |
-| Write | All Read actions plus compose and send, change provider mail state, assign work, change status, follow, snooze, and manage conversation tags |
+| Write | All Read actions plus compose and send, change provider mail state, assign work, change status, snooze, and manage conversation tags |
 | Admin | All Write actions plus connections, senders, folder mappings, shared settings, access, response policy, workflows, and mailbox deletion |
 
 Access can be granted through the standard Cloud permission editor to the supported people, groups, or service accounts. Removing access takes effect for the mailbox, including open live views and future agent or service-account actions.
@@ -62,7 +61,7 @@ Shared across the mailbox:
 - mailbox templates and mailbox default signatures,
 - mailbox saved views,
 - local tags,
-- conversation assignment, status, followers, snooze state, comments, references, activity, and shared drafts.
+- conversation assignment, status, snooze state, comments, references, activity, and shared drafts.
 
 Private to one user:
 

@@ -108,7 +108,6 @@ export type MailboxPageData = {
   conversationLocalTags: ConversationLocalTags | null;
   comments: ConversationComment[];
   assignableUsers: MailAssignableUser[];
-  mentionableUsers: MailAssignableUser[];
   activity: MailActivityEvent[];
   reminder: ConversationReminder | null;
   collaborationError: string | null;
@@ -124,7 +123,6 @@ export type MailSelectionDetail = Pick<
   | "conversationLocalTags"
   | "comments"
   | "assignableUsers"
-  | "mentionableUsers"
   | "activity"
   | "reminder"
   | "collaborationError"
@@ -138,7 +136,6 @@ const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
   conversationLocalTags: null,
   comments: [],
   assignableUsers: [],
-  mentionableUsers: [],
   activity: [],
   reminder: null,
   collaborationError: null,
@@ -204,7 +201,6 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     tagResult,
     commentsResult,
     usersResult,
-    mentionableUsersResult,
     activityResult,
     reminderResult,
     referenceResult,
@@ -214,11 +210,6 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     localTags.getConversationLocalTags(params),
     collaboration.listConversationComments({ ...params, limit: 100, order: "newest" }),
     collaboration.listAssignableUsers({
-      context: params.context,
-      mailboxId: params.mailboxId,
-      limit: 200,
-    }),
-    collaboration.listMentionableUsers({
       context: params.context,
       mailboxId: params.mailboxId,
       limit: 200,
@@ -235,7 +226,6 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     conversationLocalTags: tagResult.ok ? tagResult.data : null,
     comments: commentsResult.ok ? commentsResult.data.items : [],
     assignableUsers: usersResult.ok ? usersResult.data : [],
-    mentionableUsers: mentionableUsersResult.ok ? mentionableUsersResult.data : [],
     activity: activityResult.ok ? activityResult.data.items : [],
     reminder: reminderResult.ok ? reminderResult.data : null,
     collaborationError: !stateResult.ok ? stateResult.error.message : !commentsResult.ok ? commentsResult.error.message : null,

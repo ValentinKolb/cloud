@@ -54,7 +54,6 @@ export default function MailDetailsPanel(props: {
   initialConversationLocalTags: ConversationLocalTags;
   initialComments: ConversationComment[];
   assignableUsers: MailAssignableUser[];
-  mentionableUsers: MailAssignableUser[];
   presence: ConversationPresenceParticipant[];
   activity: MailActivityEvent[];
   initialReminder: ConversationReminder | null;
@@ -72,7 +71,6 @@ export default function MailDetailsPanel(props: {
   const [tagState, setTagState] = createSignal(props.initialConversationLocalTags);
   const [comments, setComments] = createSignal(props.initialComments);
   const [commentBody, setCommentBody] = createSignal("");
-  const [mentionUserIds, setMentionUserIds] = createSignal<string[]>([]);
   const [replyingTo, setReplyingTo] = createSignal<ConversationComment | null>(null);
   const [commentError, setCommentError] = createSignal<string | null>(null);
   const [showAllActivity, setShowAllActivity] = createSignal(false);
@@ -81,7 +79,6 @@ export default function MailDetailsPanel(props: {
   let confirmedTagState = props.initialConversationLocalTags;
   let confirmedReminder = props.initialReminder;
   let confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
-  const watching = createMemo(() => state().watchers.some((watcher) => watcher.id === props.currentUserId));
   const latestMessage = () => props.messages.at(-1);
   const attachmentCount = () => props.messages.reduce((total, message) => total + message.attachments.length, 0);
   const activityItems = createMemo(() => presentMailActivity(props.activity));
@@ -237,29 +234,6 @@ export default function MailDetailsPanel(props: {
     toast.success(`Created ${created.name}`);
   };
 
-  const toggleWatch = mutations.create<ConversationCollaboration, void>({
-    mutation: async () => {
-      const route = apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].watchers[":userId"];
-      const param = {
-        mailboxId: props.mailboxId,
-        conversationId: props.conversationId,
-        userId: props.currentUserId,
-      };
-      const response = watching() ? await route.$delete({ param }) : await route.$put({ param });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update watcher"));
-      return await response.json();
-    },
-    onSuccess: (next) => {
-      confirmedState = reconcileCollaboration(confirmedState, next);
-      confirmedTagState = { ...confirmedTagState, conversationRevision: confirmedState.revision };
-      setState(applyCollaborationPatch(confirmedState, queuedCollaborationPatch(detailUpdates.pending())));
-      setTagState((current) => ({ ...current, conversationRevision: confirmedState.revision }));
-      props.onCollaborationChange(confirmedState);
-      toast.success(next.watchers.some((watcher) => watcher.id === props.currentUserId) ? "Following conversation" : "Stopped following");
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
   const addComment = mutations.create<ConversationComment | null, void>({
     mutation: async () => {
       const body = commentBody().trim();
@@ -275,7 +249,6 @@ export default function MailDetailsPanel(props: {
         },
         json: {
           body,
-          mentionUserIds: mentionUserIds(),
           parentCommentId: replyingTo()?.id ?? null,
         },
       });
@@ -286,7 +259,6 @@ export default function MailDetailsPanel(props: {
       if (!comment) return;
       setComments((current) => [...current, comment]);
       setCommentBody("");
-      setMentionUserIds([]);
       setReplyingTo(null);
     },
     onError: (error) => prompts.error(error.message),
@@ -351,7 +323,6 @@ export default function MailDetailsPanel(props: {
         json: {
           expectedRevision: comment.revision,
           body,
-          mentionUserIds: comment.mentionUserIds,
         },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update comment"));
@@ -370,7 +341,6 @@ export default function MailDetailsPanel(props: {
       () => props.conversationId,
       () => {
         detailUpdates.reset();
-        toggleWatch.abort();
         addComment.abort();
         removeComment.abort();
         editComment.abort();
@@ -384,7 +354,6 @@ export default function MailDetailsPanel(props: {
         setReminderDueAt(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
         confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
         setCommentBody("");
-        setMentionUserIds([]);
         setReplyingTo(null);
         setCommentError(null);
         setShowAllActivity(false);
@@ -499,23 +468,11 @@ export default function MailDetailsPanel(props: {
         <section class="detail-section">
           <div class="mb-3 flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Workflow</h3>
-            <div class="flex items-center gap-1">
-              <Show when={props.flagged}>
-                <span class="badge text-orange-600 dark:text-orange-400">
-                  <i class={getMailAction("flag").icon} aria-hidden="true" /> Flagged
-                </span>
-              </Show>
-              <Tooltip content={watching() ? "Stop following this conversation" : "Add yourself as a follower of this conversation"}>
-                <button
-                  type="button"
-                  class="btn-simple btn-sm"
-                  disabled={!props.canWrite || toggleWatch.loading()}
-                  onClick={() => toggleWatch.mutate()}
-                >
-                  <i class={`ti ${watching() ? "ti-check" : "ti-bell"}`} aria-hidden="true" /> {watching() ? "Following" : "Follow"}
-                </button>
-              </Tooltip>
-            </div>
+            <Show when={props.flagged}>
+              <span class="badge text-orange-600 dark:text-orange-400">
+                <i class={getMailAction("flag").icon} aria-hidden="true" /> Flagged
+              </span>
+            </Show>
           </div>
           <div class="flex flex-col gap-2">
             <Select
@@ -688,19 +645,6 @@ export default function MailDetailsPanel(props: {
             noToolbar
             showStats={false}
             error={Boolean(commentError())}
-            disabled={addComment.loading()}
-          />
-          <MultiSelect
-            label="Mention people"
-            value={mentionUserIds}
-            onChange={setMentionUserIds}
-            options={props.mentionableUsers.map((user) => ({
-              id: user.id,
-              label: user.displayName,
-              description: user.description,
-            }))}
-            placeholder="Notify mailbox collaborators"
-            clearable
             disabled={addComment.loading()}
           />
           <div class="mt-2 flex items-center justify-between gap-2">

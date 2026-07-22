@@ -205,16 +205,9 @@ const refreshCoreNotificationTargets = async (params: { db: SqlClient; conversat
     FROM mail.collaboration_notification_deliveries delivery
     WHERE delivery.conversation_id = ${params.conversationId}::uuid
       AND event.recipient_user_id = delivery.recipient_user_id
-      AND event.definition_id = CASE delivery.kind
-        WHEN 'mention' THEN ${MAIL_NOTIFICATION_DEFINITION_IDS.mention}
-        ELSE ${MAIL_NOTIFICATION_DEFINITION_IDS.reminder}
-      END
-      AND event.idempotency_key = CASE
-        WHEN delivery.kind = 'mention'
-          THEN 'mail:mention:' || delivery.source_id::text || ':' || delivery.recipient_user_id::text
-        ELSE
-          'mail:reminder:' || delivery.source_id::text || ':' || delivery.source_revision::text || ':' || delivery.recipient_user_id::text
-      END
+      AND event.definition_id = ${MAIL_NOTIFICATION_DEFINITION_IDS.reminder}
+      AND event.idempotency_key =
+        'mail:reminder:' || delivery.source_id::text || ':' || delivery.source_revision::text || ':' || delivery.recipient_user_id::text
   `;
 };
 
@@ -250,16 +243,6 @@ const moveMessageComments = async (params: {
     WHERE comment.id IN (SELECT id FROM selected_comments)
     RETURNING comment.id
   `;
-  if (moved.length === 0) return 0;
-  await params.db`
-    UPDATE mail.collaboration_notification_deliveries
-    SET conversation_id = ${params.targetConversationId}::uuid
-    WHERE kind = 'mention'
-      AND source_id IN (
-        SELECT value::uuid FROM jsonb_array_elements_text(${moved.map((comment) => comment.id)}::jsonb)
-      )
-  `;
-  await refreshCoreNotificationTargets({ db: params.db, conversationId: params.targetConversationId });
   return moved.length;
 };
 
@@ -398,14 +381,6 @@ export const mergeConversations = async (params: {
         sourceConversationId: params.input.sourceConversationId,
       });
       await refreshCoreNotificationTargets({ db: tx, conversationId: params.targetConversationId });
-      await tx`
-        INSERT INTO mail.conversation_watchers (conversation_id, user_id)
-        SELECT ${params.targetConversationId}::uuid, user_id
-        FROM mail.conversation_watchers
-        WHERE conversation_id = ${params.input.sourceConversationId}::uuid
-        ON CONFLICT DO NOTHING
-      `;
-      await tx`DELETE FROM mail.conversation_watchers WHERE conversation_id = ${params.input.sourceConversationId}::uuid`;
       const movedLocalTags = await tx<{ tag_id: string }[]>`
         INSERT INTO mail.conversation_local_tags (
           mailbox_id, conversation_id, tag_id, assigned_by_actor_kind, assigned_by_actor_id, created_at
@@ -735,13 +710,6 @@ export const splitConversation = async (params: {
         targetConversationId: created.id,
         messageIds: params.input.messageIds,
       });
-      await tx`
-        INSERT INTO mail.conversation_watchers (conversation_id, user_id)
-        SELECT ${created.id}::uuid, user_id
-        FROM mail.conversation_watchers
-        WHERE conversation_id = ${params.conversationId}::uuid
-        ON CONFLICT DO NOTHING
-      `;
       const actor = actorIdentity(params.context);
       await pinConversationMessages({
         db: tx,

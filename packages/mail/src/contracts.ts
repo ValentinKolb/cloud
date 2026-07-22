@@ -532,9 +532,6 @@ export const mailSearchFolderIdSchema = z
 export const mailSearchAssignedToMeSchema = z
   .object({ type: z.literal("assigned_to_me") })
   .strict();
-export const mailSearchWatchedByMeSchema = z
-  .object({ type: z.literal("watched_by_me"), value: z.boolean() })
-  .strict();
 
 const MAX_BOOLEAN_TREE_DEPTH = 8;
 const MAX_BOOLEAN_TREE_NODES = 100;
@@ -599,7 +596,6 @@ export type MailSearchExpression =
   | z.infer<typeof mailSearchAllSchema>
   | z.infer<typeof mailSearchFolderIdSchema>
   | z.infer<typeof mailSearchAssignedToMeSchema>
-  | z.infer<typeof mailSearchWatchedByMeSchema>
   | { type: "and"; expressions: MailSearchExpression[] }
   | { type: "or"; expressions: MailSearchExpression[] }
   | { type: "not"; expression: MailSearchExpression };
@@ -617,7 +613,6 @@ const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> =
       mailSearchAllSchema,
       mailSearchFolderIdSchema,
       mailSearchAssignedToMeSchema,
-      mailSearchWatchedByMeSchema,
       z
         .object({
           type: z.literal("and"),
@@ -747,15 +742,6 @@ const mailSearchExpressionOpenApi = {
       type: "object",
       properties: { type: { const: "assigned_to_me" } },
       required: ["type"],
-      additionalProperties: false,
-    },
-    {
-      type: "object",
-      properties: {
-        type: { const: "watched_by_me" },
-        value: { type: "boolean" },
-      },
-      required: ["type", "value"],
       additionalProperties: false,
     },
     {
@@ -1934,15 +1920,6 @@ export type UpdateAutomaticReplyConfiguration = z.infer<
   typeof updateAutomaticReplyConfigurationSchema
 >;
 
-const mentionUserIdsSchema = z
-  .array(z.string().uuid())
-  .max(50)
-  .default([])
-  .refine(
-    (ids) => new Set(ids).size === ids.length,
-    "Mentioned users must be unique"
-  );
-
 const internalCommentBodySchema = z
   .string()
   .min(1)
@@ -1953,7 +1930,6 @@ export const createConversationCommentSchema = z.object({
   body: internalCommentBodySchema,
   parentCommentId: z.string().uuid().nullable().optional(),
   referencedMessageId: z.string().uuid().nullable().optional(),
-  mentionUserIds: mentionUserIdsSchema,
 });
 export type CreateConversationComment = z.infer<
   typeof createConversationCommentSchema
@@ -1962,7 +1938,6 @@ export type CreateConversationComment = z.infer<
 export const updateConversationCommentSchema = z.object({
   expectedRevision: z.number().int().positive(),
   body: internalCommentBodySchema,
-  mentionUserIds: mentionUserIdsSchema,
 });
 export type UpdateConversationComment = z.infer<
   typeof updateConversationCommentSchema

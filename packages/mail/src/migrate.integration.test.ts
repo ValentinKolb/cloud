@@ -7,6 +7,58 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("removes conversation followers and comment mentions without retaining legacy tables", async () => {
+    await migrate();
+    await sql`DELETE FROM mail.schema_migrations WHERE version = 78`;
+    await migrate();
+    const [shape] = await sql<
+      {
+        applied: boolean;
+        follower_table_absent: boolean;
+        mention_table_absent: boolean;
+        delivery_constraint: string;
+        mention_definition_inactive: boolean;
+        legacy_activity_absent: boolean;
+      }[]
+    >`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM mail.schema_migrations
+          WHERE version = 78 AND name = 'remove_conversation_followers_and_mentions'
+        ) AS applied,
+        to_regclass('mail.conversation_watchers') IS NULL AS follower_table_absent,
+        to_regclass('mail.conversation_comment_mentions') IS NULL AS mention_table_absent,
+        (
+          SELECT pg_get_constraintdef(oid)
+          FROM pg_constraint
+          WHERE conrelid = 'mail.collaboration_notification_deliveries'::regclass
+            AND conname = 'collaboration_notification_deliveries_kind_check'
+        ) AS delivery_constraint,
+        NOT EXISTS (
+          SELECT 1
+          FROM notifications.definitions
+          WHERE id = 'mail.commentMention' AND active
+        ) AS mention_definition_inactive,
+        NOT EXISTS (
+          SELECT 1
+          FROM mail.activity_events
+          WHERE action IN ('conversation.watcher_added', 'conversation.watcher_removed')
+            OR metadata ? 'mentionUserIds'
+        ) AS legacy_activity_absent
+    `;
+
+    expect(shape).toMatchObject({
+      applied: true,
+      follower_table_absent: true,
+      mention_table_absent: true,
+      mention_definition_inactive: true,
+      legacy_activity_absent: true,
+    });
+    expect(shape?.delivery_constraint).toContain("kind = 'reminder'");
+    expect(shape?.delivery_constraint).not.toContain("mention");
+  });
+
   test("installs the complete public-link storage schema once with detachable blobs", async () => {
     await migrate();
     await migrate();

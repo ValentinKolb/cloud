@@ -1370,7 +1370,6 @@ export default function MailWorkspace(props: {
               initialConversationLocalTags={data.conversationLocalTags!}
               initialComments={data.comments}
               assignableUsers={data.assignableUsers}
-              mentionableUsers={data.mentionableUsers}
               presence={presence().participants}
               activity={data.activity}
               initialReminder={data.reminder}

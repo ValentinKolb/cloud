@@ -186,7 +186,7 @@ const attachmentChunkQuerySchema = z.object({
 const acquireDraftLeaseSchema = z.object({ takeover: z.boolean().default(false) }).strict();
 const notificationTargetParamSchema = z.object({
   mailboxId: z.string().uuid(),
-  kind: z.enum(["mention", "reminder"]),
+  kind: z.literal("reminder"),
   sourceId: z.string().uuid(),
 });
 const providerDiscoveryQuerySchema = z.object({
@@ -594,16 +594,6 @@ const mailOperationsApi = new Hono<AuthContext>()
       }),
     ),
   )
-  .get("/mailboxes/:mailboxId/mentionable-users", v("param", uuidParamSchema), v("query", collaboratorQuerySchema), async (c) =>
-    respond(
-      c,
-      collaboration.listMentionableUsers({
-        context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        ...c.req.valid("query"),
-      }),
-    ),
-  )
   .get("/mailboxes/:mailboxId/conversation-view-counts", v("param", uuidParamSchema), async (c) =>
     respond(
       c,
@@ -859,46 +849,6 @@ const mailOperationsApi = new Hono<AuthContext>()
         }),
       );
     },
-  )
-  .put(
-    "/mailboxes/:mailboxId/conversations/:conversationId/watchers/:userId",
-    v(
-      "param",
-      z.object({
-        mailboxId: z.string().uuid(),
-        conversationId: z.string().uuid(),
-        userId: z.string().uuid(),
-      }),
-    ),
-    async (c) =>
-      respond(
-        c,
-        collaboration.setConversationWatcher({
-          context: requestContext(c),
-          ...c.req.valid("param"),
-          watching: true,
-        }),
-      ),
-  )
-  .delete(
-    "/mailboxes/:mailboxId/conversations/:conversationId/watchers/:userId",
-    v(
-      "param",
-      z.object({
-        mailboxId: z.string().uuid(),
-        conversationId: z.string().uuid(),
-        userId: z.string().uuid(),
-      }),
-    ),
-    async (c) =>
-      respond(
-        c,
-        collaboration.setConversationWatcher({
-          context: requestContext(c),
-          ...c.req.valid("param"),
-          watching: false,
-        }),
-      ),
   )
   .get("/mailboxes/:mailboxId/conversations/:conversationId/reminder", v("param", mailboxAndIdParamSchema("conversationId")), async (c) =>
     respond(

@@ -87,7 +87,7 @@ For composing, drafts, attachments, signatures, and delivery options, see [Write
 
 ## Create reusable views and local tags {icon="layout-list"}
 
-Open **Settings > Views & tags** to create a saved view from folder and collaboration filters. A view can filter by folder, assignee, work status, reply-needed state, snooze state, and whether you follow the conversation.
+Open **Settings > Views & tags** to create a saved view from folder and collaboration filters. A view can filter by folder, assignee, work status, reply-needed state, and snooze state.
 
 - **Only me** creates a private view.
 - **Everyone with mailbox access** creates a mailbox view and requires write access.

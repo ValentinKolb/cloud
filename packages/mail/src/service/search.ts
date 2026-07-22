@@ -343,14 +343,6 @@ export const compileSearchExpression = (
       WHERE state.id = ${conversationId} AND state.assignee_user_id = ${currentUserId}::uuid
     )`;
   }
-  if (expression.type === "watched_by_me") {
-    const watched = sql`${currentUserId}::uuid IS NOT NULL AND EXISTS (
-      SELECT 1
-      FROM mail.conversation_watchers watcher
-      WHERE watcher.conversation_id = ${conversationId} AND watcher.user_id = ${currentUserId}::uuid
-    )`;
-    return expression.value ? watched : sql`NOT (${watched})`;
-  }
   if (expression.type === "text") return compileTextTerm(expression, conversationId);
   if (expression.type === "date") {
     const field = expression.field === "internal_date" ? sql`mc.internal_date` : sql`mc.sent_at`;
@@ -577,8 +569,7 @@ const isConversationOnlyExpression = (expression: MailSearchExpression): boolean
     expression.type === "response_needed" ||
     expression.type === "assignee" ||
     expression.type === "snoozed" ||
-    expression.type === "assigned_to_me" ||
-    expression.type === "watched_by_me"
+    expression.type === "assigned_to_me"
   ) {
     return true;
   }

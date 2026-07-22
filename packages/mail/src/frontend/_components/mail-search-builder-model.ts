@@ -14,8 +14,7 @@ export type MailSearchFieldKey =
   | "snoozed"
   | "all"
   | "folder_id"
-  | "assigned_to_me"
-  | "watched_by_me";
+  | "assigned_to_me";
 
 export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: string; icon: string }> = [
   { id: "text:any", label: "Anywhere", icon: "ti ti-search" },
@@ -44,7 +43,6 @@ export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: s
   { id: "snoozed", label: "Snoozed", icon: "ti ti-alarm-snooze" },
   { id: "folder_id", label: "Specific folder", icon: "ti ti-folder-check" },
   { id: "assigned_to_me", label: "Assigned to me", icon: "ti ti-user-pin" },
-  { id: "watched_by_me", label: "Followed by me", icon: "ti ti-eye-check" },
   { id: "all", label: "All conversations", icon: "ti ti-mail" },
 ];
 
@@ -119,7 +117,6 @@ export const createMailSearchCondition = (
   if (field === "assignee") return { type: "assignee", userId: null };
   if (field === "folder_id") return { type: "folder_id", folderId: "" };
   if (field === "assigned_to_me") return { type: "assigned_to_me" };
-  if (field === "watched_by_me") return { type: "watched_by_me", value: true };
   if (field === "all") return { type: "all" };
   return { type: "snoozed", value: true };
 };
@@ -216,6 +213,5 @@ export const summarizeMailSearchExpression = (expression: MailSearchExpression):
   if (expression.type === "snoozed") return expression.value ? "Is snoozed" : "Is not snoozed";
   if (expression.type === "folder_id") return `In folder ${expression.folderId}`;
   if (expression.type === "assigned_to_me") return "Assigned to me";
-  if (expression.type === "watched_by_me") return expression.value ? "Followed by me" : "Not followed by me";
   return "All conversations";
 };

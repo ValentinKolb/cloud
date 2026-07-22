@@ -836,7 +836,6 @@ const printCollaboration = (ctx: CloudCliContext, value: ConversationCollaborati
   ctx.print(`Assignee: ${value.assignee ? `${value.assignee.displayName} (${value.assignee.id})` : "unassigned"}`);
   ctx.print(`Response needed: ${value.responseNeeded ? "yes" : "no"}`);
   ctx.print(`Snoozed until: ${value.snoozedUntil ?? "not snoozed"}`);
-  ctx.print(`Watchers: ${value.watchers.map((watcher) => watcher.displayName).join(", ") || "none"}`);
 };
 
 const collaborationPath = (mailboxId: string, conversationId: string): string =>
@@ -2741,7 +2740,7 @@ export default defineCliCommands({
       },
     }),
     command("conversation collaboration", {
-      summary: "Show assignment, queue state, snooze, and watchers",
+      summary: "Show assignment, queue state, and snooze",
       args: {
         conversationId: arg.required({ description: "Conversation id" }),
       },
@@ -2917,40 +2916,6 @@ export default defineCliCommands({
           ctx,
           collaborationPath(mailbox.id, args.conversationId),
           jsonRequest("PATCH", input),
-        );
-        printCollaboration(ctx, value);
-      },
-    }),
-    command("conversation watch", {
-      summary: "Add a mailbox user as conversation watcher",
-      args: {
-        conversationId: arg.required({ description: "Conversation id" }),
-        userId: arg.required({ description: "Watcher user id" }),
-      },
-      flags: mailboxFlag,
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const value = await readApi<ConversationCollaboration>(
-          ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/watchers/${args.userId}`,
-          { method: "PUT" },
-        );
-        printCollaboration(ctx, value);
-      },
-    }),
-    command("conversation unwatch", {
-      summary: "Remove a conversation watcher",
-      args: {
-        conversationId: arg.required({ description: "Conversation id" }),
-        userId: arg.required({ description: "Watcher user id" }),
-      },
-      flags: mailboxFlag,
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const value = await readApi<ConversationCollaboration>(
-          ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/watchers/${args.userId}`,
-          { method: "DELETE" },
         );
         printCollaboration(ctx, value);
       },
@@ -3297,22 +3262,6 @@ export default defineCliCommands({
         );
       },
     }),
-    command("comment users", {
-      summary: "List mailbox users eligible for mentions",
-      flags: {
-        ...mailboxFlag,
-        search: flag.string({
-          description: "Search display name, uid, or granting group",
-        }),
-        limit: flag.int({ min: 1, max: 200, default: 50 }),
-      },
-      run: async ({ ctx, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
-        if (flags.search) query.set("search", flags.search);
-        printCollaborators(ctx, await readApi(ctx, `/mailboxes/${mailbox.id}/mentionable-users?${query}`));
-      },
-    }),
     command("comment add", {
       summary: "Add an internal Markdown comment",
       args: {
@@ -3325,9 +3274,6 @@ export default defineCliCommands({
           fileName: "body-file",
           stdinName: "body-stdin",
           description: "Comment body",
-        }),
-        mention: flag.stringList({
-          description: "Mentioned user id; repeatable",
         }),
         parent: flag.string({ description: "Parent comment id" }),
         message: flag.string({ description: "Referenced message id" }),
@@ -3343,7 +3289,6 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments`,
           jsonRequest("POST", {
             body: body ?? "",
-            mentionUserIds: flags.mention,
             parentCommentId: flags.parent,
             referencedMessageId: flags.message,
           }),
@@ -3371,9 +3316,6 @@ export default defineCliCommands({
           stdinName: "body-stdin",
           description: "Updated comment body",
         }),
-        mention: flag.stringList({
-          description: "Mentioned user id; repeatable",
-        }),
       },
       run: async ({ ctx, args, flags }) => {
         if (!flags.revision) throw new Error("Missing expected comment revision.");
@@ -3388,7 +3330,6 @@ export default defineCliCommands({
           jsonRequest("PATCH", {
             expectedRevision: flags.revision,
             body: body ?? "",
-            mentionUserIds: flags.mention,
           }),
         );
         if (printStructured(ctx, value)) return;

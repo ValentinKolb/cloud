@@ -233,21 +233,11 @@ describe("mail collaboration contracts", () => {
   });
 
   test("preserves comment whitespace while rejecting blank comments", () => {
-    const parsed = createConversationCommentSchema.safeParse({ body: "  useful context  ", mentionUserIds: [] });
+    const parsed = createConversationCommentSchema.safeParse({ body: "  useful context  " });
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data.body).toBe("  useful context  ");
-    expect(createConversationCommentSchema.safeParse({ body: " \n\t ", mentionUserIds: [] }).success).toBe(false);
-  });
-
-  test("rejects duplicate mentions in comment revisions", () => {
-    const userId = "00000000-0000-4000-8000-000000000001";
-    expect(
-      updateConversationCommentSchema.safeParse({
-        expectedRevision: 1,
-        body: "Updated",
-        mentionUserIds: [userId, userId],
-      }).success,
-    ).toBe(false);
+    expect(createConversationCommentSchema.safeParse({ body: " \n\t " }).success).toBe(false);
+    expect(updateConversationCommentSchema.safeParse({ expectedRevision: 1, body: "Updated" }).success).toBe(true);
   });
 
   test("requires explicit confirmation and unique message ids for manual threading", () => {
@@ -303,7 +293,6 @@ describe("mail workflow contracts", () => {
       { type: "snoozed", value: false },
       { type: "folder_id", folderId: crypto.randomUUID() },
       { type: "assigned_to_me" },
-      { type: "watched_by_me", value: true },
       { type: "all" },
     ];
     for (const expression of expressions) expect(mailSearchExpressionSchema.safeParse(expression).success).toBe(true);

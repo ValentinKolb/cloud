@@ -6,13 +6,7 @@ import { migrate } from "../migrate";
 import { createMailNotificationService, type MailNotificationSendInput } from "../notifications";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
-import {
-  createConversationComment,
-  getConversationCollaboration,
-  listActivity,
-  listConversationComments,
-  updateConversationComment,
-} from "./collaboration";
+import { getConversationCollaboration, listActivity, listConversationComments } from "./collaboration";
 import { createMailbox } from "./mailboxes";
 import { getConversationPresence, heartbeatConversationPresence, leaveConversationPresence } from "./presence";
 import { cancelConversationReminder, getConversationReminder, setConversationReminder } from "./reminders";
@@ -188,199 +182,13 @@ suite("mail collaboration operations", () => {
     }
   });
 
-  test("recovers notifications and enforces reminder, view, presence, and lease invariants", async () => {
+  test("recovers reminders and enforces view, presence, and lease invariants", async () => {
     const sent: MailNotificationSendInput[] = [];
     const notificationService = createMailNotificationService(app.notifications, {
       sender: async (input) => {
         sent.push(input);
       },
     });
-
-    const comment = await createConversationComment({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "Reader mention", mentionUserIds: [reader.id] },
-    });
-    expect(comment.ok).toBe(true);
-    if (!comment.ok) return;
-    expect(comment.data.mentionUserIds).toEqual([reader.id]);
-    const edited = await updateConversationComment({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      commentId: comment.data.id,
-      input: { expectedRevision: 1, body: "Reader and owner mention", mentionUserIds: [reader.id, owner.id] },
-    });
-    expect(edited.ok && edited.data.revision).toBe(2);
-    expect(edited.ok && edited.data.mentionUserIds).toEqual([owner.id, reader.id].sort());
-    const mentionDeliveries = await sql<{ recipient_user_id: string }[]>`
-      SELECT recipient_user_id
-      FROM mail.collaboration_notification_deliveries
-      WHERE kind = 'mention' AND source_id = ${comment.data.id}::uuid AND state = 'pending'
-      ORDER BY recipient_user_id
-    `;
-    expect(mentionDeliveries.map((row) => row.recipient_user_id).sort()).toEqual([owner.id, reader.id].sort());
-    const mentionRecovery = await notificationService.recover();
-    expect(mentionRecovery).toMatchObject({ scanned: 2, sent: 2, skipped: 0, failed: 0 });
-    expect(
-      sent
-        .filter((item) => item.kind === "mention")
-        .map((item) => item.recipientUserId)
-        .sort(),
-    ).toEqual([owner.id, reader.id].sort());
-    expect([...new Set(sent.filter((item) => item.kind === "mention").map((item) => item.commentId))]).toEqual([comment.data.id]);
-
-    const retryComment = await createConversationComment({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "Recover a transient notification failure", mentionUserIds: [owner.id] },
-    });
-    expect(retryComment.ok).toBe(true);
-    let failedOnce = false;
-    const failingService = createMailNotificationService(app.notifications, {
-      sender: async () => {
-        failedOnce = true;
-        throw new Error("Transient notification failure");
-      },
-    });
-    const failedRecovery = await failingService.recover();
-    expect(failedRecovery).toMatchObject({ scanned: 1, sent: 0, skipped: 0, failed: 1 });
-    expect(failedOnce).toBe(true);
-    if (retryComment.ok) {
-      await sql`
-        UPDATE mail.collaboration_notification_deliveries
-        SET available_at = now()
-        WHERE kind = 'mention' AND source_id = ${retryComment.data.id}::uuid AND state = 'pending'
-      `;
-    }
-    const retriedRecovery = await notificationService.recover();
-    expect(retriedRecovery).toMatchObject({ scanned: 1, sent: 1, skipped: 0, failed: 0 });
-
-    const queuedComment = await createConversationComment({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "Claim only inside the delivery worker", mentionUserIds: [owner.id] },
-    });
-    expect(queuedComment.ok).toBe(true);
-    let markWorkerStarted: () => void = () => undefined;
-    let releaseWorker: () => void = () => undefined;
-    const workerStarted = new Promise<void>((resolve) => {
-      markWorkerStarted = resolve;
-    });
-    const workerReleased = new Promise<void>((resolve) => {
-      releaseWorker = resolve;
-    });
-    const dispatchService = createMailNotificationService(app.notifications, {
-      jobId: `mail:test-collaboration-notification-delivery:${suffix}`,
-      sender: async () => {
-        markWorkerStarted();
-        await workerReleased;
-      },
-    });
-    expect(await dispatchService.dispatch({ limit: 1 })).toEqual({ reserved: 1, enqueued: 1 });
-    await workerStarted;
-    if (queuedComment.ok) {
-      const [claimedInWorker] = await sql<{ state: string; claimed: boolean }[]>`
-        SELECT state, claim_id IS NOT NULL AND claimed_at IS NOT NULL AS claimed
-        FROM mail.collaboration_notification_deliveries
-        WHERE kind = 'mention' AND source_id = ${queuedComment.data.id}::uuid
-      `;
-      expect(claimedInWorker).toEqual({ state: "sending", claimed: true });
-    }
-    expect(await dispatchService.dispatch({ limit: 1 })).toEqual({ reserved: 0, enqueued: 0 });
-    let stopped = false;
-    const stopping = dispatchService.stop().then(() => {
-      stopped = true;
-    });
-    await Bun.sleep(10);
-    expect(stopped).toBe(false);
-    releaseWorker();
-    await stopping;
-    if (queuedComment.ok) {
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        const [delivery] = await sql<{ state: string }[]>`
-          SELECT state
-          FROM mail.collaboration_notification_deliveries
-          WHERE kind = 'mention' AND source_id = ${queuedComment.data.id}::uuid
-        `;
-        if (delivery?.state === "sent") break;
-        await Bun.sleep(10);
-      }
-      const [completedInWorker] = await sql<{ state: string }[]>`
-        SELECT state
-        FROM mail.collaboration_notification_deliveries
-        WHERE kind = 'mention' AND source_id = ${queuedComment.data.id}::uuid
-      `;
-      expect(completedInWorker?.state).toBe("sent");
-    }
-
-    const removedMention = await createConversationComment({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "Mention removed before delivery", mentionUserIds: [owner.id] },
-    });
-    expect(removedMention.ok).toBe(true);
-    let staleMentionDispatchStarted: () => void = () => undefined;
-    let releaseStaleMentionDispatch: () => void = () => undefined;
-    const staleMentionStarted = new Promise<void>((resolve) => {
-      staleMentionDispatchStarted = resolve;
-    });
-    const staleMentionReleased = new Promise<void>((resolve) => {
-      releaseStaleMentionDispatch = resolve;
-    });
-    const staleMentionInputs: MailNotificationSendInput[] = [];
-    const staleMentionService = createMailNotificationService(app.notifications, {
-      sender: async (input) => {
-        staleMentionInputs.push(input);
-        staleMentionDispatchStarted();
-        await staleMentionReleased;
-        throw new Error("Stale mention delivery failed after comment edit");
-      },
-    });
-    const staleMentionRecovery = staleMentionService.recover();
-    await staleMentionStarted;
-    if (removedMention.ok) {
-      const removeDuringDispatch = await updateConversationComment({
-        context: writerContext,
-        mailboxId,
-        conversationId,
-        commentId: removedMention.data.id,
-        input: { expectedRevision: 1, body: "Mention removed before delivery", mentionUserIds: [] },
-      });
-      expect(removeDuringDispatch.ok).toBe(false);
-      if (!removeDuringDispatch.ok) expect(removeDuringDispatch.error.status).toBe(409);
-    }
-    releaseStaleMentionDispatch();
-    expect(await staleMentionRecovery).toMatchObject({ scanned: 1, sent: 0, skipped: 0, failed: 1 });
-    if (removedMention.ok) {
-      const removed = await updateConversationComment({
-        context: writerContext,
-        mailboxId,
-        conversationId,
-        commentId: removedMention.data.id,
-        input: { expectedRevision: 1, body: "Mention removed before delivery", mentionUserIds: [] },
-      });
-      expect(removed.ok).toBe(true);
-      const readded = await updateConversationComment({
-        context: writerContext,
-        mailboxId,
-        conversationId,
-        commentId: removedMention.data.id,
-        input: { expectedRevision: 2, body: "Mention added again", mentionUserIds: [owner.id] },
-      });
-      expect(readded.ok).toBe(true);
-    }
-    const readdedMentionRecovery = await notificationService.recover();
-    expect(readdedMentionRecovery).toMatchObject({ scanned: 1, sent: 1, skipped: 0, failed: 0 });
-    const deliveredReaddedMentions = sent.filter((item) => item.commentId === (removedMention.ok ? removedMention.data.id : ""));
-    expect(deliveredReaddedMentions).toHaveLength(1);
-    expect(deliveredReaddedMentions[0]?.idempotencyKey).toBe(staleMentionInputs[0]?.idempotencyKey);
-    const staleMentionRetry = await notificationService.recover();
-    expect(staleMentionRetry).toMatchObject({ scanned: 0, sent: 0, skipped: 0, failed: 0 });
 
     const dueAt = new Date(Date.now() - 1_000).toISOString();
     const reminder = await setConversationReminder({
@@ -587,13 +395,6 @@ suite("mail collaboration operations", () => {
     await leaveConversationPresence({ context: writerContext, mailboxId, conversationId, peerId: writerPeerId });
     await leaveConversationPresence({ context: readerContext, mailboxId, conversationId, peerId: readerPeerId });
 
-    const revokedComment = await createConversationComment({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "Mention before access revocation", mentionUserIds: [reader.id] },
-    });
-    expect(revokedComment.ok).toBe(true);
     const staleReaderPresence = await heartbeatConversationPresence({
       context: readerContext,
       mailboxId,
@@ -603,8 +404,6 @@ suite("mail collaboration operations", () => {
     expect(staleReaderPresence.ok).toBe(true);
     const revoked = await revokeMailboxAccess({ context: ownerContext, mailboxId, accessId: readerAccessId });
     expect(revoked.ok).toBe(true);
-    const revokedRecovery = await notificationService.recover();
-    expect(revokedRecovery).toMatchObject({ scanned: 1, sent: 0, skipped: 1, failed: 0 });
     const snapshotAfterReaderRevocation = await getConversationPresence({ context: ownerContext, mailboxId, conversationId });
     expect(
       snapshotAfterReaderRevocation.ok &&
@@ -682,21 +481,11 @@ suite("mail collaboration operations", () => {
       input: { peerId: personalPeerId, mode: "composing" },
     });
     expect(personalPresence.ok).toBe(true);
-    const bindingMention = await createConversationComment({
-      context: ownerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "Mention before personal binding revocation", mentionUserIds: [writer.id] },
-    });
-    expect(bindingMention.ok).toBe(true);
-
     await sql`
       UPDATE mail.provider_bindings
       SET state = 'revoked'
       WHERE id = ${binding!.id}::uuid
     `;
-    const revokedBindingRecovery = await notificationService.recover();
-    expect(revokedBindingRecovery).toMatchObject({ scanned: 1, sent: 1, skipped: 0, failed: 0 });
     const snapshotAfterBindingRevocation = await getConversationPresence({ context: ownerContext, mailboxId, conversationId });
     expect(
       snapshotAfterBindingRevocation.ok &&

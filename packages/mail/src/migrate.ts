@@ -975,16 +975,6 @@ const hardenProviderBackedOperations = async (db: SqlClient): Promise<void> => {
 
 const addConversationCollaboration = async (db: SqlClient): Promise<void> => {
   await db`
-    CREATE TABLE mail.conversation_watchers (
-      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
-      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      PRIMARY KEY (conversation_id, user_id)
-    )
-  `;
-  await db`CREATE INDEX conversation_watchers_user_idx ON mail.conversation_watchers (user_id, conversation_id)`;
-
-  await db`
     CREATE TABLE mail.conversation_comments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
@@ -1019,20 +1009,6 @@ const addConversationCollaboration = async (db: SqlClient): Promise<void> => {
       PRIMARY KEY (comment_id, revision)
     )
   `;
-
-  await db`
-    CREATE TABLE mail.conversation_comment_mentions (
-      comment_id UUID NOT NULL,
-      revision BIGINT NOT NULL,
-      user_id UUID NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      PRIMARY KEY (comment_id, revision, user_id),
-      FOREIGN KEY (comment_id, revision)
-        REFERENCES mail.conversation_comment_versions(comment_id, revision)
-        ON DELETE CASCADE
-    )
-  `;
-  await db`CREATE INDEX conversation_comment_mentions_user_idx ON mail.conversation_comment_mentions (user_id, created_at DESC, comment_id)`;
 
   await db`CREATE INDEX conversations_mailbox_assignee_idx ON mail.conversations (mailbox_id, assignee_user_id, latest_message_at DESC, id DESC)`;
   await db`CREATE INDEX conversations_mailbox_snoozed_idx ON mail.conversations (mailbox_id, snoozed_until, id) WHERE snoozed_until IS NOT NULL`;
@@ -1400,7 +1376,7 @@ const addCollaborationOperations = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.collaboration_notification_deliveries (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      kind TEXT NOT NULL CHECK (kind IN ('mention', 'reminder')),
+      kind TEXT NOT NULL CHECK (kind = 'reminder'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
       recipient_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -3736,6 +3712,74 @@ const repairCanonicalSavedConversationViewConstraint = async (db: SqlClient): Pr
   `;
 };
 
+const removeConversationFollowersAndMentions = async (db: SqlClient): Promise<void> => {
+  await db`DELETE FROM mail.collaboration_notification_deliveries WHERE kind = 'mention'`;
+  await db`
+    ALTER TABLE mail.collaboration_notification_deliveries
+    DROP CONSTRAINT IF EXISTS collaboration_notification_deliveries_kind_check
+  `;
+  await db`
+    ALTER TABLE mail.collaboration_notification_deliveries
+    ADD CONSTRAINT collaboration_notification_deliveries_kind_check CHECK (kind = 'reminder')
+  `;
+  await db`DROP TABLE IF EXISTS mail.conversation_comment_mentions`;
+  await db`DROP TABLE IF EXISTS mail.conversation_watchers`;
+  await db`
+    DELETE FROM mail.activity_events
+    WHERE action IN ('conversation.watcher_added', 'conversation.watcher_removed')
+  `;
+  await db`
+    UPDATE mail.activity_events
+    SET metadata = metadata - 'mentionUserIds'
+    WHERE metadata ? 'mentionUserIds'
+  `;
+
+  await canonicalizeSavedConversationViews(db);
+
+  await db`
+    UPDATE mail.workflow_activations activation
+    SET
+      enabled = false,
+      diagnostics = activation.diagnostics || jsonb_build_array(jsonb_build_object(
+        'severity', 'error',
+        'code', 'removed_search_condition',
+        'message', 'This workflow used the removed Followed by me search condition. Edit and reactivate it.'
+      )),
+      updated_at = now()
+    FROM mail.workflow_versions version
+    WHERE activation.workflow_version_id = version.id
+      AND (
+        version.source LIKE '%watched_by_me%'
+        OR version.ir::text LIKE '%watched_by_me%'
+        OR version.bound_plan::text LIKE '%watched_by_me%'
+      )
+  `;
+  await db`
+    UPDATE mail.workflows workflow
+    SET active_version_id = NULL, updated_at = now()
+    FROM mail.workflow_versions version
+    WHERE workflow.active_version_id = version.id
+      AND (
+        version.source LIKE '%watched_by_me%'
+        OR version.ir::text LIKE '%watched_by_me%'
+        OR version.bound_plan::text LIKE '%watched_by_me%'
+      )
+  `;
+
+  await db`
+    DO $$
+    BEGIN
+      IF to_regclass('notifications.events') IS NOT NULL THEN
+        EXECUTE 'UPDATE notifications.events SET target_href = NULL WHERE definition_id = ''mail.commentMention''';
+      END IF;
+      IF to_regclass('notifications.definitions') IS NOT NULL THEN
+        EXECUTE 'UPDATE notifications.definitions SET active = false, updated_at = now() WHERE id = ''mail.commentMention''';
+      END IF;
+    END
+    $$
+  `;
+};
+
 const repairDraftProviderRemoteIdentityIndex = async (db: SqlClient): Promise<void> => {
   await db`DROP INDEX IF EXISTS mail.draft_provider_snapshots_remote_identity_idx`;
   await db`
@@ -4274,6 +4318,7 @@ const migrations: readonly MailMigration[] = [
   { version: 75, name: "saved_view_quarantine", run: canonicalizeSavedConversationViews },
   { version: 76, name: "local_tag_colors", run: addLocalTagColors },
   { version: 77, name: "counterparty_participant_summaries", run: repairConversationParticipantSummaries, online: true },
+  { version: 78, name: "remove_conversation_followers_and_mentions", run: removeConversationFollowersAndMentions },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

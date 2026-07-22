@@ -500,7 +500,6 @@ test("conversation update sends one optimistic collaboration mutation", async ()
         responseNeeded: true,
         snoozedUntil: "2026-08-01T12:00:00.000Z",
         revision: 5,
-        watchers: [],
       });
     }
     return api({ message: "unexpected" }, { status: 500 });
@@ -631,10 +630,10 @@ test("conversation reassign-message requires confirmation and forwards revision 
   let requests = 0;
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
-      if (
-        request.method === "POST" &&
-        new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/messages/${MESSAGE_ID}/reassign`
-      ) {
+    if (
+      request.method === "POST" &&
+      new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/messages/${MESSAGE_ID}/reassign`
+    ) {
       requests += 1;
       requestBody = await request.json();
       return api({
@@ -922,7 +921,7 @@ test("saved view commands cover structured filters and revisioned lifecycle", as
   ]);
 }, 45_000);
 
-test("comment add forwards stdin, mentions, and references", async () => {
+test("comment add forwards stdin and references", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
     if (
@@ -937,7 +936,6 @@ test("comment add forwards stdin, mentions, and references", async () => {
         author: { kind: "user", id: USER_ID, displayName: "Writer", avatarHash: null },
         parentCommentId: COMMENT_ID,
         referencedMessageId: MESSAGE_ID,
-        mentionUserIds: [USER_ID],
         revision: 1,
         editedAt: null,
         deletedAt: null,
@@ -960,8 +958,6 @@ test("comment add forwards stdin, mentions, and references", async () => {
       "--mailbox",
       MAILBOX_ID,
       "--body-stdin",
-      "--mention",
-      USER_ID,
       "--parent",
       COMMENT_ID,
       "--message",
@@ -973,7 +969,6 @@ test("comment add forwards stdin, mentions, and references", async () => {
   expect(result.exitCode).toBe(0);
   expect(requestBody).toEqual({
     body: "Internal note\n",
-    mentionUserIds: [USER_ID],
     parentCommentId: COMMENT_ID,
     referencedMessageId: MESSAGE_ID,
   });
@@ -993,7 +988,6 @@ test("comment delete uses a revisioned tombstone request", async () => {
         author: { kind: "user", id: USER_ID, displayName: "Writer", avatarHash: null },
         parentCommentId: null,
         referencedMessageId: null,
-        mentionUserIds: [],
         revision: 3,
         editedAt: "2026-07-13T00:00:01.000Z",
         deletedAt: "2026-07-13T00:00:01.000Z",

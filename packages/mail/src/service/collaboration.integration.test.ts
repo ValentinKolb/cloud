@@ -11,8 +11,6 @@ import {
   listActivity,
   listAssignableUsers,
   listConversationComments,
-  listMentionableUsers,
-  setConversationWatcher,
   updateConversationCollaboration,
   updateConversationComment,
 } from "./collaboration";
@@ -189,10 +187,6 @@ suite("mail collaboration backend", () => {
     expect(users.data.map((user) => user.id)).toContain(writer.id);
     expect(users.data.map((user) => user.id)).not.toContain(reader.id);
     expect(users.data.map((user) => user.id)).not.toContain(outsider.id);
-    const mentionable = await listMentionableUsers({ context: readerContext, mailboxId, limit: 20 });
-    expect(mentionable.ok && mentionable.data.map((user) => user.id)).toContain(reader.id);
-    expect(mentionable.ok && mentionable.data.map((user) => user.id)).not.toContain(outsider.id);
-
     const deniedState = await updateConversationCollaboration({
       context: readerContext,
       mailboxId,
@@ -267,45 +261,21 @@ suite("mail collaboration backend", () => {
     expect(waitingCounts.ok && waitingCounts.data.mine).toBe(1);
     expect(waitingCounts.ok && waitingCounts.data.waiting).toBe(1);
 
-    const watched = await setConversationWatcher({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      userId: reader.id,
-      watching: true,
-    });
-    expect(watched.ok && watched.data.watchers.map((watcher) => watcher.id)).toContain(reader.id);
-    const deniedWatcher = await setConversationWatcher({
-      context: readerContext,
-      mailboxId,
-      conversationId,
-      userId: owner.id,
-      watching: true,
-    });
-    expect(deniedWatcher.ok).toBe(false);
-
     const secretBody = `Internal secret ${suffix}`;
     const comment = await createConversationComment({
       context: readerContext,
       mailboxId,
       conversationId,
-      input: { body: secretBody, mentionUserIds: [writer.id], referencedMessageId: messageId },
+      input: { body: secretBody, referencedMessageId: messageId },
     });
     expect(comment.ok).toBe(true);
     if (!comment.ok) return;
-    const invalidMention = await createConversationComment({
-      context: readerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "Cannot mention outsider", mentionUserIds: [outsider.id] },
-    });
-    expect(invalidMention.ok).toBe(false);
     const forbiddenEdit = await updateConversationComment({
       context: writerContext,
       mailboxId,
       conversationId,
       commentId: comment.data.id,
-      input: { expectedRevision: 1, body: "Writer overwrite", mentionUserIds: [] },
+      input: { expectedRevision: 1, body: "Writer overwrite" },
     });
     expect(forbiddenEdit.ok).toBe(false);
     if (!forbiddenEdit.ok) expect(forbiddenEdit.error.status).toBe(403);
@@ -314,14 +284,14 @@ suite("mail collaboration backend", () => {
       mailboxId,
       conversationId,
       commentId: comment.data.id,
-      input: { expectedRevision: 1, body: "Edited internal context", mentionUserIds: [owner.id] },
+      input: { expectedRevision: 1, body: "Edited internal context" },
     });
     expect(edited.ok && edited.data.revision).toBe(2);
     const reply = await createConversationComment({
       context: writerContext,
       mailboxId,
       conversationId,
-      input: { body: "Flat reply", parentCommentId: comment.data.id, mentionUserIds: [] },
+      input: { body: "Flat reply", parentCommentId: comment.data.id },
     });
     expect(reply.ok && reply.data.parentCommentId).toBe(comment.data.id);
     const deleted = await deleteConversationComment({
@@ -441,23 +411,6 @@ suite("mail collaboration backend", () => {
     expect(revoked.ok).toBe(true);
     const revokedRead = await listConversationComments({ context: readerContext, mailboxId, conversationId });
     expect(revokedRead.ok).toBe(false);
-    const revokedMention = await createConversationComment({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "No stale mention", mentionUserIds: [reader.id] },
-    });
-    expect(revokedMention.ok).toBe(false);
-    const filteredWatchers = await getConversationCollaboration({ context: writerContext, mailboxId, conversationId });
-    expect(filteredWatchers.ok && filteredWatchers.data.watchers.map((watcher) => watcher.id)).not.toContain(reader.id);
-    const removedStaleWatcher = await setConversationWatcher({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      userId: reader.id,
-      watching: false,
-    });
-    expect(removedStaleWatcher.ok).toBe(true);
     const outsiderRead = await listActivity({ context: outsiderContext, mailboxId });
     expect(outsiderRead.ok).toBe(false);
   }, 30_000);

@@ -14,7 +14,6 @@ import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { listCurrentMailboxUsers } from "./collaborators";
 import { type MailConversationChangedEvent, publishMailCollaborationEvent } from "./events";
 import { resolveMailExecution } from "./execution";
-import { enqueueCollaborationNotifications } from "./notification-outbox";
 
 type SqlClient = typeof sql;
 type CommentActorKind = "user" | "service_account" | "workflow";
@@ -38,7 +37,6 @@ export type ConversationCollaboration = {
   responseNeeded: boolean;
   snoozedUntil: string | null;
   revision: number;
-  watchers: MailCollaborator[];
 };
 
 export type ConversationComment = {
@@ -53,7 +51,6 @@ export type ConversationComment = {
   };
   parentCommentId: string | null;
   referencedMessageId: string | null;
-  mentionUserIds: string[];
   revision: number;
   editedAt: string | null;
   deletedAt: string | null;
@@ -100,7 +97,6 @@ type CommentRow = {
   author_avatar_hash: string | null;
   parent_comment_id: string | null;
   referenced_message_id: string | null;
-  mention_user_ids: string[];
   revision: string | number;
   edited_at: Date | string | null;
   deleted_at: Date | string | null;
@@ -233,7 +229,7 @@ const validateCurrentUsers = async (params: {
   db: SqlClient;
   userIds: string[];
   minimumPermission: "read" | "write";
-  label: "Assignee" | "Watcher" | "Mentioned user";
+  label: "Assignee";
 }): Promise<Result<void>> => {
   const userIds = [...new Set(params.userIds)];
   if (userIds.length === 0) return ok();
@@ -286,21 +282,6 @@ const loadCollaboration = async (
     WHERE c.id = ${conversationId}::uuid AND c.mailbox_id = ${mailboxId}::uuid
   `;
   if (!row) return null;
-  const watcherRows = await db<{ user_id: string }[]>`
-    SELECT user_id
-    FROM mail.conversation_watchers
-    WHERE conversation_id = ${conversationId}::uuid
-  `;
-  const watcherUsers =
-    watcherRows.length === 0
-      ? []
-      : await listCurrentUsers({
-          mailboxId,
-          db,
-          userIds: watcherRows.map((watcher) => watcher.user_id),
-          minimumPermission: "read",
-          limit: watcherRows.length,
-        });
   return {
     conversationId: row.id,
     assignee:
@@ -316,7 +297,6 @@ const loadCollaboration = async (
     responseNeeded: row.response_needed,
     snoozedUntil: toNullableIso(row.snoozed_until),
     revision: Number(row.revision),
-    watchers: watcherUsers.map(collaboratorFromAccessUser),
   };
 };
 
@@ -388,13 +368,6 @@ export const listAssignableUsers = (params: {
   search?: string;
   limit?: number;
 }): Promise<Result<MailAssignableUser[]>> => listEligibleUsers({ ...params, minimumPermission: "write" });
-
-export const listMentionableUsers = (params: {
-  context: MailRequestContext;
-  mailboxId: string;
-  search?: string;
-  limit?: number;
-}): Promise<Result<MailAssignableUser[]>> => listEligibleUsers({ ...params, minimumPermission: "read" });
 
 export const getConversationCollaboration = async (params: {
   context: MailRequestContext;
@@ -574,82 +547,6 @@ export const updateConversationCollaboration = async (params: {
   }
 };
 
-export const setConversationWatcher = async (params: {
-  context: MailRequestContext;
-  mailboxId: string;
-  conversationId: string;
-  userId: string;
-  watching: boolean;
-}): Promise<Result<ConversationCollaboration>> => {
-  try {
-    const result = await sql.begin(async (tx): Promise<Result<CollaborationMutation<ConversationCollaboration>>> => {
-      const allowed = await lockMailboxForCollaboration(params.context, params.mailboxId, "write", tx);
-      if (!allowed.ok) return allowed;
-      const [conversation] = await tx<{ id: string }[]>`
-        SELECT id FROM mail.conversations
-        WHERE id = ${params.conversationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE
-      `;
-      if (!conversation) return fail(err.notFound("Conversation"));
-      if (params.watching) {
-        const validWatcher = await validateCurrentUsers({
-          mailboxId: params.mailboxId,
-          db: tx,
-          userIds: [params.userId],
-          minimumPermission: "read",
-          label: "Watcher",
-        });
-        if (!validWatcher.ok) return validWatcher;
-      }
-
-      let changed = false;
-      if (params.watching) {
-        const [inserted] = await tx<{ user_id: string }[]>`
-          INSERT INTO mail.conversation_watchers (conversation_id, user_id)
-          VALUES (${params.conversationId}::uuid, ${params.userId}::uuid)
-          ON CONFLICT DO NOTHING
-          RETURNING user_id
-        `;
-        changed = Boolean(inserted);
-      } else {
-        const [deleted] = await tx<{ user_id: string }[]>`
-          DELETE FROM mail.conversation_watchers
-          WHERE conversation_id = ${params.conversationId}::uuid AND user_id = ${params.userId}::uuid
-          RETURNING user_id
-        `;
-        changed = Boolean(deleted);
-      }
-      const state = await loadCollaboration(params.mailboxId, params.conversationId, tx);
-      if (!state) return fail(err.internal("Updated conversation could not be loaded"));
-      if (!changed) return ok({ value: state, event: null });
-      await tx`UPDATE mail.conversations SET updated_at = now() WHERE id = ${params.conversationId}::uuid`;
-      const activityId = await insertActivity({
-        db: tx,
-        mailboxId: params.mailboxId,
-        conversationId: params.conversationId,
-        context: params.context,
-        action: params.watching ? "conversation.watcher_added" : "conversation.watcher_removed",
-        targetType: "user",
-        targetId: params.userId,
-        metadata: { userId: params.userId },
-      });
-      return ok({
-        value: state,
-        event: {
-          mailboxId: params.mailboxId,
-          conversationId: params.conversationId,
-          reason: "watcher",
-          targetId: params.userId,
-          activityId,
-        },
-      });
-    });
-    return finishMutation(result);
-  } catch {
-    return fail(err.internal("Failed to update conversation watcher"));
-  }
-};
-
 const commentColumns = sql`
   comment.id,
   comment.conversation_id,
@@ -669,12 +566,6 @@ const commentColumns = sql`
   author_user.avatar_hash AS author_avatar_hash,
   comment.parent_comment_id,
   comment.referenced_message_id,
-  ARRAY(
-    SELECT mention.user_id::text
-    FROM mail.conversation_comment_mentions mention
-    WHERE mention.comment_id = comment.id AND mention.revision = comment.revision
-    ORDER BY mention.user_id
-  ) AS mention_user_ids,
   comment.revision,
   comment.edited_at,
   comment.deleted_at,
@@ -694,7 +585,6 @@ const mapComment = (row: CommentRow): ConversationComment => ({
   },
   parentCommentId: row.parent_comment_id,
   referencedMessageId: row.referenced_message_id,
-  mentionUserIds: row.deleted_at ? [] : row.mention_user_ids,
   revision: Number(row.revision),
   editedAt: toNullableIso(row.edited_at),
   deletedAt: toNullableIso(row.deleted_at),
@@ -748,15 +638,6 @@ const validateCommentReferences = async (params: {
   return ok();
 };
 
-const replaceMentions = async (params: { db: SqlClient; commentId: string; revision: number; userIds: string[] }): Promise<void> => {
-  for (const userId of params.userIds) {
-    await params.db`
-      INSERT INTO mail.conversation_comment_mentions (comment_id, revision, user_id)
-      VALUES (${params.commentId}::uuid, ${params.revision}, ${userId}::uuid)
-    `;
-  }
-};
-
 const lockCommentForMutation = async (params: {
   db: SqlClient;
   mailboxId: string;
@@ -783,16 +664,6 @@ const lockCommentForMutation = async (params: {
   const owner = comment.author_kind === params.actor.kind && comment.author_id === params.actor.id;
   if (!owner && params.permission !== "admin") {
     return fail(err.forbidden(`Only the comment author or a mailbox admin can ${params.action} this comment`));
-  }
-  const deliveries = await params.db<{ state: string }[]>`
-    SELECT state
-    FROM mail.collaboration_notification_deliveries
-    WHERE kind = 'mention' AND source_id = ${params.commentId}::uuid
-    ORDER BY id
-    FOR UPDATE
-  `;
-  if (deliveries.some((delivery) => delivery.state === "sending")) {
-    return fail(err.conflict("Comment notifications are currently being delivered; retry shortly"));
   }
   return ok(comment);
 };
@@ -865,14 +736,6 @@ export const createConversationComment = async (params: {
         referencedMessageId: params.input.referencedMessageId,
       });
       if (!references.ok) return references;
-      const mentions = await validateCurrentUsers({
-        mailboxId: params.mailboxId,
-        db: tx,
-        userIds: params.input.mentionUserIds,
-        minimumPermission: "read",
-        label: "Mentioned user",
-      });
-      if (!mentions.ok) return mentions;
       const actor = actorIdentity(params.context);
       const [comment] = await tx<{ id: string }[]>`
         INSERT INTO mail.conversation_comments (
@@ -893,21 +756,6 @@ export const createConversationComment = async (params: {
           comment_id, revision, body_markdown, editor_kind, editor_id, deleted
         ) VALUES (${comment.id}::uuid, 1, ${params.input.body}, ${actor.kind}, ${actor.id}::uuid, false)
       `;
-      await replaceMentions({
-        db: tx,
-        commentId: comment.id,
-        revision: 1,
-        userIds: params.input.mentionUserIds,
-      });
-      await enqueueCollaborationNotifications({
-        db: tx,
-        kind: "mention",
-        mailboxId: params.mailboxId,
-        conversationId: params.conversationId,
-        recipientUserIds: params.input.mentionUserIds.filter((userId) => actor.kind !== "user" || userId !== actor.id),
-        sourceId: comment.id,
-        sourceRevision: 1,
-      });
       await tx`UPDATE mail.conversations SET updated_at = now() WHERE id = ${params.conversationId}::uuid`;
       const value = await loadComment({
         db: tx,
@@ -928,7 +776,6 @@ export const createConversationComment = async (params: {
           revision: 1,
           parentCommentId: value.parentCommentId,
           referencedMessageId: value.referencedMessageId,
-          mentionUserIds: value.mentionUserIds,
         },
       });
       return ok({
@@ -955,7 +802,7 @@ export const createWorkflowConversationCommentInTransaction = async (params: {
   workflowVersionId: string;
   body: string;
 }): Promise<Result<{ id: string; activityId: string }>> => {
-  const parsed = createConversationCommentSchema.safeParse({ body: params.body, mentionUserIds: [] });
+  const parsed = createConversationCommentSchema.safeParse({ body: params.body });
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid internal comment"));
   const [conversation] = await params.db<{ id: string }[]>`
     SELECT id
@@ -990,7 +837,7 @@ export const createWorkflowConversationCommentInTransaction = async (params: {
     action: "conversation.comment_created",
     targetType: "comment",
     targetId: comment.id,
-    metadata: { revision: 1, parentCommentId: null, referencedMessageId: null, mentionUserIds: [] },
+    metadata: { revision: 1, parentCommentId: null, referencedMessageId: null },
   });
   return ok({ id: comment.id, activityId });
 };
@@ -1018,22 +865,7 @@ export const updateConversationComment = async (params: {
         action: "edit",
       });
       if (!current.ok) return current;
-      const mentions = await validateCurrentUsers({
-        mailboxId: params.mailboxId,
-        db: tx,
-        userIds: params.input.mentionUserIds,
-        minimumPermission: "read",
-        label: "Mentioned user",
-      });
-      if (!mentions.ok) return mentions;
-      const currentMentionRows = await tx<{ user_id: string }[]>`
-        SELECT user_id FROM mail.conversation_comment_mentions
-        WHERE comment_id = ${params.commentId}::uuid AND revision = ${params.input.expectedRevision}
-        ORDER BY user_id
-      `;
-      const currentMentionIds = currentMentionRows.map((row) => row.user_id);
-      const nextMentionIds = [...params.input.mentionUserIds].sort();
-      if (current.data.body_markdown === params.input.body && currentMentionIds.join(",") === nextMentionIds.join(",")) {
+      if (current.data.body_markdown === params.input.body) {
         const value = await loadComment({
           db: tx,
           mailboxId: params.mailboxId,
@@ -1054,29 +886,6 @@ export const updateConversationComment = async (params: {
           comment_id, revision, body_markdown, editor_kind, editor_id, deleted
         ) VALUES (${params.commentId}::uuid, ${revision}, ${params.input.body}, ${actor.kind}, ${actor.id}::uuid, false)
       `;
-      await replaceMentions({
-        db: tx,
-        commentId: params.commentId,
-        revision,
-        userIds: nextMentionIds,
-      });
-      await tx`
-        UPDATE mail.collaboration_notification_deliveries
-        SET state = 'skipped', last_error = 'Mention revision was superseded before delivery'
-        WHERE kind = 'mention'
-          AND source_id = ${params.commentId}::uuid
-          AND source_revision < ${revision}
-          AND state = 'pending'
-      `;
-      await enqueueCollaborationNotifications({
-        db: tx,
-        kind: "mention",
-        mailboxId: params.mailboxId,
-        conversationId: params.conversationId,
-        recipientUserIds: nextMentionIds.filter((userId) => actor.kind !== "user" || userId !== actor.id),
-        sourceId: params.commentId,
-        sourceRevision: revision,
-      });
       await tx`UPDATE mail.conversations SET updated_at = now() WHERE id = ${params.conversationId}::uuid`;
       const value = await loadComment({
         db: tx,
@@ -1093,7 +902,7 @@ export const updateConversationComment = async (params: {
         action: "conversation.comment_updated",
         targetType: "comment",
         targetId: params.commentId,
-        metadata: { revision, mentionUserIds: value.mentionUserIds },
+        metadata: { revision },
       });
       return ok({
         value,

@@ -13,7 +13,7 @@ const MailConversationChangedEventSchema = z
     type: z.literal("conversation.changed"),
     mailboxId: z.uuid(),
     conversationId: z.uuid(),
-    reason: z.enum(["collaboration", "watcher", "comment", "inbound", "threading", "reminder", "local_tag", "reference"]),
+    reason: z.enum(["collaboration", "comment", "inbound", "threading", "reminder", "local_tag", "reference"]),
     targetId: z.uuid().nullable(),
     activityId: z.string().min(1).max(128),
     at: z.string().datetime(),

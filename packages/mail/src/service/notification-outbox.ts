@@ -2,7 +2,7 @@ import type { sql } from "bun";
 
 type SqlClient = typeof sql;
 
-export type CollaborationNotificationKind = "mention" | "reminder";
+export type CollaborationNotificationKind = "reminder";
 
 export const enqueueCollaborationNotifications = async (params: {
   db: SqlClient;

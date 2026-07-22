@@ -29,8 +29,6 @@ const notificationData = z.object({
   conversationId: z.uuid(),
   sourceId: z.uuid(),
   subject: z.string(),
-  actorDisplayName: z.string().optional(),
-  commentId: z.uuid().optional(),
 });
 const workflowNotificationData = z.object({
   mailboxId: z.uuid(),
@@ -39,18 +37,6 @@ const workflowNotificationData = z.object({
 });
 
 export const NOTIFICATIONS = {
-  commentMention: notification({
-    recipient: "user",
-    label: "Mail mentions",
-    description: "A notification when someone mentions you in an internal Mail comment.",
-    delivery: { recommended: ["browser"] },
-    data: notificationData,
-    render: ({ mailboxId, sourceId, subject, actorDisplayName }) => ({
-      title: "Mentioned in Mail",
-      body: `${actorDisplayName || "A collaborator"} mentioned you in ${subject || "a conversation"}.`,
-      targetHref: mailNotificationTargetHref({ mailboxId, kind: "mention", sourceId }),
-    }),
-  }),
   conversationReminder: notification({
     recipient: "user",
     label: "Mail reminders",
@@ -93,8 +79,6 @@ export type MailNotificationSendInput = {
   conversationId: string;
   sourceId: string;
   subject: string;
-  actorDisplayName?: string;
-  commentId?: string;
   idempotencyKey: string;
 };
 
@@ -127,17 +111,7 @@ const defaultSender =
       conversationId: input.conversationId,
       sourceId: input.sourceId,
       subject: input.subject,
-      ...(input.actorDisplayName ? { actorDisplayName: input.actorDisplayName } : {}),
-      ...(input.commentId ? { commentId: input.commentId } : {}),
     };
-    if (input.kind === "mention") {
-      await notifications.send(definitions.commentMention, {
-        recipient: { userId: input.recipientUserId },
-        data,
-        idempotencyKey: input.idempotencyKey,
-      });
-      return;
-    }
     await notifications.send(definitions.conversationReminder, {
       recipient: { userId: input.recipientUserId },
       data,
@@ -173,52 +147,7 @@ const loadClaimedDelivery = async (deliveryId: string, claimId: string): Promise
 
 const loadSendInput = async (delivery: DeliveryRow): Promise<MailNotificationSendInput | null> => {
   if (!(await hasCurrentReadAccess(delivery))) return null;
-  const idempotencyKey =
-    delivery.kind === "mention"
-      ? `mail:${delivery.kind}:${delivery.source_id}:${delivery.recipient_user_id}`
-      : `mail:${delivery.kind}:${delivery.source_id}:${delivery.source_revision}:${delivery.recipient_user_id}`;
-  if (delivery.kind === "mention") {
-    const [row] = await sql<{ subject: string; actor_display_name: string }[]>`
-      SELECT
-        conversation.subject,
-        COALESCE(
-          NULLIF(author_user.display_name, ''),
-          author_user.uid,
-          author_service.name,
-          CASE comment.author_kind WHEN 'user' THEN 'A former user' ELSE 'A former service account' END
-        ) AS actor_display_name
-      FROM mail.conversation_comments comment
-      JOIN mail.conversations conversation ON conversation.id = comment.conversation_id
-      LEFT JOIN auth.users author_user ON comment.author_kind = 'user' AND author_user.id = comment.author_id
-      LEFT JOIN auth.service_accounts author_service
-        ON comment.author_kind = 'service_account' AND author_service.id = comment.author_id
-      WHERE comment.id = ${delivery.source_id}::uuid
-        AND comment.conversation_id = ${delivery.conversation_id}::uuid
-        AND conversation.mailbox_id = ${delivery.mailbox_id}::uuid
-        AND comment.revision = ${delivery.source_revision}
-        AND comment.deleted_at IS NULL
-        AND EXISTS (
-          SELECT 1
-          FROM mail.conversation_comment_mentions mention
-          WHERE mention.comment_id = comment.id
-            AND mention.revision = comment.revision
-            AND mention.user_id = ${delivery.recipient_user_id}::uuid
-        )
-    `;
-    return row
-      ? {
-          kind: "mention",
-          recipientUserId: delivery.recipient_user_id,
-          mailboxId: delivery.mailbox_id,
-          conversationId: delivery.conversation_id,
-          sourceId: delivery.source_id,
-          subject: row.subject,
-          actorDisplayName: row.actor_display_name,
-          commentId: delivery.source_id,
-          idempotencyKey,
-        }
-      : null;
-  }
+  const idempotencyKey = `mail:reminder:${delivery.source_id}:${delivery.source_revision}:${delivery.recipient_user_id}`;
 
   const [row] = await sql<{ subject: string }[]>`
     SELECT conversation.subject

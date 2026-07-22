@@ -17,7 +17,6 @@ const collaboration = (revision: number, workStatus: ConversationCollaboration["
   responseNeeded: false,
   snoozedUntil: null,
   revision,
-  watchers: [],
 });
 
 const tag = (id: string, name: string, revision = 1): LocalTag => ({
@@ -37,7 +36,6 @@ const comment = (id: string, revision: number, body: string): ConversationCommen
   author: { kind: "user", id: "00000000-0000-4000-8000-000000000003", displayName: "Ada", avatarHash: null },
   parentCommentId: null,
   referencedMessageId: null,
-  mentionUserIds: [],
   revision,
   editedAt: null,
   deletedAt: null,
@@ -60,16 +58,6 @@ describe("Mail details reconciliation", () => {
   test("applies newer collaboration and tag revisions but rejects stale snapshots", () => {
     expect(reconcileCollaboration(collaboration(3, "done"), collaboration(2, "open")).workStatus).toBe("done");
     expect(reconcileCollaboration(collaboration(2, "open"), collaboration(3, "done")).workStatus).toBe("done");
-
-    const watcher = {
-      id: "00000000-0000-4000-8000-000000000004",
-      uid: "grace",
-      displayName: "Grace",
-      avatarHash: null,
-    };
-    expect(reconcileCollaboration(collaboration(3, "done"), { ...collaboration(3, "done"), watchers: [watcher] }).watchers).toEqual([
-      watcher,
-    ]);
 
     const current: ConversationLocalTags = {
       conversationId: "00000000-0000-4000-8000-000000000001",
