@@ -79,6 +79,11 @@ const controlledPanel = (root: HTMLElement, handle: HTMLElement): HTMLElement | 
   return panel?.closest(".app-workspace") === root ? panel : null;
 };
 
+const controlsResizableRegion = (root: HTMLElement, handle: HTMLElement, kind: ResizeKind): boolean =>
+  kind === "sidebar"
+    ? sidebarElement(root)?.dataset.workspaceResizable === "true"
+    : controlledPanel(root, handle)?.dataset.workspaceResizable === "true";
+
 const panelId = (handle: HTMLElement): string => safeAppWorkspacePanelId(handle.dataset.workspacePanelId ?? "primary") || "primary";
 
 const numberData = (handle: HTMLElement, key: "workspaceMinSize" | "workspaceMaxSize", fallback: number): number => {
@@ -276,7 +281,8 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     const handle = resizeHandle(event);
     const kind = handle ? resizeKind(handle) : null;
     const root = handle ? workspaceRoot(handle) : null;
-    if (!handle || !kind || !root || !workspaceResizable(root) || event.button !== 0) return;
+    if (!handle || !kind || !root || !workspaceResizable(root) || !controlsResizableRegion(root, handle, kind) || event.button !== 0)
+      return;
 
     event.preventDefault();
     stopResize();
@@ -304,7 +310,7 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     const handle = resizeHandle(event);
     const kind = handle ? resizeKind(handle) : null;
     const root = handle ? workspaceRoot(handle) : null;
-    if (!handle || !kind || !root || !workspaceResizable(root)) return;
+    if (!handle || !kind || !root || !workspaceResizable(root) || !controlsResizableRegion(root, handle, kind)) return;
 
     const current = currentSize(root, handle, kind);
     const { min, max } = sizeLimits(root, handle, kind);
@@ -341,7 +347,9 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     const handle = resizeHandle(event);
     const kind = handle ? resizeKind(handle) : null;
     const root = handle ? workspaceRoot(handle) : null;
-    if (handle && kind && root) updateHandleValue(root, handle, kind, currentSize(root, handle, kind));
+    if (handle && kind && root && controlsResizableRegion(root, handle, kind)) {
+      updateHandleValue(root, handle, kind, currentSize(root, handle, kind));
+    }
 
     const label = eventElement(event)?.closest<HTMLElement>("[data-app-workspace-item]")?.querySelector<HTMLElement>(LABEL_SELECTOR);
     if (label) requestAnimationFrame(() => measureLabel(label));
@@ -360,7 +368,12 @@ export const installAppWorkspaceController = (options: { appId?: string | null }
     );
 
   const rootHandles = (root: HTMLElement): HTMLElement[] =>
-    workspaceResizable(root) ? rootElements(root, HANDLE_SELECTOR).filter((handle) => resizeKind(handle) !== null) : [];
+    workspaceResizable(root)
+      ? rootElements(root, HANDLE_SELECTOR).filter((handle) => {
+          const kind = resizeKind(handle);
+          return kind !== null && controlsResizableRegion(root, handle, kind);
+        })
+      : [];
 
   const reconcilePersistedSizes = () => {
     workspaceRoots().forEach((root) => {

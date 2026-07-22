@@ -557,13 +557,13 @@
      display: contents, so detail regions support both compositions. */
   .app-workspace > .workspace-detail[data-workspace-resizable="true"],
   .app-workspace > :is(solid-island, solid-client) > .workspace-detail[data-workspace-resizable="true"],
-  .app-workspace > .workspace-content > .workspace-detail[data-workspace-resizable="true"],
-  .app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-detail[data-workspace-resizable="true"] {
+  .app-workspace .workspace-content > .workspace-detail[data-workspace-resizable="true"],
+  .app-workspace .workspace-content > :is(solid-island, solid-client) > .workspace-detail[data-workspace-resizable="true"] {
     width: var(--workspace-panel-size, var(--workspace-detail-width, 24rem));
   }
 
-  .app-workspace > .workspace-content > .workspace-resize-handle-detail,
-  .app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle-detail {
+  .app-workspace .workspace-content > .workspace-resize-handle-detail,
+  .app-workspace .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle-detail {
     position: relative;
     inset: auto;
     order: 3;
@@ -579,8 +579,8 @@
 
   .app-workspace > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
   .app-workspace > :is(solid-island, solid-client) > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
-  .app-workspace > .workspace-content > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
-  .app-workspace > .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
+  .app-workspace .workspace-content > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
+  .app-workspace .workspace-content > :is(solid-island, solid-client) > .workspace-resize-handle-detail:has(+ .workspace-detail.hidden),
   .app-workspace > .workspace-resize-handle-drawer:has(+ .workspace-bottom-drawer.hidden) {
     display: none;
   }
