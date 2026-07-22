@@ -63,6 +63,7 @@ import {
   StatusDotsDemo,
   TagsDemo,
   ToastDemo,
+  TooltipDemo,
 } from "../lab/feedback";
 import { FileBrowserDemo, FileBrowserDialogDemo, FileBrowserReadOnlyDemo } from "../lab/files";
 import {
@@ -771,6 +772,19 @@ export const uiLabDocs: UiLabDocSection[] = [
           <ToastDemo />
         </DemoGrid>
       )),
+      page(
+        "feedback",
+        "tooltip",
+        "Tooltip",
+        "ti ti-message-circle-question",
+        "Accessible hints for pointer and keyboard users, with viewport-aware positioning.",
+        ["tooltip"],
+        () => (
+          <DemoGrid columns="one">
+            <TooltipDemo />
+          </DemoGrid>
+        ),
+      ),
       page(
         "feedback",
         "prompts",

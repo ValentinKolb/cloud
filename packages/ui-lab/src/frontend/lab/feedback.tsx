@@ -10,6 +10,7 @@ import {
   SPOTLIGHT_SHORTCUT,
   SPOTLIGHT_SHORTCUT_LABEL,
   SpotlightButton,
+  Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { createSignal } from "solid-js";
@@ -88,6 +89,54 @@ export const InfoBlocks = () => (
       <div class="info-block-warning">Heads up — review before you continue.</div>
       <div class="info-block-danger">Destructive action ahead.</div>
       <div class="info-block-note">A neutral note without colour weight.</div>
+    </div>
+  </DemoCard>
+);
+
+export const TooltipDemo = () => (
+  <DemoCard
+    id="tooltip"
+    chip={{ kind: "component", name: "Tooltip", from: FROM_UI }}
+    description="A concise, non-interactive hint for an existing control. It opens on pointer hover and keyboard focus, closes with Escape, flips vertically when needed, and stays inside the viewport."
+    code={`<Tooltip content="Settings">
+  <button type="button" class="icon-btn" aria-label="Settings">
+    <i class="ti ti-settings" />
+  </button>
+</Tooltip>
+
+<Tooltip content="Shown below the trigger" placement="bottom">
+  <button type="button" class="btn-secondary btn-sm">Bottom placement</button>
+</Tooltip>`}
+  >
+    <div class="grid gap-3 sm:grid-cols-2">
+      <div class="flex min-h-24 items-center gap-3 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4">
+        <Tooltip content="Settings">
+          <button type="button" class="icon-btn" aria-label="Settings">
+            <i class="ti ti-settings" />
+          </button>
+        </Tooltip>
+        <div>
+          <p class="text-sm font-medium">Hover or focus</p>
+          <p class="text-xs text-dimmed">Tab to the icon; press Escape to dismiss.</p>
+        </div>
+      </div>
+
+      <div class="flex min-h-24 items-center gap-3 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4">
+        <Tooltip content="Shown below the trigger" placement="bottom">
+          <button type="button" class="btn-secondary btn-sm">
+            Bottom placement
+          </button>
+        </Tooltip>
+      </div>
+
+      <div class="flex min-h-24 items-center justify-end rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4 sm:col-span-2">
+        <Tooltip content="Long hints remain readable and are clamped to the visible viewport instead of being cut off at the page edge.">
+          <button type="button" class="btn-secondary btn-sm">
+            <i class="ti ti-arrow-bar-to-right" />
+            Long hint at the edge
+          </button>
+        </Tooltip>
+      </div>
     </div>
   </DemoCard>
 );

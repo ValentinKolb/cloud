@@ -45,6 +45,18 @@ export default function Tooltip(props: TooltipProps) {
   const position = () => {
     if (!tooltipRef.matches(":popover-open")) return;
     const triggerRect = targetRef.getBoundingClientRect();
+    const initialTooltipRect = tooltipRef.getBoundingClientRect();
+    const initialLeft = Math.max(
+      VIEWPORT_PADDING,
+      Math.min(
+        triggerRect.left + triggerRect.width / 2 - initialTooltipRect.width / 2,
+        window.innerWidth - initialTooltipRect.width - VIEWPORT_PADDING,
+      ),
+    );
+    tooltipRef.style.left = `${Math.round(initialLeft)}px`;
+
+    // Positioning fixes the available width. Measure again so wrapped content
+    // cannot leave the tooltip vertically offset from its trigger.
     const tooltipRect = tooltipRef.getBoundingClientRect();
     const topPosition = triggerRect.top - tooltipRect.height - TRIGGER_GAP;
     const bottomPosition = triggerRect.bottom + TRIGGER_GAP;
@@ -79,7 +91,7 @@ export default function Tooltip(props: TooltipProps) {
       position();
       window.addEventListener("scroll", close, true);
       window.addEventListener("resize", close);
-    }, props.delay ?? 400);
+    }, props.delay ?? 250);
   };
 
   onMount(() => {
