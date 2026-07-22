@@ -160,6 +160,10 @@ Declare controls once, then use variables inside widget queries. This keeps dash
 Public links render with each control's default value. Keep public dashboards deterministic by choosing useful defaults.
 :::
 
+:::info Refresh is a dashboard setting
+Auto-refresh is configured outside Dashboard DSL. Choose 1, 5, 10, or 60 seconds, or disable automatic refresh. New dashboards default to five seconds, and editing DSL keeps the existing refresh setting.
+:::
+
 :::warning Conditions are visual
 Use `warn when value > 80` or `critical when value = false` to mark metric widgets visually. Alert delivery and webhooks are a separate future layer.
 :::

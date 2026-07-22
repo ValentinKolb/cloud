@@ -1,9 +1,9 @@
 import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
 import type { PulseSource, PulseSourceScrape, SourceKind } from "../contracts";
 import { listSources, requireRestArg, resolveBaseFromCommand, resolveSource } from "./context";
-import { baseFlag, sourceKindFlag } from "./flags";
+import { baseFlag, bearerTokenFlags, sourceKindFlag } from "./flags";
 import { scrapeRows, sourceRows } from "./rows";
-import { jsonRequest, printJsonOrTable, printMessage, readApi } from "./shared";
+import { jsonRequest, printJsonOrTable, printMessage, printStructured, readApi, readOptionalSecretInput } from "./shared";
 
 type IngestResult = { metrics: number; events: number; states: number };
 
@@ -33,11 +33,15 @@ export const sourceCommands = [
       name: flag.string({ required: true, description: "Source name" }),
       kind: sourceKindFlag,
       endpointUrl: flag.string({ name: "endpoint-url", description: "Metrics endpoint URL" }),
-      bearerToken: flag.string({ name: "bearer-token", description: "Metrics endpoint bearer token" }),
+      ...bearerTokenFlags,
       scrapeIntervalSeconds: flag.int({ name: "scrape-interval-seconds", min: 10, max: 86400, description: "Scrape interval" }),
     },
     args: { args: arg.rest({ valueLabel: "base" }) },
     async run({ ctx, args, flags }) {
+      const bearerToken = await readOptionalSecretInput(
+        { file: flags.bearerTokenFile, stdin: flags.bearerTokenStdin },
+        "Metrics endpoint bearer token",
+      );
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const source = await readApi<PulseSource>(
         ctx,
@@ -46,12 +50,11 @@ export const sourceCommands = [
           kind: flags.kind as SourceKind,
           name: flags.name,
           endpointUrl: flags.endpointUrl ?? null,
-          bearerToken: flags.bearerToken ?? null,
+          bearerToken: bearerToken ?? null,
           scrapeIntervalSeconds: flags.scrapeIntervalSeconds ?? null,
         }),
       );
-      if (ctx.options.output === "json") ctx.json(source);
-      else ctx.print(`Created source ${source.name} (${source.id}).`);
+      if (!printStructured(ctx, source)) ctx.print(`Created source ${source.name} (${source.id}).`);
     },
   }),
   command("sources update", {
@@ -61,11 +64,21 @@ export const sourceCommands = [
       name: flag.string({ description: "New source name" }),
       enabled: flag.enum(["true", "false"], { description: "Enable or disable the source" }),
       endpointUrl: flag.string({ name: "endpoint-url", description: "Metrics endpoint URL" }),
-      bearerToken: flag.string({ name: "bearer-token", description: "New bearer token" }),
+      ...bearerTokenFlags,
+      clearBearerToken: flag.boolean({ name: "clear-bearer-token", description: "Remove the configured metrics bearer token" }),
       scrapeIntervalSeconds: flag.int({ name: "scrape-interval-seconds", min: 10, max: 86400, description: "Scrape interval" }),
     },
     args: { args: arg.rest({ valueLabel: "base source", required: true }) },
     async run({ ctx, args, flags }) {
+      if ((flags.bearerTokenFile || flags.bearerTokenStdin) && flags.clearBearerToken) {
+        throw new Error("Pass either a bearer token input or --clear-bearer-token, not both.");
+      }
+      const bearerToken = flags.clearBearerToken
+        ? null
+        : await readOptionalSecretInput(
+            { file: flags.bearerTokenFile, stdin: flags.bearerTokenStdin },
+            "Metrics endpoint bearer token",
+          );
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
       const source = await resolveSource(ctx, base.id, requireRestArg(rest, 0, "source"));
       const updated = await readApi<PulseSource>(
@@ -75,12 +88,11 @@ export const sourceCommands = [
           name: flags.name,
           enabled: flags.enabled === undefined ? undefined : flags.enabled === "true",
           endpointUrl: flags.endpointUrl,
-          bearerToken: flags.bearerToken,
+          bearerToken,
           scrapeIntervalSeconds: flags.scrapeIntervalSeconds,
         }),
       );
-      if (ctx.options.output === "json") ctx.json(updated);
-      else ctx.print(`Updated source ${updated.name} (${updated.id}).`);
+      if (!printStructured(ctx, updated)) ctx.print(`Updated source ${updated.name} (${updated.id}).`);
     },
   }),
   command("sources delete", {

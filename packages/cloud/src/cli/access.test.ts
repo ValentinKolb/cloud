@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AccessEntry, Principal } from "../contracts";
 import { createAccessCommands } from "./access";
-import { type CloudCliContext, type CloudCliFlags, defineCliCommands } from "./index";
+import { type CloudCliContext, type CloudCliFlags, type CloudCliOutputMode, defineCliCommands } from "./index";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const accessId = "22222222-2222-4222-8222-222222222222";
@@ -18,12 +18,13 @@ const createContext = (
   args: string[],
   flags: CloudCliFlags,
   fetchImpl: (path: string, init?: RequestInit) => Response | Promise<Response>,
+  output: CloudCliOutputMode = "text",
 ) => {
   const lines: string[] = [];
   const ctx: CloudCliContext = {
     args,
     flags,
-    options: { profile: "test", server: "http://example.test", token: "token", output: "text" },
+    options: { profile: "test", server: "http://example.test", token: "token", output },
     getDefault: async () => undefined,
     setDefault: async () => undefined,
     createApiClient: (() => {
@@ -101,6 +102,18 @@ describe("access CLI helper", () => {
 
     expect(state.grants).toEqual([]);
     expect(state.updates).toEqual([`${accessId}:admin`]);
+  });
+
+  test("emits access list output as JSONL when requested", async () => {
+    const state = { entries: [userEntry("read")], grants: [] as Principal[], updates: [] as string[], revokes: [] as string[] };
+    const mod = createModule(state);
+    const { ctx, lines } = createContext(["access", "list", "resource-a"], {}, () => Response.json({}), "jsonl");
+
+    await mod.run(ctx);
+
+    expect(lines).toEqual([
+      JSON.stringify({ resource: { id: "resource-a", label: "resource-a" }, entries: state.entries }),
+    ]);
   });
 
   test("uuid principal refs are used directly instead of entity search", async () => {

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { CloudCliContext, CloudCliFlags } from "@valentinkolb/cloud/cli";
+import type { CloudCliContext, CloudCliFlags, CloudCliOutputMode } from "@valentinkolb/cloud/cli";
+import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import pulseCli from "./cli";
 
 type FetchCall = {
@@ -15,7 +18,7 @@ const accessId = "44444444-4444-4444-8444-444444444444";
 
 const jsonResponse = (value: unknown, status = 200) => Response.json(value, { status });
 
-const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Response[] = [], output: "text" | "json" = "text") => {
+const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Response[] = [], output: CloudCliOutputMode = "text") => {
   const calls: FetchCall[] = [];
   const lines: string[] = [];
   const tables: unknown[][] = [];
@@ -565,6 +568,60 @@ describe("pulse CLI", () => {
     ]);
   });
 
+  test("streams list results as JSONL without rendering a table", async () => {
+    const { ctx, lines, tables } = createContext(["list"], {}, [jsonResponse([base])], "jsonl");
+
+    await pulseCli.run(ctx);
+
+    expect(lines).toEqual([JSON.stringify(base)]);
+    expect(tables).toEqual([]);
+  });
+
+  test("reads metrics bearer tokens from files without accepting inline secrets", async () => {
+    const tokenFile = join(tmpdir(), `pulse-cli-token-${crypto.randomUUID()}`);
+    await Bun.write(tokenFile, "scrape-secret\n");
+    try {
+      const { ctx, calls } = createContext(
+        ["sources", "create", baseId],
+        { name: "Prometheus", kind: "metrics", "endpoint-url": "https://metrics.example.test", "bearer-token-file": tokenFile },
+        [jsonResponse(base), jsonResponse({ ...source, kind: "metrics", name: "Prometheus", bearerTokenConfigured: true }, 201)],
+      );
+
+      await pulseCli.run(ctx);
+
+      expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({
+        kind: "metrics",
+        name: "Prometheus",
+        endpointUrl: "https://metrics.example.test",
+        bearerToken: "scrape-secret",
+        scrapeIntervalSeconds: null,
+      });
+    } finally {
+      await unlink(tokenFile);
+    }
+
+    const { ctx: inline } = createContext(["sources", "create", baseId], {
+      name: "Prometheus",
+      kind: "metrics",
+      "endpoint-url": "https://metrics.example.test",
+      "bearer-token": "unsafe",
+    });
+    await expect(pulseCli.run(inline)).rejects.toThrow("Unknown flag: --bearer-token");
+  });
+
+  test("clears a configured metrics bearer token explicitly", async () => {
+    const configuredSource = { ...source, kind: "metrics", bearerTokenConfigured: true };
+    const { ctx, calls } = createContext(
+      ["sources", "update", baseId, "docker"],
+      { "clear-bearer-token": true },
+      [jsonResponse(base), jsonResponse([configuredSource]), jsonResponse({ ...configuredSource, bearerTokenConfigured: false })],
+    );
+
+    await pulseCli.run(ctx);
+
+    expect(JSON.parse(String(calls[2]?.init?.body))).toMatchObject({ bearerToken: null });
+  });
+
   test("creates dashboards from DSL without sending compiled layout", async () => {
     const dsl = 'dashboard "Ops" {}';
     const dashboard = {
@@ -642,7 +699,7 @@ describe("pulse CLI", () => {
     const { ctx, calls, lines } = createContext(["dashboards", "update", baseId, "Ops"], { content: dsl }, [
       jsonResponse(base),
       jsonResponse([dashboard]),
-      jsonResponse({ ok: true, diagnostics: [], config: dashboard.config }),
+      jsonResponse({ ok: true, diagnostics: [], config: { dsl, layout: null } }),
       jsonResponse(dashboard),
     ]);
 
@@ -658,6 +715,44 @@ describe("pulse CLI", () => {
       config: { dsl, refreshIntervalSeconds: null },
     });
     expect(lines).toEqual([`Updated dashboard Ops (${dashboardId}).`]);
+  });
+
+  test("preserves dashboard refresh while replacing DSL and supports explicit refresh updates", async () => {
+    const previousDsl = 'dashboard "Ops" {}';
+    const nextDsl = 'dashboard "Operations" {}';
+    const dashboard = {
+      id: dashboardId,
+      baseId,
+      name: "Ops",
+      config: { dsl: previousDsl, layout: null, refreshIntervalSeconds: 60 },
+      publicEnabled: false,
+      createdAt: "2026-07-07T00:00:00.000Z",
+      updatedAt: "2026-07-07T00:00:00.000Z",
+    };
+    const { ctx, calls } = createContext(["dashboards", "update", baseId, "Ops"], { content: nextDsl }, [
+      jsonResponse(base),
+      jsonResponse([dashboard]),
+      jsonResponse({ ok: true, diagnostics: [], config: { dsl: nextDsl, layout: null } }),
+      jsonResponse({ ...dashboard, config: { ...dashboard.config, dsl: nextDsl } }),
+    ]);
+
+    await pulseCli.run(ctx);
+
+    expect(JSON.parse(String(calls[3]?.init?.body))).toEqual({
+      config: { dsl: nextDsl, refreshIntervalSeconds: 60 },
+    });
+
+    const { ctx: refreshCtx, calls: refreshCalls } = createContext(
+      ["dashboards", "update", baseId, "Ops"],
+      { refresh: "never" },
+      [jsonResponse(base), jsonResponse([dashboard]), jsonResponse({ ...dashboard, config: { ...dashboard.config, refreshIntervalSeconds: null } })],
+    );
+
+    await pulseCli.run(refreshCtx);
+
+    expect(JSON.parse(String(refreshCalls[2]?.init?.body))).toEqual({
+      config: { dsl: previousDsl, refreshIntervalSeconds: null },
+    });
   });
 
   test("prints a stable public display URL", async () => {
@@ -687,6 +782,15 @@ describe("pulse CLI", () => {
     const { ctx } = createContext(["dashboards", "public-url", baseId, "Ops"]);
 
     await expect(pulseCli.run(ctx)).rejects.toThrow("Refusing to enable or show a public link without --yes.");
+  });
+
+  test("requires confirmation for every public-enabling dashboard command", async () => {
+    const dsl = 'dashboard "Ops" {}';
+    const { ctx: create } = createContext(["dashboards", "create", baseId], { name: "Ops", content: dsl, public: true });
+    await expect(pulseCli.run(create)).rejects.toThrow("Refusing to create a public link without --yes.");
+
+    const { ctx: publish } = createContext(["dashboards", "publish", baseId, "Ops"]);
+    await expect(pulseCli.run(publish)).rejects.toThrow("Refusing to publish without --yes.");
   });
 
   test("keeps overview JSON compact unless inventory is requested", async () => {

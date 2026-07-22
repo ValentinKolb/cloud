@@ -25,6 +25,11 @@ export const JSON_INPUT = flag.input({
   valueLabel: "json",
 });
 
+export const bearerTokenFlags = {
+  bearerTokenFile: flag.string({ name: "bearer-token-file", valueLabel: "path", description: "Read the metrics bearer token from a file" }),
+  bearerTokenStdin: flag.boolean({ name: "bearer-token-stdin", description: "Read the metrics bearer token from stdin" }),
+};
+
 export const baseFlag = { base: flag.string({ description: "Pulse base ID or exact name" }) };
 export const sourceKindFlag = flag.enum(SOURCE_KINDS, { name: "kind", description: "Source kind", required: true });
 export const metricTypeFlag = flag.enum(METRIC_TYPES, { name: "type", description: "Metric type" });

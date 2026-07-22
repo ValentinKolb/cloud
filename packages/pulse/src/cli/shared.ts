@@ -37,22 +37,41 @@ export const readJsonInput = async <T>(input: CliInputFlagValue, label: string):
   }
 };
 
+export const readOptionalSecretInput = async (
+  input: { file?: string; stdin: boolean },
+  label: string,
+): Promise<string | undefined> => {
+  if (input.file && input.stdin) throw new Error("Pass only one of --bearer-token-file or --bearer-token-stdin.");
+  const cliInput: CliInputFlagValue = input.file
+    ? { source: "file", file: input.file, provided: true }
+    : input.stdin
+      ? { source: "stdin", provided: true }
+      : { source: null, provided: false };
+  const value = (await readCliInput(cliInput, { label, trimFinalNewline: true }))?.trim();
+  if (cliInput.provided && !value) throw new Error(`${label} cannot be empty.`);
+  return value;
+};
+
+export const printStructured = (ctx: CloudCliContext, value: unknown): boolean => {
+  if (ctx.options.output === "json") ctx.json(value);
+  else if (ctx.options.output === "jsonl") {
+    for (const item of Array.isArray(value) ? value : [value]) ctx.jsonLine(item);
+  } else return false;
+  return true;
+};
+
 export const printJsonOrTable = <TRow extends Record<string, unknown>>(
   ctx: CloudCliContext,
   value: unknown,
   rows: TRow[],
   columns: Parameters<CloudCliContext["table"]>[1],
 ) => {
-  if (ctx.options.output === "json") {
-    ctx.json(value);
-    return;
-  }
+  if (printStructured(ctx, value)) return;
   ctx.table(rows, columns);
 };
 
 export const printMessage = (ctx: CloudCliContext, value: unknown, message: string) => {
-  if (ctx.options.output === "json") ctx.json(value);
-  else ctx.print(message);
+  if (!printStructured(ctx, value)) ctx.print(message);
 };
 
 export const exactMatch = <T>(items: T[], ref: string, fields: ((item: T) => string | null | undefined)[], label: string): T => {

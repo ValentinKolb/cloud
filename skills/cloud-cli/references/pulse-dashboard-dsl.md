@@ -325,7 +325,7 @@ Compile output:
 Publish only after a private snapshot contains the intended data:
 
 ```bash
-cld pulse dashboards publish "Operations" --theme dark --height full --json
+cld pulse dashboards publish "Operations" --theme dark --height full --yes --json
 cld pulse dashboards public-url "Operations" --theme light --height scroll --yes
 cld pulse dashboards unpublish "Operations"
 ```
@@ -345,7 +345,7 @@ Public displays use control defaults. URL options select `light|dark` theme and 
 - A widget retains at most 8 visual conditions.
 - Span must be an integer from 1 to 12.
 
-Auto-refresh is stored as dashboard settings, not Dashboard DSL. The current CLI has no flag to set it. Creating or replacing DSL through the CLI produces a manual-refresh dashboard; configure auto-refresh in the web UI after the CLI update when required.
+Auto-refresh is stored as dashboard settings, not Dashboard DSL. Set it with `--refresh 1|5|10|60|never` on dashboard create or update. New dashboards default to five-second refresh; replacing DSL preserves the existing refresh setting unless `--refresh` is supplied.
 
 ## Complete example
 

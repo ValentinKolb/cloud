@@ -121,7 +121,7 @@ Run every query planned for a widget. If a metric matches too many variants, add
 
 ```bash
 cld pulse dashboards compile --file dashboard.pulse --json
-cld pulse dashboards create --name "MacBook health" --file dashboard.pulse --json
+cld pulse dashboards create --name "MacBook health" --file dashboard.pulse --refresh 5 --json
 cld pulse dashboards snapshot "MacBook health" --json
 ```
 
@@ -243,13 +243,15 @@ Dashboard DSL is the only dashboard authoring format. The saved dashboard name c
 
 ```bash
 cld pulse dashboards compile --file operations.pulse --json
-cld pulse dashboards create --name "Operations" --file operations.pulse --json
+cld pulse dashboards create --name "Operations" --file operations.pulse --refresh 5 --json
 cld pulse dashboards get "Operations" --json
 cld pulse dashboards snapshot "Operations" --json
-cld pulse dashboards update "Operations" --file operations-v2.pulse --json
+cld pulse dashboards update "Operations" --file operations-v2.pulse --refresh 10 --json
 ```
 
 `dashboards compile` returns line-and-column diagnostics without saving. Create and DSL-bearing update compile before writing. `snapshot` executes the private dashboard and returns its public-safe dashboard shape plus point, event, and state data without publishing it.
+
+`--refresh` accepts `1`, `5`, `10`, `60`, or `never`. New dashboards default to five-second refresh. Updating DSL preserves the dashboard's current refresh setting unless `--refresh` is supplied.
 
 ### Public displays
 
@@ -257,13 +259,13 @@ Publishing creates an unauthenticated link. Treat its token and URL as sharing c
 
 ```bash
 cld pulse dashboards public-url "Operations" --theme dark --height full --yes
-cld pulse dashboards publish "Operations" --theme light --height scroll --json
+cld pulse dashboards publish "Operations" --theme light --height scroll --yes --json
 cld pulse dashboards unpublish "Operations"
 ```
 
 `--theme` accepts `light` or `dark`. `--height` accepts `scroll` or `full`. These flags change the returned display URL, not the stored dashboard.
 
-`public-url` requires `--yes` because it can enable and reveal a public link. `publish` also enables and reveals a link but currently has no confirmation flag; run it only after an explicit user request. `unpublish` disables the current link.
+`public-url` and `publish` require `--yes` because they enable or reveal a public link. Creating a dashboard with `--public` also requires `--yes`. `unpublish` disables the current link.
 
 Public snapshots expose the rendered layout and widget-bound values. They omit Dashboard DSL, query text, source IDs, and dimensions from returned events and states. This limits accidental exposure but does not make a public link private.
 
@@ -280,16 +282,18 @@ Pulse has three source kinds:
 ```bash
 cld pulse sources create --name "API metrics" --kind metrics \
   --endpoint-url https://api.example.com/metrics \
+  --bearer-token-file /secure/path/api-metrics.token \
   --scrape-interval-seconds 60
 
 cld pulse sources create --name "Warehouse importer" --kind http_ingest
 cld pulse sources list --json
 ```
 
-Bearer tokens for scraped endpoints are stored encrypted and are not returned by list output.
+Bearer tokens for scraped endpoints are stored encrypted and are not returned by list output. Pass them through `--bearer-token-file` or `--bearer-token-stdin`; Pulse intentionally rejects inline `--bearer-token` values so secrets do not enter shell history.
 
 ```bash
 cld pulse sources update "API metrics" --enabled false
+cld pulse sources update "API metrics" --clear-bearer-token
 cld pulse sources scrape "API metrics" --json
 cld pulse sources scrapes "API metrics" --json
 ```
@@ -327,7 +331,7 @@ Use exactly one principal selector: `--user`, `--group`, or `--authenticated`. G
 
 ## JSON contracts
 
-Use `--json` whenever another command or agent consumes the result. The following shapes are abridged: omitted fields remain available in actual output.
+Use `--json` whenever another command or agent consumes one complete result. Use `--jsonl` for list commands when the consumer should process one returned item per line. Commands that return a single object or mutation result emit one JSON object line in JSONL mode. The following JSON shapes are abridged: omitted fields remain available in actual output.
 
 ### Base and lifecycle
 
@@ -516,6 +520,8 @@ These commands require `--yes`:
 - `source-tokens revoke`: revokes an ingest credential.
 - `query delete`: deletes a saved query.
 - `dashboards delete`: deletes a dashboard.
+- `dashboards create --public`: creates a dashboard and enables a public link.
+- `dashboards publish`: enables or reveals a public link.
 - `dashboards public-url`: enables or reveals a public link.
 - `access revoke`: removes a direct grant.
 
@@ -523,7 +529,7 @@ Base deletion and data clearing are asynchronous background jobs. `delete` retur
 
 Deleting a source makes its source-bound credentials unusable and removes source metadata. Historical metric, event, and state rows are retained and their source association becomes null. Use `clear-data` when the intent is to remove telemetry.
 
-`dashboards publish` enables a public link without `--yes`. Run it only when explicitly requested. `dashboards unpublish` disables public access and needs no confirmation.
+`dashboards unpublish` disables public access and needs no confirmation.
 
 ## Command reference
 
@@ -596,10 +602,12 @@ Sources and ingest:
 ```text
 cld pulse sources list [base]
 cld pulse sources create [base] --name <name> --kind <metrics|http_ingest|internal>
-  [--endpoint-url <url>] [--bearer-token <token>] [--scrape-interval-seconds <seconds>]
+  [--endpoint-url <url>] [--bearer-token-file <path> | --bearer-token-stdin]
+  [--scrape-interval-seconds <seconds>]
 cld pulse sources update [base] <source>
   [--name <name>] [--enabled <true|false>] [--endpoint-url <url>]
-  [--bearer-token <token>] [--scrape-interval-seconds <seconds>]
+  [--bearer-token-file <path> | --bearer-token-stdin | --clear-bearer-token]
+  [--scrape-interval-seconds <seconds>]
 cld pulse sources delete [base] <source> --yes
 cld pulse sources scrape [base] <source>
 cld pulse sources scrapes [base] <source>
@@ -631,11 +639,13 @@ cld pulse dashboards get [base] <dashboard>
 cld pulse dashboards snapshot [base] <dashboard>
 cld pulse dashboards compile [base] (--content <dsl> | --file <path> | --stdin)
 cld pulse dashboards create [base] --name <name> (--content <dsl> | --file <path> | --stdin)
-  [--public] [--theme <light|dark>] [--height <scroll|full>]
+  [--refresh <1|5|10|60|never>]
+  [--public --yes] [--theme <light|dark>] [--height <scroll|full>]
 cld pulse dashboards update [base] <dashboard>
   [--name <name>] [--content <dsl> | --file <path> | --stdin]
+  [--refresh <1|5|10|60|never>]
 cld pulse dashboards delete [base] <dashboard> --yes
-cld pulse dashboards publish [base] <dashboard> [--theme <light|dark>] [--height <scroll|full>]
+cld pulse dashboards publish [base] <dashboard> [--theme <light|dark>] [--height <scroll|full>] --yes
 cld pulse dashboards public-url [base] <dashboard> [--theme <light|dark>] [--height <scroll|full>] --yes
 cld pulse dashboards unpublish [base] <dashboard>
 ```

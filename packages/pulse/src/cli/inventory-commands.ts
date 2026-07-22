@@ -289,10 +289,6 @@ export const inventoryCommands = [
         topMetrics: metricRows(topMetrics),
         ...(flags.includeInventory ? { inventory, metrics } : {}),
       };
-      if (ctx.options.output === "json") {
-        ctx.json(overview);
-        return;
-      }
       printJsonOrTable(ctx, overview, overviewRows(base, inventory, sources, metrics), [
         { key: "base" },
         { key: "sources" },
@@ -304,6 +300,7 @@ export const inventoryCommands = [
         { key: "states" },
         { key: "fields" },
       ]);
+      if (ctx.options.output !== "text") return;
       if (topResources.length) {
         ctx.print("");
         ctx.print("Top resources:");

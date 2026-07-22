@@ -237,15 +237,19 @@ const accessRows = (entries: AccessEntry[], options: { includeServiceAccounts?: 
       createdAt: entry.createdAt,
     }));
 
+const printStructured = (ctx: CloudCliContext, value: unknown): boolean => {
+  if (ctx.options.output === "json") ctx.json(value);
+  else if (ctx.options.output === "jsonl") ctx.jsonLine(value);
+  else return false;
+  return true;
+};
+
 export const printAccessEntries = (
   ctx: CloudCliContext,
   entries: AccessEntry[],
   options: { includeServiceAccounts?: boolean; jsonValue?: unknown } = {},
 ) => {
-  if (ctx.options.output === "json") {
-    ctx.json(options.jsonValue ?? entries);
-    return;
-  }
+  if (printStructured(ctx, options.jsonValue ?? entries)) return;
   const rows = accessRows(entries, options);
   if (rows.length === 0) {
     ctx.print("No direct grants.");
@@ -260,10 +264,7 @@ export const printAccessEntries = (
 };
 
 const printPrincipalEntities = (ctx: CloudCliContext, payload: EntitiesResponse) => {
-  if (ctx.options.output === "json") {
-    ctx.json(payload);
-    return;
-  }
+  if (printStructured(ctx, payload)) return;
   const rows = payload.items.map((item) => {
     if (item.kind === "user") {
       return {
@@ -365,8 +366,7 @@ export const createAccessCommands = <TResource extends AccessResource>(adapter: 
       assertAllowedPermission(permission, allowed);
       const principal = await resolveAccessPrincipal(ctx, flags as PrincipalFlags, adapter);
       const entry = await adapter.grant(ctx, resource, principal, permission);
-      if (ctx.options.output === "json") ctx.json({ resource, entry });
-      else ctx.print(`Granted ${permission} on ${resource.label} to ${entryDisplayName(entry)}.`);
+      if (!printStructured(ctx, { resource, entry })) ctx.print(`Granted ${permission} on ${resource.label} to ${entryDisplayName(entry)}.`);
     },
   });
 
@@ -388,8 +388,9 @@ export const createAccessCommands = <TResource extends AccessResource>(adapter: 
 
       if (flags.accessId) {
         await adapter.update(ctx, resource, flags.accessId, permission);
-        if (ctx.options.output === "json") ctx.json({ resource, accessId: flags.accessId, permission, action: "updated" });
-        else ctx.print(`Updated ${flags.accessId} to ${permission} on ${resource.label}.`);
+        if (!printStructured(ctx, { resource, accessId: flags.accessId, permission, action: "updated" })) {
+          ctx.print(`Updated ${flags.accessId} to ${permission} on ${resource.label}.`);
+        }
         return;
       }
 
@@ -398,13 +399,15 @@ export const createAccessCommands = <TResource extends AccessResource>(adapter: 
       const existing = entries.find((entry) => principalKey(entry.principal) === principalKey(principal));
       if (existing) {
         await adapter.update(ctx, resource, existing.id, permission);
-        if (ctx.options.output === "json") ctx.json({ resource, accessId: existing.id, permission, action: "updated" });
-        else ctx.print(`Updated ${entryDisplayName(existing)} to ${permission} on ${resource.label}.`);
+        if (!printStructured(ctx, { resource, accessId: existing.id, permission, action: "updated" })) {
+          ctx.print(`Updated ${entryDisplayName(existing)} to ${permission} on ${resource.label}.`);
+        }
         return;
       }
       const entry = await adapter.grant(ctx, resource, principal, permission);
-      if (ctx.options.output === "json") ctx.json({ resource, entry, action: "created" });
-      else ctx.print(`Granted ${permission} on ${resource.label} to ${entryDisplayName(entry)}.`);
+      if (!printStructured(ctx, { resource, entry, action: "created" })) {
+        ctx.print(`Granted ${permission} on ${resource.label} to ${entryDisplayName(entry)}.`);
+      }
     },
   });
 
@@ -437,8 +440,9 @@ export const createAccessCommands = <TResource extends AccessResource>(adapter: 
       }
 
       await adapter.revoke(ctx, resource, accessId);
-      if (ctx.options.output === "json") ctx.json({ resource, accessId, action: "revoked" });
-      else ctx.print(`Revoked access for ${label} on ${resource.label}.`);
+      if (!printStructured(ctx, { resource, accessId, action: "revoked" })) {
+        ctx.print(`Revoked access for ${label} on ${resource.label}.`);
+      }
     },
   });
 

@@ -2,7 +2,7 @@ import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
 import { requireRestArg, resolveBaseFromCommand, resolveSource } from "./context";
 import { baseFlag } from "./flags";
 import { keyRows } from "./rows";
-import { exactMatch, jsonRequest, printJsonOrTable, printMessage, readApi } from "./shared";
+import { exactMatch, jsonRequest, printJsonOrTable, printMessage, printStructured, readApi } from "./shared";
 import type { PulseSourceApiKey, SourceApiKeyCreateResult } from "./types";
 
 export const sourceTokenCommands = [
@@ -43,8 +43,7 @@ export const sourceTokenCommands = [
         `/bases/${encodeURIComponent(base.id)}/sources/${encodeURIComponent(source.id)}/api-keys`,
         jsonRequest("POST", { name: flags.name, permission: "write", expiresAt: flags.expiresAt ?? null }),
       );
-      if (ctx.options.output === "json") ctx.json(result);
-      else {
+      if (!printStructured(ctx, result)) {
         ctx.print(`Created token ${result.credential.name} (${result.credential.id}).`);
         ctx.print(result.token);
       }

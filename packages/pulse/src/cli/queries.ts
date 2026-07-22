@@ -4,7 +4,7 @@ import { listSavedQueries, requireRestArg, resolveBaseFromCommand, resolveSavedQ
 import { baseFlag, QUERY_INPUT } from "./flags";
 import { eventRows, stateRows } from "./inventory";
 import { savedQueryRows } from "./rows";
-import { jsonRequest, printJsonOrTable, printMessage, readApi, readTextInput } from "./shared";
+import { jsonRequest, printJsonOrTable, printMessage, printStructured, readApi, readTextInput } from "./shared";
 import type { MessageResult } from "./types";
 
 type QueryRunResult = {
@@ -29,8 +29,8 @@ export const queryCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const query = await readTextInput(flags.query, "query", 2000);
       const result = await compileQueryText(ctx, base.id, query);
-      if (ctx.options.output === "json") ctx.json(result);
-      else if (result.ok) ctx.print("Query is valid.");
+      if (printStructured(ctx, result)) return;
+      if (result.ok) ctx.print("Query is valid.");
       else {
         for (const diagnostic of result.diagnostics) ctx.print(`${diagnostic.severity}: ${diagnostic.message}`);
       }
@@ -44,10 +44,7 @@ export const queryCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const query = await readTextInput(flags.query, "query", 2000);
       const result = await runQueryText(ctx, base.id, query);
-      if (ctx.options.output === "json") {
-        ctx.json(result);
-        return;
-      }
+      if (printStructured(ctx, result)) return;
       if (result.points.length) {
         printJsonOrTable(
           ctx,
@@ -98,8 +95,7 @@ export const queryCommands = [
         `/bases/${encodeURIComponent(base.id)}/saved-queries`,
         jsonRequest("POST", { name: flags.name, description: flags.description ?? null, query }),
       );
-      if (ctx.options.output === "json") ctx.json(saved);
-      else ctx.print(`Saved query ${saved.name} (${saved.id}).`);
+      if (!printStructured(ctx, saved)) ctx.print(`Saved query ${saved.name} (${saved.id}).`);
     },
   }),
   command("query delete", {

@@ -3,7 +3,7 @@ import type { PulseBase } from "../contracts";
 import { PULSE_BASE_DEFAULT_KEY, requireDefaultBaseRef, resolveBase, resolveBaseFromCommand } from "./context";
 import { baseFlag } from "./flags";
 import { baseRows } from "./rows";
-import { jsonRequest, printJsonOrTable, printMessage, readApi } from "./shared";
+import { jsonRequest, printJsonOrTable, printMessage, printStructured, readApi } from "./shared";
 import type { MessageResult } from "./types";
 
 export const baseCommands = [
@@ -28,8 +28,7 @@ export const baseCommands = [
     async run({ ctx, args }) {
       const base = await resolveBase(ctx, args.base);
       await ctx.setDefault(PULSE_BASE_DEFAULT_KEY, base.id);
-      if (ctx.options.output === "json") ctx.json({ base, defaultBase: base.id });
-      else ctx.print(`Using Pulse base ${base.name} (${base.id}).`);
+      if (!printStructured(ctx, { base, defaultBase: base.id })) ctx.print(`Using Pulse base ${base.name} (${base.id}).`);
     },
   }),
   command("current", {
@@ -37,8 +36,7 @@ export const baseCommands = [
     async run({ ctx }) {
       const ref = await requireDefaultBaseRef(ctx);
       const base = await resolveBase(ctx, ref);
-      if (ctx.options.output === "json") ctx.json({ base, defaultBase: base.id });
-      else ctx.print(`${base.name} (${base.id})`);
+      if (!printStructured(ctx, { base, defaultBase: base.id })) ctx.print(`${base.name} (${base.id})`);
     },
   }),
   command("get", {
@@ -47,8 +45,7 @@ export const baseCommands = [
     args: { args: arg.rest({ valueLabel: "base" }) },
     async run({ ctx, args }) {
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
-      if (ctx.options.output === "json") ctx.json(base);
-      else {
+      if (!printStructured(ctx, base)) {
         ctx.print(`${base.name} (${base.id})`);
         ctx.print(`Raw retention: ${base.rawRetentionDays} days`);
         ctx.print(`Rollup retention: ${base.rollupRetentionDays} days`);
@@ -71,8 +68,7 @@ export const baseCommands = [
         jsonRequest("POST", { name: args.name, description: flags.description ?? null }),
       );
       if (flags.use) await ctx.setDefault(PULSE_BASE_DEFAULT_KEY, base.id);
-      if (ctx.options.output === "json") ctx.json(base);
-      else ctx.print(`Created Pulse base ${base.name} (${base.id}).`);
+      if (!printStructured(ctx, base)) ctx.print(`Created Pulse base ${base.name} (${base.id}).`);
     },
   }),
   command("update", {
@@ -96,8 +92,7 @@ export const baseCommands = [
         sensitiveRetentionHours: flags.sensitiveRetentionHours,
       };
       const updated = await readApi<PulseBase>(ctx, `/bases/${encodeURIComponent(base.id)}`, jsonRequest("PATCH", patch));
-      if (ctx.options.output === "json") ctx.json(updated);
-      else ctx.print(`Updated Pulse base ${updated.name} (${updated.id}).`);
+      if (!printStructured(ctx, updated)) ctx.print(`Updated Pulse base ${updated.name} (${updated.id}).`);
     },
   }),
   command("delete", {

@@ -52,7 +52,7 @@ export const dashboardRows = (dashboards: PulseDashboard[]) =>
     name: dashboard.name,
     public: yesNo(dashboard.publicEnabled),
     dsl: dashboard.config.dsl ? "yes" : "no",
-    refresh: dashboard.config.refreshIntervalSeconds ?? "",
+    refresh: dashboard.config.refreshIntervalSeconds === null ? "never" : `${dashboard.config.refreshIntervalSeconds ?? 5}s`,
     updatedAt: dashboard.updatedAt,
   }));
 
