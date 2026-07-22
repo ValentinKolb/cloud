@@ -372,7 +372,13 @@ export const defineApp = <
     };
 
     // Heartbeat
-    const heartbeat = createHeartbeat(meta.id, entry);
+    const heartbeat = createHeartbeat(meta.id, entry, {
+      onError: (error) =>
+        log.error("Registry heartbeat failed", {
+          appId: meta.id,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    });
     await heartbeat.start();
     log.info(`Registered "${meta.id}"`, { baseUrl });
 

@@ -1,33 +1,93 @@
-/**
- * Simple heartbeat for app registry entries.
- * Uses setInterval — KISS over scheduler+job+cron.
- *
- * The entry's TTL is set on the ephemeral-store factory (see ./registry.ts);
- * `touch` extends that TTL without re-sending the value. A failed touch means
- * the entry has expired and we fall back to `upsert` to re-seed it.
- */
+/** Keep an app discoverable even when the ephemeral registry is recreated. */
 import { appRegistry } from "./registry";
 import type { AppRegistryEntry } from "../contracts/registry";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
-export const createHeartbeat = (appId: string, entry: AppRegistryEntry) => {
+type HeartbeatRegistry = Pick<typeof appRegistry, "remove" | "upsert">;
+
+type HeartbeatOptions = {
+  intervalMs?: number;
+  registry?: HeartbeatRegistry;
+  onError?: (error: unknown) => void;
+};
+
+export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options: HeartbeatOptions = {}) => {
+  const intervalMs = options.intervalMs ?? HEARTBEAT_INTERVAL_MS;
+  const registry = options.registry ?? appRegistry;
+  const onError = options.onError ?? ((error: unknown) => console.error(`[app:${appId}] Registry heartbeat failed`, error));
+
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    throw new RangeError("Heartbeat interval must be a positive finite number");
+  }
+
   let timer: Timer | null = null;
+  let inFlight: Promise<void> | null = null;
+  let running = false;
   const key = `apps/${appId}`;
+
+  const refresh = async (): Promise<void> => {
+    // Upsert is intentionally unconditional. Unlike touch, it repairs a
+    // registry that was cleared or recreated while this app kept running.
+    await registry.upsert({ key, value: entry });
+  };
+
+  const schedule = () => {
+    if (!running || timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      if (!running) return;
+
+      const operation = refresh();
+      inFlight = operation;
+      void operation
+        .catch((error) => {
+          try {
+            onError(error);
+          } catch {
+            // Error reporting must never stop future registration attempts.
+          }
+        })
+        .finally(() => {
+          if (inFlight === operation) inFlight = null;
+          schedule();
+        });
+    }, intervalMs);
+  };
 
   return {
     start: async () => {
-      await appRegistry.upsert({ key, value: entry });
-      timer = setInterval(async () => {
-        const result = await appRegistry.touch({ key });
-        if (!result.ok) {
-          await appRegistry.upsert({ key, value: entry });
-        }
-      }, HEARTBEAT_INTERVAL_MS);
+      if (running) {
+        await inFlight;
+        return;
+      }
+      running = true;
+      const operation = refresh();
+      inFlight = operation;
+      try {
+        await operation;
+      } catch (error) {
+        running = false;
+        throw error;
+      } finally {
+        if (inFlight === operation) inFlight = null;
+      }
+      schedule();
     },
     stop: async () => {
-      if (timer) clearInterval(timer);
-      await appRegistry.remove({ key });
+      if (!running) return;
+      running = false;
+      if (timer) clearTimeout(timer);
+      timer = null;
+
+      try {
+        await inFlight;
+      } catch {
+        // Recurring heartbeat failures are already reported above. Removal is
+        // still required so a stopped app cannot remain discoverable.
+      }
+      inFlight = null;
+      await registry.remove({ key });
     },
   };
 };
