@@ -1,4 +1,4 @@
-import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -18,7 +18,10 @@ const DeleteHostgroup = (props: DeleteHostgroupProps) => {
         throw new Error(data.message ?? "Failed to delete hostgroup.");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("Hostgroup deleted");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
 

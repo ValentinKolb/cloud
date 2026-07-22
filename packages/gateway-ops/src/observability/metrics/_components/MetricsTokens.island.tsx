@@ -1,4 +1,4 @@
-import { CopyButton, Placeholder, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { CopyButton, Placeholder, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { MetricsToken } from "../service";
@@ -73,7 +73,10 @@ export default function MetricsTokens(props: Props) {
       const response = await fetch(`/api/gateway/metrics/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" });
       if (!response.ok) throw new Error(await errorMessage(response, "Failed to revoke metrics token."));
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("Metrics token revoked");
+      refreshCurrentPath();
+    },
     onError: (error) => prompts.error(error.message),
   });
 

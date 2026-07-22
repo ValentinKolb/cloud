@@ -1,5 +1,5 @@
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 
 const HostSettings = () => {
@@ -11,11 +11,7 @@ const HostSettings = () => {
         throw new Error(data.message ?? "Failed to save sync schedule.");
       }
     },
-    onSuccess: () =>
-      prompts.alert("Host sync schedule updated.", {
-        title: "Saved",
-        icon: "ti ti-check",
-      }),
+    onSuccess: () => toast.success("Host sync schedule updated"),
     onError: (error) => prompts.error(error.message),
   });
 

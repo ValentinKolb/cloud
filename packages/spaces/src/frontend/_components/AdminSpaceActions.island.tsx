@@ -1,4 +1,4 @@
-import { Dropdown, PermissionEditor, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, PermissionEditor, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -111,13 +111,15 @@ const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label={`Settings for ${props.spaceName}`}>
-          <i
-            class={
-              permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
-            }
-          />
-        </button>
+        <Tooltip content="Space actions">
+          <button type="button" class="icon-btn h-7 w-7" aria-label={`Actions for ${props.spaceName}`}>
+            <i
+              class={
+                permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
+              }
+            />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-52"

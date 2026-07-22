@@ -1,6 +1,6 @@
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import type { AnnouncementEntry, CreateAnnouncement, UpdateAnnouncement } from "@valentinkolb/cloud/contracts";
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 
@@ -185,19 +185,22 @@ function AnnouncementRowActions(props: { entry: AnnouncementEntry }) {
 
   return (
     <div class="flex justify-end gap-1">
-      <button type="button" class="btn-simple btn-sm" onClick={handleEdit} disabled={update.loading()} aria-label="Edit" title="Edit">
-        {update.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-pencil" />}
-      </button>
-      <button
-        type="button"
-        class="btn-simple btn-sm text-red-500"
-        onClick={handleDelete}
-        disabled={remove.loading()}
-        aria-label="Delete"
-        title="Delete"
-      >
-        {remove.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
-      </button>
+      <Tooltip content="Edit announcement">
+        <button type="button" class="btn-simple btn-sm" onClick={handleEdit} disabled={update.loading()} aria-label="Edit announcement">
+          {update.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-pencil" />}
+        </button>
+      </Tooltip>
+      <Tooltip content="Delete announcement">
+        <button
+          type="button"
+          class="btn-simple btn-sm text-red-500"
+          onClick={handleDelete}
+          disabled={remove.loading()}
+          aria-label="Delete announcement"
+        >
+          {remove.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
+        </button>
+      </Tooltip>
     </div>
   );
 }

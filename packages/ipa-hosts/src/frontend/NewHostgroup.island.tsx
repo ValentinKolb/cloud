@@ -1,7 +1,7 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "@/api/client";
 
 const NewHostgroup = () => {
   const mutation = mutations.create<void, { name: string; description?: string }>({
@@ -12,7 +12,10 @@ const NewHostgroup = () => {
         throw new Error(data.message ?? "Failed to create hostgroup.");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("Hostgroup created");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
 

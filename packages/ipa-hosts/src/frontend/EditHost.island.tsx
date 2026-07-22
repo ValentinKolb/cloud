@@ -1,4 +1,4 @@
-import { Dropdown, Placeholder, prompts, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, Placeholder, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Index, Show } from "solid-js";
@@ -66,7 +66,10 @@ const HostActions = (props: HostActionsProps) => {
         throw new Error(data.message ?? "Failed to update host.");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("Host updated");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
   const deleteMutation = mutations.create<void, void>({
@@ -77,7 +80,10 @@ const HostActions = (props: HostActionsProps) => {
         throw new Error(data.message ?? "Failed to delete host.");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("Host deleted");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
   const addToGroupMutation = mutations.create<void, string>({
@@ -88,7 +94,10 @@ const HostActions = (props: HostActionsProps) => {
         throw new Error(data.message ?? "Failed to add host to group.");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("Host added to hostgroup");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
   const removeFromGroupMutation = mutations.create<void, string>({
@@ -99,7 +108,10 @@ const HostActions = (props: HostActionsProps) => {
         throw new Error(data.message ?? "Failed to remove host from group.");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("Host removed from hostgroup");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
   const handleRemoveFromGroup = async (groupName: string) => {

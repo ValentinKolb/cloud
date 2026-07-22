@@ -1,5 +1,5 @@
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { FilterChip, type FilterChipSection, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { FilterChip, type FilterChipSection, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient as loggingClient } from "../api-client";
@@ -47,7 +47,7 @@ export default function LogFilterBar(props: Props) {
         throw new Error(d.message ?? "Failed to save.");
       }
     },
-    onSuccess: () => prompts.alert("Log retention updated.", { title: "Saved", icon: "ti ti-check" }),
+    onSuccess: () => toast.success("Log retention updated"),
     onError: (err) => prompts.error(err.message),
   });
 
@@ -71,8 +71,8 @@ export default function LogFilterBar(props: Props) {
       if (!res.ok) throw new Error((result as { message?: string }).message ?? "Failed to cleanup.");
       return result as { deleted: number };
     },
-    onSuccess: async (data) => {
-      await prompts.alert(`Deleted ${data.deleted} log entries.`, { title: "Cleanup Complete", icon: "ti ti-check" });
+    onSuccess: (data) => {
+      toast.success(`Deleted ${data.deleted} log entries`);
       refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
@@ -117,12 +117,7 @@ export default function LogFilterBar(props: Props) {
           />
         )}
         {hasFilters && (
-          <a
-            href={baseUrl}
-            class="text-[10px] text-red-500 tabular-nums hidden sm:inline"
-            aria-label="Clear all filters"
-            title="Clear filters"
-          >
+          <a href={baseUrl} class="text-[10px] text-red-500 tabular-nums hidden sm:inline" aria-label="Clear all filters">
             <i class="ti ti-x" /> Clear
           </a>
         )}

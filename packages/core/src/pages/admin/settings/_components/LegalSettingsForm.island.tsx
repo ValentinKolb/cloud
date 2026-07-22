@@ -18,6 +18,7 @@ import {
   SettingsPanelFooter,
   sameSettingValue,
   TextInput,
+  Tooltip,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
@@ -323,15 +324,11 @@ function LegalField(props: {
             )}
           </Show>
         </div>
-        <button
-          type="button"
-          class="btn-input btn-input-sm shrink-0"
-          onClick={props.onUseDefault}
-          disabled={!props.canUseDefault()}
-          title="Stage the default value. Save applies it; Discard cancels it."
-        >
-          <i class="ti ti-arrow-back-up" /> Use default
-        </button>
+        <Tooltip content="Stage the default value. Save applies it; Discard cancels it.">
+          <button type="button" class="btn-input btn-input-sm shrink-0" onClick={props.onUseDefault} disabled={!props.canUseDefault()}>
+            <i class="ti ti-arrow-back-up" /> Use default
+          </button>
+        </Tooltip>
       </div>
       {props.children}
       <Show when={props.error()}>

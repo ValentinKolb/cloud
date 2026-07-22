@@ -1,4 +1,4 @@
-import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -20,7 +20,10 @@ const EditHostgroup = (props: Props) => {
         throw new Error(data.message ?? "Failed to update hostgroup.");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("Hostgroup updated");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
 

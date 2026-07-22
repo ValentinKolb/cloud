@@ -102,7 +102,6 @@ export default function DeliveryFilterBar(props: Props) {
             href={NOTIFICATION_ADMIN_BASE_URL}
             class="hidden text-[10px] tabular-nums text-red-500 sm:inline"
             aria-label="Clear all filters"
-            title="Clear filters"
           >
             <i class="ti ti-x" /> Clear
           </a>

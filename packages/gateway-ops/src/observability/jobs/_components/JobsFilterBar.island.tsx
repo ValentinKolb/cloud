@@ -123,12 +123,7 @@ export default function JobsFilterBar(props: Props) {
           defaultValue={[defaultJobsFilter.duration]}
         />
         {hasActiveJobsFilters(props.filter) && (
-          <a
-            href={clearUrl}
-            class="text-[10px] text-red-500 tabular-nums hidden sm:inline"
-            aria-label="Clear all filters"
-            title="Clear filters"
-          >
+          <a href={clearUrl} class="text-[10px] text-red-500 tabular-nums hidden sm:inline" aria-label="Clear all filters">
             <i class="ti ti-x" /> Clear
           </a>
         )}

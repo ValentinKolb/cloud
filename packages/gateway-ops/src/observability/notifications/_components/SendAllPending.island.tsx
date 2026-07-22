@@ -1,8 +1,8 @@
-import { createSignal, onMount } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "../api-client";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, onMount } from "solid-js";
+import { apiClient } from "../api-client";
 
 type SendResult = {
   sent: number;
@@ -39,7 +39,7 @@ const SendAllPending = () => {
       setPendingCount(0);
 
       if (result.failed === 0) {
-        await prompts.alert(`Successfully sent ${result.sent} notification${result.sent !== 1 ? "s" : ""}.`);
+        toast.success(`Sent ${result.sent} notification${result.sent !== 1 ? "s" : ""}`);
       } else {
         const errorList = result.errors.map((e) => `${e.recipient}: ${e.error}`).join("\n");
         await prompts.alert(`Sent: ${result.sent}, Failed: ${result.failed}\n\nErrors:\n${errorList}`);

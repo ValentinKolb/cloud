@@ -10,8 +10,8 @@
  * own settings build their own bespoke admin forms (DIY HTTP route + UI).
  */
 
-import { coreClient } from "@valentinkolb/cloud/clients/core";
 import type { AiEnrichmentOverview } from "@valentinkolb/cloud/ai";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { AI_PLATFORM_PROMPT_TEMPLATE, renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import {
   CheckboxCard,
@@ -32,11 +32,12 @@ import {
   TagsInput,
   TemplateEditor,
   TemplatePreview,
-  toast,
   TemplateSampleData,
   type TemplateVariable,
   type TemplateVariableKind,
   TextInput,
+  Tooltip,
+  toast,
 } from "@valentinkolb/cloud/ui";
 import { img } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -359,27 +360,26 @@ export default function CoreSettingsForm(props: Props) {
   const headerActions = () => (
     <>
       <Show when={props.showTestEmailAction}>
-        <button
-          type="button"
-          class="btn-secondary btn-sm justify-center"
-          onClick={openTestEmailDialog}
-          disabled={hasChanges()}
-          title={hasChanges() ? "Save pending changes before sending a test email" : "Send test email with the saved SMTP settings"}
+        <Tooltip
+          content={hasChanges() ? "Save pending changes before sending a test email" : "Send a test email with the saved SMTP settings"}
         >
-          <i class="ti ti-send" /> Test email
-        </button>
+          <button type="button" class="btn-secondary btn-sm justify-center" onClick={openTestEmailDialog} disabled={hasChanges()}>
+            <i class="ti ti-send" /> Test email
+          </button>
+        </Tooltip>
       </Show>
 
       <Show when={props.showTestPdfAction}>
-        <button
-          type="button"
-          class="btn-secondary btn-sm justify-center"
-          onClick={() => testPdf.mutate()}
-          disabled={hasChanges() || testPdf.loading()}
-          title={hasChanges() ? "Save pending changes before testing Gotenberg" : "Render a test PDF with the saved settings"}
-        >
-          <i class={testPdf.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-file-type-pdf"} /> Test renderer
-        </button>
+        <Tooltip content={hasChanges() ? "Save pending changes before testing Gotenberg" : "Render a test PDF with the saved settings"}>
+          <button
+            type="button"
+            class="btn-secondary btn-sm justify-center"
+            onClick={() => testPdf.mutate()}
+            disabled={hasChanges() || testPdf.loading()}
+          >
+            <i class={testPdf.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-file-type-pdf"} /> Test renderer
+          </button>
+        </Tooltip>
       </Show>
     </>
   );
@@ -856,13 +856,17 @@ function RunEnrichmentButton() {
     setRunning(true);
     try {
       const response = await fetch("/api/admin/core/settings/run-ai-enrichment", { method: "POST" });
-      const body = (await response.json().catch(() => null)) as
-        | { ok?: boolean; message?: string; summary?: { scanned: number; enriched: number; failed: number } }
-        | null;
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        message?: string;
+        summary?: { scanned: number; enriched: number; failed: number };
+      } | null;
       if (!response.ok || !body?.ok) throw new Error(body?.message ?? "AI enrichment run failed");
       const summary = body.summary;
       toast.success(
-        summary ? `Enrichment done: ${summary.enriched} enriched, ${summary.failed} failed (${summary.scanned} scanned).` : "Enrichment done.",
+        summary
+          ? `Enrichment done: ${summary.enriched} enriched, ${summary.failed} failed (${summary.scanned} scanned).`
+          : "Enrichment done.",
       );
       // The overview numbers are server-rendered — reload to reflect the run.
       window.location.reload();
@@ -1027,216 +1031,226 @@ function AiSettingsPanel(props: {
   return (
     <div class="flex flex-col gap-2">
       <Show when={props.section === "general"}>
-      <PanelDialog.Section title="Cloud AI" subtitle="Global switch, default model, and workspace-wide instructions." icon="ti ti-sparkles">
-        <div class="flex flex-col gap-2">
-          <Switch
-            label={props.valueOf(AI_ENABLED_SETTING_KEY) ? "AI enabled" : "AI disabled"}
-            value={() => Boolean(props.valueOf(AI_ENABLED_SETTING_KEY))}
-            onChange={(value) => props.onChange(AI_ENABLED_SETTING_KEY, value)}
-          />
-          <p class="text-xs text-dimmed">Controls whether Cloud AI features are available to apps and users.</p>
-        </div>
-
-        <SelectInput
-          label="Default model"
-          description="Used when an app asks for the platform default model."
-          value={() => defaultModelId()}
-          onChange={setDefaultModel}
-          options={profiles()
-            .filter((profile) => profile.enabled || profile.id === defaultModelId())
-            .map((profile) => ({
-              id: profile.id,
-              label: profile.enabled ? profile.label : `${profile.label} (disabled)`,
-              description: `${providerOption(profile.provider).label} · ${profile.model}`,
-              icon: "ti ti-sparkles",
-            }))}
-          placeholder={profiles().length > 0 ? "Choose default model" : "Add a provider first"}
+        <PanelDialog.Section
+          title="Cloud AI"
+          subtitle="Global switch, default model, and workspace-wide instructions."
           icon="ti ti-sparkles"
-          disabled={profiles().length === 0}
-          error={() => props.errorFor(AI_DEFAULT_MODEL_SETTING_KEY)}
-        />
-
-        <div class="flex flex-col gap-1.5">
-          <div>
-            <p class="text-sm font-medium text-primary">Global instructions</p>
-            <p class="text-xs text-dimmed">
-              Liquid template appended after the platform prompt in every Cloud AI conversation. Type {"{{"} for variable completions.
-            </p>
+        >
+          <div class="flex flex-col gap-2">
+            <Switch
+              label={props.valueOf(AI_ENABLED_SETTING_KEY) ? "AI enabled" : "AI disabled"}
+              value={() => Boolean(props.valueOf(AI_ENABLED_SETTING_KEY))}
+              onChange={(value) => props.onChange(AI_ENABLED_SETTING_KEY, value)}
+            />
+            <p class="text-xs text-dimmed">Controls whether Cloud AI features are available to apps and users.</p>
           </div>
-          <TemplateEditor
-            value={() => asString(props.valueOf(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY))}
-            onInput={(value) => props.onChange(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY, value)}
-            variables={AI_PROMPT_TEMPLATE_VARIABLES}
-            lines={14}
-            placeholder={AI_PLATFORM_PROMPT_TEMPLATE}
+
+          <SelectInput
+            label="Default model"
+            description="Used when an app asks for the platform default model."
+            value={() => defaultModelId()}
+            onChange={setDefaultModel}
+            options={profiles()
+              .filter((profile) => profile.enabled || profile.id === defaultModelId())
+              .map((profile) => ({
+                id: profile.id,
+                label: profile.enabled ? profile.label : `${profile.label} (disabled)`,
+                description: `${providerOption(profile.provider).label} · ${profile.model}`,
+                icon: "ti ti-sparkles",
+              }))}
+            placeholder={profiles().length > 0 ? "Choose default model" : "Add a provider first"}
+            icon="ti ti-sparkles"
+            disabled={profiles().length === 0}
+            error={() => props.errorFor(AI_DEFAULT_MODEL_SETTING_KEY)}
           />
-          <FieldError error={() => props.errorFor(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY)} />
-        </div>
 
-        <details class="group">
-          <summary class="flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-secondary hover:text-primary">
-            <i class="ti ti-chevron-right transition-transform group-open:rotate-90" aria-hidden="true" />
-            Show the built-in platform prompt
-          </summary>
-          <div class="mt-2 flex flex-col gap-1.5">
-            <p class="text-xs text-dimmed">
-              Every conversation starts with this Liquid template, rendered per turn with the current user, time, app, available tools, and
-              memory state. Your global instructions are appended directly after it.
-            </p>
-            <pre class="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2.5 font-mono text-[11px] leading-relaxed text-zinc-700 [box-shadow:var(--ui-control-recess)] dark:bg-zinc-900 dark:text-zinc-300">
-              {AI_PLATFORM_PROMPT_TEMPLATE}
-            </pre>
+          <div class="flex flex-col gap-1.5">
+            <div>
+              <p class="text-sm font-medium text-primary">Global instructions</p>
+              <p class="text-xs text-dimmed">
+                Liquid template appended after the platform prompt in every Cloud AI conversation. Type {"{{"} for variable completions.
+              </p>
+            </div>
+            <TemplateEditor
+              value={() => asString(props.valueOf(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY))}
+              onInput={(value) => props.onChange(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY, value)}
+              variables={AI_PROMPT_TEMPLATE_VARIABLES}
+              lines={14}
+              placeholder={AI_PLATFORM_PROMPT_TEMPLATE}
+            />
+            <FieldError error={() => props.errorFor(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY)} />
           </div>
-        </details>
-      </PanelDialog.Section>
 
-      <PanelDialog.Section
-        title="Context"
-        subtitle="Compaction behavior for long conversations and large tool outputs."
-        icon="ti ti-package"
-      >
-        <TextInput
-          variant="ai"
-          multiline
-          lines={4}
-          label="Compaction prompt"
-          description="Optional prompt used when old chat context is summarized before continuing long conversations. Leave empty for the built-in structured handoff prompt (goal, requests, decisions, facts, dead ends, open tasks, next step)."
-          value={() => asString(props.valueOf(AI_COMPACTION_PROMPT_SETTING_KEY))}
-          onInput={(value) => props.onChange(AI_COMPACTION_PROMPT_SETTING_KEY, value)}
-          placeholder={
-            entry(AI_COMPACTION_PROMPT_SETTING_KEY)?.placeholder ??
-            "Leave empty for the built-in handoff prompt (goal, user requests, decisions, facts, dead ends, open tasks, next step)."
-          }
-          error={() => props.errorFor(AI_COMPACTION_PROMPT_SETTING_KEY)}
-        />
+          <details class="group">
+            <summary class="flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-secondary hover:text-primary">
+              <i class="ti ti-chevron-right transition-transform group-open:rotate-90" aria-hidden="true" />
+              Show the built-in platform prompt
+            </summary>
+            <div class="mt-2 flex flex-col gap-1.5">
+              <p class="text-xs text-dimmed">
+                Every conversation starts with this Liquid template, rendered per turn with the current user, time, app, available tools,
+                and memory state. Your global instructions are appended directly after it.
+              </p>
+              <pre class="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2.5 font-mono text-[11px] leading-relaxed text-zinc-700 [box-shadow:var(--ui-control-recess)] dark:bg-zinc-900 dark:text-zinc-300">
+                {AI_PLATFORM_PROMPT_TEMPLATE}
+              </pre>
+            </div>
+          </details>
+        </PanelDialog.Section>
 
-        <NumberInput
-          label="Max tool result chars"
-          description="Tool results above this size are truncated before they are sent back into the model context. Higher keeps more detail in long chats; lower saves context."
-          value={maxToolResultChars}
-          onChange={(value) => props.onChange(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY, value ?? 8000)}
-          min={500}
-          max={50000}
-          showSteppers={false}
-          error={() => props.errorFor(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY)}
-        />
-      </PanelDialog.Section>
+        <PanelDialog.Section
+          title="Context"
+          subtitle="Compaction behavior for long conversations and large tool outputs."
+          icon="ti ti-package"
+        >
+          <TextInput
+            variant="ai"
+            multiline
+            lines={4}
+            label="Compaction prompt"
+            description="Optional prompt used when old chat context is summarized before continuing long conversations. Leave empty for the built-in structured handoff prompt (goal, requests, decisions, facts, dead ends, open tasks, next step)."
+            value={() => asString(props.valueOf(AI_COMPACTION_PROMPT_SETTING_KEY))}
+            onInput={(value) => props.onChange(AI_COMPACTION_PROMPT_SETTING_KEY, value)}
+            placeholder={
+              entry(AI_COMPACTION_PROMPT_SETTING_KEY)?.placeholder ??
+              "Leave empty for the built-in handoff prompt (goal, user requests, decisions, facts, dead ends, open tasks, next step)."
+            }
+            error={() => props.errorFor(AI_COMPACTION_PROMPT_SETTING_KEY)}
+          />
+
+          <NumberInput
+            label="Max tool result chars"
+            description="Tool results above this size are truncated before they are sent back into the model context. Higher keeps more detail in long chats; lower saves context."
+            value={maxToolResultChars}
+            onChange={(value) => props.onChange(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY, value ?? 8000)}
+            min={500}
+            max={50000}
+            showSteppers={false}
+            error={() => props.errorFor(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY)}
+          />
+        </PanelDialog.Section>
       </Show>
 
       <Show when={props.section === "jobs"}>
-      <PanelDialog.Section
-        title="Background jobs"
-        subtitle="Model and schedule for background AI work like chat summaries, keywords, and titles."
-        icon="ti ti-clock-bolt"
-      >
-        <SelectInput
-          label="Background model"
-          description="Model used for background AI jobs. Falls back to the default model when unset."
-          value={() => asString(props.valueOf(AI_BACKGROUND_MODEL_SETTING_KEY))}
-          onChange={(value) => props.onChange(AI_BACKGROUND_MODEL_SETTING_KEY, value ?? "")}
-          options={[
-            { id: "", label: "Use default model", icon: "ti ti-sparkles" },
-            ...profiles()
-              .filter((profile) => profile.enabled)
-              .map((profile) => ({
-                id: profile.id,
-                label: profile.label,
-                description: `${providerOption(profile.provider).label} · ${profile.model}`,
-                icon: "ti ti-sparkles",
-              })),
-          ]}
+        <PanelDialog.Section
+          title="Background jobs"
+          subtitle="Model and schedule for background AI work like chat summaries, keywords, and titles."
           icon="ti ti-clock-bolt"
-          error={() => props.errorFor(AI_BACKGROUND_MODEL_SETTING_KEY)}
-        />
+        >
+          <SelectInput
+            label="Background model"
+            description="Model used for background AI jobs. Falls back to the default model when unset."
+            value={() => asString(props.valueOf(AI_BACKGROUND_MODEL_SETTING_KEY))}
+            onChange={(value) => props.onChange(AI_BACKGROUND_MODEL_SETTING_KEY, value ?? "")}
+            options={[
+              { id: "", label: "Use default model", icon: "ti ti-sparkles" },
+              ...profiles()
+                .filter((profile) => profile.enabled)
+                .map((profile) => ({
+                  id: profile.id,
+                  label: profile.label,
+                  description: `${providerOption(profile.provider).label} · ${profile.model}`,
+                  icon: "ti ti-sparkles",
+                })),
+            ]}
+            icon="ti ti-clock-bolt"
+            error={() => props.errorFor(AI_BACKGROUND_MODEL_SETTING_KEY)}
+          />
 
-        <TextInput
-          label="Chat enrichment schedule"
-          description="Cron for the job that summarizes changed chats and refreshes keywords and titles for search."
-          value={() => asString(props.valueOf(AI_ENRICH_CRON_SETTING_KEY))}
-          onInput={(value) => props.onChange(AI_ENRICH_CRON_SETTING_KEY, value)}
-          placeholder="*/10 * * * *"
-          monospace
-          error={() => props.errorFor(AI_ENRICH_CRON_SETTING_KEY)}
-        />
+          <TextInput
+            label="Chat enrichment schedule"
+            description="Cron for the job that summarizes changed chats and refreshes keywords and titles for search."
+            value={() => asString(props.valueOf(AI_ENRICH_CRON_SETTING_KEY))}
+            onInput={(value) => props.onChange(AI_ENRICH_CRON_SETTING_KEY, value)}
+            placeholder="*/10 * * * *"
+            monospace
+            error={() => props.errorFor(AI_ENRICH_CRON_SETTING_KEY)}
+          />
 
-        <Show when={props.enrichmentOverview}>
-          {(overview) => <AiEnrichmentOverviewPanel overview={overview()} showJobsLink={props.showJobsLink} />}
-        </Show>
-      </PanelDialog.Section>
+          <Show when={props.enrichmentOverview}>
+            {(overview) => <AiEnrichmentOverviewPanel overview={overview()} showJobsLink={props.showJobsLink} />}
+          </Show>
+        </PanelDialog.Section>
       </Show>
 
       <Show when={props.section === "general"}>
-      <PanelDialog.Section title="Web tools" subtitle="Firecrawl-backed search and page extraction for AI tools." icon="ti ti-world-search">
-        <TextInput
-          variant="ai"
-          label="Firecrawl API key"
-          description={
-            firecrawlKeyConfigured()
-              ? "A key is configured (stored encrypted, never sent to the browser). Leave empty to keep it; type a new key to replace it."
-              : "Enables the default web_search and web_extract tools. The key is stored encrypted and never sent to the browser after save."
-          }
-          value={() => asString(props.valueOf(AI_FIRECRAWL_API_KEY_SETTING_KEY))}
-          onInput={(value) => props.onChange(AI_FIRECRAWL_API_KEY_SETTING_KEY, value)}
-          placeholder={
-            firecrawlKeyConfigured()
-              ? "Leave empty to keep current key"
-              : (entry(AI_FIRECRAWL_API_KEY_SETTING_KEY)?.placeholder ?? "fc-...")
-          }
-          password
-          error={() => props.errorFor(AI_FIRECRAWL_API_KEY_SETTING_KEY)}
-        />
-      </PanelDialog.Section>
+        <PanelDialog.Section
+          title="Web tools"
+          subtitle="Firecrawl-backed search and page extraction for AI tools."
+          icon="ti ti-world-search"
+        >
+          <TextInput
+            variant="ai"
+            label="Firecrawl API key"
+            description={
+              firecrawlKeyConfigured()
+                ? "A key is configured (stored encrypted, never sent to the browser). Leave empty to keep it; type a new key to replace it."
+                : "Enables the default web_search and web_extract tools. The key is stored encrypted and never sent to the browser after save."
+            }
+            value={() => asString(props.valueOf(AI_FIRECRAWL_API_KEY_SETTING_KEY))}
+            onInput={(value) => props.onChange(AI_FIRECRAWL_API_KEY_SETTING_KEY, value)}
+            placeholder={
+              firecrawlKeyConfigured()
+                ? "Leave empty to keep current key"
+                : (entry(AI_FIRECRAWL_API_KEY_SETTING_KEY)?.placeholder ?? "fc-...")
+            }
+            password
+            error={() => props.errorFor(AI_FIRECRAWL_API_KEY_SETTING_KEY)}
+          />
+        </PanelDialog.Section>
       </Show>
 
       <Show when={props.section === "providers"}>
-      <PanelDialog.Section
-        title="Providers"
-        subtitle="Choose a provider type, then adjust model, credentials, base URL, data boundary, and capabilities."
-        icon="ti ti-sparkles"
-      >
-        <div class="flex flex-wrap justify-end gap-2">
-          <button type="button" class="btn-secondary btn-sm" title="API keys are never exported" onClick={exportJson}>
-            <i class="ti ti-file-export" /> Export JSON
-          </button>
-          <button type="button" class="btn-secondary btn-sm" onClick={() => void importJson()}>
-            <i class="ti ti-file-import" /> Import JSON
-          </button>
-          <button type="button" class="btn-ai btn-sm" onClick={() => void addProvider()}>
-            <i class="ti ti-plus" /> Add provider
-          </button>
-        </div>
-
-        <Show
-          when={!profilesState().error && profiles().length > 0}
-          fallback={
-            <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-6 text-center text-sm text-red-800 dark:border-red-900/70 dark:bg-red-950/35 dark:text-red-200">
-              <p class="flex items-center justify-center gap-2 font-medium">
-                <i class="ti ti-alert-circle text-base" />
-                {profilesState().error ? "Model profiles need attention" : "No providers configured"}
-              </p>
-              <p class="mx-auto mt-2 max-w-xl text-red-700/80 dark:text-red-200/80">
-                {profilesState().error ??
-                  "You need at least one provider profile to start chatting. Add OpenRouter, OpenAI, Ollama, or any OpenAI-compatible endpoint."}
-              </p>
-              <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
-            </div>
-          }
+        <PanelDialog.Section
+          title="Providers"
+          subtitle="Choose a provider type, then adjust model, credentials, base URL, data boundary, and capabilities."
+          icon="ti ti-sparkles"
         >
-          <div class="grid gap-3 lg:grid-cols-2">
-            {profiles().map((profile) => (
-              <AiProfileCard
-                profile={profile}
-                isDefault={() => profile.id === defaultModelId()}
-                onSetDefault={() => setDefaultModel(profile.id)}
-                onEdit={() => void editProfile(profile)}
-                onDuplicate={() => duplicateProfile(profile)}
-                onRemove={() => void removeProfile(profile)}
-              />
-            ))}
+          <div class="flex flex-wrap justify-end gap-2">
+            <Tooltip content="API keys are never exported">
+              <button type="button" class="btn-secondary btn-sm" onClick={exportJson}>
+                <i class="ti ti-file-export" /> Export JSON
+              </button>
+            </Tooltip>
+            <button type="button" class="btn-secondary btn-sm" onClick={() => void importJson()}>
+              <i class="ti ti-file-import" /> Import JSON
+            </button>
+            <button type="button" class="btn-ai btn-sm" onClick={() => void addProvider()}>
+              <i class="ti ti-plus" /> Add provider
+            </button>
           </div>
-          <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
-        </Show>
-      </PanelDialog.Section>
+
+          <Show
+            when={!profilesState().error && profiles().length > 0}
+            fallback={
+              <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-6 text-center text-sm text-red-800 dark:border-red-900/70 dark:bg-red-950/35 dark:text-red-200">
+                <p class="flex items-center justify-center gap-2 font-medium">
+                  <i class="ti ti-alert-circle text-base" />
+                  {profilesState().error ? "Model profiles need attention" : "No providers configured"}
+                </p>
+                <p class="mx-auto mt-2 max-w-xl text-red-700/80 dark:text-red-200/80">
+                  {profilesState().error ??
+                    "You need at least one provider profile to start chatting. Add OpenRouter, OpenAI, Ollama, or any OpenAI-compatible endpoint."}
+                </p>
+                <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
+              </div>
+            }
+          >
+            <div class="grid gap-3 lg:grid-cols-2">
+              {profiles().map((profile) => (
+                <AiProfileCard
+                  profile={profile}
+                  isDefault={() => profile.id === defaultModelId()}
+                  onSetDefault={() => setDefaultModel(profile.id)}
+                  onEdit={() => void editProfile(profile)}
+                  onDuplicate={() => duplicateProfile(profile)}
+                  onRemove={() => void removeProfile(profile)}
+                />
+              ))}
+            </div>
+            <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
+          </Show>
+        </PanelDialog.Section>
       </Show>
     </div>
   );
@@ -1301,15 +1315,21 @@ function AiProfileCard(props: {
           </p>
         </div>
         <div class="flex shrink-0 gap-1">
-          <button type="button" class="icon-btn" aria-label="Edit profile" onClick={props.onEdit}>
-            <i class="ti ti-pencil" />
-          </button>
-          <button type="button" class="icon-btn" aria-label="Duplicate profile" onClick={props.onDuplicate}>
-            <i class="ti ti-copy" />
-          </button>
-          <button type="button" class="icon-btn text-red-500 hover:text-red-700" aria-label="Remove profile" onClick={props.onRemove}>
-            <i class="ti ti-trash" />
-          </button>
+          <Tooltip content="Edit profile">
+            <button type="button" class="icon-btn" aria-label="Edit profile" onClick={props.onEdit}>
+              <i class="ti ti-pencil" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Duplicate profile">
+            <button type="button" class="icon-btn" aria-label="Duplicate profile" onClick={props.onDuplicate}>
+              <i class="ti ti-copy" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Remove profile">
+            <button type="button" class="icon-btn text-red-500 hover:text-red-700" aria-label="Remove profile" onClick={props.onRemove}>
+              <i class="ti ti-trash" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1660,16 +1680,17 @@ function FieldRow(props: {
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            class="btn-input btn-input-sm"
-            onClick={props.onUseDefault}
-            disabled={!props.canUseDefault()}
-            aria-label={`Use default for ${e().label}`}
-            title="Stage the default value. Save applies it; Discard cancels it."
-          >
-            <i class="ti ti-arrow-back-up" /> Use default
-          </button>
+          <Tooltip content="Stage the default value. Save applies it; Discard cancels it.">
+            <button
+              type="button"
+              class="btn-input btn-input-sm"
+              onClick={props.onUseDefault}
+              disabled={!props.canUseDefault()}
+              aria-label={`Use default for ${e().label}`}
+            >
+              <i class="ti ti-arrow-back-up" /> Use default
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1969,12 +1990,7 @@ function TemplateSettingInput(props: FieldInputProps) {
           Preview
           <i class="ti ti-chevron-down ml-auto text-dimmed transition-transform group-open:rotate-180" />
         </summary>
-        <iframe
-          class="h-56 w-full bg-white"
-          sandbox=""
-          srcdoc={preview()}
-          title={`${props.entry.label} preview`}
-        />
+        <iframe class="h-56 w-full bg-white" sandbox="" srcdoc={preview()} title={`${props.entry.label} preview`} />
       </details>
 
       <FieldError error={props.error} />

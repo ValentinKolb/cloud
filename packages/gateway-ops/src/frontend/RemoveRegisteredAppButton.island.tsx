@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -39,15 +39,16 @@ export default function RemoveRegisteredAppButton(props: { id: string; name: str
   });
 
   return (
-    <button
-      type="button"
-      class="btn-simple btn-sm text-red-500 hover:text-red-600"
-      disabled={props.disabled || removeApp.loading()}
-      title={props.disabled ? "Only offline apps can be removed" : "Remove offline app"}
-      onClick={() => removeApp.mutate()}
-    >
-      <i class={`ti ${removeApp.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} />
-      Remove
-    </button>
+    <Tooltip content={props.disabled ? "Only offline apps can be removed" : "Remove offline app"}>
+      <button
+        type="button"
+        class="btn-simple btn-sm text-red-500 hover:text-red-600"
+        disabled={props.disabled || removeApp.loading()}
+        onClick={() => removeApp.mutate()}
+      >
+        <i class={`ti ${removeApp.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} />
+        Remove
+      </button>
+    </Tooltip>
   );
 }

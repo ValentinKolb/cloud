@@ -1,6 +1,6 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { CreateFaq, FaqAudience } from "@/contracts";
 
@@ -19,7 +19,10 @@ export default function CreateFaqButton() {
         throw new Error(body?.message ?? "Failed to create FAQ entry");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("FAQ entry created");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
 

@@ -1,9 +1,9 @@
-import { createSignal, For, Show } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, CopyButton, TextInput, EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/ui";
+import { CopyButton, EntitySearch, type EntitySearchPrincipal, prompts, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ProxyAuthAllowedGroup, ProxyAuthClient, CreateProxyAuthClient } from "@/contracts";
+import type { CreateProxyAuthClient, ProxyAuthAllowedGroup, ProxyAuthClient } from "@/contracts";
 
 const CreateProxyClient = () => {
   const mutation = mutations.create<ProxyAuthClient, CreateProxyAuthClient>({
@@ -86,13 +86,16 @@ const CreateProxyClient = () => {
                       <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-400">
                         <i class="ti ti-users-group text-[10px]" />
                         {group.name}
-                        <button
-                          type="button"
-                          onClick={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
-                          class="hover:text-red-500 ml-0.5"
-                        >
-                          <i class="ti ti-x text-[10px]" />
-                        </button>
+                        <Tooltip content={`Remove ${group.name}`}>
+                          <button
+                            type="button"
+                            onClick={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
+                            class="hover:text-red-500 ml-0.5"
+                            aria-label={`Remove ${group.name}`}
+                          >
+                            <i class="ti ti-x text-[10px]" />
+                          </button>
+                        </Tooltip>
                       </span>
                     )}
                   </For>

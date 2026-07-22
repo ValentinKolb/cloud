@@ -77,7 +77,6 @@ export default function RegistryFilterBar(props: Props) {
             href={`${NOTIFICATION_ADMIN_BASE_URL}?view=registry`}
             class="hidden text-[10px] tabular-nums text-red-500 sm:inline"
             aria-label="Clear all filters"
-            title="Clear filters"
           >
             <i class="ti ti-x" /> Clear
           </a>

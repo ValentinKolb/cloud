@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, PermissionEditor, prompts } from "@valentinkolb/cloud/ui";
+import { Dropdown, PermissionEditor, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 
@@ -92,6 +92,7 @@ const deleteNotebook = async (props: AdminNotebookActionsProps) => {
     return;
   }
 
+  toast.success("Notebook deleted");
   refreshCurrentPath();
 };
 
@@ -99,13 +100,15 @@ const AdminNotebookActions = (props: AdminNotebookActionsProps) => {
   return (
     <Dropdown
       trigger={
-        <button
-          type="button"
-          class="p-1.5 text-dimmed hover:text-primary transition-colors"
-          aria-label={`Settings for ${props.notebookName}`}
-        >
-          <i class="ti ti-settings text-sm" />
-        </button>
+        <Tooltip content="Notebook actions">
+          <button
+            type="button"
+            class="p-1.5 text-dimmed hover:text-primary transition-colors"
+            aria-label={`Actions for ${props.notebookName}`}
+          >
+            <i class="ti ti-settings text-sm" />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-52"

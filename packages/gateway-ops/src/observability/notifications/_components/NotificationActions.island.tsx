@@ -1,4 +1,4 @@
-import { Dropdown, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "../api-client";
@@ -25,8 +25,8 @@ const NotificationActions = (props: NotificationActionsProps) => {
       }
       return data;
     },
-    onSuccess: async (data) => {
-      await prompts.alert(data.message);
+    onSuccess: (data) => {
+      toast.success(data.message);
       refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
@@ -44,8 +44,8 @@ const NotificationActions = (props: NotificationActionsProps) => {
       }
       return data;
     },
-    onSuccess: async (data) => {
-      await prompts.alert(data.message);
+    onSuccess: (data) => {
+      toast.success(data.message);
       refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),

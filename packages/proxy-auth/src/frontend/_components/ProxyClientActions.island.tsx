@@ -1,13 +1,10 @@
-import { createSignal, For, Show } from "solid-js";
-import { Dropdown } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
-import { clipboard } from "@valentinkolb/stdlib/browser";
-import { TextInput } from "@valentinkolb/cloud/ui";
-import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/ui";
-import type { ProxyAuthAllowedGroup, ProxyAuthClient, UpdateProxyAuthClient } from "@/contracts";
+import { Dropdown, EntitySearch, type EntitySearchPrincipal, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { clipboard } from "@valentinkolb/stdlib/browser";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, Show } from "solid-js";
+import { apiClient } from "@/api/client";
+import type { ProxyAuthAllowedGroup, ProxyAuthClient, UpdateProxyAuthClient } from "@/contracts";
 
 type Props = {
   client: ProxyAuthClient;
@@ -28,8 +25,8 @@ const ProxyClientActions = (props: Props) => {
       }
       return result as { message: string };
     },
-    onSuccess: async () => {
-      await prompts.alert("Client updated successfully.");
+    onSuccess: () => {
+      toast.success("Proxy auth client updated");
       refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
@@ -46,8 +43,8 @@ const ProxyClientActions = (props: Props) => {
       }
       return result as { message: string };
     },
-    onSuccess: async () => {
-      await prompts.alert("Client deleted successfully.");
+    onSuccess: () => {
+      toast.success("Proxy auth client deleted");
       refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
@@ -99,13 +96,16 @@ const ProxyClientActions = (props: Props) => {
                       <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-400">
                         <i class="ti ti-users-group text-[10px]" />
                         {group.name}
-                        <button
-                          type="button"
-                          onClick={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
-                          class="hover:text-red-500 ml-0.5"
-                        >
-                          <i class="ti ti-x text-[10px]" />
-                        </button>
+                        <Tooltip content={`Remove ${group.name}`}>
+                          <button
+                            type="button"
+                            onClick={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
+                            class="hover:text-red-500 ml-0.5"
+                            aria-label={`Remove ${group.name}`}
+                          >
+                            <i class="ti ti-x text-[10px]" />
+                          </button>
+                        </Tooltip>
                       </span>
                     )}
                   </For>
@@ -152,21 +152,24 @@ const ProxyClientActions = (props: Props) => {
     }
   };
 
-  const handleCopyVerifyUrl = () => {
+  const handleCopyVerifyUrl = async () => {
     const baseUrl = window.location.origin;
-    clipboard.copy(`${baseUrl}/proxy-auth/verify/${client.clientId}`);
-    prompts.alert("Verify URL copied to clipboard.", {
-      title: "Copied",
-      icon: "ti ti-check",
-    });
+    try {
+      await clipboard.copy(`${baseUrl}/proxy-auth/verify/${client.clientId}`);
+      toast.success("Verify URL copied");
+    } catch {
+      toast.error("Could not copy Verify URL");
+    }
   };
 
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label="Client actions">
-          <i class="ti ti-dots-vertical text-sm" />
-        </button>
+        <Tooltip content="Proxy auth client actions">
+          <button type="button" class="icon-btn h-7 w-7" aria-label="Proxy auth client actions">
+            <i class="ti ti-dots-vertical text-sm" />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-48"

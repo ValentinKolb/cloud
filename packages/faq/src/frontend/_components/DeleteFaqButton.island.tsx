@@ -1,4 +1,4 @@
-import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -12,7 +12,10 @@ export default function DeleteFaqButton(props: { id: string; question: string })
         throw new Error(body?.message ?? "Failed to delete FAQ entry");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("FAQ entry deleted");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
 

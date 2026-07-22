@@ -9,7 +9,7 @@
  * Extensible by design: future settings just need a `defaults.ts`
  * entry — they auto-appear in this modal without any frontend change.
  */
-import { dialogCore, PanelDialog, Placeholder, panelDialogOptions } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -131,6 +131,7 @@ const SettingsBody = (props: { close: () => void }) => {
       for (const [key, value] of pending) {
         await updateSetting(key, value);
       }
+      toast.success("Notebook settings saved");
       props.close();
       refreshCurrentPath();
     } catch (e) {
@@ -193,7 +194,7 @@ const openSettingsDialog = () => dialogCore.open<void>((close) => <SettingsBody 
 
 export default function AdminNotebooksAppSettings() {
   return (
-    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={() => void openSettingsDialog()} title="Notebook app settings">
+    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={() => void openSettingsDialog()}>
       <i class="ti ti-settings text-sm" />
       Settings
     </button>

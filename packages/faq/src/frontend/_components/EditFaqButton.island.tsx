@@ -1,4 +1,4 @@
-import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -16,7 +16,10 @@ export default function EditFaqButton(props: { entry: FaqEntry }) {
         throw new Error(body?.message ?? "Failed to update FAQ entry");
       }
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => {
+      toast.success("FAQ entry updated");
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
 

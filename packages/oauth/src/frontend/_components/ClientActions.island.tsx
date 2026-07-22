@@ -1,8 +1,8 @@
-import { Dropdown, prompts, CopyButton, dialogCore, panelDialogOptions } from "@valentinkolb/cloud/ui";
+import { CopyButton, Dropdown, dialogCore, panelDialogOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { clipboard } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
-import { clipboard } from "@valentinkolb/stdlib/browser";
 import type { OAuthClient, UpdateOAuthClient } from "@/contracts";
 import OAuthClientDialog from "./OAuthClientDialog";
 
@@ -30,8 +30,8 @@ const ClientActions = (props: ClientActionsProps) => {
       }
       return result as { message: string };
     },
-    onSuccess: async () => {
-      await prompts.alert("Client updated successfully.");
+    onSuccess: () => {
+      toast.success("OAuth client updated");
       refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
@@ -48,8 +48,8 @@ const ClientActions = (props: ClientActionsProps) => {
       }
       return result as { message: string };
     },
-    onSuccess: async () => {
-      await prompts.alert("Client deleted successfully.");
+    onSuccess: () => {
+      toast.success("OAuth client deleted");
       refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
@@ -139,20 +139,23 @@ const ClientActions = (props: ClientActionsProps) => {
     }
   };
 
-  const handleCopyClientId = () => {
-    clipboard.copy(client.clientId);
-    prompts.alert("Client ID copied to clipboard.", {
-      title: "Copied",
-      icon: "ti ti-check",
-    });
+  const handleCopyClientId = async () => {
+    try {
+      await clipboard.copy(client.clientId);
+      toast.success("Client ID copied");
+    } catch {
+      toast.error("Could not copy Client ID");
+    }
   };
 
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label="Client actions">
-          <i class="ti ti-dots-vertical text-sm" />
-        </button>
+        <Tooltip content="OAuth client actions">
+          <button type="button" class="icon-btn h-7 w-7" aria-label="OAuth client actions">
+            <i class="ti ti-dots-vertical text-sm" />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-48"
