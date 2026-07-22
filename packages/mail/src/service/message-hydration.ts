@@ -23,6 +23,7 @@ type HydratedPart = {
 
 type ClaimedMessage = {
   id: string;
+  mailbox_id: string;
   mime_structure: Record<string, unknown> | string;
   resume_hydration_status: "envelope" | "headers" | "body" | "failed";
   resume_hydration_attempt: number;
@@ -183,6 +184,7 @@ const claimMessage = async (messageId: string, claimId: string): Promise<Claimed
     WHERE message.id = candidate.id
     RETURNING
       message.id,
+      message.mailbox_id,
       message.mime_structure,
       CASE WHEN candidate.hydration_status = 'hydrating' THEN 'headers' ELSE candidate.hydration_status END AS resume_hydration_status,
       candidate.hydration_attempt AS resume_hydration_attempt,
@@ -300,6 +302,16 @@ const mergeVerifiedDuplicate = async (params: {
   `;
   await params.db`
     UPDATE mail.remote_message_refs
+    SET message_id = ${canonical.id}::uuid
+    WHERE message_id = ${params.messageId}::uuid
+  `;
+  await params.db`
+    UPDATE mail.drafts
+    SET source_message_id = ${canonical.id}::uuid
+    WHERE source_message_id = ${params.messageId}::uuid
+  `;
+  await params.db`
+    UPDATE mail.automatic_reply_effects
     SET message_id = ${canonical.id}::uuid
     WHERE message_id = ${params.messageId}::uuid
   `;
@@ -653,9 +665,10 @@ export const hydrateMessageFromSource = async (params: {
       const searchChunks = splitSearchText(plainText);
       for (let position = 0; position < searchChunks.length; position += 1) {
         await tx`
-          INSERT INTO mail.message_search_chunks (message_id, position, search_document)
+          INSERT INTO mail.message_search_chunks (message_id, mailbox_id, position, search_document)
           VALUES (
             ${params.messageId}::uuid,
+            ${claimed.mailbox_id}::uuid,
             ${position},
             to_tsvector('simple'::regconfig, ${searchChunks[position]!})
           )

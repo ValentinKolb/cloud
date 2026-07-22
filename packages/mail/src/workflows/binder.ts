@@ -16,6 +16,7 @@ import {
   type WorkflowValuePathDescriptor,
   workflowMessageExpressions,
 } from "@valentinkolb/cloud/workflows/language";
+import { normalizeWorkflowSchedule } from "@valentinkolb/cloud/workflows/runtime";
 import { responseScheduleDefinitionSchema } from "../contracts";
 import { validateResponseScheduleDefinition } from "../response-schedule-validation";
 import {
@@ -545,6 +546,16 @@ const bindTrigger = (
   context: BindingContext,
 ): void => {
   const path = ["triggers", trigger.kind] as Array<string | number>;
+  if (trigger.kind === "schedule") {
+    try {
+      normalizeWorkflowSchedule({
+        cron: String(trigger.config.cron ?? ""),
+        timezone: typeof trigger.config.timezone === "string" ? trigger.config.timezone : "UTC",
+      });
+    } catch (error) {
+      addDiagnostic(context, "trigger.schedule", error instanceof Error ? error.message : "Invalid workflow schedule", [...path, "cron"]);
+    }
+  }
   const eventValues = new Map(Object.entries(descriptor.eventValues).map(([name, type]) => [name, valueDescriptor(type)]));
   for (const input of context.ir.inputs) {
     if (input.config.required === true && trigger.with[input.name] === undefined) {

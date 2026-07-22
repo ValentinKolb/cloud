@@ -96,6 +96,12 @@ suite("reversible mailbox lifecycle", () => {
     if (!created.ok) return;
     const mailboxId = created.data.id;
     mailboxIds.push(mailboxId);
+    expect((await getMailbox(platformContext, mailboxId)).ok).toBe(false);
+    const platformMailboxes = await listMailboxes(platformContext);
+    expect(platformMailboxes.ok).toBe(true);
+    if (platformMailboxes.ok) {
+      expect(platformMailboxes.data.some((mailbox) => mailbox.id === mailboxId)).toBe(false);
+    }
     const reader = await grantMailboxAccess({
       context: ownerContext,
       mailboxId,

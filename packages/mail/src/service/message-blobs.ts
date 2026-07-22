@@ -214,6 +214,12 @@ export const deleteOrphanedBlobs = async (olderThanMinutes = 60): Promise<number
       )
       AND NOT EXISTS (
         SELECT 1
+        FROM mail.draft_attachment_uploads upload
+        WHERE upload.blob_id = blob.id
+          AND upload.state <> 'cancelled'
+      )
+      AND NOT EXISTS (
+        SELECT 1
         FROM mail.attachment_links link
         WHERE link.blob_id = blob.id
           AND link.revoked_at IS NULL

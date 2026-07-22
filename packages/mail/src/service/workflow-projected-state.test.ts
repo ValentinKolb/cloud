@@ -46,4 +46,11 @@ describe("Mail workflow projected state", () => {
     expect(applyMailConversationTransition(conversation, "setConversationStatus", "done")).toBe(true);
     expect(conversation).toMatchObject({ status: "done", workStatus: "done", responseNeeded: false, revision: 3 });
   });
+
+  test("keeps schedule-only inputs when no message source exists", () => {
+    const projected = createMailWorkflowProjectedState(plan, {}, { slot: "2026-07-22T08:00:00.000Z" });
+
+    expect(projected.source).toEqual({});
+    expect(projected.inputs).toEqual({ slot: "2026-07-22T08:00:00.000Z" });
+  });
 });

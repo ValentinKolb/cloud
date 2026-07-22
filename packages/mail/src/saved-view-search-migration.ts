@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { MailSearchExpression, MailSearchState } from "./contracts";
+import { type MailSearchExpression, type MailSearchState, mailSearchStateSchema } from "./contracts";
 
 const legacySavedViewAssigneeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("any") }).strict(),
@@ -47,5 +47,29 @@ export const migrateLegacySavedViewFilter = (filter: LegacySavedViewFilter): Mai
     expression: expressions.length === 0 ? { type: "all" } : expressions.length === 1 ? expressions[0]! : { type: "and", expressions },
     // Legacy saved views used the conversation list's newest-first order.
     sort: "newest",
+  };
+};
+
+type SavedViewFilterMigration = {
+  state: MailSearchState;
+  changed: boolean;
+  recovered: boolean;
+};
+
+export const canonicalizeSavedViewFilter = (value: unknown): SavedViewFilterMigration => {
+  const canonical = mailSearchStateSchema.safeParse(value);
+  if (canonical.success) return { state: canonical.data, changed: false, recovered: false };
+
+  const legacy = legacySavedViewFilterSchema.safeParse(value);
+  if (legacy.success) {
+    return { state: migrateLegacySavedViewFilter(legacy.data), changed: true, recovered: false };
+  }
+
+  // Saved views are navigation conveniences. A safe broad view is preferable to
+  // making an otherwise healthy deployment fail permanently on malformed alpha data.
+  return {
+    state: { expression: { type: "all" }, sort: "newest" },
+    changed: true,
+    recovered: true,
   };
 };

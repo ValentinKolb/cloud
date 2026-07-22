@@ -1,8 +1,8 @@
 import type { WorkflowBoundPlan, WorkflowIr } from "@valentinkolb/cloud/workflows";
 import { compileWorkflow, hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
 import { sql } from "bun";
-import { mailSearchStateSchema, type ResponseScheduleDefinitionInput, responseScheduleDefinitionSchema } from "./contracts";
-import { legacySavedViewFilterSchema, migrateLegacySavedViewFilter } from "./saved-view-search-migration";
+import { type ResponseScheduleDefinitionInput, responseScheduleDefinitionSchema } from "./contracts";
+import { canonicalizeSavedViewFilter } from "./saved-view-search-migration";
 import { cancelPendingAutomaticRepliesInTransaction } from "./service/automatic-reply";
 import { SEARCH_CHUNK_CHARACTERS, SEARCH_CHUNK_OVERLAP_CHARACTERS } from "./service/search-chunks";
 import { inlineWorkflowResponseSchedules } from "./workflows/inline-response-schedule-migration";
@@ -3035,6 +3035,24 @@ type InlineScheduleMigrationVersionRow = {
 const parseMigrationJson = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
 
 const inlineAutomaticReplySchedules = async (db: SqlClient): Promise<void> => {
+  const [activeEffect] = await db<{ id: string }[]>`
+    SELECT command.id
+    FROM mail.commands command
+    JOIN mail.workflow_step_runs step ON step.command_id = command.id
+    JOIN mail.workflow_run_targets target ON target.id = step.target_id
+    JOIN mail.workflow_runs run ON run.id = target.parent_run_id
+    JOIN mail.workflows workflow
+      ON workflow.id = run.workflow_id
+     AND workflow.mailbox_id = run.mailbox_id
+    WHERE run.workflow_version_id IN (workflow.current_version_id, workflow.active_version_id)
+      AND command.provider_effect_started_at IS NOT NULL
+      AND command.state IN ('executing', 'ambiguous')
+    LIMIT 1
+  `;
+  if (activeEffect) {
+    throw Object.assign(new Error("Mail workflow migration is waiting for an in-flight provider effect to settle"), { code: "55P03" });
+  }
+
   await db`ALTER TABLE mail.automatic_reply_configurations ADD COLUMN schedule_definition JSONB`;
   await db`
     UPDATE mail.automatic_reply_configurations configuration
@@ -3152,21 +3170,6 @@ const inlineAutomaticReplySchedules = async (db: SqlClient): Promise<void> => {
   }
 
   if (replacedVersionIds.length > 0) {
-    const [inFlight] = await db<{ count: number }[]>`
-      SELECT COUNT(DISTINCT command.id)::int AS count
-      FROM mail.workflow_runs run
-      JOIN mail.workflow_run_targets target ON target.parent_run_id = run.id
-      JOIN mail.workflow_step_runs step ON step.target_id = target.id
-      JOIN mail.commands command ON command.id = step.command_id
-      WHERE run.workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${replacedVersionIds}::jsonb))
-        AND target.state IN ('running', 'waiting')
-        AND step.state IN ('running', 'waiting')
-        AND command.state = 'executing'
-        AND command.provider_effect_started_at IS NOT NULL
-    `;
-    if ((inFlight?.count ?? 0) > 0) {
-      throw new Error("Cannot migrate inline Mail schedules while workflow provider effects are in flight");
-    }
     await db`
       UPDATE mail.workflow_trigger_events
       SET
@@ -3639,6 +3642,14 @@ const addImapPushListenerHealth = async (db: SqlClient): Promise<void> => {
 };
 
 const canonicalizeSavedConversationViews = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.saved_conversation_views
+      ADD COLUMN IF NOT EXISTS invalid_filter JSONB,
+      ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS migration_error TEXT CHECK (
+        migration_error IS NULL OR char_length(migration_error) <= 1000
+      )
+  `;
   const rows = await db<{ id: string; filter: unknown | string }[]>`
     SELECT id, filter
     FROM mail.saved_conversation_views
@@ -3646,21 +3657,34 @@ const canonicalizeSavedConversationViews = async (db: SqlClient): Promise<void> 
     FOR UPDATE
   `;
   for (const row of rows) {
-    const value = typeof row.filter === "string" ? (JSON.parse(row.filter) as unknown) : row.filter;
-    const canonical = mailSearchStateSchema.safeParse(value);
-    if (canonical.success) continue;
-    const legacy = legacySavedViewFilterSchema.safeParse(value);
-    if (!legacy.success) {
-      throw new Error(`Saved conversation view ${row.id} contains an invalid legacy filter`);
+    let value: unknown = row.filter;
+    if (typeof row.filter === "string") {
+      try {
+        value = JSON.parse(row.filter) as unknown;
+      } catch {
+        value = { malformedJson: row.filter };
+      }
     }
-    const migrated = migrateLegacySavedViewFilter(legacy.data);
+    const migrated = canonicalizeSavedViewFilter(value);
+    if (!migrated.changed) continue;
     await db`
       UPDATE mail.saved_conversation_views
-      SET filter = ${migrated}::jsonb
+      SET
+        filter = ${migrated.state}::jsonb,
+        invalid_filter = CASE WHEN ${migrated.recovered} THEN ${value}::jsonb ELSE NULL END,
+        disabled_at = CASE WHEN ${migrated.recovered} THEN now() ELSE NULL END,
+        migration_error = CASE
+          WHEN ${migrated.recovered} THEN 'Saved view used an unsupported search format and was disabled'
+          ELSE NULL
+        END
       WHERE id = ${row.id}::uuid
     `;
   }
   await db`ALTER TABLE mail.saved_conversation_views ALTER COLUMN filter DROP DEFAULT`;
+  await db`
+    ALTER TABLE mail.saved_conversation_views
+    DROP CONSTRAINT IF EXISTS saved_conversation_views_canonical_search_check
+  `;
   await db`
     ALTER TABLE mail.saved_conversation_views
     ADD CONSTRAINT saved_conversation_views_canonical_search_check
@@ -3671,6 +3695,18 @@ const canonicalizeSavedConversationViews = async (db: SqlClient): Promise<void> 
       AND jsonb_typeof(filter->'expression') = 'object'
       AND filter->>'sort' IN ('relevance', 'newest')
     ) IS TRUE)
+  `;
+  await db`DROP INDEX IF EXISTS mail.saved_conversation_views_private_name_idx`;
+  await db`DROP INDEX IF EXISTS mail.saved_conversation_views_mailbox_name_idx`;
+  await db`
+    CREATE UNIQUE INDEX saved_conversation_views_private_name_idx
+    ON mail.saved_conversation_views (mailbox_id, owner_user_id, lower(name))
+    WHERE scope = 'private' AND disabled_at IS NULL
+  `;
+  await db`
+    CREATE UNIQUE INDEX saved_conversation_views_mailbox_name_idx
+    ON mail.saved_conversation_views (mailbox_id, lower(name))
+    WHERE scope = 'mailbox' AND disabled_at IS NULL
   `;
 };
 
@@ -3863,7 +3899,9 @@ const addManagedProviderOAuth = async (db: SqlClient): Promise<void> => {
 const addDraftDeliveryClassesAndWorkflowRunControls = async (db: SqlClient): Promise<void> => {
   await db`
     ALTER TABLE mail.drafts
-      ADD COLUMN delivery_class TEXT NOT NULL DEFAULT 'normal',
+      ADD COLUMN IF NOT EXISTS delivery_class TEXT NOT NULL DEFAULT 'normal',
+      DROP CONSTRAINT IF EXISTS drafts_delivery_class_check,
+      DROP CONSTRAINT IF EXISTS drafts_automatic_reply_origin_check,
       ADD CONSTRAINT drafts_delivery_class_check CHECK (delivery_class IN ('normal', 'automatic_reply')),
       ADD CONSTRAINT drafts_automatic_reply_origin_check CHECK (
         delivery_class <> 'automatic_reply' OR origin = 'workflow'
@@ -3872,29 +3910,30 @@ const addDraftDeliveryClassesAndWorkflowRunControls = async (db: SqlClient): Pro
   await db`UPDATE mail.drafts SET delivery_class = 'automatic_reply' WHERE origin = 'workflow'`;
   await db`
     ALTER TABLE mail.conversation_local_tags
-      DROP CONSTRAINT conversation_local_tags_assigned_by_actor_kind_check,
+      DROP CONSTRAINT IF EXISTS conversation_local_tags_assigned_by_actor_kind_check,
       ADD CONSTRAINT conversation_local_tags_assigned_by_actor_kind_check
         CHECK (assigned_by_actor_kind IN ('user', 'service_account', 'workflow'))
   `;
   await db`
     ALTER TABLE mail.conversation_comments
-      DROP CONSTRAINT conversation_comments_author_kind_check,
+      DROP CONSTRAINT IF EXISTS conversation_comments_author_kind_check,
       ADD CONSTRAINT conversation_comments_author_kind_check CHECK (author_kind IN ('user', 'service_account', 'workflow'))
   `;
   await db`
     ALTER TABLE mail.conversation_comment_versions
-      DROP CONSTRAINT conversation_comment_versions_editor_kind_check,
+      DROP CONSTRAINT IF EXISTS conversation_comment_versions_editor_kind_check,
       ADD CONSTRAINT conversation_comment_versions_editor_kind_check CHECK (editor_kind IN ('user', 'service_account', 'workflow'))
   `;
   await db`
     ALTER TABLE mail.workflow_runs
-      ADD COLUMN retry_of_run_id UUID REFERENCES mail.workflow_runs(id) ON DELETE RESTRICT,
-      ADD COLUMN paused_at TIMESTAMPTZ,
-      ADD COLUMN pause_reason TEXT CHECK (pause_reason IS NULL OR char_length(pause_reason) <= 1000),
-      ADD COLUMN paused_from_state TEXT CHECK (paused_from_state IN ('materializing', 'queued', 'running', 'waiting')),
-      DROP CONSTRAINT workflow_runs_state_check,
-      DROP CONSTRAINT workflow_runs_target_progress_check,
-      DROP CONSTRAINT workflow_runs_materialization_check,
+      ADD COLUMN IF NOT EXISTS retry_of_run_id UUID REFERENCES mail.workflow_runs(id) ON DELETE RESTRICT,
+      ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS pause_reason TEXT CHECK (pause_reason IS NULL OR char_length(pause_reason) <= 1000),
+      ADD COLUMN IF NOT EXISTS paused_from_state TEXT CHECK (paused_from_state IN ('materializing', 'queued', 'running', 'waiting')),
+      DROP CONSTRAINT IF EXISTS workflow_runs_state_check,
+      DROP CONSTRAINT IF EXISTS workflow_runs_target_progress_check,
+      DROP CONSTRAINT IF EXISTS workflow_runs_materialization_check,
+      DROP CONSTRAINT IF EXISTS workflow_runs_pause_check,
       ADD CONSTRAINT workflow_runs_state_check CHECK (state IN (
         'materializing', 'queued', 'running', 'waiting', 'paused', 'succeeded', 'failed', 'canceled', 'needs_attention'
       )),
@@ -3934,20 +3973,20 @@ const addDraftDeliveryClassesAndWorkflowRunControls = async (db: SqlClient): Pro
         OR (state <> 'paused' AND paused_at IS NULL AND paused_from_state IS NULL AND pause_reason IS NULL)
       )
   `;
-  await db`ALTER TABLE mail.workflow_runs DROP CONSTRAINT workflow_runs_kind_check`;
+  await db`ALTER TABLE mail.workflow_runs DROP CONSTRAINT IF EXISTS workflow_runs_kind_check`;
   await db`ALTER TABLE mail.workflow_runs ADD CONSTRAINT workflow_runs_kind_check CHECK (kind IN ('invoke', 'backfill', 'oneShot', 'trigger', 'retry'))`;
   await db`
     ALTER TABLE mail.workflow_run_targets
-      ADD COLUMN retry_of_target_id UUID REFERENCES mail.workflow_run_targets(id) ON DELETE RESTRICT
+      ADD COLUMN IF NOT EXISTS retry_of_target_id UUID REFERENCES mail.workflow_run_targets(id) ON DELETE RESTRICT
   `;
-  await db`CREATE INDEX workflow_runs_retry_lineage_idx ON mail.workflow_runs (retry_of_run_id, created_at, id) WHERE retry_of_run_id IS NOT NULL`;
-  await db`CREATE INDEX workflow_run_targets_retry_lineage_idx ON mail.workflow_run_targets (retry_of_target_id) WHERE retry_of_target_id IS NOT NULL`;
+  await db`CREATE INDEX IF NOT EXISTS workflow_runs_retry_lineage_idx ON mail.workflow_runs (retry_of_run_id, created_at, id) WHERE retry_of_run_id IS NOT NULL`;
+  await db`CREATE INDEX IF NOT EXISTS workflow_run_targets_retry_lineage_idx ON mail.workflow_run_targets (retry_of_target_id) WHERE retry_of_target_id IS NOT NULL`;
 };
 
 const addOperatorMaintenanceCommands = async (db: SqlClient): Promise<void> => {
   await db`
     ALTER TABLE mail.commands
-    DROP CONSTRAINT commands_kind_check,
+    DROP CONSTRAINT IF EXISTS commands_kind_check,
     ADD CONSTRAINT commands_kind_check CHECK (
       kind IN (
         'set_flags', 'change_message_state', 'move', 'copy', 'delete',
@@ -3972,7 +4011,116 @@ const removeConversationSpaceLinks = async (db: SqlClient): Promise<void> => {
   await db`DELETE FROM mail.schema_migrations WHERE version = 68 AND name = 'conversation_space_links'`;
 };
 
-const migrations = [
+const hardenMailboxScaleIndexes = async (db: SqlClient): Promise<void> => {
+  await db`CREATE EXTENSION IF NOT EXISTS btree_gin`;
+  await db.unsafe(`
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS message_placements_folder_unread_idx
+    ON mail.message_placements (folder_id, message_id)
+    WHERE deleted_at IS NULL AND NOT ('\\Seen' = ANY(flags))
+  `);
+  await db.unsafe(`
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS workflow_runs_materializing_recovery_idx
+    ON mail.workflow_runs (updated_at, id)
+    WHERE state = 'materializing'
+  `);
+
+  await db`ALTER TABLE mail.message_search_chunks ADD COLUMN IF NOT EXISTS mailbox_id UUID`;
+  for (;;) {
+    const updated = await db<{ message_id: string }[]>`
+      WITH batch AS (
+        SELECT chunk.ctid, message.mailbox_id
+        FROM mail.message_search_chunks chunk
+        JOIN mail.message_contents message ON message.id = chunk.message_id
+        WHERE chunk.mailbox_id IS NULL
+        ORDER BY chunk.message_id, chunk.position
+        LIMIT 5000
+      )
+      UPDATE mail.message_search_chunks chunk
+      SET mailbox_id = batch.mailbox_id
+      FROM batch
+      WHERE chunk.ctid = batch.ctid
+      RETURNING chunk.message_id
+    `;
+    if (updated.length < 5000) break;
+  }
+  await db`
+    ALTER TABLE mail.message_search_chunks
+    DROP CONSTRAINT IF EXISTS message_search_chunks_mailbox_present_chk
+  `;
+  await db`
+    ALTER TABLE mail.message_search_chunks
+    ADD CONSTRAINT message_search_chunks_mailbox_present_chk CHECK (mailbox_id IS NOT NULL) NOT VALID
+  `;
+  await db`
+    ALTER TABLE mail.message_search_chunks
+    VALIDATE CONSTRAINT message_search_chunks_mailbox_present_chk
+  `;
+  await db`ALTER TABLE mail.message_search_chunks ALTER COLUMN mailbox_id SET NOT NULL`;
+  await db`ALTER TABLE mail.message_search_chunks DROP CONSTRAINT message_search_chunks_mailbox_present_chk`;
+  await db.unsafe(`
+    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS message_contents_id_mailbox_idx
+    ON mail.message_contents (id, mailbox_id)
+  `);
+  await db`
+    ALTER TABLE mail.message_search_chunks
+    DROP CONSTRAINT IF EXISTS message_search_chunks_message_mailbox_fkey
+  `;
+  await db`
+    ALTER TABLE mail.message_search_chunks
+    ADD CONSTRAINT message_search_chunks_message_mailbox_fkey
+      FOREIGN KEY (message_id, mailbox_id)
+      REFERENCES mail.message_contents(id, mailbox_id)
+      ON DELETE CASCADE
+      NOT VALID
+  `;
+  await db`
+    ALTER TABLE mail.message_search_chunks
+    VALIDATE CONSTRAINT message_search_chunks_message_mailbox_fkey
+  `;
+  await db.unsafe(`
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS message_search_chunks_mailbox_document_idx
+    ON mail.message_search_chunks USING GIN (mailbox_id, search_document)
+  `);
+
+  await db.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS mail.message_search_chunks_document_idx`);
+  await db.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS mail.message_contents_subject_trgm_idx`);
+  await db.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS mail.message_addresses_trgm_idx`);
+  await db.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS mail.message_placements_flags_idx`);
+  await db.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS mail.message_placements_keywords_idx`);
+};
+
+const addRuntimeMaintenanceIndexes = async (db: SqlClient): Promise<void> => {
+  await db.unsafe(`
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_runs_terminal_retention_idx
+    ON mail.sync_runs ((COALESCE(finished_at, started_at)), id)
+    WHERE state <> 'running'
+  `);
+  await db.unsafe(`
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS workflow_trigger_events_terminal_retention_idx
+    ON mail.workflow_trigger_events ((COALESCE(finished_at, updated_at)), id)
+    WHERE state IN ('succeeded', 'failed')
+  `);
+  const [textSearch] = await db<{ installed: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_textsearch') AS installed
+  `;
+  if (textSearch?.installed) {
+    await db.unsafe(`
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS message_contents_bm25_idx
+      ON mail.message_contents USING bm25 (
+        (COALESCE(subject, '') || ' ' || COALESCE(subject, '') || ' ' || COALESCE(plain_text, ''))
+      ) WITH (text_config='simple')
+    `);
+  }
+};
+
+type MailMigration = {
+  version: number;
+  name: string;
+  run: (db: SqlClient) => Promise<void>;
+  online?: boolean;
+};
+
+const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
   { version: 3, name: "message_threading_projection", run: addThreadingProjection },
@@ -4042,11 +4190,16 @@ const migrations = [
   { version: 67, name: "operator_maintenance_commands", run: addOperatorMaintenanceCommands },
   { version: 69, name: "operator_attention_query_index", run: addOperatorAttentionIndex },
   { version: 70, name: "remove_conversation_space_links", run: removeConversationSpaceLinks },
-] as const;
+  { version: 71, name: "repair_draft_delivery_classes_workflow_run_controls", run: addDraftDeliveryClassesAndWorkflowRunControls },
+  { version: 72, name: "mailbox_scale_indexes", run: hardenMailboxScaleIndexes, online: true },
+  { version: 73, name: "repair_operator_maintenance_commands", run: addOperatorMaintenanceCommands },
+  { version: 74, name: "runtime_maintenance_indexes", run: addRuntimeMaintenanceIndexes, online: true },
+  { version: 75, name: "saved_view_quarantine", run: canonicalizeSavedConversationViews },
+];
 
-export const migrate = async (): Promise<void> => {
-  await sql.begin(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended('cloud.mail.migrations', 0))`;
+const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {
+  await db.begin(async (tx) => {
+    await tx`SET LOCAL lock_timeout = '10s'`;
     await tx`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
     await tx`CREATE EXTENSION IF NOT EXISTS pg_trgm`;
     await tx`CREATE SCHEMA IF NOT EXISTS mail`;
@@ -4057,17 +4210,88 @@ export const migrate = async (): Promise<void> => {
         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `;
+  });
+};
 
-    const applied = await tx<{ version: number }[]>`SELECT version FROM mail.schema_migrations`;
-    const appliedVersions = new Set(applied.map((row) => row.version));
+const migrationApplied = async (db: SqlClient, migration: MailMigration): Promise<boolean> => {
+  const [applied] = await db<{ version: number }[]>`
+    SELECT version FROM mail.schema_migrations WHERE version = ${migration.version}
+  `;
+  return Boolean(applied);
+};
 
-    for (const migration of migrations) {
-      if (appliedVersions.has(migration.version)) continue;
-      await migration.run(tx);
-      await tx`
+const runMigration = async (db: SqlClient, migration: MailMigration): Promise<void> => {
+  if (await migrationApplied(db, migration)) return;
+  if (migration.online) {
+    await db.unsafe(`SET lock_timeout = '10s'`);
+    try {
+      await migration.run(db);
+      await db`
         INSERT INTO mail.schema_migrations (version, name)
         VALUES (${migration.version}, ${migration.name})
+        ON CONFLICT (version) DO NOTHING
       `;
+    } finally {
+      await db.unsafe(`RESET lock_timeout`).catch(() => undefined);
     }
+    return;
+  }
+
+  await db.begin(async (tx) => {
+    await tx`SET LOCAL lock_timeout = '10s'`;
+    const [applied] = await tx<{ version: number }[]>`
+      SELECT version FROM mail.schema_migrations WHERE version = ${migration.version}
+    `;
+    if (applied) return;
+    await migration.run(tx);
+    await tx`
+      INSERT INTO mail.schema_migrations (version, name)
+      VALUES (${migration.version}, ${migration.name})
+    `;
   });
+};
+
+const runMigrations = async (db: SqlClient): Promise<void> => {
+  await ensureMigrationFoundation(db);
+  for (const migration of migrations) await runMigration(db, migration);
+};
+
+const migrationErrorCode = (error: unknown): string | null => {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : null;
+};
+
+const acquireMigrationLock = async (db: SqlClient): Promise<void> => {
+  const deadline = Date.now() + 10_000;
+  do {
+    const [result] = await db<{ locked: boolean }[]>`
+      SELECT pg_try_advisory_lock(hashtextextended('cloud.mail.migrations', 0)) AS locked
+    `;
+    if (result?.locked) return;
+    await Bun.sleep(250);
+  } while (Date.now() < deadline);
+
+  const timeout = Object.assign(new Error("Timed out waiting for the Mail migration lock"), { code: "55P03" });
+  throw timeout;
+};
+
+export const migrate = async (): Promise<void> => {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const connection = await sql.reserve();
+    let locked = false;
+    try {
+      await acquireMigrationLock(connection);
+      locked = true;
+      await runMigrations(connection);
+      return;
+    } catch (error) {
+      if (migrationErrorCode(error) !== "55P03" || attempt === 2) throw error;
+      await Bun.sleep(250 * 2 ** attempt);
+    } finally {
+      if (locked) {
+        await connection`SELECT pg_advisory_unlock(hashtextextended('cloud.mail.migrations', 0))`.catch(() => undefined);
+      }
+      connection.release();
+    }
+  }
 };

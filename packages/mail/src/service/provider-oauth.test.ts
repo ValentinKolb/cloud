@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { mailOAuthStartInputSchema } from "../contracts";
 import { transportDiagnostic } from "./connectors/imap-smtp";
+import { isConcurrentCredentialRefresh, isProviderAuthenticationFailure } from "./provider-errors";
 import { createPkceMaterial } from "./provider-oauth";
-import { validateOAuthEndpoint } from "./provider-oauth-http";
+import { classifyOAuthTokenRejection, validateOAuthEndpoint } from "./provider-oauth-http";
 import { OAUTH_PROVIDER_DECLARATIONS } from "./provider-oauth-providers";
 import { parseOAuthTokenResponse } from "./provider-oauth-tokens";
 
@@ -58,6 +59,25 @@ describe("Mail provider OAuth", () => {
     ]) {
       expect(() => validateOAuthEndpoint(endpoint)).toThrow();
     }
+  });
+
+  test("classifies expired OAuth credentials without exposing provider details", () => {
+    for (const providerCode of ["invalid_grant", "invalid_client"]) {
+      const error = classifyOAuthTokenRejection({ error: providerCode, error_description: "sensitive provider detail" });
+      expect((error as Error & { code?: string }).code).toBe("CREDENTIAL_EXPIRED");
+      expect(isProviderAuthenticationFailure(error)).toBe(true);
+      expect(error.message).not.toContain("sensitive provider detail");
+    }
+    const transient = classifyOAuthTokenRejection({ error: "temporarily_unavailable" });
+    expect((transient as Error & { code?: string; retryable?: boolean }).code).toBe("OAUTH_TOKEN_REJECTED");
+    expect((transient as Error & { retryable?: boolean }).retryable).toBe(true);
+    expect(isProviderAuthenticationFailure(transient)).toBe(false);
+  });
+
+  test("treats concurrent credential refresh outcomes as benign retries", () => {
+    expect(isConcurrentCredentialRefresh(Object.assign(new Error("busy"), { code: "CREDENTIAL_REFRESH_BUSY" }))).toBe(true);
+    expect(isConcurrentCredentialRefresh(Object.assign(new Error("superseded"), { code: "CREDENTIAL_REFRESH_SUPERSEDED" }))).toBe(true);
+    expect(isConcurrentCredentialRefresh(Object.assign(new Error("expired"), { code: "CREDENTIAL_EXPIRED" }))).toBe(false);
   });
 
   test("retains or rotates refresh tokens without exposing provider extras", () => {

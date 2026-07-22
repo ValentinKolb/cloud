@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ListResponse } from "imapflow";
-import { parseEnvelopeHeaders, parseReferences, renameImapFolder, selectUidBatch } from "./imap-smtp";
+import { assertUidValidity, parseEnvelopeHeaders, parseReferences, renameImapFolder, selectUidBatch } from "./imap-smtp";
 
 const sparseSearch = (uids: number[], probes: Array<[number, number]>) => async (lowUid: number, highUid: number) => {
   probes.push([lowUid, highUid]);
@@ -146,5 +146,13 @@ describe("IMAP folder rename", () => {
         "Cloud Renamed",
       ),
     ).rejects.toMatchObject({ code: "REMOTE_RENAME_SUBSCRIBE_PARTIAL" });
+  });
+});
+
+describe("IMAP UIDVALIDITY fencing", () => {
+  test("rejects stale or unavailable selected mailbox identities", () => {
+    expect(() => assertUidValidity("42", "42")).not.toThrow();
+    expect(() => assertUidValidity("43", "42")).toThrow(expect.objectContaining({ code: "UIDVALIDITY_CHANGED" }));
+    expect(() => assertUidValidity(null, "42")).toThrow(expect.objectContaining({ code: "UIDVALIDITY_CHANGED" }));
   });
 });

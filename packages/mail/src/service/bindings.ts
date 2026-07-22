@@ -684,6 +684,7 @@ const REDISCOVERY_SUPERSEDED_CODES = new Set([
 export const rediscoverProviderBinding = async (params: {
   bindingId: string;
   allowCredentialRevision?: boolean;
+  signal?: AbortSignal;
 }): Promise<BindingRediscoveryResult> => {
   const [current] = await sql<
     {
@@ -740,7 +741,7 @@ export const rediscoverProviderBinding = async (params: {
     }
     const [verification, folders] = await Promise.all([
       imapSmtpConnector.verify(snapshot.runtime),
-      imapSmtpConnector.discoverFolders(snapshot.runtime),
+      imapSmtpConnector.discoverFolders(snapshot.runtime, params.signal),
     ]);
     if (folders.length === 0)
       throw Object.assign(new Error("The provider account contains no visible folders"), { code: "REMOTE_ACCOUNT_EMPTY" });

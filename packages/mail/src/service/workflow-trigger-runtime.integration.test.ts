@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Readable } from "node:stream";
 import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { migrate } from "../migrate";
@@ -12,7 +13,10 @@ import { acquireDraftLease } from "./draft-leases";
 import { createDraftAttachmentUpload } from "./draft-uploads";
 import { getDraft } from "./drafts";
 import { createMailbox } from "./mailboxes";
+import { hydrateMessageFromSource } from "./message-hydration";
+import { cleanupMailRuntimeHistory } from "./runtime-history-retention";
 import { claimFence, commitSyncBatch } from "./sync-runtime";
+import { materializeAutomaticWorkflowRun } from "./workflow-automatic-materialization";
 import { processMailWorkflowTarget, workflowRuntime } from "./workflow-runtime";
 import { processMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
 import { activateWorkflow, cancelWorkflowRun, createWorkflow, createWorkflowVersion, deactivateWorkflow } from "./workflows";
@@ -156,6 +160,40 @@ suite("mail workflow trigger event runtime", () => {
   });
 
   const commitEnvelope = async (message: ConnectorEnvelope, kind: "incremental" | "backfill") => {
+    const [transport] = await sql<
+      Array<{
+        resource_status: string;
+        sync_enabled: boolean;
+        binding_state: string;
+        connection_status: string;
+        scope_matches: boolean;
+        revision_matches: boolean;
+        has_secret: boolean;
+      }>
+    >`
+      SELECT
+        resource.status AS resource_status,
+        mailbox.sync_enabled,
+        binding.state AS binding_state,
+        connection.status AS connection_status,
+        binding.verified_scope_fingerprint = resource.scope_fingerprint AS scope_matches,
+        binding.verified_secret_revision = connection.secret_revision AS revision_matches,
+        connection.encrypted_secret IS NOT NULL AS has_secret
+      FROM mail.remote_resources resource
+      JOIN mail.mailboxes mailbox ON mailbox.id = resource.mailbox_id
+      JOIN mail.provider_bindings binding ON binding.remote_resource_id = resource.id
+      JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+      WHERE resource.id = ${resourceId}::uuid AND binding.id = ${bindingId}::uuid
+    `;
+    expect(transport).toEqual({
+      resource_status: "active",
+      sync_enabled: true,
+      binding_state: "active",
+      connection_status: "active",
+      scope_matches: true,
+      revision_matches: true,
+      has_secret: true,
+    });
     const fence = await claimFence(resourceId, bindingId, kind);
     return commitSyncBatch({
       folder: {
@@ -692,6 +730,70 @@ suite("mail workflow trigger event runtime", () => {
         })
       ).ok,
     ).toBe(false);
+
+    const duplicateSource = Buffer.from(
+      [
+        `Message-ID: <automatic-reply-dedup-${suffix}@example.com>`,
+        "Date: Wed, 15 Jul 2026 10:00:00 +0000",
+        "From: Customer <customer@example.com>",
+        "To: Support <support@example.com>",
+        "Subject: Automatic reply dedup fixture",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Exact duplicate source body",
+      ].join("\r\n"),
+    );
+    const [canonicalMessage] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, normalized_subject, internal_date,
+        size_bytes, content_hash, hydration_status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${`<automatic-reply-canonical-${suffix}@example.com>`},
+        'Automatic reply dedup fixture',
+        'automatic reply dedup fixture',
+        now(),
+        ${duplicateSource.byteLength},
+        ${crypto.randomUUID().replaceAll("-", "").padEnd(64, "0")},
+        'envelope'
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
+      VALUES (${source.conversation.id}::uuid, ${canonicalMessage!.id}::uuid, 999, 'headers')
+    `;
+    await hydrateMessageFromSource({
+      messageId: canonicalMessage!.id,
+      source: Readable.from([duplicateSource]),
+      expectedSize: duplicateSource.byteLength,
+    });
+    const hydration = await hydrateMessageFromSource({
+      messageId: source.message.id,
+      source: Readable.from([duplicateSource]),
+      expectedSize: duplicateSource.byteLength,
+    });
+    expect(hydration).toMatchObject({ status: "deduplicated", canonicalMessageId: canonicalMessage!.id });
+    const [deduplicatedReferences] = await sql<{ draft_source_message_id: string; effect_count: number; duplicate_exists: boolean }[]>`
+      SELECT
+        draft.source_message_id::text AS draft_source_message_id,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.automatic_reply_effects effect
+          WHERE effect.workflow_target_id = ${target.id}::uuid
+            AND effect.message_id = ${canonicalMessage!.id}::uuid
+        ) AS effect_count,
+        EXISTS (
+          SELECT 1 FROM mail.message_contents WHERE id = ${source.message.id}::uuid
+        ) AS duplicate_exists
+      FROM mail.drafts draft
+      WHERE draft.id = ${draftId}::uuid
+    `;
+    expect(deduplicatedReferences).toEqual({
+      draft_source_message_id: canonicalMessage!.id,
+      effect_count: 3,
+      duplicate_exists: false,
+    });
     const cleanup = await sql.begin((tx) =>
       cancelPendingAutomaticRepliesInTransaction({
         db: tx,
@@ -708,6 +810,67 @@ suite("mail workflow trigger event runtime", () => {
       WHERE effect.id = ${first.ok ? first.data.effectId : null}::uuid
     `;
     expect(cleaned).toEqual({ effect_state: "cancelled", draft_state: "discarded" });
+  });
+
+  test("executes a schedule-triggered workflow without a message source", async () => {
+    const workflow = unwrap(
+      await createWorkflow({
+        context: ownerContext,
+        mailboxId,
+        input: {
+          name: `Schedule trigger ${suffix}`,
+          description: "Schedule source integration fixture",
+          priority: 50,
+          source: `triggers:
+  schedule:
+    cron: "0 8 * * *"
+    timezone: Europe/Berlin
+steps:
+  - succeed:
+      message: Scheduled workflow completed
+`,
+          effectBudget,
+        },
+      }),
+    );
+    unwrap(
+      await activateWorkflow({
+        context: ownerContext,
+        mailboxId,
+        workflowId: workflow.id,
+        input: { expectedVersionId: workflow.currentVersionId },
+      }),
+    );
+    const [activation] = await sql<{ id: string }[]>`
+      SELECT id
+      FROM mail.workflow_activations
+      WHERE workflow_id = ${workflow.id}::uuid AND trigger_kind = 'schedule'
+    `;
+    if (!activation) throw new Error("Schedule workflow activation was not created");
+    const occurredAt = "2026-07-22T08:00:00.000Z";
+    const materialized = await materializeAutomaticWorkflowRun(
+      {
+        activationId: activation.id,
+        triggerKind: "schedule",
+        deliveryKey: `schedule-slot:${occurredAt}`,
+        occurredAt,
+        channel: "schedule",
+        triggerValues: { occurredAt, slot: occurredAt },
+        target: { key: `schedule-slot:${occurredAt}`, source: {}, preconditions: {} },
+      },
+      async () => undefined,
+    );
+    expect(materialized.state).toBe("created");
+    if (materialized.state !== "created") return;
+    const [target] = await sql<{ id: string }[]>`
+      SELECT id FROM mail.workflow_run_targets WHERE parent_run_id = ${materialized.runId}::uuid
+    `;
+    if (!target) throw new Error("Schedule workflow target was not created");
+
+    expect(await processMailWorkflowTarget({ targetId: target.id, workerId: "schedule-target-worker" })).toMatchObject({
+      state: "succeeded",
+      result: { state: "succeeded" },
+    });
   });
 
   test("serializes concurrent automatic reply guards", async () => {
@@ -912,5 +1075,44 @@ steps:
       WHERE effect.command_id = ${effect.command_id}::uuid
     `;
     expect(cancelled).toEqual({ state: "cancelled", draft_state: "discarded", command_state: "cancelled", outbox_state: "cancelled" });
+  });
+
+  test("removes only expired terminal runtime history in bounded batches", async () => {
+    const [syncRun] = await sql<{ id: string }[]>`
+      SELECT run.id
+      FROM mail.sync_runs run
+      WHERE run.remote_resource_id = ${resourceId}::uuid AND run.state <> 'running'
+      ORDER BY run.started_at, run.id
+      LIMIT 1
+    `;
+    const [triggerEvent] = await sql<{ id: string }[]>`
+      SELECT id
+      FROM mail.workflow_trigger_events
+      WHERE mailbox_id = ${mailboxId}::uuid AND state IN ('succeeded', 'failed')
+      ORDER BY created_at, id
+      LIMIT 1
+    `;
+    if (!syncRun || !triggerEvent) throw new Error("Runtime history cleanup fixtures are unavailable");
+    await sql`
+      UPDATE mail.sync_runs
+      SET finished_at = now() - interval '40 days'
+      WHERE id = ${syncRun.id}::uuid
+    `;
+    await sql`
+      UPDATE mail.workflow_trigger_events
+      SET finished_at = now() - interval '40 days', updated_at = now() - interval '40 days'
+      WHERE id = ${triggerEvent.id}::uuid
+    `;
+
+    expect(await cleanupMailRuntimeHistory({ retentionDays: 30, batchSize: 1, maxBatches: 1 })).toEqual({
+      syncRuns: 1,
+      workflowTriggerEvents: 1,
+    });
+    const [remaining] = await sql<{ sync_run: boolean; trigger_event: boolean }[]>`
+      SELECT
+        EXISTS (SELECT 1 FROM mail.sync_runs WHERE id = ${syncRun.id}::uuid) AS sync_run,
+        EXISTS (SELECT 1 FROM mail.workflow_trigger_events WHERE id = ${triggerEvent.id}::uuid) AS trigger_event
+    `;
+    expect(remaining).toEqual({ sync_run: false, trigger_event: false });
   });
 });

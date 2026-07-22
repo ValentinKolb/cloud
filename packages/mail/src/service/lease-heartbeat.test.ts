@@ -48,4 +48,32 @@ describe("mail job lease heartbeat", () => {
     ).rejects.toThrow("lease lost");
     expect(sideEffectStarted).toBe(false);
   });
+
+  test("aborts active provider work when a later heartbeat loses the lease", async () => {
+    const leaseError = new Error("lease lost during provider work");
+    let beats = 0;
+    let observedReason: unknown;
+    await expect(
+      withLeaseHeartbeat({
+        intervalMs: 5,
+        heartbeat: async () => {
+          beats += 1;
+          if (beats > 1) throw leaseError;
+        },
+        work: async (_assertLeaseActive, signal) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                observedReason = signal.reason;
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        },
+      }),
+    ).rejects.toBe(leaseError);
+    expect(observedReason).toBe(leaseError);
+  });
 });

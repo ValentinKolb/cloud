@@ -1,7 +1,7 @@
 export const withLeaseHeartbeat = async <T>(params: {
   intervalMs: number;
   heartbeat: () => Promise<void>;
-  work: (assertLeaseActive: () => Promise<void>) => Promise<T>;
+  work: (assertLeaseActive: () => Promise<void>, signal: AbortSignal) => Promise<T>;
 }): Promise<T> => {
   if (!Number.isSafeInteger(params.intervalMs) || params.intervalMs < 1) {
     throw new Error("Lease heartbeat interval must be a positive integer");
@@ -10,6 +10,7 @@ export const withLeaseHeartbeat = async <T>(params: {
   let stopped = false;
   let heartbeatFailed = false;
   let heartbeatError: unknown;
+  const abortController = new AbortController();
   let heartbeatChain = Promise.resolve();
   const queueHeartbeat = (): Promise<void> => {
     heartbeatChain = heartbeatChain.then(async () => {
@@ -19,6 +20,7 @@ export const withLeaseHeartbeat = async <T>(params: {
       } catch (error) {
         heartbeatFailed = true;
         heartbeatError = error;
+        abortController.abort(error);
       }
     });
     return heartbeatChain;
@@ -36,7 +38,7 @@ export const withLeaseHeartbeat = async <T>(params: {
   let result!: T;
   try {
     await assertLeaseActive();
-    result = await params.work(assertLeaseActive);
+    result = await params.work(assertLeaseActive, abortController.signal);
   } catch (error) {
     workFailed = true;
     workError = error;

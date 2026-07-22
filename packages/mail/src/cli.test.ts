@@ -189,6 +189,86 @@ test("search forwards nested expressions and cursors", async () => {
   });
 });
 
+test("search preserves commas inside repeated free-text terms", async () => {
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/search`) {
+      requestBody = await request.json();
+      return api({ items: [], nextCursor: null, backend: "native" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "search",
+    "--mailbox",
+    MAILBOX_ID,
+    "--subject",
+    "Kolb, Valentin",
+    "--subject",
+    "Invoice, July",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(requestBody).toMatchObject({
+    expression: {
+      type: "and",
+      expressions: [
+        { type: "text", field: "subject", query: "Kolb, Valentin" },
+        { type: "text", field: "subject", query: "Invoice, July" },
+      ],
+    },
+  });
+});
+
+test("mailbox UUID resolution falls back to the direct resource endpoint", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/api/mail/mailboxes") return api([]);
+      if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}`) return api(mailbox);
+      return api({ message: "unexpected" }, { status: 500 });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["--jsonl", "mail", "mailbox", "get", MAILBOX_ID]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout.trim().split("\n")).toHaveLength(1);
+  expect(JSON.parse(result.stdout)).toMatchObject({ id: MAILBOX_ID, permission: null });
+});
+
+test("mailbox name resolution uses an exact server-side lookup", async () => {
+  const requests: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      const url = new URL(request.url);
+      requests.push(`${url.pathname}${url.search}`);
+      if (request.method === "GET" && url.pathname === "/api/mail/mailboxes") {
+        if (url.searchParams.get("name") === mailbox.name) return api([{ ...mailbox, permission: "admin" }]);
+        return api({ message: "mailbox name lookup must be exact" }, { status: 500 });
+      }
+      if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}`) return api(mailbox);
+      return api({ message: "unexpected" }, { status: 500 });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["--jsonl", "mail", "mailbox", "get", mailbox.name]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(requests[0]).toBe("/api/mail/mailboxes?limit=2&name=Support");
+  expect(JSON.parse(result.stdout)).toMatchObject({ id: MAILBOX_ID, permission: "admin" });
+});
+
 test("compose template and style commands preserve exact source input", async () => {
   const requests: Array<{ method: string; path: string; body: unknown }> = [];
   const template = {
@@ -1266,6 +1346,7 @@ test("send carries reply context and can wait for delivery", async () => {
     "Reply body",
   );
 
+  expect(result.stderr).toBe("");
   expect(result.exitCode).toBe(0);
   expect(bodies[0]).toMatchObject({ conversationId: CONVERSATION_ID, body: "Reply body" });
   expect(bodies[1]).toMatchObject({ kind: "send", expectedDraftRevision: 1, undoSeconds: 0 });
@@ -1319,6 +1400,130 @@ test("provider credentials are accepted from stdin and never printed", async () 
   expect(requestBody).not.toHaveProperty("owner");
   expect(result.stdout).not.toContain("not-a-real-secret");
   expect(result.stderr).not.toContain("not-a-real-secret");
+});
+
+test("provider and attachment-link secrets reject inline values", async () => {
+  const server = withMailbox(() => api({ message: "unexpected" }, { status: 500 }));
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const provider = await runCli(origin, [
+    "mail",
+    "provider",
+    "add",
+    "--mailbox",
+    MAILBOX_ID,
+    "--name",
+    "Provider",
+    "--email",
+    "sender@example.com",
+    "--username",
+    "sender@example.com",
+    "--imap-host",
+    "imap.example.com",
+    "--smtp-host",
+    "smtp.example.com",
+    "--secret",
+    "inline-provider-secret",
+  ]);
+  const link = await runCli(origin, [
+    "mail",
+    "attachment",
+    "link",
+    "create",
+    MESSAGE_ID,
+    ATTACHMENT_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--source",
+    "message",
+    "--password",
+    "inline-link-secret",
+  ]);
+
+  expect(provider.exitCode).toBe(1);
+  expect(provider.stderr).toContain("Provider secret cannot be passed inline");
+  expect(provider.stderr).not.toContain("inline-provider-secret");
+  expect(link.exitCode).toBe(1);
+  expect(link.stderr).toContain("Attachment-link password cannot be passed inline");
+  expect(link.stderr).not.toContain("inline-link-secret");
+});
+
+test("provider OAuth input reports malformed documents before making a connection request", async () => {
+  let connectionRequests = 0;
+  const server = withMailbox((request) => {
+    if (request.method === "POST") connectionRequests += 1;
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    [
+      "mail",
+      "provider",
+      "add",
+      "--mailbox",
+      MAILBOX_ID,
+      "--name",
+      "Provider",
+      "--email",
+      "sender@example.com",
+      "--username",
+      "sender@example.com",
+      "--imap-host",
+      "imap.example.com",
+      "--smtp-host",
+      "smtp.example.com",
+      "--oauth2",
+      "--secret-stdin",
+    ],
+    "not-json",
+  );
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("Provider OAuth secret must be valid JSON");
+  expect(connectionRequests).toBe(0);
+});
+
+test("send validates offset-aware schedules before creating a draft", async () => {
+  let sideEffects = 0;
+  const server = withMailbox((request) => {
+    if (request.method !== "GET") sideEffects += 1;
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "mail",
+    "send",
+    "--mailbox",
+    MAILBOX_ID,
+    "--identity",
+    IDENTITY_ID,
+    "--to",
+    "recipient@example.com",
+    "--subject",
+    "Scheduled",
+    "--body",
+    "Body",
+    "--schedule",
+    "2026-07-22T10:00:00",
+  ]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("--schedule must be an ISO date-time with a UTC offset");
+  expect(sideEffects).toBe(0);
+});
+
+test("command list rejects limits above the service maximum", async () => {
+  const server = withMailbox(() => api({ message: "unexpected" }, { status: 500 }));
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["mail", "command", "list", "--mailbox", MAILBOX_ID, "--limit", "101"]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("must be at most 100");
 });
 
 test("binding attach sends only the mailbox connection id", async () => {

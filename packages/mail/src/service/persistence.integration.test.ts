@@ -439,7 +439,7 @@ suite("mail PostgreSQL foundation", () => {
         intent: "reply",
         sourceMessageId: latestInboundId,
         senderIdentityId: identity!.id,
-        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        to: [{ name: "Untrusted client value", address: "wrong@example.com" }],
         cc: [],
         bcc: [],
         subject: "Re: Ordered newest inbound",
@@ -451,6 +451,7 @@ suite("mail PostgreSQL foundation", () => {
     if (!replyDraft.ok) return;
     expect(replyDraft.data.intent).toBe("reply");
     expect(replyDraft.data.sourceMessageId).toBe(latestInboundId);
+    expect(replyDraft.data.to).toEqual([{ name: "Customer", address: "customer@example.com" }]);
     const editedReplyDraft = await updateDraft({
       context,
       mailboxId: mailbox.data.id,
@@ -1066,6 +1067,16 @@ suite("mail PostgreSQL foundation", () => {
         })
       ).ok,
     ).toBe(false);
+    const partialNonFinalChunk = await appendDraftAttachmentUpload({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      uploadId: upload.data.id,
+      offset: 0,
+      bytes: resumedBytes.subarray(0, 16),
+    });
+    expect(partialNonFinalChunk.ok).toBe(false);
+    if (!partialNonFinalChunk.ok) expect(partialNonFinalChunk.error.code).toBe("BAD_INPUT");
     const firstChunk = await appendDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
@@ -1107,12 +1118,75 @@ suite("mail PostgreSQL foundation", () => {
       SELECT blob_id FROM mail.draft_attachments WHERE id = ${resumedAttachment.id}::uuid
     `;
     ids.blobIds.push(resumedBlob!.blob_id);
+
+    const streamedBytes = Buffer.alloc(2 * 1024 * 1024 + 123);
+    for (let index = 0; index < streamedBytes.byteLength; index += 1) streamedBytes[index] = index % 251;
+    const streamFragments = Array.from({ length: Math.ceil(streamedBytes.byteLength / (64 * 1024)) }, (_, index) =>
+      streamedBytes.subarray(index * 64 * 1024, Math.min((index + 1) * 64 * 1024, streamedBytes.byteLength)),
+    );
+    const draftWithStreamedAttachment = await uploadDraftAttachmentStream({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      expectedRevision: draftWithResumedAttachment.data.revision,
+      filename: "fragmented-stream.bin",
+      contentType: "application/octet-stream",
+      byteLength: streamedBytes.byteLength,
+      stream: Readable.from(streamFragments),
+    });
+    expect(draftWithStreamedAttachment.ok && draftWithStreamedAttachment.data.attachments).toHaveLength(3);
+    if (!draftWithStreamedAttachment.ok) return;
+    const streamedAttachment = draftWithStreamedAttachment.data.attachments.find(
+      (attachment) => attachment.filename === "fragmented-stream.bin",
+    );
+    if (!streamedAttachment) throw new Error("Streamed attachment fixture was not attached");
+    const [streamedBlob] = await sql<{ blob_id: string; chunk_size: number; chunk_count: number }[]>`
+      SELECT blob.id AS blob_id, blob.chunk_size, blob.chunk_count
+      FROM mail.draft_attachments attachment
+      JOIN mail.message_part_blobs blob ON blob.id = attachment.blob_id
+      WHERE attachment.id = ${streamedAttachment.id}::uuid
+    `;
+    if (!streamedBlob) throw new Error("Streamed attachment blob fixture is unavailable");
+    ids.blobIds.push(streamedBlob.blob_id);
+    const streamedChunkLengths = await sql<{ byte_length: number }[]>`
+      SELECT octet_length(bytes)::int AS byte_length
+      FROM mail.message_part_chunks
+      WHERE blob_id = ${streamedBlob.blob_id}::uuid
+      ORDER BY position
+    `;
+    expect(streamedChunkLengths.map((chunk) => chunk.byte_length)).toEqual([1024 * 1024, 1024 * 1024, 123]);
+    const fullStreamedDownload = Buffer.from(
+      await new Response(
+        createAttachmentStream({
+          blobId: streamedBlob.blob_id,
+          chunkSize: streamedBlob.chunk_size,
+          chunkCount: streamedBlob.chunk_count,
+          start: 0,
+          endExclusive: streamedBytes.byteLength,
+        }),
+      ).arrayBuffer(),
+    );
+    expect(fullStreamedDownload.equals(streamedBytes)).toBe(true);
+    const streamedRangeStart = 1024 * 1024 - 37;
+    const streamedRangeEnd = 2 * 1024 * 1024 + 59;
+    const rangedStreamedDownload = Buffer.from(
+      await new Response(
+        createAttachmentStream({
+          blobId: streamedBlob.blob_id,
+          chunkSize: streamedBlob.chunk_size,
+          chunkCount: streamedBlob.chunk_count,
+          start: streamedRangeStart,
+          endExclusive: streamedRangeEnd,
+        }),
+      ).arrayBuffer(),
+    );
+    expect(rangedStreamedDownload.equals(streamedBytes.subarray(streamedRangeStart, streamedRangeEnd))).toBe(true);
     const withoutFirstAttachment = await removeDraftAttachment({
       context,
       mailboxId: mailbox.data.id,
       draftId: draft.data.id,
       attachmentId: draftWithAttachment.data.attachments[0]!.id,
-      expectedRevision: draftWithResumedAttachment.data.revision,
+      expectedRevision: draftWithStreamedAttachment.data.revision,
     });
     expect(withoutFirstAttachment.ok).toBe(true);
     if (!withoutFirstAttachment.ok) return;
@@ -1123,13 +1197,22 @@ suite("mail PostgreSQL foundation", () => {
       attachmentId: resumedAttachment.id,
       expectedRevision: withoutFirstAttachment.data.revision,
     });
-    expect(withoutAttachment.ok && withoutAttachment.data.attachments).toEqual([]);
+    expect(withoutAttachment.ok && withoutAttachment.data.attachments.map((attachment) => attachment.id)).toEqual([streamedAttachment.id]);
     if (!withoutAttachment.ok) return;
+    const withoutStreamedAttachment = await removeDraftAttachment({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+      attachmentId: streamedAttachment.id,
+      expectedRevision: withoutAttachment.data.revision,
+    });
+    expect(withoutStreamedAttachment.ok && withoutStreamedAttachment.data.attachments).toEqual([]);
+    if (!withoutStreamedAttachment.ok) return;
     const discarded = await discardDraft({
       context,
       mailboxId: mailbox.data.id,
       draftId: draft.data.id,
-      expectedRevision: withoutAttachment.data.revision,
+      expectedRevision: withoutStreamedAttachment.data.revision,
     });
     expect(discarded.ok && discarded.data.state).toBe("discarded");
     const attachmentActivity = await sql<{ action: string; target_type: string }[]>`
@@ -1145,6 +1228,8 @@ suite("mail PostgreSQL foundation", () => {
     expect(attachmentActivity).toEqual([
       { action: "draft.attachment_added", target_type: "draft_attachment" },
       { action: "draft.attachment_added", target_type: "draft_attachment" },
+      { action: "draft.attachment_added", target_type: "draft_attachment" },
+      { action: "draft.attachment_removed", target_type: "draft_attachment" },
       { action: "draft.attachment_removed", target_type: "draft_attachment" },
       { action: "draft.attachment_removed", target_type: "draft_attachment" },
       { action: "draft.discarded", target_type: "draft" },
@@ -1160,10 +1245,10 @@ suite("mail PostgreSQL foundation", () => {
       ) RETURNING id
     `;
     await sql`
-      INSERT INTO mail.message_search_chunks (message_id, position, search_document)
+      INSERT INTO mail.message_search_chunks (message_id, mailbox_id, position, search_document)
       VALUES
-        (${message!.id}::uuid, 0, to_tsvector('simple'::regconfig, 'A unique integration body phrase')),
-        (${message!.id}::uuid, 1, to_tsvector('simple'::regconfig, 'cobalt'))
+        (${message!.id}::uuid, ${mailbox.data.id}::uuid, 0, to_tsvector('simple'::regconfig, 'A unique integration body phrase')),
+        (${message!.id}::uuid, ${mailbox.data.id}::uuid, 1, to_tsvector('simple'::regconfig, 'cobalt'))
     `;
     await sql`
       INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
@@ -1208,8 +1293,13 @@ suite("mail PostgreSQL foundation", () => {
       ) RETURNING id
     `;
     await sql`
-      INSERT INTO mail.message_search_chunks (message_id, position, search_document)
-      VALUES (${secondMatchingMessage!.id}::uuid, 0, to_tsvector('simple'::regconfig, 'A second unique integration body phrase'))
+      INSERT INTO mail.message_search_chunks (message_id, mailbox_id, position, search_document)
+      VALUES (
+        ${secondMatchingMessage!.id}::uuid,
+        ${mailbox.data.id}::uuid,
+        0,
+        to_tsvector('simple'::regconfig, 'A second unique integration body phrase')
+      )
     `;
     await sql`
       INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
@@ -1727,11 +1817,44 @@ suite("mail PostgreSQL foundation", () => {
 
     const referencedBlob = await storeReadableBlob(Readable.from([Buffer.from("referenced blob")]), 15);
     const orphanedBlob = await storeReadableBlob(Readable.from([Buffer.from("orphaned blob")]), 13);
-    ids.blobIds.push(referencedBlob.id, orphanedBlob.id);
+    const uploadGuardedBlob = await storeReadableBlob(Readable.from([Buffer.from("upload guarded blob")]), 19);
+    ids.blobIds.push(referencedBlob.id, orphanedBlob.id, uploadGuardedBlob.id);
+    const gcDraft = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        intent: "new",
+        senderIdentityId: identity!.id,
+        to: [],
+        cc: [],
+        bcc: [],
+        subject: "Blob cleanup guard",
+        body: "",
+        format: "plain",
+      },
+    });
+    if (!gcDraft.ok) throw new Error(gcDraft.error.message);
+    await sql`
+      INSERT INTO mail.draft_attachment_uploads (
+        draft_id, blob_id, filename, content_type, byte_length, received_bytes,
+        next_position, state, creator_kind, creator_id
+      ) VALUES (
+        ${gcDraft.data.id}::uuid,
+        ${uploadGuardedBlob.id}::uuid,
+        'guarded.txt',
+        'text/plain',
+        ${uploadGuardedBlob.byteLength},
+        ${uploadGuardedBlob.byteLength},
+        ${uploadGuardedBlob.chunkCount},
+        'uploaded',
+        'user',
+        ${ids.userIds[0]}::uuid
+      )
+    `;
     await sql`
       UPDATE mail.message_part_blobs
       SET completed_at = now() - interval '10 minutes'
-      WHERE id IN (${referencedBlob.id}::uuid, ${orphanedBlob.id}::uuid)
+      WHERE id IN (${referencedBlob.id}::uuid, ${orphanedBlob.id}::uuid, ${uploadGuardedBlob.id}::uuid)
     `;
     await sql`
       INSERT INTO mail.message_parts (
@@ -1742,9 +1865,13 @@ suite("mail PostgreSQL foundation", () => {
     `;
     expect(await deleteOrphanedBlobs(5)).toBeGreaterThanOrEqual(1);
     const remainingBlobs = await sql<{ id: string }[]>`
-      SELECT id FROM mail.message_part_blobs WHERE id IN (${referencedBlob.id}::uuid, ${orphanedBlob.id}::uuid)
+      SELECT id
+      FROM mail.message_part_blobs
+      WHERE id IN (${referencedBlob.id}::uuid, ${orphanedBlob.id}::uuid, ${uploadGuardedBlob.id}::uuid)
+      ORDER BY id
     `;
-    expect(remainingBlobs.map((item) => item.id)).toEqual([referencedBlob.id]);
+    expect(remainingBlobs.map((item) => item.id)).toEqual([referencedBlob.id, uploadGuardedBlob.id].sort());
+    await sql`DELETE FROM mail.drafts WHERE id = ${gcDraft.data.id}::uuid`;
 
     const [collaborator] = await sql<{ id: string }[]>`
       INSERT INTO auth.users (uid, provider, profile, display_name, admin)

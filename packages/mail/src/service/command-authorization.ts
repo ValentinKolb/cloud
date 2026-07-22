@@ -80,20 +80,20 @@ const serviceAccountActorAllowed = async (
   );
 };
 
-const loadAccessSubjectState = async (command: StoredCommandAuthorization, db: SqlClient): Promise<{ active: boolean; admin: boolean }> => {
-  if (!command.access_subject_id) return { active: false, admin: false };
+const accessSubjectIsActive = async (command: StoredCommandAuthorization, db: SqlClient): Promise<boolean> => {
+  if (!command.access_subject_id) return false;
   if (command.access_subject_kind === "user") {
-    const [user] = await db<{ active: boolean; admin: boolean }[]>`
-      SELECT (account_expires IS NULL OR account_expires > now()) AS active, admin
+    const [user] = await db<{ active: boolean }[]>`
+      SELECT (account_expires IS NULL OR account_expires > now()) AS active
       FROM auth.users
       WHERE id = ${command.access_subject_id}::uuid
     `;
-    return { active: user?.active === true, admin: user?.active === true && user.admin };
+    return user?.active === true;
   }
   const [serviceAccount] = await db<{ status: string }[]>`
     SELECT status FROM auth.service_accounts WHERE id = ${command.access_subject_id}::uuid
   `;
-  return { active: serviceAccount?.status === "active", admin: false };
+  return serviceAccount?.status === "active";
 };
 
 const loadMailboxGrant = async (command: StoredCommandAuthorization, db: SqlClient): Promise<string | null> => {
@@ -155,7 +155,6 @@ export const commandStillAuthorized = async (
     return workflow?.authorized === true;
   }
   if (!(await serviceAccountActorAllowed(command, permission, db))) return false;
-  const subject = await loadAccessSubjectState(command, db);
-  if (!subject.active) return false;
-  return subject.admin || permissionRank(await loadMailboxGrant(command, db)) >= requiredRank(permission);
+  if (!(await accessSubjectIsActive(command, db))) return false;
+  return permissionRank(await loadMailboxGrant(command, db)) >= requiredRank(permission);
 };

@@ -1,8 +1,10 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { convert } from "html-to-text";
 import { z } from "zod";
 import type { ConversationView, ConversationWorkStatus } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
+import { type ConversationCursorScope, decodeConversationCursor, encodeConversationCursor } from "./conversation-cursor";
 import { resolveMailExecution } from "./execution";
 
 type DateCursor = { version: 1; date: string; id: string };
@@ -86,18 +88,27 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       f.discovery_state,
       f.missing_since,
       f.sync_status,
-      COUNT(mp.remote_message_ref_id) FILTER (WHERE mp.deleted_at IS NULL)::int AS total,
-      COUNT(mp.remote_message_ref_id) FILTER (
-        WHERE mp.deleted_at IS NULL AND NOT ('\\Seen' = ANY(mp.flags))
-      )::int AS unread
+      COALESCE(placement_counts.total, 0)::int AS total,
+      COALESCE(unread_counts.unread, 0)::int AS unread
     FROM mail.folders f
     JOIN mail.remote_resources rr ON rr.id = f.remote_resource_id
     LEFT JOIN mail.folder_role_overrides role_override
       ON role_override.mailbox_id = rr.mailbox_id
      AND role_override.folder_id = f.id
-    LEFT JOIN mail.message_placements mp ON mp.folder_id = f.id
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS total
+      FROM mail.message_placements placement
+      WHERE placement.folder_id = f.id
+        AND placement.deleted_at IS NULL
+    ) placement_counts ON true
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS unread
+      FROM mail.message_placements placement
+      WHERE placement.folder_id = f.id
+        AND placement.deleted_at IS NULL
+        AND NOT ('\\Seen' = ANY(placement.flags))
+    ) unread_counts ON true
     WHERE rr.mailbox_id = ${mailboxId}::uuid
-    GROUP BY f.id, role_override.role
     ORDER BY
       CASE f.role
         WHEN 'inbox' THEN 0
@@ -188,12 +199,19 @@ export const listConversations = async (params: {
 }): Promise<Result<{ items: ConversationSummary[]; nextCursor: string | null }>> => {
   const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
   if (!access.ok) return access;
-  const cursor = decodeCursor(params.cursor);
-  if (!cursor.ok) return cursor;
   const limit = Math.min(Math.max(Math.floor(params.limit ?? 50), 1), 100);
   const currentUserId = userBackedActor(params.context)?.id ?? null;
   const view = params.view ?? null;
   const folderId = params.folderId ?? null;
+  const cursorScope: ConversationCursorScope = {
+    mailboxId: params.mailboxId,
+    folderId,
+    status: params.status ?? null,
+    view,
+    userId: currentUserId,
+  };
+  const cursor = decodeConversationCursor(params.cursor, cursorScope);
+  if (!cursor.ok) return cursor;
   const rows = await sql<DbConversation[]>`
     SELECT
       c.id,
@@ -354,7 +372,8 @@ export const listConversations = async (params: {
   const lastRow = pageRows.at(-1);
   return ok({
     items,
-    nextCursor: hasMore && last && lastRow ? encodeCursor({ version: 1, date: toIso(lastRow.sort_date), id: last.id }) : null,
+    nextCursor:
+      hasMore && last && lastRow ? encodeConversationCursor({ scope: cursorScope, date: toIso(lastRow.sort_date), id: last.id }) : null,
   });
 };
 
@@ -538,8 +557,11 @@ export const listConversationMessages = async (params: {
 };
 
 export type MessageDetail = MessageSummary & {
+  replyTo: Array<{ name: string | null; address: string }>;
+  cc: Array<{ name: string | null; address: string }>;
   plainText: string | null;
   sanitizedHtml: string | null;
+  forwardText: string;
   selectedHeaders: Record<string, unknown>;
   attachments: Array<{
     id: string;
@@ -551,16 +573,34 @@ export type MessageDetail = MessageSummary & {
 };
 
 type DbMessageDetail = DbMessageSummary & {
+  reply_to_addresses: Array<{ name: string | null; address: string }> | string;
+  cc_addresses: Array<{ name: string | null; address: string }> | string;
   plain_text: string | null;
   sanitized_html: string | null;
   selected_headers: Record<string, unknown> | string;
   attachments: Array<{ id: string; filename: string | null; contentType: string; sizeBytes: number; contentId: string | null }> | string;
 };
 
+export const messageForwardText = (plainText: string | null, sanitizedHtml: string | null): string => {
+  if (plainText?.trim()) return plainText;
+  if (!sanitizedHtml) return "";
+  try {
+    return convert(sanitizedHtml, {
+      wordwrap: false,
+      selectors: [{ selector: "a", options: { hideLinkHrefIfSameAsText: true } }],
+    }).trimEnd();
+  } catch {
+    return "";
+  }
+};
+
 const mapMessageDetail = (row: DbMessageDetail): MessageDetail => ({
   ...mapMessageSummary(row),
+  replyTo: parseJsonArray(row.reply_to_addresses),
+  cc: parseJsonArray(row.cc_addresses),
   plainText: row.plain_text,
   sanitizedHtml: row.sanitized_html,
+  forwardText: messageForwardText(row.plain_text, row.sanitized_html),
   selectedHeaders:
     typeof row.selected_headers === "string" ? (JSON.parse(row.selected_headers) as Record<string, unknown>) : row.selected_headers,
   attachments: parseJsonArray(row.attachments),
@@ -570,8 +610,23 @@ const messageDetailSelect = sql`
   ${messageSummarySelect},
   mc.plain_text,
   mc.sanitized_html,
+  COALESCE(reply_to_rows.addresses, '[]'::jsonb) AS reply_to_addresses,
+  COALESCE(cc_rows.addresses, '[]'::jsonb) AS cc_addresses,
   mc.selected_headers,
   COALESCE(attachment_rows.items, '[]'::jsonb) AS attachments
+`;
+
+const messageDetailAddressJoin = sql`
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(jsonb_build_object('name', ma.display_name, 'address', ma.email) ORDER BY ma.position) AS addresses
+    FROM mail.message_addresses ma
+    WHERE ma.message_id = mc.id AND ma.role = 'reply_to'
+  ) reply_to_rows ON true
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(jsonb_build_object('name', ma.display_name, 'address', ma.email) ORDER BY ma.position) AS addresses
+    FROM mail.message_addresses ma
+    WHERE ma.message_id = mc.id AND ma.role = 'cc'
+  ) cc_rows ON true
 `;
 
 const messageDetailAttachmentJoin = sql`
@@ -613,6 +668,7 @@ export const listConversationMessageDetails = async (params: {
     FROM selected_messages selected_message
     JOIN mail.message_contents mc ON mc.id = selected_message.message_id
     ${messageSummaryJoins}
+    ${messageDetailAddressJoin}
     ${messageDetailAttachmentJoin}
     ORDER BY mc.internal_date, mc.id
   `;
@@ -630,6 +686,7 @@ export const getMessage = async (params: {
     SELECT ${messageDetailSelect}
     FROM mail.message_contents mc
     ${messageSummaryJoins}
+    ${messageDetailAddressJoin}
     ${messageDetailAttachmentJoin}
     WHERE mc.id = ${params.messageId}::uuid AND mc.mailbox_id = ${params.mailboxId}::uuid
   `;

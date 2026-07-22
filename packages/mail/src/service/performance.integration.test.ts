@@ -130,8 +130,8 @@ suite("mail large-mailbox performance", () => {
       WHERE mc.mailbox_id = ${mailbox.data.id}::uuid
     `;
     await sql`
-      INSERT INTO mail.message_search_chunks (message_id, position, search_document)
-      SELECT mc.id, 0, to_tsvector('simple'::regconfig, mc.plain_text)
+      INSERT INTO mail.message_search_chunks (message_id, mailbox_id, position, search_document)
+      SELECT mc.id, mc.mailbox_id, 0, to_tsvector('simple'::regconfig, mc.plain_text)
       FROM mail.message_contents mc
       WHERE mc.mailbox_id = ${mailbox.data.id}::uuid AND mc.plain_text IS NOT NULL
     `;

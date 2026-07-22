@@ -8,6 +8,7 @@ import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import { createConversationComment, setConversationWatcher } from "./collaboration";
 import { mergeConversations, splitConversation } from "./conversations";
+import { createLocalTag } from "./local-tags";
 import { createMailbox } from "./mailboxes";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { mailNotificationTargetHref, resolveMailNotificationTarget } from "./notification-targets";
@@ -125,7 +126,8 @@ suite("mail manual conversation threading", () => {
     const createMessage = async (params: { uid: number; messageId: string; subject: string; date: Date }) => {
       const [message] = await sql<{ id: string }[]>`
         INSERT INTO mail.message_contents (
-          mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
+          mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash,
+          hydration_status, plain_text, sanitized_html
         ) VALUES (
           ${mailboxId}::uuid,
           ${params.messageId},
@@ -134,12 +136,18 @@ suite("mail manual conversation threading", () => {
           ${params.date},
           128,
           ${params.uid.toString(16).padStart(64, "0")},
-          'complete'
+          'complete',
+          NULL,
+          '<p>HTML-only fixture body</p>'
         ) RETURNING id
       `;
       await sql`
         INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
-        VALUES (${message!.id}::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com')
+        VALUES
+          (${message!.id}::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com'),
+          (${message!.id}::uuid, 'reply_to', 0, 'Customer queue', 'queue@example.com', 'queue@example.com'),
+          (${message!.id}::uuid, 'to', 0, 'Support', 'support@example.com', 'support@example.com'),
+          (${message!.id}::uuid, 'cc', 0, 'Manager', 'manager@example.com', 'manager@example.com')
       `;
       const [remoteRef] = await sql<{ id: string }[]>`
         INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
@@ -263,6 +271,11 @@ suite("mail manual conversation threading", () => {
     });
     expect(detail?.conversationId).toBe(targetConversationId);
     expect(detail?.detailMessages.length).toBeGreaterThan(0);
+    expect(detail?.detailMessages[0]).toMatchObject({
+      replyTo: [{ name: "Customer queue", address: "queue@example.com" }],
+      cc: [{ name: "Manager", address: "manager@example.com" }],
+      forwardText: "HTML-only fixture body",
+    });
 
     const crossMailbox = await loadMailboxConversationDetail({
       context: readerContext,
@@ -466,6 +479,18 @@ suite("mail manual conversation threading", () => {
     });
     expect(resolvedBeforeMerge.ok && resolvedBeforeMerge.data.href).toContain(`conversation=${sourceConversationId}`);
 
+    const sourceOnlyTag = await createLocalTag({ context: writerContext, mailboxId, input: { name: "Source only" } });
+    const sharedTag = await createLocalTag({ context: writerContext, mailboxId, input: { name: "Shared" } });
+    if (!sourceOnlyTag.ok || !sharedTag.ok) throw new Error("Failed to create merge tag fixtures");
+    await sql`
+      INSERT INTO mail.conversation_local_tags (
+        mailbox_id, conversation_id, tag_id, assigned_by_actor_kind, assigned_by_actor_id
+      ) VALUES
+        (${mailboxId}::uuid, ${sourceConversationId}::uuid, ${sourceOnlyTag.data.id}::uuid, 'user', ${writer.id}::uuid),
+        (${mailboxId}::uuid, ${sourceConversationId}::uuid, ${sharedTag.data.id}::uuid, 'user', ${writer.id}::uuid),
+        (${mailboxId}::uuid, ${targetConversationId}::uuid, ${sharedTag.data.id}::uuid, 'user', ${owner.id}::uuid)
+    `;
+
     const merged = await mergeConversations({
       context: writerContext,
       mailboxId,
@@ -510,6 +535,13 @@ suite("mail manual conversation threading", () => {
         (SELECT COUNT(*)::int FROM mail.drafts WHERE conversation_id = ${targetConversationId}::uuid) AS drafts
     `;
     expect(mergeProjection).toEqual({ source_exists: false, messages: 2, overrides: 2, watchers: 1, comments: 1, drafts: 1 });
+    const mergedTags = await sql<{ tag_id: string }[]>`
+      SELECT tag_id
+      FROM mail.conversation_local_tags
+      WHERE conversation_id = ${targetConversationId}::uuid
+      ORDER BY tag_id
+    `;
+    expect(mergedTags.map((tag) => tag.tag_id)).toEqual([sourceOnlyTag.data.id, sharedTag.data.id].sort());
     const mergedReminders = await sql<{ user_id: string; due_at: Date | string }[]>`
       SELECT user_id, due_at
       FROM mail.conversation_reminders

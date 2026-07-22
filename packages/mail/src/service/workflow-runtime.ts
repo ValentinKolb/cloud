@@ -104,10 +104,17 @@ export const processMailWorkflowTarget = async (params: {
       }
       const repository = new MailWorkflowRuntimeRepository(claim);
       const sourceContext = isObject(claim.source) ? claim.source : {};
-      if (!isObject(sourceContext.message) || (sourceContext.conversation !== null && !isObject(sourceContext.conversation))) {
+      const messageSource =
+        isObject(sourceContext.message) && (sourceContext.conversation === null || isObject(sourceContext.conversation));
+      const scheduleSource = claim.channel === "schedule" && Object.keys(sourceContext).length === 0;
+      if (!messageSource && !scheduleSource) {
         throw new Error("Frozen Mail workflow source is invalid");
       }
-      const projected = createMailWorkflowProjectedState(claim.plan, sourceContext as FrozenMailWorkflowSource, claim.inputs);
+      const projected = createMailWorkflowProjectedState(
+        claim.plan,
+        sourceContext as FrozenMailWorkflowSource | Record<string, never>,
+        claim.inputs,
+      );
       const actorSnapshot = claim.authorization.authority === "actor" ? claim.authorization.actor : null;
       const invocationActor = {
         userId: actorSnapshot?.kind === "user" ? actorSnapshot.userId : null,

@@ -15,6 +15,7 @@ import {
   MAX_DRAFT_ATTACHMENT_BYTES,
   type MailDraft,
 } from "../contracts";
+import { deriveReplyAddressObjects } from "../reply-recipients";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
@@ -253,6 +254,38 @@ const resolveDraftContext = async (params: {
   return ok({ conversationId, intent, sourceMessageId: source.message_id });
 };
 
+const resolveInitialReplyRecipients = async (params: {
+  db: typeof sql;
+  mailboxId: string;
+  sourceMessageId: string;
+  intent: Extract<DraftIntent, "reply" | "reply_all">;
+}): Promise<Result<{ to: MailDraft["to"]; cc: MailDraft["cc"] }>> => {
+  const [addresses, identities] = await Promise.all([
+    params.db<{ role: "from" | "reply_to" | "to" | "cc"; display_name: string | null; email: string }[]>`
+      SELECT role, display_name, email
+      FROM mail.message_addresses
+      WHERE message_id = ${params.sourceMessageId}::uuid
+        AND role IN ('from', 'reply_to', 'to', 'cc')
+      ORDER BY role, position
+    `,
+    params.db<{ from_address: string; reply_to: string | null }[]>`
+      SELECT from_address, reply_to
+      FROM mail.sender_identities
+      WHERE mailbox_id = ${params.mailboxId}::uuid
+        AND status <> 'disabled'
+      ORDER BY id
+    `,
+  ]);
+  const byRole = (role: "from" | "reply_to" | "to" | "cc") =>
+    addresses.filter((row) => row.role === role).map((row) => ({ name: row.display_name, address: row.email }));
+  const recipients = deriveReplyAddressObjects(
+    { from: byRole("from"), replyTo: byRole("reply_to"), to: byRole("to"), cc: byRole("cc") },
+    params.intent,
+    identities.map((identity) => ({ fromAddress: identity.from_address, replyTo: identity.reply_to })),
+  );
+  return recipients.to.length > 0 ? ok(recipients) : fail(err.badInput("The source message has no reply recipient"));
+};
+
 const insertActivity = async (params: {
   db: typeof sql;
   mailboxId: string;
@@ -382,8 +415,24 @@ export const createDraft = async (params: {
               subject: parsed.data.subject,
             })
           : parsed.data.subject;
+      const initialRecipients =
+        draftContext.data.intent === "reply" || draftContext.data.intent === "reply_all"
+          ? await resolveInitialReplyRecipients({
+              db: tx,
+              mailboxId: params.mailboxId,
+              sourceMessageId: draftContext.data.sourceMessageId!,
+              intent: draftContext.data.intent,
+            })
+          : ok({ to: parsed.data.to, cc: parsed.data.cc });
+      if (!initialRecipients.ok) return initialRecipients;
       const initialBody = defaultSignature ? [parsed.data.body.trimEnd(), defaultSignature].filter(Boolean).join("\n\n") : parsed.data.body;
-      const initialContent = draftContentInputSchema.safeParse({ ...parsed.data, subject: initialSubject, body: initialBody });
+      const initialContent = draftContentInputSchema.safeParse({
+        ...parsed.data,
+        to: initialRecipients.data.to,
+        cc: initialRecipients.data.cc,
+        subject: initialSubject,
+        body: initialBody,
+      });
       if (!initialContent.success) {
         return fail(err.badInput(initialContent.error.issues[0]?.message ?? "Default signature makes the draft too large"));
       }
@@ -402,8 +451,8 @@ export const createDraft = async (params: {
           ${actorId(actor)}::uuid,
           ${actor.kind},
           ${actorId(actor)}::uuid,
-          ${parsed.data.to}::jsonb,
-          ${parsed.data.cc}::jsonb,
+          ${initialContent.data.to}::jsonb,
+          ${initialContent.data.cc}::jsonb,
           ${parsed.data.bcc}::jsonb,
           ${initialContent.data.subject},
           ${initialContent.data.body},

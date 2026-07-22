@@ -221,9 +221,10 @@ const rebuildSearchProjection = async (db: SqlClient, mailboxId: string): Promis
     RETURNING chunk.message_id
   `;
   const inserted = await db<{ message_id: string }[]>`
-    INSERT INTO mail.message_search_chunks (message_id, position, search_document)
+    INSERT INTO mail.message_search_chunks (message_id, mailbox_id, position, search_document)
     SELECT
       message.id,
+      message.mailbox_id,
       chunk.position,
       to_tsvector(
         'simple'::regconfig,

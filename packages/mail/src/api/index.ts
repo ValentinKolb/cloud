@@ -97,6 +97,9 @@ const mailboxAndIdParamSchema = (name: string) => z.object({ mailboxId: z.string
 const limitQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(100),
 });
+const mailboxListQuerySchema = limitQuerySchema.extend({
+  name: z.string().trim().min(1).max(160).optional(),
+});
 const conversationDraftsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
@@ -323,9 +326,10 @@ const mailOperationsApi = new Hono<AuthContext>()
     if (!allowed.ok) return respond(c, allowed);
     return respond(c, ok(await discoverMailConfigurations(c.req.valid("query").email)));
   })
-  .get("/mailboxes", v("query", limitQuerySchema), async (c) =>
-    respond(c, mailboxes.listMailboxes(requestContext(c), c.req.valid("query").limit)),
-  )
+  .get("/mailboxes", v("query", mailboxListQuerySchema), async (c) => {
+    const query = c.req.valid("query");
+    return respond(c, mailboxes.listMailboxes(requestContext(c), query.limit, query.name));
+  })
   .post("/mailboxes", v("json", createMailboxInputSchema), async (c) =>
     respond(c, mailboxes.createMailbox(requestContext(c), c.req.valid("json"))),
   )
@@ -1766,7 +1770,7 @@ const mailOperationsApi = new Hono<AuthContext>()
   .route("/", workflowRoutes);
 
 const adminApi = new Hono<AuthContext>()
-  .use(auth.requireRole("admin"))
+  .use("/admin/*", auth.requireRole("admin"))
   .get("/admin/operations", v("query", platformOperationsQuerySchema), async (c) =>
     respond(c, operations.getPlatformMailOperations(requestContext(c), c.req.valid("query"))),
   )

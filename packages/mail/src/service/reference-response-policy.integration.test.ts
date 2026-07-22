@@ -100,6 +100,10 @@ suite("conversation references and automatic reply policies", () => {
         INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
         VALUES (${conversation.id}::uuid, ${message!.id}::uuid, ${index + 1}, 'headers')
       `;
+      await sql`
+        INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
+        VALUES (${message!.id}::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com')
+      `;
       messageIds.push(message!.id);
     }
     return { id: conversation.id, revision: Number(conversation.revision), messageIds };

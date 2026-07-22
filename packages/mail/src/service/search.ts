@@ -144,6 +144,7 @@ const bodyChunkMatch = (query: string, match: "words" | "phrase"): SqlFragment =
       SELECT 1
       FROM mail.message_search_chunks body_chunk
       WHERE body_chunk.message_id = mc.id
+        AND body_chunk.mailbox_id = mc.mailbox_id
         AND body_chunk.search_document @@ phraseto_tsquery('simple', ${query})
     )`;
   }
@@ -152,6 +153,7 @@ const bodyChunkMatch = (query: string, match: "words" | "phrase"): SqlFragment =
       SELECT 1
       FROM mail.message_search_chunks body_chunk
       WHERE body_chunk.message_id = mc.id
+        AND body_chunk.mailbox_id = mc.mailbox_id
         AND body_chunk.search_document @@ plainto_tsquery('simple', ${token})
     )`,
   );
@@ -447,7 +449,8 @@ const compileAnyWordsSeed = (seed: AnyWordsSeed, mailboxId: string): SqlFragment
     (token) => sql`
       SELECT seed_chunk.message_id
       FROM mail.message_search_chunks seed_chunk
-      WHERE seed_chunk.search_document @@ plainto_tsquery('simple', ${token})
+      WHERE seed_chunk.mailbox_id = ${mailboxId}::uuid
+        AND seed_chunk.search_document @@ plainto_tsquery('simple', ${token})
     `,
   );
   const bodySeed = bodyTokenQueries.slice(1).reduce((combined, part) => sql`${combined} INTERSECT ${part}`, bodyTokenQueries[0]!);
@@ -555,8 +558,7 @@ const compileIndexedSeed = (seed: IndexedSeed, mailboxId: string): SqlFragment =
   return sql`
     SELECT DISTINCT seed_chunk.message_id
     FROM mail.message_search_chunks seed_chunk
-    JOIN mail.message_contents seed_message ON seed_message.id = seed_chunk.message_id
-    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+    WHERE seed_chunk.mailbox_id = ${mailboxId}::uuid
       AND seed_chunk.search_document @@ phraseto_tsquery('simple', ${seed.query.trim()})
   `;
 };
@@ -757,12 +759,13 @@ const runSearch = async (params: {
               SELECT MAX(ts_rank_cd(rank_chunk.search_document, websearch_to_tsquery('simple', ${queryText})))
               FROM mail.message_search_chunks rank_chunk
               WHERE rank_chunk.message_id = mc.id
+                AND rank_chunk.mailbox_id = ${params.mailboxId}::uuid
             ), 0)
           )::double precision`;
   const snippet = queryText
     ? sql`LEFT(ts_headline(
         'simple',
-        COALESCE(mc.plain_text, ''),
+        COALESCE(deduplicated.plain_text, ''),
         websearch_to_tsquery('simple', ${queryText}),
         'StartSel="", StopSel="", MaxWords=36, MinWords=12, MaxFragments=2, FragmentDelimiter= … '
       ), 500)`
@@ -805,7 +808,6 @@ const runSearch = async (params: {
         COALESCE(to_rows.addresses, '[]'::jsonb) AS to_addresses,
         COALESCE(placement.flags, ARRAY[]::text[]) AS flags,
         EXISTS (SELECT 1 FROM mail.attachments attachment WHERE attachment.message_id = mc.id) AS has_attachments,
-        ${snippet} AS snippet,
         ${rank} AS rank
       FROM candidate_messages mc
       LEFT JOIN LATERAL (
@@ -842,6 +844,40 @@ const runSearch = async (params: {
       SELECT *
       FROM ranked_matches
       WHERE match_position = 1
+    ),
+    page_candidates AS MATERIALIZED (
+      SELECT deduplicated.*
+      FROM deduplicated
+      LEFT JOIN mail.conversations page_conversation
+        ON page_conversation.id = deduplicated.conversation_id
+      WHERE (
+        ${cursor?.id ?? null}::uuid IS NULL
+        OR (
+          ${params.sort} = 'relevance'
+          AND (
+            rank < ${cursor?.rank ?? 0}
+            OR (
+              rank = ${cursor?.rank ?? 0}
+              AND (
+                COALESCE(page_conversation.latest_message_at, internal_date),
+                result_id
+              ) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
+            )
+          )
+        )
+        OR (
+          ${params.sort} = 'newest'
+          AND (
+            COALESCE(page_conversation.latest_message_at, internal_date),
+            result_id
+          ) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
+        )
+      )
+      ORDER BY
+        CASE WHEN ${params.sort} = 'relevance' THEN rank ELSE 0 END DESC,
+        COALESCE(page_conversation.latest_message_at, internal_date) DESC,
+        result_id DESC
+      LIMIT ${limit}
     ),
     projected AS (
       SELECT
@@ -889,7 +925,7 @@ const runSearch = async (params: {
           )
         END AS has_attachments,
         COALESCE(
-          deduplicated.snippet,
+          ${snippet},
           NULLIF(LEFT(COALESCE(conversation_latest.plain_text, deduplicated.plain_text), 500), '')
         ) AS snippet,
         cardinality(
@@ -923,7 +959,7 @@ const runSearch = async (params: {
           ELSE conversation_unread_state.folder_ids
         END AS unread_folder_ids,
         deduplicated.rank
-      FROM deduplicated
+      FROM page_candidates deduplicated
       LEFT JOIN mail.conversations conversation ON conversation.id = deduplicated.conversation_id
       LEFT JOIN LATERAL (
         SELECT reference.value
@@ -1017,28 +1053,10 @@ const runSearch = async (params: {
     )
     SELECT *
     FROM projected
-    WHERE (
-      ${cursor?.id ?? null}::uuid IS NULL
-      OR (
-        ${params.sort} = 'relevance'
-        AND (
-          rank < ${cursor?.rank ?? 0}
-          OR (
-            rank = ${cursor?.rank ?? 0}
-            AND (sort_date, result_id) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
-          )
-        )
-      )
-      OR (
-        ${params.sort} = 'newest'
-        AND (sort_date, result_id) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
-      )
-    )
     ORDER BY
       CASE WHEN ${params.sort} = 'relevance' THEN rank ELSE 0 END DESC,
       sort_date DESC,
       result_id DESC
-    LIMIT ${limit}
   `;
 };
 

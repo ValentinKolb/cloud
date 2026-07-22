@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mailSearchStateSchema } from "./contracts";
-import { migrateLegacySavedViewFilter } from "./saved-view-search-migration";
+import { canonicalizeSavedViewFilter, migrateLegacySavedViewFilter } from "./saved-view-search-migration";
 
 describe("saved view search migration", () => {
   test("preserves every legacy filter dimension in the canonical search AST", () => {
@@ -45,6 +45,24 @@ describe("saved view search migration", () => {
     expect(migrateLegacySavedViewFilter({})).toEqual({
       expression: { type: "all" },
       sort: "newest",
+    });
+  });
+
+  test("keeps canonical views and safely recovers malformed alpha views", () => {
+    const canonical = {
+      expression: { type: "text" as const, field: "subject" as const, query: "invoice", match: "words" as const },
+      sort: "relevance" as const,
+    };
+    expect(canonicalizeSavedViewFilter(canonical)).toEqual({ state: canonical, changed: false, recovered: false });
+    expect(canonicalizeSavedViewFilter({ unsupported: true })).toEqual({
+      state: { expression: { type: "all" }, sort: "newest" },
+      changed: true,
+      recovered: true,
+    });
+    expect(canonicalizeSavedViewFilter("not-json")).toEqual({
+      state: { expression: { type: "all" }, sort: "newest" },
+      changed: true,
+      recovered: true,
     });
   });
 });

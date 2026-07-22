@@ -11,6 +11,7 @@ import MailComposer from "./MailComposer";
 import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
 import { getMailCommand, type MailTriageCommandId } from "./mail-command-registry";
+import { deriveReplyRecipients } from "./mail-compose-derivation";
 import { buildMailListHref } from "./mail-navigation";
 
 const formatAddress = (address: { name: string | null; address: string }): string =>
@@ -26,7 +27,7 @@ Date: ${dates.formatDateTime(message.internalDate, dateConfig)}
 Subject: ${message.subject || "(no subject)"}
 To: ${message.to.map(formatAddress).join(", ") || "Undisclosed recipients"}
 
-${message.plainText ?? "[HTML message body]"}`;
+${message.forwardText}`;
 
 type ComposerRequest = {
   intent: DraftIntent;
@@ -42,6 +43,11 @@ type DraftLookup = {
   conversationId: string;
   request: ComposerRequest;
 };
+
+const composerRecipients = (request: ComposerRequest, identities: SenderIdentity[]): { to: string[]; cc: string[] } =>
+  request.intent === "reply" || request.intent === "reply_all"
+    ? deriveReplyRecipients(request.message, request.intent, identities)
+    : { to: [], cc: [] };
 
 const intentLabel = (intent: DraftIntent): string =>
   intent === "reply" ? "reply" : intent === "reply_all" ? "reply all" : intent === "forward" ? "forward" : "message";
@@ -272,13 +278,6 @@ export default function MailConversationReader(props: {
       .map((line) => `> ${line}`)
       .join("\n")}\n\n`;
     startComposer("reply", message, quote);
-  };
-
-  const replyAllRecipients = (message: MessageDetail): string[] => {
-    const own = new Set(props.identities.map((identity) => identity.fromAddress.toLowerCase()));
-    return [...message.from, ...message.to]
-      .map((address) => address.address.toLowerCase())
-      .filter((address, index, all) => !own.has(address) && all.indexOf(address) === index);
   };
 
   return (
@@ -591,12 +590,8 @@ export default function MailConversationReader(props: {
                         intent: active().intent,
                         conversationId: props.selectedConversationId,
                         sourceMessageId: active().message.id,
-                        to:
-                          active().intent === "forward"
-                            ? []
-                            : active().intent === "reply_all"
-                              ? replyAllRecipients(active().message)
-                              : active().message.from.map((address) => address.address),
+                        to: composerRecipients(active(), props.identities).to,
+                        cc: composerRecipients(active(), props.identities).cc,
                         subject: active().intent === "forward" ? forwardSubject(props.subject) : replySubject(props.subject),
                         body: active().quotedBody ?? "",
                         sourceAttachmentCount: active().intent === "forward" ? active().message.attachments.length : 0,

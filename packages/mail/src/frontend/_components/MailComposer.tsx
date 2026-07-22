@@ -21,7 +21,6 @@ import { apiClient } from "../../api/client";
 import type {
   AcquiredDraftLease,
   ComposePreview,
-  ComposeSuggestion,
   CreateAttachmentLinkInput,
   CreatedAttachmentLink,
   DraftEditableContentInput,
@@ -126,8 +125,6 @@ export default function MailComposer(props: {
   );
   const [composerPanes, setComposerPanes] = createSignal<PanesValue>(readMailComposerPanes());
   const [preview, setPreview] = createSignal<ComposePreview | null>(null);
-  const [previewError, setPreviewError] = createSignal<string | null>(null);
-  const [previewLoading, setPreviewLoading] = createSignal(false);
   const [previewRevision, setPreviewRevision] = createSignal(0);
   const [initialized, setInitialized] = createSignal(false);
   const [handoffInProgress, setHandoffInProgress] = createSignal(false);
@@ -138,8 +135,6 @@ export default function MailComposer(props: {
   let disposed = false;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   let panePersistenceTimer: ReturnType<typeof setTimeout> | null = null;
-  let previewController: AbortController | null = null;
-  let previewRequest = 0;
   let lastSavedContent = "";
   const pendingKey = pendingJournalKey(props.mailboxId, props.seed);
 
@@ -163,6 +158,20 @@ export default function MailComposer(props: {
   });
 
   const serializedContent = () => JSON.stringify(content());
+  const previewMutation = mutations.create<ComposePreview, { draft: DraftEditableContentInput; conversationId: string | null }>({
+    mutation: async (input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["compose-preview"].$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: input,
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Preview could not be rendered"));
+      return await response.json();
+    },
+    onSuccess: setPreview,
+  });
   const editable = createMemo(
     () =>
       verifiedIdentities().length > 0 &&
@@ -185,8 +194,7 @@ export default function MailComposer(props: {
   const stopPreview = () => {
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = null;
-    previewController?.abort();
-    previewController = null;
+    previewMutation.abort();
   };
 
   const releaseLeaseOnExit = (): Promise<void> => {
@@ -541,32 +549,14 @@ export default function MailComposer(props: {
       return;
     }
     stopPreview();
-    const request = ++previewRequest;
-    previewTimer = setTimeout(async () => {
-      previewController = new AbortController();
-      setPreviewLoading(true);
-      setPreviewError(null);
-      try {
-        const response = await fetch(`/api/mail/mailboxes/${props.mailboxId}/compose-preview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            draft: previewDraft,
-            conversationId: draft()?.conversationId ?? props.seed?.conversationId ?? null,
-          }),
-          signal: previewController.signal,
-        });
-        if (!response.ok) throw new Error(await readApiError(response, "Preview could not be rendered"));
-        const next = (await response.json()) as ComposePreview;
-        if (!disposed && request === previewRequest) setPreview(next);
-      } catch (error) {
-        if (!disposed && request === previewRequest && !(error instanceof DOMException && error.name === "AbortError")) {
-          setPreviewError(error instanceof Error ? error.message : "Preview could not be rendered");
-        }
-      } finally {
-        if (!disposed && request === previewRequest) setPreviewLoading(false);
-      }
-    }, 250);
+    previewTimer = setTimeout(
+      () =>
+        void previewMutation.mutate({
+          draft: previewDraft,
+          conversationId: draft()?.conversationId ?? props.seed?.conversationId ?? null,
+        }),
+      250,
+    );
   });
 
   onMount(() => {
@@ -879,18 +869,19 @@ export default function MailComposer(props: {
       dropdown: true,
       debounceMs: 180,
       suggest: async (query, context, signal) => {
-        const response = await fetch(`/api/mail/mailboxes/${props.mailboxId}/compose-suggestions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query,
-            draft: content(),
-            conversationId: draft()?.conversationId ?? props.seed?.conversationId ?? null,
-          }),
-          signal,
-        });
+        const response = await apiClient.mailboxes[":mailboxId"]["compose-suggestions"].$post(
+          {
+            param: { mailboxId: props.mailboxId },
+            json: {
+              query,
+              draft: content(),
+              conversationId: draft()?.conversationId ?? props.seed?.conversationId ?? null,
+            },
+          },
+          { init: { signal } },
+        );
         if (!response.ok) throw new Error(await readApiError(response, "Compose templates could not be loaded"));
-        const suggestions = (await response.json()) as ComposeSuggestion[];
+        const suggestions = await response.json();
         return suggestions.map((suggestion) => ({
           text: `/${suggestion.shortcut}`,
           label: suggestion.name,
@@ -948,7 +939,7 @@ export default function MailComposer(props: {
         when={preview()}
         fallback={
           <Show
-            when={previewError()}
+            when={previewMutation.error()?.message}
             fallback={<div class="flex h-full min-h-72 items-center justify-center text-sm text-dimmed">Preparing preview...</div>}
           >
             {(message) => (
@@ -964,15 +955,15 @@ export default function MailComposer(props: {
       >
         {(value) => <iframe class="h-full min-h-72 w-full border-0 bg-white" sandbox="" srcdoc={value().html} title="Email preview" />}
       </Show>
-      <Show when={preview() && previewError()}>
+      <Show when={preview() && previewMutation.error()?.message}>
         <div class="absolute inset-x-2 top-2 flex items-center gap-2 border border-red-200 bg-white px-2 py-1 text-xs text-red-600 shadow-sm">
-          <span class="min-w-0 flex-1 truncate">{previewError()}</span>
+          <span class="min-w-0 flex-1 truncate">{previewMutation.error()?.message}</span>
           <button type="button" class="btn-simple btn-xs" onClick={retryPreview}>
             Retry
           </button>
         </div>
       </Show>
-      <Show when={previewLoading()}>
+      <Show when={previewMutation.loading()}>
         <span class="absolute right-2 top-2 text-xs text-dimmed">
           <i class="ti ti-loader-2 animate-spin" aria-hidden="true" /> Updating
         </span>

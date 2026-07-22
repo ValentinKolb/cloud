@@ -178,7 +178,7 @@ const loadConversationDetails = async (params: { context: MailRequestContext; ma
     messages.listConversationMessageDetails({ ...params, limit: 100 }),
     collaboration.getConversationCollaboration(params),
     localTags.getConversationLocalTags(params),
-    collaboration.listConversationComments({ ...params, limit: 100 }),
+    collaboration.listConversationComments({ ...params, limit: 100, order: "newest" }),
     collaboration.listAssignableUsers({
       context: params.context,
       mailboxId: params.mailboxId,

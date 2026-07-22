@@ -161,6 +161,7 @@ const loadVisibleView = async (params: {
         FROM mail.saved_conversation_views
         WHERE id = ${params.viewId}::uuid
           AND mailbox_id = ${params.mailboxId}::uuid
+          AND disabled_at IS NULL
           AND (scope = 'mailbox' OR owner_user_id = ${params.userId}::uuid)
         FOR UPDATE
       `
@@ -169,6 +170,7 @@ const loadVisibleView = async (params: {
         FROM mail.saved_conversation_views
         WHERE id = ${params.viewId}::uuid
           AND mailbox_id = ${params.mailboxId}::uuid
+          AND disabled_at IS NULL
           AND (scope = 'mailbox' OR owner_user_id = ${params.userId}::uuid)
       `;
   return rows[0] ?? null;
@@ -185,6 +187,7 @@ export const listSavedConversationViews = async (params: {
     SELECT ${viewColumns}
     FROM mail.saved_conversation_views
     WHERE mailbox_id = ${params.mailboxId}::uuid
+      AND disabled_at IS NULL
       AND (scope = 'mailbox' OR owner_user_id = ${userId}::uuid)
     ORDER BY CASE scope WHEN 'private' THEN 0 ELSE 1 END, lower(name), id
   `;

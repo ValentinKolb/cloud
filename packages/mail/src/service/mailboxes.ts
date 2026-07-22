@@ -301,27 +301,18 @@ export const listDeletedMailboxes = async (
 export const listMailboxes = async (
   context: MailRequestContext,
   limit = 100,
+  exactName?: string,
 ): Promise<Result<Array<Mailbox & { permission: PermissionLevel }>>> => {
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 200);
+  const normalizedExactName = exactName?.trim() || null;
   if (context.actor.kind === "service_account" && context.actor.serviceAccount.kind === "resource_bound") {
     const mailboxId = context.actor.serviceAccount.resourceId;
     if (!mailboxId || !isResourceBoundToMailbox(context, mailboxId)) return ok([]);
     const mailbox = await getMailbox(context, mailboxId);
     if (!mailbox.ok) return mailbox.error.code === "FORBIDDEN" || mailbox.error.code === "NOT_FOUND" ? ok([]) : mailbox;
+    if (normalizedExactName && mailbox.data.name !== normalizedExactName) return ok([]);
     const permission = await getMailboxPermission(context, mailboxId);
     return permission === "none" ? ok([]) : ok([{ ...mailbox.data, permission }]);
-  }
-
-  if (await isCurrentPlatformAdmin(context)) {
-    const rows = await sql<DbMailbox[]>`
-      SELECT ${mailboxColumns}
-      FROM mail.mailboxes m
-      WHERE m.deleted_at IS NULL
-      ORDER BY m.updated_at DESC, m.id DESC
-      LIMIT ${boundedLimit}
-    `;
-    const permission = capByCredentialScopes(context, "admin");
-    return permission === "none" ? ok([]) : ok(rows.map((row) => ({ ...mapMailbox(row), permission })));
   }
 
   const userId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
@@ -355,6 +346,7 @@ export const listMailboxes = async (
     FROM mail.mailboxes m
     JOIN ranked ON ranked.mailbox_id = m.id AND ranked.permission_rank >= 1
     WHERE m.deleted_at IS NULL
+      AND (${normalizedExactName}::text IS NULL OR m.name = ${normalizedExactName})
     ORDER BY m.updated_at DESC, m.id DESC
     LIMIT ${boundedLimit}
   `;
@@ -449,11 +441,7 @@ export const deleteMailbox = async (context: MailRequestContext, mailboxId: stri
             const notFound = err.notFound("Mailbox");
             throw Object.assign(new Error(notFound.message), notFound);
           }
-          unwrap(
-            row.deleted_at
-              ? await requireMailboxLifecycleAdmin(context, mailboxId, tx)
-              : await requireMailboxPermission(context, mailboxId, "admin", tx),
-          );
+          unwrap(await requireMailboxLifecycleAdmin(context, mailboxId, tx));
           if (row.deleted_at) return;
           const currentResourceIds = await listMailboxRemoteResourceIds(mailboxId, tx);
           if (currentResourceIds.length !== resourceIds.length || currentResourceIds.some((id, index) => id !== resourceIds[index])) {

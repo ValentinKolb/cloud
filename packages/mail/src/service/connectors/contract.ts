@@ -171,26 +171,37 @@ export type SendSourceRequest = {
   envelopeFrom: string | null;
   recipients: string[];
   messageId: string;
+  signal?: AbortSignal;
 };
 
 export interface MailConnector {
   verify(config: ProviderConnectionInput): Promise<ConnectorVerification>;
-  discoverFolders(config: ProviderConnectionInput): Promise<RemoteFolder[]>;
-  getFolderStatus(config: ProviderConnectionInput, folderPath: string): Promise<FolderStatusSnapshot>;
-  fetchEnvelopeBatch(config: ProviderConnectionInput, request: EnvelopeBatchRequest): Promise<EnvelopeBatch>;
+  discoverFolders(config: ProviderConnectionInput, signal?: AbortSignal): Promise<RemoteFolder[]>;
+  getFolderStatus(config: ProviderConnectionInput, folderPath: string, signal?: AbortSignal): Promise<FolderStatusSnapshot>;
+  fetchEnvelopeBatch(config: ProviderConnectionInput, request: EnvelopeBatchRequest, signal?: AbortSignal): Promise<EnvelopeBatch>;
   fetchFlagChanges(
     config: ProviderConnectionInput,
     folderPath: string,
+    uidValidity: string,
     sinceModseq: string,
     lowUid: number,
     highUid: number,
+    signal?: AbortSignal,
   ): Promise<FlagChange[]>;
-  fetchUidWindow(config: ProviderConnectionInput, folderPath: string, lowUid: number, highUid: number): Promise<number[]>;
+  fetchUidWindow(
+    config: ProviderConnectionInput,
+    folderPath: string,
+    uidValidity: string,
+    lowUid: number,
+    highUid: number,
+    signal?: AbortSignal,
+  ): Promise<number[]>;
   downloadSourceBatch(
     config: ProviderConnectionInput,
     folderPath: string,
     requests: SourceDownloadRequest[],
     consume: (source: SourceDownload) => Promise<void>,
+    signal?: AbortSignal,
   ): Promise<void>;
   send(config: ProviderConnectionInput, request: SendRequest): Promise<SendResult>;
   sendSource(config: ProviderConnectionInput, request: SendSourceRequest): Promise<SendResult>;
@@ -210,8 +221,9 @@ export interface MailConnector {
     byteLength: number,
     flags?: string[],
     internalDate?: Date,
+    signal?: AbortSignal,
   ): Promise<RemoteAppendResult>;
-  findMessageById(config: ProviderConnectionInput, folderPath: string, messageId: string): Promise<number[]>;
+  findMessageById(config: ProviderConnectionInput, folderPath: string, messageId: string, signal?: AbortSignal): Promise<number[]>;
   getMessageState(config: ProviderConnectionInput, target: RemoteMutationTarget): Promise<RemoteMessageState>;
   createFolder(config: ProviderConnectionInput, path: string, subscribe: boolean): Promise<void>;
   renameFolder(config: ProviderConnectionInput, path: string, newPath: string): Promise<void>;

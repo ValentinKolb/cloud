@@ -30,7 +30,7 @@ export const selectBindingCandidate = (input: BindingSelectionInput): BindingCan
   // Fail closed instead of silently introducing provider failover semantics.
   if (input.candidates.length !== 1) return null;
   const candidates = input.candidates
-    .filter(() => input.operation !== "automation" || input.senderPolicy?.automation === "mailbox")
+    .filter(() => input.operation !== "automation" || input.senderPolicy === null || input.senderPolicy.automation === "mailbox")
     .filter(() => input.operation !== "actorSend" || input.senderPolicy !== null)
     .filter((candidate) =>
       input.folderRequirements.every((requirement) => {

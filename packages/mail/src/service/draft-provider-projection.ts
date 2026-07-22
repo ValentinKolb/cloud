@@ -80,7 +80,7 @@ export const remoteAppendEffectPossible = (error: unknown): boolean =>
 const withDraftProjectionLeases = async <T>(params: {
   lock: Lock;
   jobHeartbeat: () => Promise<void>;
-  work: (assertLeaseActive: () => Promise<void>) => Promise<T>;
+  work: (assertLeaseActive: () => Promise<void>, signal: AbortSignal) => Promise<T>;
 }): Promise<T> =>
   withLeaseHeartbeat({
     intervalMs: JOB_HEARTBEAT_INTERVAL_MS,
@@ -519,7 +519,7 @@ const processExportSnapshot = async (snapshotId: string, jobHeartbeat: () => Pro
     await withDraftProjectionLeases({
       lock,
       jobHeartbeat,
-      work: async (assertLeaseActive) => {
+      work: async (assertLeaseActive, signal) => {
         await assertLeaseActive();
         const current = await loadCurrentExecution({
           mailboxId: snapshot.mailbox_id,
@@ -663,6 +663,7 @@ const processExportSnapshot = async (snapshotId: string, jobHeartbeat: () => Pro
               mime.byteLength,
               ["\\Draft"],
               new Date(),
+              signal,
             );
           } catch (error) {
             if (!remoteAppendEffectPossible(error)) {
@@ -1243,7 +1244,7 @@ const processImportSnapshot = async (snapshotId: string, jobHeartbeat: () => Pro
     await withDraftProjectionLeases({
       lock,
       jobHeartbeat,
-      work: async (assertLeaseActive) => {
+      work: async (assertLeaseActive, signal) => {
         await assertLeaseActive();
         const execution = await loadCurrentExecution({
           mailboxId: snapshot.mailbox_id,
@@ -1279,6 +1280,7 @@ const processImportSnapshot = async (snapshotId: string, jobHeartbeat: () => Pro
               AND state = 'importing'
           `;
             },
+            signal,
           );
         }
         if (!mimeBlobId) throw Object.assign(new Error("Remote draft source was not downloaded"), { code: "REMOTE_DRAFT_SOURCE_MISSING" });

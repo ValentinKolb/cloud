@@ -2090,7 +2090,9 @@ const sentMatches = async (params: {
   runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
   sentPath: string | null;
   messageId: string;
-}): Promise<number[]> => (params.sentPath ? imapSmtpConnector.findMessageById(params.runtime, params.sentPath, params.messageId) : []);
+  signal?: AbortSignal;
+}): Promise<number[]> =>
+  params.sentPath ? imapSmtpConnector.findMessageById(params.runtime, params.sentPath, params.messageId, params.signal) : [];
 
 const appendSentCopy = async (params: {
   outbox: DbOutboxExecution;
@@ -2099,6 +2101,7 @@ const appendSentCopy = async (params: {
   mimeBlobId: string;
   mimeByteLength: number;
   assertLeaseActive: LeaseAssertion;
+  signal: AbortSignal;
 }): Promise<boolean> => {
   if (params.sender.saves_sent_automatically) return true;
   if (!params.sender.sent_path) return false;
@@ -2106,6 +2109,7 @@ const appendSentCopy = async (params: {
     runtime: params.runtime,
     sentPath: params.sender.sent_path,
     messageId: params.outbox.stable_message_id,
+    signal: params.signal,
   });
   if (existing.length > 0) return true;
   await params.assertLeaseActive();
@@ -2117,6 +2121,7 @@ const appendSentCopy = async (params: {
       params.mimeByteLength,
       ["\\Seen"],
       new Date(params.outbox.created_at),
+      params.signal,
     );
     await params.assertLeaseActive();
   } catch (error) {
@@ -2133,6 +2138,7 @@ const appendSentCopy = async (params: {
     runtime: params.runtime,
     sentPath: params.sender.sent_path,
     messageId: params.outbox.stable_message_id,
+    signal: params.signal,
   });
   return confirmed.length > 0;
 };
@@ -2141,6 +2147,7 @@ const prepareFreshOutbox = async (
   outbox: DbOutboxExecution,
   command: DbCommandExecution,
   assertLeaseActive: LeaseAssertion,
+  signal: AbortSignal,
 ): Promise<{
   sender: DbSenderBinding;
   runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
@@ -2153,7 +2160,7 @@ const prepareFreshOutbox = async (
   const runtime = await loadPinnedRuntime(await loadPinnedBinding(command));
   const mime = await ensureMimeBlob(outbox);
   await assertLeaseActive();
-  const beforeSend = await sentMatches({ runtime, sentPath: sender.sent_path, messageId: outbox.stable_message_id });
+  const beforeSend = await sentMatches({ runtime, sentPath: sender.sent_path, messageId: outbox.stable_message_id, signal });
   return {
     sender,
     runtime,
@@ -2170,9 +2177,10 @@ const prepareFreshOutboxOrFinish = async (
   outbox: DbOutboxExecution,
   command: DbCommandExecution,
   assertLeaseActive: LeaseAssertion,
+  signal: AbortSignal,
 ): Promise<PreparedFreshOutbox | null> => {
   try {
-    return await prepareFreshOutbox(outbox, command, assertLeaseActive);
+    return await prepareFreshOutbox(outbox, command, assertLeaseActive, signal);
   } catch (error) {
     if (outbox.attempt < 5 && isRetryablePreDispatchError(error)) {
       await scheduleOutboxRetry({
@@ -2195,6 +2203,7 @@ const persistSmtpResult = async (params: {
   prepared: PreparedFreshOutbox;
   result: Awaited<ReturnType<typeof imapSmtpConnector.sendSource>>;
   assertLeaseActive: LeaseAssertion;
+  signal: AbortSignal;
 }): Promise<void> => {
   const { outbox, command, prepared, result } = params;
   const response = { accepted: result.accepted, rejected: result.rejected, response: result.response, messageId: result.messageId };
@@ -2229,6 +2238,7 @@ const persistSmtpResult = async (params: {
     mimeBlobId: prepared.mimeBlobId,
     mimeByteLength: prepared.mimeByteLength,
     assertLeaseActive: params.assertLeaseActive,
+    signal: params.signal,
   });
   await finishOutbox({
     outbox,
@@ -2278,6 +2288,7 @@ const executeFreshOutbox = async (
   outbox: DbOutboxExecution,
   command: DbCommandExecution,
   assertLeaseActive: LeaseAssertion,
+  signal: AbortSignal,
 ): Promise<void> => {
   if (!(await commandStillAuthorized(command, "write"))) {
     await finishOutbox({
@@ -2290,7 +2301,7 @@ const executeFreshOutbox = async (
     });
     return;
   }
-  const prepared = await prepareFreshOutboxOrFinish(outbox, command, assertLeaseActive);
+  const prepared = await prepareFreshOutboxOrFinish(outbox, command, assertLeaseActive, signal);
   if (!prepared) return;
   if (prepared.alreadySent) {
     await finishOutbox({ outbox, command, outboxState: "reconciled_accepted", commandState: "reconciled", draftState: "sent" });
@@ -2323,19 +2334,20 @@ const executeFreshOutbox = async (
       envelopeFrom: prepared.snapshot.useNullEnvelopeSender ? null : (prepared.snapshot.envelopeFrom ?? prepared.snapshot.from.address),
       recipients: outboundRecipients(prepared.snapshot),
       messageId: outbox.stable_message_id,
+      signal,
     });
     await assertLeaseActive();
-    await persistSmtpResult({ outbox, command, prepared, result, assertLeaseActive });
+    await persistSmtpResult({ outbox, command, prepared, result, assertLeaseActive, signal });
   } catch (error) {
     await persistSmtpFailure({ outbox, command, prepared, error });
   }
 };
 
-const reconcileUnknownOutbox = async (outbox: DbOutboxExecution, command: DbCommandExecution): Promise<void> => {
+const reconcileUnknownOutbox = async (outbox: DbOutboxExecution, command: DbCommandExecution, signal: AbortSignal): Promise<void> => {
   const binding = await loadPinnedBinding(command);
   const sender = await loadSenderBinding(command, outbox.sender_identity_id);
   const runtime = await loadPinnedRuntime(binding);
-  const matches = await sentMatches({ runtime, sentPath: sender.sent_path, messageId: outbox.stable_message_id });
+  const matches = await sentMatches({ runtime, sentPath: sender.sent_path, messageId: outbox.stable_message_id, signal });
   if (matches.length > 0) {
     await finishOutbox({ outbox, command, outboxState: "reconciled_accepted", commandState: "reconciled", draftState: "sent" });
   } else {
@@ -2354,6 +2366,7 @@ const reconcileSentCopy = async (
   outbox: DbOutboxExecution,
   command: DbCommandExecution,
   assertLeaseActive: LeaseAssertion,
+  signal: AbortSignal,
 ): Promise<void> => {
   const binding = await loadPinnedBinding(command);
   const sender = await loadSenderBinding(command, outbox.sender_identity_id);
@@ -2366,6 +2379,7 @@ const reconcileSentCopy = async (
     mimeBlobId: mime.blobId,
     mimeByteLength: mime.byteLength,
     assertLeaseActive,
+    signal,
   });
   if (stored) {
     await sql`
@@ -2400,11 +2414,13 @@ const runClaimedOutbox = async (
   claim: OutboxClaim,
   loaded: { outbox: DbOutboxExecution; command: DbCommandExecution },
   assertLeaseActive: LeaseAssertion,
+  signal: AbortSignal,
 ): Promise<string | null> => {
   try {
-    if (claim.previousOutboxState === "unknown") await reconcileUnknownOutbox(loaded.outbox, loaded.command);
-    else if (claim.previousOutboxState === "sent_sync_pending") await reconcileSentCopy(loaded.outbox, loaded.command, assertLeaseActive);
-    else await executeFreshOutbox(loaded.outbox, loaded.command, assertLeaseActive);
+    if (claim.previousOutboxState === "unknown") await reconcileUnknownOutbox(loaded.outbox, loaded.command, signal);
+    else if (claim.previousOutboxState === "sent_sync_pending") {
+      await reconcileSentCopy(loaded.outbox, loaded.command, assertLeaseActive, signal);
+    } else await executeFreshOutbox(loaded.outbox, loaded.command, assertLeaseActive, signal);
   } catch (error) {
     if (claim.previousOutboxState === "sent_sync_pending") {
       log.warn("Sent copy reconciliation failed", { outboxId, code: normalizeCode(error, "SENT_RECONCILIATION_FAILED") });
@@ -2458,7 +2474,7 @@ export const executeOutboxSubmissionWithHeartbeat = async (
         }
         await heartbeat?.(loaded);
       },
-      work: (assertLeaseActive) => runClaimedOutbox(outboxId, activeClaim, loaded, assertLeaseActive),
+      work: (assertLeaseActive, signal) => runClaimedOutbox(outboxId, activeClaim, loaded, assertLeaseActive, signal),
     });
   } catch (error) {
     if (claim) {

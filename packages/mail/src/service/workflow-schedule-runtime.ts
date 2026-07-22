@@ -1,4 +1,4 @@
-import { createRuntimeLifecycle, trace } from "@valentinkolb/cloud/services";
+import { createRuntimeLifecycle, logger, trace } from "@valentinkolb/cloud/services";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import {
   createWorkflowScheduleRegistration,
@@ -18,6 +18,7 @@ import { enqueueWorkflowRun } from "./workflow-runtime";
 const MAIL_WORKFLOW_SCHEDULER_ID = "mail:workflow-schedules";
 const MAIL_WORKFLOW_SCHEDULE_PREFIX = "mail:workflow-schedule:";
 const MAIL_WORKFLOW_SCHEDULE_MAX_RETRIES = 5;
+const log = logger("mail:workflow-schedules");
 
 type DbScheduleActivation = {
   activation_id: string;
@@ -86,6 +87,18 @@ const mapScheduleActivation = (row: DbScheduleActivation): MailWorkflowScheduleA
   };
 };
 
+const validScheduleActivation = (row: DbScheduleActivation): MailWorkflowScheduleActivation | null => {
+  try {
+    return mapScheduleActivation(row);
+  } catch (error) {
+    log.warn("Ignoring invalid Mail workflow schedule activation", {
+      activationId: row.activation_id,
+      code: error instanceof Error ? error.message : "INVALID_SCHEDULE",
+    });
+    return null;
+  }
+};
+
 const scheduleActivationColumns = sql`
   activation.id AS activation_id,
   activation.workflow_id,
@@ -112,7 +125,7 @@ const listActiveScheduleActivations = async (): Promise<MailWorkflowScheduleActi
       AND activation.enabled
     ORDER BY activation.workflow_id, activation.trigger_key, activation.id
   `;
-  return rows.map(mapScheduleActivation);
+  return rows.map(validScheduleActivation).filter((item): item is MailWorkflowScheduleActivation => item !== null);
 };
 
 const loadCurrentScheduleActivation = async (
@@ -134,7 +147,7 @@ const loadCurrentScheduleActivation = async (
       AND activation.trigger_kind = 'schedule'
       AND activation.enabled
   `;
-  return row ? mapScheduleActivation(row) : null;
+  return row ? validScheduleActivation(row) : null;
 };
 
 const currentRegistration = (item: Awaited<ReturnType<Scheduler["list"]>>[number]): WorkflowScheduleRegistration => {

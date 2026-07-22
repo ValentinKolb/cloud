@@ -159,13 +159,9 @@ const getMailboxPermissionForLifecycle = async (
   `;
   if (mailbox?.exists !== true) return "none";
 
-  let permission: PermissionLevel = "none";
-  if (await isCurrentPlatformAdmin(context, db)) {
-    permission = "admin";
-  } else {
-    const userId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
-    const serviceAccountId = context.accessSubject.type === "service_account" ? context.accessSubject.serviceAccountId : null;
-    const [row] = await db<{ permission: PermissionLevel }[]>`
+  const userId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
+  const serviceAccountId = context.accessSubject.type === "service_account" ? context.accessSubject.serviceAccountId : null;
+  const [row] = await db<{ permission: PermissionLevel }[]>`
       WITH RECURSIVE subject_groups(group_id, path) AS (
         SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
         FROM auth.user_groups_v2 ug
@@ -194,9 +190,8 @@ const getMailboxPermissionForLifecycle = async (
         ELSE 0
       END DESC
       LIMIT 1
-    `;
-    permission = row?.permission ?? "none";
-  }
+  `;
+  const permission = row?.permission ?? "none";
 
   return capByCredentialScopes(context, permission);
 };
@@ -207,7 +202,9 @@ export const requireMailboxLifecycleAdmin = async (
   db: SqlClient = sql,
 ): Promise<Result<"admin">> => {
   const permission = await getMailboxPermissionForLifecycle(context, mailboxId, true, db);
-  return permission === "admin" ? ok("admin") : fail(err.forbidden("Access denied"));
+  if (permission === "admin") return ok("admin");
+  if (capByCredentialScopes(context, "admin") === "admin" && (await isCurrentPlatformAdmin(context, db))) return ok("admin");
+  return fail(err.forbidden("Access denied"));
 };
 
 export const requireMailboxPermission = async (

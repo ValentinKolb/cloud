@@ -13,7 +13,7 @@ import {
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "../../service/collaboration";
 import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
@@ -22,6 +22,13 @@ import type { ConversationPresenceParticipant } from "../../service/presence";
 import type { ConversationReminder } from "../../service/reminders";
 import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
+import {
+  reconcileAvailableTags,
+  reconcileCollaboration,
+  reconcileComments,
+  reconcileConversationTags,
+  reconcileReminder,
+} from "./mail-details-reconciliation";
 
 type CollaborationPatch = {
   assigneeUserId?: string | null;
@@ -74,6 +81,11 @@ export default function MailDetailsPanel(props: {
   const [replyingTo, setReplyingTo] = createSignal<ConversationComment | null>(null);
   const [commentError, setCommentError] = createSignal<string | null>(null);
   const [reminder, setReminderValue] = createSignal(props.initialReminder);
+  const activeReminder = createMemo(() => {
+    const current = reminder();
+    return current?.state === "pending" ? current : null;
+  });
+  let confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
   const watching = createMemo(() => state().watchers.some((watcher) => watcher.id === props.currentUserId));
   const latestMessage = () => props.messages.at(-1);
   const attachmentCount = () => props.messages.reduce((total, message) => total + message.attachments.length, 0);
@@ -144,6 +156,7 @@ export default function MailDetailsPanel(props: {
     });
     if (!response.ok) return prompts.error(await readApiError(response, "Failed to create tag"));
     const created = await response.json();
+    confirmedAvailableTagIds.add(created.id);
     setAvailableTags((current) =>
       [...current.filter((tag) => tag.id !== created.id), created].sort((left, right) => left.name.localeCompare(right.name)),
     );
@@ -290,10 +303,10 @@ export default function MailDetailsPanel(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const cancelReminder = mutations.create<void, void>({
+  const cancelReminder = mutations.create<ConversationReminder, void>({
     mutation: async () => {
       const current = reminder();
-      if (!current) return;
+      if (!current || current.state !== "pending") throw new Error("No pending reminder is available to cancel.");
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].reminder.$delete({
         param: {
           mailboxId: props.mailboxId,
@@ -302,31 +315,75 @@ export default function MailDetailsPanel(props: {
         json: { expectedRevision: current.revision },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to cancel reminder"));
+      return await response.json();
     },
-    onSuccess: () => setReminderValue(null),
+    onSuccess: setReminderValue,
     onError: (error) => prompts.error(error.message),
   });
 
-  createEffect(() => {
-    props.conversationId;
-    update.abort();
-    updateTags.abort();
-    toggleWatch.abort();
-    addComment.abort();
-    removeComment.abort();
-    editComment.abort();
-    saveReminder.abort();
-    cancelReminder.abort();
-    setState(props.initialState);
-    setAvailableTags(props.initialLocalTags);
-    setTagState(props.initialConversationLocalTags);
-    setComments(props.initialComments);
-    setReminderValue(props.initialReminder);
-    setCommentBody("");
-    setMentionUserIds([]);
-    setReplyingTo(null);
-    setCommentError(null);
-  });
+  createEffect(
+    on(
+      () => props.conversationId,
+      () => {
+        update.abort();
+        updateTags.abort();
+        toggleWatch.abort();
+        addComment.abort();
+        removeComment.abort();
+        editComment.abort();
+        saveReminder.abort();
+        cancelReminder.abort();
+        setState(props.initialState);
+        setAvailableTags(props.initialLocalTags);
+        setTagState(props.initialConversationLocalTags);
+        setComments(props.initialComments);
+        setReminderValue(props.initialReminder);
+        confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
+        setCommentBody("");
+        setMentionUserIds([]);
+        setReplyingTo(null);
+        setCommentError(null);
+      },
+      { defer: true },
+    ),
+  );
+
+  createEffect(
+    on(
+      () => props.initialState,
+      (incoming) => setState((current) => reconcileCollaboration(current, incoming)),
+    ),
+  );
+  createEffect(
+    on(
+      () => props.initialConversationLocalTags,
+      (incoming) => setTagState((current) => reconcileConversationTags(current, incoming)),
+    ),
+  );
+  createEffect(
+    on(
+      () => props.initialComments,
+      (incoming) => setComments((current) => reconcileComments(current, incoming)),
+    ),
+  );
+  createEffect(
+    on(
+      () => props.initialLocalTags,
+      (incoming) => {
+        setAvailableTags((current) => {
+          const reconciled = reconcileAvailableTags(current, incoming, confirmedAvailableTagIds);
+          confirmedAvailableTagIds = reconciled.confirmedIds;
+          return reconciled.tags;
+        });
+      },
+    ),
+  );
+  createEffect(
+    on(
+      () => props.initialReminder,
+      (incoming) => setReminderValue((current) => reconcileReminder(current, incoming)),
+    ),
+  );
 
   return (
     <div class="flex h-full min-h-0 flex-col">
@@ -496,13 +553,13 @@ export default function MailDetailsPanel(props: {
               <div class="min-w-0 flex-1">
                 <DateTimeInput
                   label="Personal reminder"
-                  value={() => reminder()?.dueAt ?? null}
+                  value={() => activeReminder()?.dueAt ?? null}
                   onChange={(value) => value && saveReminder.mutate(value)}
                   dateConfig={props.dateConfig}
                   disabled={saveReminder.loading()}
                 />
               </div>
-              <Show when={reminder()}>
+              <Show when={activeReminder()}>
                 <button type="button" class="btn-secondary btn-sm mb-0.5" onClick={() => cancelReminder.mutate()}>
                   Clear
                 </button>

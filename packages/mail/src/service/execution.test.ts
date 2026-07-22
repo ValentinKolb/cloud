@@ -103,4 +103,17 @@ describe("mail execution binding selection", () => {
       )?.bindingId,
     ).toBe("binding-1");
   });
+
+  test("sender-less automation can use a rights-eligible mailbox binding", () => {
+    expect(
+      selectBindingCandidate(
+        input({
+          operation: "automation",
+          senderPolicy: null,
+          folderRequirements: [{ folderId: "inbox", rights: ["read"] }],
+          candidates: [candidate()],
+        }),
+      )?.bindingId,
+    ).toBe("binding-1");
+  });
 });

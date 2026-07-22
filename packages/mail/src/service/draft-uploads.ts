@@ -207,6 +207,9 @@ export const appendDraftAttachmentUpload = async (params: {
       const expected = Number(upload.byte_length);
       if (params.offset !== received) return conflict(`Attachment upload expects offset ${received}`);
       if (received + params.bytes.byteLength > expected) return fail(err.badInput("Attachment chunk exceeds the declared byte length"));
+      if (received + params.bytes.byteLength < expected && params.bytes.byteLength !== DRAFT_UPLOAD_CHUNK_BYTES) {
+        return fail(err.badInput("Non-final attachment chunks must contain exactly 1 MiB"));
+      }
 
       await tx`
         INSERT INTO mail.message_part_chunks (blob_id, position, bytes)
@@ -515,9 +518,33 @@ export const uploadDraftAttachmentStream = async (params: {
       uploadId: upload.id,
     });
   try {
+    let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     for await (const value of params.stream) {
       const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value as Uint8Array);
-      for (let offset = 0; offset < bytes.byteLength; offset += DRAFT_UPLOAD_CHUNK_BYTES) {
+      let offset = 0;
+      if (pending.byteLength > 0) {
+        const required = DRAFT_UPLOAD_CHUNK_BYTES - pending.byteLength;
+        if (bytes.byteLength < required) {
+          pending = Buffer.concat([pending, bytes]);
+          continue;
+        }
+        const appended = await appendDraftAttachmentUpload({
+          context: params.context,
+          mailboxId: params.mailboxId,
+          draftId: params.draftId,
+          uploadId: upload.id,
+          offset: upload.receivedBytes,
+          bytes: Buffer.concat([pending, bytes.subarray(0, required)]),
+        });
+        if (!appended.ok) {
+          await cancel();
+          return fail(appended.error);
+        }
+        upload = appended.data;
+        pending = Buffer.alloc(0);
+        offset = required;
+      }
+      while (bytes.byteLength - offset >= DRAFT_UPLOAD_CHUNK_BYTES) {
         const appended = await appendDraftAttachmentUpload({
           context: params.context,
           mailboxId: params.mailboxId,
@@ -531,7 +558,28 @@ export const uploadDraftAttachmentStream = async (params: {
           return fail(appended.error);
         }
         upload = appended.data;
+        offset += DRAFT_UPLOAD_CHUNK_BYTES;
       }
+      if (offset < bytes.byteLength) pending = Buffer.from(bytes.subarray(offset));
+    }
+    if (pending.byteLength > 0) {
+      if (upload.receivedBytes + pending.byteLength !== upload.byteLength) {
+        await cancel();
+        return fail(err.badInput("Attachment byte count did not match Content-Length"));
+      }
+      const appended = await appendDraftAttachmentUpload({
+        context: params.context,
+        mailboxId: params.mailboxId,
+        draftId: params.draftId,
+        uploadId: upload.id,
+        offset: upload.receivedBytes,
+        bytes: pending,
+      });
+      if (!appended.ok) {
+        await cancel();
+        return fail(appended.error);
+      }
+      upload = appended.data;
     }
     if (upload.receivedBytes !== upload.byteLength) {
       await cancel();

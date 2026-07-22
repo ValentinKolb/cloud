@@ -352,6 +352,22 @@ export const mergeConversations = async (params: {
         ON CONFLICT DO NOTHING
       `;
       await tx`DELETE FROM mail.conversation_watchers WHERE conversation_id = ${params.input.sourceConversationId}::uuid`;
+      const movedLocalTags = await tx<{ tag_id: string }[]>`
+        INSERT INTO mail.conversation_local_tags (
+          mailbox_id, conversation_id, tag_id, assigned_by_actor_kind, assigned_by_actor_id, created_at
+        )
+        SELECT
+          mailbox_id,
+          ${params.targetConversationId}::uuid,
+          tag_id,
+          assigned_by_actor_kind,
+          assigned_by_actor_id,
+          created_at
+        FROM mail.conversation_local_tags
+        WHERE conversation_id = ${params.input.sourceConversationId}::uuid
+        ON CONFLICT DO NOTHING
+        RETURNING tag_id
+      `;
       await tx`
         UPDATE mail.drafts
         SET conversation_id = ${params.targetConversationId}::uuid
@@ -407,6 +423,7 @@ export const mergeConversations = async (params: {
           movedReminderCount: reminderMerge.moved,
           discardedReminderConflictCount: reminderMerge.discardedConflicts,
           movedReferenceCount: referenceMerge.moved,
+          movedLocalTagCount: movedLocalTags.length,
           primaryReference: referenceMerge.primaryValue,
         },
       });

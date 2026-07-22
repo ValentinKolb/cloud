@@ -803,12 +803,18 @@ export const listConversationComments = async (params: {
   conversationId: string;
   cursor?: string;
   limit?: number;
+  order?: "oldest" | "newest";
 }): Promise<Result<{ items: ConversationComment[]; nextCursor: string | null }>> => {
   const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
   const cursor = decodeDateCursor(params.cursor);
   if (!cursor.ok) return cursor;
   const limit = Math.min(Math.max(params.limit ?? 50, 1), 100);
+  const newestFirst = params.order === "newest";
+  const cursorPredicate = newestFirst
+    ? sql`(comment.created_at, comment.id) < (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid)`
+    : sql`(comment.created_at, comment.id) > (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid)`;
+  const ordering = newestFirst ? sql`comment.created_at DESC, comment.id DESC` : sql`comment.created_at, comment.id`;
   const rows = await sql<CommentRow[]>`
     SELECT ${commentColumns}
     FROM mail.conversation_comments comment
@@ -820,17 +826,19 @@ export const listConversationComments = async (params: {
       AND conversation.mailbox_id = ${params.mailboxId}::uuid
       AND (
         ${cursor.data?.id ?? null}::uuid IS NULL
-        OR (comment.created_at, comment.id) > (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid)
+        OR ${cursorPredicate}
       )
-    ORDER BY comment.created_at, comment.id
+    ORDER BY ${ordering}
     LIMIT ${limit + 1}
   `;
   const hasMore = rows.length > limit;
-  const items = (hasMore ? rows.slice(0, limit) : rows).map(mapComment);
-  const last = items.at(-1);
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const cursorRow = pageRows.at(-1);
+  const items = pageRows.map(mapComment);
+  if (newestFirst) items.reverse();
   return ok({
     items,
-    nextCursor: hasMore && last ? encodeDateCursor({ version: 1, date: last.createdAt, id: last.id }) : null,
+    nextCursor: hasMore && cursorRow ? encodeDateCursor({ version: 1, date: toIso(cursorRow.created_at), id: cursorRow.id }) : null,
   });
 };
 

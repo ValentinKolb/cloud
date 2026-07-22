@@ -8,14 +8,16 @@ export const isMailWorkflowProjectedObject = (value: WorkflowJsonValue | undefin
 
 export const createMailWorkflowProjectedState = (
   plan: WorkflowBoundPlan,
-  source: FrozenMailWorkflowSource,
+  source: FrozenMailWorkflowSource | Record<string, never>,
   invocationInputs: Record<string, WorkflowJsonValue>,
-): { source: FrozenMailWorkflowSource; inputs: Record<string, WorkflowJsonValue> } => {
+): { source: FrozenMailWorkflowSource | Record<string, never>; inputs: Record<string, WorkflowJsonValue> } => {
   const projectedSource = structuredClone(source);
   const inputs: Record<string, WorkflowJsonValue> = { ...structuredClone(invocationInputs) };
-  for (const input of plan.inputs) {
-    if (input.type === "mailMessage") inputs[input.name] = projectedSource.message;
-    else if (input.type === "mailConversation") inputs[input.name] = projectedSource.conversation;
+  if ("message" in projectedSource) {
+    for (const input of plan.inputs) {
+      if (input.type === "mailMessage") inputs[input.name] = projectedSource.message;
+      else if (input.type === "mailConversation") inputs[input.name] = projectedSource.conversation;
+    }
   }
   return { source: projectedSource, inputs };
 };

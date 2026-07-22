@@ -96,13 +96,29 @@ const createImapClient = (config: ProviderConnectionInput, endpoint: ResolvedEnd
     },
   });
 
-const withImapClient = async <T>(config: ProviderConnectionInput, fn: (client: ImapFlowWithNamespaces) => Promise<T>): Promise<T> => {
+const withImapClient = async <T>(
+  config: ProviderConnectionInput,
+  fn: (client: ImapFlowWithNamespaces) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> => {
+  const throwIfAborted = (): void => {
+    if (signal?.aborted) {
+      throw signal.reason ?? Object.assign(new Error("IMAP operation was aborted"), { name: "AbortError" });
+    }
+  };
+  throwIfAborted();
   const endpoint = await resolvePublicEndpoint(config.imap);
   const client = createImapClient(config, endpoint) as ImapFlowWithNamespaces;
+  const abort = (): void => client.close();
+  signal?.addEventListener("abort", abort, { once: true });
   try {
     await client.connect();
-    return await fn(client);
+    throwIfAborted();
+    const result = await fn(client);
+    throwIfAborted();
+    return result;
   } finally {
+    signal?.removeEventListener("abort", abort);
     if (client.usable) {
       try {
         await client.logout();
@@ -182,18 +198,29 @@ const smtpOptions = (config: ProviderConnectionInput, endpoint: ResolvedEndpoint
 const withSmtpTransport = async <T>(
   config: ProviderConnectionInput,
   fn: (transport: nodemailer.Transporter<SMTPTransport.SentMessageInfo>) => Promise<T>,
-  options: { allowAddressFailover?: boolean } = {},
+  options: { allowAddressFailover?: boolean; signal?: AbortSignal } = {},
 ): Promise<T> => {
+  const throwIfAborted = (): void => {
+    if (options.signal?.aborted) {
+      throw options.signal.reason ?? Object.assign(new Error("SMTP operation was aborted"), { name: "AbortError" });
+    }
+  };
+  throwIfAborted();
   const endpoint = await resolvePublicEndpoint(config.smtp);
   let lastError: unknown;
   const addresses = options.allowAddressFailover ? endpoint.addresses : endpoint.addresses.slice(0, 1);
   for (const resolved of addresses) {
+    throwIfAborted();
     const transport = nodemailer.createTransport(smtpOptions(config, endpoint, resolved.address));
+    const abort = (): void => transport.close();
+    options.signal?.addEventListener("abort", abort, { once: true });
     try {
       return await fn(transport);
     } catch (error) {
+      throwIfAborted();
       lastError = error;
     } finally {
+      options.signal?.removeEventListener("abort", abort);
       transport.close();
     }
   }
@@ -446,191 +473,231 @@ const verify = async (config: ProviderConnectionInput): Promise<ConnectorVerific
   throw Object.assign(new Error(summary), { code: "PROVIDER_TRANSPORT_VERIFICATION_FAILED", diagnostics: result.diagnostics });
 };
 
-const discoverFolders = async (config: ProviderConnectionInput): Promise<RemoteFolder[]> =>
-  withImapClient(config, async (client) => {
-    const folders = await client.list({
-      statusQuery: { messages: true, uidNext: true, uidValidity: true, unseen: true, highestModseq: true },
-    });
-    const capabilities = mapCapabilities(client);
-    const result: RemoteFolder[] = [];
-    for (const entry of folders) {
-      const folder = mapFolder(entry);
-      if (!folder.selectable) {
-        result.push(folder);
-        continue;
-      }
-      const aclRights = await readImapAclRights(client, entry.path, capabilities);
-      if (aclRights) {
-        folder.rights = aclRights.rights;
-        folder.rightsSource = aclRights.source;
-        result.push(folder);
-        continue;
-      }
-      try {
-        const lock = await client.getMailboxLock(entry.path, { readOnly: false });
-        try {
-          const readOnly = !client.mailbox || client.mailbox.readOnly === true;
-          const fallback = selectFallbackRights(readOnly, capabilities);
-          folder.rights = fallback.rights;
-          folder.rightsSource = fallback.source;
-        } finally {
-          lock.release();
-        }
-      } catch {
-        folder.rights = [];
-        folder.rightsSource = "unknown";
-      }
-      result.push(folder);
-    }
-    return result;
-  });
-
-const fetchEnvelopeBatch = async (config: ProviderConnectionInput, request: EnvelopeBatchRequest): Promise<EnvelopeBatch> =>
-  withImapClient(config, async (client) => {
-    const lock = await client.getMailboxLock(request.folderPath, { readOnly: true });
-    try {
-      const actualUidValidity = client.mailbox && client.mailbox.uidValidity.toString();
-      if (!actualUidValidity || actualUidValidity !== request.uidValidity) {
-        const error = Object.assign(new Error("Folder UIDVALIDITY changed"), {
-          code: "UIDVALIDITY_CHANGED",
-          expected: request.uidValidity,
-          actual: actualUidValidity ?? null,
-        });
-        throw error;
-      }
-      const highUid = Math.max(1, request.highUid);
-      const lowUid = Math.max(1, request.lowUid ?? 1);
-      const selected = await selectUidBatch({
-        lowUid,
-        highUid,
-        limit: request.limit,
-        search: async (probeLow, probeHigh) => {
-          const matches = await client.search({ uid: `${probeLow}:${probeHigh}` }, { uid: true });
-          return matches || [];
-        },
+const discoverFolders = async (config: ProviderConnectionInput, signal?: AbortSignal): Promise<RemoteFolder[]> =>
+  withImapClient(
+    config,
+    async (client) => {
+      const folders = await client.list({
+        statusQuery: { messages: true, uidNext: true, uidValidity: true, unseen: true, highestModseq: true },
       });
-      const fetched: FetchMessageObject[] = [];
-      if (selected.uids.length > 0) {
-        for await (const message of client.fetch(
-          selected.uids,
-          {
-            uid: true,
-            flags: true,
-            envelope: true,
-            bodyStructure: true,
-            internalDate: true,
-            size: true,
-            threadId: true,
-            labels: true,
-            headers: ["references", "return-path", "auto-submitted", "precedence", "list-id", "x-auto-response-suppress", "content-type"],
-          },
-          { uid: true },
-        )) {
-          fetched.push(message);
+      const capabilities = mapCapabilities(client);
+      const result: RemoteFolder[] = [];
+      for (const entry of folders) {
+        const folder = mapFolder(entry);
+        if (!folder.selectable) {
+          result.push(folder);
+          continue;
         }
+        const aclRights = await readImapAclRights(client, entry.path, capabilities);
+        if (aclRights) {
+          folder.rights = aclRights.rights;
+          folder.rightsSource = aclRights.source;
+          result.push(folder);
+          continue;
+        }
+        try {
+          const lock = await client.getMailboxLock(entry.path, { readOnly: false });
+          try {
+            const readOnly = !client.mailbox || client.mailbox.readOnly === true;
+            const fallback = selectFallbackRights(readOnly, capabilities);
+            folder.rights = fallback.rights;
+            folder.rightsSource = fallback.source;
+          } finally {
+            lock.release();
+          }
+        } catch {
+          folder.rights = [];
+          folder.rightsSource = "unknown";
+        }
+        result.push(folder);
       }
-      fetched.sort((left, right) => right.uid - left.uid);
-      const messages = await Promise.all(fetched.map((message) => mapFetchedEnvelope(message, request)));
-      return { messages, nextHighUid: selected.nextHighUid };
-    } finally {
-      lock.release();
-    }
-  });
+      return result;
+    },
+    signal,
+  );
 
-const getFolderStatus = async (config: ProviderConnectionInput, folderPath: string): Promise<FolderStatusSnapshot> =>
-  withImapClient(config, async (client) => {
-    const status = await client.status(folderPath, {
-      messages: true,
-      uidNext: true,
-      uidValidity: true,
-      highestModseq: true,
-    });
-    if (!status.uidValidity || !status.uidNext) {
-      throw Object.assign(new Error("Provider folder status is incomplete"), { code: "INCOMPLETE_FOLDER_STATUS" });
-    }
-    return {
-      uidValidity: status.uidValidity.toString(),
-      uidNext: status.uidNext,
-      highestModseq: status.highestModseq?.toString() ?? null,
-      messages: status.messages ?? 0,
-    };
-  });
+const fetchEnvelopeBatch = async (
+  config: ProviderConnectionInput,
+  request: EnvelopeBatchRequest,
+  signal?: AbortSignal,
+): Promise<EnvelopeBatch> =>
+  withImapClient(
+    config,
+    async (client) => {
+      const lock = await client.getMailboxLock(request.folderPath, { readOnly: true });
+      try {
+        const actualUidValidity = client.mailbox && client.mailbox.uidValidity.toString();
+        if (!actualUidValidity || actualUidValidity !== request.uidValidity) {
+          const error = Object.assign(new Error("Folder UIDVALIDITY changed"), {
+            code: "UIDVALIDITY_CHANGED",
+            expected: request.uidValidity,
+            actual: actualUidValidity ?? null,
+          });
+          throw error;
+        }
+        const highUid = Math.max(1, request.highUid);
+        const lowUid = Math.max(1, request.lowUid ?? 1);
+        const selected = await selectUidBatch({
+          lowUid,
+          highUid,
+          limit: request.limit,
+          search: async (probeLow, probeHigh) => {
+            const matches = await client.search({ uid: `${probeLow}:${probeHigh}` }, { uid: true });
+            return matches || [];
+          },
+        });
+        const fetched: FetchMessageObject[] = [];
+        if (selected.uids.length > 0) {
+          for await (const message of client.fetch(
+            selected.uids,
+            {
+              uid: true,
+              flags: true,
+              envelope: true,
+              bodyStructure: true,
+              internalDate: true,
+              size: true,
+              threadId: true,
+              labels: true,
+              headers: ["references", "return-path", "auto-submitted", "precedence", "list-id", "x-auto-response-suppress", "content-type"],
+            },
+            { uid: true },
+          )) {
+            fetched.push(message);
+          }
+        }
+        fetched.sort((left, right) => right.uid - left.uid);
+        const messages = await Promise.all(fetched.map((message) => mapFetchedEnvelope(message, request)));
+        return { messages, nextHighUid: selected.nextHighUid };
+      } finally {
+        lock.release();
+      }
+    },
+    signal,
+  );
+
+const getFolderStatus = async (config: ProviderConnectionInput, folderPath: string, signal?: AbortSignal): Promise<FolderStatusSnapshot> =>
+  withImapClient(
+    config,
+    async (client) => {
+      const status = await client.status(folderPath, {
+        messages: true,
+        uidNext: true,
+        uidValidity: true,
+        highestModseq: true,
+      });
+      if (!status.uidValidity || !status.uidNext) {
+        throw Object.assign(new Error("Provider folder status is incomplete"), { code: "INCOMPLETE_FOLDER_STATUS" });
+      }
+      return {
+        uidValidity: status.uidValidity.toString(),
+        uidNext: status.uidNext,
+        highestModseq: status.highestModseq?.toString() ?? null,
+        messages: status.messages ?? 0,
+      };
+    },
+    signal,
+  );
 
 const fetchFlagChanges = async (
   config: ProviderConnectionInput,
   folderPath: string,
+  uidValidity: string,
   sinceModseq: string,
   lowUid: number,
   highUid: number,
+  signal?: AbortSignal,
 ): Promise<FlagChange[]> =>
-  withImapClient(config, async (client) => {
-    const lock = await client.getMailboxLock(folderPath, { readOnly: true });
-    try {
-      const changes: FlagChange[] = [];
-      for await (const message of client.fetch(
-        `${Math.max(1, lowUid)}:${Math.max(1, highUid)}`,
-        { uid: true, flags: true, labels: true },
-        { uid: true, changedSince: BigInt(sinceModseq) },
-      )) {
-        const state = splitRemoteFlags(message.flags ?? []);
-        changes.push({
-          uid: message.uid,
-          modseq: message.modseq?.toString() ?? null,
-          flags: state.flags,
-          labels: [...new Set([...state.keywords, ...(message.labels ?? [])])].sort(),
-        });
+  withImapClient(
+    config,
+    async (client) => {
+      const lock = await client.getMailboxLock(folderPath, { readOnly: true });
+      try {
+        assertSelectedUidValidity(client, uidValidity);
+        const changes: FlagChange[] = [];
+        for await (const message of client.fetch(
+          `${Math.max(1, lowUid)}:${Math.max(1, highUid)}`,
+          { uid: true, flags: true, labels: true },
+          { uid: true, changedSince: BigInt(sinceModseq) },
+        )) {
+          const state = splitRemoteFlags(message.flags ?? []);
+          changes.push({
+            uid: message.uid,
+            modseq: message.modseq?.toString() ?? null,
+            flags: state.flags,
+            labels: [...new Set([...state.keywords, ...(message.labels ?? [])])].sort(),
+          });
+        }
+        return changes;
+      } finally {
+        lock.release();
       }
-      return changes;
-    } finally {
-      lock.release();
-    }
-  });
+    },
+    signal,
+  );
 
-const fetchUidWindow = async (config: ProviderConnectionInput, folderPath: string, lowUid: number, highUid: number): Promise<number[]> =>
-  withImapClient(config, async (client) => {
-    const lock = await client.getMailboxLock(folderPath, { readOnly: true });
-    try {
-      const uids: number[] = [];
-      for await (const message of client.fetch(`${Math.max(1, lowUid)}:${Math.max(1, highUid)}`, { uid: true }, { uid: true })) {
-        uids.push(message.uid);
+const fetchUidWindow = async (
+  config: ProviderConnectionInput,
+  folderPath: string,
+  uidValidity: string,
+  lowUid: number,
+  highUid: number,
+  signal?: AbortSignal,
+): Promise<number[]> =>
+  withImapClient(
+    config,
+    async (client) => {
+      const lock = await client.getMailboxLock(folderPath, { readOnly: true });
+      try {
+        assertSelectedUidValidity(client, uidValidity);
+        const uids: number[] = [];
+        for await (const message of client.fetch(`${Math.max(1, lowUid)}:${Math.max(1, highUid)}`, { uid: true }, { uid: true })) {
+          uids.push(message.uid);
+        }
+        return uids.sort((left, right) => left - right);
+      } finally {
+        lock.release();
       }
-      return uids.sort((left, right) => left - right);
-    } finally {
-      lock.release();
-    }
-  });
+    },
+    signal,
+  );
 
 const downloadSourceBatch = async (
   config: ProviderConnectionInput,
   folderPath: string,
   requests: SourceDownloadRequest[],
   consume: (source: SourceDownload) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<void> =>
-  withImapClient(config, async (client) => {
-    if (requests.length === 0) return;
-    const expectedUidValidities = new Set(requests.map((request) => request.uidValidity));
-    if (expectedUidValidities.size !== 1) {
-      throw Object.assign(new Error("Source batch contains multiple UIDVALIDITY values"), { code: "INVALID_SOURCE_BATCH" });
-    }
-    const lock = await client.getMailboxLock(folderPath, { readOnly: true });
-    try {
-      assertSelectedUidValidity(client, requests[0]!.uidValidity);
-      for (const request of requests) {
-        const download = await client.download(request.uid, undefined, { uid: true });
-        try {
-          await consume({
-            ...request,
-            expectedSize: download.meta.expectedSize,
-            stream: download.content,
-          });
-        } finally {
-          if (!download.content.destroyed) download.content.destroy();
-        }
+  withImapClient(
+    config,
+    async (client) => {
+      if (requests.length === 0) return;
+      const expectedUidValidities = new Set(requests.map((request) => request.uidValidity));
+      if (expectedUidValidities.size !== 1) {
+        throw Object.assign(new Error("Source batch contains multiple UIDVALIDITY values"), { code: "INVALID_SOURCE_BATCH" });
       }
-    } finally {
-      lock.release();
-    }
-  });
+      const lock = await client.getMailboxLock(folderPath, { readOnly: true });
+      try {
+        assertSelectedUidValidity(client, requests[0]!.uidValidity);
+        for (const request of requests) {
+          const download = await client.download(request.uid, undefined, { uid: true });
+          try {
+            await consume({
+              ...request,
+              expectedSize: download.meta.expectedSize,
+              stream: download.content,
+            });
+          } finally {
+            if (!download.content.destroyed) download.content.destroy();
+          }
+        }
+      } finally {
+        lock.release();
+      }
+    },
+    signal,
+  );
 
 const send = async (config: ProviderConnectionInput, request: SendRequest): Promise<SendResult> =>
   withSmtpTransport(config, async (transport) => {
@@ -665,23 +732,34 @@ const send = async (config: ProviderConnectionInput, request: SendRequest): Prom
   });
 
 const sendSource = async (config: ProviderConnectionInput, request: SendSourceRequest): Promise<SendResult> =>
-  withSmtpTransport(config, async (transport) => {
-    const info = await transport.sendMail({
-      raw: request.source,
-      envelope: { from: request.envelopeFrom ?? "", to: request.recipients },
-      disableFileAccess: true,
-      disableUrlAccess: true,
-    });
-    return {
-      accepted: info.accepted.map(String),
-      rejected: info.rejected.map(String),
-      response: info.response,
-      messageId: info.messageId || request.messageId,
-    };
-  });
+  withSmtpTransport(
+    config,
+    async (transport) => {
+      const abort = (): void => {
+        request.source.destroy(request.signal?.reason instanceof Error ? request.signal.reason : undefined);
+      };
+      request.signal?.addEventListener("abort", abort, { once: true });
+      try {
+        const info = await transport.sendMail({
+          raw: request.source,
+          envelope: { from: request.envelopeFrom ?? "", to: request.recipients },
+          disableFileAccess: true,
+          disableUrlAccess: true,
+        });
+        return {
+          accepted: info.accepted.map(String),
+          rejected: info.rejected.map(String),
+          response: info.response,
+          messageId: info.messageId || request.messageId,
+        };
+      } finally {
+        request.signal?.removeEventListener("abort", abort);
+      }
+    },
+    { signal: request.signal },
+  );
 
-const assertSelectedUidValidity = (client: ImapFlow, expected: string): void => {
-  const actual = client.mailbox && client.mailbox.uidValidity.toString();
+export const assertUidValidity = (actual: string | null, expected: string): void => {
   if (!actual || actual !== expected) {
     throw Object.assign(new Error("Folder UIDVALIDITY changed"), {
       code: "UIDVALIDITY_CHANGED",
@@ -689,6 +767,11 @@ const assertSelectedUidValidity = (client: ImapFlow, expected: string): void => 
       actual: actual || null,
     });
   }
+};
+
+const assertSelectedUidValidity = (client: ImapFlow, expected: string): void => {
+  const actual = client.mailbox && client.mailbox.uidValidity.toString();
+  assertUidValidity(actual || null, expected);
 };
 
 const withSelectedMailbox = async <T>(
@@ -807,11 +890,16 @@ const appendSource = async (
   byteLength: number,
   flags: string[] = ["\\Seen"],
   internalDate = new Date(),
+  signal?: AbortSignal,
 ): Promise<RemoteAppendResult> => {
   try {
-    return await withImapClient(config, async (client) => {
-      return appendStream({ client, path: folderPath, source, byteLength, flags, internalDate });
-    });
+    return await withImapClient(
+      config,
+      async (client) => {
+        return appendStream({ client, path: folderPath, source, byteLength, flags, internalDate });
+      },
+      signal,
+    );
   } catch (error) {
     if (error && typeof error === "object" && "effectPossible" in error) throw error;
     const sourceError = error instanceof Error ? error : new Error("IMAP APPEND failed before transfer");
@@ -821,23 +909,32 @@ const appendSource = async (
 
 const normalizeMessageId = (value: string | null | undefined): string => value?.trim().toLowerCase() ?? "";
 
-const findMessageById = async (config: ProviderConnectionInput, folderPath: string, messageId: string): Promise<number[]> =>
-  withImapClient(config, async (client) => {
-    const lock = await client.getMailboxLock(folderPath, { readOnly: true });
-    try {
-      const matches = await client.search({ header: { "message-id": messageId } }, { uid: true });
-      if (!matches || matches.length === 0) return [];
-      const expected = normalizeMessageId(messageId);
-      const exact: number[] = [];
-      for (const uid of matches.slice(-100)) {
-        const message = await client.fetchOne(uid, { uid: true, envelope: true }, { uid: true });
-        if (message && normalizeMessageId(message.envelope?.messageId) === expected) exact.push(uid);
+const findMessageById = async (
+  config: ProviderConnectionInput,
+  folderPath: string,
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<number[]> =>
+  withImapClient(
+    config,
+    async (client) => {
+      const lock = await client.getMailboxLock(folderPath, { readOnly: true });
+      try {
+        const matches = await client.search({ header: { "message-id": messageId } }, { uid: true });
+        if (!matches || matches.length === 0) return [];
+        const expected = normalizeMessageId(messageId);
+        const exact: number[] = [];
+        for (const uid of matches.slice(-100)) {
+          const message = await client.fetchOne(uid, { uid: true, envelope: true }, { uid: true });
+          if (message && normalizeMessageId(message.envelope?.messageId) === expected) exact.push(uid);
+        }
+        return exact.sort((left, right) => left - right);
+      } finally {
+        lock.release();
       }
-      return exact.sort((left, right) => left - right);
-    } finally {
-      lock.release();
-    }
-  });
+    },
+    signal,
+  );
 
 const getMessageState = async (config: ProviderConnectionInput, target: RemoteMutationTarget): Promise<RemoteMessageState> =>
   withSelectedMailbox(config, target, async (client) => {

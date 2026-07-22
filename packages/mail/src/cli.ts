@@ -53,6 +53,7 @@ import {
   type PlatformMailOperations,
   type ProviderBinding,
   type ProviderConnection,
+  providerSecretSchema,
   type RelatedMailPage,
   type SavedConversationViewFilter,
   type ScheduledSendPage,
@@ -79,6 +80,7 @@ import type { SavedConversationView } from "./service/saved-views";
 import type { MessageSearchHit, MessageSearchPage } from "./service/search";
 
 type MailboxWithPermission = Mailbox & { permission: PermissionLevel };
+type ResolvedMailbox = Mailbox & { permission: PermissionLevel | null };
 type ProviderConnectionResult = {
   connection: ProviderConnection;
   verification: unknown;
@@ -297,15 +299,16 @@ const listMailboxes = (ctx: CloudCliContext): Promise<MailboxWithPermission[]> =
 const getMailbox = (ctx: CloudCliContext, mailboxId: string, signal?: AbortSignal): Promise<Mailbox> =>
   readApi(ctx, `/mailboxes/${mailboxId}`, { signal });
 
-const resolveMailbox = async (ctx: CloudCliContext, ref?: string): Promise<MailboxWithPermission> => {
+const resolveMailbox = async (ctx: CloudCliContext, ref?: string): Promise<ResolvedMailbox> => {
   const effectiveRef = ref ?? (await ctx.getDefault(DEFAULT_MAILBOX_KEY));
   if (!effectiveRef) throw new Error("Missing mailbox. Pass a mailbox or run `cld mail use <mailbox>`. ");
-  const mailboxes = await listMailboxes(ctx);
   if (isUuid(effectiveRef)) {
+    const mailboxes = await listMailboxes(ctx);
     const match = mailboxes.find((mailbox) => mailbox.id === effectiveRef);
     if (match) return match;
+    return { ...(await getMailbox(ctx, effectiveRef)), permission: null };
   }
-  const exact = mailboxes.filter((mailbox) => mailbox.name === effectiveRef);
+  const exact = await readApi<ResolvedMailbox[]>(ctx, `/mailboxes?limit=2&name=${encodeURIComponent(effectiveRef)}`);
   if (exact.length === 1) return exact[0]!;
   if (exact.length > 1) throw new Error(`Mailbox "${effectiveRef}" is ambiguous; use its id.`);
   throw new Error(`Mailbox "${effectiveRef}" was not found.`);
@@ -349,6 +352,12 @@ const attachmentLinkPasswordInput = flag.input({
   stdinName: "password-stdin",
   description: "Optional attachment-link password",
 });
+
+const rejectInlineSecretInput = (input: Parameters<typeof readCliInput>[0], label: string, alternatives: string): void => {
+  if (input.source === "value") {
+    throw new Error(`${label} cannot be passed inline. Use ${alternatives} to keep it out of shell history.`);
+  }
+};
 
 const parseStructuredDocument = (value: string, label: string): unknown => {
   try {
@@ -441,9 +450,9 @@ const workflowTerminalError = (run: MailWorkflowRun) =>
 
 const printWorkflowWaitFailure = (ctx: CloudCliContext, run: MailWorkflowRun, value: Record<string, unknown> = { run }): number => {
   const error = workflowTerminalError(run);
-  if (ctx.options.output === "json") ctx.json({ ...value, error });
-  else if (ctx.options.output === "jsonl") ctx.jsonLine({ ...value, error });
-  else ctx.error(`Workflow run ${run.id} ended in ${run.state} - ${error.code}: ${error.message}`);
+  if (!printStructured(ctx, { ...value, error })) {
+    ctx.error(`Workflow run ${run.id} ended in ${run.state} - ${error.code}: ${error.message}`);
+  }
   return 1;
 };
 
@@ -646,6 +655,7 @@ const providerConnectionInput = async (flags: {
   if (!flags.name || !flags.email || !flags.username || !flags.imapHost || !flags.smtpHost) {
     throw new Error("Provider name, email, username, IMAP host, and SMTP host are required.");
   }
+  rejectInlineSecretInput(flags.secret, "Provider secret", "--secret-stdin or --secret-file");
   const secretInput = await readCliInput(flags.secret, {
     label: "provider secret",
     required: true,
@@ -667,8 +677,26 @@ const providerConnectionInput = async (flags: {
       port: parsePort(flags.smtpPort, smtpTls === "implicit" ? 465 : 587),
       tlsMode: smtpTls,
     },
-    secret: flags.oauth2 ? { kind: "oauth2" as const, ...JSON.parse(secretInput) } : { kind: "password" as const, password: secretInput },
+    secret: flags.oauth2 ? parseOAuthSecret(secretInput) : { kind: "password" as const, password: secretInput },
   };
+};
+
+const parseOAuthSecret = (value: string) => {
+  let document: unknown;
+  try {
+    document = JSON.parse(value);
+  } catch {
+    throw new Error("Provider OAuth secret must be valid JSON.");
+  }
+  const parsed = providerSecretSchema.safeParse({
+    ...(typeof document === "object" && document !== null && !Array.isArray(document) ? document : {}),
+    kind: "oauth2",
+  });
+  if (!parsed.success) {
+    throw new Error(`Invalid provider OAuth secret: ${parsed.error.issues[0]?.message ?? "expected an access token"}.`);
+  }
+  if (parsed.data.kind !== "oauth2") throw new Error("Invalid provider OAuth secret.");
+  return parsed.data;
 };
 
 const commandResult = async (
@@ -679,8 +707,9 @@ const commandResult = async (
 ): Promise<MailCommand> => {
   const queued = await readApi<MailCommand>(ctx, `/mailboxes/${mailbox.id}/commands`, jsonRequest("POST", input));
   const result = options?.wait ? await waitForCommand(ctx, mailbox.id, queued.id, options.timeoutSeconds) : queued;
-  if (ctx.options.output === "json") ctx.json(result);
-  else ctx.print(`${options?.label ?? result.kind}: ${result.state} (${result.id}).`);
+  if (!printStructured(ctx, result)) {
+    ctx.print(`${options?.label ?? result.kind}: ${result.state} (${result.id}).`);
+  }
   return result;
 };
 
@@ -725,37 +754,45 @@ const waitForCommands = async (
 const searchTermFlags = {
   any: flag.stringList({
     description: "Search all indexed fields; repeatable",
+    separator: "\0",
   }),
-  subject: flag.stringList({ description: "Search subject; repeatable" }),
-  body: flag.stringList({ description: "Search body; repeatable" }),
-  from: flag.stringList({ description: "Search sender; repeatable" }),
-  to: flag.stringList({ description: "Search recipient; repeatable" }),
-  cc: flag.stringList({ description: "Search Cc recipient; repeatable" }),
-  bcc: flag.stringList({ description: "Search Bcc recipient; repeatable" }),
+  subject: flag.stringList({ description: "Search subject; repeatable", separator: "\0" }),
+  body: flag.stringList({ description: "Search body; repeatable", separator: "\0" }),
+  from: flag.stringList({ description: "Search sender; repeatable", separator: "\0" }),
+  to: flag.stringList({ description: "Search recipient; repeatable", separator: "\0" }),
+  cc: flag.stringList({ description: "Search Cc recipient; repeatable", separator: "\0" }),
+  bcc: flag.stringList({ description: "Search Bcc recipient; repeatable", separator: "\0" }),
   recipients: flag.stringList({
     description: "Search To, Cc, and Bcc recipients; repeatable",
+    separator: "\0",
   }),
   participants: flag.stringList({
     description: "Search all message participants; repeatable",
+    separator: "\0",
   }),
   messageId: flag.stringList({
     name: "message-id",
     description: "Search Message-ID; repeatable",
+    separator: "\0",
   }),
   attachmentName: flag.stringList({
     name: "attachment-name",
     description: "Search attachment names; repeatable",
+    separator: "\0",
   }),
   comment: flag.stringList({
     description: "Search internal comments; repeatable",
+    separator: "\0",
   }),
   reference: flag.stringList({
     description: "Search conversation references; repeatable",
+    separator: "\0",
   }),
-  folder: flag.stringList({ description: "Search remote folders; repeatable" }),
-  tag: flag.stringList({ description: "Search Cloud-local tags; repeatable" }),
+  folder: flag.stringList({ description: "Search remote folders; repeatable", separator: "\0" }),
+  tag: flag.stringList({ description: "Search Cloud-local tags; repeatable", separator: "\0" }),
   keyword: flag.stringList({
     description: "Search remote provider keywords; repeatable",
+    separator: "\0",
   }),
   or: flag.boolean({ description: "OR terms instead of AND" }),
   match: flag.enum(["words", "phrase", "contains", "exact"] as const, {
@@ -792,7 +829,7 @@ const mutationFlags = {
 };
 
 const printCollaboration = (ctx: CloudCliContext, value: ConversationCollaboration): void => {
-  if (ctx.options.output === "json") return ctx.json(value);
+  if (printStructured(ctx, value)) return;
   ctx.print(`Conversation: ${value.conversationId}`);
   ctx.print(`Revision: ${value.revision}`);
   ctx.print(`Status: ${value.workStatus}`);
@@ -991,11 +1028,10 @@ const submitConversationAction = async (params: {
       )
     : result.commands;
   const output = { correlationId: result.correlationId, commands };
-  if (params.ctx.options.output === "json") params.ctx.json(output);
-  else
-    params.ctx.print(
-      `${commands.length} conversation message command${commands.length === 1 ? "" : "s"} ${params.wait ? "completed" : "queued"}.`,
-    );
+  if (printStructured(params.ctx, output)) return;
+  params.ctx.print(
+    `${commands.length} conversation message command${commands.length === 1 ? "" : "s"} ${params.wait ? "completed" : "queued"}.`,
+  );
 };
 
 const stateMutationFlags = {
@@ -1169,8 +1205,8 @@ export default defineCliCommands({
             description: flags.description,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(mailbox);
-        else ctx.print(`Created ${mailbox.name} (${mailbox.id}).`);
+        if (printStructured(ctx, mailbox)) return;
+        ctx.print(`Created ${mailbox.name} (${mailbox.id}).`);
       },
     }),
     command("use", {
@@ -1181,16 +1217,16 @@ export default defineCliCommands({
       run: async ({ ctx, args }) => {
         const mailbox = await resolveMailbox(ctx, args.mailbox);
         await ctx.setDefault(DEFAULT_MAILBOX_KEY, mailbox.id);
-        if (ctx.options.output === "json") ctx.json({ mailbox, defaultMailbox: mailbox.id });
-        else ctx.print(`Using ${mailbox.name} (${mailbox.id}).`);
+        if (printStructured(ctx, { mailbox, defaultMailbox: mailbox.id })) return;
+        ctx.print(`Using ${mailbox.name} (${mailbox.id}).`);
       },
     }),
     command("current", {
       summary: "Show the default mailbox",
       run: async ({ ctx }) => {
         const mailbox = await resolveMailbox(ctx);
-        if (ctx.options.output === "json") ctx.json(mailbox);
-        else ctx.print(`${mailbox.name} (${mailbox.id}).`);
+        if (printStructured(ctx, mailbox)) return;
+        ctx.print(`${mailbox.name} (${mailbox.id}).`);
       },
     }),
     command("mailbox get", {
@@ -1203,8 +1239,8 @@ export default defineCliCommands({
       run: async ({ ctx, args }) => {
         const resolved = await resolveMailbox(ctx, args.mailbox);
         const mailbox = await getMailbox(ctx, resolved.id);
-        if (ctx.options.output === "json") ctx.json({ ...mailbox, permission: resolved.permission });
-        else {
+        if (printStructured(ctx, { ...mailbox, permission: resolved.permission })) return;
+        {
           ctx.print(`${mailbox.name} (${mailbox.id})`);
           ctx.print(`Health: ${mailbox.health}${mailbox.healthReason ? ` - ${mailbox.healthReason}` : ""}`);
           ctx.print(`Access: ${resolved.permission}`);
@@ -1251,8 +1287,8 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Pass --yes to restore the deleted mailbox.");
         if (!isUuid(args.mailboxId)) throw new Error("Mailbox id must be a UUID.");
         const restored = await readApi<Mailbox>(ctx, `/mailboxes/${args.mailboxId}/restore`, { method: "POST" });
-        if (ctx.options.output === "json") ctx.json(restored);
-        else ctx.print(`Restored ${restored.name} in paused state. Verify the provider, then explicitly resume synchronization.`);
+        if (printStructured(ctx, restored)) return;
+        ctx.print(`Restored ${restored.name} in paused state. Verify the provider, then explicitly resume synchronization.`);
       },
     }),
     command("mailbox wait", {
@@ -1281,8 +1317,8 @@ export default defineCliCommands({
         if (mailbox.health !== target) {
           throw new Error(`${mailbox.name} entered ${mailbox.health}${mailbox.healthReason ? `: ${mailbox.healthReason}` : "."}`);
         }
-        if (ctx.options.output === "json") ctx.json(mailbox);
-        else ctx.print(`${mailbox.name}: ${mailbox.health}.`);
+        if (printStructured(ctx, mailbox)) return;
+        ctx.print(`${mailbox.name}: ${mailbox.health}.`);
       },
     }),
     command("configure", {
@@ -1322,8 +1358,8 @@ export default defineCliCommands({
           throw new Error("Pass --name, --description, --search-backend, --automatic-replies, or --sync.");
         }
         const updated = await readApi<Mailbox>(ctx, `/mailboxes/${mailbox.id}`, jsonRequest("PATCH", update));
-        if (ctx.options.output === "json") ctx.json(updated);
-        else ctx.print(`Updated ${updated.name} (${updated.id}).`);
+        if (printStructured(ctx, updated)) return;
+        ctx.print(`Updated ${updated.name} (${updated.id}).`);
       },
     }),
     command("compose template list", {
@@ -1388,8 +1424,8 @@ export default defineCliCommands({
             body,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(template);
-        else ctx.print(`Created ${template.kind} ${template.name} as /${template.shortcut} (${template.id}).`);
+        if (printStructured(ctx, template)) return;
+        ctx.print(`Created ${template.kind} ${template.name} as /${template.shortcut} (${template.id}).`);
       },
     }),
     command("compose template update", {
@@ -1430,8 +1466,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/compose-templates/${args.templateId}`,
           jsonRequest("PATCH", update),
         );
-        if (ctx.options.output === "json") ctx.json(template);
-        else ctx.print(`Updated ${template.name} to revision ${template.revision}.`);
+        if (printStructured(ctx, template)) return;
+        ctx.print(`Updated ${template.name} to revision ${template.revision}.`);
       },
     }),
     command("compose template archive", {
@@ -1456,8 +1492,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/compose-templates/${args.templateId}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
-        if (ctx.options.output === "json") ctx.json({ archived: true, templateId: args.templateId });
-        else ctx.print(`Archived compose template ${args.templateId}.`);
+        if (printStructured(ctx, { archived: true, templateId: args.templateId })) return;
+        ctx.print(`Archived compose template ${args.templateId}.`);
       },
     }),
     command("compose signature default", {
@@ -1490,8 +1526,8 @@ export default defineCliCommands({
             expectedRevision: current?.revision ?? null,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(next);
-        else ctx.print(next ? `Set ${scope} signature default to ${next.templateId}.` : `Cleared ${scope} signature default.`);
+        if (printStructured(ctx, next)) return;
+        ctx.print(next ? `Set ${scope} signature default to ${next.templateId}.` : `Cleared ${scope} signature default.`);
       },
     }),
     command("compose style get", {
@@ -1500,8 +1536,8 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const style = await readApi<MailboxComposeStyle>(ctx, `/mailboxes/${mailbox.id}/compose-style`);
-        if (ctx.options.output === "json") ctx.json(style);
-        else ctx.print(style.customCss);
+        if (printStructured(ctx, style)) return;
+        ctx.print(style.customCss);
       },
     }),
     command("compose style set", {
@@ -1526,8 +1562,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/compose-style`,
           jsonRequest("PUT", { expectedRevision: current.revision, customCss }),
         );
-        if (ctx.options.output === "json") ctx.json(style);
-        else ctx.print(`Updated mailbox email design to revision ${style.revision}.`);
+        if (printStructured(ctx, style)) return;
+        ctx.print(`Updated mailbox email design to revision ${style.revision}.`);
       },
     }),
     command("compose preview", {
@@ -1560,8 +1596,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/compose-preview`,
           jsonRequest("POST", { draft, conversationId: null }),
         );
-        if (ctx.options.output === "json") ctx.json(preview);
-        else ctx.print(preview.html);
+        if (printStructured(ctx, preview)) return;
+        ctx.print(preview.html);
       },
     }),
     command("status", {
@@ -1570,8 +1606,8 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const health = await readApi<MailboxOperationalHealth>(ctx, `/mailboxes/${mailbox.id}/health`);
-        if (ctx.options.output === "json") ctx.json(health);
-        else {
+        if (printStructured(ctx, health)) return;
+        {
           ctx.print(`${mailbox.name}: ${health.health}${health.healthReason ? ` - ${health.healthReason}` : ""}`);
           ctx.print(
             `Bindings: ${health.bindings.active}/${health.bindings.total} active, ${health.bindings.degraded} degraded, ${health.bindings.pending} pending`,
@@ -1602,8 +1638,8 @@ export default defineCliCommands({
           attentionCursor = page.nextAttentionCursor;
         }
         const value: MailboxOperatorOperations = { ...first, attentionCommands, nextAttentionCursor: null };
-        if (ctx.options.output === "json") ctx.json(value);
-        else {
+        if (printStructured(ctx, value)) return;
+        {
           ctx.print(
             `${mailbox.name}: ${value.health}; search ${value.search.effectiveBackend}${value.search.fallbackActive ? " (fallback)" : ""}`,
           );
@@ -1693,8 +1729,8 @@ export default defineCliCommands({
         if (!input) throw new Error(`Unknown operator action: ${args.action}.`);
         const queued = await readApi<MailCommand>(ctx, `/mailboxes/${mailbox.id}/operator-actions`, jsonRequest("POST", input));
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`${result.kind}: ${result.state} (${result.id}).`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`${result.kind}: ${result.state} (${result.id}).`);
       },
     }),
     command("admin operations", {
@@ -1901,8 +1937,8 @@ export default defineCliCommands({
         const role = folderRole(args.role);
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi(ctx, `/mailboxes/${mailbox.id}/folder-roles/${role}`, jsonRequest("PUT", { folderId: args.folderId }));
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Mapped ${role} to ${args.folderId}.`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Mapped ${role} to ${args.folderId}.`);
       },
     }),
     command("folder role clear", {
@@ -1919,8 +1955,8 @@ export default defineCliCommands({
         await readApi(ctx, `/mailboxes/${mailbox.id}/folder-roles/${role}`, {
           method: "DELETE",
         });
-        if (ctx.options.output === "json") ctx.json({ cleared: true, role });
-        else ctx.print(`Cleared the explicit ${role} folder mapping.`);
+        if (printStructured(ctx, { cleared: true, role })) return;
+        ctx.print(`Cleared the explicit ${role} folder mapping.`);
       },
     }),
     command("sync", {
@@ -1944,8 +1980,8 @@ export default defineCliCommands({
           }),
         );
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Mailbox sync ${result.state} (${result.id}).`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Mailbox sync ${result.state} (${result.id}).`);
       },
     }),
     command("sync folder", {
@@ -1965,8 +2001,8 @@ export default defineCliCommands({
           }),
         );
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Folder sync ${result.state} (${result.id}).`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Folder sync ${result.state} (${result.id}).`);
       },
     }),
     command("rediscover", {
@@ -1992,8 +2028,8 @@ export default defineCliCommands({
           }),
         );
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Rediscovery ${result.state} (${result.id}).`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Rediscovery ${result.state} (${result.id}).`);
       },
     }),
     command("binding verify", {
@@ -2013,8 +2049,8 @@ export default defineCliCommands({
           }),
         );
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Binding verification ${result.state} (${result.id}).`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Binding verification ${result.state} (${result.id}).`);
       },
     }),
     command("repair folder", {
@@ -2040,8 +2076,8 @@ export default defineCliCommands({
           }),
         );
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Folder rebuild ${result.state} (${result.id}).`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Folder rebuild ${result.state} (${result.id}).`);
       },
     }),
     command("repair hydration", {
@@ -2059,8 +2095,8 @@ export default defineCliCommands({
           }),
         );
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Hydration retry ${result.state} (${result.id}).`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Hydration retry ${result.state} (${result.id}).`);
       },
     }),
     command("search", {
@@ -2107,8 +2143,8 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const tag = await readApi<LocalTag>(ctx, `/mailboxes/${mailbox.id}/local-tags`, jsonRequest("POST", { name: args.name }));
-        if (ctx.options.output === "json") ctx.json(tag);
-        else ctx.print(`Created ${tag.name} (${tag.id}), revision ${tag.revision}.`);
+        if (printStructured(ctx, tag)) return;
+        ctx.print(`Created ${tag.name} (${tag.id}), revision ${tag.revision}.`);
       },
     }),
     command("tag rename", {
@@ -2136,8 +2172,8 @@ export default defineCliCommands({
             name: args.name,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(tag);
-        else ctx.print(`Renamed tag to ${tag.name}; revision ${tag.revision}.`);
+        if (printStructured(ctx, tag)) return;
+        ctx.print(`Renamed tag to ${tag.name}; revision ${tag.revision}.`);
       },
     }),
     command("tag delete", {
@@ -2161,8 +2197,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/local-tags/${args.tagId}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
-        if (ctx.options.output === "json") ctx.json({ deleted: true, tagId: args.tagId });
-        else ctx.print(`Deleted local tag ${args.tagId}.`);
+        if (printStructured(ctx, { deleted: true, tagId: args.tagId })) return;
+        ctx.print(`Deleted local tag ${args.tagId}.`);
       },
     }),
     command("message get", {
@@ -2172,8 +2208,8 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const message = await readApi<MessageDetail>(ctx, `/mailboxes/${mailbox.id}/messages/${args.messageId}`);
-        if (ctx.options.output === "json") ctx.json(message);
-        else {
+        if (printStructured(ctx, message)) return;
+        {
           ctx.print(`Subject: ${message.subject}`);
           ctx.print(`From: ${message.from.map((address) => address.address).join(", ")}`);
           ctx.print(`To: ${message.to.map((address) => address.address).join(", ")}`);
@@ -2200,8 +2236,8 @@ export default defineCliCommands({
           description: `a matching message in ${mailbox.name}`,
         });
         if (!hit) throw new Error("Matching message disappeared.");
-        if (ctx.options.output === "json") ctx.json(hit);
-        else ctx.print(`${hit.subject} (${hit.id}).`);
+        if (printStructured(ctx, hit)) return;
+        ctx.print(`${hit.subject} (${hit.id}).`);
       },
     }),
     command("attachment download", {
@@ -2246,8 +2282,8 @@ export default defineCliCommands({
           contentRange: response.headers.get("content-range"),
           etag: response.headers.get("etag"),
         };
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Wrote ${bytes} bytes to ${flags.out}.`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Wrote ${bytes} bytes to ${flags.out}.`);
       },
     }),
     command("attachment link create", {
@@ -2278,6 +2314,7 @@ export default defineCliCommands({
       },
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        rejectInlineSecretInput(flags.password, "Attachment-link password", "--password-stdin or --password-file");
         const password = await readCliInput(flags.password, {
           label: "attachment-link password",
           trimFinalNewline: true,
@@ -2611,8 +2648,8 @@ export default defineCliCommands({
             confirm: true,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Merged ${value.movedMessageCount} messages into ${value.target.id} at revision ${value.target.revision}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Merged ${value.movedMessageCount} messages into ${value.target.id} at revision ${value.target.revision}.`);
       },
     }),
     command("conversation split", {
@@ -2648,8 +2685,8 @@ export default defineCliCommands({
             confirm: true,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Split ${value.movedMessageCount} messages into ${value.created.id}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Split ${value.movedMessageCount} messages into ${value.created.id}.`);
       },
     }),
     command("conversation collaboration", {
@@ -2679,7 +2716,7 @@ export default defineCliCommands({
           ctx,
           `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/context?${query}`,
         );
-        if (ctx.options.output === "json") return ctx.json(value);
+        if (printStructured(ctx, value)) return;
         ctx.print(`Participants: ${value.participants.length}`);
         ctx.print(`Contacts: ${value.contacts.status === "ready" ? value.contacts.items.length : "unavailable"}`);
         if (value.contacts.status === "ready" && value.contacts.nextCursor) ctx.print(`Next Contacts cursor: ${value.contacts.nextCursor}`);
@@ -2732,8 +2769,8 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const state = await readApi<ConversationLocalTags>(ctx, `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/local-tags`);
-        if (ctx.options.output === "json") ctx.json(state);
-        else {
+        if (printStructured(ctx, state)) return;
+        {
           ctx.print(`Conversation revision: ${state.conversationRevision}`);
           printLocalTags(ctx, state.tags);
         }
@@ -2766,8 +2803,8 @@ export default defineCliCommands({
             tagIds: flags.tag,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(state);
-        else {
+        if (printStructured(ctx, state)) return;
+        {
           ctx.print(`Conversation revision: ${state.conversationRevision}`);
           printLocalTags(ctx, state.tags);
         }
@@ -2890,8 +2927,8 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const counts = await readApi<Record<string, number>>(ctx, `/mailboxes/${mailbox.id}/conversation-view-counts`);
-        if (ctx.options.output === "json") ctx.json(counts);
-        else for (const [view, count] of Object.entries(counts)) ctx.print(`${view}: ${count}`);
+        if (printStructured(ctx, counts)) return;
+        for (const [view, count] of Object.entries(counts)) ctx.print(`${view}: ${count}`);
       },
     }),
     command("conversation activity", {
@@ -2947,9 +2984,9 @@ export default defineCliCommands({
           ctx,
           `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/reminder`,
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else if (value) ctx.print(`${value.dueAt} (${value.state}, revision ${value.revision}, ${value.id}).`);
-        else ctx.print("No reminder.");
+        if (printStructured(ctx, value)) return;
+        if (value) ctx.print(`${value.dueAt} (${value.state}, revision ${value.revision}, ${value.id}).`);
+        ctx.print("No reminder.");
       },
     }),
     command("reminder set", {
@@ -2980,8 +3017,8 @@ export default defineCliCommands({
             expectedRevision: flags.revision ?? null,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Reminder set for ${value.dueAt} at revision ${value.revision}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Reminder set for ${value.dueAt} at revision ${value.revision}.`);
       },
     }),
     command("reminder cancel", {
@@ -3005,8 +3042,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/reminder`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Canceled reminder ${value.id} at revision ${value.revision}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Canceled reminder ${value.id} at revision ${value.revision}.`);
       },
     }),
     command("saved-view list", {
@@ -3040,8 +3077,8 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<SavedConversationView>(ctx, `/mailboxes/${mailbox.id}/saved-views/${args.viewId}`);
-        if (ctx.options.output === "json") ctx.json(value);
-        else {
+        if (printStructured(ctx, value)) return;
+        {
           ctx.print(`${value.name} (${value.scope}, revision ${value.revision}, ${value.id})`);
           ctx.print(JSON.stringify(value.filter, null, 2));
         }
@@ -3069,8 +3106,8 @@ export default defineCliCommands({
             filter,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Created ${value.scope} saved view ${value.name} (${value.id}).`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Created ${value.scope} saved view ${value.name} (${value.id}).`);
       },
     }),
     command("saved-view update", {
@@ -3100,8 +3137,8 @@ export default defineCliCommands({
             ...(filter ? { filter } : {}),
           }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Updated saved view ${value.name} to revision ${value.revision}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Updated saved view ${value.name} to revision ${value.revision}.`);
       },
     }),
     command("saved-view delete", {
@@ -3125,8 +3162,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/saved-views/${args.viewId}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Deleted saved view ${value.id}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Deleted saved view ${value.id}.`);
       },
     }),
     command("saved-view conversations", {
@@ -3260,8 +3297,8 @@ export default defineCliCommands({
             referencedMessageId: flags.message,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Created comment ${value.id} at revision ${value.revision}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Created comment ${value.id} at revision ${value.revision}.`);
       },
     }),
     command("comment edit", {
@@ -3303,8 +3340,8 @@ export default defineCliCommands({
             mentionUserIds: flags.mention,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Updated comment ${value.id} to revision ${value.revision}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Updated comment ${value.id} to revision ${value.revision}.`);
       },
     }),
     command("comment delete", {
@@ -3331,8 +3368,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments/${args.commentId}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
-        if (ctx.options.output === "json") ctx.json(value);
-        else ctx.print(`Deleted comment ${value.id} at revision ${value.revision}.`);
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Deleted comment ${value.id} at revision ${value.revision}.`);
       },
     }),
     conversationActionCommand("conversation read", "Mark every message in a conversation folder placement as read", {
@@ -3405,9 +3442,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/connections`,
           jsonRequest("POST", connection),
         );
-        if (ctx.options.output === "json") ctx.json(result);
-        else
-          ctx.print(`Stored verified connection ${result.connection.name} (${result.connection.id}); the credential cannot be read back.`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Stored verified connection ${result.connection.name} (${result.connection.id}); the credential cannot be read back.`);
       },
     }),
     command("provider replace", {
@@ -3423,8 +3459,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/connections/${args.connectionId}`,
           jsonRequest("PUT", await providerConnectionInput(flags)),
         );
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Replaced ${result.connection.name}; attached remote resources now require re-verification.`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Replaced ${result.connection.name}; attached remote resources now require re-verification.`);
       },
     }),
     command("provider revoke", {
@@ -3440,8 +3476,8 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Pass --yes to revoke the provider credential.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await readApi(ctx, `/mailboxes/${mailbox.id}/connections/${args.connectionId}`, { method: "DELETE" });
-        if (ctx.options.output === "json") ctx.json({ revoked: true, connectionId: args.connectionId });
-        else ctx.print(`Revoked provider connection ${args.connectionId}.`);
+        if (printStructured(ctx, { revoked: true, connectionId: args.connectionId })) return;
+        ctx.print(`Revoked provider connection ${args.connectionId}.`);
       },
     }),
     command("provider list", {
@@ -3509,8 +3545,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/bindings`,
           jsonRequest("POST", { connectionId: args.connectionId }),
         );
-        if (ctx.options.output === "json") ctx.json(binding);
-        else ctx.print(`${binding.state}: ${binding.authenticatedPrincipal ?? "remote mailbox"} (${binding.id})`);
+        if (printStructured(ctx, binding)) return;
+        ctx.print(`${binding.state}: ${binding.authenticatedPrincipal ?? "remote mailbox"} (${binding.id})`);
       },
     }),
     command("identity list", {
@@ -3569,8 +3605,8 @@ export default defineCliCommands({
             isDefault: flags.default,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(identity);
-        else ctx.print(`Created unverified identity ${identity.fromAddress} (${identity.id}).`);
+        if (printStructured(ctx, identity)) return;
+        ctx.print(`Created unverified identity ${identity.fromAddress} (${identity.id}).`);
       },
     }),
     command("identity setup-default", {
@@ -3597,8 +3633,8 @@ export default defineCliCommands({
             savesSentAutomatically: flags.providerSavesSent,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(identity);
-        else ctx.print(`Default sender ${identity.fromAddress} is ${identity.status}.`);
+        if (printStructured(ctx, identity)) return;
+        ctx.print(`Default sender ${identity.fromAddress} is ${identity.status}.`);
       },
     }),
     command("identity configure", {
@@ -3657,8 +3693,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}`,
           jsonRequest("PATCH", update),
         );
-        if (ctx.options.output === "json") ctx.json(identity);
-        else ctx.print(`Updated ${identity.fromAddress} (${identity.status}).`);
+        if (printStructured(ctx, identity)) return;
+        ctx.print(`Updated ${identity.fromAddress} (${identity.status}).`);
       },
     }),
     command("identity disable", {
@@ -3672,8 +3708,8 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Pass --yes to disable the sender identity.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await readApi(ctx, `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}`, { method: "DELETE" });
-        if (ctx.options.output === "json") ctx.json({ disabled: true, identityId: args.identityId });
-        else ctx.print(`Disabled sender identity ${args.identityId}.`);
+        if (printStructured(ctx, { disabled: true, identityId: args.identityId })) return;
+        ctx.print(`Disabled sender identity ${args.identityId}.`);
       },
     }),
     command("identity verify", {
@@ -3701,8 +3737,8 @@ export default defineCliCommands({
             savesSentAutomatically: flags.providerSavesSent,
           }),
         );
-        if (ctx.options.output === "json") ctx.json(identity);
-        else ctx.print(`Verified ${identity.fromAddress}.`);
+        if (printStructured(ctx, identity)) return;
+        ctx.print(`Verified ${identity.fromAddress}.`);
       },
     }),
     command("draft list", {
@@ -3741,8 +3777,8 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const draft = await readApi<MailDraft>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}`);
-        if (ctx.options.output === "json") ctx.json(draft);
-        else {
+        if (printStructured(ctx, draft)) return;
+        {
           ctx.print(`${draft.subject || "[No subject]"} (${draft.id})`);
           ctx.print(`State: ${draft.state}; revision ${draft.revision}; ${draft.attachments.length} attachment(s)`);
           ctx.print("");
@@ -3758,8 +3794,11 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const lease = await readApi<DraftLease | null>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`);
         if (printStructured(ctx, lease)) return;
-        if (!lease) ctx.print("No active draft lease.");
-        else ctx.print(`${lease.holder.displayName} holds the lease until ${lease.expiresAt}.`);
+        if (!lease) {
+          ctx.print("No active draft lease.");
+          return;
+        }
+        ctx.print(`${lease.holder.displayName} holds the lease until ${lease.expiresAt}.`);
       },
     }),
     command("draft lease acquire", {
@@ -3823,8 +3862,8 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const draft = await createDraft(ctx, mailbox.id, flags);
-        if (ctx.options.output === "json") ctx.json(draft);
-        else ctx.print(`Created draft ${draft.id} (revision ${draft.revision}).`);
+        if (printStructured(ctx, draft)) return;
+        ctx.print(`Created draft ${draft.id} (revision ${draft.revision}).`);
       },
     }),
     command("draft update", {
@@ -3850,8 +3889,8 @@ export default defineCliCommands({
             draft: await readDraftEditableContent(flags),
           }),
         );
-        if (ctx.options.output === "json") ctx.json(draft);
-        else ctx.print(`Updated draft ${draft.id} to revision ${draft.revision}.`);
+        if (printStructured(ctx, draft)) return;
+        ctx.print(`Updated draft ${draft.id} to revision ${draft.revision}.`);
       },
     }),
     command("draft recovery list", {
@@ -3920,8 +3959,8 @@ export default defineCliCommands({
             jsonRequest("DELETE", { token: lease.token }),
           ).catch(() => undefined);
         }
-        if (ctx.options.output === "json") ctx.json(draft);
-        else ctx.print(`Restored recovery copy into draft ${draft.id}; revision ${draft.revision}.`);
+        if (printStructured(ctx, draft)) return;
+        ctx.print(`Restored recovery copy into draft ${draft.id}; revision ${draft.revision}.`);
       },
     }),
     command("draft attachment add", {
@@ -3961,8 +4000,8 @@ export default defineCliCommands({
           contentType: flags.contentType,
           uploadId: flags.upload,
         });
-        if (ctx.options.output === "json") ctx.json(draft);
-        else ctx.print(`Added attachment to draft ${draft.id}; revision ${draft.revision}.`);
+        if (printStructured(ctx, draft)) return;
+        ctx.print(`Added attachment to draft ${draft.id}; revision ${draft.revision}.`);
       },
     }),
     command("draft attachment upload list", {
@@ -4039,8 +4078,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachments/${args.attachmentId}?${query}`,
           { method: "DELETE" },
         );
-        if (ctx.options.output === "json") ctx.json(draft);
-        else ctx.print(`Removed attachment from draft ${draft.id}; revision ${draft.revision}.`);
+        if (printStructured(ctx, draft)) return;
+        ctx.print(`Removed attachment from draft ${draft.id}; revision ${draft.revision}.`);
       },
     }),
     command("draft attachment download", {
@@ -4072,8 +4111,8 @@ export default defineCliCommands({
           contentType: response.headers.get("content-type"),
           etag: response.headers.get("etag"),
         };
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Wrote ${bytes} bytes to ${flags.out}.`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Wrote ${bytes} bytes to ${flags.out}.`);
       },
     }),
     command("draft discard", {
@@ -4097,8 +4136,8 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/drafts/${args.draftId}/discard`,
           jsonRequest("POST", { expectedRevision: flags.revision }),
         );
-        if (ctx.options.output === "json") ctx.json(draft);
-        else ctx.print(`Discarded draft ${draft.id} at revision ${draft.revision}.`);
+        if (printStructured(ctx, draft)) return;
+        ctx.print(`Discarded draft ${draft.id} at revision ${draft.revision}.`);
       },
     }),
     command("send", {
@@ -4127,6 +4166,7 @@ export default defineCliCommands({
         ...waitFlags,
       },
       run: async ({ ctx, flags }) => {
+        const scheduledAt = flags.schedule ? parseOffsetDateTime(flags.schedule, "--schedule") : undefined;
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         let draft = await createDraft(ctx, mailbox.id, flags);
         for (const path of flags.attachment) {
@@ -4146,14 +4186,14 @@ export default defineCliCommands({
             draftId: draft.id,
             expectedDraftRevision: draft.revision,
             senderIdentityId: flags.identity,
-            scheduledAt: flags.schedule ? new Date(flags.schedule).toISOString() : undefined,
+            scheduledAt,
             undoSeconds: flags.undo,
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           }),
         );
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
-        if (ctx.options.output === "json") ctx.json({ draft, command: result });
-        else ctx.print(`${flags.wait ? "Sent" : "Queued"} message ${result.id} (${result.state}).`);
+        if (printStructured(ctx, { draft, command: result })) return;
+        ctx.print(`${flags.wait ? "Sent" : "Queued"} message ${result.id} (${result.state}).`);
       },
     }),
     command("scheduled list", {
@@ -4452,7 +4492,7 @@ export default defineCliCommands({
           }),
         );
         if (printStructured(ctx, validation)) return;
-        else {
+        {
           ctx.print(validation.valid ? "Workflow is valid." : "Workflow is invalid.");
           for (const diagnostic of validation.diagnostics) {
             ctx.print(`${diagnostic.severity}: ${diagnostic.path}: ${diagnostic.message}`);
@@ -4523,7 +4563,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const workflow = await readApi<MailWorkflowDetail>(ctx, `/mailboxes/${mailbox.id}/workflows/${args.workflowId}`);
         if (printStructured(ctx, workflow)) return;
-        else {
+        {
           ctx.print(`${workflow.name} (${workflow.id})`);
           ctx.print(`Current version: ${workflow.currentVersion.id}; source hash: ${workflow.currentVersion.sourceHash}`);
           ctx.print(`Active version: ${workflow.activeVersionId ?? "none"}`);
@@ -4565,7 +4605,7 @@ export default defineCliCommands({
           }),
         );
         if (printStructured(ctx, workflow)) return;
-        else ctx.print(`Created ${workflow.name} (${workflow.id}) at version ${workflow.currentVersion.id}.`);
+        ctx.print(`Created ${workflow.name} (${workflow.id}) at version ${workflow.currentVersion.id}.`);
       },
     }),
     command("workflow version list", {
@@ -4612,7 +4652,7 @@ export default defineCliCommands({
           }),
         );
         if (printStructured(ctx, workflow)) return;
-        else ctx.print(`Created ${workflow.name} version ${workflow.currentVersion.id}.`);
+        ctx.print(`Created ${workflow.name} version ${workflow.currentVersion.id}.`);
       },
     }),
     command("workflow version get", {
@@ -4629,7 +4669,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${args.versionId}`,
         );
         if (printStructured(ctx, version)) return;
-        else {
+        {
           ctx.print(`Version: ${version.id}; source hash: ${version.sourceHash}`);
           ctx.print(version.source);
         }
@@ -4654,7 +4694,7 @@ export default defineCliCommands({
           jsonRequest("POST", { expectedVersionId: flags.versionId }),
         );
         if (printStructured(ctx, workflow)) return;
-        else ctx.print(`Activated ${workflow.name} at version ${workflow.activeVersionId}.`);
+        ctx.print(`Activated ${workflow.name} at version ${workflow.activeVersionId}.`);
       },
     }),
     command("workflow deactivate", {
@@ -4676,7 +4716,7 @@ export default defineCliCommands({
           jsonRequest("POST", { expectedVersionId: flags.versionId }),
         );
         if (printStructured(ctx, workflow)) return;
-        else ctx.print(`Deactivated ${workflow.name}.`);
+        ctx.print(`Deactivated ${workflow.name}.`);
       },
     }),
     command("workflow run one-shot", {
@@ -4733,7 +4773,7 @@ export default defineCliCommands({
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
         if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
         if (printStructured(ctx, { preflight, run })) return;
-        else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
+        ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
     }),
     command("workflow run dry-run", {
@@ -4770,7 +4810,7 @@ export default defineCliCommands({
         const result = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, run.id, flags.timeoutSeconds) : run;
         if (flags.wait && result.state !== "succeeded") return printWorkflowWaitFailure(ctx, result);
         if (printStructured(ctx, result)) return;
-        else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow dry run ${result.id} (${result.state}).`);
+        ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow dry run ${result.id} (${result.state}).`);
       },
     }),
     command("workflow run invoke", {
@@ -4827,7 +4867,7 @@ export default defineCliCommands({
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
         if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
         if (printStructured(ctx, { preflight, run })) return;
-        else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
+        ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
     }),
     command("workflow run backfill", {
@@ -4884,7 +4924,7 @@ export default defineCliCommands({
         const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
         if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
         if (printStructured(ctx, { preflight, run })) return;
-        else ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
+        ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
       },
     }),
     command("workflow run list", {
@@ -4930,7 +4970,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const run = await readApi<MailWorkflowRun>(ctx, `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}`);
         if (printStructured(ctx, run)) return;
-        else ctx.print(`${run.state}: ${workflowProgressText(run)}${workflowLastErrorText(run)}`);
+        ctx.print(`${run.state}: ${workflowProgressText(run)}${workflowLastErrorText(run)}`);
       },
     }),
     command("workflow run targets", {
@@ -4984,7 +5024,7 @@ export default defineCliCommands({
         const run = await waitForWorkflowRun(ctx, mailbox.id, args.runId, flags.timeoutSeconds);
         if (run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run);
         if (printStructured(ctx, run)) return;
-        else ctx.print(`Workflow run ${run.id} succeeded (${workflowProgressText(run)}).`);
+        ctx.print(`Workflow run ${run.id} succeeded (${workflowProgressText(run)}).`);
       },
     }),
     command("workflow run cancel", {
@@ -5006,7 +5046,7 @@ export default defineCliCommands({
           jsonRequest("POST", { reason: flags.reason }),
         );
         if (printStructured(ctx, run)) return;
-        else ctx.print(`Workflow run ${run.id} is ${run.state}.`);
+        ctx.print(`Workflow run ${run.id} is ${run.state}.`);
       },
     }),
     command("workflow run pause", {
@@ -5070,7 +5110,7 @@ export default defineCliCommands({
       summary: "List recent durable commands",
       flags: {
         ...mailboxFlag,
-        limit: flag.int({ min: 1, max: 200, default: 100 }),
+        limit: flag.int({ min: 1, max: 100, default: 100 }),
       },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
@@ -5102,8 +5142,8 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<MailCommand>(ctx, `/mailboxes/${mailbox.id}/commands/${args.commandId}`);
-        if (ctx.options.output === "json") ctx.json(result);
-        else {
+        if (printStructured(ctx, result)) return;
+        {
           ctx.print(`${result.kind}: ${result.state}${result.lastError ? ` - ${result.lastError}` : ""}`);
           if (result.transportMetadata.expungePending === true) {
             ctx.print("The source is safely marked \\Deleted; this provider cannot expunge only that UID.");
@@ -5119,8 +5159,8 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await waitForCommand(ctx, mailbox.id, args.commandId, flags.timeoutSeconds);
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`${result.kind}: ${result.state} (${result.id}).`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(`${result.kind}: ${result.state} (${result.id}).`);
       },
     }),
     command("command cancel", {
@@ -5130,8 +5170,8 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await readApi(ctx, `/mailboxes/${mailbox.id}/commands/${args.commandId}/cancel`, { method: "POST" });
-        if (ctx.options.output === "json") ctx.json({ cancelled: true, commandId: args.commandId });
-        else ctx.print(`Cancelled send command ${args.commandId}.`);
+        if (printStructured(ctx, { cancelled: true, commandId: args.commandId })) return;
+        ctx.print(`Cancelled send command ${args.commandId}.`);
       },
     }),
     command("delete", {
@@ -5142,8 +5182,8 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Pass --yes to delete the mailbox.");
         const mailbox = await resolveMailbox(ctx, args.mailbox);
         await readApi(ctx, `/mailboxes/${mailbox.id}`, { method: "DELETE" });
-        if (ctx.options.output === "json") ctx.json({ deleted: true, mailboxId: mailbox.id });
-        else ctx.print(`Deleted ${mailbox.name}. Provider mail and the Cloud mirror remain retained for restore.`);
+        if (printStructured(ctx, { deleted: true, mailboxId: mailbox.id })) return;
+        ctx.print(`Deleted ${mailbox.name}. Provider mail and the Cloud mirror remain retained for restore.`);
       },
     }),
     ...mailboxAccessCommands,

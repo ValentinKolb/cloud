@@ -20,16 +20,6 @@ type ResponseScheduleEvaluation = {
   reason: "outside_active_range" | "holiday" | "exception" | "office_hours" | "outside_office_hours";
 };
 
-const WEEKDAYS: Record<string, ResponseScheduleWeeklyWindow["weekday"]> = {
-  Mon: 1,
-  Tue: 2,
-  Wed: 3,
-  Thu: 4,
-  Fri: 5,
-  Sat: 6,
-  Sun: 7,
-};
-
 const minuteOfDay = (value: string): number => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
 
 export const validateResponseSchedule = validateResponseScheduleDefinition;
@@ -40,15 +30,15 @@ const localParts = (instant: Date, timeZone: string): { date: string; time: stri
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-    weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
   }).formatToParts(instant);
   const value = (type: Intl.DateTimeFormatPartTypes): string => parts.find((part) => part.type === type)?.value ?? "";
-  const weekday = WEEKDAYS[value("weekday")];
-  if (!weekday) throw new Error("Could not resolve schedule weekday");
-  return { date: `${value("year")}-${value("month")}-${value("day")}`, time: `${value("hour")}:${value("minute")}`, weekday };
+  const date = `${value("year")}-${value("month")}-${value("day")}`;
+  const utcWeekday = new Date(`${date}T12:00:00.000Z`).getUTCDay();
+  const weekday = (utcWeekday === 0 ? 7 : utcWeekday) as ResponseScheduleWeeklyWindow["weekday"];
+  return { date, time: `${value("hour")}:${value("minute")}`, weekday };
 };
 
 const withinWindow = (time: string, window: ResponseScheduleWindow): boolean => {

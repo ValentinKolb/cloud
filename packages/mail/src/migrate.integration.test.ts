@@ -852,4 +852,65 @@ suite("mail migrations", () => {
     }
     expect(immutableError).toMatchObject({ errno: "55000" });
   }, 30_000);
+
+  test("installs tenant-scoped search and hot-path recovery indexes", async () => {
+    await migrate();
+    const indexes = await sql<{ name: string }[]>`
+      SELECT indexname AS name
+      FROM pg_indexes
+      WHERE schemaname = 'mail'
+        AND indexname IN (
+          'message_placements_folder_unread_idx',
+          'message_search_chunks_mailbox_document_idx',
+          'workflow_runs_materializing_recovery_idx',
+          'sync_runs_terminal_retention_idx',
+          'workflow_trigger_events_terminal_retention_idx'
+        )
+      ORDER BY indexname
+    `;
+    expect(indexes.map((row) => row.name)).toEqual([
+      "message_placements_folder_unread_idx",
+      "message_search_chunks_mailbox_document_idx",
+      "sync_runs_terminal_retention_idx",
+      "workflow_runs_materializing_recovery_idx",
+      "workflow_trigger_events_terminal_retention_idx",
+    ]);
+
+    const [mailboxColumn] = await sql<{ nullable: string }[]>`
+      SELECT is_nullable AS nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'mail'
+        AND table_name = 'message_search_chunks'
+        AND column_name = 'mailbox_id'
+    `;
+    expect(mailboxColumn).toEqual({ nullable: "NO" });
+
+    const [savedViewShape] = await sql<
+      {
+        migration_applied: boolean;
+        quarantine_columns: boolean;
+        private_index: string;
+        mailbox_index: string;
+      }[]
+    >`
+      SELECT
+        EXISTS (
+          SELECT 1 FROM mail.schema_migrations
+          WHERE version = 75 AND name = 'saved_view_quarantine'
+        ) AS migration_applied,
+        (
+          SELECT COUNT(*) = 3
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'saved_conversation_views'
+            AND column_name IN ('invalid_filter', 'disabled_at', 'migration_error')
+        ) AS quarantine_columns,
+        pg_get_indexdef('mail.saved_conversation_views_private_name_idx'::regclass) AS private_index,
+        pg_get_indexdef('mail.saved_conversation_views_mailbox_name_idx'::regclass) AS mailbox_index
+    `;
+    expect(savedViewShape?.migration_applied).toBe(true);
+    expect(savedViewShape?.quarantine_columns).toBe(true);
+    expect(savedViewShape?.private_index).toContain("disabled_at IS NULL");
+    expect(savedViewShape?.mailbox_index).toContain("disabled_at IS NULL");
+  });
 });

@@ -306,6 +306,25 @@ steps:
     );
   });
 
+  test("rejects invalid workflow schedules during binding", async () => {
+    const result = await bindMailWorkflow(
+      await compile(`triggers:
+  schedule:
+    cron: "0 8 31 2 *"
+    timezone: Europe/Berlin
+steps:
+  - succeed:
+      message: unreachable
+`),
+      catalog(),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "trigger.schedule", path: ["triggers", "schedule", "cron"] }),
+    );
+  });
+
   test("reports inaccessible and ambiguous catalog entries at source positions", async () => {
     const source = `inputs:
   message:

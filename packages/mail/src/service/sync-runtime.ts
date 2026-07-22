@@ -30,9 +30,10 @@ import { assertMailboxTransportFence, loadMailboxTransportFence } from "./mailbo
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
-import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
+import { isConcurrentCredentialRefresh, isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { cleanupProviderOAuthFlows } from "./provider-oauth-cleanup";
 import { mailProviderOperationMutex, withProviderOperationBarrier } from "./provider-operation-lock";
+import { cleanupMailRuntimeHistory } from "./runtime-history-retention";
 import { reconcileMailStorageUsage } from "./storage-observability";
 import { getWorkflowSnapshot } from "./workflow-data";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
@@ -835,6 +836,7 @@ const fetchEnvelopeStep = async (params: {
   folderPath: string;
   folderId: string;
   uidValidity: string;
+  signal: AbortSignal;
 }): Promise<{ batch: EnvelopeBatch | null; kind: "incremental" | "backfill" | null }> => {
   const { cursor } = params;
   if (cursor.incrementalNextHigh == null && params.currentHighUid > cursor.highestSeenUid) {
@@ -843,14 +845,18 @@ const fetchEnvelopeStep = async (params: {
   }
   if (cursor.incrementalNextHigh != null) {
     const lowUid = cursor.highestSeenUid + 1;
-    const batch = await imapSmtpConnector.fetchEnvelopeBatch(params.runtime, {
-      folderPath: params.folderPath,
-      folderStableKey: params.folderId,
-      uidValidity: params.uidValidity,
-      highUid: cursor.incrementalNextHigh,
-      lowUid,
-      limit: ENVELOPE_BATCH_SIZE,
-    });
+    const batch = await imapSmtpConnector.fetchEnvelopeBatch(
+      params.runtime,
+      {
+        folderPath: params.folderPath,
+        folderStableKey: params.folderId,
+        uidValidity: params.uidValidity,
+        highUid: cursor.incrementalNextHigh,
+        lowUid,
+        limit: ENVELOPE_BATCH_SIZE,
+      },
+      params.signal,
+    );
     if (batch.nextHighUid == null || batch.nextHighUid < lowUid) {
       cursor.highestSeenUid = cursor.incrementalTargetHigh ?? params.currentHighUid;
       cursor.incrementalNextHigh = null;
@@ -861,13 +867,17 @@ const fetchEnvelopeStep = async (params: {
     return { batch, kind: "incremental" };
   }
   if (!cursor.backfillComplete && cursor.backfillNextHigh != null) {
-    const batch = await imapSmtpConnector.fetchEnvelopeBatch(params.runtime, {
-      folderPath: params.folderPath,
-      folderStableKey: params.folderId,
-      uidValidity: params.uidValidity,
-      highUid: cursor.backfillNextHigh,
-      limit: ENVELOPE_BATCH_SIZE,
-    });
+    const batch = await imapSmtpConnector.fetchEnvelopeBatch(
+      params.runtime,
+      {
+        folderPath: params.folderPath,
+        folderStableKey: params.folderId,
+        uidValidity: params.uidValidity,
+        highUid: cursor.backfillNextHigh,
+        limit: ENVELOPE_BATCH_SIZE,
+      },
+      params.signal,
+    );
     cursor.backfillNextHigh = batch.nextHighUid;
     cursor.backfillComplete = batch.nextHighUid == null;
     return { batch, kind: "backfill" };
@@ -880,7 +890,9 @@ const fetchFlagStep = async (params: {
   currentHighUid: number;
   runtime: SyncRuntime;
   folderPath: string;
+  uidValidity: string;
   highestModseq: string | null;
+  signal: AbortSignal;
 }): Promise<FlagChange[]> => {
   const { cursor } = params;
   if (!params.highestModseq) return [];
@@ -900,9 +912,11 @@ const fetchFlagStep = async (params: {
   const changes = await imapSmtpConnector.fetchFlagChanges(
     params.runtime,
     params.folderPath,
+    params.uidValidity,
     cursor.highestModseq,
     cursor.flagNextLow,
     highUid,
+    params.signal,
   );
   cursor.flagNextLow = highUid + 1;
   if (cursor.flagNextLow > cursor.flagMaxUid) {
@@ -919,6 +933,8 @@ const fetchReconcileStep = async (params: {
   currentHighUid: number;
   runtime: SyncRuntime;
   folderPath: string;
+  uidValidity: string;
+  signal: AbortSignal;
 }): Promise<ReconcileWindow | null> => {
   const due =
     params.cursor.backfillComplete &&
@@ -932,7 +948,7 @@ const fetchReconcileStep = async (params: {
     return null;
   }
   const high = Math.min(params.currentHighUid, low + RECONCILE_WINDOW_SIZE - 1);
-  const uids = await imapSmtpConnector.fetchUidWindow(params.runtime, params.folderPath, low, high);
+  const uids = await imapSmtpConnector.fetchUidWindow(params.runtime, params.folderPath, params.uidValidity, low, high, params.signal);
   params.cursor.reconcileNextLow = high < params.currentHighUid ? high + 1 : null;
   if (params.cursor.reconcileNextLow == null) params.cursor.lastFullReconcileAt = new Date().toISOString();
   return { low, high, uids };
@@ -1186,7 +1202,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
           });
         }
       },
-      work: async () => {
+      work: async (_assertLeaseActive, signal) => {
         const refreshedFolder = await loadSyncFolder(folderId);
         if (!refreshedFolder) return { hasMore: false, imported: 0, flagsUpdated: 0, removed: 0 };
         Object.assign(folder, refreshedFolder);
@@ -1213,7 +1229,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         const runtimeSnapshot = await loadResolvedRuntimeSnapshot(execution.data.connectionId, secretRevision);
         selectedOAuthTokenRevision = runtimeSnapshot.oauthTokenRevision;
         const runtime = runtimeSnapshot.runtime;
-        const status = await imapSmtpConnector.getFolderStatus(runtime, folderExecution.path);
+        const status = await imapSmtpConnector.getFolderStatus(runtime, folderExecution.path, signal);
         await extendSyncLease(lock, "after status refresh");
         const currentHighUid = Math.max(0, status.uidNext - 1);
         const beforeCursor = parseCursor(folder.envelope_cursor);
@@ -1230,6 +1246,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
           folderPath: folderExecution.path,
           folderId,
           uidValidity: status.uidValidity,
+          signal,
         });
         const envelopeBatch = envelope.batch;
         if (envelopeBatch) await extendSyncLease(lock, "after envelope fetch");
@@ -1239,11 +1256,20 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
           currentHighUid,
           runtime,
           folderPath: folderExecution.path,
+          uidValidity: status.uidValidity,
           highestModseq: status.highestModseq,
+          signal,
         });
         if (flagChanges.length > 0) await extendSyncLease(lock, "after flag fetch");
 
-        const reconcileWindow = await fetchReconcileStep({ cursor, currentHighUid, runtime, folderPath: folderExecution.path });
+        const reconcileWindow = await fetchReconcileStep({
+          cursor,
+          currentHighUid,
+          runtime,
+          folderPath: folderExecution.path,
+          uidValidity: status.uidValidity,
+          signal,
+        });
         if (reconcileWindow) await extendSyncLease(lock, "after UID reconciliation");
 
         await extendSyncLease(lock, "before commit");
@@ -1283,7 +1309,8 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
       code !== "SYNC_JOB_LEASE_LOST" &&
       code !== "STALE_SYNC_FENCE" &&
       code !== "STALE_SYNC_BINDING" &&
-      code !== "MAILBOX_TRANSPORT_CHANGED"
+      code !== "MAILBOX_TRANSPORT_CHANGED" &&
+      !isConcurrentCredentialRefresh(error)
     ) {
       await recordSyncFailure({
         folderId,
@@ -1312,7 +1339,7 @@ const syncFolderJob = job<{ folderId: string }, SyncBatchResult | null>({
       try {
         return await syncFolderBatch(ctx.input.folderId, () => ctx.heartbeat({ leaseMs: 3 * 60_000 }));
       } catch (error) {
-        if (normalizeSyncErrorCode(error) !== "MAIL_RATE_LIMITED" && ctx.failureCount >= 5) {
+        if (normalizeSyncErrorCode(error) !== "MAIL_RATE_LIMITED" && !isConcurrentCredentialRefresh(error) && ctx.failureCount >= 5) {
           log.error("Mail folder sync exhausted retries", {
             folderId: ctx.input.folderId,
             failureCount: ctx.failureCount,
@@ -1329,6 +1356,10 @@ const syncFolderJob = job<{ folderId: string }, SyncBatchResult | null>({
     }) ?? Promise.resolve(null),
   after: async ({ ctx }) => {
     if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAILBOX_TRANSPORT_CHANGED") return;
+    if (ctx.error && isConcurrentCredentialRefresh(ctx.error)) {
+      ctx.reschedule({ delayMs: 2_000 });
+      return;
+    }
     if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
       ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 5_000) });
       return;
@@ -1392,7 +1423,7 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
         return await withLeaseHeartbeat({
           intervalMs: 30_000,
           heartbeat: () => extendSyncLease(lock, "during message hydration"),
-          work: async (assertProviderLeaseActive) => {
+          work: async (assertProviderLeaseActive, signal) => {
             const execution = await resolveMailExecution({
               mailboxId: message.mailbox_id,
               operation: "backgroundSync",
@@ -1481,6 +1512,7 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
                   activeClaim = null;
                 }
               },
+              signal,
             );
             await assertProviderLeaseActive();
             await assertMailboxTransportFence(transportFence);
@@ -1551,9 +1583,9 @@ export const executeBindingRediscovery = async (
         await extendSyncLease(lock, "during provider rediscovery");
         await jobHeartbeat();
       },
-      work: async () => {
+      work: async (_assertLeaseActive, signal) => {
         await consumeMailboxWorkBudget(binding.remote_resource_id);
-        return rediscoverProviderBinding({ bindingId, allowCredentialRevision });
+        return rediscoverProviderBinding({ bindingId, allowCredentialRevision, signal });
       },
     });
   } finally {
@@ -1796,9 +1828,25 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
         draftUploads: await deleteAbandonedDraftAttachmentUploads(),
         abandoned: await deleteAbandonedBlobUploads(),
         orphaned: await deleteOrphanedBlobs(),
-        attachmentLinks: await cleanupPublicAttachmentLinks(),
-        oauthFlows: await cleanupProviderOAuthFlows(),
       }),
+    });
+    await mailScheduler.create({
+      id: "mail:attachment-link-cleanup",
+      cron: "29 * * * *",
+      meta: { appId: "mail", family: "mail:storage", label: "Mail attachment link cleanup" },
+      process: cleanupPublicAttachmentLinks,
+    });
+    await mailScheduler.create({
+      id: "mail:oauth-flow-cleanup",
+      cron: "37 * * * *",
+      meta: { appId: "mail", family: "mail:oauth", label: "Mail OAuth flow cleanup" },
+      process: cleanupProviderOAuthFlows,
+    });
+    await mailScheduler.create({
+      id: "mail:runtime-history-cleanup",
+      cron: "43 * * * *",
+      meta: { appId: "mail", family: "mail:runtime", label: "Mail runtime history cleanup" },
+      process: () => cleanupMailRuntimeHistory(),
     });
     await mailScheduler.create({
       id: "mail:storage-usage",
