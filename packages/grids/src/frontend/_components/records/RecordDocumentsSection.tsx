@@ -1,4 +1,13 @@
-import { dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, StructuredDataPreview, Tooltip } from "@valentinkolb/cloud/ui";
+import {
+  dialogCore,
+  PanelDialog,
+  PdfPreview,
+  panelDialogOptions,
+  prompts,
+  StructuredDataPreview,
+  toast,
+  Tooltip,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -123,74 +132,72 @@ export default function RecordDocumentsSection(props: {
 }) {
   const [runs, setRuns] = createSignal<DocumentRunSummary[]>(props.initialRuns);
   const [snapshots, setSnapshots] = createSignal<RecordSnapshotSummary[]>(props.initialSnapshots);
-  const [busy, setBusy] = createSignal<string | null>(null);
+  const [activeDownloadId, setActiveDownloadId] = createSignal<string | null>(null);
+  const [activeSnapshotId, setActiveSnapshotId] = createSignal<string | null>(null);
 
   createEffect(() => setRuns(props.initialRuns));
   createEffect(() => setSnapshots(props.initialSnapshots));
 
-  const refetchRuns = async () => {
+  const loadRuns = async () => {
     const res = await apiClient.documents.runs["by-record"][":tableId"][":recordId"].$get({
       param: { tableId: props.tableId, recordId: props.recordId },
     });
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load generated documents"));
     const value = (await res.json()) as { items: DocumentRunSummary[] } | DocumentRunSummary[];
-    setRuns(Array.isArray(value) ? value : value.items);
+    return Array.isArray(value) ? value : value.items;
   };
 
-  const refetchSnapshots = async () => {
+  const loadSnapshots = async () => {
     const res = await apiClient.documents.snapshots["by-record"][":tableId"][":recordId"].$get({
       param: { tableId: props.tableId, recordId: props.recordId },
     });
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load snapshots"));
-    setSnapshots(((await res.json()) as { items: RecordSnapshotSummary[] }).items);
+    return ((await res.json()) as { items: RecordSnapshotSummary[] }).items;
   };
 
   const iconActionClass =
     "inline-flex h-7 w-7 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-secondary disabled:cursor-not-allowed disabled:opacity-50";
 
-  const generate = async (template: DocumentTemplateSummary) => {
-    const generated = await openDocumentGenerationReviewDialog({
-      template,
-      tableId: props.tableId,
-      recordId: props.recordId,
-    });
-    if (generated) {
-      await refetchRuns();
-      await refetchSnapshots();
-    }
-  };
+  const refreshDocumentsMut = mutations.create<{ runs: DocumentRunSummary[]; snapshots: RecordSnapshotSummary[] }, void>({
+    mutation: async () => {
+      const [nextRuns, nextSnapshots] = await Promise.all([loadRuns(), loadSnapshots()]);
+      return { runs: nextRuns, snapshots: nextSnapshots };
+    },
+    onSuccess: (value) => {
+      setRuns(value.runs);
+      setSnapshots(value.snapshots);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
-  const redownload = async (run: DocumentRunSummary) => {
-    setBusy(run.id);
-    try {
+  const redownloadMut = mutations.create<void, DocumentRunSummary>({
+    onBefore: (run) => setActiveDownloadId(run.id),
+    mutation: async (run) => {
       const res = await requestDocumentRunDownload(run.id);
       await downloadPdfResponse(res, run.filename);
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Failed to download document");
-    } finally {
-      setBusy(null);
-    }
-  };
+    },
+    onError: (error) => prompts.error(error.message),
+    onFinally: () => setActiveDownloadId(null),
+  });
 
-  const createSnapshot = async () => {
-    setBusy("snapshot");
-    try {
-      const res = await apiClient.documents.snapshots["by-record"][":tableId"][":recordId"].$post({
+  const createSnapshotMut = mutations.create<RecordSnapshotSummary[], void>({
+    mutation: async () => {
+      const createRes = await apiClient.documents.snapshots["by-record"][":tableId"][":recordId"].$post({
         param: { tableId: props.tableId, recordId: props.recordId },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create snapshot"));
-      await refetchSnapshots();
-      prompts.success("Snapshot created.");
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Failed to create snapshot");
-    } finally {
-      setBusy(null);
-    }
-  };
+      if (!createRes.ok) throw new Error(await errorMessage(createRes, "Failed to create snapshot"));
+      return loadSnapshots();
+    },
+    onSuccess: (items) => {
+      setSnapshots(items);
+      toast.success("Snapshot created.");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
-  const inspectSnapshot = async (summary: RecordSnapshotSummary) => {
-    setBusy(summary.id);
-    try {
+  const inspectSnapshotMut = mutations.create<void, RecordSnapshotSummary>({
+    onBefore: (snapshot) => setActiveSnapshotId(snapshot.id),
+    mutation: async (summary) => {
       const res = await apiClient.documents.snapshots[":snapshotId"].$get({ param: { snapshotId: summary.id } });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to load snapshot"));
       const snapshot = (await res.json()) as RecordSnapshot;
@@ -250,11 +257,18 @@ export default function RecordDocumentsSection(props: {
         ),
         { title: "Record snapshot", icon: "ti ti-camera", size: "large" },
       );
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Failed to load snapshot");
-    } finally {
-      setBusy(null);
-    }
+    },
+    onError: (error) => prompts.error(error.message),
+    onFinally: () => setActiveSnapshotId(null),
+  });
+
+  const generate = async (template: DocumentTemplateSummary) => {
+    const generated = await openDocumentGenerationReviewDialog({
+      template,
+      tableId: props.tableId,
+      recordId: props.recordId,
+    });
+    if (generated) await refreshDocumentsMut.mutate(undefined);
   };
 
   const availableTemplates = () => props.templates.filter((template) => template.enabled);
@@ -276,8 +290,14 @@ export default function RecordDocumentsSection(props: {
             </summary>
             <div class="mt-3 flex flex-col items-start gap-3">
               <p class="text-xs leading-relaxed text-dimmed">Capture the current record before it changes.</p>
-              <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
-                {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
+              <button
+                type="button"
+                class="btn-input btn-sm"
+                onClick={() => createSnapshotMut.mutate(undefined)}
+                disabled={createSnapshotMut.loading()}
+                aria-busy={createSnapshotMut.loading()}
+              >
+                {createSnapshotMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
                 Create snapshot
               </button>
             </div>
@@ -293,8 +313,14 @@ export default function RecordDocumentsSection(props: {
             <div class="flex items-center justify-between gap-2">
               <h4 class="text-xs font-medium text-secondary">Snapshots</h4>
               <Show when={props.live}>
-                <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
-                  {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
+                <button
+                  type="button"
+                  class="btn-input btn-sm"
+                  onClick={() => createSnapshotMut.mutate(undefined)}
+                  disabled={createSnapshotMut.loading()}
+                  aria-busy={createSnapshotMut.loading()}
+                >
+                  {createSnapshotMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
                   Create snapshot
                 </button>
               </Show>
@@ -313,10 +339,11 @@ export default function RecordDocumentsSection(props: {
                       type="button"
                       class={iconActionClass}
                       aria-label="Inspect snapshot"
-                      onClick={() => void inspectSnapshot(snapshot)}
-                      disabled={busy() === snapshot.id}
+                      onClick={() => inspectSnapshotMut.mutate(snapshot)}
+                      disabled={inspectSnapshotMut.loading()}
+                      aria-busy={inspectSnapshotMut.loading()}
                     >
-                      {busy() === snapshot.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-eye" />}
+                      <i class={activeSnapshotId() === snapshot.id ? "ti ti-loader-2 animate-spin" : "ti ti-eye"} />
                     </button>
                   </Tooltip>
                 </div>
@@ -335,6 +362,7 @@ export default function RecordDocumentsSection(props: {
                   class="flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--ui-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => void generate(template)}
                   aria-label={`Review ${template.name}`}
+                  disabled={refreshDocumentsMut.loading()}
                 >
                   <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />
                   <span class="min-w-0 flex-1">
@@ -364,10 +392,11 @@ export default function RecordDocumentsSection(props: {
                       type="button"
                       class={iconActionClass}
                       aria-label="Download document"
-                      onClick={() => void redownload(run)}
-                      disabled={busy() === run.id}
+                      onClick={() => redownloadMut.mutate(run)}
+                      disabled={redownloadMut.loading()}
+                      aria-busy={redownloadMut.loading()}
                     >
-                      {busy() === run.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+                      <i class={activeDownloadId() === run.id ? "ti ti-loader-2 animate-spin" : "ti ti-download"} />
                     </button>
                   </Tooltip>
                 </div>

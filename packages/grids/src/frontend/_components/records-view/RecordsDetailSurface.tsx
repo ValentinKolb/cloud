@@ -67,27 +67,32 @@ export default function RecordsDetailSurface(props: Props) {
             />
           }
         >
-          <RecordDetailPanel
-            baseId={props.baseId}
-            baseShortId={props.baseShortId}
-            tableId={props.tableId}
-            tableName={props.tableName}
-            fields={props.fields}
-            auditPolicy={props.auditPolicy}
-            record={props.record}
-            detail={props.detail}
-            documentTemplates={props.documentTemplates}
-            mode={props.mode}
-            canWrite={props.canWrite}
-            relationLabels={props.relationLabels}
-            tableShortIds={props.tableShortIds}
-            fieldsByTable={fieldsByTable()}
-            viewColumns={props.viewColumns}
-            onClose={props.onCloseRecord}
-            onUpdated={props.onRecordUpdated}
-            onRemoved={props.onRecordRemoved}
-            dateConfig={props.dateConfig}
-          />
+          <Show
+            when={props.record()}
+            fallback={<Placeholder state="loading" surface="paper" variant="panel" title="Loading record" class="m-3" />}
+          >
+            <RecordDetailPanel
+              baseId={props.baseId}
+              baseShortId={props.baseShortId}
+              tableId={props.tableId}
+              tableName={props.tableName}
+              fields={props.fields}
+              auditPolicy={props.auditPolicy}
+              record={props.record}
+              detail={props.detail}
+              documentTemplates={props.documentTemplates}
+              mode={props.mode}
+              canWrite={props.canWrite}
+              relationLabels={props.relationLabels}
+              tableShortIds={props.tableShortIds}
+              fieldsByTable={fieldsByTable()}
+              viewColumns={props.viewColumns}
+              onClose={props.onCloseRecord}
+              onUpdated={props.onRecordUpdated}
+              onRemoved={props.onRecordRemoved}
+              dateConfig={props.dateConfig}
+            />
+          </Show>
         </Show>
       }
     >

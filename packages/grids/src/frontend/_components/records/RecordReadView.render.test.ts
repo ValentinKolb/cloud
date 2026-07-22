@@ -54,6 +54,8 @@ describe("RecordReadView", () => {
     expect(html).toContain("Record details");
     expect(html).toContain("ti-table-row");
     expect(html).toContain("Studio shelf");
+    expect(html).toContain('title="Studio shelf"');
+    expect(html).toContain("line-clamp-2");
     expect(html).toContain("Fields");
     expect(html).toContain("Room");
     expect(html).not.toContain(">Notes<");

@@ -141,6 +141,7 @@ export default function GroupDetailPanel(props: Props) {
     const raw = props.bucket.keys[index];
     return formatGroupValue({ value: raw, spec, field, relationLabels: props.relationLabels, dateConfig: props.dateConfig });
   };
+  const groupTitle = () => props.groupBy.map((spec, index) => groupValue(spec, index)).join(" · ") || "Ungrouped records";
 
   const renderRecordLine = (record: GridRecord) => {
     const fields = presentableFields();
@@ -153,29 +154,41 @@ export default function GroupDetailPanel(props: Props) {
     );
   };
 
+  onCleanup(() => {
+    searchDebounce.cancel();
+    fetchMut.abort();
+  });
+
   return (
     <div class="flex h-full min-h-0 flex-col">
       <header class="detail-header">
-        <div class="flex items-start justify-between gap-2">
-          <div class="min-w-0">
-            <h2 class="app-accent-text truncate text-lg font-semibold">Group</h2>
-            <div class="mt-1 flex flex-wrap gap-1.5">
-              <For each={props.groupBy}>
-                {(spec, index) => (
-                  <span class="inline-flex min-w-0 items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-secondary">
-                    <i class={`${groupIcon(spec)} shrink-0`} />
-                    <span class="font-medium">{groupLabel(spec, index())}</span>
-                    <span class="min-w-0 truncate">{groupValue(spec, index())}</span>
-                  </span>
-                )}
-              </For>
-            </div>
-          </div>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-xs font-semibold text-secondary">Group details</span>
           <Tooltip content="Close details">
             <button type="button" class="icon-btn" aria-label="Close group detail panel" onClick={() => props.onClose()}>
               <i class="ti ti-x" />
             </button>
           </Tooltip>
+        </div>
+
+        <div class="mt-4 flex flex-col items-center text-center">
+          <span class="app-accent-text flex h-12 w-12 items-center justify-center rounded-[var(--ui-radius-surface)] bg-[var(--ui-selected)]">
+            <i class="ti ti-folders text-xl" />
+          </span>
+          <h2 class="mt-2 line-clamp-2 max-w-full break-words text-lg font-semibold leading-tight text-primary" title={groupTitle()}>
+            {groupTitle()}
+          </h2>
+          <div class="mt-2 flex flex-wrap justify-center gap-1.5">
+            <For each={props.groupBy}>
+              {(spec, index) => (
+                <span class="inline-flex min-w-0 items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-secondary">
+                  <i class={`${groupIcon(spec)} shrink-0`} />
+                  <span class="font-medium">{groupLabel(spec, index())}</span>
+                  <span class="min-w-0 truncate">{groupValue(spec, index())}</span>
+                </span>
+              )}
+            </For>
+          </div>
         </div>
       </header>
 

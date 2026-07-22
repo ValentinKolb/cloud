@@ -126,6 +126,15 @@ export default function RecordReadView(props: RecordReadViewProps) {
     if (mode() === "trash") return "ti-trash";
     return "ti-table-row";
   };
+  const recordTitle = () =>
+    recordDisplayTitle({
+      fields: props.fields,
+      record: props.record,
+      fieldsByTable: props.fieldsByTable,
+      relationLabels: props.relationLabels,
+      dateConfig: props.dateConfig,
+      viewColumns: props.viewColumns,
+    });
 
   const Section = (sectionProps: { title: string; children: JSX.Element }) => (
     <section class="detail-section flex flex-col gap-3">
@@ -168,26 +177,29 @@ export default function RecordReadView(props: RecordReadViewProps) {
       <header class="detail-header">
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs font-semibold text-secondary">{detailLabel()}</span>
-          <Show when={props.headerActions}>{(actions) => <div class="flex shrink-0 items-center gap-0.5">{actions()}</div>}</Show>
+          <Show when={props.headerActions}>
+            {(actions) => (
+              <div class="flex shrink-0 items-center gap-0.5" role="group" aria-label="Detail panel actions">
+                {actions()}
+              </div>
+            )}
+          </Show>
         </div>
 
         <div class="mt-4 flex flex-col items-center text-center">
           <span class="app-accent-text flex h-12 w-12 items-center justify-center rounded-[var(--ui-radius-surface)] bg-[var(--ui-selected)]">
             <i class={`ti ${identityIcon()} text-xl`} />
           </span>
-          <h2 class="mt-2 max-w-full truncate text-lg font-semibold leading-tight text-primary">
-            {recordDisplayTitle({
-              fields: props.fields,
-              record: props.record,
-              fieldsByTable: props.fieldsByTable,
-              relationLabels: props.relationLabels,
-              dateConfig: props.dateConfig,
-              viewColumns: props.viewColumns,
-            })}
+          <h2 class="mt-2 line-clamp-2 max-w-full break-words text-lg font-semibold leading-tight text-primary" title={recordTitle()}>
+            {recordTitle()}
           </h2>
           {props.headerMeta ?? defaultHeaderMeta()}
           <Show when={props.quickActions}>
-            {(actions) => <div class="mt-3 flex flex-wrap items-center justify-center gap-2">{actions()}</div>}
+            {(actions) => (
+              <div class="mt-3 flex flex-wrap items-center justify-center gap-2" role="group" aria-label="Record actions">
+                {actions()}
+              </div>
+            )}
           </Show>
         </div>
       </header>

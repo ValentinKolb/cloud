@@ -155,6 +155,7 @@ export default function RecordDetailPanel(props: Props) {
   };
 
   const handleDelete = async (rec: GridRecord) => {
+    if (deleteMut.loading()) return;
     const title = recordDisplayTitle({
       fields: props.fields,
       record: rec,
@@ -180,6 +181,7 @@ export default function RecordDetailPanel(props: Props) {
   };
 
   const handleRestore = async (rec: GridRecord) => {
+    if (restoreMut.loading()) return;
     const requirement = recordAuditRequirementFor(props.auditPolicy, "restore");
     const audit = requirement
       ? await openRecordAuditDialog({
@@ -230,8 +232,8 @@ export default function RecordDetailPanel(props: Props) {
                 <Dropdown
                   trigger={
                     <Tooltip content="More record actions">
-                      <button type="button" class="icon-btn" aria-label="More record actions">
-                        <i class="ti ti-dots" />
+                      <button type="button" class="icon-btn" aria-label="More record actions" disabled={deleteMut.loading()}>
+                        <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-dots"} />
                       </button>
                     </Tooltip>
                   }
