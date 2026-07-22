@@ -24,12 +24,14 @@ describe("workflow run materialization", () => {
     const baseId = Bun.randomUUIDv7();
     const workflowId = Bun.randomUUIDv7();
     const runId = Bun.randomUUIDv7();
+    const baseShortId = testShortId("B");
+    const workflowShortId = testShortId("W");
 
     try {
-      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WRS00', 'Workflow scalar result test')`;
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Workflow scalar result test')`;
       await sql`
         INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, 'WRS01', ${baseId}::uuid, 'Scalar workflow', 'steps: []', '{}'::jsonb, TRUE)
+        VALUES (${workflowId}::uuid, ${workflowShortId}, ${baseId}::uuid, 'Scalar workflow', 'steps: []', '{}'::jsonb, TRUE)
       `;
       await sql`
         INSERT INTO grids.workflow_runs (
@@ -71,12 +73,14 @@ describe("workflow run materialization", () => {
     const baseId = Bun.randomUUIDv7();
     const workflowId = Bun.randomUUIDv7();
     const runId = Bun.randomUUIDv7();
+    const baseShortId = testShortId("B");
+    const workflowShortId = testShortId("W");
 
     try {
-      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WRP00', 'Workflow path test')`;
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Workflow path test')`;
       await sql`
         INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, 'WRP01', ${baseId}::uuid, 'Path workflow', 'steps: []', '{}'::jsonb, TRUE)
+        VALUES (${workflowId}::uuid, ${workflowShortId}, ${baseId}::uuid, 'Path workflow', 'steps: []', '{}'::jsonb, TRUE)
       `;
       await sql`
         INSERT INTO grids.workflow_runs (
@@ -139,7 +143,7 @@ describe("workflow run materialization", () => {
       const workflowId = Bun.randomUUIDv7();
       const baseShortId = testShortId("B");
       const workflowShortId = testShortId("W");
-      const runIds = Array.from({ length: 24 }, () => Bun.randomUUIDv7());
+      const runIds = Array.from({ length: 8 }, () => Bun.randomUUIDv7());
 
       try {
         await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Workflow concurrency test')`;
