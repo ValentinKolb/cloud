@@ -30,6 +30,7 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
   const [expiresIn, setExpiresIn] = createSignal<DocumentLinkTtl>("30d");
   const [comment, setComment] = createSignal("");
   const [createdUrl, setCreatedUrl] = createSignal<string | null>(null);
+  const [copiedOnCreate, setCopiedOnCreate] = createSignal(false);
   const createMut = mutations.create<CreateDocumentLinkResponse, void>({
     mutation: async () => {
       const res = await apiClient.documents.runs[":runId"].links.$post({
@@ -41,12 +42,15 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
     },
     onSuccess: async (created) => {
       const url = absoluteUrl(created.url);
-      setCreatedUrl(url);
+      let copied = false;
       try {
         await navigator.clipboard.writeText(url);
+        copied = true;
       } catch {
         // The visible copy button below is the fallback for locked-down browsers.
       }
+      setCopiedOnCreate(copied);
+      setCreatedUrl(url);
       await props.args.onCreated(created.link);
     },
     onError: (error) => prompts.error(error.message),
@@ -136,7 +140,7 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
             <section class="flex flex-col gap-3">
               <div class="info-block-success text-xs">
                 <i class="ti ti-check" />
-                Link created and copied to clipboard.
+                {copiedOnCreate() ? "Link created and copied to clipboard." : "Link created. Use Copy link to copy the URL."}
               </div>
               <code class="block break-all rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] p-2 font-mono text-xs text-secondary">
                 {url()}

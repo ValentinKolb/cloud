@@ -1,4 +1,4 @@
-import { Placeholder, prompts, Select } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, Select, Tooltip } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, Index, Show } from "solid-js";
 import type { Field } from "../../../service";
 import type { FormFieldEntry } from "../../../service/forms";
@@ -136,44 +136,48 @@ export function FormFieldsEditor(props: {
                         <span class="badge bg-[var(--ui-surface-subtle)] text-[10px] text-secondary">Required</span>
                       </Show>
                       <div class="flex shrink-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          class="icon-btn"
-                          onClick={() => moveEntry(idx, -1)}
-                          disabled={idx === 0}
-                          title="Move up"
-                          aria-label="Move up"
-                        >
-                          <i class="ti ti-arrow-up" />
-                        </button>
-                        <button
-                          type="button"
-                          class="icon-btn"
-                          onClick={() => moveEntry(idx, 1)}
-                          disabled={idx === props.entries().length - 1}
-                          title="Move down"
-                          aria-label="Move down"
-                        >
-                          <i class="ti ti-arrow-down" />
-                        </button>
-                        <button
-                          type="button"
-                          class="icon-btn md:hidden"
-                          onClick={() => void openFieldSettings(idx)}
-                          title="Edit field settings"
-                          aria-label="Edit field settings"
-                        >
-                          <i class="ti ti-pencil" />
-                        </button>
-                        <button
-                          type="button"
-                          class="icon-btn text-red-500 hover:text-red-600"
-                          onClick={() => removeEntry(idx)}
-                          title="Remove from form"
-                          aria-label="Remove from form"
-                        >
-                          <i class="ti ti-trash" />
-                        </button>
+                        <Tooltip content="Move field up">
+                          <button
+                            type="button"
+                            class="icon-btn"
+                            onClick={() => moveEntry(idx, -1)}
+                            disabled={idx === 0}
+                            aria-label="Move field up"
+                          >
+                            <i class="ti ti-arrow-up" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Move field down">
+                          <button
+                            type="button"
+                            class="icon-btn"
+                            onClick={() => moveEntry(idx, 1)}
+                            disabled={idx === props.entries().length - 1}
+                            aria-label="Move field down"
+                          >
+                            <i class="ti ti-arrow-down" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Edit field settings" class="md:hidden">
+                          <button
+                            type="button"
+                            class="icon-btn"
+                            onClick={() => void openFieldSettings(idx)}
+                            aria-label="Edit field settings"
+                          >
+                            <i class="ti ti-pencil" />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Remove from form">
+                          <button
+                            type="button"
+                            class="icon-btn text-red-500 hover:text-red-600"
+                            onClick={() => removeEntry(idx)}
+                            aria-label="Remove from form"
+                          >
+                            <i class="ti ti-trash" />
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
                   </li>

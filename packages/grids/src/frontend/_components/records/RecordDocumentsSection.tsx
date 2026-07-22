@@ -6,6 +6,7 @@ import {
   panelDialogOptions,
   prompts,
   StructuredDataPreview,
+  Tooltip,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -295,16 +296,17 @@ export default function RecordDocumentsSection(props: {
                   <i class="ti ti-camera text-dimmed" />
                   <span class="min-w-0 flex-1 truncate font-mono text-secondary">SNAP-{snapshot.id.slice(0, 8).toUpperCase()}</span>
                   <span class="shrink-0 text-dimmed">{formatRecordRelativeTime(snapshot.createdAt)}</span>
-                  <button
-                    type="button"
-                    class={iconActionClass}
-                    title="Inspect snapshot"
-                    aria-label="Inspect snapshot"
-                    onClick={() => void inspectSnapshot(snapshot)}
-                    disabled={busy() === snapshot.id}
-                  >
-                    {busy() === snapshot.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-eye" />}
-                  </button>
+                  <Tooltip content="Inspect snapshot">
+                    <button
+                      type="button"
+                      class={iconActionClass}
+                      aria-label="Inspect snapshot"
+                      onClick={() => void inspectSnapshot(snapshot)}
+                      disabled={busy() === snapshot.id}
+                    >
+                      {busy() === snapshot.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-eye" />}
+                    </button>
+                  </Tooltip>
                 </div>
               )}
             </For>
@@ -365,16 +367,17 @@ export default function RecordDocumentsSection(props: {
                   <i class="ti ti-file-description text-dimmed" />
                   <span class="min-w-0 flex-1 truncate text-secondary">{run.filename}</span>
                   <span class="shrink-0 text-dimmed">{formatRecordRelativeTime(run.generatedAt)}</span>
-                  <button
-                    type="button"
-                    class={iconActionClass}
-                    title="Download document"
-                    aria-label="Download document"
-                    onClick={() => void redownload(run)}
-                    disabled={busy() === run.id}
-                  >
-                    {busy() === run.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-                  </button>
+                  <Tooltip content="Download document">
+                    <button
+                      type="button"
+                      class={iconActionClass}
+                      aria-label="Download document"
+                      onClick={() => void redownload(run)}
+                      disabled={busy() === run.id}
+                    >
+                      {busy() === run.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+                    </button>
+                  </Tooltip>
                 </div>
               )}
             </For>

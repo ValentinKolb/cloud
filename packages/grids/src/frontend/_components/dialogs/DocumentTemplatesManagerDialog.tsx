@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentTemplate } from "../../../contracts";
@@ -152,56 +152,58 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
               </Show>
             </div>
             <div class="flex shrink-0 items-center gap-0.5">
-              <button
-                type="button"
-                class="icon-btn"
-                title={template.enabled ? "Disable template" : "Enable template"}
-                aria-label={template.enabled ? "Disable template" : "Enable template"}
-                onClick={() => void patchTemplate(template, { enabled: !template.enabled })}
-              >
-                <i class={`ti ${template.enabled ? "ti-toggle-right" : "ti-toggle-left"}`} />
-              </button>
-              <button
-                type="button"
-                class="icon-btn"
-                title="Move up"
-                aria-label="Move template up"
-                disabled={reordering() || index() === 0}
-                onClick={() => void moveTemplate(template, -1)}
-              >
-                <i class="ti ti-arrow-up" />
-              </button>
-              <button
-                type="button"
-                class="icon-btn"
-                title="Move down"
-                aria-label="Move template down"
-                disabled={reordering() || index() === (templates()?.length ?? 0) - 1}
-                onClick={() => void moveTemplate(template, 1)}
-              >
-                <i class="ti ti-arrow-down" />
-              </button>
-              <button
-                type="button"
-                class="icon-btn"
-                title="Duplicate template"
-                aria-label="Duplicate template"
-                onClick={() => void duplicateTemplate(template)}
-              >
-                <i class="ti ti-copy" />
-              </button>
-              <button type="button" class="icon-btn" title="Edit template" aria-label="Edit template" onClick={() => openEditor(template)}>
-                <i class="ti ti-pencil" />
-              </button>
-              <button
-                type="button"
-                class="icon-btn text-dimmed hover:text-red-500"
-                title="Delete template"
-                aria-label="Delete template"
-                onClick={() => void deleteTemplate(template)}
-              >
-                <i class="ti ti-trash" />
-              </button>
+              <Tooltip content={template.enabled ? "Disable template" : "Enable template"}>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  aria-label={template.enabled ? "Disable template" : "Enable template"}
+                  onClick={() => void patchTemplate(template, { enabled: !template.enabled })}
+                >
+                  <i class={`ti ${template.enabled ? "ti-toggle-right" : "ti-toggle-left"}`} />
+                </button>
+              </Tooltip>
+              <Tooltip content="Move template up">
+                <button
+                  type="button"
+                  class="icon-btn"
+                  aria-label="Move template up"
+                  disabled={reordering() || index() === 0}
+                  onClick={() => void moveTemplate(template, -1)}
+                >
+                  <i class="ti ti-arrow-up" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Move template down">
+                <button
+                  type="button"
+                  class="icon-btn"
+                  aria-label="Move template down"
+                  disabled={reordering() || index() === (templates()?.length ?? 0) - 1}
+                  onClick={() => void moveTemplate(template, 1)}
+                >
+                  <i class="ti ti-arrow-down" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Duplicate template">
+                <button type="button" class="icon-btn" aria-label="Duplicate template" onClick={() => void duplicateTemplate(template)}>
+                  <i class="ti ti-copy" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Edit template">
+                <button type="button" class="icon-btn" aria-label="Edit template" onClick={() => openEditor(template)}>
+                  <i class="ti ti-pencil" />
+                </button>
+              </Tooltip>
+              <Tooltip content="Delete template">
+                <button
+                  type="button"
+                  class="icon-btn text-dimmed hover:text-red-500"
+                  aria-label="Delete template"
+                  onClick={() => void deleteTemplate(template)}
+                >
+                  <i class="ti ti-trash" />
+                </button>
+              </Tooltip>
             </div>
           </div>
         )}

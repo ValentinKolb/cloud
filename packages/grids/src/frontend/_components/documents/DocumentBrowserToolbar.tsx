@@ -1,4 +1,4 @@
-import { Dropdown, TextInput } from "@valentinkolb/cloud/ui";
+import { Dropdown, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { Accessor, Setter } from "solid-js";
 import { Show } from "solid-js";
 
@@ -18,15 +18,16 @@ type Props = {
 
 function DisabledItem(props: { icon: string; label: string; title: string }) {
   return (
-    <button
-      type="button"
-      class="flex w-full cursor-not-allowed items-center gap-3 px-4 py-2 text-sm text-zinc-400 opacity-70 dark:text-zinc-500"
-      disabled
-      title={props.title}
-    >
-      <i class={props.icon} />
-      {props.label}
-    </button>
+    <Tooltip content={props.title} class="w-full">
+      <button
+        type="button"
+        class="flex w-full cursor-not-allowed items-center gap-3 px-4 py-2 text-sm text-zinc-400 opacity-70 dark:text-zinc-500"
+        disabled
+      >
+        <i class={props.icon} />
+        {props.label}
+      </button>
+    </Tooltip>
   );
 }
 

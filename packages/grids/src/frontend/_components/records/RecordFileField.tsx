@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { text } from "@valentinkolb/stdlib";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -81,23 +81,26 @@ export default function RecordFileField(props: {
             {(file) => (
               <div class="paper flex items-center gap-2 px-2.5 py-1.5 text-xs">
                 <i class="ti ti-paperclip text-dimmed" />
-                <a
-                  class="min-w-0 flex-1 truncate text-secondary hover:text-primary"
-                  href={`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}/${file.id}/content`}
-                  title={file.filename}
-                >
-                  {file.filename}
-                </a>
+                <Tooltip content={file.filename} class="min-w-0 flex-1">
+                  <a
+                    class="min-w-0 flex-1 truncate text-secondary hover:text-primary"
+                    href={`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}/${file.id}/content`}
+                  >
+                    {file.filename}
+                  </a>
+                </Tooltip>
                 <span class="shrink-0 text-[10px] text-dimmed">{text.pprintBytes(file.sizeBytes)}</span>
                 <Show when={props.canWrite}>
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-dimmed hover:text-red-500"
-                    title="Delete file"
-                    onClick={() => void remove(file)}
-                  >
-                    <i class="ti ti-trash" />
-                  </button>
+                  <Tooltip content="Delete file">
+                    <button
+                      type="button"
+                      class="btn-simple btn-sm text-dimmed hover:text-red-500"
+                      aria-label={`Delete ${file.filename}`}
+                      onClick={() => void remove(file)}
+                    >
+                      <i class="ti ti-trash" />
+                    </button>
+                  </Tooltip>
                 </Show>
               </div>
             )}

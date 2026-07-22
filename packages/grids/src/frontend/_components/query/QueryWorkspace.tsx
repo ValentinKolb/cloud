@@ -1,4 +1,4 @@
-import { Panes, type PanesValue, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { Panes, type PanesValue, prompts, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -445,7 +445,6 @@ export default function QueryWorkspace(props: Props) {
   };
 
   const saveButtonLabel = () => "Save";
-  const saveButtonTitle = () => "Save view";
   const saveButtonIcon = () => (saveViewMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-bookmark-plus");
   const handleSave = () => handleSaveAsView();
   const handleNextPage = async (cursor: string) => {
@@ -535,23 +534,13 @@ export default function QueryWorkspace(props: Props) {
               <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <For each={examples()}>
                   {(example) => (
-                    <button
-                      type="button"
-                      class="btn-input btn-sm"
-                      onClick={() => insertExample(example.code)}
-                      title={`Insert ${example.label} example`}
-                    >
+                    <button type="button" class="btn-input btn-sm" onClick={() => insertExample(example.code)}>
                       <i class="ti ti-sparkles" /> {example.label}
                     </button>
                   )}
                 </For>
               </div>
-              <button
-                type="button"
-                class="btn-input btn-sm"
-                onClick={() => openQueryReferenceWindow(props.baseShortId)}
-                title="Open GQL reference"
-              >
+              <button type="button" class="btn-input btn-sm" onClick={() => openQueryReferenceWindow(props.baseShortId)}>
                 <i class="ti ti-external-link" /> Reference
               </button>
               <button
@@ -559,7 +548,6 @@ export default function QueryWorkspace(props: Props) {
                 class="btn-input-primary btn-sm"
                 onClick={handleSave}
                 disabled={!query().trim() || saveViewMut.loading()}
-                title={saveButtonTitle()}
               >
                 <i class={saveButtonIcon()} /> {saveButtonLabel()}
               </button>
@@ -603,49 +591,48 @@ export default function QueryWorkspace(props: Props) {
                       return (
                         <article class="paper px-2.5 py-2">
                           <div class="flex items-start justify-between gap-2">
-                            <button
-                              type="button"
-                              class="group flex min-w-0 flex-1 items-center gap-2 text-left"
-                              onClick={() => insertSource(source)}
-                              title={`Insert ${source.fromLine}`}
-                            >
-                              <span class="grid h-6 w-6 shrink-0 place-items-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
-                                <i class={source.icon} />
-                              </span>
-                              <span class="min-w-0">
-                                <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                                  <span class="truncate text-sm font-medium text-primary group-hover:text-[var(--ui-app-accent-text)]">
-                                    {source.name}
-                                  </span>
-                                  <span class="text-[11px] text-dimmed">{source.metaLabel}</span>
+                            <Tooltip content={`Insert ${source.fromLine}`} class="min-w-0 flex-1">
+                              <button
+                                type="button"
+                                class="group flex min-w-0 flex-1 items-center gap-2 text-left"
+                                onClick={() => insertSource(source)}
+                              >
+                                <span class="grid h-6 w-6 shrink-0 place-items-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                                  <i class={source.icon} />
                                 </span>
-                                <Show when={source.parent}>
-                                  <span class="block truncate text-[11px] text-dimmed">of {source.parent}</span>
-                                </Show>
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              class="btn-ghost btn-sm shrink-0 px-2"
-                              onClick={() => insertSource(source)}
-                              title={`Insert ${source.fromLine}`}
-                            >
-                              from
-                            </button>
+                                <span class="min-w-0">
+                                  <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                                    <span class="truncate text-sm font-medium text-primary group-hover:text-[var(--ui-app-accent-text)]">
+                                      {source.name}
+                                    </span>
+                                    <span class="text-[11px] text-dimmed">{source.metaLabel}</span>
+                                  </span>
+                                  <Show when={source.parent}>
+                                    <span class="block truncate text-[11px] text-dimmed">of {source.parent}</span>
+                                  </Show>
+                                </span>
+                              </button>
+                            </Tooltip>
+                            <Tooltip content={`Insert ${source.fromLine}`}>
+                              <button type="button" class="btn-ghost btn-sm shrink-0 px-2" onClick={() => insertSource(source)}>
+                                from
+                              </button>
+                            </Tooltip>
                           </div>
 
                           <div class="mt-2 flex flex-wrap gap-1">
                             <For each={shown()}>
                               {(field) => (
-                                <button
-                                  type="button"
-                                  class="inline-flex max-w-full items-center gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[11px] text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
-                                  onClick={() => insertField(field)}
-                                  title={field.description || `${field.name} (${field.type})`}
-                                >
-                                  <span class="truncate">{formatIdentifierRef(field.name)}</span>
-                                  <span class="text-[10px] text-dimmed">{field.type}</span>
-                                </button>
+                                <Tooltip content={field.description || `${field.name} (${field.type})`}>
+                                  <button
+                                    type="button"
+                                    class="inline-flex max-w-full items-center gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[11px] text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
+                                    onClick={() => insertField(field)}
+                                  >
+                                    <span class="truncate">{formatIdentifierRef(field.name)}</span>
+                                    <span class="text-[10px] text-dimmed">{field.type}</span>
+                                  </button>
+                                </Tooltip>
                               )}
                             </For>
                             <Show when={hidden() > 0}>

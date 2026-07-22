@@ -7,6 +7,7 @@ import {
   prompts,
   SelectInput,
   TextInput,
+  Tooltip,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
@@ -344,26 +345,28 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                         {launcherKindLabel(launcher.config.kind)} · {launcher.enabled ? "Enabled" : "Disabled"}
                       </span>
                     </span>
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      disabled={mutationsBlocked()}
-                      aria-label={`Edit ${launcher.name}`}
-                      title="Edit launcher"
-                      onClick={() => void edit(launcher)}
-                    >
-                      <i class="ti ti-pencil" />
-                    </button>
-                    <button
-                      type="button"
-                      class="icon-btn text-red-600 dark:text-red-400"
-                      disabled={mutationsBlocked()}
-                      aria-label={`Delete ${launcher.name}`}
-                      title="Delete launcher"
-                      onClick={() => removeMut.mutate(launcher)}
-                    >
-                      <i class="ti ti-trash" />
-                    </button>
+                    <Tooltip content="Edit launcher">
+                      <button
+                        type="button"
+                        class="icon-btn"
+                        disabled={mutationsBlocked()}
+                        aria-label={`Edit ${launcher.name}`}
+                        onClick={() => void edit(launcher)}
+                      >
+                        <i class="ti ti-pencil" />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Delete launcher">
+                      <button
+                        type="button"
+                        class="icon-btn text-red-600 dark:text-red-400"
+                        disabled={mutationsBlocked()}
+                        aria-label={`Delete ${launcher.name}`}
+                        onClick={() => removeMut.mutate(launcher)}
+                      >
+                        <i class="ti ti-trash" />
+                      </button>
+                    </Tooltip>
                   </div>
                 )}
               </For>

@@ -264,7 +264,7 @@ function TrashRow(props: { icon: string; name: string; deletedAt: string; onRest
       <Show when={props.deletedAt}>
         <span class="text-[11px] text-dimmed">deleted {props.deletedAt}</span>
       </Show>
-      <button type="button" class="btn-simple btn-sm shrink-0" onClick={props.onRestore} title="Restore">
+      <button type="button" class="btn-simple btn-sm shrink-0" onClick={props.onRestore}>
         <i class="ti ti-arrow-back-up" /> Restore
       </button>
     </div>

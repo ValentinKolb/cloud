@@ -691,7 +691,6 @@ function DuplicateDashboardButton(props: { dashboard: Dashboard; baseShortId: st
     },
     onSuccess: (dashboard) => {
       props.onDuplicated();
-      toast.success("Dashboard duplicated");
       navigateTo(`/app/grids/${props.baseShortId}/dashboard/${dashboard.shortId}?edit=true`);
     },
     onError: (e) => prompts.error(e.message),

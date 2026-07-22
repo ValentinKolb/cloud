@@ -278,11 +278,7 @@ export default function GridToolbar(props: Props) {
             <Show
               when={props.onOpenQuery}
               fallback={
-                <a
-                  href={queryTarget() as string}
-                  class={`btn-input btn-input-sm ${hasGroupBy() || hasAgg() ? "btn-input-active" : ""}`}
-                  title="Open GQL query explorer"
-                >
+                <a href={queryTarget() as string} class={`btn-input btn-input-sm ${hasGroupBy() || hasAgg() ? "btn-input-active" : ""}`}>
                   <i class="ti ti-code" />
                   Query
                 </a>
@@ -293,7 +289,6 @@ export default function GridToolbar(props: Props) {
                   type="button"
                   class={`btn-input btn-input-sm ${hasGroupBy() || hasAgg() ? "btn-input-active" : ""}`}
                   onClick={openQuery()}
-                  title="Open GQL query editor"
                 >
                   <i class="ti ti-code" />
                   Query
@@ -309,7 +304,6 @@ export default function GridToolbar(props: Props) {
           class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
           onClick={onFilterClick}
           disabled={!hasFilterableFields()}
-          title={hasFilterableFields() ? "Add filter" : "No filterable fields"}
         >
           <i class="ti ti-filter" />
           Filter
@@ -339,7 +333,7 @@ export default function GridToolbar(props: Props) {
         {/* Smart Clear — appears when any query dimension is active.
             Label names exactly what goes away. */}
         <Show when={hasToolbarQuery()}>
-          <button type="button" class="btn-input btn-input-sm text-red-500" onClick={clearAll} title={clearLabel()}>
+          <button type="button" class="btn-input btn-input-sm text-red-500" onClick={clearAll}>
             <i class="ti ti-filter-off" />
             {clearLabel()}
           </button>
@@ -349,13 +343,7 @@ export default function GridToolbar(props: Props) {
             preset. The view settings modal handles renaming / sharing; the query
             becomes read-only after save. */}
         <Show when={hasSaveableQuery()}>
-          <button
-            type="button"
-            class="btn-input btn-input-sm ml-auto"
-            onClick={handleSaveView}
-            disabled={saveViewMut.loading()}
-            title="Save current setup as a view"
-          >
+          <button type="button" class="btn-input btn-input-sm ml-auto" onClick={handleSaveView} disabled={saveViewMut.loading()}>
             <i class="ti ti-bookmark-plus" />
             Save as view
           </button>

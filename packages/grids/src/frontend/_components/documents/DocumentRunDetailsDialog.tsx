@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, TagsInput, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, prompts, TagsInput, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -134,16 +134,17 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
                               </p>
                             </div>
                             <Show when={status().active}>
-                              <button
-                                type="button"
-                                class={documentIconActionClass}
-                                title="Revoke link"
-                                aria-label="Revoke link"
-                                onClick={() => void revokeMut.mutate(link)}
-                                disabled={revokeMut.loading()}
-                              >
-                                {revokeMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-link-off" />}
-                              </button>
+                              <Tooltip content="Revoke link">
+                                <button
+                                  type="button"
+                                  class={documentIconActionClass}
+                                  aria-label="Revoke link"
+                                  onClick={() => void revokeMut.mutate(link)}
+                                  disabled={revokeMut.loading()}
+                                >
+                                  {revokeMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-link-off" />}
+                                </button>
+                              </Tooltip>
                             </Show>
                           </div>
                         );

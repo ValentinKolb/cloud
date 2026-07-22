@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { CopyButton, Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { CopyButton, Placeholder, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
@@ -154,15 +154,11 @@ export default function FormsManager(props: Props) {
                   </button>
                   <div class="flex shrink-0 items-center gap-0">
                     <Show when={form.publicToken}>{(token) => <CopyButton text={publicFormUrl(token())} class="icon-btn" />}</Show>
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      onClick={() => openFormEditor(form)}
-                      title="Edit form"
-                      aria-label={`Edit form ${form.name}`}
-                    >
-                      <i class="ti ti-pencil" />
-                    </button>
+                    <Tooltip content="Edit form">
+                      <button type="button" class="icon-btn" onClick={() => openFormEditor(form)} aria-label={`Edit form ${form.name}`}>
+                        <i class="ti ti-pencil" />
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
               </li>

@@ -1,6 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
   Checkbox,
+  CopyButton,
   confirmDiscardIfDirty,
   dialogCore,
   ImageInput,
@@ -160,30 +161,6 @@ function FormEditor(props: {
     void updateMut.mutate({ closeMainDialog: true });
   };
 
-  const handleCopyPublicUrl = async () => {
-    if (!props.form.publicToken) return;
-    const url = `${window.location.origin}/share/grids/forms/${props.form.publicToken}`;
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // The dialog below remains a manual-copy fallback in sandboxed contexts.
-    }
-    await prompts.dialog<void>(
-      (close) => (
-        <div class="flex flex-col gap-3">
-          <p class="text-xs text-secondary">Copied to clipboard:</p>
-          <code class="block break-all rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] p-2 font-mono text-xs">{url}</code>
-          <div class="flex justify-end">
-            <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
-              OK
-            </button>
-          </div>
-        </div>
-      ),
-      { title: "Public URL", icon: "ti ti-link" },
-    );
-  };
-
   return (
     <>
       <PanelDialog.Body>
@@ -242,15 +219,14 @@ function FormEditor(props: {
                 wrap(setIsPublic)(next);
               }}
             />
-            <button
-              type="button"
-              class={`btn-simple btn-sm transition-opacity ${props.form.publicToken ? "opacity-100" : "opacity-0 pointer-events-none"}`}
-              onClick={handleCopyPublicUrl}
-              title="Copy public URL"
-              aria-label="Copy public URL"
-            >
-              <i class="ti ti-copy" />
-            </button>
+            <Show when={props.form.publicToken}>
+              {(token) => (
+                <CopyButton
+                  text={`${typeof window === "undefined" ? "" : window.location.origin}/share/grids/forms/${token()}`}
+                  class="btn-simple btn-sm"
+                />
+              )}
+            </Show>
           </div>
           <div class="flex flex-col gap-3">
             <p class="text-xs font-semibold text-primary">Submit access</p>

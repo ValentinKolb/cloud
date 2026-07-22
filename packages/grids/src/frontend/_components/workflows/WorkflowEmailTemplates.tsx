@@ -14,6 +14,7 @@ import {
   TemplateSampleData,
   type TemplateVariable,
   TextInput,
+  Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -358,25 +359,22 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                   </Show>
                 </button>
                 <div class="flex items-center gap-1">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    title="Edit email template"
-                    aria-label="Edit email template"
-                    onClick={() => void openEditor(template)}
-                  >
-                    <i class="ti ti-pencil" />
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                    title="Delete email template"
-                    aria-label="Delete email template"
-                    disabled={deleteMut.loading()}
-                    onClick={() => deleteMut.mutate(template)}
-                  >
-                    <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-                  </button>
+                  <Tooltip content="Edit email template">
+                    <button type="button" class="icon-btn" aria-label="Edit email template" onClick={() => void openEditor(template)}>
+                      <i class="ti ti-pencil" />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Delete email template">
+                    <button
+                      type="button"
+                      class="icon-btn text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                      aria-label="Delete email template"
+                      disabled={deleteMut.loading()}
+                      onClick={() => deleteMut.mutate(template)}
+                    >
+                      <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
+                    </button>
+                  </Tooltip>
                 </div>
               </article>
             )}

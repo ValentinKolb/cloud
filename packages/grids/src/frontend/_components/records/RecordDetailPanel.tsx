@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { Show } from "solid-js";
@@ -227,35 +227,41 @@ export default function RecordDetailPanel(props: Props) {
           headerActions={
             <>
               <Show when={props.canWrite && mode() === "live"}>
-                <button type="button" class="icon-btn" aria-label="Edit record" title="Edit record" onClick={() => handleEdit(rec)}>
-                  <i class="ti ti-pencil" />
-                </button>
-                <button
-                  type="button"
-                  class="icon-btn text-dimmed hover:text-red-500"
-                  aria-label="Delete record"
-                  title="Delete record"
-                  onClick={() => handleDelete(rec)}
-                  disabled={deleteMut.loading()}
-                >
-                  <i class="ti ti-trash" />
-                </button>
+                <Tooltip content="Edit record">
+                  <button type="button" class="icon-btn" aria-label="Edit record" onClick={() => handleEdit(rec)}>
+                    <i class="ti ti-pencil" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Delete record">
+                  <button
+                    type="button"
+                    class="icon-btn text-dimmed hover:text-red-500"
+                    aria-label="Delete record"
+                    onClick={() => handleDelete(rec)}
+                    disabled={deleteMut.loading()}
+                  >
+                    <i class="ti ti-trash" />
+                  </button>
+                </Tooltip>
               </Show>
               <Show when={props.canWrite && mode() === "trash"}>
-                <button
-                  type="button"
-                  class="icon-btn text-dimmed hover:text-emerald-600"
-                  aria-label="Restore record"
-                  title="Restore record"
-                  onClick={() => handleRestore(rec)}
-                  disabled={restoreMut.loading()}
-                >
-                  <i class="ti ti-arrow-back-up" />
-                </button>
+                <Tooltip content="Restore record">
+                  <button
+                    type="button"
+                    class="icon-btn text-dimmed hover:text-emerald-600"
+                    aria-label="Restore record"
+                    onClick={() => handleRestore(rec)}
+                    disabled={restoreMut.loading()}
+                  >
+                    <i class="ti ti-arrow-back-up" />
+                  </button>
+                </Tooltip>
               </Show>
-              <button type="button" class="icon-btn" aria-label="Close detail panel" title="Close detail" onClick={() => props.onClose()}>
-                <i class="ti ti-x" />
-              </button>
+              <Tooltip content="Close details">
+                <button type="button" class="icon-btn" aria-label="Close detail panel" onClick={() => props.onClose()}>
+                  <i class="ti ti-x" />
+                </button>
+              </Tooltip>
             </>
           }
         >

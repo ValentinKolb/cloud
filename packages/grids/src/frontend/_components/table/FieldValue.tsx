@@ -151,7 +151,6 @@ export function FieldValue(props: FieldValueProps) {
         href={`/app/grids/${props.baseId}/table/${props.tableShortIds?.[target.targetTableId] ?? target.targetTableId}?record=${target.targetId}`}
         class="inline-flex items-baseline gap-1 hover:underline"
         onClick={(event) => event.stopPropagation()}
-        title="Open this record in the linked table"
       >
         <i class="ti ti-arrow-up-right text-[10px] text-dimmed self-center" />
         <span>{value}</span>

@@ -137,7 +137,7 @@ const openSettingsDialog = () => dialogCore.open<void>((close) => <SettingsBody 
 
 export default function AdminGridsSettings() {
   return (
-    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={() => void openSettingsDialog()} title="Grids app settings">
+    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={() => void openSettingsDialog()}>
       <i class="ti ti-settings text-sm" />
       Settings
     </button>

@@ -8,6 +8,7 @@ import {
   prompts,
   SelectInput,
   TextInput,
+  Tooltip,
 } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
 import {
@@ -133,16 +134,17 @@ const openQuestionDialog = (question: AuditQuestion): Promise<AuditQuestion | nu
                             required
                           />
                         </div>
-                        <button
-                          type="button"
-                          class="icon-btn mb-1 text-dimmed hover:text-red-600"
-                          aria-label={`Remove option ${index() + 1}`}
-                          title="Remove option"
-                          disabled={options().length === 1}
-                          onClick={() => setOptions((current) => current.filter((candidate) => candidate.id !== option.id))}
-                        >
-                          <i class="ti ti-trash" />
-                        </button>
+                        <Tooltip content="Remove option">
+                          <button
+                            type="button"
+                            class="icon-btn mb-1 text-dimmed hover:text-red-600"
+                            aria-label={`Remove option ${index() + 1}`}
+                            disabled={options().length === 1}
+                            onClick={() => setOptions((current) => current.filter((candidate) => candidate.id !== option.id))}
+                          >
+                            <i class="ti ti-trash" />
+                          </button>
+                        </Tooltip>
                       </div>
                     )}
                   </For>
@@ -201,25 +203,22 @@ function RequirementQuestions(props: { questions: () => AuditQuestion[]; onChang
                 {question.required ? "Required" : "Optional"} · {QUESTION_TYPE_OPTIONS.find((option) => option.id === question.type)?.label}
               </div>
             </div>
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label={`Edit ${question.label}`}
-              title="Edit question"
-              onClick={() => void edit(question)}
-            >
-              <i class="ti ti-pencil" />
-            </button>
+            <Tooltip content="Edit question">
+              <button type="button" class="icon-btn" aria-label={`Edit ${question.label}`} onClick={() => void edit(question)}>
+                <i class="ti ti-pencil" />
+              </button>
+            </Tooltip>
             <CopyButton text={question.id} label="Copy ID" class="btn-ghost btn-sm" />
-            <button
-              type="button"
-              class="icon-btn text-dimmed hover:text-red-600"
-              aria-label={`Remove ${question.label}`}
-              title="Remove question"
-              onClick={() => props.onChange(props.questions().filter((candidate) => candidate.id !== question.id))}
-            >
-              <i class="ti ti-trash" />
-            </button>
+            <Tooltip content="Remove question">
+              <button
+                type="button"
+                class="icon-btn text-dimmed hover:text-red-600"
+                aria-label={`Remove ${question.label}`}
+                onClick={() => props.onChange(props.questions().filter((candidate) => candidate.id !== question.id))}
+              >
+                <i class="ti ti-trash" />
+              </button>
+            </Tooltip>
           </div>
         )}
       </For>

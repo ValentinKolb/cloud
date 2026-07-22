@@ -1,4 +1,4 @@
-import { Select } from "@valentinkolb/cloud/ui";
+import { Select, Tooltip } from "@valentinkolb/cloud/ui";
 import { createMemo, Index } from "solid-js";
 import type { RecordMetaSortKey, RecordQuery } from "../../../contracts";
 import type { Field } from "../../../service";
@@ -127,9 +127,11 @@ export default function SortPanel(props: Props) {
                 options={directionOptions(rowSignal(), fieldsById())}
               />
             </div>
-            <button type="button" class="text-dimmed hover:text-red-500 px-1" onClick={() => removeRow(index)} title="Remove sort">
-              <i class="ti ti-x" />
-            </button>
+            <Tooltip content="Remove sort">
+              <button type="button" class="text-dimmed hover:text-red-500 px-1" onClick={() => removeRow(index)} aria-label="Remove sort">
+                <i class="ti ti-x" />
+              </button>
+            </Tooltip>
           </div>
         )}
       </Index>

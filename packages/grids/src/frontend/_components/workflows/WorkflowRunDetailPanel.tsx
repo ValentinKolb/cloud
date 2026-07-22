@@ -1,4 +1,4 @@
-import { CodeDisplay, Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { CodeDisplay, Placeholder, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -234,19 +234,16 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
             </div>
             <p class="mt-0.5 text-xs text-dimmed">{run() ? formatDate(run()!.createdAt) : "Loading..."}</p>
           </div>
-          <button
-            type="button"
-            class="icon-btn"
-            onClick={() => refresh()}
-            disabled={loadMut.loading()}
-            title="Refresh run details"
-            aria-label="Refresh run details"
-          >
-            <i class={loadMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
-          </button>
-          <button type="button" class="icon-btn" onClick={props.onClose} title="Close run details" aria-label="Close run details">
-            <i class="ti ti-x" />
-          </button>
+          <Tooltip content="Refresh run details">
+            <button type="button" class="icon-btn" onClick={() => refresh()} disabled={loadMut.loading()} aria-label="Refresh run details">
+              <i class={loadMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Close run details">
+            <button type="button" class="icon-btn" onClick={props.onClose} aria-label="Close run details">
+              <i class="ti ti-x" />
+            </button>
+          </Tooltip>
         </div>
       </header>
 
@@ -369,16 +366,17 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
                     <span class="block truncate text-primary">{document.filename}</span>
                     <span class="block truncate text-dimmed">{document.documentNumber}</span>
                   </span>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    title="Download document"
-                    aria-label={`Download ${document.filename}`}
-                    onClick={() => void downloadDocument(document)}
-                    disabled={downloadingDocumentId() === document.id}
-                  >
-                    {downloadingDocumentId() === document.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-                  </button>
+                  <Tooltip content="Download document">
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      aria-label={`Download ${document.filename}`}
+                      onClick={() => void downloadDocument(document)}
+                      disabled={downloadingDocumentId() === document.id}
+                    >
+                      {downloadingDocumentId() === document.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+                    </button>
+                  </Tooltip>
                 </div>
               )}
             </For>

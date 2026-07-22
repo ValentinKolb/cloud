@@ -44,12 +44,7 @@ export function RecordLink(props: Props) {
         </span>
       }
     >
-      <a
-        href={href()!}
-        class="inline-flex items-baseline gap-1 hover:underline"
-        onClick={(e) => e.stopPropagation()}
-        title={`Open this record in ${props.targetTableId ? "the linked table" : "another table"}`}
-      >
+      <a href={href()!} class="inline-flex items-baseline gap-1 hover:underline" onClick={(e) => e.stopPropagation()}>
         <i class="ti ti-arrow-up-right text-[10px] text-dimmed self-center" />
         <span>{props.label}</span>
         <Show when={props.comma}>

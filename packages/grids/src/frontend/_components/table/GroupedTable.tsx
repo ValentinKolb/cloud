@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import type { AggregationSpec, GroupBySpec } from "../../../contracts";
@@ -161,45 +161,48 @@ export default function GroupedTable(props: Props) {
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{render()}</div>
               <div class="flex shrink-0 items-center gap-0">
-                <button
-                  type="button"
-                  class={adminIconClass}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    move?.(meta.id, -1);
-                  }}
-                  disabled={!move || index === 0}
-                  title="Move column left"
-                  aria-label="Move column left"
-                >
-                  <i class="ti ti-chevron-left text-xs" />
-                </button>
-                <button
-                  type="button"
-                  class={adminIconClass}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    move?.(meta.id, 1);
-                  }}
-                  disabled={!move || index >= count - 1}
-                  title="Move column right"
-                  aria-label="Move column right"
-                >
-                  <i class="ti ti-chevron-right text-xs" />
-                </button>
-                <button
-                  type="button"
-                  class={adminIconClass}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    settings?.(meta.id);
-                  }}
-                  disabled={!settings}
-                  title="Column settings"
-                  aria-label="Column settings"
-                >
-                  <i class="ti ti-settings text-xs" />
-                </button>
+                <Tooltip content="Move column left">
+                  <button
+                    type="button"
+                    class={adminIconClass}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      move?.(meta.id, -1);
+                    }}
+                    disabled={!move || index === 0}
+                    aria-label="Move column left"
+                  >
+                    <i class="ti ti-chevron-left text-xs" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Move column right">
+                  <button
+                    type="button"
+                    class={adminIconClass}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      move?.(meta.id, 1);
+                    }}
+                    disabled={!move || index >= count - 1}
+                    aria-label="Move column right"
+                  >
+                    <i class="ti ti-chevron-right text-xs" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Column settings">
+                  <button
+                    type="button"
+                    class={adminIconClass}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      settings?.(meta.id);
+                    }}
+                    disabled={!settings}
+                    aria-label="Column settings"
+                  >
+                    <i class="ti ti-settings text-xs" />
+                  </button>
+                </Tooltip>
               </div>
             </div>
           );

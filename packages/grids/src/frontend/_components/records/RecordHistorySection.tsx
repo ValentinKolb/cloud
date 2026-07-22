@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { Field, RecordHistoryEntry } from "../../../service";
@@ -91,9 +91,9 @@ export function RecordHistoryList(props: HistoryProps) {
                   >
                     {(name) => <span class="text-dimmed">by {name()}</span>}
                   </Show>
-                  <span class="ml-auto text-[10px] text-dimmed shrink-0" title={entry.createdAt}>
-                    {formatRecordRelativeTime(entry.createdAt, props.dateConfig)}
-                  </span>
+                  <Tooltip content={entry.createdAt} class="ml-auto shrink-0">
+                    <span class="text-[10px] text-dimmed">{formatRecordRelativeTime(entry.createdAt, props.dateConfig)}</span>
+                  </Tooltip>
                 </summary>
                 <Show when={summary}>
                   <p class="ml-5 text-[11px] text-dimmed">changed {summary}</p>
@@ -141,17 +141,18 @@ export function RecordHistoryList(props: HistoryProps) {
                 </Show>
               </details>
               <Show when={props.onOpenRecord && entry.recordId}>
-                <button
-                  type="button"
-                  class="icon-btn -my-1 absolute right-0 top-0"
-                  aria-label="Open record"
-                  title="Open record"
-                  onClick={() => {
-                    props.onOpenRecord?.(entry.recordId!, "recordDeletedAt" in entry && entry.recordDeletedAt !== null);
-                  }}
-                >
-                  <i class="ti ti-arrow-up-right" aria-hidden="true" />
-                </button>
+                <Tooltip content="Open record" class="absolute right-0 top-0">
+                  <button
+                    type="button"
+                    class="icon-btn -my-1"
+                    aria-label="Open record"
+                    onClick={() => {
+                      props.onOpenRecord?.(entry.recordId!, "recordDeletedAt" in entry && entry.recordDeletedAt !== null);
+                    }}
+                  >
+                    <i class="ti ti-arrow-up-right" aria-hidden="true" />
+                  </button>
+                </Tooltip>
               </Show>
             </div>
           );

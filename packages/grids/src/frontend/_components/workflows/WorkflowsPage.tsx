@@ -11,7 +11,6 @@ import {
   StatCell,
   StatGrid,
   TextInput,
-  toast,
 } from "@valentinkolb/cloud/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -622,7 +621,6 @@ export default function WorkflowsPage(props: Props) {
       return (await res.json()) as { runId: string; status: WorkflowRun["status"] };
     },
     onSuccess: (receipt) => {
-      toast.success(`Workflow run ${receipt.status}`);
       reloadAll();
       props.onSelectRun(receipt.runId);
     },

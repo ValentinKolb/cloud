@@ -1,3 +1,4 @@
+import { Tooltip } from "@valentinkolb/cloud/ui";
 import { createMemo, Show } from "solid-js";
 import type { FormatSpec } from "../../../contracts";
 import { barcodeSvgForCell, barcodeSvgForDisplay, barcodeUrl, barcodeValueText } from "./BarcodeRendering";
@@ -24,20 +25,21 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
   const openButton = () => (
     <Show when={props.showOpenAction && sizedSvg() && openUrl()}>
       {(url) => (
-        <a
-          href={url()}
-          target="_blank"
-          rel="noopener noreferrer"
-          class={detail() ? "btn-input btn-input-sm w-fit" : "btn-simple btn-sm text-dimmed hover:text-primary"}
-          title="Open URL"
-          aria-label="Open URL"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <i class="ti ti-external-link" />
-          <Show when={detail()}>
-            <span>Open</span>
-          </Show>
-        </a>
+        <Tooltip content="Open URL" disabled={detail()}>
+          <a
+            href={url()}
+            target="_blank"
+            rel="noopener noreferrer"
+            class={detail() ? "btn-input btn-input-sm w-fit" : "btn-simple btn-sm text-dimmed hover:text-primary"}
+            aria-label="Open URL"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <i class="ti ti-external-link" />
+            <Show when={detail()}>
+              <span>Open</span>
+            </Show>
+          </a>
+        </Tooltip>
       )}
     </Show>
   );
@@ -50,9 +52,9 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
           <Show
             when={openUrl()}
             fallback={
-              <span class={fallbackClass()} title={fallback()}>
-                {fallback()}
-              </span>
+              <Tooltip content={fallback()}>
+                <span class={fallbackClass()}>{fallback()}</span>
+              </Tooltip>
             }
           >
             {(url) => (
@@ -61,7 +63,6 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
                 target="_blank"
                 rel="noopener noreferrer"
                 class={`${fallbackClass()} hover:underline`}
-                title={fallback()}
                 onClick={(event) => event.stopPropagation()}
               >
                 {fallback()}
@@ -70,7 +71,11 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
           </Show>
         }
       >
-        {(html) => <span class={svgClass()} title={fallback()} innerHTML={html()} />}
+        {(html) => (
+          <Tooltip content={fallback()}>
+            <span class={svgClass()} innerHTML={html()} />
+          </Tooltip>
+        )}
       </Show>
       {openButton()}
     </span>

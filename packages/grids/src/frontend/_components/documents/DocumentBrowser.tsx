@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { DocumentRunFolder, DocumentRunSummary } from "../../../contracts";
@@ -47,44 +47,47 @@ export default function DocumentBrowser(props: Props) {
     return (
       <div class="flex shrink-0 items-center gap-1">
         <Show when={state().showEdit}>
-          <button
-            type="button"
-            class={documentIconActionClass}
-            title="Edit document metadata"
-            aria-label="Edit document metadata"
-            onClick={(event) => {
-              event.stopPropagation();
-              props.onEdit(run);
-            }}
-          >
-            <i class="ti ti-pencil" />
-          </button>
-          <button
-            type="button"
-            class={documentIconActionClass}
-            title="Create public link"
-            aria-label="Create public link"
-            onClick={(event) => {
-              event.stopPropagation();
-              props.onLink(run);
-            }}
-          >
-            <i class="ti ti-link" />
-          </button>
+          <Tooltip content="Edit document metadata">
+            <button
+              type="button"
+              class={documentIconActionClass}
+              aria-label="Edit document metadata"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onEdit(run);
+              }}
+            >
+              <i class="ti ti-pencil" />
+            </button>
+          </Tooltip>
+          <Tooltip content="Create public link">
+            <button
+              type="button"
+              class={documentIconActionClass}
+              aria-label="Create public link"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onLink(run);
+              }}
+            >
+              <i class="ti ti-link" />
+            </button>
+          </Tooltip>
         </Show>
-        <button
-          type="button"
-          class={documentIconActionClass}
-          title="Download document"
-          aria-label="Download document"
-          onClick={(event) => {
-            event.stopPropagation();
-            props.onDownload(run);
-          }}
-          disabled={state().downloadBusy}
-        >
-          {state().downloadBusy ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-        </button>
+        <Tooltip content="Download document">
+          <button
+            type="button"
+            class={documentIconActionClass}
+            aria-label="Download document"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onDownload(run);
+            }}
+            disabled={state().downloadBusy}
+          >
+            {state().downloadBusy ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+          </button>
+        </Tooltip>
       </div>
     );
   };

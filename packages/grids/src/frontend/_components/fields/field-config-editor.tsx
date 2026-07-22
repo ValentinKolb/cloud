@@ -1,4 +1,4 @@
-import { CheckboxCard, ColorInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, ColorInput, NumberInput, Select, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { For, Index, Show } from "solid-js";
 import type { Field } from "../../../service";
 import { FormulaExpressionEditor } from "./FormulaExpressionEditor";
@@ -526,15 +526,16 @@ function SelectConstraints(props: { config: () => FieldConfigState; onChange: (n
                 <div class="w-40 shrink-0">
                   <TextInput placeholder="value" icon="ti ti-id" value={() => opt().id} onInput={(v) => updateOption(i, { id: v })} />
                 </div>
-                <button
-                  type="button"
-                  class="text-dimmed hover:text-red-500 p-1 shrink-0"
-                  onClick={() => removeOption(i)}
-                  title="Remove"
-                  aria-label="Remove option"
-                >
-                  <i class="ti ti-x" />
-                </button>
+                <Tooltip content="Remove option">
+                  <button
+                    type="button"
+                    class="text-dimmed hover:text-red-500 p-1 shrink-0"
+                    onClick={() => removeOption(i)}
+                    aria-label="Remove option"
+                  >
+                    <i class="ti ti-x" />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </Index>

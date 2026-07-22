@@ -1,4 +1,13 @@
-import { DatePicker, DateRangePicker, DateTimePicker, MultiSelectInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
+import {
+  DatePicker,
+  DateRangePicker,
+  DateTimePicker,
+  MultiSelectInput,
+  NumberInput,
+  Select,
+  TextInput,
+  Tooltip,
+} from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
@@ -121,9 +130,16 @@ export default function FilterPanel(props: Props) {
                 dateConfig={props.dateConfig}
               />
 
-              <button type="button" class="text-dimmed hover:text-red-500 px-1" onClick={() => removeLeaf(index)} title="Remove filter">
-                <i class="ti ti-x" />
-              </button>
+              <Tooltip content="Remove filter">
+                <button
+                  type="button"
+                  class="text-dimmed hover:text-red-500 px-1"
+                  onClick={() => removeLeaf(index)}
+                  aria-label="Remove filter"
+                >
+                  <i class="ti ti-x" />
+                </button>
+              </Tooltip>
             </div>
           );
         }}

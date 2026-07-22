@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { Dropdown, PermissionEditor, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, PermissionEditor, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
@@ -129,14 +129,16 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
                         {entryLabel(entry)} · {entry.permission}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      class="text-dimmed hover:text-default"
-                      title="Clear override"
-                      onClick={() => void clearChildEntry(entry).catch((err) => prompts.error(err.message))}
-                    >
-                      <i class="ti ti-x text-sm" />
-                    </button>
+                    <Tooltip content="Clear override">
+                      <button
+                        type="button"
+                        class="text-dimmed hover:text-default"
+                        aria-label={`Clear override for ${entry.resourceName}`}
+                        onClick={() => void clearChildEntry(entry).catch((err) => prompts.error(err.message))}
+                      >
+                        <i class="ti ti-x text-sm" />
+                      </button>
+                    </Tooltip>
                   </div>
                 )}
               </For>

@@ -8,6 +8,7 @@ import {
   panelDialogOptions,
   prompts,
   TextInput,
+  Tooltip,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -430,15 +431,16 @@ function TableSettingsBody(props: {
                       {publication.revokedAt ? "Revoked" : publication.status === "active" ? "Active" : "Action required"}
                     </span>
                     <Show when={!publication.revokedAt}>
-                      <button
-                        type="button"
-                        class="btn-ghost btn-sm text-danger"
-                        title="Revoke publication"
-                        onClick={() => void revokePublication(publication)}
-                      >
-                        <i class="ti ti-unlink" aria-hidden="true" />
-                        <span class="sr-only">Revoke {publication.targetTableName}</span>
-                      </button>
+                      <Tooltip content="Revoke publication">
+                        <button
+                          type="button"
+                          class="btn-ghost btn-sm text-danger"
+                          aria-label={`Revoke publication to ${publication.targetTableName}`}
+                          onClick={() => void revokePublication(publication)}
+                        >
+                          <i class="ti ti-unlink" aria-hidden="true" />
+                        </button>
+                      </Tooltip>
                     </Show>
                   </div>
                 )}

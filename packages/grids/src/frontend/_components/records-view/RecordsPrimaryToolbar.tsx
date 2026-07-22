@@ -1,4 +1,4 @@
-import { Dropdown } from "@valentinkolb/cloud/ui";
+import { Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
 import type { Field } from "../../../service";
 import { CardSizeDropdown } from "../toolbar/CardSizeDropdown";
@@ -55,16 +55,12 @@ export default function RecordsPrimaryToolbar(props: Props) {
         {props.recordCountText}
       </span>
       <Show when={props.livePending || props.liveRefreshing}>
-        <button
-          type="button"
-          class="btn-input btn-input-sm app-accent-text"
-          disabled={props.liveRefreshing}
-          onClick={props.onRefresh}
-          title="Refresh records"
-        >
-          <i class={`ti ${props.liveRefreshing ? "ti-loader-2 animate-spin" : "ti-refresh"}`} />
-          Updates available
-        </button>
+        <Tooltip content="Refresh records">
+          <button type="button" class="btn-input btn-input-sm app-accent-text" disabled={props.liveRefreshing} onClick={props.onRefresh}>
+            <i class={`ti ${props.liveRefreshing ? "ti-loader-2 animate-spin" : "ti-refresh"}`} />
+            Updates available
+          </button>
+        </Tooltip>
       </Show>
       <Show when={props.cardsMode && (props.viewMode || props.trashMode)}>
         <CardSizeDropdown value={props.cardSize} onChange={props.onCardSizeChange} />

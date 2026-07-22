@@ -1,4 +1,4 @@
-import { Placeholder, TextInput } from "@valentinkolb/cloud/ui";
+import { Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -171,9 +171,11 @@ export default function GroupDetailPanel(props: Props) {
               </For>
             </div>
           </div>
-          <button type="button" class="icon-btn" aria-label="Close group detail panel" title="Close" onClick={() => props.onClose()}>
-            <i class="ti ti-x" />
-          </button>
+          <Tooltip content="Close details">
+            <button type="button" class="icon-btn" aria-label="Close group detail panel" onClick={() => props.onClose()}>
+              <i class="ti ti-x" />
+            </button>
+          </Tooltip>
         </div>
       </header>
 

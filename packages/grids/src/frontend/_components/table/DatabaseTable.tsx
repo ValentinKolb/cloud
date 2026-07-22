@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, For, type JSX, Show } from "solid-js";
 import type { AggregationSpec, ColumnSpec } from "../../../contracts";
@@ -291,9 +291,11 @@ export default function DatabaseTable(props: Props) {
           const label = spec.label?.trim() || fallbackLabel;
           return (
             <Show when={value() !== undefined && value() !== null}>
-              <span class="block whitespace-nowrap" title={`${spec.agg}${spec.label ? ` (${spec.label})` : ""}`}>
-                <span class="font-medium text-secondary">{displayValue()}</span> <span>{label}</span>
-              </span>
+              <Tooltip content={`${spec.agg}${spec.label ? ` (${spec.label})` : ""}`}>
+                <span class="block whitespace-nowrap">
+                  <span class="font-medium text-secondary">{displayValue()}</span> <span>{label}</span>
+                </span>
+              </Tooltip>
             </Show>
           );
         }}
@@ -354,48 +356,51 @@ export default function DatabaseTable(props: Props) {
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{renderAdminHeader(field, subtitle, computed)}</div>
               <div class="flex shrink-0 items-center gap-0">
-                <button
-                  type="button"
-                  class={adminIconClass}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (isColumnOrderEdit && entry) props.onViewColumnMove?.(entry.column, -1);
-                    else props.onFieldMove?.(field, -1);
-                  }}
-                  disabled={!canMoveLeft}
-                  title="Move column left"
-                  aria-label={`Move ${field.name} left`}
-                >
-                  <i class="ti ti-chevron-left text-xs" />
-                </button>
-                <button
-                  type="button"
-                  class={adminIconClass}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (isColumnOrderEdit && entry) props.onViewColumnMove?.(entry.column, 1);
-                    else props.onFieldMove?.(field, 1);
-                  }}
-                  disabled={!canMoveRight}
-                  title="Move column right"
-                  aria-label={`Move ${field.name} right`}
-                >
-                  <i class="ti ti-chevron-right text-xs" />
-                </button>
-                <button
-                  type="button"
-                  class={adminIconClass}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (isViewColumnEdit && entry)
-                      props.onViewColumnSettings?.(entry.column, isComputedColumn(entry.column) ? null : field);
-                    else props.onFieldSettings?.(field);
-                  }}
-                  title={isViewColumnEdit ? "Column settings" : "Field settings"}
-                  aria-label={`${isViewColumnEdit ? "Column" : "Field"} settings for ${field.name}`}
-                >
-                  <i class="ti ti-settings text-xs" />
-                </button>
+                <Tooltip content="Move column left">
+                  <button
+                    type="button"
+                    class={adminIconClass}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (isColumnOrderEdit && entry) props.onViewColumnMove?.(entry.column, -1);
+                      else props.onFieldMove?.(field, -1);
+                    }}
+                    disabled={!canMoveLeft}
+                    aria-label={`Move ${field.name} left`}
+                  >
+                    <i class="ti ti-chevron-left text-xs" />
+                  </button>
+                </Tooltip>
+                <Tooltip content="Move column right">
+                  <button
+                    type="button"
+                    class={adminIconClass}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (isColumnOrderEdit && entry) props.onViewColumnMove?.(entry.column, 1);
+                      else props.onFieldMove?.(field, 1);
+                    }}
+                    disabled={!canMoveRight}
+                    aria-label={`Move ${field.name} right`}
+                  >
+                    <i class="ti ti-chevron-right text-xs" />
+                  </button>
+                </Tooltip>
+                <Tooltip content={isViewColumnEdit ? "Column settings" : "Field settings"}>
+                  <button
+                    type="button"
+                    class={adminIconClass}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (isViewColumnEdit && entry)
+                        props.onViewColumnSettings?.(entry.column, isComputedColumn(entry.column) ? null : field);
+                      else props.onFieldSettings?.(field);
+                    }}
+                    aria-label={`${isViewColumnEdit ? "Column" : "Field"} settings for ${field.name}`}
+                  >
+                    <i class="ti ti-settings text-xs" />
+                  </button>
+                </Tooltip>
               </div>
             </div>
           );
