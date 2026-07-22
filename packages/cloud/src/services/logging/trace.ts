@@ -445,7 +445,7 @@ const start = async (params: TraceStartParams): Promise<TraceContext> => {
   const attributes = sanitizeAttributes(params.attributes);
   const attributesJson = attributes ? JSON.stringify(attributes) : null;
   const startedAt = normalizeDate(params.startedAt);
-  await sql`
+  const [stored] = await sql<Array<{ trace_id: string; span_id: string }>>`
     INSERT INTO logging.trace_spans (
       trace_id,
       span_id,
@@ -488,8 +488,12 @@ const start = async (params: TraceStartParams): Promise<TraceContext> => {
       attributes = COALESCE(logging.trace_spans.attributes, '{}'::jsonb) || COALESCE(EXCLUDED.attributes, '{}'::jsonb),
       started_at = LEAST(logging.trace_spans.started_at, EXCLUDED.started_at),
       updated_at = now()
-  `.catch((error: Error) => console.error("[logging:trace] span start failed:", error.message));
-  return context;
+    RETURNING trace_id, span_id
+  `.catch((error: Error) => {
+    console.error("[logging:trace] span start failed:", error.message);
+    return [];
+  });
+  return stored ? contextFor(stored.trace_id, stored.span_id) : context;
 };
 
 const record = async (params: TraceRecordParams): Promise<TraceContext> => {

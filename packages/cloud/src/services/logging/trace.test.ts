@@ -16,6 +16,42 @@ const canUseTraceDatabase = async (): Promise<boolean> => {
 };
 
 describe("logging.trace", () => {
+  test("starts one keyed span safely under concurrency", async () => {
+    if (!(await canUseTraceDatabase())) {
+      console.warn("Skipping trace DB test: logging trace tables are not available.");
+      return;
+    }
+
+    const suffix = crypto.randomUUID();
+    const source = `test:trace:concurrent:${suffix}`;
+    const spanKey = `${source}:run`;
+    const originalError = console.error;
+    const startErrors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      if (args[0] === "[logging:trace] span start failed:") {
+        startErrors.push(args.map(String).join(" "));
+        return;
+      }
+      originalError(...args);
+    };
+
+    try {
+      const contexts = await Promise.all(Array.from({ length: 50 }, () => trace.start({ name: "Concurrent trace test", source, spanKey })));
+      expect(startErrors).toEqual([]);
+      expect(new Set(contexts.map((context) => `${context.traceId}:${context.spanId}`)).size).toBe(1);
+
+      const [stored] = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count
+        FROM logging.trace_spans
+        WHERE span_key = ${spanKey}
+      `;
+      expect(stored?.count).toBe(1);
+    } finally {
+      console.error = originalError;
+      await sql`DELETE FROM logging.trace_spans WHERE source = ${source}`;
+    }
+  });
+
   test("records span events and redacts sensitive metadata", async () => {
     if (!(await canUseTraceDatabase())) {
       console.warn("Skipping trace DB test: logging trace tables are not available.");

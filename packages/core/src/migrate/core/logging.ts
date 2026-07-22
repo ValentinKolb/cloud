@@ -41,7 +41,7 @@ export const migrate = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS logging.trace_spans (
       trace_id TEXT NOT NULL,
       span_id TEXT NOT NULL,
-      span_key TEXT UNIQUE,
+      span_key TEXT,
       parent_span_id TEXT,
       name TEXT NOT NULL,
       source TEXT NOT NULL,
@@ -60,6 +60,19 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   console.log("  ✓ logging.trace_spans table");
+
+  // span_key deterministically defines the composite primary key. Keeping a
+  // second unique constraint creates two competing conflict targets under
+  // concurrent idempotent starts.
+  await sql`
+    ALTER TABLE logging.trace_spans
+    DROP CONSTRAINT IF EXISTS trace_spans_span_key_key
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_logging_trace_spans_span_key
+    ON logging.trace_spans(span_key)
+    WHERE span_key IS NOT NULL
+  `.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS logging.trace_events (
