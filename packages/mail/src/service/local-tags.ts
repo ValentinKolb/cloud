@@ -13,6 +13,7 @@ type LocalTagRow = {
   id: string;
   mailbox_id: string;
   name: string;
+  color: string;
   revision: string | number;
   created_at: Date | string;
   updated_at: Date | string;
@@ -22,6 +23,7 @@ export type LocalTag = {
   id: string;
   mailboxId: string;
   name: string;
+  color: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -46,12 +48,13 @@ export type WorkflowLocalTagMutation = {
 
 type ActorIdentity = { kind: "user" | "service_account"; id: string };
 
-const localTagColumns = sql`tag.id, tag.mailbox_id, tag.name, tag.revision, tag.created_at, tag.updated_at`;
+const localTagColumns = sql`tag.id, tag.mailbox_id, tag.name, tag.color, tag.revision, tag.created_at, tag.updated_at`;
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const mapTag = (row: LocalTagRow): LocalTag => ({
   id: row.id,
   mailboxId: row.mailbox_id,
   name: row.name,
+  color: row.color,
   revision: Number(row.revision),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
@@ -140,15 +143,16 @@ export const createLocalTag = async (params: {
       if (!allowed.ok) return allowed;
       const [row] = await tx<LocalTagRow[]>`
         INSERT INTO mail.local_tags (
-          mailbox_id, name, normalized_name, created_by_actor_kind, created_by_actor_id
+          mailbox_id, name, normalized_name, color, created_by_actor_kind, created_by_actor_id
         ) VALUES (
           ${params.mailboxId}::uuid,
           ${name},
           lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
+          ${params.input.color},
           ${actor.kind},
           ${actor.id}::uuid
         )
-        RETURNING id, mailbox_id, name, revision, created_at, updated_at
+        RETURNING id, mailbox_id, name, color, revision, created_at, updated_at
       `;
       if (!row) throw new Error("Local tag insert returned no row");
       const tag = mapTag(row);
@@ -158,7 +162,7 @@ export const createLocalTag = async (params: {
         mailboxId: params.mailboxId,
         action: "local_tag.created",
         targetId: tag.id,
-        metadata: { name: tag.name, revision: tag.revision },
+        metadata: { name: tag.name, color: tag.color, revision: tag.revision },
       });
       await audit.record(
         {
@@ -193,7 +197,6 @@ export const updateLocalTag = async (params: {
   tagId: string;
   input: UpdateLocalTag;
 }): Promise<Result<LocalTag>> => {
-  const name = normalizeName(params.input.name);
   try {
     const result = await sql.begin(async (tx): Promise<Result<{ tag: LocalTag; activityId: string | null }>> => {
       const allowed = await lockMailboxForWrite(params.context, params.mailboxId, tx);
@@ -206,12 +209,18 @@ export const updateLocalTag = async (params: {
       `;
       if (!current) return fail(err.notFound("Local tag"));
       if (Number(current.revision) !== params.input.expectedRevision) return fail(err.conflict("Local tag was changed"));
-      if (current.name === name) return ok({ tag: mapTag(current), activityId: null });
+      const name = params.input.name === undefined ? current.name : normalizeName(params.input.name);
+      const color = params.input.color ?? current.color;
+      if (current.name === name && current.color === color) return ok({ tag: mapTag(current), activityId: null });
       const [updated] = await tx<LocalTagRow[]>`
         UPDATE mail.local_tags tag
-        SET name = ${name}, normalized_name = lower(regexp_replace(${name}, '\\s+', ' ', 'g')), revision = revision + 1
+        SET
+          name = ${name},
+          normalized_name = lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
+          color = ${color},
+          revision = revision + 1
         WHERE tag.id = ${params.tagId}::uuid
-        RETURNING tag.id, tag.mailbox_id, tag.name, tag.revision, tag.created_at, tag.updated_at
+        RETURNING tag.id, tag.mailbox_id, tag.name, tag.color, tag.revision, tag.created_at, tag.updated_at
       `;
       if (!updated) throw new Error("Local tag update returned no row");
       const tag = mapTag(updated);
@@ -221,7 +230,10 @@ export const updateLocalTag = async (params: {
         mailboxId: params.mailboxId,
         action: "local_tag.updated",
         targetId: tag.id,
-        metadata: { before: { name: current.name, revision: Number(current.revision) }, after: { name: tag.name, revision: tag.revision } },
+        metadata: {
+          before: { name: current.name, color: current.color, revision: Number(current.revision) },
+          after: { name: tag.name, color: tag.color, revision: tag.revision },
+        },
       });
       await audit.record(
         {
@@ -230,7 +242,12 @@ export const updateLocalTag = async (params: {
           actor: auditActorFromRequest(params.context),
           target: { type: "local_tag", id: tag.id, label: tag.name },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, beforeName: current.name, revision: tag.revision },
+          metadata: {
+            mailboxId: params.mailboxId,
+            beforeName: current.name,
+            beforeColor: current.color,
+            revision: tag.revision,
+          },
         },
         tx,
       );
@@ -358,6 +375,35 @@ export const getConversationLocalTags = async (params: {
   if (!allowed.ok) return allowed;
   const state = await loadConversationLocalTags(params.mailboxId, params.conversationId);
   return state ? ok(state) : fail(err.notFound("Conversation"));
+};
+
+export const listConversationLocalTags = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationIds: string[];
+}): Promise<Result<Map<string, LocalTag[]>>> => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
+  if (!allowed.ok) return allowed;
+  const conversationIds = [...new Set(params.conversationIds)].sort();
+  if (conversationIds.length === 0) return ok(new Map());
+  if (conversationIds.length > 100) return fail(err.badInput("At most 100 conversations can be loaded at once"));
+  const rows = await sql<(LocalTagRow & { conversation_id: string })[]>`
+    SELECT assignment.conversation_id, ${localTagColumns}
+    FROM mail.conversation_local_tags assignment
+    JOIN mail.local_tags tag ON tag.id = assignment.tag_id AND tag.mailbox_id = assignment.mailbox_id
+    WHERE assignment.mailbox_id = ${params.mailboxId}::uuid
+      AND assignment.conversation_id IN (
+        SELECT value::uuid FROM jsonb_array_elements_text(${conversationIds}::jsonb)
+      )
+    ORDER BY assignment.conversation_id, tag.normalized_name, tag.id
+  `;
+  const tagsByConversation = new Map<string, LocalTag[]>();
+  for (const row of rows) {
+    const current = tagsByConversation.get(row.conversation_id) ?? [];
+    current.push(mapTag(row));
+    tagsByConversation.set(row.conversation_id, current);
+  }
+  return ok(tagsByConversation);
 };
 
 export const addConversationLocalTags = async (params: {

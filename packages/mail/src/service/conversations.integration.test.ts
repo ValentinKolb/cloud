@@ -479,8 +479,16 @@ suite("mail manual conversation threading", () => {
     });
     expect(resolvedBeforeMerge.ok && resolvedBeforeMerge.data.href).toContain(`conversation=${sourceConversationId}`);
 
-    const sourceOnlyTag = await createLocalTag({ context: writerContext, mailboxId, input: { name: "Source only" } });
-    const sharedTag = await createLocalTag({ context: writerContext, mailboxId, input: { name: "Shared" } });
+    const sourceOnlyTag = await createLocalTag({
+      context: writerContext,
+      mailboxId,
+      input: { name: "Source only", color: "#6b7280" },
+    });
+    const sharedTag = await createLocalTag({
+      context: writerContext,
+      mailboxId,
+      input: { name: "Shared", color: "#2563eb" },
+    });
     if (!sourceOnlyTag.ok || !sharedTag.ok) throw new Error("Failed to create merge tag fixtures");
     await sql`
       INSERT INTO mail.conversation_local_tags (
@@ -524,6 +532,7 @@ suite("mail manual conversation threading", () => {
         watchers: number;
         comments: number;
         drafts: number;
+        participant_summary: string;
       }[]
     >`
       SELECT
@@ -532,9 +541,18 @@ suite("mail manual conversation threading", () => {
         (SELECT COUNT(*)::int FROM mail.conversation_thread_overrides WHERE conversation_id = ${targetConversationId}::uuid) AS overrides,
         (SELECT COUNT(*)::int FROM mail.conversation_watchers WHERE conversation_id = ${targetConversationId}::uuid) AS watchers,
         (SELECT COUNT(*)::int FROM mail.conversation_comments WHERE conversation_id = ${targetConversationId}::uuid) AS comments,
-        (SELECT COUNT(*)::int FROM mail.drafts WHERE conversation_id = ${targetConversationId}::uuid) AS drafts
+        (SELECT COUNT(*)::int FROM mail.drafts WHERE conversation_id = ${targetConversationId}::uuid) AS drafts,
+        (SELECT participant_summary FROM mail.conversations WHERE id = ${targetConversationId}::uuid) AS participant_summary
     `;
-    expect(mergeProjection).toEqual({ source_exists: false, messages: 2, overrides: 2, watchers: 1, comments: 1, drafts: 1 });
+    expect(mergeProjection).toEqual({
+      source_exists: false,
+      messages: 2,
+      overrides: 2,
+      watchers: 1,
+      comments: 1,
+      drafts: 1,
+      participant_summary: "Customer",
+    });
     const mergedTags = await sql<{ tag_id: string }[]>`
       SELECT tag_id
       FROM mail.conversation_local_tags

@@ -28,4 +28,12 @@ describe("mail mutation failure classification", () => {
     expect(mutationFailureState(Object.assign(new Error("partial folder"), { code: "REMOTE_CREATE_SUBSCRIBE_PARTIAL" }))).toBe("ambiguous");
     expect(mutationFailureState(Object.assign(new Error("rights"), { code: "PROVIDER_RIGHTS_CHANGED" }))).toBe("failed");
   });
+
+  test("retries connection failures that happen before a provider mutation can start", () => {
+    for (const code of ["ECONNREFUSED", "EAI_AGAIN", "ENOTFOUND"]) {
+      const error = Object.assign(new Error(code), { code });
+      expect(mutationFailureState(error, false), code).toBe("queued");
+      expect(mutationFailureState(error, true), code).toBe("ambiguous");
+    }
+  });
 });

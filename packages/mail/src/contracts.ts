@@ -1764,17 +1764,24 @@ export const localTagNameSchema = z
   .min(1)
   .max(80)
   .transform((name) => name.replace(/\s+/gu, " "));
+export const localTagColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/u, "Use a six-digit hex color")
+  .transform((color) => color.toLowerCase());
 export const createLocalTagSchema = z
-  .object({ name: localTagNameSchema })
+  .object({ name: localTagNameSchema, color: localTagColorSchema })
   .strict();
 export type CreateLocalTag = z.infer<typeof createLocalTagSchema>;
 
 export const updateLocalTagSchema = z
   .object({
     expectedRevision: z.number().int().positive(),
-    name: localTagNameSchema,
+    name: localTagNameSchema.optional(),
+    color: localTagColorSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => value.name !== undefined || value.color !== undefined, "Name or color is required");
 export type UpdateLocalTag = z.infer<typeof updateLocalTagSchema>;
 
 export const deleteLocalTagSchema = z

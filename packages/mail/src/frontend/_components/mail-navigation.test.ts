@@ -8,6 +8,7 @@ const item: MailListItem = {
   primaryReference: null,
   subject: "Subject",
   participantSummary: "Sender",
+  participantLabels: ["Sender"],
   latestMessageAt: "2026-07-20T00:00:00.000Z",
   preview: null,
   unread: false,
@@ -21,6 +22,7 @@ const item: MailListItem = {
   snoozedUntil: null,
   sourceFolderId: null,
   unreadFolderIds: [],
+  localTags: [],
   revision: 1,
 };
 

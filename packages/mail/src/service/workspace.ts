@@ -35,6 +35,7 @@ export type MailListItem = {
   primaryReference: string | null;
   subject: string;
   participantSummary: string;
+  participantLabels: string[];
   latestMessageAt: string;
   preview: string | null;
   unread: boolean;
@@ -48,6 +49,7 @@ export type MailListItem = {
   snoozedUntil: string | null;
   sourceFolderId: string | null;
   unreadFolderIds: string[];
+  localTags: LocalTag[];
   revision: number;
 };
 
@@ -149,6 +151,7 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
   primaryReference: conversation.primaryReference,
   subject: conversation.subject,
   participantSummary: conversation.participantSummary,
+  participantLabels: conversation.participantLabels,
   latestMessageAt: conversation.latestMessageAt,
   preview: conversation.preview,
   unread: conversation.unread,
@@ -162,8 +165,37 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
   snoozedUntil: conversation.snoozedUntil,
   sourceFolderId: conversation.folderId,
   unreadFolderIds: conversation.unreadFolderIds,
+  localTags: [],
   revision: conversation.revision,
 });
+
+type MailListPage = {
+  items: MailListItem[];
+  nextCursor: string | null;
+  error: string | null;
+};
+
+const attachLocalTags = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  items: MailListItem[],
+  nextCursor: string | null,
+): Promise<MailListPage> => {
+  const result = await localTags.listConversationLocalTags({
+    context,
+    mailboxId,
+    conversationIds: items.flatMap((item) => (item.conversationId ? [item.conversationId] : [])),
+  });
+  if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
+  return {
+    error: null,
+    nextCursor,
+    items: items.map((item) => ({
+      ...item,
+      localTags: item.conversationId ? (result.data.get(item.conversationId) ?? []) : [],
+    })),
+  };
+};
 
 const loadConversationDetails = async (params: { context: MailRequestContext; mailboxId: string; conversationId: string }) => {
   const [
@@ -270,11 +302,7 @@ const loadListItems = async (params: {
   searchExpression: MailSearchExpression | null;
   searchSort: "relevance" | "newest";
   cursor?: string;
-}): Promise<{
-  items: MailListItem[];
-  nextCursor: string | null;
-  error: string | null;
-}> => {
+}): Promise<MailListPage> => {
   if (params.searchExpression) {
     const result = await search.searchMessages({
       context: params.context,
@@ -287,31 +315,30 @@ const loadListItems = async (params: {
       },
     });
     if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
-    return {
-      error: null,
-      nextCursor: result.data.nextCursor,
-      items: result.data.items.map((item) => ({
-        id: item.id,
-        conversationId: item.conversationId,
-        primaryReference: item.primaryReference,
-        subject: item.subject,
-        participantSummary: item.participantSummary,
-        latestMessageAt: item.latestMessageAt,
-        preview: item.snippet,
-        unread: item.unread,
-        activeFolderIds: item.activeFolderIds,
-        flagged: item.flagged,
-        hasAttachments: item.hasAttachments,
-        messageCount: item.messageCount,
-        workStatus: item.workStatus,
-        assigneeUserId: item.assigneeUserId,
-        responseNeeded: item.responseNeeded,
-        snoozedUntil: item.snoozedUntil,
-        sourceFolderId: item.sourceFolderId,
-        unreadFolderIds: item.unreadFolderIds,
-        revision: item.revision,
-      })),
-    };
+    const items: MailListItem[] = result.data.items.map((item) => ({
+      id: item.id,
+      conversationId: item.conversationId,
+      primaryReference: item.primaryReference,
+      subject: item.subject,
+      participantSummary: item.participantSummary,
+      participantLabels: item.participantLabels,
+      latestMessageAt: item.latestMessageAt,
+      preview: item.snippet,
+      unread: item.unread,
+      activeFolderIds: item.activeFolderIds,
+      flagged: item.flagged,
+      hasAttachments: item.hasAttachments,
+      messageCount: item.messageCount,
+      workStatus: item.workStatus,
+      assigneeUserId: item.assigneeUserId,
+      responseNeeded: item.responseNeeded,
+      snoozedUntil: item.snoozedUntil,
+      sourceFolderId: item.sourceFolderId,
+      unreadFolderIds: item.unreadFolderIds,
+      localTags: [],
+      revision: item.revision,
+    }));
+    return attachLocalTags(params.context, params.mailboxId, items, result.data.nextCursor);
   }
 
   if (params.savedViewId) {
@@ -323,11 +350,8 @@ const loadListItems = async (params: {
       limit: 50,
     });
     if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
-    return {
-      error: null,
-      nextCursor: result.data.nextCursor,
-      items: result.data.items.map(conversationToListItem),
-    };
+    const items = result.data.items.map(conversationToListItem);
+    return attachLocalTags(params.context, params.mailboxId, items, result.data.nextCursor);
   }
 
   const result = await messages.listConversations({
@@ -339,11 +363,8 @@ const loadListItems = async (params: {
     limit: 50,
   });
   if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
-  return {
-    error: null,
-    nextCursor: result.data.nextCursor,
-    items: result.data.items.map(conversationToListItem),
-  };
+  const items = result.data.items.map(conversationToListItem);
+  return attachLocalTags(params.context, params.mailboxId, items, result.data.nextCursor);
 };
 
 export const loadMailboxPageData = async (params: {

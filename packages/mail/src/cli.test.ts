@@ -362,6 +362,7 @@ test("local tag CLI creates catalog entries and fences conversation assignments"
     id: TAG_ID,
     mailboxId: MAILBOX_ID,
     name: "Priority",
+    color: "#6b7280",
     revision: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
     updatedAt: "2026-07-12T00:00:00.000Z",
@@ -397,7 +398,11 @@ test("local tag CLI creates catalog entries and fences conversation assignments"
   expect(created.exitCode).toBe(0);
   expect(assigned.exitCode).toBe(0);
   expect(requests).toEqual([
-    { method: "POST", path: `/api/mail/mailboxes/${MAILBOX_ID}/local-tags`, body: { name: "Priority" } },
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/local-tags`,
+      body: { name: "Priority", color: "#6b7280" },
+    },
     {
       method: "PUT",
       path: `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/local-tags`,

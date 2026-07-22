@@ -397,6 +397,7 @@ export const listSavedViewConversations = async (params: {
       primaryReference: item.primaryReference,
       subject: item.subject,
       participantSummary: item.participantSummary,
+      participantLabels: item.participantLabels,
       latestMessageAt: item.latestMessageAt,
       workStatus: item.workStatus ?? "open",
       assigneeUserId: item.assigneeUserId,

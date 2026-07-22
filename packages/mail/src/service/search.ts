@@ -2,6 +2,7 @@ import { logger } from "@valentinkolb/cloud/services";
 import { escapeLikePattern } from "@valentinkolb/cloud/services/postgres";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { z } from "zod";
 import { type MailSearchExpression, mailSearchExpressionSchema, type SearchRequest } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { sha256Json } from "./canonical";
@@ -16,6 +17,7 @@ export type MessageSearchHit = {
   primaryReference: string | null;
   subject: string;
   participantSummary: string;
+  participantLabels: string[];
   latestMessageAt: string;
   messageId: string | null;
   internalDate: string;
@@ -53,6 +55,7 @@ type DbSearchHit = {
   primary_reference: string | null;
   subject: string;
   participant_summary: string;
+  participant_labels: unknown[] | string;
   latest_message_at: Date | string;
   sort_date: Date | string;
   message_id: string | null;
@@ -613,12 +616,16 @@ const parseStringRows = (value: unknown[] | string): string[] => {
   return rows.filter((row): row is string => typeof row === "string");
 };
 
+const participantLabelsSchema = z.array(z.string().trim().min(1));
+const parseParticipantLabels = (value: unknown[] | string): string[] => participantLabelsSchema.parse(parseStringRows(value));
+
 const mapHit = (row: DbSearchHit): MessageSearchHit => ({
   id: row.id,
   conversationId: row.conversation_id,
   primaryReference: row.primary_reference,
   subject: row.subject,
   participantSummary: row.participant_summary,
+  participantLabels: parseParticipantLabels(row.participant_labels),
   latestMessageAt: (row.latest_message_at instanceof Date ? row.latest_message_at : new Date(row.latest_message_at)).toISOString(),
   messageId: row.message_id,
   internalDate: (row.internal_date instanceof Date ? row.internal_date : new Date(row.internal_date)).toISOString(),
@@ -892,6 +899,7 @@ const runSearch = async (params: {
           deduplicated.from_addresses->0->>'address',
           'Unknown sender'
         ) AS participant_summary,
+        participant_state.labels AS participant_labels,
         COALESCE(conversation.latest_message_at, deduplicated.internal_date) AS latest_message_at,
         COALESCE(conversation.latest_message_at, deduplicated.internal_date) AS sort_date,
         deduplicated.message_id,
@@ -1036,7 +1044,7 @@ const runSearch = async (params: {
           AND source_cm.conversation_id = deduplicated.conversation_id
       ) conversation_active_state ON true
       LEFT JOIN LATERAL (
-        SELECT latest_message.plain_text
+        SELECT latest_message.id, latest_message.plain_text
         FROM mail.conversation_messages latest_cm
         JOIN mail.message_contents latest_message ON latest_message.id = latest_cm.message_id
         WHERE deduplicated.conversation_id IS NOT NULL
@@ -1050,6 +1058,40 @@ const runSearch = async (params: {
         ORDER BY latest_message.internal_date DESC, latest_message.id DESC
         LIMIT 1
       ) conversation_latest ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(conversation_latest.id, deduplicated.id) AS message_id,
+          EXISTS (
+            SELECT 1
+            FROM mail.message_addresses sender
+            JOIN mail.sender_identities identity
+              ON identity.mailbox_id = ${params.mailboxId}::uuid
+             AND identity.status <> 'disabled'
+             AND lower(identity.from_address) = sender.normalized_email
+            WHERE sender.message_id = COALESCE(conversation_latest.id, deduplicated.id)
+              AND sender.role = 'from'
+          ) AS outbound
+      ) participant_source ON true
+      LEFT JOIN LATERAL (
+        SELECT ARRAY(
+          SELECT participant.label
+          FROM (
+            SELECT DISTINCT ON (address.normalized_email)
+              address.normalized_email,
+              COALESCE(NULLIF(address.display_name, ''), address.email) AS label,
+              CASE address.role WHEN 'to' THEN 0 WHEN 'cc' THEN 1 WHEN 'bcc' THEN 2 ELSE 3 END AS role_order,
+              address.position
+            FROM mail.message_addresses address
+            WHERE address.message_id = participant_source.message_id
+              AND (
+                (participant_source.outbound AND address.role IN ('to', 'cc', 'bcc'))
+                OR (NOT participant_source.outbound AND address.role = 'from')
+              )
+            ORDER BY address.normalized_email, role_order, address.position
+          ) participant
+          ORDER BY participant.role_order, participant.position, participant.normalized_email
+        ) AS labels
+      ) participant_state ON true
     )
     SELECT *
     FROM projected

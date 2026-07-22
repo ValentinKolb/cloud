@@ -38,11 +38,11 @@
 
   .mail-list-row {
     display: grid;
-    grid-template-columns: 0.75rem minmax(6.5rem, 0.8fr) minmax(8rem, 1.25fr) minmax(4rem, auto);
-    align-items: center;
+    grid-template-columns: 0.875rem minmax(0, 1fr) minmax(4.5rem, auto);
+    align-items: stretch;
     gap: 0.625rem;
-    min-height: 2.75rem;
-    padding: 0.375rem 0.75rem;
+    min-height: 4.5rem;
+    padding: 0.5rem 0.75rem;
     border-radius: var(--ui-radius-control);
     text-decoration: none;
     flex: 1 1 auto;
@@ -52,8 +52,83 @@
     background: transparent;
   }
 
-  .mail-list-row-unread {
-    font-weight: 600;
+  .mail-list-status-rail {
+    display: grid;
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    align-items: center;
+    justify-items: center;
+    color: var(--color-zinc-500);
+  }
+
+  .mail-list-unread-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: 0 0 auto;
+    border-radius: 9999px;
+    opacity: 0;
+    background: var(--app-accent);
+  }
+
+  .mail-list-unread-dot-visible {
+    opacity: 1;
+  }
+
+  .mail-list-copy {
+    display: grid;
+    min-width: 0;
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    align-items: center;
+    line-height: 1.15;
+  }
+
+  .mail-list-preview {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 0.75rem;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-zinc-500);
+  }
+
+  .mail-list-meta {
+    display: grid;
+    min-width: 0;
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    align-items: flex-end;
+    justify-items: end;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--color-zinc-500);
+  }
+
+  .mail-list-meta-icons {
+    display: flex;
+    grid-row: 3;
+    min-height: 1rem;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.375rem;
+  }
+
+  .mail-list-tag-markers {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .mail-list-tag-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: 0 0 auto;
+    border-radius: 9999px;
+    box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 24%, transparent);
+  }
+
+  .mail-list-tag-overflow {
+    font-size: 0.6875rem;
+    line-height: 1;
   }
 
   .mail-message-body :where(img, table, pre) {
@@ -62,6 +137,13 @@
 
   .mail-message-body img {
     height: auto;
+  }
+
+  .mail-attachment-preview.btn-simple {
+    min-height: 1.75rem;
+    padding: 0 0.375rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
   }
 
   .mail-composer-surface {

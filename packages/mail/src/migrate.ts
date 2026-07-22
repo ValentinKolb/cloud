@@ -2373,6 +2373,14 @@ const addStructuredSearchAndLocalTags = async (db: SqlClient): Promise<void> => 
   await installSearchReferenceCompatibility(db);
 };
 
+const addLocalTagColors = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.local_tags
+    ADD COLUMN color TEXT NOT NULL DEFAULT '#6b7280'
+      CHECK (color ~ '^#[0-9a-f]{6}$')
+  `;
+};
+
 const addConversationReferencesAndResponsePolicies = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.reference_schemes (
@@ -4113,6 +4121,75 @@ const addRuntimeMaintenanceIndexes = async (db: SqlClient): Promise<void> => {
   }
 };
 
+const repairConversationParticipantSummaries = async (db: SqlClient): Promise<void> => {
+  let cursor = "00000000-0000-0000-0000-000000000000";
+  const batchSize = 500;
+
+  while (true) {
+    const batch = await db<{ id: string }[]>`
+      SELECT id::text
+      FROM mail.conversations
+      WHERE id > ${cursor}::uuid
+      ORDER BY id
+      LIMIT ${batchSize}
+    `;
+    if (batch.length === 0) return;
+    cursor = batch.at(-1)!.id;
+    const ids = batch.map((conversation) => conversation.id);
+
+    await db`
+      WITH classified AS (
+        SELECT
+          conversation.id AS conversation_id,
+          message.id AS message_id,
+          message.internal_date,
+          EXISTS (
+            SELECT 1
+            FROM mail.message_addresses sender
+            JOIN mail.sender_identities identity
+              ON identity.mailbox_id = conversation.mailbox_id
+             AND identity.status <> 'disabled'
+             AND lower(identity.from_address) = sender.normalized_email
+            WHERE sender.message_id = message.id AND sender.role = 'from'
+          ) AS outbound
+        FROM mail.conversations conversation
+        JOIN mail.conversation_messages link ON link.conversation_id = conversation.id
+        JOIN mail.message_contents message ON message.id = link.message_id
+        WHERE conversation.id IN (
+          SELECT value::uuid FROM jsonb_array_elements_text(${ids}::jsonb)
+        )
+      ),
+      latest AS (
+        SELECT DISTINCT ON (conversation_id) conversation_id, message_id, outbound
+        FROM classified
+        ORDER BY conversation_id, internal_date DESC, message_id DESC
+      ),
+      participant_labels AS (
+        SELECT DISTINCT ON (latest.conversation_id, address.normalized_email)
+          latest.conversation_id,
+          address.normalized_email,
+          COALESCE(NULLIF(address.display_name, ''), address.email) AS label
+        FROM latest
+        JOIN mail.message_addresses address ON address.message_id = latest.message_id
+        WHERE (latest.outbound AND address.role IN ('to', 'cc', 'bcc'))
+           OR (NOT latest.outbound AND address.role = 'from')
+        ORDER BY latest.conversation_id, address.normalized_email, address.position
+      ),
+      participants AS (
+        SELECT conversation_id, string_agg(label, ', ' ORDER BY label) AS summary
+        FROM participant_labels
+        GROUP BY conversation_id
+      )
+      UPDATE mail.conversations conversation
+      SET participant_summary = COALESCE(participants.summary, '')
+      FROM latest
+      LEFT JOIN participants ON participants.conversation_id = latest.conversation_id
+      WHERE conversation.id = latest.conversation_id
+        AND conversation.participant_summary IS DISTINCT FROM COALESCE(participants.summary, '')
+    `;
+  }
+};
+
 type MailMigration = {
   version: number;
   name: string;
@@ -4195,6 +4272,8 @@ const migrations: readonly MailMigration[] = [
   { version: 73, name: "repair_operator_maintenance_commands", run: addOperatorMaintenanceCommands },
   { version: 74, name: "runtime_maintenance_indexes", run: addRuntimeMaintenanceIndexes, online: true },
   { version: 75, name: "saved_view_quarantine", run: canonicalizeSavedConversationViews },
+  { version: 76, name: "local_tag_colors", run: addLocalTagColors },
+  { version: 77, name: "counterparty_participant_summaries", run: repairConversationParticipantSummaries, online: true },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

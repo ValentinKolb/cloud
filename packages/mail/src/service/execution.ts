@@ -125,6 +125,9 @@ type SenderSelection = {
   sentFolderId: string | null;
 };
 
+const usableRemoteResourceStatuses = new Set(["active", "degraded"]);
+const blockedMailboxHealthStates = new Set(["auth_required", "connection_required", "paused"]);
+
 const loadSenderSelection = async (params: {
   mailboxId: string;
   operation: MailExecutionOperation;
@@ -267,7 +270,12 @@ export const resolveMailExecution = async (params: {
   if (!mailbox) return fail(err.notFound("Mailbox"));
 
   const localReadAllowed = params.operation === "actorRead";
-  if (mailbox.remote_resource_id && mailbox.remote_resource_status !== "active") {
+  if (
+    mailbox.remote_resource_id &&
+    (!mailbox.remote_resource_status ||
+      !usableRemoteResourceStatuses.has(mailbox.remote_resource_status) ||
+      blockedMailboxHealthStates.has(mailbox.health))
+  ) {
     const message =
       !mailbox.sync_enabled || mailbox.remote_resource_status === "paused"
         ? "Mailbox transport is paused"
@@ -323,10 +331,10 @@ export const resolveMailExecution = async (params: {
        SELECT value::uuid FROM jsonb_array_elements_text(${folders.data.folderIds}::jsonb)
      )
     WHERE pb.remote_resource_id = ${mailbox.remote_resource_id}::uuid
-      AND pb.state = 'active'
+      AND pb.state IN ('active', 'degraded')
       AND pb.verified_scope_fingerprint = ${mailbox.scope_fingerprint}
       AND pb.verified_secret_revision = pc.secret_revision
-      AND pc.status = 'active'
+      AND pc.status IN ('active', 'degraded')
       AND pc.encrypted_secret IS NOT NULL
       AND pc.owner_mailbox_id = ${params.mailboxId}::uuid
   `;

@@ -406,7 +406,7 @@ const applyVerifiedConversationTransition = async (params: {
       FROM classified
     ),
     latest AS (
-      SELECT message_id, subject
+      SELECT message_id, subject, outbound
       FROM classified
       ORDER BY internal_date DESC, message_id DESC
       LIMIT 1
@@ -417,6 +417,8 @@ const applyVerifiedConversationTransition = async (params: {
         COALESCE(NULLIF(address.display_name, ''), address.email) AS label
       FROM mail.message_addresses address
       JOIN latest ON latest.message_id = address.message_id
+      WHERE (latest.outbound AND address.role IN ('to', 'cc', 'bcc'))
+         OR (NOT latest.outbound AND address.role = 'from')
       ORDER BY address.normalized_email, address.position
     ),
     participants AS (

@@ -194,6 +194,36 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(initialExecution.ok).toBe(true);
     if (initialExecution.ok) expect(initialExecution.data.secretRevision).toBe(1);
+
+    await sql.begin(async (tx) => {
+      await tx`UPDATE mail.remote_resources SET status = 'degraded' WHERE id = ${resource!.id}::uuid`;
+      await tx`UPDATE mail.provider_bindings SET state = 'degraded' WHERE id = ${binding!.id}::uuid`;
+      await tx`UPDATE mail.provider_connections SET status = 'degraded' WHERE id = ${connection!.id}::uuid`;
+      await tx`UPDATE mail.mailboxes SET health = 'degraded' WHERE id = ${mailbox.data.id}::uuid`;
+    });
+    const degradedExecution = await resolveMailExecution({
+      context,
+      mailboxId: mailbox.data.id,
+      operation: "actorMutation",
+      folderRequirements: [{ folderId: folder!.id, rights: ["write_flags"] }],
+    });
+    expect(degradedExecution.ok).toBe(true);
+
+    await sql`UPDATE mail.mailboxes SET health = 'auth_required' WHERE id = ${mailbox.data.id}::uuid`;
+    const authenticationRequiredExecution = await resolveMailExecution({
+      context,
+      mailboxId: mailbox.data.id,
+      operation: "actorMutation",
+      folderRequirements: [{ folderId: folder!.id, rights: ["write_flags"] }],
+    });
+    expect(authenticationRequiredExecution.ok).toBe(false);
+
+    await sql.begin(async (tx) => {
+      await tx`UPDATE mail.remote_resources SET status = 'active' WHERE id = ${resource!.id}::uuid`;
+      await tx`UPDATE mail.provider_bindings SET state = 'active' WHERE id = ${binding!.id}::uuid`;
+      await tx`UPDATE mail.provider_connections SET status = 'active' WHERE id = ${connection!.id}::uuid`;
+      await tx`UPDATE mail.mailboxes SET health = 'active', health_reason = NULL WHERE id = ${mailbox.data.id}::uuid`;
+    });
     await sql`UPDATE mail.provider_connections SET secret_revision = 2 WHERE id = ${connection!.id}::uuid`;
     const staleCredentialExecution = await resolveMailExecution({
       context,
@@ -1303,7 +1333,10 @@ suite("mail PostgreSQL foundation", () => {
     `;
     await sql`
       INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
-      VALUES (${secondMatchingMessage!.id}::uuid, 'from', 0, 'Alice Fixture', 'alice@example.com', 'alice@example.com')
+      VALUES
+        (${secondMatchingMessage!.id}::uuid, 'from', 0, 'Fixture Sender', 'sender@example.com', 'sender@example.com'),
+        (${secondMatchingMessage!.id}::uuid, 'to', 0, 'Alice Fixture', 'alice@example.com', 'alice@example.com'),
+        (${secondMatchingMessage!.id}::uuid, 'cc', 0, 'Bob Fixture', 'bob@example.com', 'bob@example.com')
     `;
     const [secondRemoteRef] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
@@ -1345,6 +1378,7 @@ suite("mail PostgreSQL foundation", () => {
       expect(conversationHits).toHaveLength(1);
       expect(conversationHits[0]).toMatchObject({
         participantSummary: "Alice Fixture",
+        participantLabels: ["Alice Fixture", "Bob Fixture"],
         workStatus: "waiting",
         assigneeUserId: context.actor.kind === "user" ? context.actor.user.id : null,
         responseNeeded: true,
@@ -1353,6 +1387,14 @@ suite("mail PostgreSQL foundation", () => {
         sourceFolderId: folder!.id,
         unreadFolderIds: [folder!.id],
       });
+    }
+    const listResult = await listConversations({ context, mailboxId: mailbox.data.id, limit: 100 });
+    expect(listResult.ok).toBe(true);
+    if (listResult.ok) {
+      expect(listResult.data.items.find((item) => item.id === attachmentConversation!.id)?.participantLabels).toEqual([
+        "Alice Fixture",
+        "Bob Fixture",
+      ]);
     }
     const crossChunkWords = await searchMessages({
       context,

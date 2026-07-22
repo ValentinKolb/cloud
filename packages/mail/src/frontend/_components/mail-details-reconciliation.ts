@@ -6,7 +6,7 @@ export const reconcileCollaboration = (
   current: ConversationCollaboration,
   incoming: ConversationCollaboration,
 ): ConversationCollaboration =>
-  incoming.conversationId !== current.conversationId || incoming.revision > current.revision ? incoming : current;
+  incoming.conversationId !== current.conversationId || incoming.revision >= current.revision ? incoming : current;
 
 export const reconcileConversationTags = (current: ConversationLocalTags, incoming: ConversationLocalTags): ConversationLocalTags =>
   incoming.conversationId !== current.conversationId || incoming.conversationRevision > current.conversationRevision ? incoming : current;

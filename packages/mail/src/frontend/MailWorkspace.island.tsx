@@ -6,10 +6,12 @@ import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show
 import { createStore, reconcile } from "solid-js/store";
 import { apiClient } from "../api/client";
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../live-events";
+import type { ConversationCollaboration } from "../service/collaboration";
+import type { ConversationLocalTags } from "../service/local-tags";
 import type { ConversationPresenceSnapshot } from "../service/presence";
 import type { MailboxPageData, MailConversationDetailData, MailListItem } from "../service/workspace";
 import { readApiError } from "./_components/api-response";
-import { chooseBulkTags } from "./_components/MailBulkTagDialog";
+import { chooseBulkTags, chooseConversationTags } from "./_components/MailBulkTagDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
@@ -27,6 +29,12 @@ import {
 import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
 import { mergeMailCursorPage } from "./_components/mail-cursor-page";
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
+import {
+  type MailListOptimisticField,
+  type MailListOptimisticPatch,
+  type PendingMailListState,
+  reconcileMailListOptimisticState,
+} from "./_components/mail-list-optimistic";
 import { buildMailListHref, buildMailSelectionHref } from "./_components/mail-navigation";
 import { mergeMailLiveSnapshot } from "./_components/mail-workspace-snapshot";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
@@ -78,9 +86,33 @@ export default function MailWorkspace(props: {
   let liveController: AbortController | null = null;
   let firstPageItemIds = new Set(props.data.listItems.map((item) => item.id));
   const pendingReadConversationIds = new Set<string>();
+  let pendingListState = new Map<string, PendingMailListState>();
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
   const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
+
+  const applyPendingListState = (snapshot: MailboxPageData): MailboxPageData => {
+    const reconciled = reconcileMailListOptimisticState(snapshot.listItems, pendingListState);
+    pendingListState = reconciled.pending;
+    return { ...snapshot, listItems: reconciled.items };
+  };
+
+  const rememberPendingListState = (conversationId: string, patch: MailListOptimisticPatch) => {
+    pendingListState.set(conversationId, {
+      ...pendingListState.get(conversationId),
+      ...patch,
+      expiresAt: Date.now() + 30_000,
+    });
+  };
+
+  const clearPendingListState = (conversationId: string, fields: MailListOptimisticField[]) => {
+    const current = pendingListState.get(conversationId);
+    if (!current) return;
+    const next = { ...current };
+    for (const field of fields) delete next[field];
+    if (Object.keys(next).length === 1) pendingListState.delete(conversationId);
+    else pendingListState.set(conversationId, next);
+  };
 
   const fetchWorkspaceRoute = async (href: string, signal: AbortSignal): Promise<MailboxPageData | null> => {
     const target = new URL(href, window.location.origin);
@@ -113,7 +145,7 @@ export default function MailWorkspace(props: {
       const scopeChanged = mailListScope(requestUrl()) !== mailListScope(target.toString());
       batch(() => {
         setRequestUrl(target.toString());
-        setData(reconcile(next));
+        setData(reconcile(applyPendingListState(next)));
         setLoadedAdditionalPages(false);
         firstPageItemIds = new Set(next.listItems.map((item) => item.id));
         setConversationSelection((current) =>
@@ -151,7 +183,7 @@ export default function MailWorkspace(props: {
       const preservedItemIds = loadedAdditionalPages()
         ? new Set(data.listItems.filter((item) => !firstPageItemIds.has(item.id)).map((item) => item.id))
         : new Set<string>();
-      setData(reconcile(mergeMailLiveSnapshot(data, fresh, preservedItemIds)));
+      setData(reconcile(applyPendingListState(mergeMailLiveSnapshot(data, fresh, preservedItemIds))));
       firstPageItemIds = new Set(fresh.listItems.map((item) => item.id));
       return "applied";
     } catch (error) {
@@ -204,10 +236,12 @@ export default function MailWorkspace(props: {
       if (!response.ok) throw new Error(await readApiError(response, "Could not load more conversations"));
       const next = await response.json();
       if (request !== routeRequest || requestUrl() !== sourceUrl) return false;
+      const reconciledPage = reconcileMailListOptimisticState(next.listItems, pendingListState);
+      pendingListState = reconciledPage.pending;
       const merged = mergeMailCursorPage({
         currentItems: data.listItems,
         currentNextCursor: data.nextListCursor,
-        pageItems: next.listItems,
+        pageItems: reconciledPage.items,
         pageNextCursor: next.nextListCursor,
       });
       if (!merged.ok) {
@@ -490,6 +524,43 @@ export default function MailWorkspace(props: {
     setData("listItems", (items) => items.map((item) => (item.conversationId === conversationId ? { ...item, flagged } : item)));
   };
 
+  const setConversationListState = (conversationId: string, patch: MailListOptimisticPatch) => {
+    setData("listItems", (items) => items.map((item) => (item.conversationId === conversationId ? { ...item, ...patch } : item)));
+  };
+
+  const applyCollaborationState = (next: ConversationCollaboration) => {
+    const patch: MailListOptimisticPatch = {
+      assigneeUserId: next.assignee?.id ?? null,
+      workStatus: next.workStatus,
+      responseNeeded: next.responseNeeded,
+      snoozedUntil: next.snoozedUntil,
+      revision: next.revision,
+    };
+    rememberPendingListState(next.conversationId, patch);
+    setConversationListState(next.conversationId, patch);
+    if (data.selectedConversationId === next.conversationId) {
+      setData("collaborationState", next);
+      setData("conversationLocalTags", (current) =>
+        current?.conversationId === next.conversationId ? { ...current, conversationRevision: next.revision } : current,
+      );
+    }
+  };
+
+  const applyConversationTags = (next: ConversationLocalTags) => {
+    const patch: MailListOptimisticPatch = {
+      localTags: next.tags,
+      revision: next.conversationRevision,
+    };
+    rememberPendingListState(next.conversationId, patch);
+    setConversationListState(next.conversationId, patch);
+    if (data.selectedConversationId === next.conversationId) {
+      setData("conversationLocalTags", next);
+      setData("collaborationState", (current) =>
+        current?.conversationId === next.conversationId ? { ...current, revision: next.conversationRevision } : current,
+      );
+    }
+  };
+
   const persistConversationRead = async (item: MailListItem) => {
     const conversationId = item.conversationId;
     if (!canWrite() || !conversationId || !item.unread || pendingReadConversationIds.has(conversationId)) return;
@@ -497,6 +568,7 @@ export default function MailWorkspace(props: {
     if (sourceFolderIds.length === 0) return;
 
     pendingReadConversationIds.add(conversationId);
+    rememberPendingListState(conversationId, { unread: false });
     setConversationUnread(conversationId, false);
     try {
       const results = await Promise.allSettled(
@@ -521,6 +593,7 @@ export default function MailWorkspace(props: {
       const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
       if (failure) throw failure.reason;
     } catch (error) {
+      clearPendingListState(conversationId, ["unread"]);
       setConversationUnread(conversationId, true);
       toast.error(error instanceof Error ? error.message : "Could not mark conversation as read");
     } finally {
@@ -952,11 +1025,17 @@ export default function MailWorkspace(props: {
     setActionPending(true);
     if (actionId === "mark_read" || actionId === "mark_unread") {
       const unread = actionId === "mark_unread";
-      for (const target of targets) setConversationUnread(target.conversationId, unread);
+      for (const target of targets) {
+        rememberPendingListState(target.conversationId, { unread });
+        setConversationUnread(target.conversationId, unread);
+      }
     }
     if (actionId === "flag" || actionId === "unflag") {
       const flagged = actionId === "flag";
-      for (const target of targets) setConversationFlagged(target.conversationId, flagged);
+      for (const target of targets) {
+        rememberPendingListState(target.conversationId, { flagged });
+        setConversationFlagged(target.conversationId, flagged);
+      }
     }
 
     try {
@@ -979,6 +1058,12 @@ export default function MailWorkspace(props: {
       });
 
       const succeeded = new Set(result.succeededConversationIds);
+      const optimisticFields: Array<"unread" | "flagged"> = ["mark_read", "mark_unread"].includes(actionId)
+        ? ["unread"]
+        : ["flag", "unflag"].includes(actionId)
+          ? ["flagged"]
+          : [];
+      for (const failure of result.failures) clearPendingListState(failure.conversationId, optimisticFields);
       const currentSelection = conversationSelection();
       const remainingIds = new Set([...currentSelection.ids].filter((id) => !succeeded.has(id)));
       setConversationSelection({
@@ -1022,6 +1107,15 @@ export default function MailWorkspace(props: {
           title: `${result.failures.length} of ${targets.length} conversations failed`,
         });
       }
+    } catch (error) {
+      const optimisticFields: Array<"unread" | "flagged"> = ["mark_read", "mark_unread"].includes(actionId)
+        ? ["unread"]
+        : ["flag", "unflag"].includes(actionId)
+          ? ["flagged"]
+          : [];
+      for (const target of targets) clearPendingListState(target.conversationId, optimisticFields);
+      await reconcileWorkspace();
+      if (!options.silent) await prompts.error(error instanceof Error ? error.message : "Could not update conversations");
     } finally {
       setActionPending(false);
     }
@@ -1041,6 +1135,19 @@ export default function MailWorkspace(props: {
       });
       if (!response.ok) throw new Error(await readApiError(response, "Could not add tags"));
       const result = await response.json();
+      const addedTags = data.localTags.filter((tag) => tagIds.includes(tag.id));
+      for (const conversationId of conversationIds) {
+        const item = data.listItems.find((candidate) => candidate.conversationId === conversationId);
+        if (!item) continue;
+        const nextTags = [...item.localTags];
+        const existingIds = new Set(nextTags.map((tag) => tag.id));
+        for (const tag of addedTags) {
+          if (!existingIds.has(tag.id)) nextTags.push(tag);
+        }
+        const patch: MailListOptimisticPatch = { localTags: nextTags };
+        rememberPendingListState(conversationId, patch);
+        setConversationListState(conversationId, patch);
+      }
       setConversationSelection(emptyMailConversationSelection());
       setSelectionMode(false);
       await reconcileWorkspace();
@@ -1051,6 +1158,28 @@ export default function MailWorkspace(props: {
       );
     } catch (error) {
       await prompts.error(error instanceof Error ? error.message : "Could not add tags");
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const manageConversationTags = async (item: MailListItem) => {
+    if (!canWrite() || actionPending() || !item.conversationId) return;
+    const tagIds = await chooseConversationTags(data.localTags, item.localTags);
+    if (tagIds === undefined || tagIds === null) return;
+    setActionPending(true);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put({
+        param: { mailboxId, conversationId: item.conversationId },
+        json: { expectedRevision: item.revision, tagIds },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not update tags"));
+      const next = await response.json();
+      applyConversationTags(next);
+      toast.success("Tags updated");
+    } catch (error) {
+      await reconcileWorkspace();
+      await prompts.error(error instanceof Error ? error.message : "Could not update tags", { title: "Conversation changed" });
     } finally {
       setActionPending(false);
     }
@@ -1160,6 +1289,7 @@ export default function MailWorkspace(props: {
                       const target = actionTargetForItem(item, actionId);
                       if (target) void runAction(actionId, { targets: [target] });
                     }}
+                    onManageTags={manageConversationTags}
                     onMergeItem={(item) => {
                       if (item.conversationId)
                         void mergeConversation({ conversationId: item.conversationId, revision: item.revision, subject: item.subject });
@@ -1253,8 +1383,10 @@ export default function MailWorkspace(props: {
               initialReminder={data.reminder}
               messages={data.detailMessages}
               subject={data.selectedSubject}
+              flagged={selectedFlagged()}
               dateConfig={props.dateConfig}
-              onClose={() => setDetailsVisible(false)}
+              onCollaborationChange={applyCollaborationState}
+              onConversationTagsChange={applyConversationTags}
               onReconcile={reconcileWorkspace}
             />
           </Show>

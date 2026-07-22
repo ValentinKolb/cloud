@@ -1,5 +1,6 @@
 import {
   Avatar,
+  ColorInput,
   DateTimeInput,
   MarkdownEditor,
   MultiSelect,
@@ -7,12 +8,13 @@ import {
   prompts,
   Select,
   Switch,
+  TextInput,
   Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "../../service/collaboration";
 import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
@@ -21,6 +23,16 @@ import type { ConversationPresenceParticipant } from "../../service/presence";
 import type { ConversationReminder } from "../../service/reminders";
 import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
+import { getMailAction } from "./mail-actions";
+import {
+  applyMailCollaborationPatch,
+  applyMailTagIds,
+  createMailDetailUpdateQueue,
+  type MailCollaborationPatch,
+  queuedCollaborationPatch,
+  queuedReminderDueAt,
+  queuedTagIds,
+} from "./mail-detail-update-queue";
 import {
   reconcileAvailableTags,
   reconcileCollaboration,
@@ -28,13 +40,6 @@ import {
   reconcileConversationTags,
   reconcileReminder,
 } from "./mail-details-reconciliation";
-
-type CollaborationPatch = {
-  assigneeUserId?: string | null;
-  workStatus?: "open" | "waiting" | "done";
-  responseNeeded?: boolean;
-  snoozedUntil?: string | null;
-};
 
 const ACTIVITY_LABELS: Readonly<Record<string, string>> = {
   "conversation.collaboration_updated": "updated the conversation",
@@ -69,8 +74,10 @@ export default function MailDetailsPanel(props: {
   initialReminder: ConversationReminder | null;
   messages: MessageDetail[];
   subject: string;
+  flagged: boolean;
   dateConfig: DateContext;
-  onClose: () => void;
+  onCollaborationChange: (state: ConversationCollaboration) => void;
+  onConversationTagsChange: (state: ConversationLocalTags) => void;
   onReconcile: () => void | Promise<void>;
 }) {
   const [state, setState] = createSignal(props.initialState);
@@ -81,11 +88,10 @@ export default function MailDetailsPanel(props: {
   const [mentionUserIds, setMentionUserIds] = createSignal<string[]>([]);
   const [replyingTo, setReplyingTo] = createSignal<ConversationComment | null>(null);
   const [commentError, setCommentError] = createSignal<string | null>(null);
-  const [reminder, setReminderValue] = createSignal(props.initialReminder);
-  const activeReminder = createMemo(() => {
-    const current = reminder();
-    return current?.state === "pending" ? current : null;
-  });
+  const [reminderDueAt, setReminderDueAt] = createSignal(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
+  let confirmedState = props.initialState;
+  let confirmedTagState = props.initialConversationLocalTags;
+  let confirmedReminder = props.initialReminder;
   let confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
   const watching = createMemo(() => state().watchers.some((watcher) => watcher.id === props.currentUserId));
   const latestMessage = () => props.messages.at(-1);
@@ -93,67 +99,144 @@ export default function MailDetailsPanel(props: {
   const addressList = (addresses: Array<{ name: string | null; address: string }>) =>
     addresses.map((address) => address.name || address.address).join(", ");
 
-  const update = mutations.create<ConversationCollaboration, CollaborationPatch>({
-    mutation: async (patch) => {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].collaboration.$patch({
-        param: {
-          mailboxId: props.mailboxId,
-          conversationId: props.conversationId,
-        },
-        json: { expectedRevision: state().revision, ...patch },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update conversation"));
-      return await response.json();
+  const applyCollaborationPatch = (current: ConversationCollaboration, patch: MailCollaborationPatch) =>
+    applyMailCollaborationPatch(current, patch, props.assignableUsers);
+
+  const applyTagIds = (current: ConversationLocalTags, tagIds: readonly string[]) => applyMailTagIds(current, availableTags(), tagIds);
+
+  type DetailUpdateResult =
+    | { kind: "collaboration"; value: ConversationCollaboration }
+    | { kind: "tags"; value: ConversationLocalTags }
+    | { kind: "reminder"; value: ConversationReminder };
+
+  const detailUpdates = createMailDetailUpdateQueue<DetailUpdateResult>({
+    run: async (operation, signal) => {
+      const param = { mailboxId: props.mailboxId, conversationId: props.conversationId };
+      if (operation.kind === "collaboration") {
+        const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].collaboration.$patch(
+          { param, json: { expectedRevision: confirmedState.revision, ...operation.patch } },
+          { init: { signal } },
+        );
+        if (!response.ok) throw new Error(await readApiError(response, "Failed to update conversation"));
+        return { kind: "collaboration", value: await response.json() };
+      }
+      if (operation.kind === "tags") {
+        const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put(
+          { param, json: { expectedRevision: confirmedState.revision, tagIds: operation.tagIds } },
+          { init: { signal } },
+        );
+        if (!response.ok) throw new Error(await readApiError(response, "Failed to update tags"));
+        return { kind: "tags", value: await response.json() };
+      }
+      if (operation.kind === "reminder") {
+        const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].reminder.$put(
+          { param, json: { dueAt: operation.dueAt, expectedRevision: confirmedReminder?.revision ?? null } },
+          { init: { signal } },
+        );
+        if (!response.ok) throw new Error(await readApiError(response, "Failed to set reminder"));
+        return { kind: "reminder", value: await response.json() };
+      }
+      if (!confirmedReminder || confirmedReminder.state !== "pending") {
+        throw new Error("No pending reminder is available to cancel.");
+      }
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].reminder.$delete(
+        { param, json: { expectedRevision: confirmedReminder.revision } },
+        { init: { signal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to cancel reminder"));
+      return { kind: "reminder", value: await response.json() };
     },
-    onSuccess: (next) => {
-      setState(next);
-      setTagState((current) => ({
-        ...current,
-        conversationRevision: next.revision,
-      }));
+    onSuccess: (result, _operation, queued) => {
+      if (result.kind === "collaboration") {
+        confirmedState = reconcileCollaboration(confirmedState, result.value);
+        confirmedTagState = {
+          ...confirmedTagState,
+          conversationRevision: confirmedState.revision,
+        };
+        setState(applyCollaborationPatch(confirmedState, queuedCollaborationPatch(queued)));
+        setTagState((current) => ({ ...current, conversationRevision: confirmedState.revision }));
+        props.onCollaborationChange(confirmedState);
+        return;
+      }
+      if (result.kind === "tags") {
+        confirmedTagState = reconcileConversationTags(confirmedTagState, result.value);
+        confirmedState = {
+          ...confirmedState,
+          revision: Math.max(confirmedState.revision, confirmedTagState.conversationRevision),
+        };
+        const pendingTags = queuedTagIds(queued);
+        setTagState(pendingTags ? applyTagIds(confirmedTagState, pendingTags) : confirmedTagState);
+        setState(applyCollaborationPatch(confirmedState, queuedCollaborationPatch(queued)));
+        props.onConversationTagsChange(confirmedTagState);
+        return;
+      }
+      confirmedReminder = reconcileReminder(confirmedReminder, result.value);
+      const pendingReminder = queuedReminderDueAt(queued);
+      setReminderDueAt(
+        pendingReminder.pending ? pendingReminder.dueAt : confirmedReminder?.state === "pending" ? confirmedReminder.dueAt : null,
+      );
     },
     onError: async (error) => {
+      setState(confirmedState);
+      setTagState(confirmedTagState);
+      setReminderDueAt(confirmedReminder?.state === "pending" ? confirmedReminder.dueAt : null);
       await prompts.error(error.message, { title: "Conversation changed" });
       await props.onReconcile();
     },
   });
 
-  const updateTags = mutations.create<ConversationLocalTags, string[]>({
-    mutation: async (tagIds) => {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put({
-        param: {
-          mailboxId: props.mailboxId,
-          conversationId: props.conversationId,
-        },
-        json: { expectedRevision: state().revision, tagIds },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update tags"));
-      return await response.json();
-    },
-    onSuccess: (next) => {
-      setTagState(next);
-      setState((current) => ({
-        ...current,
-        revision: next.conversationRevision,
-      }));
-    },
-    onError: async (error) => {
-      await prompts.error(error.message, { title: "Conversation changed" });
-      await props.onReconcile();
-    },
-  });
+  const updateCollaboration = (patch: MailCollaborationPatch) => {
+    setState((current) => applyCollaborationPatch(current, patch));
+    detailUpdates.enqueue({ kind: "collaboration", patch });
+  };
+
+  const updateConversationTags = (tagIds: string[]) => {
+    setTagState((current) => applyTagIds(current, tagIds));
+    detailUpdates.enqueue({ kind: "tags", tagIds });
+  };
+
+  const updateReminder = (dueAt: string) => {
+    setReminderDueAt(dueAt);
+    detailUpdates.enqueue({ kind: "reminder", dueAt });
+  };
+
+  const clearReminder = () => {
+    setReminderDueAt(null);
+    detailUpdates.enqueue({ kind: "cancel_reminder" });
+  };
 
   const createTag = async () => {
-    const values = await prompts.form({
-      title: "Create tag",
-      icon: "ti ti-tag-plus",
-      fields: { name: { type: "text", label: "Name", required: true } },
-      confirmText: "Create tag",
-    });
+    const values = await prompts.dialog<{ name: string; color: string } | null>(
+      (close) => {
+        const [name, setName] = createSignal("");
+        const [color, setColor] = createSignal("#6b7280");
+        return (
+          <form
+            class="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (name().trim()) close({ name: name().trim(), color: color() });
+            }}
+          >
+            <TextInput label="Name" placeholder="Tag name" value={name} onInput={setName} required />
+            <ColorInput label="Color" value={color} onChange={setColor} />
+            <div class="flex items-center justify-end gap-2">
+              <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+                Cancel
+              </button>
+              <button type="submit" class="btn-primary btn-sm" disabled={!name().trim()}>
+                <i class="ti ti-tag-plus" aria-hidden="true" /> Create tag
+              </button>
+            </div>
+          </form>
+        );
+      },
+      { title: "Create tag", icon: "ti ti-tag-plus" },
+    );
     if (!values) return;
     const response = await apiClient.mailboxes[":mailboxId"]["local-tags"].$post({
       param: { mailboxId: props.mailboxId },
-      json: { name: String(values.name ?? "") },
+      json: values,
     });
     if (!response.ok) return prompts.error(await readApiError(response, "Failed to create tag"));
     const created = await response.json();
@@ -177,7 +260,11 @@ export default function MailDetailsPanel(props: {
       return await response.json();
     },
     onSuccess: (next) => {
-      setState(next);
+      confirmedState = reconcileCollaboration(confirmedState, next);
+      confirmedTagState = { ...confirmedTagState, conversationRevision: confirmedState.revision };
+      setState(applyCollaborationPatch(confirmedState, queuedCollaborationPatch(detailUpdates.pending())));
+      setTagState((current) => ({ ...current, conversationRevision: confirmedState.revision }));
+      props.onCollaborationChange(confirmedState);
       toast.success(next.watchers.some((watcher) => watcher.id === props.currentUserId) ? "Following conversation" : "Stopped following");
     },
     onError: (error) => prompts.error(error.message),
@@ -288,57 +375,23 @@ export default function MailDetailsPanel(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const saveReminder = mutations.create<ConversationReminder, string>({
-    mutation: async (dueAt) => {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].reminder.$put({
-        param: {
-          mailboxId: props.mailboxId,
-          conversationId: props.conversationId,
-        },
-        json: { dueAt, expectedRevision: reminder()?.revision ?? null },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to set reminder"));
-      return await response.json();
-    },
-    onSuccess: setReminderValue,
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const cancelReminder = mutations.create<ConversationReminder, void>({
-    mutation: async () => {
-      const current = reminder();
-      if (!current || current.state !== "pending") throw new Error("No pending reminder is available to cancel.");
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].reminder.$delete({
-        param: {
-          mailboxId: props.mailboxId,
-          conversationId: props.conversationId,
-        },
-        json: { expectedRevision: current.revision },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to cancel reminder"));
-      return await response.json();
-    },
-    onSuccess: setReminderValue,
-    onError: (error) => prompts.error(error.message),
-  });
-
   createEffect(
     on(
       () => props.conversationId,
       () => {
-        update.abort();
-        updateTags.abort();
+        detailUpdates.reset();
         toggleWatch.abort();
         addComment.abort();
         removeComment.abort();
         editComment.abort();
-        saveReminder.abort();
-        cancelReminder.abort();
+        confirmedState = props.initialState;
+        confirmedTagState = props.initialConversationLocalTags;
+        confirmedReminder = props.initialReminder;
         setState(props.initialState);
         setAvailableTags(props.initialLocalTags);
         setTagState(props.initialConversationLocalTags);
         setComments(props.initialComments);
-        setReminderValue(props.initialReminder);
+        setReminderDueAt(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
         confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
         setCommentBody("");
         setMentionUserIds([]);
@@ -352,13 +405,20 @@ export default function MailDetailsPanel(props: {
   createEffect(
     on(
       () => props.initialState,
-      (incoming) => setState((current) => reconcileCollaboration(current, incoming)),
+      (incoming) => {
+        confirmedState = reconcileCollaboration(confirmedState, incoming);
+        setState(applyCollaborationPatch(confirmedState, queuedCollaborationPatch(detailUpdates.pending())));
+      },
     ),
   );
   createEffect(
     on(
       () => props.initialConversationLocalTags,
-      (incoming) => setTagState((current) => reconcileConversationTags(current, incoming)),
+      (incoming) => {
+        confirmedTagState = reconcileConversationTags(confirmedTagState, incoming);
+        const pendingTags = queuedTagIds(detailUpdates.pending());
+        setTagState(pendingTags ? applyTagIds(confirmedTagState, pendingTags) : confirmedTagState);
+      },
     ),
   );
   createEffect(
@@ -382,29 +442,21 @@ export default function MailDetailsPanel(props: {
   createEffect(
     on(
       () => props.initialReminder,
-      (incoming) => setReminderValue((current) => reconcileReminder(current, incoming)),
+      (incoming) => {
+        confirmedReminder = reconcileReminder(confirmedReminder, incoming);
+        const pendingReminder = queuedReminderDueAt(detailUpdates.pending());
+        setReminderDueAt(
+          pendingReminder.pending ? pendingReminder.dueAt : confirmedReminder?.state === "pending" ? confirmedReminder.dueAt : null,
+        );
+      },
     ),
   );
 
+  onCleanup(() => detailUpdates.reset());
+
   return (
     <div class="flex h-full min-h-0 flex-col">
-      <header class="detail-header">
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex min-w-0 items-center gap-2">
-            <i class="ti ti-users text-lg text-dimmed" aria-hidden="true" />
-            <div class="min-w-0">
-              <h2 class="truncate text-base font-semibold text-primary" data-mail-details-heading tabIndex={-1}>
-                Details
-              </h2>
-              <p class="text-xs text-dimmed">Team context and conversation activity</p>
-            </div>
-          </div>
-          <button type="button" class="icon-btn" aria-label="Close details" onClick={props.onClose}>
-            <i class="ti ti-x" aria-hidden="true" />
-          </button>
-        </div>
-      </header>
-      <div class="detail-stack">
+      <div class="detail-stack focus:outline-none" data-mail-details-heading tabIndex={-1}>
         <Show when={props.presence.length > 0}>
           <section class="detail-section">
             <h3 class="detail-section-label">Here now</h3>
@@ -422,49 +474,6 @@ export default function MailDetailsPanel(props: {
           </section>
         </Show>
         <section class="detail-section">
-          <h3 class="detail-section-label">Mail</h3>
-          <dl class="grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-2 text-xs">
-            <dt class="text-dimmed">Subject</dt>
-            <dd class="truncate text-primary" title={props.subject}>
-              {props.subject || "(no subject)"}
-            </dd>
-            <dt class="text-dimmed">From</dt>
-            <dd class="truncate text-primary" title={addressList(latestMessage()?.from ?? [])}>
-              {addressList(latestMessage()?.from ?? []) || "Unknown"}
-            </dd>
-            <dt class="text-dimmed">To</dt>
-            <dd class="truncate text-primary" title={addressList(latestMessage()?.to ?? [])}>
-              {addressList(latestMessage()?.to ?? []) || "Undisclosed"}
-            </dd>
-            <dt class="text-dimmed">Thread</dt>
-            <dd class="text-primary">
-              {props.messages.length} message
-              {props.messages.length === 1 ? "" : "s"}
-            </dd>
-            <Show when={attachmentCount() > 0}>
-              <dt class="text-dimmed">Files</dt>
-              <dd class="text-primary">
-                {attachmentCount()} attachment
-                {attachmentCount() === 1 ? "" : "s"}
-              </dd>
-            </Show>
-            <Show when={latestMessage()?.messageId}>
-              <dt class="text-dimmed">Message ID</dt>
-              <dd class="truncate font-mono text-xs text-secondary" title={latestMessage()?.messageId ?? undefined}>
-                {latestMessage()?.messageId}
-              </dd>
-            </Show>
-          </dl>
-        </section>
-
-        <MailConversationContext
-          mailboxId={props.mailboxId}
-          conversationId={props.conversationId}
-          active={props.active}
-          revision={state().revision}
-        />
-
-        <section class="detail-section">
           <div class="mb-3 flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Tags</h3>
             <Tooltip content="Create tag">
@@ -475,59 +484,68 @@ export default function MailDetailsPanel(props: {
           </div>
           <MultiSelect
             value={() => tagState().tags.map((tag) => tag.id)}
-            onChange={(tagIds) => updateTags.mutate(tagIds)}
+            onChange={updateConversationTags}
             options={availableTags().map((tag) => ({
               id: tag.id,
               label: tag.name,
               icon: "ti ti-tag",
+              color: tag.color,
             }))}
             selectedOptions={() =>
               tagState().tags.map((tag) => ({
                 id: tag.id,
                 label: tag.name,
                 icon: "ti ti-tag",
+                color: tag.color,
               }))
             }
             placeholder="Select tags"
             clearable
-            disabled={!props.canWrite || updateTags.loading() || update.loading()}
+            disabled={!props.canWrite}
           />
         </section>
 
         <section class="detail-section">
           <div class="mb-3 flex items-center justify-between gap-2">
-            <h3 class="detail-section-label mb-0">Ownership</h3>
-            <Tooltip content={watching() ? "Stop following this conversation" : "Add yourself as a follower of this conversation"}>
-              <button
-                type="button"
-                class="btn-simple btn-sm"
-                disabled={!props.canWrite || toggleWatch.loading()}
-                onClick={() => toggleWatch.mutate()}
-              >
-                <i class={`ti ${watching() ? "ti-check" : "ti-bell"}`} aria-hidden="true" /> {watching() ? "Following" : "Follow"}
-              </button>
-            </Tooltip>
+            <h3 class="detail-section-label mb-0">Workflow</h3>
+            <div class="flex items-center gap-1">
+              <Show when={props.flagged}>
+                <span class="badge text-orange-600 dark:text-orange-400">
+                  <i class={getMailAction("flag").icon} aria-hidden="true" /> Flagged
+                </span>
+              </Show>
+              <Tooltip content={watching() ? "Stop following this conversation" : "Add yourself as a follower of this conversation"}>
+                <button
+                  type="button"
+                  class="btn-simple btn-sm"
+                  disabled={!props.canWrite || toggleWatch.loading()}
+                  onClick={() => toggleWatch.mutate()}
+                >
+                  <i class={`ti ${watching() ? "ti-check" : "ti-bell"}`} aria-hidden="true" /> {watching() ? "Following" : "Follow"}
+                </button>
+              </Tooltip>
+            </div>
           </div>
           <div class="flex flex-col gap-2">
             <Select
               label="Assignee"
               value={() => state().assignee?.id}
               selectedLabel={() => state().assignee?.displayName}
-              onChange={(userId) => update.mutate({ assigneeUserId: userId || null })}
+              onChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
               options={props.assignableUsers.map((user) => ({
                 id: user.id,
                 label: user.displayName,
                 description: user.description,
               }))}
               clearable
-              disabled={!props.canWrite || update.loading()}
+              disabled={!props.canWrite}
             />
             <Select
               label="Status"
               value={() => state().workStatus}
               onChange={(workStatus) =>
-                update.mutate({
-                  workStatus: workStatus as CollaborationPatch["workStatus"],
+                updateCollaboration({
+                  workStatus: workStatus as MailCollaborationPatch["workStatus"],
                 })
               }
               options={[
@@ -535,33 +553,32 @@ export default function MailDetailsPanel(props: {
                 { id: "waiting", label: "Awaiting reply", icon: "ti ti-message-question" },
                 { id: "done", label: "Done", icon: "ti ti-circle-check" },
               ]}
-              disabled={!props.canWrite || update.loading()}
+              disabled={!props.canWrite}
             />
             <Switch
               label="Response needed"
               value={() => state().responseNeeded}
-              onChange={(responseNeeded) => update.mutate({ responseNeeded })}
-              disabled={!props.canWrite || update.loading() || state().workStatus === "done"}
+              onChange={(responseNeeded) => updateCollaboration({ responseNeeded })}
+              disabled={!props.canWrite || state().workStatus === "done"}
             />
             <DateTimeInput
               label="Snooze until"
               value={() => state().snoozedUntil}
-              onChange={(value) => update.mutate({ snoozedUntil: value || null })}
+              onChange={(value) => updateCollaboration({ snoozedUntil: value || null })}
               dateConfig={props.dateConfig}
-              disabled={!props.canWrite || update.loading() || state().workStatus === "done"}
+              disabled={!props.canWrite || state().workStatus === "done"}
             />
             <div class="flex items-end gap-2">
               <div class="min-w-0 flex-1">
                 <DateTimeInput
                   label="Personal reminder"
-                  value={() => activeReminder()?.dueAt ?? null}
-                  onChange={(value) => value && saveReminder.mutate(value)}
+                  value={reminderDueAt}
+                  onChange={(value) => value && updateReminder(value)}
                   dateConfig={props.dateConfig}
-                  disabled={saveReminder.loading()}
                 />
               </div>
-              <Show when={activeReminder()}>
-                <button type="button" class="btn-secondary btn-sm mb-0.5" onClick={() => cancelReminder.mutate()}>
+              <Show when={reminderDueAt()}>
+                <button type="button" class="btn-secondary btn-sm mb-0.5" onClick={clearReminder}>
                   Clear
                 </button>
               </Show>
@@ -569,12 +586,14 @@ export default function MailDetailsPanel(props: {
           </div>
         </section>
 
+        <MailConversationContext mailboxId={props.mailboxId} conversationId={props.conversationId} active={props.active} />
+
         <section class="detail-section">
-          <h3 class="detail-section-label">Internal comments</h3>
+          <h3 class="detail-section-label">Team notes</h3>
           <Show
             when={comments().length > 0}
             fallback={
-              <Placeholder title="No internal comments" description="Add context for everyone with mailbox access." icon="ti ti-messages" />
+              <Placeholder title="No team notes" description="Add context for everyone with mailbox access." icon="ti ti-messages" />
             }
           >
             <div class="mb-3 flex flex-col gap-3">
@@ -721,6 +740,45 @@ export default function MailDetailsPanel(props: {
             </div>
           </section>
         </Show>
+
+        <details class="detail-section group/mail-details">
+          <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+            <span class="detail-section-label mb-0">Mail details</span>
+            <i class="ti ti-chevron-down text-dimmed transition-transform group-open/mail-details:rotate-180" aria-hidden="true" />
+          </summary>
+          <dl class="mt-3 grid grid-cols-[4rem_minmax(0,1fr)] gap-x-2 gap-y-2 text-xs">
+            <dt class="text-dimmed">Subject</dt>
+            <dd class="truncate text-primary" title={props.subject}>
+              {props.subject || "(no subject)"}
+            </dd>
+            <dt class="text-dimmed">From</dt>
+            <dd class="truncate text-primary" title={addressList(latestMessage()?.from ?? [])}>
+              {addressList(latestMessage()?.from ?? []) || "Unknown"}
+            </dd>
+            <dt class="text-dimmed">To</dt>
+            <dd class="truncate text-primary" title={addressList(latestMessage()?.to ?? [])}>
+              {addressList(latestMessage()?.to ?? []) || "Undisclosed"}
+            </dd>
+            <dt class="text-dimmed">Thread</dt>
+            <dd class="text-primary">
+              {props.messages.length} message
+              {props.messages.length === 1 ? "" : "s"}
+            </dd>
+            <Show when={attachmentCount() > 0}>
+              <dt class="text-dimmed">Files</dt>
+              <dd class="text-primary">
+                {attachmentCount()} attachment
+                {attachmentCount() === 1 ? "" : "s"}
+              </dd>
+            </Show>
+            <Show when={latestMessage()?.messageId}>
+              <dt class="text-dimmed">Message ID</dt>
+              <dd class="truncate font-mono text-xs text-secondary" title={latestMessage()?.messageId ?? undefined}>
+                {latestMessage()?.messageId}
+              </dd>
+            </Show>
+          </dl>
+        </details>
       </div>
     </div>
   );

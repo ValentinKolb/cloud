@@ -8,6 +8,7 @@ import {
   createAutomaticReplyConfigurationSchema,
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
+  createLocalTagSchema,
   createSenderIdentityInputSchema,
   createWorkflowInputSchema,
   createWorkflowVersionInputSchema,
@@ -27,12 +28,23 @@ import {
   updateAutomaticReplyConfigurationSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
+  updateLocalTagSchema,
   validateWorkflowInputSchema,
   workflowRunStateSchema,
   workflowTargetStateSchema,
 } from "./contracts";
 
 describe("conversation tag contracts", () => {
+  test("normalizes valid colors and rejects ambiguous tag colors", () => {
+    expect(createLocalTagSchema.parse({ name: "Priority", color: " #AABBCC " })).toEqual({
+      name: "Priority",
+      color: "#aabbcc",
+    });
+    expect(createLocalTagSchema.safeParse({ name: "Priority", color: "red" }).success).toBe(false);
+    expect(updateLocalTagSchema.safeParse({ expectedRevision: 1 }).success).toBe(false);
+    expect(updateLocalTagSchema.safeParse({ expectedRevision: 1, color: "#0f766e" }).success).toBe(true);
+  });
+
   test("bounds additive bulk assignments and rejects duplicate ids", () => {
     const conversationId = "00000000-0000-4000-8000-000000000001";
     const tagId = "00000000-0000-4000-8000-000000000002";

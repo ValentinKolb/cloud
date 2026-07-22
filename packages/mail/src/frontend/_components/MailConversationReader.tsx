@@ -349,11 +349,11 @@ export default function MailConversationReader(props: {
                 <Show when={props.flagged}>
                   <Tooltip content="Flagged conversation">
                     <span
-                      class="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--app-accent)]"
+                      class="flex h-7 w-7 shrink-0 items-center justify-center text-orange-600 dark:text-orange-400"
                       role="img"
                       aria-label="Flagged conversation"
                     >
-                      <i class="ti ti-flag-filled" aria-hidden="true" />
+                      <i class={getMailAction("flag").icon} aria-hidden="true" />
                     </span>
                   </Tooltip>
                 </Show>
@@ -470,17 +470,17 @@ export default function MailConversationReader(props: {
           </div>
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3" data-scroll-preserve={`mail-reader-${props.selectionKey}`}>
-          <div class="mx-auto flex w-full max-w-5xl flex-col gap-2">
+        <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2 sm:px-5" data-scroll-preserve={`mail-reader-${props.selectionKey}`}>
+          <div class="mx-auto flex w-full max-w-4xl flex-col gap-5">
             <For each={props.messages}>
               {(message, index) => {
                 let messageBody!: HTMLDivElement;
                 const expanded = () => expandedMessages().has(message.id);
                 return (
-                  <article class="paper overflow-hidden" style={`view-transition-name: mail-message-${message.id}`}>
+                  <article class="min-w-0 py-2" style={`view-transition-name: mail-message-${message.id}`}>
                     <button
                       type="button"
-                      class="flex w-full items-start gap-3 p-3 text-left"
+                      class="flex w-full items-start gap-3 rounded-[var(--ui-radius-control)] p-2 text-left hover:bg-[var(--ui-hover)]"
                       aria-expanded={expanded()}
                       onClick={() => toggleMessage(message.id)}
                     >
@@ -503,7 +503,7 @@ export default function MailConversationReader(props: {
                       <i class={`ti ${expanded() ? "ti-chevron-up" : "ti-chevron-down"} mt-1 text-dimmed`} aria-hidden="true" />
                     </button>
                     <Show when={expanded()}>
-                      <div class="px-4 pb-4 pl-15">
+                      <div class="pb-3 pl-14 pr-2 pt-2">
                         <div ref={messageBody} class="mail-message-body min-w-0 overflow-x-auto text-sm text-primary">
                           {message.sanitizedHtml || message.plainText ? (
                             <MailMessageBody

@@ -24,6 +24,7 @@ const tag = (id: string, name: string, revision = 1): LocalTag => ({
   id,
   mailboxId: "00000000-0000-4000-8000-000000000002",
   name,
+  color: "#6b7280",
   revision,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -59,6 +60,16 @@ describe("Mail details reconciliation", () => {
   test("applies newer collaboration and tag revisions but rejects stale snapshots", () => {
     expect(reconcileCollaboration(collaboration(3, "done"), collaboration(2, "open")).workStatus).toBe("done");
     expect(reconcileCollaboration(collaboration(2, "open"), collaboration(3, "done")).workStatus).toBe("done");
+
+    const watcher = {
+      id: "00000000-0000-4000-8000-000000000004",
+      uid: "grace",
+      displayName: "Grace",
+      avatarHash: null,
+    };
+    expect(reconcileCollaboration(collaboration(3, "done"), { ...collaboration(3, "done"), watchers: [watcher] }).watchers).toEqual([
+      watcher,
+    ]);
 
     const current: ConversationLocalTags = {
       conversationId: "00000000-0000-4000-8000-000000000001",

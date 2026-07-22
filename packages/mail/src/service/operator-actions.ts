@@ -303,7 +303,7 @@ const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promis
       JOIN mail.message_contents message ON message.id = link.message_id
       WHERE conversation.mailbox_id = ${mailboxId}::uuid
     ), latest AS (
-      SELECT DISTINCT ON (conversation_id) conversation_id, message_id, subject
+      SELECT DISTINCT ON (conversation_id) conversation_id, message_id, subject, outbound
       FROM classified ORDER BY conversation_id, internal_date DESC, message_id DESC
     ), timeline AS (
       SELECT
@@ -315,7 +315,16 @@ const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promis
     ), participants AS (
       SELECT
         latest.conversation_id,
-        COALESCE(string_agg(COALESCE(NULLIF(address.display_name, ''), address.email), ', ' ORDER BY address.position), '') AS summary
+        COALESCE(
+          string_agg(
+            COALESCE(NULLIF(address.display_name, ''), address.email),
+            ', ' ORDER BY address.position
+          ) FILTER (
+            WHERE (latest.outbound AND address.role IN ('to', 'cc', 'bcc'))
+               OR (NOT latest.outbound AND address.role = 'from')
+          ),
+          ''
+        ) AS summary
       FROM latest LEFT JOIN mail.message_addresses address ON address.message_id = latest.message_id
       GROUP BY latest.conversation_id
     )

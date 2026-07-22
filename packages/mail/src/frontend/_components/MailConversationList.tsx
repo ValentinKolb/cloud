@@ -28,6 +28,17 @@ const statusLabel = (item: MailListItem): string | null => {
   return null;
 };
 
+const statusIcon = (item: MailListItem): string | null => {
+  if (item.responseNeeded) return "ti ti-message-reply";
+  if (item.workStatus === "waiting") return "ti ti-hourglass";
+  if (item.workStatus === "done") return "ti ti-checkbox";
+  if (item.assigneeUserId) return "ti ti-user-check";
+  return null;
+};
+
+const correspondentLabels = (item: MailListItem): string[] =>
+  item.participantLabels.length > 0 ? item.participantLabels : [item.participantSummary || "Unknown sender"];
+
 const QUICK_SEARCH_FIELD_OPTIONS = [
   { id: "from", label: "Sender", icon: "ti ti-user" },
   { id: "subject", label: "Subject", icon: "ti ti-letter-case" },
@@ -67,6 +78,7 @@ export default function MailConversationList(props: {
   onAddTags: () => void | Promise<void>;
   onBulkAction: (actionId: MailActionId) => void | Promise<void>;
   onItemAction: (item: MailListItem, actionId: MailActionId) => void | Promise<void>;
+  onManageTags: (item: MailListItem) => void | Promise<void>;
   onMergeItem: (item: MailListItem) => void | Promise<void>;
   onPrefetch: (item: MailListItem) => void;
   onOpenHref: (href: string, replace?: boolean) => void | Promise<void>;
@@ -340,6 +352,11 @@ export default function MailConversationList(props: {
               {(item) => {
                 const selected = () => isMailListItemActive(item, props.selectedConversationId, props.selectedMessageId);
                 const state = statusLabel(item);
+                const stateIcon = statusIcon(item);
+                const correspondents = correspondentLabels(item);
+                const primaryCorrespondent = correspondents[0] ?? "Unknown sender";
+                const additionalCorrespondents = Math.max(0, correspondents.length - 1);
+                const tagLabel = item.localTags.map((tag) => tag.name).join(", ");
                 let activation: "keyboard" | "pointer" = "keyboard";
                 let selectRange = false;
                 const bulkSelected = () => Boolean(item.conversationId && props.selectedConversationIds.has(item.conversationId));
@@ -375,8 +392,7 @@ export default function MailConversationList(props: {
                       href={buildMailSelectionHref(requestUrl(), item)}
                       aria-current={selected() ? "page" : undefined}
                       class="mail-list-row focus-ui"
-                      classList={{ "mail-list-row-unread": item.unread }}
-                      title={`${item.participantSummary || "Unknown sender"}: ${item.subject || "(no subject)"}`}
+                      title={`${correspondents.join(", ")}: ${item.subject || "(no subject)"}`}
                       draggable={props.canWrite && Boolean(item.conversationId && item.sourceFolderId)}
                       onClick={(event) => {
                         activation = event.detail === 0 ? "keyboard" : "pointer";
@@ -406,37 +422,41 @@ export default function MailConversationList(props: {
                         );
                       }}
                     >
-                      <span
-                        class={`h-2 w-2 rounded-full ${item.unread ? "bg-[var(--app-accent)]" : "ring-1 ring-[var(--ui-border-strong)]"}`}
-                        aria-hidden="true"
-                      />
-                      <span class="sr-only">{item.unread ? "Unread conversation. " : "Read conversation. "}</span>
-                      <span class="truncate text-sm text-primary">{item.participantSummary || "Unknown sender"}</span>
-                      <span class="min-w-0 truncate text-xs text-dimmed">
-                        <Show when={item.primaryReference}>
-                          <span class="mr-1 font-mono text-[0.6875rem] text-dimmed">{item.primaryReference}</span>
-                        </Show>
-                        <span class="font-medium text-primary">{item.subject || "(no subject)"}</span>
-                        <Show when={item.preview}>
-                          <span aria-hidden="true"> · </span>
-                          <span>{item.preview}</span>
-                        </Show>
+                      <span class="mail-list-status-rail" aria-hidden="true">
+                        <span class="mail-list-unread-dot" classList={{ "mail-list-unread-dot-visible": item.unread }} />
                       </span>
-                      <span class="flex min-w-0 items-center justify-end gap-1.5 text-xs text-dimmed">
-                        <Show when={state}>
-                          <span class="hidden max-w-20 truncate xl:inline" aria-hidden="true">
-                            {state}
-                          </span>
-                          <span class="sr-only">Status: {state}. </span>
-                        </Show>
-                        <Show when={item.hasAttachments}>
-                          <i class="ti ti-paperclip shrink-0" aria-hidden="true" />
-                          <span class="sr-only">Has attachments. </span>
-                        </Show>
-                        <Show when={item.flagged}>
-                          <i class="ti ti-flag-filled shrink-0 text-[var(--app-accent)]" aria-hidden="true" />
-                          <span class="sr-only">Flagged conversation. </span>
-                        </Show>
+                      <span class="sr-only">
+                        {item.unread ? "Unread conversation. " : "Read conversation. "}
+                        {item.flagged ? "Flagged conversation. " : ""}
+                      </span>
+                      <span class="mail-list-copy">
+                        <span
+                          class="flex min-w-0 items-center gap-1 text-sm text-primary"
+                          classList={{ "font-semibold": item.unread, "font-medium": !item.unread }}
+                        >
+                          <span class="min-w-0 truncate">{primaryCorrespondent}</span>
+                          <Show when={additionalCorrespondents > 0}>
+                            <Tooltip content={correspondents.join(", ")}>
+                              <span
+                                class="shrink-0 text-xs font-normal text-dimmed"
+                                aria-label={`${additionalCorrespondents} additional correspondent${additionalCorrespondents === 1 ? "" : "s"}: ${correspondents
+                                  .slice(1)
+                                  .join(", ")}`}
+                              >
+                                +{additionalCorrespondents}
+                              </span>
+                            </Tooltip>
+                          </Show>
+                        </span>
+                        <span class="min-w-0 truncate text-xs font-medium text-primary">
+                          <Show when={item.primaryReference}>
+                            <span class="mr-1 font-mono text-[0.6875rem] text-dimmed">{item.primaryReference}</span>
+                          </Show>
+                          {item.subject || "(no subject)"}
+                        </span>
+                        <span class="mail-list-preview">{item.preview || "\u00a0"}</span>
+                      </span>
+                      <span class="mail-list-meta transition-opacity group-focus-within:opacity-0 group-hover:opacity-0">
                         <time
                           class="shrink-0 tabular-nums"
                           dateTime={item.latestMessageAt}
@@ -444,6 +464,43 @@ export default function MailConversationList(props: {
                         >
                           {dates.formatDateTimeRelative(item.latestMessageAt, props.dateConfig)}
                         </time>
+                        <span class="mail-list-meta-icons">
+                          <Show when={item.localTags.length > 0}>
+                            <Tooltip content={`Tags: ${tagLabel}`}>
+                              <span class="mail-list-tag-markers" aria-label={`Tags: ${tagLabel}`}>
+                                <For each={item.localTags.slice(0, 2)}>
+                                  {(tag) => <span class="mail-list-tag-dot" style={{ "background-color": tag.color }} aria-hidden="true" />}
+                                </For>
+                                <Show when={item.localTags.length > 2}>
+                                  <span class="mail-list-tag-overflow" aria-hidden="true">
+                                    +{item.localTags.length - 2}
+                                  </span>
+                                </Show>
+                              </span>
+                            </Tooltip>
+                          </Show>
+                          <Show when={item.flagged}>
+                            <Tooltip content="Flagged">
+                              <span class="inline-flex text-orange-600 dark:text-orange-400" aria-label="Flagged conversation">
+                                <i class={getMailAction("flag").icon} aria-hidden="true" />
+                              </span>
+                            </Tooltip>
+                          </Show>
+                          <Show when={state && stateIcon}>
+                            <Tooltip content={state ?? ""}>
+                              <span class="inline-flex" aria-label={`Status: ${state}`}>
+                                <i class={stateIcon ?? ""} aria-hidden="true" />
+                              </span>
+                            </Tooltip>
+                          </Show>
+                          <Show when={item.hasAttachments}>
+                            <Tooltip content="Has attachments">
+                              <span class="inline-flex" aria-label="Has attachments">
+                                <i class="ti ti-paperclip" aria-hidden="true" />
+                              </span>
+                            </Tooltip>
+                          </Show>
+                        </span>
                       </span>
                     </a>
                     <Show when={props.canWrite && !props.selectionMode && item.conversationId}>
@@ -470,6 +527,11 @@ export default function MailConversationList(props: {
                               label: getMailAction(item.flagged ? "unflag" : "flag").label,
                               icon: getMailAction(item.flagged ? "unflag" : "flag").icon,
                               action: () => props.onItemAction(item, item.flagged ? "unflag" : "flag"),
+                            },
+                            {
+                              label: "Manage tags",
+                              icon: "ti ti-tags",
+                              action: () => props.onManageTags(item),
                             },
                             ...(["archive", "move", "junk", "trash"] as const).map((actionId) => ({
                               label: getMailAction(actionId).label,

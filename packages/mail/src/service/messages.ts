@@ -146,6 +146,7 @@ export type ConversationSummary = {
   primaryReference: string | null;
   subject: string;
   participantSummary: string;
+  participantLabels: string[];
   latestMessageAt: string;
   workStatus: "open" | "waiting" | "done";
   assigneeUserId: string | null;
@@ -168,6 +169,7 @@ type DbConversation = {
   primary_reference: string | null;
   subject: string;
   participant_summary: string;
+  participant_labels: unknown;
   latest_message_at: Date | string;
   work_status: ConversationSummary["workStatus"];
   assignee_user_id: string | null;
@@ -187,6 +189,7 @@ type DbConversation = {
 };
 
 const unreadFolderIdsSchema = z.array(z.uuid());
+const participantLabelsSchema = z.array(z.string().trim().min(1));
 
 export const listConversations = async (params: {
   context: MailRequestContext;
@@ -218,6 +221,7 @@ export const listConversations = async (params: {
       primary_reference.value AS primary_reference,
       c.subject,
       c.participant_summary,
+      participant_state.labels AS participant_labels,
       c.latest_message_at,
       c.work_status,
       c.assignee_user_id,
@@ -282,7 +286,17 @@ export const listConversations = async (params: {
     ) active_state ON true
     LEFT JOIN LATERAL (
       SELECT
+        mc.id AS message_id,
         LEFT(COALESCE(mc.plain_text, ''), 320) AS preview,
+        EXISTS (
+          SELECT 1
+          FROM mail.message_addresses sender
+          JOIN mail.sender_identities identity
+            ON identity.mailbox_id = c.mailbox_id
+           AND identity.status <> 'disabled'
+           AND lower(identity.from_address) = sender.normalized_email
+          WHERE sender.message_id = mc.id AND sender.role = 'from'
+        ) AS outbound,
         (
           SELECT placement.folder_id
           FROM mail.message_placements placement
@@ -296,6 +310,26 @@ export const listConversations = async (params: {
       ORDER BY mc.internal_date DESC, mc.id DESC
       LIMIT 1
     ) latest ON true
+    LEFT JOIN LATERAL (
+      SELECT ARRAY(
+        SELECT participant.label
+        FROM (
+          SELECT DISTINCT ON (address.normalized_email)
+            address.normalized_email,
+            COALESCE(NULLIF(address.display_name, ''), address.email) AS label,
+            CASE address.role WHEN 'to' THEN 0 WHEN 'cc' THEN 1 WHEN 'bcc' THEN 2 ELSE 3 END AS role_order,
+            address.position
+          FROM mail.message_addresses address
+          WHERE address.message_id = latest.message_id
+            AND (
+              (latest.outbound AND address.role IN ('to', 'cc', 'bcc'))
+              OR (NOT latest.outbound AND address.role = 'from')
+            )
+          ORDER BY address.normalized_email, role_order, address.position
+        ) participant
+        ORDER BY participant.role_order, participant.position, participant.normalized_email
+      ) AS labels
+    ) participant_state ON true
     WHERE c.mailbox_id = ${params.mailboxId}::uuid
       AND (${params.status ?? null}::text IS NULL OR c.work_status = ${params.status ?? null})
       AND (
@@ -352,6 +386,7 @@ export const listConversations = async (params: {
     primaryReference: row.primary_reference,
     subject: row.subject,
     participantSummary: row.participant_summary,
+    participantLabels: participantLabelsSchema.parse(row.participant_labels),
     latestMessageAt: toIso(row.latest_message_at),
     workStatus: row.work_status,
     assigneeUserId: row.assignee_user_id,

@@ -9,6 +9,7 @@ import {
   createLocalTag,
   deleteLocalTag,
   getConversationLocalTags,
+  listConversationLocalTags,
   listLocalTags,
   setConversationLocalTags,
   updateLocalTag,
@@ -195,17 +196,36 @@ suite("mail local tags and structured search", () => {
 
   test("enforces write permission, normalized uniqueness, mailbox consistency, and revision fences", async () => {
     expect((await listLocalTags(readerContext, mailboxId)).ok).toBe(true);
-    expect((await createLocalTag({ context: readerContext, mailboxId, input: { name: "Denied" } })).ok).toBe(false);
+    expect((await createLocalTag({ context: readerContext, mailboxId, input: { name: "Denied", color: "#6b7280" } })).ok).toBe(false);
 
-    const created = await createLocalTag({ context: writerContext, mailboxId, input: { name: "  Customer   Care  " } });
+    const created = await createLocalTag({
+      context: writerContext,
+      mailboxId,
+      input: { name: "  Customer   Care  ", color: "#0f766e" },
+    });
     expect(created.ok && created.data.name).toBe("Customer Care");
+    expect(created.ok && created.data.color).toBe("#0f766e");
     if (!created.ok) return;
-    const duplicate = await createLocalTag({ context: writerContext, mailboxId, input: { name: "customer care" } });
+    const duplicate = await createLocalTag({
+      context: writerContext,
+      mailboxId,
+      input: { name: "customer care", color: "#6b7280" },
+    });
     expect(duplicate.ok).toBe(false);
 
     const updates = await Promise.all([
-      updateLocalTag({ context: writerContext, mailboxId, tagId: created.data.id, input: { expectedRevision: 1, name: "Priority" } }),
-      updateLocalTag({ context: writerContext, mailboxId, tagId: created.data.id, input: { expectedRevision: 1, name: "Urgent" } }),
+      updateLocalTag({
+        context: writerContext,
+        mailboxId,
+        tagId: created.data.id,
+        input: { expectedRevision: 1, name: "Priority", color: "#dc2626" },
+      }),
+      updateLocalTag({
+        context: writerContext,
+        mailboxId,
+        tagId: created.data.id,
+        input: { expectedRevision: 1, name: "Urgent", color: "#ea580c" },
+      }),
     ]);
     expect(updates.filter((result) => result.ok)).toHaveLength(1);
     expect(updates.filter((result) => !result.ok)).toHaveLength(1);
@@ -213,7 +233,11 @@ suite("mail local tags and structured search", () => {
     if (!current.ok) throw new Error(current.error.message);
     const tag = current.data[0]!;
 
-    const otherTag = await createLocalTag({ context: ownerContext, mailboxId: otherMailboxId, input: { name: "Other mailbox" } });
+    const otherTag = await createLocalTag({
+      context: ownerContext,
+      mailboxId: otherMailboxId,
+      input: { name: "Other mailbox", color: "#6b7280" },
+    });
     if (!otherTag.ok) throw new Error(otherTag.error.message);
     const crossMailbox = await setConversationLocalTags({
       context: writerContext,
@@ -231,6 +255,10 @@ suite("mail local tags and structured search", () => {
     });
     expect(assigned.ok && assigned.data.conversationRevision).toBe(2);
     expect(assigned.ok && assigned.data.tags.map((item) => item.id)).toEqual([tag.id]);
+    const listed = await listConversationLocalTags({ context: readerContext, mailboxId, conversationIds: [conversationId] });
+    expect(listed.ok && listed.data.get(conversationId)?.map((item) => ({ id: item.id, color: item.color }))).toEqual([
+      { id: tag.id, color: tag.color },
+    ]);
     const stale = await setConversationLocalTags({
       context: writerContext,
       mailboxId,
@@ -248,7 +276,11 @@ suite("mail local tags and structured search", () => {
     expect(evidence!.activities).toBeGreaterThanOrEqual(3);
     expect(evidence!.audits).toBeGreaterThanOrEqual(3);
 
-    const disposable = await createLocalTag({ context: writerContext, mailboxId, input: { name: "Disposable" } });
+    const disposable = await createLocalTag({
+      context: writerContext,
+      mailboxId,
+      input: { name: "Disposable", color: "#6b7280" },
+    });
     if (!disposable.ok) throw new Error(disposable.error.message);
     const assignedDisposable = await setConversationLocalTags({
       context: writerContext,
@@ -273,7 +305,11 @@ suite("mail local tags and structured search", () => {
       VALUES (${mailboxId}::uuid, 'Second tagged conversation', 'Customer', now())
       RETURNING id
     `;
-    const bulkTag = await createLocalTag({ context: writerContext, mailboxId, input: { name: "Bulk assigned" } });
+    const bulkTag = await createLocalTag({
+      context: writerContext,
+      mailboxId,
+      input: { name: "Bulk assigned", color: "#2563eb" },
+    });
     if (!secondConversation || !bulkTag.ok) throw new Error("Bulk tag fixtures could not be created");
     expect(
       (

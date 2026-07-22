@@ -88,24 +88,24 @@ export default function MailMessageAttachments(props: {
 
   return (
     <div class="mt-4">
-      <p class="mb-2 text-xs font-medium uppercase text-dimmed">Received with this message</p>
-      <div class="flex flex-col gap-2">
+      <p class="mb-1.5 text-xs font-medium text-dimmed">Attachments</p>
+      <div class="flex flex-col gap-1.5">
         <For each={props.attachments}>
           {(attachment) => {
             const kind = attachmentPreviewKind(attachment.contentType, attachment.sizeBytes);
             const inlineUrl = `${baseUrl(attachment)}?inline=true`;
             return (
-              <div class="overflow-hidden rounded-[var(--ui-radius-control)] border border-default bg-[var(--ui-surface-subtle)]">
-                <div class="flex min-w-0 items-center gap-2 p-2">
-                  <i class="ti ti-paperclip shrink-0 text-dimmed" aria-hidden="true" />
-                  <span class="min-w-0 flex-1 truncate text-sm font-medium text-primary">
+              <div class="min-w-0">
+                <div class="flex min-h-8 min-w-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-2 py-0.5">
+                  <i class="ti ti-paperclip shrink-0 text-sm text-dimmed" aria-hidden="true" />
+                  <span class="min-w-0 flex-1 truncate text-xs font-medium text-primary">
                     {attachment.filename ?? attachment.contentType}
                   </span>
                   <span class="shrink-0 text-xs text-dimmed">{formatBytes(attachment.sizeBytes)}</span>
                   <Show when={kind}>
                     <button
                       type="button"
-                      class="btn-simple btn-xs"
+                      class="mail-attachment-preview btn-simple"
                       aria-expanded={previewId() === attachment.id}
                       onClick={() => togglePreview(attachment)}
                     >
@@ -116,7 +116,7 @@ export default function MailMessageAttachments(props: {
                   <Show when={props.canShare}>
                     <button
                       type="button"
-                      class="icon-btn icon-btn-sm"
+                      class="icon-btn !h-7 !w-7 !p-0 text-sm"
                       aria-label={`Share ${attachment.filename ?? "attachment"}`}
                       disabled={createLink.loading()}
                       onClick={() => void shareAttachment(attachment)}
@@ -124,14 +124,18 @@ export default function MailMessageAttachments(props: {
                       <i class={`ti ${createLink.loading() ? "ti-loader-2 animate-spin" : "ti-link"}`} aria-hidden="true" />
                     </button>
                   </Show>
-                  <a class="icon-btn icon-btn-sm" href={baseUrl(attachment)} aria-label={`Download ${attachment.filename ?? "attachment"}`}>
+                  <a
+                    class="icon-btn !h-7 !w-7 !p-0 text-sm"
+                    href={baseUrl(attachment)}
+                    aria-label={`Download ${attachment.filename ?? "attachment"}`}
+                  >
                     <i class="ti ti-download" aria-hidden="true" />
                     <span class="sr-only">Download {attachment.filename ?? "attachment"}</span>
                   </a>
                 </div>
                 <Show when={previewId() === attachment.id && kind}>
                   {(activeKind) => (
-                    <div class="bg-[var(--ui-surface)] p-2">
+                    <div class="mt-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2">
                       <Show when={activeKind() === "image"}>
                         <img
                           src={inlineUrl}

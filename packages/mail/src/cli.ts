@@ -864,9 +864,10 @@ const printLocalTags = (ctx: CloudCliContext, tags: LocalTag[]): void =>
   printTable(
     ctx,
     tags,
-    tags.map((tag) => ({ name: tag.name, revision: tag.revision, id: tag.id })),
+    tags.map((tag) => ({ name: tag.name, color: tag.color, revision: tag.revision, id: tag.id })),
     [
       { key: "name", label: "NAME" },
+      { key: "color", label: "COLOR" },
       { key: "revision", label: "REVISION" },
       { key: "id", label: "TAG ID" },
     ],
@@ -2139,10 +2140,17 @@ export default defineCliCommands({
     command("tag create", {
       summary: "Create a Cloud-local mailbox tag",
       args: { name: arg.required({ description: "Tag name" }) },
-      flags: mailboxFlag,
+      flags: {
+        ...mailboxFlag,
+        color: flag.string({ description: "Six-digit hex color (default: #6b7280)" }),
+      },
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const tag = await readApi<LocalTag>(ctx, `/mailboxes/${mailbox.id}/local-tags`, jsonRequest("POST", { name: args.name }));
+        const tag = await readApi<LocalTag>(
+          ctx,
+          `/mailboxes/${mailbox.id}/local-tags`,
+          jsonRequest("POST", { name: args.name, color: flags.color ?? "#6b7280" }),
+        );
         if (printStructured(ctx, tag)) return;
         ctx.print(`Created ${tag.name} (${tag.id}), revision ${tag.revision}.`);
       },

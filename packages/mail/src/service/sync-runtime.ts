@@ -207,6 +207,16 @@ const allParticipantEmails = (message: ConnectorEnvelope): string[] => [
   ),
 ];
 
+const counterpartyLabels = (message: ConnectorEnvelope, outbound: boolean): string[] => {
+  const addresses = outbound ? [...message.addresses.to, ...message.addresses.cc, ...message.addresses.bcc] : message.addresses.from;
+  const labels = new Map<string, string>();
+  for (const address of addresses) {
+    const normalized = address.address.toLowerCase();
+    if (!labels.has(normalized)) labels.set(normalized, address.name?.trim() || address.address);
+  }
+  return [...labels.values()];
+};
+
 const upsertAddresses = async (db: typeof sql, messageId: string, message: ConnectorEnvelope): Promise<void> => {
   await db`DELETE FROM mail.message_addresses WHERE message_id = ${messageId}::uuid`;
   const rows = Object.entries(message.addresses).flatMap(([role, addresses]) =>
@@ -498,7 +508,6 @@ export const ingestEnvelope = async (params: {
       message: params.message,
       normalizedSubject,
     }));
-  const participants = allParticipantEmails(params.message);
   const outbound = await params.db<{ outbound: boolean }[]>`
     SELECT EXISTS (
       SELECT 1
@@ -508,6 +517,7 @@ export const ingestEnvelope = async (params: {
         AND si.status <> 'disabled'
     ) AS outbound
   `;
+  const participantLabels = counterpartyLabels(params.message, Boolean(outbound[0]?.outbound));
   if (!conversationId) {
     const [conversation] = await params.db<{ id: string }[]>`
       INSERT INTO mail.conversations (
@@ -522,7 +532,7 @@ export const ingestEnvelope = async (params: {
       VALUES (
         ${params.mailboxId}::uuid,
         ${params.message.subject},
-        ${participants.slice(0, 20).join(", ")},
+        ${participantLabels.slice(0, 20).join(", ")},
         ${outbound[0]?.outbound ? null : params.message.internalDate},
         ${outbound[0]?.outbound ? params.message.internalDate : null},
         ${params.message.internalDate},

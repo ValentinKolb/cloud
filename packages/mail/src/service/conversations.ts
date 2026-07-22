@@ -113,6 +113,8 @@ const recomputeConversation = async (params: {
         COALESCE(NULLIF(address.display_name, ''), address.email) AS label
       FROM mail.message_addresses address
       JOIN latest ON latest.message_id = address.message_id
+      WHERE (latest.outbound AND address.role IN ('to', 'cc', 'bcc'))
+         OR (NOT latest.outbound AND address.role = 'from')
       ORDER BY address.normalized_email, address.position
     ),
     participants AS (

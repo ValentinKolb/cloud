@@ -8,6 +8,7 @@ const item = (id: string, subject: string): MailListItem => ({
   primaryReference: null,
   subject,
   participantSummary: "Sender",
+  participantLabels: ["Sender"],
   latestMessageAt: "2026-07-22T00:00:00.000Z",
   preview: null,
   unread: false,
@@ -21,6 +22,7 @@ const item = (id: string, subject: string): MailListItem => ({
   snoozedUntil: null,
   sourceFolderId: null,
   unreadFolderIds: [],
+  localTags: [],
   revision: 1,
 });
 

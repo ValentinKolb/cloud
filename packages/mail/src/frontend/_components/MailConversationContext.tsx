@@ -100,7 +100,7 @@ function RelatedMail(props: { mailboxId: string; conversationId: string; bookId:
   );
 }
 
-export default function MailConversationContext(props: { mailboxId: string; conversationId: string; active: boolean; revision: number }) {
+export default function MailConversationContext(props: { mailboxId: string; conversationId: string; active: boolean }) {
   const [context, setContext] = createSignal<MailConversationContext | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
@@ -148,7 +148,6 @@ export default function MailConversationContext(props: { mailboxId: string; conv
       return;
     }
     const conversationId = props.conversationId;
-    props.revision;
     if (loadedConversationId !== conversationId) {
       loadedConversationId = conversationId;
       setContext(null);
@@ -241,12 +240,12 @@ export default function MailConversationContext(props: { mailboxId: string; conv
                                 fallback={<p class="mt-2 text-xs text-dimmed">Matching contact available. Load more to view it.</p>}
                               >
                                 <a
-                                  class="btn-secondary btn-xs mt-2 w-fit"
+                                  class="btn-secondary btn-sm mt-2 w-full justify-center"
                                   href={buildContactCreateHref({ email: participant.email, name: participant.displayName ?? undefined })}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >
-                                  <i class="ti ti-user-plus" aria-hidden="true" /> Add as contact
+                                  <i class="ti ti-user-plus" aria-hidden="true" /> Create contact
                                 </a>
                               </Show>
                             }
@@ -254,7 +253,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
                             <div class="mt-2 flex flex-col gap-3">
                               <For each={participant.contacts}>
                                 {(contact) => (
-                                  <div class="min-w-0 border-l-2 border-zinc-200 pl-3 dark:border-zinc-700">
+                                  <div class="min-w-0">
                                     <a class="block truncate text-sm font-medium text-primary hover:underline" href={contact.href}>
                                       {contact.displayName}
                                     </a>

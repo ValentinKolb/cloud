@@ -121,13 +121,16 @@ const loadPinnedBinding = async (command: DbCommandExecution): Promise<DbPinnedB
     JOIN mail.provider_connections pc ON pc.id = pb.connection_id
     WHERE pb.id = ${command.selected_binding_id}::uuid
       AND rr.mailbox_id = ${command.mailbox_id}::uuid
-      AND pb.state = 'active'
+      AND rr.status IN ('active', 'degraded')
+      AND pb.state IN ('active', 'degraded')
       AND pb.verified_scope_fingerprint = rr.scope_fingerprint
       AND pb.verified_secret_revision = ${command.selected_secret_revision}
       AND pc.secret_revision = ${command.selected_secret_revision}
-      AND pc.status = 'active'
+      AND pc.status IN ('active', 'degraded')
       AND pc.encrypted_secret IS NOT NULL
       AND pc.owner_mailbox_id = ${command.mailbox_id}::uuid
+      AND m.sync_enabled = true
+      AND m.health NOT IN ('auth_required', 'connection_required', 'paused')
       AND m.deleted_at IS NULL
   `;
   if (!binding) throw Object.assign(new Error("Pinned provider binding is no longer active"), { code: "BINDING_UNAVAILABLE" });
@@ -469,6 +472,8 @@ const isAmbiguousTransportError = (error: unknown): boolean => {
   ].includes(code);
 };
 
+const RETRYABLE_CONNECTION_CODES = new Set(["ECONNREFUSED", "EAI_AGAIN", "ENOTFOUND"]);
+
 const PARTIAL_MUTATION_CODES = new Set([
   "DELETE_RECONCILIATION_FAILED",
   "FLAG_RECONCILIATION_FAILED",
@@ -490,11 +495,22 @@ const AMBIGUOUS_COMMAND_CODES = new Set([
   "STALE_COMMAND_FENCE",
 ]);
 
-export const mutationFailureState = (error: unknown): CommandState => {
+export const mutationFailureState = (error: unknown, providerEffectStarted = true): CommandState => {
   const code = normalizeCode(error, "");
   if (PARTIAL_MUTATION_CODES.has(code)) return "needs_attention";
   if (AMBIGUOUS_COMMAND_CODES.has(code)) return "ambiguous";
+  if (RETRYABLE_CONNECTION_CODES.has(code)) return providerEffectStarted ? "ambiguous" : "queued";
   return isAmbiguousTransportError(error) ? "ambiguous" : "failed";
+};
+
+const providerEffectStartedForAttempt = async (command: Pick<DbCommandExecution, "id" | "attempt">): Promise<boolean> => {
+  const [state] = await sql<{ started: boolean }[]>`
+    SELECT provider_effect_attempt = ${command.attempt} AS started
+    FROM mail.commands
+    WHERE id = ${command.id}::uuid
+  `;
+  // Missing state is treated conservatively because replay safety can no longer be proven.
+  return state?.started ?? true;
 };
 
 const persistMutationOutcome = async <T>(work: () => Promise<T>): Promise<T> => {
@@ -536,13 +552,15 @@ const beginProviderEffect = async (command: DbCommandExecution, senderIdentityId
         AND command.state = 'executing'
         AND command.attempt = ${command.attempt}
         AND command.selected_secret_revision = ${command.selected_secret_revision}
-        AND binding.state = 'active'
+        AND binding.state IN ('active', 'degraded')
         AND binding.verified_scope_fingerprint = resource.scope_fingerprint
         AND binding.verified_secret_revision = command.selected_secret_revision
         AND connection.secret_revision = command.selected_secret_revision
-        AND connection.status = 'active'
+        AND connection.status IN ('active', 'degraded')
         AND connection.encrypted_secret IS NOT NULL
-        AND resource.status = 'active'
+        AND resource.status IN ('active', 'degraded')
+        AND mailbox.sync_enabled = true
+        AND mailbox.health NOT IN ('auth_required', 'connection_required', 'paused')
         AND mailbox.deleted_at IS NULL
       FOR UPDATE OF command
     `;
@@ -1463,7 +1481,8 @@ const runClaimedMutation = async (
       await runMessageMutation(claimed, assertLeaseActive);
     }
   } catch (error) {
-    await commandState(claimed.command, mutationFailureState(error), error);
+    const providerEffectStarted = await providerEffectStartedForAttempt(claimed.command).catch(() => true);
+    await commandState(claimed.command, mutationFailureState(error, providerEffectStarted), error);
   }
   const [state] = await sql<{ state: CommandState }[]>`
     SELECT state FROM mail.commands WHERE id = ${claimed.command.id}::uuid
@@ -2595,7 +2614,8 @@ const mutationJob = job<{ commandId: string }, { state: CommandState | null } | 
       }),
     })) ?? Promise.resolve(null),
   after: ({ ctx }) => {
-    if (ctx.data?.state === "ambiguous" || ctx.data?.state === "queued") ctx.reschedule({ delayMs: 2_000 });
+    if (ctx.data?.state === "ambiguous") ctx.reschedule({ delayMs: 2_000 });
+    else if (ctx.data?.state === "queued") ctx.reschedule({ delayMs: 30_000 });
     else if (ctx.error && ctx.failureCount < 5) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
   },
 });

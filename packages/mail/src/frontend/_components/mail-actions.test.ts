@@ -5,6 +5,7 @@ describe("Mail actions", () => {
   test("defines every action exactly once", () => {
     expect(new Set(MAIL_ACTION_IDS).size).toBe(MAIL_ACTION_IDS.length);
     for (const id of MAIL_ACTION_IDS) expect(getMailAction(id).id).toBe(id);
+    expect(getMailAction("flag").icon).toBe("ti ti-flag");
   });
 
   test("builds provider move inputs", () => {
