@@ -56,13 +56,20 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
     const baseEntries = createMemo(() => scopedEntries().filter((entry) => entry.resourceType === "base"));
     const childEntries = createMemo(() => scopedEntries().filter((entry) => entry.resourceType !== "base"));
 
-    const clearChildEntry = async (entry: ScopedAccessEntry) => {
-      const response = await apiClient.admin.bases[":baseId"].access[":accessId"].$delete({
-        param: { baseId: props.baseId, accessId: entry.id },
-      });
-      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to clear resource override."));
-      setScopedEntries((current) => current.filter((item) => item.id !== entry.id));
-    };
+    const clearChildEntryMutation = mutations.create<ScopedAccessEntry, ScopedAccessEntry>({
+      mutation: async (entry) => {
+        const response = await apiClient.admin.bases[":baseId"].access[":accessId"].$delete({
+          param: { baseId: props.baseId, accessId: entry.id },
+        });
+        if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to clear resource override."));
+        return entry;
+      },
+      onSuccess: (entry) => {
+        setScopedEntries((current) => current.filter((item) => item.id !== entry.id));
+        toast.success("Resource override cleared");
+      },
+      onError: (err) => prompts.error(err.message),
+    });
 
     return (
       <div class="flex w-full max-w-full flex-col gap-4">
@@ -89,6 +96,7 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
                   tableName: null,
                 },
               ]);
+              toast.success("Access granted");
               return created;
             }}
             updateAccess={async (accessId, permission) => {
@@ -98,6 +106,7 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
               });
               if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update access."));
               setScopedEntries((current) => current.map((entry) => (entry.id === accessId ? { ...entry, permission } : entry)));
+              toast.success("Access updated");
             }}
             revokeAccess={async (accessId) => {
               const response = await apiClient.admin.bases[":baseId"].access[":accessId"].$delete({
@@ -105,6 +114,7 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
               });
               if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke access."));
               setScopedEntries((current) => current.filter((entry) => entry.id !== accessId));
+              toast.success("Access revoked");
             }}
           />
         </div>
@@ -134,7 +144,8 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
                         type="button"
                         class="text-dimmed hover:text-default"
                         aria-label={`Clear override for ${entry.resourceName}`}
-                        onClick={() => void clearChildEntry(entry).catch((err) => prompts.error(err.message))}
+                        disabled={clearChildEntryMutation.loading()}
+                        onClick={() => clearChildEntryMutation.mutate(entry)}
                       >
                         <i class="ti ti-x text-sm" />
                       </button>
@@ -190,13 +201,15 @@ const AdminGridsActions = (props: AdminGridsActionsProps) => {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label={`Settings for ${props.baseName}`}>
-          <i
-            class={
-              permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
-            }
-          />
-        </button>
+        <Tooltip content="Base actions">
+          <button type="button" class="icon-btn h-7 w-7" aria-label={`Actions for ${props.baseName}`}>
+            <i
+              class={
+                permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
+              }
+            />
+          </button>
+        </Tooltip>
       }
       position="bottom-left"
       width="w-52"

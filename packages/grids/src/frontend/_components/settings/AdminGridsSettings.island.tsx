@@ -1,5 +1,4 @@
-import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -84,7 +83,7 @@ const SettingsBody = (props: { close: () => void }) => {
     },
     onSuccess: (changed) => {
       props.close();
-      if (changed) refreshCurrentPath();
+      if (changed) toast.success("Grids settings saved");
     },
     onError: (e) => prompts.error(e.message),
   });
