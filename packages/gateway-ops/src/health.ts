@@ -1,5 +1,6 @@
 import { listAppsDetailed } from "@valentinkolb/cloud";
 import { listGatewayRouteSnapshots } from "@valentinkolb/cloud/services";
+import { getGridsOperationalSnapshot, gridsSloStatus, listAppSloWindows } from "./grids-operational-health";
 import { listRegisteredAppStatus } from "./registered-apps";
 
 export type GatewayHealthStatus = "ok" | "warn" | "error";
@@ -13,6 +14,7 @@ export type GatewayHealthApp = {
   healthy: boolean;
   lastSeenAt: string;
   offlineForMs: number;
+  signals: string[];
 };
 
 export type GatewayHealth = {
@@ -36,10 +38,10 @@ export const scopeGatewayHealth = (health: GatewayHealth, scopeAppIds?: readonly
   const scope = scopeAppIds && scopeAppIds.length > 0 ? new Set(scopeAppIds) : null;
   const apps = scope ? health.apps.filter((app) => scope.has(app.id)) : health.apps;
   const healthy = apps.filter((app) => app.status === "ok").length;
-  const offline = apps.filter((app) => app.status === "error").length;
-  const degraded = apps.filter((app) => app.status === "warn").length;
+  const offline = apps.filter((app) => !app.online).length;
+  const degraded = apps.filter((app) => app.online && app.status !== "ok").length;
   const status: GatewayHealthStatus =
-    health.summary.gatewayInstances === 0 || offline > 0 ? "error" : degraded > 0 || health.summary.errors > 0 ? "warn" : "ok";
+    health.summary.gatewayInstances === 0 || apps.some((app) => app.status === "error") ? "error" : degraded > 0 ? "warn" : "ok";
 
   return {
     ...health,
@@ -57,13 +59,28 @@ export const scopeGatewayHealth = (health: GatewayHealth, scopeAppIds?: readonly
 
 export const buildGatewayHealth = async (scopeAppIds?: readonly string[]): Promise<GatewayHealth> => {
   const checkedAt = new Date();
-  const [liveApps, snapshots] = await Promise.all([listAppsDetailed(), listGatewayRouteSnapshots()]);
+  const [liveApps, snapshots, gridsOperations, gridsSlo] = await Promise.all([
+    listAppsDetailed(),
+    listGatewayRouteSnapshots(),
+    getGridsOperationalSnapshot(),
+    listAppSloWindows("grids"),
+  ]);
   const registeredApps = await listRegisteredAppStatus(liveApps);
   const latestSnapshot = snapshots.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
 
   const apps = registeredApps.map<GatewayHealthApp>((app) => {
     const fresh = Boolean(app.live && app.live.expiresAt - Date.now() > 30_000);
-    const status: GatewayHealthStatus = app.isOnline ? (fresh ? "ok" : "warn") : "error";
+    let status: GatewayHealthStatus = app.isOnline ? (fresh ? "ok" : "warn") : "error";
+    const signals: string[] = [];
+    if (app.id === "grids" && app.isOnline) {
+      const sloStatus = gridsSloStatus(gridsSlo);
+      if (gridsOperations?.status === "error" || sloStatus === "error") status = "error";
+      else if (gridsOperations?.status === "warn" || sloStatus === "warn" || status === "warn") status = "warn";
+      if (gridsOperations?.status === "error") signals.push("Grids processing needs intervention");
+      else if (gridsOperations?.status === "warn") signals.push("Grids processing is delayed");
+      if (sloStatus === "error") signals.push("Grids request availability is burning error budget quickly");
+      else if (sloStatus === "warn") signals.push("Grids request availability is burning error budget");
+    }
     return {
       id: app.id,
       name: app.name,
@@ -73,6 +90,7 @@ export const buildGatewayHealth = async (scopeAppIds?: readonly string[]): Promi
       healthy: status === "ok",
       lastSeenAt: new Date(app.live?.updatedAt ?? app.lastSeenAt).toISOString(),
       offlineForMs: app.offlineForMs,
+      signals,
     };
   });
 

@@ -6,6 +6,7 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import { listAppSloWindows } from "../../grids-operational-health";
 import { gatewayOpsHelp } from "../../help";
 import { getTelemetrySummary, listTelemetryApps, listTelemetryEvents, type TelemetryEventRow } from "../../telemetry";
 import TelemetryFilterBar, { type TelemetryAppFilterOption } from "./TelemetryFilterBar.island";
@@ -26,6 +27,8 @@ const fmtDate = (value: string) =>
     minute: "2-digit",
     second: "2-digit",
   }).format(new Date(value));
+
+const fmtRatio = (ratio: number): string => `${(Math.max(0, Math.min(1, ratio)) * 100).toFixed(3)}%`;
 
 const legacyTelemetryAppIcons: Record<string, string> = {
   gateway: "ti ti-route-scan",
@@ -49,11 +52,12 @@ export default ssr<AuthContext>(async (c) => {
   const page = Math.max(1, Number(params.get("page") ?? "1"));
   const perPage = 100;
 
-  const [summary, telemetryApps, registryApps, events] = await Promise.all([
+  const [summary, telemetryApps, registryApps, events, sloWindows] = await Promise.all([
     getTelemetrySummary(),
     listTelemetryApps(),
     listAppsDetailed(),
     listTelemetryEvents({ search, appId, slowOnly, errorsOnly, page, perPage }),
+    appId ? listAppSloWindows(appId) : Promise.resolve([]),
   ]);
   const registryById = new Map(registryApps.map((app) => [app.id, app]));
   const appOptions: TelemetryAppFilterOption[] = telemetryApps.map((id) => {
@@ -108,6 +112,37 @@ export default ssr<AuthContext>(async (c) => {
             <StatCell value={fmtMs(summary.avgDurationMs)} label="Average" sub="request time" />
             <StatCell value={fmtMs(summary.p95DurationMs)} label="P95" sub="request time" />
           </StatGrid>
+
+          {appId && sloWindows.length > 0 ? (
+            <section class="paper flex flex-col gap-2 p-3" aria-labelledby="request-slo-title">
+              <div>
+                <h2 id="request-slo-title" class="text-xs font-semibold text-primary">
+                  Request availability
+                </h2>
+                <p class="text-[10px] text-dimmed">HTTP 5xx and gateway failures consume the 99.9% availability objective.</p>
+              </div>
+              <StatGrid columns={3} size="sm">
+                {sloWindows.map((window) => {
+                  const completeSeconds = window.window === "1h" ? 3600 : window.window === "6h" ? 21_600 : 2_592_000;
+                  const collecting = window.observedSeconds < completeSeconds * 0.95;
+                  const missed = !collecting && window.requestCount > 0 && window.availabilityRatio < 0.999;
+                  return (
+                    <StatCell
+                      label={window.window}
+                      value={window.requestCount === 0 ? "No traffic" : fmtRatio(window.availabilityRatio)}
+                      sub={
+                        collecting
+                          ? `${window.requestCount.toLocaleString()} requests · collecting history`
+                          : `${window.requestCount.toLocaleString()} requests`
+                      }
+                      valueClass={missed ? "text-red-500" : "text-primary"}
+                      accent={missed ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+                    />
+                  );
+                })}
+              </StatGrid>
+            </section>
+          ) : null}
 
           <section class="paper overflow-hidden">
             <div class="flex flex-col gap-2 px-3 py-2">

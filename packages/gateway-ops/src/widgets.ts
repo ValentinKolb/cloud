@@ -1,10 +1,9 @@
-import { listAppsDetailed } from "@valentinkolb/cloud";
 import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { latestGatewayRouteSnapshot } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
-import { listRegisteredAppStatus } from "./registered-apps";
+import { buildGatewayHealth } from "./health";
 
 const fmtUptime = (ms: number): string => {
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -16,9 +15,8 @@ const fmtUptime = (ms: number): string => {
 const fmtCount = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 /**
- * Platform health widget — admin only. Status banner reflects whether every
- * registered app has a fresh heartbeat; pills carry route + traffic numbers
- * so the admin gets the gateway summary without leaving the dashboard.
+ * Platform health widget — admin only. Status includes app liveness and the
+ * operational signals evaluated by the central health service.
  */
 export const widgetRoutes = new Hono<AuthContext>().use(auth.requireRole("*")).get("/health", async (c) => {
   const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
@@ -26,22 +24,16 @@ export const widgetRoutes = new Hono<AuthContext>().use(auth.requireRole("*")).g
   // 403 = admin-only widget; non-admins see it as locked in the dashboard modal.
   if (!user || !hasRole(user, "admin")) return c.body(null, 403);
 
-  const [liveApps, snapshot] = await Promise.all([listAppsDetailed(), latestGatewayRouteSnapshot()]);
-  const apps = await listRegisteredAppStatus(liveApps);
-
-  const otherApps = apps.filter((a) => a.id !== "gateway" && a.id !== "gateway-router");
-  const total = otherApps.length;
-  const healthy = otherApps.filter((a) => a.live && a.live.expiresAt - Date.now() > 30_000);
-  const degraded = total - healthy.length;
-
-  const tone: "ok" | "warn" | "error" = degraded === 0 ? "ok" : degraded === total ? "error" : "warn";
+  const [health, snapshot] = await Promise.all([buildGatewayHealth(), latestGatewayRouteSnapshot()]);
+  const { apps: total, healthy, degraded, offline } = health.summary;
+  const unhealthy = degraded + offline;
 
   const blocks: WidgetBlock[] = [
     {
       kind: "status",
       grow: true,
-      tone,
-      title: degraded === 0 ? "All systems operational" : `${degraded} of ${total} apps degraded`,
+      tone: health.status,
+      title: unhealthy === 0 ? "All systems operational" : `${unhealthy} of ${total} apps need attention`,
       message: snapshot
         ? `Gateway up ${fmtUptime(Date.now() - snapshot.startedAt)} · ${total} apps registered`
         : `${total} apps registered · no gateway router snapshot`,
@@ -49,7 +41,7 @@ export const widgetRoutes = new Hono<AuthContext>().use(auth.requireRole("*")).g
     {
       kind: "pills",
       pills: [
-        { label: "apps", value: `${healthy.length}/${total}`, tone: degraded === 0 ? "emerald" : "amber" },
+        { label: "apps", value: `${healthy}/${total}`, tone: unhealthy === 0 ? "emerald" : health.status === "error" ? "red" : "amber" },
         { label: "routes", value: snapshot?.routeCount ?? 0 },
         { label: "req", value: fmtCount(snapshot?.stats.totalRequests ?? 0) },
         ...(snapshot && snapshot.stats.noRouteCount > 0

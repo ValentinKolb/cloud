@@ -95,6 +95,11 @@ export const migrate = async (): Promise<void> => {
     ON logging.trace_spans(started_at DESC)
   `.simple();
   await sql`
+    CREATE INDEX IF NOT EXISTS idx_logging_trace_spans_ended
+    ON logging.trace_spans(ended_at)
+    WHERE ended_at IS NOT NULL
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_logging_trace_events_span_occurred
     ON logging.trace_events(trace_id, span_id, occurred_at ASC)
   `.simple();

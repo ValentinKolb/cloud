@@ -15,6 +15,7 @@ import { submitForm } from "./form-submission";
 import * as forms from "./forms";
 import * as formulaPreview from "./formula-preview";
 import * as metadataEvents from "./metadata-events";
+import { getOperationalHealth } from "./operational-health";
 import {
   hasAtLeast,
   hasGrantsForResource,
@@ -53,6 +54,9 @@ import {
 import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "./workflow-launchers";
 
 export const gridsService = {
+  operations: {
+    health: getOperationalHealth,
+  },
   base: {
     list: bases.list,
     listVisible: bases.listVisible,

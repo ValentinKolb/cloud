@@ -141,18 +141,22 @@ export const consumeTelemetry = async (signal: AbortSignal): Promise<void> => {
   }
 };
 
-export const cleanupTelemetry = async (retentionDays = 14): Promise<number> => {
+export type TelemetryCleanupResult = { events: number; rollups: number; total: number };
+
+export const cleanupTelemetry = async (retention: { eventsDays?: number; rollupsDays?: number } = {}): Promise<TelemetryCleanupResult> => {
+  const eventsDays = Math.max(1, Math.trunc(retention.eventsDays ?? 14));
+  const rollupsDays = Math.max(eventsDays, Math.trunc(retention.rollupsDays ?? 90));
   const [eventsResult, rollupsResult] = await Promise.all([
     sql`
     DELETE FROM gateway.telemetry_events
-    WHERE occurred_at < now() - (${retentionDays}::int * INTERVAL '1 day')
+    WHERE occurred_at < now() - (${eventsDays}::int * INTERVAL '1 day')
     `,
     sql`
     DELETE FROM gateway.telemetry_rollups_minute
-    WHERE bucket < date_trunc('minute', now() - (${retentionDays}::int * INTERVAL '1 day'))
+    WHERE bucket < date_trunc('minute', now() - (${rollupsDays}::int * INTERVAL '1 day'))
     `,
   ]);
-  return eventsResult.count + rollupsResult.count;
+  return { events: eventsResult.count, rollups: rollupsResult.count, total: eventsResult.count + rollupsResult.count };
 };
 
 export const getTelemetrySummary = async (hours = 24): Promise<TelemetrySummary> => {

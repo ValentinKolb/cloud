@@ -125,4 +125,29 @@ describe("logging.trace", () => {
       await sql`DELETE FROM logging.trace_spans WHERE source = ${source}`;
     }
   });
+
+  test("cleanup removes only completed traces outside retention", async () => {
+    if (!(await canUseTraceDatabase())) {
+      console.warn("Skipping trace DB test: logging trace tables are not available.");
+      return;
+    }
+
+    const suffix = crypto.randomUUID();
+    const source = `test:trace:cleanup:${suffix}`;
+    const old = await trace.start({ name: "Old trace", source, startedAt: Date.now() - 40 * 86_400_000 });
+    const recent = await trace.start({ name: "Recent trace", source });
+    const running = await trace.start({ name: "Running trace", source, startedAt: Date.now() - 40 * 86_400_000 });
+
+    try {
+      await trace.end({ context: old, status: "ok", endedAt: Date.now() - 39 * 86_400_000 });
+      await trace.end({ context: recent, status: "ok" });
+
+      expect(await trace.cleanup({ days: 30, source })).toBe(1);
+      expect(await trace.getSpan({ traceId: old.traceId, spanId: old.spanId })).toBeNull();
+      expect(await trace.getSpan({ traceId: recent.traceId, spanId: recent.spanId })).not.toBeNull();
+      expect(await trace.getSpan({ traceId: running.traceId, spanId: running.spanId })).not.toBeNull();
+    } finally {
+      await sql`DELETE FROM logging.trace_spans WHERE source = ${source}`;
+    }
+  });
 });

@@ -784,6 +784,17 @@ const summary = async (options?: { sinceHours?: number }): Promise<TraceSummary>
   };
 };
 
+const cleanup = async (options: { days: number; source?: string }): Promise<number> => {
+  const days = Math.max(1, Math.trunc(options.days));
+  const result = await sql`
+    DELETE FROM logging.trace_spans
+    WHERE ended_at IS NOT NULL
+      AND ended_at < now() - (${days}::int * INTERVAL '1 day')
+      AND (${options.source ?? null}::text IS NULL OR source = ${options.source ?? null})
+  `;
+  return result.count;
+};
+
 const getAttributes = <Event>(config: {
   attributes?: TraceAttributes | ((event: Event) => TraceAttributes | undefined);
   event: Event;
@@ -991,6 +1002,7 @@ export const trace = {
   events,
   sources,
   summary,
+  cleanup,
   fromSyncJob,
   fromSyncSchedule,
 };

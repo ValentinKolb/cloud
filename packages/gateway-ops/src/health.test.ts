@@ -25,6 +25,7 @@ const baseHealth = {
       healthy: true,
       lastSeenAt: "2026-06-14T00:00:00.000Z",
       offlineForMs: 0,
+      signals: [],
     },
     {
       id: "app-b",
@@ -35,6 +36,7 @@ const baseHealth = {
       healthy: false,
       lastSeenAt: "2026-06-14T00:00:00.000Z",
       offlineForMs: 0,
+      signals: [],
     },
   ],
 } satisfies GatewayHealth;
@@ -52,7 +54,7 @@ describe("scopeGatewayHealth", () => {
     expect(scoped.apps.map((app) => app.id)).toEqual(["app-a"]);
   });
 
-  test("keeps global route errors as warning signal for scoped health", () => {
+  test("does not turn cumulative route errors into a permanent warning", () => {
     const scoped = scopeGatewayHealth(
       {
         ...baseHealth,
@@ -61,7 +63,21 @@ describe("scopeGatewayHealth", () => {
       ["app-a"],
     );
 
-    expect(scoped.status).toBe("warn");
+    expect(scoped.status).toBe("ok");
+  });
+
+  test("keeps online operational failures separate from offline apps", () => {
+    const scoped = scopeGatewayHealth(
+      {
+        ...baseHealth,
+        apps: [{ ...baseHealth.apps[0]!, status: "error", healthy: false }],
+      },
+      ["app-a"],
+    );
+
+    expect(scoped.status).toBe("error");
+    expect(scoped.summary.offline).toBe(0);
+    expect(scoped.summary.degraded).toBe(1);
   });
 
   test("keeps empty scope behavior compatible with the existing all-app health view", () => {

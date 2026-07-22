@@ -1265,6 +1265,71 @@ const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.record_scan_codes");
 };
 
+const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
+  await sql`
+    CREATE OR REPLACE VIEW grids.operational_health AS
+    WITH outbox AS (
+      SELECT
+        count(*) FILTER (WHERE status = 'pending')::int AS pending,
+        count(*) FILTER (WHERE status = 'failed')::int AS failed,
+        count(*) FILTER (WHERE status = 'dead')::int AS dead,
+        COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE status IN ('pending', 'failed')))), 0)::float AS oldest_active_age_seconds
+      FROM grids.record_event_outbox
+    ), workflow_runs AS (
+      SELECT
+        count(*) FILTER (WHERE status = 'queued')::int AS queued,
+        count(*) FILTER (WHERE status = 'running')::int AS running,
+        count(*) FILTER (WHERE status = 'waiting')::int AS waiting,
+        count(*) FILTER (WHERE status = 'needs_attention')::int AS needs_attention,
+        count(*) FILTER (WHERE status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < now()))::int AS stale_running,
+        COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE status = 'queued'))), 0)::float AS oldest_queued_age_seconds
+      FROM grids.workflow_runs
+    ), effects AS (
+      SELECT
+        count(*) FILTER (WHERE status = 'pending')::int AS pending,
+        count(*) FILTER (WHERE status = 'executing')::int AS executing,
+        count(*) FILTER (WHERE status = 'needs_attention')::int AS needs_attention,
+        COALESCE(EXTRACT(EPOCH FROM (now() - min(updated_at) FILTER (WHERE status IN ('pending', 'executing')))), 0)::float AS oldest_active_age_seconds
+      FROM grids.workflow_effect_intents
+    ), federation AS (
+      SELECT count(*) FILTER (WHERE status = 'degraded')::int AS degraded
+      FROM grids.federated_table_revisions
+    ), email_deliveries AS (
+      SELECT count(*) FILTER (WHERE status = 'failed' AND created_at >= now() - interval '24 hours')::int AS failed_24h
+      FROM grids.workflow_email_deliveries
+    )
+    SELECT
+      CASE
+        WHEN outbox.dead > 0 OR workflow_runs.needs_attention > 0 OR workflow_runs.stale_running > 0 OR effects.needs_attention > 0
+          THEN 'error'
+        WHEN outbox.failed > 0 OR outbox.oldest_active_age_seconds > 60
+          OR workflow_runs.oldest_queued_age_seconds > 60 OR effects.oldest_active_age_seconds > 300
+          OR federation.degraded > 0 OR email_deliveries.failed_24h > 0
+          THEN 'warn'
+        ELSE 'ok'
+      END AS status,
+      outbox.pending AS outbox_pending,
+      outbox.failed AS outbox_failed,
+      outbox.dead AS outbox_dead,
+      outbox.oldest_active_age_seconds AS outbox_oldest_active_age_seconds,
+      workflow_runs.queued AS workflow_queued,
+      workflow_runs.running AS workflow_running,
+      workflow_runs.waiting AS workflow_waiting,
+      workflow_runs.needs_attention AS workflow_needs_attention,
+      workflow_runs.stale_running AS workflow_stale_running,
+      workflow_runs.oldest_queued_age_seconds AS workflow_oldest_queued_age_seconds,
+      effects.pending AS effects_pending,
+      effects.executing AS effects_executing,
+      effects.needs_attention AS effects_needs_attention,
+      effects.oldest_active_age_seconds AS effects_oldest_active_age_seconds,
+      federation.degraded AS federated_degraded,
+      email_deliveries.failed_24h AS email_failed_24h,
+      now() AS observed_at
+    FROM outbox, workflow_runs, effects, federation, email_deliveries
+  `.simple();
+  console.log("  ✓ grids.operational_health view");
+};
+
 export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
   const connection = await sql.reserve();
   let locked = false;
@@ -1282,6 +1347,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateDashboards(connection);
     await migrateWorkflowKernel(connection);
     await migrateRecordScanCodes(connection);
+    await migrateOperationalHealth(connection);
     console.log("  ✓ grids schema ready");
   } finally {
     if (locked) {

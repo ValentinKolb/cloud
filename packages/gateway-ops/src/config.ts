@@ -41,6 +41,18 @@ export const app = defineApp({
       default: "*/5 * * * *",
       description: "Cron schedule for evaluating global gateway health and health webhooks. Uses app.timezone.",
     },
+    "gateway.telemetry_event_retention_days": {
+      kind: "number",
+      label: "Request Event Retention",
+      default: 14,
+      description: "Days to retain individual gateway request events.",
+    },
+    "gateway.telemetry_rollup_retention_days": {
+      kind: "number",
+      label: "Request Rollup Retention",
+      default: 90,
+      description: "Days to retain minute request rollups for SLO and trend calculations.",
+    },
   },
   widgets: [
     { id: "health", path: "/api/gateway/widget/health", presentation: { defaultZone: "context" } },

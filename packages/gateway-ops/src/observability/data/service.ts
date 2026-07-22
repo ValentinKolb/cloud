@@ -47,6 +47,18 @@ export type PostgresDiagnostics = {
   totalBytes: number;
   installedExtensions: number;
   availableExtensions: number;
+  runtime: {
+    maxConnections: number;
+    connections: number;
+    activeConnections: number;
+    idleInTransaction: number;
+    waitingLocks: number;
+    oldestWaitingQuerySeconds: number;
+    oldestTransactionSeconds: number;
+    oldestIdleTransactionSeconds: number;
+    oldestQuerySeconds: number;
+    deadlocks: number;
+  };
   tableRows: PostgresTableDiagnostic[];
   schemaRows: PostgresSchemaDiagnostic[];
   extensionRows: PostgresExtensionDiagnostic[];
@@ -107,6 +119,18 @@ const emptyPostgres = (message: string): PostgresDiagnostics => ({
   totalBytes: 0,
   installedExtensions: 0,
   availableExtensions: 0,
+  runtime: {
+    maxConnections: 0,
+    connections: 0,
+    activeConnections: 0,
+    idleInTransaction: 0,
+    waitingLocks: 0,
+    oldestWaitingQuerySeconds: 0,
+    oldestTransactionSeconds: 0,
+    oldestIdleTransactionSeconds: 0,
+    oldestQuerySeconds: 0,
+    deadlocks: 0,
+  },
   tableRows: [],
   schemaRows: [],
   extensionRows: [],
@@ -154,12 +178,40 @@ const collectPostgres = async (): Promise<PostgresDiagnostics> => {
         schemas: number;
         tables: number;
         total_bytes: number | string | bigint | null;
+        max_connections: number | string;
+        connections: number | string;
+        active_connections: number | string;
+        idle_in_transaction: number | string;
+        waiting_locks: number | string;
+        oldest_waiting_query_seconds: number | string | null;
+        oldest_transaction_seconds: number | string | null;
+        oldest_idle_transaction_seconds: number | string | null;
+        oldest_query_seconds: number | string | null;
+        deadlocks: number | string;
       }[]
     >`
       SELECT
         (SELECT COUNT(*)::int FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema') AS schemas,
         (SELECT COUNT(*)::int FROM pg_stat_user_tables) AS tables,
-        (SELECT COALESCE(SUM(pg_total_relation_size(relid)), 0)::bigint FROM pg_stat_user_tables) AS total_bytes
+        (SELECT COALESCE(SUM(pg_total_relation_size(relid)), 0)::bigint FROM pg_stat_user_tables) AS total_bytes,
+        current_setting('max_connections')::int AS max_connections,
+        (SELECT count(*)::int FROM pg_stat_activity WHERE backend_type = 'client backend') AS connections,
+        (SELECT count(*)::int FROM pg_stat_activity WHERE backend_type = 'client backend' AND state = 'active') AS active_connections,
+        (SELECT count(*)::int FROM pg_stat_activity WHERE backend_type = 'client backend' AND state = 'idle in transaction') AS idle_in_transaction,
+        (SELECT count(*)::int FROM pg_stat_activity WHERE backend_type = 'client backend' AND wait_event_type = 'Lock') AS waiting_locks,
+        (SELECT COALESCE(max(EXTRACT(EPOCH FROM (now() - query_start))), 0)::float
+          FROM pg_stat_activity
+          WHERE backend_type = 'client backend' AND wait_event_type = 'Lock' AND query_start IS NOT NULL) AS oldest_waiting_query_seconds,
+        (SELECT COALESCE(max(EXTRACT(EPOCH FROM (now() - xact_start))), 0)::float
+          FROM pg_stat_activity
+          WHERE backend_type = 'client backend' AND xact_start IS NOT NULL AND pid <> pg_backend_pid()) AS oldest_transaction_seconds,
+        (SELECT COALESCE(max(EXTRACT(EPOCH FROM (now() - xact_start))), 0)::float
+          FROM pg_stat_activity
+          WHERE backend_type = 'client backend' AND state = 'idle in transaction' AND xact_start IS NOT NULL) AS oldest_idle_transaction_seconds,
+        (SELECT COALESCE(max(EXTRACT(EPOCH FROM (now() - query_start))), 0)::float
+          FROM pg_stat_activity
+          WHERE backend_type = 'client backend' AND state = 'active' AND query_start IS NOT NULL AND pid <> pg_backend_pid()) AS oldest_query_seconds,
+        (SELECT COALESCE(sum(deadlocks), 0)::bigint FROM pg_stat_database) AS deadlocks
     `,
     sql<
       {
@@ -246,6 +298,43 @@ const collectPostgres = async (): Promise<PostgresDiagnostics> => {
   }));
 
   const warnings: DiagnosticWarning[] = [];
+  const runtime = {
+    maxConnections: toNumber(overview[0]?.max_connections),
+    connections: toNumber(overview[0]?.connections),
+    activeConnections: toNumber(overview[0]?.active_connections),
+    idleInTransaction: toNumber(overview[0]?.idle_in_transaction),
+    waitingLocks: toNumber(overview[0]?.waiting_locks),
+    oldestWaitingQuerySeconds: toNumber(overview[0]?.oldest_waiting_query_seconds),
+    oldestTransactionSeconds: toNumber(overview[0]?.oldest_transaction_seconds),
+    oldestIdleTransactionSeconds: toNumber(overview[0]?.oldest_idle_transaction_seconds),
+    oldestQuerySeconds: toNumber(overview[0]?.oldest_query_seconds),
+    deadlocks: toNumber(overview[0]?.deadlocks),
+  };
+  const connectionShare = runtime.maxConnections > 0 ? runtime.connections / runtime.maxConnections : 0;
+  if (connectionShare >= 0.8) {
+    warnings.push({
+      area: "postgres",
+      tone: connectionShare >= 0.95 ? "red" : "amber",
+      title: "Postgres connection pressure",
+      detail: `${runtime.connections} of ${runtime.maxConnections} connections are in use.`,
+    });
+  }
+  if (runtime.waitingLocks > 0) {
+    warnings.push({
+      area: "postgres",
+      tone: runtime.oldestWaitingQuerySeconds >= 30 ? "red" : "amber",
+      title: "Queries waiting on locks",
+      detail: `${runtime.waitingLocks} connection${runtime.waitingLocks === 1 ? " is" : "s are"} waiting; the oldest waiting query has run for ${Math.round(runtime.oldestWaitingQuerySeconds)}s.`,
+    });
+  }
+  if (runtime.idleInTransaction > 0 && runtime.oldestIdleTransactionSeconds >= 60) {
+    warnings.push({
+      area: "postgres",
+      tone: "amber",
+      title: "Long-lived transactions",
+      detail: `${runtime.idleInTransaction} connection${runtime.idleInTransaction === 1 ? " is" : "s are"} idle in transaction; oldest is ${Math.round(runtime.oldestIdleTransactionSeconds)}s.`,
+    });
+  }
   const largeTables = tables.filter((table) => table.totalBytes >= LARGE_TABLE_BYTES).length;
   const staleAnalyze = tables.filter((table) => table.estimatedRows > 1_000 && !table.lastAnalyze && !table.lastAutoanalyze).length;
   const deadRows = tables.filter((table) => table.deadRows > 1_000 && table.deadRows > table.estimatedRows * 0.2).length;
@@ -282,6 +371,7 @@ const collectPostgres = async (): Promise<PostgresDiagnostics> => {
     totalBytes: toNumber(overview[0]?.total_bytes),
     installedExtensions: extensions.filter((extension) => extension.installed).length,
     availableExtensions: extensions.length,
+    runtime,
     tableRows: tables,
     schemaRows: [...schemaMap.values()].sort((a, b) => b.totalBytes - a.totalBytes),
     extensionRows: extensions,

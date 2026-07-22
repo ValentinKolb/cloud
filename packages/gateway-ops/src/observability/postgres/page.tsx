@@ -53,8 +53,10 @@ const sortTables = (rows: PostgresTableDiagnostic[], sort: string): PostgresTabl
   }
 };
 
-const warningClasses =
-  "rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/25 dark:text-amber-100";
+const warningClasses = (tone: "amber" | "red"): string =>
+  tone === "red"
+    ? "rounded-lg border border-red-200 bg-red-50 p-3 text-red-900 dark:border-red-500/30 dark:bg-red-950/25 dark:text-red-100"
+    : "rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/25 dark:text-amber-100";
 const warningGridClass = (count: number): string => {
   if (count <= 1) return "grid gap-2";
   if (count === 2) return "grid gap-2 md:grid-cols-2";
@@ -67,6 +69,7 @@ export default ssr<AuthContext>(async (c) => {
   const selectedSchema = url.searchParams.get("schema")?.trim() || "all";
   const selectedSort = url.searchParams.get("sort")?.trim() || "size-desc";
   const diagnostics = await getPostgresDiagnostics();
+  const hasCriticalWarning = diagnostics.warnings.some((warning) => warning.tone === "red");
   const searchNeedle = normalize(search);
   const schemas = diagnostics.schemaRows.map((row) => row.schema).sort((a, b) => a.localeCompare(b));
 
@@ -150,17 +153,32 @@ export default ssr<AuthContext>(async (c) => {
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-postgres-title">
             <h1 class="text-base font-semibold text-primary">Postgres</h1>
-            <p class="mt-1 text-xs text-dimmed">Schemas, table sizes, planner row estimates, and installed extensions.</p>
+            <p class="mt-1 text-xs text-dimmed">Runtime pressure, storage, table statistics, and installed extensions.</p>
           </div>
 
-          <StatGrid columns={4}>
+          <StatGrid columns={5}>
             <StatCell
               label="Storage"
               value={formatBytes(diagnostics.totalBytes)}
               sub={`${formatNumber(diagnostics.tables)} tables`}
               accent={{ tone: diagnostics.available ? "blue" : "red", icon: "ti ti-database" }}
             />
-            <StatCell label="Schemas" value={formatNumber(diagnostics.schemas)} sub="non-system" />
+            <StatCell
+              label="Connections"
+              value={`${formatNumber(diagnostics.runtime.connections)}/${formatNumber(diagnostics.runtime.maxConnections)}`}
+              sub={`${formatNumber(diagnostics.runtime.activeConnections)} active`}
+              accent={
+                diagnostics.runtime.maxConnections > 0 && diagnostics.runtime.connections / diagnostics.runtime.maxConnections >= 0.8
+                  ? { tone: "amber", icon: "ti ti-plug-connected" }
+                  : undefined
+              }
+            />
+            <StatCell
+              label="Lock waits"
+              value={formatNumber(diagnostics.runtime.waitingLocks)}
+              sub={diagnostics.runtime.waitingLocks ? `${Math.round(diagnostics.runtime.oldestWaitingQuerySeconds)}s oldest query` : "none"}
+              accent={diagnostics.runtime.waitingLocks ? { tone: "amber", icon: "ti ti-lock" } : undefined}
+            />
             <StatCell
               label="Extensions"
               value={`${formatNumber(diagnostics.installedExtensions)}/${formatNumber(diagnostics.availableExtensions)}`}
@@ -171,9 +189,19 @@ export default ssr<AuthContext>(async (c) => {
               label="Warnings"
               value={formatNumber(diagnostics.warnings.length)}
               sub={diagnostics.warnings.length ? "needs review" : "none"}
-              valueClass={diagnostics.warnings.length ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+              valueClass={
+                hasCriticalWarning
+                  ? "text-red-600 dark:text-red-400"
+                  : diagnostics.warnings.length
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-primary"
+              }
               accent={
-                diagnostics.warnings.length ? { tone: "amber", icon: "ti ti-alert-triangle" } : { tone: "emerald", icon: "ti ti-check" }
+                hasCriticalWarning
+                  ? { tone: "red", icon: "ti ti-alert-circle" }
+                  : diagnostics.warnings.length
+                    ? { tone: "amber", icon: "ti ti-alert-triangle" }
+                    : { tone: "emerald", icon: "ti ti-check" }
               }
             />
           </StatGrid>
@@ -181,9 +209,15 @@ export default ssr<AuthContext>(async (c) => {
           {diagnostics.warnings.length ? (
             <section class={warningGridClass(diagnostics.warnings.length)}>
               {diagnostics.warnings.map((warning) => (
-                <article class={warningClasses}>
+                <article class={warningClasses(warning.tone)}>
                   <div class="flex items-start gap-2">
-                    <i class="ti ti-alert-triangle mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" />
+                    <i
+                      class={`ti mt-0.5 shrink-0 ${
+                        warning.tone === "red"
+                          ? "ti-alert-circle text-red-600 dark:text-red-300"
+                          : "ti-alert-triangle text-amber-600 dark:text-amber-300"
+                      }`}
+                    />
                     <div class="min-w-0">
                       <h2 class="text-xs font-semibold">{warning.title}</h2>
                       <p class="mt-1 text-[11px] opacity-80">{warning.detail}</p>

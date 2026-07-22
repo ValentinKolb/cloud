@@ -34,6 +34,13 @@ registerSettings([
     description: "Automatically delete log entries older than this many days",
     group: "logs",
   },
+  {
+    key: "logs.trace_retention_days",
+    kind: "number",
+    default: 30,
+    description: "Automatically delete completed traces older than this many days",
+    group: "logs",
+  },
 ]);
 
 // ==========================

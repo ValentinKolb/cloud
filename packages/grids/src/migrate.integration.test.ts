@@ -41,6 +41,7 @@ describe("grids schema migration", () => {
           SELECT count(*)::int AS "tableCount"
           FROM information_schema.tables
           WHERE table_schema = 'grids'
+            AND table_type = 'BASE TABLE'
         `;
         expect(row?.tableCount).toBe(36);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
@@ -62,6 +63,11 @@ describe("grids schema migration", () => {
           "idx_grids_tables_live_name",
           "idx_grids_views_live_name",
         ]);
+        const [health] = await database<Array<{ status: string; outboxPending: number }>>`
+          SELECT status, outbox_pending::int AS "outboxPending"
+          FROM grids.operational_health
+        `;
+        expect(health).toEqual({ status: "ok", outboxPending: 0 });
       });
     },
     30_000,

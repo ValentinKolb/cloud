@@ -3,6 +3,7 @@ import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { listGatewayRouteSnapshots, logging, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { getGridsOperationalSnapshot, listAppSloWindows } from "../../grids-operational-health";
 import { listRegisteredAppStatus } from "../../registered-apps";
 import { getPostgresDiagnostics, getRedisDiagnostics } from "../data/service";
 
@@ -307,6 +308,171 @@ const metricCatalog: CollectorDefinition[] = [
     },
   },
   {
+    id: "grids",
+    name: "Grids",
+    description: "Grids query, event pipeline, workflow, and combined-table operational health.",
+    metricNames: [
+      "cloud_grids_installed",
+      "cloud_grids_operational_status",
+      "cloud_grids_record_event_outbox_entries",
+      "cloud_grids_record_event_outbox_oldest_age_seconds",
+      "cloud_grids_workflow_runs",
+      "cloud_grids_workflow_oldest_queued_age_seconds",
+      "cloud_grids_workflow_stale_running",
+      "cloud_grids_workflow_effects",
+      "cloud_grids_workflow_effect_oldest_age_seconds",
+      "cloud_grids_federated_degraded",
+      "cloud_grids_email_failures_24h",
+      "cloud_grids_gql_requests_24h",
+      "cloud_grids_gql_errors_24h",
+      "cloud_grids_gql_duration_ms",
+      "cloud_app_request_availability_ratio",
+      "cloud_app_request_fast_ratio",
+      "cloud_app_request_slo_observed_seconds",
+    ],
+    collect: async () => {
+      const [snapshot, sloWindows] = await Promise.all([getGridsOperationalSnapshot(), listAppSloWindows("grids")]);
+      if (!snapshot) {
+        return [
+          { name: "cloud_grids_installed", help: "Whether the Grids operational health view is installed.", type: "gauge", value: 0 },
+        ];
+      }
+      return [
+        { name: "cloud_grids_installed", help: "Whether the Grids operational health view is installed.", type: "gauge", value: 1 },
+        ...(["ok", "warn", "error"] as const).map((status) => ({
+          name: "cloud_grids_operational_status",
+          help: "Current aggregate Grids operational status as a one-hot gauge.",
+          type: "gauge" as const,
+          value: snapshot.status === status ? 1 : 0,
+          labels: { status },
+        })),
+        ...(
+          [
+            ["pending", snapshot.outboxPending],
+            ["failed", snapshot.outboxFailed],
+            ["dead", snapshot.outboxDead],
+          ] as const
+        ).map(([status, value]) => ({
+          name: "cloud_grids_record_event_outbox_entries",
+          help: "Retained Grids record events by actionable delivery status.",
+          type: "gauge" as const,
+          value,
+          labels: { status },
+        })),
+        {
+          name: "cloud_grids_record_event_outbox_oldest_age_seconds",
+          help: "Age in seconds of the oldest pending or retrying Grids record event.",
+          type: "gauge",
+          value: snapshot.outboxOldestActiveAgeSeconds,
+        },
+        ...(
+          [
+            ["queued", snapshot.workflowQueued],
+            ["running", snapshot.workflowRunning],
+            ["waiting", snapshot.workflowWaiting],
+            ["needs_attention", snapshot.workflowNeedsAttention],
+          ] as const
+        ).map(([status, value]) => ({
+          name: "cloud_grids_workflow_runs",
+          help: "Active or actionable Grids workflow runs by status.",
+          type: "gauge" as const,
+          value,
+          labels: { status },
+        })),
+        {
+          name: "cloud_grids_workflow_oldest_queued_age_seconds",
+          help: "Age in seconds of the oldest queued Grids workflow run.",
+          type: "gauge",
+          value: snapshot.workflowOldestQueuedAgeSeconds,
+        },
+        {
+          name: "cloud_grids_workflow_stale_running",
+          help: "Grids workflow runs still marked running after their lease expired.",
+          type: "gauge",
+          value: snapshot.workflowStaleRunning,
+        },
+        ...(
+          [
+            ["pending", snapshot.effectsPending],
+            ["executing", snapshot.effectsExecuting],
+            ["needs_attention", snapshot.effectsNeedsAttention],
+          ] as const
+        ).map(([status, value]) => ({
+          name: "cloud_grids_workflow_effects",
+          help: "Active or actionable Grids workflow effects by status.",
+          type: "gauge" as const,
+          value,
+          labels: { status },
+        })),
+        {
+          name: "cloud_grids_workflow_effect_oldest_age_seconds",
+          help: "Age in seconds of the oldest pending or executing Grids workflow effect.",
+          type: "gauge",
+          value: snapshot.effectsOldestActiveAgeSeconds,
+        },
+        {
+          name: "cloud_grids_federated_degraded",
+          help: "Current Grids combined-table revisions in degraded state.",
+          type: "gauge",
+          value: snapshot.federatedDegraded,
+        },
+        {
+          name: "cloud_grids_email_failures_24h",
+          help: "Failed Grids workflow email deliveries in the last 24 hours.",
+          type: "gauge",
+          value: snapshot.emailFailed24h,
+        },
+        {
+          name: "cloud_grids_gql_requests_24h",
+          help: "GQL executions traced in the last 24 hours.",
+          type: "gauge",
+          value: snapshot.gqlTotal24h,
+        },
+        {
+          name: "cloud_grids_gql_errors_24h",
+          help: "GQL diagnostics and runtime errors traced in the last 24 hours.",
+          type: "gauge",
+          value: snapshot.gqlErrors24h,
+        },
+        ...(
+          [
+            ["avg", snapshot.gqlAvgDurationMs24h],
+            ["p99", snapshot.gqlP99DurationMs24h],
+          ] as const
+        ).map(([stat, value]) => ({
+          name: "cloud_grids_gql_duration_ms",
+          help: "GQL execution duration over the last 24 hours.",
+          type: "gauge" as const,
+          value,
+          labels: { stat },
+        })),
+        ...sloWindows.flatMap((window) => [
+          {
+            name: "cloud_app_request_availability_ratio",
+            help: "Gateway request availability ratio for a bounded SLO window.",
+            type: "gauge" as const,
+            value: window.availabilityRatio,
+            labels: { app_id: "grids", window: window.window },
+          },
+          {
+            name: "cloud_app_request_fast_ratio",
+            help: "Share of gateway requests faster than the slow-request threshold.",
+            type: "gauge" as const,
+            value: window.fastRequestRatio,
+            labels: { app_id: "grids", window: window.window },
+          },
+          {
+            name: "cloud_app_request_slo_observed_seconds",
+            help: "Observed history available inside an app request SLO window.",
+            type: "gauge" as const,
+            value: window.observedSeconds,
+            labels: { app_id: "grids", window: window.window },
+          },
+        ]),
+      ];
+    },
+  },
+  {
     id: "postgres",
     name: "Postgres",
     description: "Postgres table, schema, extension, size, and warning diagnostics.",
@@ -318,6 +484,13 @@ const metricCatalog: CollectorDefinition[] = [
       "cloud_postgres_extension_installed_total",
       "cloud_postgres_extension_available_total",
       "cloud_postgres_warnings_total",
+      "cloud_postgres_connections",
+      "cloud_postgres_connection_utilization_ratio",
+      "cloud_postgres_lock_waits",
+      "cloud_postgres_oldest_waiting_query_seconds",
+      "cloud_postgres_oldest_transaction_seconds",
+      "cloud_postgres_oldest_query_seconds",
+      "cloud_postgres_deadlocks_total",
     ],
     collect: async () => {
       const diagnostics = await getPostgresDiagnostics();
@@ -363,6 +536,56 @@ const metricCatalog: CollectorDefinition[] = [
           help: "Number of Postgres diagnostic warnings.",
           type: "gauge",
           value: diagnostics.warnings.length,
+        },
+        ...(
+          [
+            ["active", diagnostics.runtime.activeConnections],
+            ["idle_in_transaction", diagnostics.runtime.idleInTransaction],
+            ["total", diagnostics.runtime.connections],
+            ["max", diagnostics.runtime.maxConnections],
+          ] as const
+        ).map(([state, value]) => ({
+          name: "cloud_postgres_connections",
+          help: "Postgres connections by bounded operational state.",
+          type: "gauge" as const,
+          value,
+          labels: { state },
+        })),
+        {
+          name: "cloud_postgres_connection_utilization_ratio",
+          help: "Share of configured Postgres connections currently in use.",
+          type: "gauge",
+          value: diagnostics.runtime.maxConnections > 0 ? diagnostics.runtime.connections / diagnostics.runtime.maxConnections : 0,
+        },
+        {
+          name: "cloud_postgres_lock_waits",
+          help: "Postgres connections currently waiting on a lock.",
+          type: "gauge",
+          value: diagnostics.runtime.waitingLocks,
+        },
+        {
+          name: "cloud_postgres_oldest_waiting_query_seconds",
+          help: "Runtime in seconds of the oldest Postgres query currently waiting on a lock.",
+          type: "gauge",
+          value: diagnostics.runtime.oldestWaitingQuerySeconds,
+        },
+        {
+          name: "cloud_postgres_oldest_transaction_seconds",
+          help: "Age in seconds of the oldest current Postgres transaction.",
+          type: "gauge",
+          value: diagnostics.runtime.oldestTransactionSeconds,
+        },
+        {
+          name: "cloud_postgres_oldest_query_seconds",
+          help: "Age in seconds of the oldest active Postgres query.",
+          type: "gauge",
+          value: diagnostics.runtime.oldestQuerySeconds,
+        },
+        {
+          name: "cloud_postgres_deadlocks_total",
+          help: "Postgres deadlocks reported since database statistics were reset.",
+          type: "counter",
+          value: diagnostics.runtime.deadlocks,
         },
       ];
     },

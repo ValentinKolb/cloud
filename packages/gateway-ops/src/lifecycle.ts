@@ -68,6 +68,11 @@ const getTimezoneSetting = async (): Promise<string> => {
   return value.length > 0 ? value : "Europe/Berlin";
 };
 
+const getPositiveIntegerSetting = async (key: string, fallback: number): Promise<number> => {
+  const value = Number(await getSetting<number | string>(key));
+  return Number.isFinite(value) && value >= 1 ? Math.trunc(value) : fallback;
+};
+
 const retryOnError =
   (cfg: { maxAttempts: number; baseMs: number; maxMs?: number }) =>
   ({
@@ -231,16 +236,22 @@ const createTelemetryCleanupSchedule = async (): Promise<void> => {
       label: "Gateway telemetry cleanup",
       source: "gateway:telemetry:cleanup",
     },
-    trace: trace.fromSyncSchedule<{ deleted: number }>({
+    trace: trace.fromSyncSchedule<{ events: number; rollups: number; traces: number }>({
       name: "Gateway telemetry cleanup",
       source: "gateway:telemetry:cleanup",
       appId: "gateway-ops",
       summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
     }),
     process: async () => {
-      const deleted = await cleanupTelemetry();
-      log.info("Gateway telemetry cleanup completed", { deleted });
-      return { deleted };
+      const [eventsDays, rollupsDays, traceDays] = await Promise.all([
+        getPositiveIntegerSetting("gateway.telemetry_event_retention_days", 14),
+        getPositiveIntegerSetting("gateway.telemetry_rollup_retention_days", 90),
+        getPositiveIntegerSetting("logs.trace_retention_days", 30),
+      ]);
+      const [telemetry, traces] = await Promise.all([cleanupTelemetry({ eventsDays, rollupsDays }), trace.cleanup({ days: traceDays })]);
+      const result = { events: telemetry.events, rollups: telemetry.rollups, traces };
+      log.info("Observability retention cleanup completed", result);
+      return result;
     },
   });
 };

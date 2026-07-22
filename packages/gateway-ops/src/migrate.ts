@@ -116,5 +116,52 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_gateway_telemetry_rollups_minute_bucket
     ON gateway.telemetry_rollups_minute(bucket DESC)
   `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_gateway_telemetry_rollups_minute_app_bucket
+    ON gateway.telemetry_rollups_minute(app_id, bucket DESC)
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'gateway'
+          AND table_name = 'app_request_slo_windows'
+          AND column_name = 'window'
+      ) THEN
+        ALTER VIEW gateway.app_request_slo_windows RENAME COLUMN "window" TO window_name;
+      END IF;
+    END
+    $$
+  `.simple();
+  await sql`
+    CREATE OR REPLACE VIEW gateway.app_request_slo_windows AS
+    WITH windows(name, seconds) AS (
+      VALUES ('1h'::text, 3600), ('6h'::text, 21600), ('30d'::text, 2592000)
+    ), apps AS (
+      SELECT DISTINCT app_id FROM gateway.telemetry_rollups_minute
+    )
+    SELECT
+      apps.app_id,
+      windows.name AS window_name,
+      COALESCE(sum(rollup.request_count), 0)::bigint AS request_count,
+      COALESCE(sum(rollup.error_count), 0)::bigint AS error_count,
+      COALESCE(sum(rollup.slow_count), 0)::bigint AS slow_count,
+      CASE WHEN COALESCE(sum(rollup.request_count), 0) = 0 THEN 1
+        ELSE 1 - (sum(rollup.error_count)::float / sum(rollup.request_count)::float)
+      END AS availability_ratio,
+      CASE WHEN COALESCE(sum(rollup.request_count), 0) = 0 THEN 1
+        ELSE 1 - (sum(rollup.slow_count)::float / sum(rollup.request_count)::float)
+      END AS fast_request_ratio,
+      min(rollup.bucket) AS observed_since,
+      COALESCE(EXTRACT(EPOCH FROM (now() - min(rollup.bucket))), 0)::float AS observed_seconds
+    FROM apps
+    CROSS JOIN windows
+    LEFT JOIN gateway.telemetry_rollups_minute rollup
+      ON rollup.app_id = apps.app_id
+      AND rollup.bucket >= now() - (windows.seconds * interval '1 second')
+    GROUP BY apps.app_id, windows.name, windows.seconds
+  `.simple();
   console.log("  ✓ gateway.telemetry_rollups_minute table");
 };

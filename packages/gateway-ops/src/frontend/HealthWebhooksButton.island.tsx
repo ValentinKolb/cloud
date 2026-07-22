@@ -23,6 +23,7 @@ type HealthApp = {
   icon: string;
   status: "ok" | "warn" | "error";
   online: boolean;
+  signals: string[];
 };
 type HealthWebhook = {
   id: string;
@@ -99,6 +100,7 @@ const toggle = <T extends string>(items: T[], item: T, checked: boolean) =>
 
 const appStatusDescription = (app: HealthApp) => {
   if (!app.online) return `offline · ${app.id}`;
+  if (app.signals.length > 0) return `${app.signals.join(" · ")} · ${app.id}`;
   if (app.status === "warn") return `live, stale · ${app.id}`;
   return `live · ${app.id}`;
 };
