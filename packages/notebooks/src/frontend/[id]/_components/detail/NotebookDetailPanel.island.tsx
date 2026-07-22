@@ -499,7 +499,13 @@ export default function NotebookDetailPanel(props: Props) {
                 <For each={participants()}>
                   {(p) => (
                     <li class="detail-row">
-                      <Avatar username={p.displayName} userId={p.userId} avatarHash={p.avatarHash} size="xs" />
+                      <Avatar
+                        username={p.displayName}
+                        userId={p.userId}
+                        avatarHash={p.avatarHash}
+                        size="xs"
+                        style={`outline: 2px solid ${p.color}; outline-offset: 1px`}
+                      />
                       <span class="truncate">{p.displayName}</span>
                       {p.peerCount > 1 && <span class="text-dimmed text-[11px] ml-auto">{p.peerCount} tabs</span>}
                     </li>

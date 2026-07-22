@@ -13,7 +13,7 @@ export const PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
 type PresenceEntry = {
   userId: string;
   displayName: string;
-  avatarHash: string | null;
+  avatarHash?: string | null;
   color: string;
   peerId: string;
   nodeId: string;
@@ -34,7 +34,15 @@ export type NotebookPresenceSnapshot = {
 const toParticipants = (entries: Array<{ value: PresenceEntry }>): NotebookPresenceParticipant[] => {
   const deduped = new Map<
     string,
-    { userId: string; displayName: string; avatarHash: string | null; color: string; peerCount: number; joinedAt: number }
+    {
+      userId: string;
+      displayName: string;
+      avatarHash: string | null;
+      color: string;
+      peerCount: number;
+      joinedAt: number;
+      identityJoinedAt: number;
+    }
   >();
 
   for (const entry of entries) {
@@ -42,6 +50,12 @@ const toParticipants = (entries: Array<{ value: PresenceEntry }>): NotebookPrese
     if (current) {
       current.peerCount += 1;
       current.joinedAt = Math.min(current.joinedAt, entry.value.joinedAt);
+      if (entry.value.joinedAt >= current.identityJoinedAt) {
+        current.displayName = entry.value.displayName;
+        current.color = entry.value.color;
+        if (entry.value.avatarHash !== undefined) current.avatarHash = entry.value.avatarHash;
+        current.identityJoinedAt = entry.value.joinedAt;
+      }
       continue;
     }
 
@@ -52,12 +66,17 @@ const toParticipants = (entries: Array<{ value: PresenceEntry }>): NotebookPrese
       color: entry.value.color,
       peerCount: 1,
       joinedAt: entry.value.joinedAt,
+      identityJoinedAt: entry.value.joinedAt,
     });
   }
 
   return [...deduped.values()]
     .map((participant) => ({
-      ...participant,
+      userId: participant.userId,
+      displayName: participant.displayName,
+      avatarHash: participant.avatarHash,
+      color: participant.color,
+      peerCount: participant.peerCount,
       joinedAt: new Date(participant.joinedAt).toISOString(),
     }))
     .sort((left, right) => left.displayName.localeCompare(right.displayName));

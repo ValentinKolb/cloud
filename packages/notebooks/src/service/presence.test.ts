@@ -8,17 +8,20 @@ describe("notebook presence", () => {
     const peers = [crypto.randomUUID(), crypto.randomUUID()];
 
     try {
-      await Promise.all(
-        peers.map((peerId) =>
-          join({
-            noteId,
-            peerId,
-            userId,
-            displayName: "Ada Lovelace",
-            avatarHash: "avatar-revision",
-          }),
-        ),
-      );
+      await join({
+        noteId,
+        peerId: peers[0]!,
+        userId,
+        displayName: "Ada Lovelace",
+        avatarHash: "old-avatar-revision",
+      });
+      await join({
+        noteId,
+        peerId: peers[1]!,
+        userId,
+        displayName: "Ada Lovelace",
+        avatarHash: "avatar-revision",
+      });
 
       const state = await snapshot({ noteId });
       expect(state.participants).toHaveLength(1);
