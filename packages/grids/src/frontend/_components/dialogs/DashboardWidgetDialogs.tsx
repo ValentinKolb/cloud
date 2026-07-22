@@ -3,6 +3,7 @@ import {
   dialogCore,
   IconInput,
   MarkdownEditor,
+  NumberInput,
   PanelDialog,
   panelDialogOptions,
   prompts,
@@ -10,6 +11,7 @@ import {
   Select,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import { gqlSourceRef } from "../../../query-dsl/source-format";
@@ -27,6 +29,7 @@ import type {
   ViewStatsWidget,
   ViewWidget,
   Widget,
+  WidgetValueFormat,
   Workflow,
   WorkflowButtonWidget,
 } from "../../../service";
@@ -54,7 +57,7 @@ export const defaultStatWidget = (tableId: string): StatWidget => ({
   kind: "stat",
   span: 3,
   title: "New stat",
-  format: "plain",
+  valueFormat: { style: "number" },
   tone: "blue",
   source: { kind: "gql", source: tableQuery(tableId, "aggregate count(*) as value") },
 });
@@ -128,6 +131,7 @@ export const openCellEditDialog = (
     fieldsByTable: Record<string, Field[]>;
     viewsByTable: Record<string, View[]>;
     formsByTable: Record<string, Form[]>;
+    dateConfig?: DateContext;
   },
   options: { allowDelete?: boolean } = {},
 ): Promise<CellEditDialogResult | undefined> => {
@@ -233,6 +237,7 @@ export const openCellEditDialog = (
             fieldsByTable={ctx.fieldsByTable}
             viewsByTable={ctx.viewsByTable}
             formsByTable={ctx.formsByTable}
+            dateConfig={ctx.dateConfig}
           />
           <WidgetEditorSection title="Layout" subtitle="Choose how much horizontal space this widget uses." icon="ti ti-layout-columns">
             <Select
@@ -283,6 +288,7 @@ function CellEditorBody(props: {
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
+  dateConfig?: DateContext;
 }) {
   switch (props.widget.kind) {
     case "stat":
@@ -293,6 +299,7 @@ function CellEditorBody(props: {
           baseId={props.baseId}
           tables={props.tables}
           viewsByTable={props.viewsByTable}
+          dateConfig={props.dateConfig}
         />
       );
     case "view":
@@ -314,6 +321,7 @@ function CellEditorBody(props: {
           tables={props.tables}
           fieldsByTable={props.fieldsByTable}
           viewsByTable={props.viewsByTable}
+          dateConfig={props.dateConfig}
         />
       );
     case "view-stats":
@@ -359,12 +367,87 @@ function CellEditorBody(props: {
   }
 }
 
-const FORMAT_OPTIONS = [
-  { id: "plain", label: "Plain number" },
+const VALUE_FORMAT_OPTIONS = [
+  { id: "number", label: "Number" },
   { id: "integer", label: "Integer" },
-  { id: "currency", label: "Currency (EUR)" },
   { id: "percent", label: "Percent" },
 ];
+
+function DashboardValueFormatEditor(props: {
+  value: WidgetValueFormat | undefined;
+  onChange: (value: WidgetValueFormat) => void;
+  dateConfig?: DateContext;
+  label?: string;
+}) {
+  const value = (): WidgetValueFormat => props.value ?? { style: "number" };
+  const setStyle = (style: WidgetValueFormat["style"]) => {
+    const current = value();
+    if (style === "percent") {
+      props.onChange({ style, ...(current.style === "integer" ? {} : { decimalPlaces: current.decimalPlaces }) });
+      return;
+    }
+    props.onChange({
+      style,
+      ...(style === "integer" || current.decimalPlaces === undefined ? {} : { decimalPlaces: current.decimalPlaces }),
+      ...(style === "number" && current.unit ? { unit: current.unit, unitPosition: current.unitPosition ?? "suffix" } : {}),
+    });
+  };
+  const setUnit = (unit: string) => {
+    if (!unit.trim()) {
+      const { unit: _unit, unitPosition: _unitPosition, ...rest } = value();
+      props.onChange(rest);
+      return;
+    }
+    props.onChange({ ...value(), unit, unitPosition: value().unitPosition ?? "suffix" });
+  };
+
+  return (
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <Select
+        label={props.label ?? "Format"}
+        value={() => value().style}
+        onChange={(style) => setStyle(style as WidgetValueFormat["style"])}
+        options={VALUE_FORMAT_OPTIONS}
+      />
+      <Show when={value().style !== "integer"}>
+        <NumberInput
+          label="Decimal places"
+          description="Leave empty for an automatic compact value."
+          min={0}
+          max={20}
+          value={() => value().decimalPlaces}
+          onInput={(decimalPlaces) =>
+            props.onChange({ ...value(), ...(decimalPlaces === null ? { decimalPlaces: undefined } : { decimalPlaces }) })
+          }
+          clearable
+        />
+      </Show>
+      <Show when={value().style === "number"}>
+        <TextInput
+          label="Unit"
+          description="Optional text such as EUR, kg, or hours."
+          value={() => value().unit ?? ""}
+          onInput={setUnit}
+          maxLength={20}
+        />
+        <Show when={value().unit}>
+          <Select
+            label="Unit position"
+            value={() => value().unitPosition ?? "suffix"}
+            onChange={(unitPosition) => props.onChange({ ...value(), unitPosition: unitPosition as "prefix" | "suffix" })}
+            options={[
+              { id: "prefix", label: "Before value" },
+              { id: "suffix", label: "After value" },
+            ]}
+          />
+        </Show>
+      </Show>
+      <p class="text-xs text-dimmed md:col-span-2">
+        Preview: <code class="font-mono">{formatWidgetValue("1234.56", value(), props.dateConfig)}</code>
+      </p>
+    </div>
+  );
+}
 
 const STAT_TONE_OPTIONS = [
   { id: "blue", label: "Blue", description: "Default for neutral numbers." },
@@ -459,6 +542,7 @@ function StatCellBody(props: {
   baseId: string;
   tables: Array<{ id: string; name: string; slug: string }>;
   viewsByTable: Record<string, View[]>;
+  dateConfig?: DateContext;
 }) {
   const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
 
@@ -485,12 +569,6 @@ function StatCellBody(props: {
           placeholder="e.g. last 24h"
         />
         <Select
-          label="Format"
-          value={() => props.widget.format ?? "plain"}
-          onChange={(v) => props.onUpdate({ ...props.widget, format: v as StatWidget["format"] })}
-          options={FORMAT_OPTIONS}
-        />
-        <Select
           label="Value color"
           value={() => props.widget.tone ?? "blue"}
           onChange={(v) => props.onUpdate({ ...props.widget, tone: v as StatWidget["tone"] })}
@@ -503,9 +581,11 @@ function StatCellBody(props: {
           placeholder="Search icons..."
         />
       </div>
-      <div class="text-xs text-dimmed">
-        Format preview: <code class="font-mono">{formatWidgetValue(1234.56, props.widget.format)}</code>
-      </div>
+      <DashboardValueFormatEditor
+        value={props.widget.valueFormat}
+        onChange={(valueFormat) => props.onUpdate({ ...props.widget, valueFormat })}
+        dateConfig={props.dateConfig}
+      />
       <StatTrendSection
         widget={props.widget}
         views={allViews().filter(({ view }) => isChartReadyView(view))}
@@ -704,6 +784,7 @@ function ChartCellBody(props: {
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
+  dateConfig?: DateContext;
 }) {
   const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
   const chartViews = createMemo(() => allViews().filter(({ view }) => isChartReadyForType(view, props.widget.chartType)));
@@ -768,12 +849,6 @@ function ChartCellBody(props: {
           placeholder="e.g. 12"
         />
         <Show when={props.widget.chartType !== "donut" && props.widget.chartType !== "sparkline"}>
-          <Select
-            label="Y-axis format"
-            value={() => props.widget.format ?? "plain"}
-            onChange={(v) => props.onUpdate({ ...props.widget, format: v as ChartWidget["format"] })}
-            options={FORMAT_OPTIONS}
-          />
           <TextInput
             label="X-axis label"
             value={() => props.widget.xAxisLabel ?? ""}
@@ -786,13 +861,21 @@ function ChartCellBody(props: {
           />
         </Show>
       </div>
+      <Show when={props.widget.chartType !== "donut" && props.widget.chartType !== "sparkline"}>
+        <DashboardValueFormatEditor
+          label="Y-axis format"
+          value={props.widget.valueFormat}
+          onChange={(valueFormat) => props.onUpdate({ ...props.widget, valueFormat })}
+          dateConfig={props.dateConfig}
+        />
+      </Show>
     </WidgetEditorSection>
   );
 }
 
 function withChartType(widget: ChartWidget, chartType: ChartWidget["chartType"]): ChartWidget {
   if (chartType !== "donut" && chartType !== "sparkline") return { ...widget, chartType };
-  const { format: _format, xAxisLabel: _xAxisLabel, yAxisLabel: _yAxisLabel, ...rest } = widget;
+  const { valueFormat: _valueFormat, xAxisLabel: _xAxisLabel, yAxisLabel: _yAxisLabel, ...rest } = widget;
   return { ...rest, chartType };
 }
 

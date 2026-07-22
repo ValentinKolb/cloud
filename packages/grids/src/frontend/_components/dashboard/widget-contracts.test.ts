@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FormatSpecSchema, WidgetSchema } from "../../../contracts";
+import { FormatSpecSchema, WidgetSchema, WidgetValueFormatSchema } from "../../../contracts";
 
 describe("dashboard widget contracts", () => {
   test("accepts a workflow button widget", () => {
@@ -30,6 +30,20 @@ describe("dashboard widget contracts", () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  test("accepts explicit number units and rejects contradictory value formats", () => {
+    expect(WidgetValueFormatSchema.safeParse({ style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" }).success).toBe(
+      true,
+    );
+    expect(WidgetValueFormatSchema.safeParse({ style: "integer", decimalPlaces: 2 }).success).toBe(false);
+    expect(WidgetValueFormatSchema.safeParse({ style: "integer", unit: "kg", unitPosition: "suffix" }).success).toBe(false);
+    expect(WidgetValueFormatSchema.safeParse({ style: "percent", unit: "EUR", unitPosition: "suffix" }).success).toBe(false);
+    expect(WidgetValueFormatSchema.safeParse({ style: "number", unitPosition: "prefix" }).success).toBe(false);
+  });
+
+  test("does not accept the removed dashboard currency format", () => {
+    expect(WidgetValueFormatSchema.safeParse({ style: "currency" }).success).toBe(false);
   });
 
   test("accepts dashboard-local GQL sources without a saved view", () => {

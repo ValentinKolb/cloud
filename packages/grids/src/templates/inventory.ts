@@ -881,7 +881,7 @@ export const inventoryTemplate: GridTemplate = {
                 kind: "stat",
                 title: "Items",
                 icon: "ti ti-packages",
-                format: "integer",
+                valueFormat: { style: "integer" },
                 span: 3,
                 source: {
                   kind: "gql",
@@ -893,7 +893,7 @@ export const inventoryTemplate: GridTemplate = {
                 kind: "stat",
                 title: "Kits",
                 icon: "ti ti-briefcase",
-                format: "integer",
+                valueFormat: { style: "integer" },
                 span: 3,
                 source: {
                   kind: "gql",
@@ -905,7 +905,7 @@ export const inventoryTemplate: GridTemplate = {
                 kind: "stat",
                 title: "Open loans",
                 icon: "ti ti-calendar-due",
-                format: "integer",
+                valueFormat: { style: "integer" },
                 span: 3,
                 source: {
                   kind: "gql",
@@ -924,7 +924,7 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Inventory value",
                 sub: "replacement value",
                 icon: "ti ti-currency-euro",
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 span: 3,
                 source: {
                   kind: "gql",

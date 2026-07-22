@@ -7,7 +7,7 @@ import type {
   DslQueryPreviewResponse,
   GroupBySpec,
   Widget,
-  WidgetFormat,
+  WidgetValueFormat,
 } from "../contracts";
 import { previewDslQuery } from "../query-dsl/preview";
 import { aggregateOutputKey } from "./aggregate-capabilities";
@@ -130,7 +130,7 @@ export type WidgetData =
 type ViewStatsCell = {
   label: string;
   value: unknown;
-  format: WidgetFormat;
+  valueFormat?: WidgetValueFormat;
 };
 
 const EMBEDDED_VIEW_PAGESIZE = 25;
@@ -670,26 +670,42 @@ const resolveViewStats = async (
     return {
       label: column.label,
       value: row.values[column.key] ?? null,
-      format:
+      valueFormat:
         column.type === "aggregate"
-          ? inferFormatFromAgg(aggregateKindForColumn(column), field)
+          ? inferValueFormatFromAgg(aggregateKindForColumn(column), field)
           : field
-            ? inferFormatFromField(field)
-            : "plain",
+            ? valueFormatForField(field)
+            : undefined,
     };
   });
   return { kind: "view-stats", title, cells, notice: null, fullViewLink: link, sourceAccess };
 };
 
-const inferFormatFromField = (field: Field): WidgetFormat => {
-  if (field.type === "percent") return "percent";
-  if (field.type === "number") return (field.config as { integerOnly?: boolean }).integerOnly ? "integer" : "plain";
-  return "plain";
+export const valueFormatForField = (field: Field): WidgetValueFormat | undefined => {
+  if (field.type === "percent") {
+    const config = field.config as { decimals?: number; range?: "percent" | "fraction" };
+    return config.range === "fraction"
+      ? { style: "percent", decimalPlaces: config.decimals }
+      : { style: "number", decimalPlaces: config.decimals, unit: "%", unitPosition: "suffix" };
+  }
+  if (field.type !== "number") return undefined;
+
+  const config = field.config as {
+    decimalPlaces?: number;
+    integerOnly?: boolean;
+    unit?: string;
+    unitPosition?: "prefix" | "suffix";
+  };
+  return {
+    style: config.integerOnly ? "integer" : "number",
+    ...(config.integerOnly || config.decimalPlaces === undefined ? {} : { decimalPlaces: config.decimalPlaces }),
+    ...(!config.integerOnly && config.unit ? { unit: config.unit, unitPosition: config.unitPosition ?? "suffix" } : {}),
+  };
 };
 
-const inferFormatFromAgg = (agg: string, field: Field | null): WidgetFormat => {
-  if (agg === "count" || agg === "countEmpty" || agg === "countUnique") return "integer";
-  return field ? inferFormatFromField(field) : "plain";
+const inferValueFormatFromAgg = (agg: string, field: Field | null): WidgetValueFormat | undefined => {
+  if (agg === "count" || agg === "countEmpty" || agg === "countUnique") return { style: "integer" };
+  return field ? valueFormatForField(field) : undefined;
 };
 
 // =============================================================================

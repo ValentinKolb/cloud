@@ -833,7 +833,7 @@ steps:
                 title: "Income",
                 sub: "all recorded",
                 icon: "ti ti-arrow-up-right",
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 span: 3,
                 source: {
                   kind: "gql",
@@ -854,7 +854,7 @@ steps:
                 title: "Spend",
                 sub: "all recorded",
                 icon: "ti ti-arrow-down-right",
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 span: 3,
                 source: {
                   kind: "gql",
@@ -881,7 +881,7 @@ steps:
                 kind: "stat",
                 title: "Transactions",
                 icon: "ti ti-receipt",
-                format: "integer",
+                valueFormat: { style: "integer" },
                 span: 3,
                 source: {
                   kind: "gql",
@@ -894,7 +894,7 @@ steps:
                 title: "Budget",
                 sub: "this month",
                 icon: "ti ti-chart-pie",
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 span: 3,
                 source: {
                   kind: "gql",
@@ -953,7 +953,7 @@ steps:
                   kind: "gql",
                   source: monthlySpendSource(),
                 },
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 yAxisLabel: "EUR",
                 span: 6,
               },
@@ -1007,7 +1007,7 @@ steps:
                     " asc",
                   ),
                 },
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 span: 6,
               },
             ],

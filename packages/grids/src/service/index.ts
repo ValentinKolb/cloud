@@ -331,7 +331,7 @@ export type {
   ViewStatsWidget,
   ViewWidget,
   Widget,
-  WidgetFormat,
+  WidgetValueFormat,
   WorkflowButtonWidget,
 } from "../contracts";
 export type { GridsWorkflow as Workflow } from "../workflows/contracts";

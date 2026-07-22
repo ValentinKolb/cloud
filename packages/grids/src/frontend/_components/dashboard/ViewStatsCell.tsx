@@ -1,4 +1,5 @@
 import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { ViewStatsWidget } from "../../../service";
 import DashboardWidgetState from "./DashboardWidgetState";
@@ -10,6 +11,7 @@ type Props = {
   widget: ViewStatsWidget;
   data: WidgetData;
   baseShortId: string;
+  dateConfig?: DateContext;
 };
 
 /**
@@ -67,7 +69,7 @@ export default function ViewStatsCell(props: Props) {
               <StatGrid columns={2}>
                 <For each={d.cells}>
                   {(cell) => {
-                    const formatted = formatWidgetValue(cell.value, cell.format);
+                    const formatted = formatWidgetValue(cell.value, cell.valueFormat, props.dateConfig);
                     return <StatCell label={cell.label} value={formatted} title={formatted} />;
                   }}
                 </For>

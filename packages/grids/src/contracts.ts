@@ -1429,12 +1429,29 @@ export const FormConfigSchema = z.object({
 // `span` (1..12), so editors can make a chart wider than a stat
 // without introducing a freeform pixel canvas.
 
-/** Format hint for stat-card rendering. `plain` = the number as-is,
- *  `currency` / `percent` use existing format-cell helpers, `integer`
- *  forces no decimals (e.g. for counts). The chart-render layer will
- *  consume the same enum so axis ticks format consistently. */
-const WidgetFormatSchema = z.enum(["plain", "currency", "percent", "integer"]);
-export type WidgetFormat = z.infer<typeof WidgetFormatSchema>;
+/**
+ * Presentation for numeric dashboard values. Query results remain canonical;
+ * this metadata only controls user-visible rendering.
+ */
+export const WidgetValueFormatSchema = z
+  .object({
+    style: z.enum(["number", "integer", "percent"]),
+    decimalPlaces: z.number().int().min(0).max(20).optional(),
+    unit: z.string().trim().min(1).max(20).optional(),
+    unitPosition: z.enum(["prefix", "suffix"]).optional(),
+  })
+  .superRefine((format, ctx) => {
+    if (format.style === "integer" && format.decimalPlaces !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["decimalPlaces"], message: "integer format cannot set decimal places" });
+    }
+    if (format.style !== "number" && (format.unit !== undefined || format.unitPosition !== undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unit"], message: `${format.style} format cannot set a custom unit` });
+    }
+    if (format.unit === undefined && format.unitPosition !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["unitPosition"], message: "unit position requires a unit" });
+    }
+  });
+export type WidgetValueFormat = z.infer<typeof WidgetValueFormatSchema>;
 
 const StatToneSchema = z.enum(["neutral", "blue", "green", "amber", "red"]);
 
@@ -1469,7 +1486,7 @@ const StatWidgetSchema = z.object({
   /** Optional inline trend — see {@link StatTrendSchema}. */
   trend: StatTrendSchema.optional(),
   icon: z.string().max(60).optional(),
-  format: WidgetFormatSchema.optional(),
+  valueFormat: WidgetValueFormatSchema.optional(),
   /** Pure presentation hint for the value colour. No KPI semantics. */
   tone: StatToneSchema.optional(),
   /** Optional small-text sub-line under the value. Mirrors the
@@ -1512,8 +1529,8 @@ const ChartWidgetSchema = z.object({
   source: DashboardWidgetSourceSchema,
   /** Optional cap on bucket count — keeps the most-recent N. */
   limit: z.number().int().min(1).max(1000).optional(),
-  /** Y-axis / value format. Defaults inferred from the primary aggregation. */
-  format: WidgetFormatSchema.optional(),
+  /** Y-axis / value presentation. Source values remain unchanged. */
+  valueFormat: WidgetValueFormatSchema.optional(),
   /** Optional axis labels — passed through to the chart renderer. */
   xAxisLabel: z.string().max(60).optional(),
   yAxisLabel: z.string().max(60).optional(),

@@ -482,7 +482,11 @@ describe("built-in grid templates", () => {
     expect(workflow).toContain("Replace the sample requester email");
 
     const valueWidget = dashboardCells(template).find((cell) => cell.id === "w_value");
-    expect(valueWidget).toMatchObject({ kind: "stat", title: "Inventory value", format: "currency" });
+    expect(valueWidget).toMatchObject({
+      kind: "stat",
+      title: "Inventory value",
+      valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
+    });
     const openLoans = template.views?.find((item) => item.key === "open_loans");
     expect((openLoans?.ui as { columns?: Array<Record<string, unknown>> })?.columns?.[0]).toMatchObject({
       fieldId: field("loans.loan_no"),
@@ -644,8 +648,9 @@ describe("built-in grid templates", () => {
 
         expect(gql, `${template.id}.${String(chart.id)} chart groupBy`).toContain("group by");
         expect(gql, `${template.id}.${String(chart.id)} chart aggregations`).toContain("aggregate");
-        if (chart.format === "currency") {
-          expect(gql, `${template.id}.${String(chart.id)} currency chart value field`).toMatch(
+        const valueFormat = chart.valueFormat as { unit?: unknown } | undefined;
+        if (valueFormat?.unit === "EUR") {
+          expect(gql, `${template.id}.${String(chart.id)} EUR chart value field`).toMatch(
             /aggregate[^\n]*(?:sum|avg|median|min|max|earliest|latest)\(/,
           );
         }

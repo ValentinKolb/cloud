@@ -49,6 +49,8 @@ Number, Records, Chart, and Summary widgets can read either a **Saved view** or 
 
 The data source defines records, groups, and aggregate values. The widget defines presentation such as chart type, labels, number format, size, and height. If a chart is empty, inspect the grouped source before changing chart settings.
 
+Number widgets and chart axes use the same value settings. Choose **Number** for decimal values, **Integer** for counts, or **Percent** when the query returns a fraction such as `0.19` for 19%. Number values may show an explicit unit such as `EUR`, `kg`, or `hours` before or after the value. Decimal places and units change only the display; the query result and exported data stay unchanged. Grids does not infer a currency from a field or query.
+
 ## Match the source to the widget {icon="layout-dashboard"}
 
 Start with the question the widget should answer, then shape its source. The editor validates the source before saving.

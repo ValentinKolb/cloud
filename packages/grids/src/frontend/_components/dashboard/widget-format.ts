@@ -1,55 +1,57 @@
-import type { WidgetFormat } from "../../../service";
+import type { DateContext } from "@valentinkolb/stdlib";
+import Decimal from "decimal.js";
+import type { WidgetValueFormat } from "../../../service";
+
+const DashboardDecimal = Decimal.clone({ precision: 80 });
+const DECIMAL_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+const numericText = (value: unknown): string | null => {
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return DECIMAL_TEXT.test(trimmed) ? trimmed : null;
+};
+
+const fractionDigits = (format: WidgetValueFormat | undefined): { minimumFractionDigits: number; maximumFractionDigits: number } => {
+  if (format?.style === "integer") return { minimumFractionDigits: 0, maximumFractionDigits: 0 };
+  if (format?.decimalPlaces !== undefined) {
+    return { minimumFractionDigits: format.decimalPlaces, maximumFractionDigits: format.decimalPlaces };
+  }
+  return format?.style === "percent"
+    ? { minimumFractionDigits: 0, maximumFractionDigits: 1 }
+    : { minimumFractionDigits: 0, maximumFractionDigits: 4 };
+};
+
+const roundedInteger = (value: string): string => {
+  const decimal = new DashboardDecimal(value);
+  const rounded = decimal.toDecimalPlaces(0, Decimal.ROUND_HALF_CEIL);
+  return rounded.isZero() && decimal.isNegative() ? "-0" : rounded.toFixed(0);
+};
 
 /**
- * Renders a stat-card / chart-axis number to the user-visible string.
- * Centralised here so the chart layer (P1) and the stat-card layer
- * agree on formatting — a `currency` chart axis and a `currency` stat
- * value should look identical.
- *
- * `null` / `undefined` → "—" (em-dash) so an empty cell is visually
- * distinct from a zero. Errors from the data layer surface with a
- * distinct caller-supplied label, not through this function.
+ * Formats dashboard values without converting decimal strings to binary
+ * floating-point numbers. Modern Intl implementations accept decimal strings
+ * as exact mathematical values, even though older TypeScript libs only typed
+ * this parameter as number or bigint.
  */
-export const formatWidgetValue = (value: unknown, format: WidgetFormat | undefined): string => {
+export const formatWidgetValue = (
+  value: unknown,
+  format: WidgetValueFormat | undefined,
+  dateConfig?: Pick<DateContext, "locale">,
+): string => {
   if (value === null || value === undefined) return "—";
 
-  // Coerce string-numerics (decimal-safe number cells store as strings to dodge
-  // float drift) to JS numbers for Intl formatting. Genuine non-numeric
-  // strings just pass through.
-  const asNumber = typeof value === "number" ? value : typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : null;
+  const raw = numericText(value);
+  if (raw === null) return String(value);
 
-  if (asNumber === null) {
-    // Non-numeric value — show as-is. This happens when the user puts
-    // `MIN`/`MAX` over a text field, etc.
-    return String(value);
-  }
+  const style = format?.style ?? "number";
+  const mathematicalValue = style === "integer" ? roundedInteger(raw) : raw;
+  const formatted = new Intl.NumberFormat(dateConfig?.locale ?? "en", {
+    ...(style === "percent" ? { style: "percent" as const } : {}),
+    ...fractionDigits(format),
+  }).format(mathematicalValue as `${number}`);
 
-  switch (format) {
-    case "currency":
-      // EUR is the workspace default; we'd take currency from the field
-      // config in P2 once we route that metadata through the widget
-      // source. For now it's a sensible single-currency assumption.
-      return new Intl.NumberFormat(undefined, {
-        style: "currency",
-        currency: "EUR",
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(asNumber);
-    case "percent":
-      // Source values are expected to be fractions (0.19 = 19%) — that
-      // matches how the percent field type stores its data.
-      return new Intl.NumberFormat(undefined, {
-        style: "percent",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 1,
-      }).format(asNumber);
-    case "integer":
-      return new Intl.NumberFormat(undefined, {
-        maximumFractionDigits: 0,
-      }).format(Math.round(asNumber));
-    default:
-      return new Intl.NumberFormat(undefined, {
-        maximumFractionDigits: 4,
-      }).format(asNumber);
-  }
+  if (!format?.unit) return formatted;
+  return format.unitPosition === "prefix" ? `${format.unit} ${formatted}` : `${formatted} ${format.unit}`;
 };

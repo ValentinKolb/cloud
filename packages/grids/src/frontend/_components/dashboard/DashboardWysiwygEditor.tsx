@@ -317,6 +317,7 @@ export default function DashboardWysiwygEditor(props: Props) {
       fieldsByTable: props.fieldsByTable,
       viewsByTable: props.viewsByTable,
       formsByTable: props.formsByTable,
+      dateConfig: props.dateConfig,
     });
     return result?.action === "save" ? result.widget : undefined;
   };
@@ -356,6 +357,7 @@ export default function DashboardWysiwygEditor(props: Props) {
         fieldsByTable: props.fieldsByTable,
         viewsByTable: props.viewsByTable,
         formsByTable: props.formsByTable,
+        dateConfig: props.dateConfig,
       },
       { allowDelete: true },
     );

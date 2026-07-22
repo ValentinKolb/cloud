@@ -1,4 +1,5 @@
 import { sql as defaultSql, type SQL } from "bun";
+import { migrateDashboardValueFormats } from "./dashboard-value-format-migration";
 import { migrateWorkflowKernel } from "./workflows/migrate";
 
 const MIGRATION_LOCK_NAME = "grids:migrate";
@@ -1218,6 +1219,25 @@ const migrateDashboards = async (sql: SQL): Promise<void> => {
     ON grids.dashboards(base_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.dashboards");
+
+  const legacyConfigs = await sql<Array<{ id: string; configText: string }>>`
+    SELECT id, config::text AS "configText"
+    FROM grids.dashboards
+    WHERE jsonb_path_exists(config, '$.rows[*].cells[*].format')
+  `;
+  let migratedConfigCount = 0;
+  for (const dashboard of legacyConfigs) {
+    const storedConfig = JSON.parse(dashboard.configText) as unknown;
+    const config = migrateDashboardValueFormats(storedConfig);
+    if (config === storedConfig) continue;
+    await sql`
+      UPDATE grids.dashboards
+      SET config = ${config}::jsonb
+      WHERE id = ${dashboard.id}::uuid
+    `;
+    migratedConfigCount += 1;
+  }
+  if (migratedConfigCount > 0) console.log(`  ✓ migrated ${migratedConfigCount} dashboard config(s)`);
 
   // dashboard_access: same junction shape as view_access. Level is
   // implicit `read` — the API rejects write/admin grants because they

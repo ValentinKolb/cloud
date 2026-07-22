@@ -1140,7 +1140,7 @@ steps:
                 kind: "stat",
                 title: "Orders",
                 icon: "ti ti-shopping-cart",
-                format: "integer",
+                valueFormat: { style: "integer" },
                 span: 4,
                 source: {
                   kind: "gql",
@@ -1152,7 +1152,7 @@ steps:
                 kind: "stat",
                 title: "Total revenue",
                 icon: "ti ti-currency-euro",
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 span: 4,
                 source: {
                   kind: "gql",
@@ -1196,7 +1196,7 @@ steps:
                 kind: "stat",
                 title: "Books",
                 icon: "ti ti-books",
-                format: "integer",
+                valueFormat: { style: "integer" },
                 span: 4,
                 source: {
                   kind: "gql",
@@ -1237,7 +1237,7 @@ steps:
                     " asc",
                   ),
                 },
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 span: 6,
               },
               {
@@ -1311,7 +1311,7 @@ steps:
                     ")) as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8",
                   ),
                 },
-                format: "currency",
+                valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
                 span: 7,
               },
               {

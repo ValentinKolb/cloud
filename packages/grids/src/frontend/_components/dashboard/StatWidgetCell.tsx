@@ -1,4 +1,5 @@
 import { StatCell } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { StatWidget } from "../../../service";
 import type { WidgetData } from "./widget-data";
 import { formatWidgetValue } from "./widget-format";
@@ -6,6 +7,7 @@ import { formatWidgetValue } from "./widget-format";
 type Props = {
   widget: StatWidget;
   data: WidgetData | undefined;
+  dateConfig?: DateContext;
 };
 
 const VALUE_TONE_CLASSES: Record<NonNullable<StatWidget["tone"]>, string> = {
@@ -55,7 +57,7 @@ export default function StatWidgetCell(props: Props) {
   const valueText = (): string => {
     const d = data();
     if (d.kind !== "stat") return "—";
-    return formatWidgetValue(d.value, props.widget.format);
+    return formatWidgetValue(d.value, props.widget.valueFormat, props.dateConfig);
   };
 
   // `sub` precedence: explicit widget.sub → error reason → undefined

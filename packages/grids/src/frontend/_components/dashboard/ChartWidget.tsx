@@ -1,4 +1,5 @@
 import { Chart } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import type { Field, Widget } from "../../../service";
 import DashboardWidgetState from "./DashboardWidgetState";
@@ -9,6 +10,7 @@ import { formatWidgetValue } from "./widget-format";
 type Props = {
   widget: Extract<Widget, { kind: "chart" }>;
   data: WidgetData;
+  dateConfig?: DateContext;
 };
 
 /**
@@ -49,7 +51,7 @@ export default function ChartWidget(props: Props) {
             />
           }
         >
-          <ChartBody widget={props.widget} data={props.data as Extract<WidgetData, { kind: "chart" }>} />
+          <ChartBody widget={props.widget} data={props.data as Extract<WidgetData, { kind: "chart" }>} dateConfig={props.dateConfig} />
         </Show>
       </div>
     </div>
@@ -61,7 +63,11 @@ export default function ChartWidget(props: Props) {
  * narrowing cleanly. Picks the chartType-specific options bundle
  * from `buildChartRenderData` and passes it through to `<Chart>`.
  */
-function ChartBody(props: { widget: Extract<Widget, { kind: "chart" }>; data: Extract<WidgetData, { kind: "chart" }> }) {
+function ChartBody(props: {
+  widget: Extract<Widget, { kind: "chart" }>;
+  data: Extract<WidgetData, { kind: "chart" }>;
+  dateConfig?: DateContext;
+}) {
   const fieldsById = () => new Map<string, Field>(props.data.fields.map((f) => [f.id, f]));
   const renderData = () =>
     buildChartRenderData({
@@ -73,7 +79,7 @@ function ChartBody(props: { widget: Extract<Widget, { kind: "chart" }>; data: Ex
       relationLabels: props.data.relationLabels,
     });
 
-  const yFormat = () => (v: number) => formatWidgetValue(v, props.widget.format);
+  const yFormat = () => (v: number) => formatWidgetValue(v, props.widget.valueFormat, props.dateConfig);
 
   return (
     <Show when={renderData()} keyed fallback={<DashboardWidgetState kind="empty" />}>

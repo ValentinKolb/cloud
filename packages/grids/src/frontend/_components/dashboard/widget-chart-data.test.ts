@@ -66,7 +66,7 @@ describe("toNumber", () => {
   test("parses string-encoded decimals", () => {
     // Decimal-safe number aggregations come back as strings (no float drift) —
     // the transform must coerce them or we'd silently drop every
-    // sum/avg of a currency column.
+    // sum/avg of an exact decimal column.
     expect(toNumber("42.50")).toBe(42.5);
     expect(toNumber("-7")).toBe(-7);
   });

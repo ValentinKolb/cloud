@@ -595,15 +595,15 @@ function CellRenderer(props: {
       // forcing the sparkline below the sub-row in some layouts.
       return (
         <div class="paper flex-1 w-full flex flex-col justify-center min-h-0 overflow-hidden">
-          <StatWidgetCell widget={props.widget} data={props.data} />
+          <StatWidgetCell widget={props.widget} data={props.data} dateConfig={props.dateConfig} />
         </div>
       );
     case "view":
       return <EmbeddedViewWidget widget={props.widget} data={data()} baseShortId={props.baseShortId} />;
     case "chart":
-      return <ChartWidget widget={props.widget} data={data()} />;
+      return <ChartWidget widget={props.widget} data={data()} dateConfig={props.dateConfig} />;
     case "view-stats":
-      return <ViewStatsCell widget={props.widget} data={data()} baseShortId={props.baseShortId} />;
+      return <ViewStatsCell widget={props.widget} data={data()} baseShortId={props.baseShortId} dateConfig={props.dateConfig} />;
     case "form":
       return <FormCell widget={props.widget} data={data()} onSubmitted={props.onWidgetRecordsChanged} dateConfig={props.dateConfig} />;
     case "markdown":
