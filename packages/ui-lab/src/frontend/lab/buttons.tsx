@@ -237,14 +237,14 @@ export const IconButtons = () => (
       { kind: "utility", name: "icon-btn" },
       { kind: "component", name: "Tooltip", from: FROM_UI },
     ]}
-    description="Square 32×32 icon-only action. Keep the accessible name on the button and use Tooltip only to make an unfamiliar icon discoverable."
+    description="Square 32×32 icon-only action. Keep the accessible name on the button and use Tooltip only to make an unfamiliar icon discoverable. The shared primitive remains hoverable and clamps long hints to the viewport."
     code={`<Tooltip content="Settings">
   <button class="icon-btn" aria-label="Settings">
     <i class="ti ti-settings" />
   </button>
 </Tooltip>`}
   >
-    <div class="flex items-center gap-2">
+    <div class="flex w-full items-center justify-between gap-2">
       <Tooltip content="Settings">
         <button type="button" class="icon-btn" aria-label="Settings">
           <i class="ti ti-settings" />
@@ -255,7 +255,7 @@ export const IconButtons = () => (
           <i class="ti ti-star" />
         </button>
       </Tooltip>
-      <Tooltip content="More actions">
+      <Tooltip content="More actions for this item, including archive and duplicate">
         <button type="button" class="icon-btn" aria-label="More actions">
           <i class="ti ti-dots" />
         </button>

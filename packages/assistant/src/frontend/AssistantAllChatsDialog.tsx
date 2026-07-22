@@ -1,5 +1,5 @@
 import type { AiConversation, AiConversationPage, AiConversationStatusFilter } from "@valentinkolb/cloud/ai";
-import { PanelDialog, panelDialogOptions, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
@@ -173,8 +173,7 @@ function AssistantAllChatsDialog(props: { close: () => void; openConversation: (
 }
 
 export const openAssistantAllChatsDialog = (openConversation: (conversation: AiConversation) => void): Promise<void | undefined> =>
-  prompts.dialog<void>((close) => <AssistantAllChatsDialog close={() => close()} openConversation={openConversation} />, {
-    surface: "bare",
-    header: false,
-    ...panelDialogOptions,
-  });
+  dialogCore.open<void>(
+    (close) => <AssistantAllChatsDialog close={() => close()} openConversation={openConversation} />,
+    panelDialogOptions,
+  );

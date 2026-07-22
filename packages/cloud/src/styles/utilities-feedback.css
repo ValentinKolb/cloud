@@ -220,7 +220,7 @@
   background: var(--ui-tooltip-surface);
   color: var(--ui-tooltip-text);
   box-shadow: var(--ui-tooltip-shadow);
-  @apply pointer-events-none text-[11px] leading-4 whitespace-normal;
+  @apply pointer-events-auto text-[11px] leading-4 whitespace-normal;
 }
 
 @utility tag {
@@ -266,16 +266,6 @@
 
 .prompt-search-surface {
   --prompt-search-focus-accent: var(--color-blue-500);
-  transition:
-    border-color 150ms ease-out,
-    box-shadow 150ms ease-out;
-}
-
-.prompt-search-surface:focus-within {
-  border-color: color-mix(in srgb, var(--prompt-search-focus-accent) 24%, var(--ui-dialog-border));
-  box-shadow:
-    var(--ui-shadow-float),
-    0 0 0 3px color-mix(in srgb, var(--prompt-search-focus-accent) 8%, transparent) !important;
 }
 
 .dark .prompt-search-surface {
@@ -295,7 +285,7 @@
 }
 
 .prompt-search-surface > label:focus-within {
-  background: var(--ui-field-focus);
+  background: color-mix(in srgb, var(--prompt-search-focus-accent) 4%, var(--ui-field-focus));
   box-shadow: none;
 }
 
@@ -314,7 +304,7 @@
 @media (forced-colors: active) {
   .prompt-search-surface:focus-within {
     outline: 2px solid CanvasText;
-    outline-offset: 2px;
+    outline-offset: -2px;
   }
 }
 

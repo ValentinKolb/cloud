@@ -17,7 +17,8 @@ const TRIGGER_GAP = 6;
 export default function Tooltip(props: TooltipProps) {
   const tooltipId = `tooltip-${crypto.randomUUID()}`;
   let wrapperRef!: HTMLSpanElement;
-  let tooltipRef!: HTMLDivElement;
+  let tooltipRef!: HTMLSpanElement;
+  let targetRef!: HTMLElement;
   let openTimer: ReturnType<typeof setTimeout> | undefined;
   let dismissedUntilLeave = false;
 
@@ -32,14 +33,18 @@ export default function Tooltip(props: TooltipProps) {
 
   const close = () => {
     clearOpenTimer();
-    if (tooltipRef?.matches(":popover-open")) tooltipRef.hidePopover();
+    try {
+      if (tooltipRef?.matches(":popover-open")) tooltipRef.hidePopover();
+    } catch {
+      // A disconnect or competing close can race with the Popover API.
+    }
     window.removeEventListener("scroll", close, true);
     window.removeEventListener("resize", close);
   };
 
   const position = () => {
     if (!tooltipRef.matches(":popover-open")) return;
-    const triggerRect = wrapperRef.getBoundingClientRect();
+    const triggerRect = targetRef.getBoundingClientRect();
     const tooltipRect = tooltipRef.getBoundingClientRect();
     const topPosition = triggerRect.top - tooltipRect.height - TRIGGER_GAP;
     const bottomPosition = triggerRect.bottom + TRIGGER_GAP;
@@ -51,9 +56,12 @@ export default function Tooltip(props: TooltipProps) {
       VIEWPORT_PADDING,
       Math.min(triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2, window.innerWidth - tooltipRect.width - VIEWPORT_PADDING),
     );
+    const desiredTop = useTop ? topPosition : bottomPosition;
+    const maxTop = Math.max(VIEWPORT_PADDING, window.innerHeight - tooltipRect.height - VIEWPORT_PADDING);
+    const top = Math.max(VIEWPORT_PADDING, Math.min(desiredTop, maxTop));
 
     tooltipRef.style.left = `${Math.round(left)}px`;
-    tooltipRef.style.top = `${Math.round(useTop ? topPosition : bottomPosition)}px`;
+    tooltipRef.style.top = `${Math.round(top)}px`;
     tooltipRef.dataset.placement = useTop ? "top" : "bottom";
   };
 
@@ -63,7 +71,11 @@ export default function Tooltip(props: TooltipProps) {
     openTimer = setTimeout(() => {
       openTimer = undefined;
       if (props.disabled || !tooltipRef.isConnected) return;
-      tooltipRef.showPopover();
+      try {
+        tooltipRef.showPopover();
+      } catch {
+        return;
+      }
       position();
       window.addEventListener("scroll", close, true);
       window.addEventListener("resize", close);
@@ -71,11 +83,11 @@ export default function Tooltip(props: TooltipProps) {
   };
 
   onMount(() => {
-    const target = trigger();
-    const originalDescription = target.getAttribute("aria-describedby");
+    targetRef = trigger();
+    const originalDescription = targetRef.getAttribute("aria-describedby");
     const descriptions = new Set(originalDescription?.split(/\s+/).filter(Boolean) ?? []);
     descriptions.add(tooltipId);
-    target.setAttribute("aria-describedby", [...descriptions].join(" "));
+    targetRef.setAttribute("aria-describedby", [...descriptions].join(" "));
 
     const handleFocusOut = (event: FocusEvent) => {
       if (!wrapperRef.contains(event.relatedTarget as Node | null)) {
@@ -107,8 +119,8 @@ export default function Tooltip(props: TooltipProps) {
 
     onCleanup(() => {
       close();
-      if (originalDescription) target.setAttribute("aria-describedby", originalDescription);
-      else target.removeAttribute("aria-describedby");
+      if (originalDescription) targetRef.setAttribute("aria-describedby", originalDescription);
+      else targetRef.removeAttribute("aria-describedby");
       wrapperRef.removeEventListener("pointerenter", open);
       wrapperRef.removeEventListener("pointerleave", handlePointerLeave);
       wrapperRef.removeEventListener("pointerdown", handlePointerDown);
@@ -121,9 +133,9 @@ export default function Tooltip(props: TooltipProps) {
   return (
     <span ref={wrapperRef} class={`inline-flex ${props.class ?? ""}`}>
       {props.children}
-      <div ref={tooltipRef} id={tooltipId} role="tooltip" popover="manual" class="tooltip-surface">
+      <span ref={tooltipRef} id={tooltipId} role="tooltip" popover="manual" class="tooltip-surface">
         {props.content}
-      </div>
+      </span>
     </span>
   );
 }

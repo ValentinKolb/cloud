@@ -314,9 +314,12 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
 - Dialogs with tabs or substantially different internal views use one fixed, viewport-bounded outer height. Tab and view changes scroll inside the body; they never resize or move the dialog frame. Simple single-view prompts remain content-sized.
 - Popovers align with their trigger and flip before overflowing the viewport.
 - Tooltips explain unfamiliar icon actions. They do not repeat visible labels.
-- Use `Tooltip` for short, non-interactive hints. Keep the control's accessible name on the control itself; the tooltip supplements it through `aria-describedby`.
-- Tooltips open from hover and keyboard focus, stay inside the viewport, and close on Escape, blur, pointerdown, scroll, or resize.
+- Use `Tooltip` for one short, non-interactive hint around exactly one accessible trigger. Keep the control's accessible name on the control itself; the tooltip supplements it through `aria-describedby`.
+- Tooltips open from hover and keyboard focus, remain hoverable, clamp to the viewport, and close on Escape, blur, pointerdown, scroll, or resize.
 - If the hint needs an action, form field, or selectable content, use a popover or dialog instead.
+- Toasts are transient, non-blocking status feedback. Their live region is polite, their timer pauses while hovered or keyboard-focused, and every toast has an explicit dismiss action.
+- Use a sticky toast only when the information may remain relevant without blocking work. Give actionable toasts enough reading and interaction time. Blocking failures and decisions belong in prompts; toast actions are short navigation links, never hidden writes or destructive actions.
+- Tooltip and toast geometry, safe-area handling, stacking, and viewport protection belong to the shared primitives. Apps must not reproduce them with local fixed positioning.
 - Menu triggers expose `aria-expanded`; Arrow keys, Home, and End move between menu items without entering the page tab order.
 - Escape closes the top floating layer and returns focus to its trigger.
 - Floating utility windows must be movable, resizable, viewport-clamped, and

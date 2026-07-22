@@ -545,7 +545,25 @@ toast.success("Item moved", {
 });
 ```
 
-Use the optional declarative `action` for a short navigation link after a successful write. Keep destructive or state-changing actions out of toasts.
+Use the optional declarative `action` for a short navigation link after a successful write. Give actionable toasts enough time to read and operate. Keep destructive or state-changing actions out of toasts.
+
+Toasts use a polite live region, stay inside narrow and safe-area-constrained viewports, pause auto-dismiss on hover or keyboard focus, and always expose an explicit close button. Use `duration: 0` only for information that should remain visible without blocking work; the shared primitive owns its responsive rail and stack lifecycle.
+
+#### Tooltip
+
+Use `Tooltip` for a short, non-interactive hint around exactly one accessible trigger. The trigger keeps its own `aria-label` or visible name; the tooltip adds description, not the only usable label.
+
+```tsx
+import { Tooltip } from "@valentinkolb/cloud/ui";
+
+<Tooltip content="Archive conversation">
+  <button type="button" class="icon-btn" aria-label="Archive conversation">
+    <i class="ti ti-archive" aria-hidden="true" />
+  </button>
+</Tooltip>;
+```
+
+The shared primitive handles hover and focus, Escape, viewport clamping, and scroll/resize dismissal. Use a popover or dialog when the floating content contains actions, fields, or selectable content.
 
 #### prompts.search()
 

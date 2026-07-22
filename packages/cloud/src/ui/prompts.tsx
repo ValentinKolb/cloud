@@ -414,7 +414,7 @@ const openSearchPrompt = <T = unknown>(
             {(title) => <p class="px-1 text-base font-semibold text-white dark:text-zinc-100">{title()}</p>}
           </Show>
 
-          <div class="prompt-search-surface flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white/95 text-zinc-900 shadow-none ring-1 ring-inset ring-zinc-300/60 dark:bg-zinc-950/95 dark:text-zinc-100 dark:ring-zinc-700/60">
+          <div class="prompt-search-surface flex min-h-0 flex-1 flex-col overflow-hidden text-zinc-900 dark:text-zinc-100">
             <label class="flex items-center gap-2 px-3 py-2.5">
               <i class={`${options?.icon ?? "ti ti-search"} text-dimmed`} />
               <input

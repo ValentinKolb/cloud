@@ -214,7 +214,7 @@
 @utility sidebar-item {
   display: flex !important;
   border-radius: var(--ui-radius-surface);
-  @apply min-h-8 items-center gap-2 px-2 py-1.5 text-xs leading-none text-dimmed;
+  @apply min-h-8 items-center gap-2 px-2 py-1.5 text-xs leading-tight text-dimmed;
   @apply transition-[background-color,color] duration-150 ease-out hover:text-secondary;
   @apply focus-ui;
 

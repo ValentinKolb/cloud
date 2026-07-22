@@ -192,10 +192,15 @@ export const ToastDemo = () => (
   <DemoCard
     id="toast"
     chip={{ kind: "component", name: "toast", from: FROM_UI }}
-    description="Imperative transient notification — call from any event handler. Variants: default, success, error."
+    description="Responsive, accessible transient feedback. Auto-dismiss pauses on hover and keyboard focus; sticky notifications keep an explicit close action."
     code={`toast.success("Saved successfully");
 toast.error("Could not connect");
-toast("Plain message");`}
+toast("Plain message");
+toast("Waiting for approval", { duration: 0, title: "Review pending" });
+toast.success("Item moved", {
+  action: { label: "Open destination", href: "#toast" },
+  duration: 8_000,
+});`}
   >
     <div class="flex flex-wrap items-center gap-2">
       <button type="button" class="btn-primary btn-sm" onClick={() => toast.success("Saved successfully")}>
@@ -206,6 +211,25 @@ toast("Plain message");`}
       </button>
       <button type="button" class="btn-secondary btn-sm" onClick={() => toast("Plain message")}>
         toast
+      </button>
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        onClick={() => toast("Waiting for approval", { duration: 0, title: "Review pending" })}
+      >
+        sticky toast
+      </button>
+      <button
+        type="button"
+        class="btn-secondary btn-sm"
+        onClick={() =>
+          toast.success("Item moved", {
+            action: { label: "Open destination", href: "#toast" },
+            duration: 8_000,
+          })
+        }
+      >
+        action toast
       </button>
     </div>
   </DemoCard>

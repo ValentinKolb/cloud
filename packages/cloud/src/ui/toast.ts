@@ -50,8 +50,8 @@
  * dialogCore ignore those retargeted clicks so aiming at a toast
  * doesn't accidentally close the modal.
  *
- * Every toast in the stack renders at the same fixed width
- * (`TOAST_WIDTH_CLASS`) so they line up neatly when stacked.
+ * Every toast fills one responsive rail so the stack stays aligned
+ * without overflowing narrow or safe-area-constrained viewports.
  *
  * Usage
  * -----
@@ -63,6 +63,7 @@
  * toast.success("Untitled-3 created");                   // title "Success"
  * toast.success("Item moved", {
  *   action: { label: "Open destination", href: "/app/spaces/target?item=123" },
+ *   duration: 8000,
  * });
  * toast.error("Network unreachable");                    // title "Error"
  * toast.error("Network unreachable", { title: "Bummer!", duration: 5000 });
@@ -87,14 +88,12 @@ export type ToastAction = {
 };
 
 export type ToastOptions = {
-  /** Visual style. Default `"default"` (blue left-bar). */
+  /** Visual style. Default `"default"` (blue information icon). */
   variant?: ToastVariant;
   /** Auto-dismiss after this many ms. Default `3000`. `0` = sticky
    *  (only manual `t.dismiss()` removes it). */
   duration?: number;
-  /** `ti-…` icon class to override the variant default. Only
-   *  applies to `success` / `error` variants — the `default`
-   *  variant doesn't render an icon. */
+  /** `ti-…` icon class to override the variant default. */
   iconClass?: string;
   /** Override the variant default title (`"Info"` / `"Success"` /
    *  `"Error"`). Pass any string — `""` renders an empty title row. */
@@ -112,8 +111,8 @@ export type ToastHandle = {
    *  - `update("X")` → desc becomes "X", everything else unchanged
    *  - `update("X", { title: "Saved" })` → desc + title both update
    *  - `update("X", { variant: "success" })` → swaps the leading
-   *    element (bar ↔ circle) AND swaps the title to the new
-   *    variant default unless `title` is explicitly passed
+   *    icon treatment AND swaps the title to the new variant default
+   *    unless `title` is explicitly passed
    *
    * The auto-dismiss timer resets to the (new or existing)
    * `duration` so a near-expired toast doesn't disappear right
@@ -140,13 +139,6 @@ const DEFAULT_DURATION_MS = 3000;
 const MAX_VISIBLE_TOASTS = 5;
 const ANIMATION_MS = 200;
 const CONTAINER_ID = "ui-toast-container";
-
-/** Fixed width for every toast — all toasts in the stack line up at
- *  this exact width regardless of content length. `w-80` = 20 rem ≈
- *  320 px; intentionally narrower than Mantine's default so toasts
- *  don't dominate the right rail. To make this configurable later,
- *  lift to an option. */
-const TOAST_WIDTH_CLASS = "w-80";
 
 /** Per-variant rendering recipe. The lead element is a 36 px soft-tinted
  *  disc with a colour-matched icon — a faint wash (`/10`–`/15` alpha)
@@ -214,9 +206,12 @@ const ensureContainer = (): HTMLElement | null => {
   // scanned this file — a mispositioned toast rail is a platform-wide bug.
   // Inline styles survive cloneNode() in promoteToTopLayer unchanged.
   container.style.cssText =
-    "position:fixed;top:auto;left:auto;bottom:1rem;right:1rem;z-index:50;" +
-    "display:flex;flex-direction:column;gap:0.5rem;width:auto;height:auto;max-width:none;max-height:none;" +
-    "margin:0;padding:0;border:0;background:transparent;overflow:visible;" +
+    "position:fixed;top:auto;left:auto;bottom:env(safe-area-inset-bottom,0px);right:env(safe-area-inset-right,0px);" +
+    "z-index:50;box-sizing:border-box;display:flex;flex-direction:column;gap:0.5rem;" +
+    "width:min(22rem,calc(100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));" +
+    "height:auto;max-width:100vw;" +
+    "max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));" +
+    "margin:0;padding:1rem;border:0;background:transparent;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;" +
     // The gaps between toasts shouldn't intercept clicks on the page
     // beneath. Each toast re-enables pointer-events on itself.
     "pointer-events:none;";
@@ -313,6 +308,7 @@ const renderLead = (leadEl: HTMLElement, variant: ToastVariant, iconClassOverrid
   for (const cls of splitClasses(style.circleBgClass)) leadEl.classList.add(cls);
   const iconEl = document.createElement("i");
   iconEl.className = `ti ${iconClassOverride ?? style.iconClass} ${style.iconColorClass} text-base`;
+  iconEl.setAttribute("aria-hidden", "true");
   leadEl.appendChild(iconEl);
   return iconEl;
 };
@@ -331,29 +327,35 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
   let dismissed = false;
   let dismissTimer: ReturnType<typeof setTimeout> | null = null;
   let currentVariant: ToastVariant = options?.variant ?? "default";
+  let currentDuration = options?.duration ?? DEFAULT_DURATION_MS;
+  let remainingDuration = currentDuration;
+  let timerStartedAt = 0;
+  let pausedByPointer = false;
+  let pausedByFocus = false;
 
   // ----- DOM scaffolding -----
 
   // Toast card. White / zinc-900 body, neutral text, soft shadow,
-  // no border (the lead element is the only color affordance).
-  // Fixed width so every toast in the stack lines up. Click-anywhere
-  // dismisses — there's no explicit close button.
+  // The shared CSS owns its boundary. The responsive rail owns width,
+  // while click-anywhere dismissal stays for backwards compatibility.
   const toastEl = document.createElement("div");
   toastEl.className =
-    `pointer-events-auto cursor-pointer flex items-stretch gap-3 ${TOAST_WIDTH_CLASS} ` +
+    "pointer-events-auto cursor-pointer flex w-full items-stretch gap-3 " +
     "p-3 rounded-md [box-shadow:var(--ui-shadow-float)] " +
     "bg-white dark:bg-zinc-900 " +
     "transition-all duration-200 ease-out " +
     // Initial off-screen state — flipped on the next frame so the
     // browser renders the entry frame and animates the change.
     "translate-x-2 opacity-0";
-
   const leadEl = document.createElement("div");
   let leadIconEl = renderLead(leadEl, currentVariant, options?.iconClass);
 
   // Content column — title + description.
   const contentEl = document.createElement("div");
   contentEl.className = "flex-1 min-w-0 self-center flex flex-col gap-0.5";
+  contentEl.setAttribute("role", "status");
+  contentEl.setAttribute("aria-live", "polite");
+  contentEl.setAttribute("aria-atomic", "true");
 
   // Title — variant default ("Info" / "Success" / "Error") unless
   // overridden via `options.title`. Subtle weight + tone — toasts
@@ -364,7 +366,7 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
 
   // Description (the positional first arg).
   const descEl = document.createElement("div");
-  descEl.className = "text-xs text-zinc-500 dark:text-zinc-400 leading-snug";
+  descEl.className = "break-words text-xs text-zinc-500 dark:text-zinc-400 leading-snug";
   descEl.textContent = description;
 
   contentEl.appendChild(titleEl);
@@ -372,6 +374,13 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
 
   toastEl.appendChild(leadEl);
   toastEl.appendChild(contentEl);
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "icon-btn shrink-0 self-start";
+  closeButton.setAttribute("aria-label", "Dismiss notification");
+  closeButton.innerHTML = '<i class="ti ti-x" aria-hidden="true"></i>';
+  toastEl.appendChild(closeButton);
 
   // ----- timer + dismiss -----
 
@@ -382,12 +391,24 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
     }
   };
 
-  const armDismissTimer = (duration: number) => {
+  const pauseDismissTimer = () => {
+    if (dismissTimer === null) return;
+    remainingDuration = Math.max(0, remainingDuration - (Date.now() - timerStartedAt));
     clearDismissTimer();
-    if (duration > 0) {
-      dismissTimer = setTimeout(() => dismiss(), duration);
-    }
-    // duration === 0 → sticky; rely on manual dismiss / dismissAll.
+  };
+
+  const resumeDismissTimer = () => {
+    if (dismissed || currentDuration === 0 || remainingDuration <= 0 || pausedByPointer || pausedByFocus) return;
+    clearDismissTimer();
+    timerStartedAt = Date.now();
+    dismissTimer = setTimeout(() => dismiss(), remainingDuration);
+  };
+
+  const resetDismissTimer = (duration: number) => {
+    clearDismissTimer();
+    currentDuration = duration;
+    remainingDuration = duration;
+    resumeDismissTimer();
   };
 
   const dismiss = () => {
@@ -428,8 +449,8 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
     // Description is positional and always replaces.
     descEl.textContent = nextDescription;
 
-    // Variant swap: re-render the lead element wholesale (bar↔circle
-    // is a DOM-shape change). Strip stale bg classes first so we
+    // Variant swap: re-render the lead element wholesale. Strip stale
+    // background classes first so we
     // don't blend the previous variant's tint into the new one.
     const variantChanged = nextOptions?.variant !== undefined && nextOptions.variant !== currentVariant;
     if (variantChanged) {
@@ -462,30 +483,52 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
       renderAction(nextOptions.action);
     }
 
-    armDismissTimer(nextOptions?.duration ?? DEFAULT_DURATION_MS);
+    if (nextOptions && Object.prototype.hasOwnProperty.call(nextOptions, "duration")) {
+      currentDuration = nextOptions.duration ?? DEFAULT_DURATION_MS;
+    }
+    resetDismissTimer(currentDuration);
   };
 
   toastEl.addEventListener("click", dismiss);
+  closeButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    dismiss();
+  });
+  toastEl.addEventListener("pointerenter", () => {
+    pausedByPointer = true;
+    pauseDismissTimer();
+  });
+  toastEl.addEventListener("pointerleave", () => {
+    pausedByPointer = false;
+    resumeDismissTimer();
+  });
+  toastEl.addEventListener("focusin", () => {
+    pausedByFocus = true;
+    pauseDismissTimer();
+  });
+  toastEl.addEventListener("focusout", (event) => {
+    if (toastEl.contains(event.relatedTarget as Node | null)) return;
+    pausedByFocus = false;
+    resumeDismissTimer();
+  });
 
   const handle: ToastHandle = { dismiss, update };
   liveToasts.add(handle);
 
   // ----- mount + animate in -----
 
-  // Cap the visible stack BEFORE we add the new toast so the
-  // overflow-removal doesn't visually flicker the new arrival.
-  while (container.children.length >= MAX_VISIBLE_TOASTS) {
-    container.firstElementChild?.remove();
-  }
+  // Dismiss through the owned lifecycle so timers and handles cannot leak.
+  if (liveToasts.size > MAX_VISIBLE_TOASTS) liveToasts.values().next().value?.dismiss();
   container.appendChild(toastEl);
   promoteToTopLayer(container);
 
   requestAnimationFrame(() => {
+    if (dismissed) return;
     toastEl.classList.remove("translate-x-2", "opacity-0");
     toastEl.classList.add("translate-x-0", "opacity-100");
   });
 
-  armDismissTimer(options?.duration ?? DEFAULT_DURATION_MS);
+  resetDismissTimer(currentDuration);
 
   return handle;
 };
