@@ -426,9 +426,6 @@ export default function MailConversationList(props: {
                         );
                       }}
                     >
-                      <span class="mail-list-status-rail" aria-hidden="true">
-                        <span class="mail-list-unread-dot" classList={{ "mail-list-unread-dot-visible": item.unread }} />
-                      </span>
                       <span class="sr-only">
                         {item.unread ? "Unread conversation. " : "Read conversation. "}
                         {item.flagged ? "Flagged conversation. " : ""}
@@ -438,6 +435,9 @@ export default function MailConversationList(props: {
                           class="flex min-w-0 items-center gap-1 text-sm text-primary"
                           classList={{ "font-semibold": item.unread, "font-medium": !item.unread }}
                         >
+                          <Show when={item.unread}>
+                            <span class="mail-list-unread-dot" aria-hidden="true" />
+                          </Show>
                           <span class="min-w-0 truncate">{primaryCorrespondent}</span>
                           <Show when={additionalCorrespondents > 0}>
                             <Tooltip content={correspondents.join(", ")}>

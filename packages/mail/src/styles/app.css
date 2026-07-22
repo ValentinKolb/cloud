@@ -40,7 +40,7 @@
 
   .mail-list-row {
     display: grid;
-    grid-template-columns: 0.875rem minmax(0, 1fr) minmax(4.5rem, auto);
+    grid-template-columns: minmax(0, 1fr) minmax(4.5rem, auto);
     align-items: stretch;
     gap: 0.625rem;
     min-height: 4.5rem;
@@ -54,25 +54,12 @@
     background: transparent;
   }
 
-  .mail-list-status-rail {
-    display: grid;
-    grid-template-rows: repeat(3, minmax(0, 1fr));
-    align-items: center;
-    justify-items: center;
-    color: var(--color-zinc-500);
-  }
-
   .mail-list-unread-dot {
     width: 0.5rem;
     height: 0.5rem;
     flex: 0 0 auto;
     border-radius: 9999px;
-    opacity: 0;
     background: var(--app-accent);
-  }
-
-  .mail-list-unread-dot-visible {
-    opacity: 1;
   }
 
   .mail-list-copy {
