@@ -248,7 +248,7 @@ describe("cloud CLI OAuth session handling", () => {
     }
   });
 
-  test("login callback returns a browser-readable completion page", async () => {
+  test("login callback returns a plain-text completion message", async () => {
     const state: MockServerState = { refreshCalls: 0, authorizationCodeCalls: 0, revokeCalls: 0, meCalls: 0 };
     const server = startMockServer(state);
     const dir = await createTempDir();
@@ -273,12 +273,11 @@ describe("cloud CLI OAuth session handling", () => {
       callbackUrl.searchParams.set("code", "test-code");
       callbackUrl.searchParams.set("state", stateParam!);
       const callbackResponse = await fetch(callbackUrl);
-      const callbackHtml = await callbackResponse.text();
+      const callbackText = await callbackResponse.text();
 
       expect(callbackResponse.status).toBe(200);
-      expect(callbackResponse.headers.get("content-type")).toContain("text/html");
-      expect(callbackHtml).toContain("Login succeeded");
-      expect(callbackHtml).toContain("You can close this window and return to your terminal.");
+      expect(callbackResponse.headers.get("content-type")).toContain("text/plain");
+      expect(callbackText).toBe("Authentication complete. You may close this window.\n");
 
       const exitCode = await proc.exited;
       expect(exitCode).toBe(0);
