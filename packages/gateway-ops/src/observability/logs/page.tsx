@@ -44,38 +44,36 @@ export default ssr<AuthContext>(async (c) => {
   const retentionDays = typeof rawRetention === "number" ? rawRetention : 30;
 
   return () => (
-    <AdminLayout c={c} title="Logs" stretch>
+    <AdminLayout c={c} title="Logs">
       <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-logs-title">
-            <h1 class="text-base font-semibold text-primary">Logs</h1>
-          </div>
-
-          {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
-          <StatGrid columns={5}>
-            <StatCell
-              label="Errors 24h"
-              value={summary.errors24h.toLocaleString()}
-              sub={summary.errors24h > 0 ? "last 24h" : "none"}
-              valueClass={summary.errors24h > 0 ? "text-red-500" : "text-primary"}
-              accent={summary.errors24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
-            />
-            <StatCell
-              label="Warnings 24h"
-              value={summary.warnings24h.toLocaleString()}
-              sub={summary.warnings24h > 0 ? "last 24h" : "none"}
-              valueClass={summary.warnings24h > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
-              accent={summary.warnings24h > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
-            />
-            <StatCell label="Volume 24h" value={summary.total24h.toLocaleString()} sub="all levels" />
-            <StatCell label="Sources" value={summary.sources} sub="distinct" accent={{ tone: "blue", icon: "ti ti-stack-3" }} />
-            <StatCell label="Total · Retention" value={summary.total.toLocaleString()} sub={`${retentionDays}d auto-prune`} />
-          </StatGrid>
-
-          <LogTable entries={entries} total={total} filter={filter} sources={sources} retentionDays={retentionDays} />
-          <Pagination currentPage={paginationResult.page} totalPages={paginationResult.total_pages} baseUrl={baseUrl} />
+      <div class="app-rows">
+        <div class="min-w-0" style="view-transition-name: admin-logs-title">
+          <h1 class="text-base font-semibold text-primary">Logs</h1>
         </div>
+
+        {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
+        <StatGrid columns={5}>
+          <StatCell
+            label="Errors 24h"
+            value={summary.errors24h.toLocaleString()}
+            sub={summary.errors24h > 0 ? "last 24h" : "none"}
+            valueClass={summary.errors24h > 0 ? "text-red-500" : "text-primary"}
+            accent={summary.errors24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+          />
+          <StatCell
+            label="Warnings 24h"
+            value={summary.warnings24h.toLocaleString()}
+            sub={summary.warnings24h > 0 ? "last 24h" : "none"}
+            valueClass={summary.warnings24h > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+            accent={summary.warnings24h > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
+          />
+          <StatCell label="Volume 24h" value={summary.total24h.toLocaleString()} sub="all levels" />
+          <StatCell label="Sources" value={summary.sources} sub="distinct" accent={{ tone: "blue", icon: "ti ti-stack-3" }} />
+          <StatCell label="Total · Retention" value={summary.total.toLocaleString()} sub={`${retentionDays}d auto-prune`} />
+        </StatGrid>
+
+        <LogTable entries={entries} total={total} filter={filter} sources={sources} retentionDays={retentionDays} />
+        <Pagination currentPage={paginationResult.page} totalPages={paginationResult.total_pages} baseUrl={baseUrl} />
       </div>
     </AdminLayout>
   );

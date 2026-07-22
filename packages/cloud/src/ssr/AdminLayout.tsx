@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js/jsx-runtime";
 import type { LayoutAnnouncementsState } from "../server/middleware/settings";
+import { AppWorkspace } from "../ui";
 import AdminSidebar from "./AdminSidebar";
 import Layout from "./Layout";
 import { getRuntimeContext, type RuntimeContext } from "./runtime";
@@ -17,10 +18,8 @@ type Props = {
   children: JSX.Element;
   c: AdminLayoutContext;
   title: string;
-  /** Bypass the scroll wrapper — child manages its own overflow. */
-  stretch?: boolean;
 };
-export default function AdminLayout({ children, c, title, stretch }: Props) {
+export default function AdminLayout({ children, c, title }: Props) {
   const url = new URL(c.req.raw.url);
   const currentPath = `${url.pathname}${url.search}`;
   const runtime = getRuntimeContext(c);
@@ -33,14 +32,12 @@ export default function AdminLayout({ children, c, title, stretch }: Props) {
   }
   return (
     <Layout c={c} fullWidth title={breadcrumbs}>
-      <div class="app-cols flex-1 min-h-0">
+      <AppWorkspace class="min-h-0 flex-1" resizable={false}>
         <AdminSidebar currentPath={currentPath} apps={runtime.apps} />
-        <div class="flex-1 min-w-0 min-h-0 flex flex-col">
-          <div class={`flex-1 min-h-0 ${stretch ? "flex flex-col" : "overflow-y-auto"}`} style="scrollbar-gutter: stable">
-            {children}
-          </div>
-        </div>
-      </div>
+        <AppWorkspace.Content>
+          <AppWorkspace.Main class="overflow-y-auto p-[var(--ui-space-shell)] [scrollbar-gutter:stable]">{children}</AppWorkspace.Main>
+        </AppWorkspace.Content>
+      </AppWorkspace>
     </Layout>
   );
 }

@@ -86,123 +86,119 @@ export default ssr<AuthContext>(async (c) => {
   ];
 
   return () => (
-    <AdminLayout c={c} title="Telemetry" stretch>
+    <AdminLayout c={c} title="Telemetry">
       <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-telemetry-title">
-            <h1 class="text-base font-semibold text-primary">Telemetry</h1>
-            <p class="mt-1 text-xs text-dimmed">Request events, slow routes, and gateway errors.</p>
-          </div>
-
-          <StatGrid columns={5}>
-            <StatCell value={summary.requests.toLocaleString()} label="Requests" sub="last 24h" />
-            <StatCell
-              value={summary.errors.toLocaleString()}
-              label="Errors"
-              sub="last 24h"
-              accent={summary.errors > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
-            />
-            <StatCell
-              value={summary.slowRequests.toLocaleString()}
-              label="Slow"
-              sub=">= 800ms"
-              accent={summary.slowRequests > 0 ? { tone: "amber", icon: "ti ti-clock-exclamation" } : undefined}
-            />
-            <StatCell value={fmtMs(summary.avgDurationMs)} label="Average" sub="request time" />
-            <StatCell value={fmtMs(summary.p95DurationMs)} label="P95" sub="request time" />
-          </StatGrid>
-
-          {appId && sloWindows.length > 0 ? (
-            <section class="paper flex flex-col gap-2 p-3" aria-labelledby="request-slo-title">
-              <div>
-                <h2 id="request-slo-title" class="text-xs font-semibold text-primary">
-                  Request availability
-                </h2>
-                <p class="text-[10px] text-dimmed">HTTP 5xx and gateway failures consume the 99.9% availability objective.</p>
-              </div>
-              <StatGrid columns={3} size="sm">
-                {sloWindows.map((window) => {
-                  const completeSeconds = window.window === "1h" ? 3600 : window.window === "6h" ? 21_600 : 2_592_000;
-                  const collecting = window.observedSeconds < completeSeconds * 0.95;
-                  const missed = !collecting && window.requestCount > 0 && window.availabilityRatio < 0.999;
-                  return (
-                    <StatCell
-                      label={window.window}
-                      value={window.requestCount === 0 ? "No traffic" : fmtRatio(window.availabilityRatio)}
-                      sub={
-                        collecting
-                          ? `${window.requestCount.toLocaleString()} requests · collecting history`
-                          : `${window.requestCount.toLocaleString()} requests`
-                      }
-                      valueClass={missed ? "text-red-500" : "text-primary"}
-                      accent={missed ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
-                    />
-                  );
-                })}
-              </StatGrid>
-            </section>
-          ) : null}
-
-          <section class="paper overflow-hidden">
-            <div class="flex flex-col gap-2 px-3 py-2">
-              <div>
-                <h2 class="text-xs font-semibold text-primary">Events</h2>
-                <p class="text-[10px] text-dimmed">
-                  {events.items.length} of {events.total} request events
-                </p>
-              </div>
-              <SearchBar
-                action="/admin/observability/telemetry"
-                value={search}
-                placeholder="Search app, route, method, or error..."
-                ariaLabel="Search telemetry"
-              />
-              <TelemetryFilterBar search={search} appId={appId} slowOnly={slowOnly} errorsOnly={errorsOnly} apps={appOptions} />
-            </div>
-            <DataTable
-              rows={events.items}
-              columns={columns}
-              getRowId={(row) => String(row.id)}
-              hoverRows
-              highlightColumns={false}
-              density="compact"
-              class="overflow-x-auto"
-              empty="No telemetry events match the current filters"
-              renderCell={({ row, col }) => {
-                if (col.id === "time") return <span class="text-[10px] text-dimmed">{fmtDate(row.occurredAt)}</span>;
-                if (col.id === "app") return <span class="text-[10px] text-dimmed">{row.appId}</span>;
-                if (col.id === "route") return <code class="text-[10px] text-primary">{row.routePrefix}</code>;
-                if (col.id === "method") return <span class="text-[10px] font-medium text-dimmed">{row.method}</span>;
-                if (col.id === "status")
-                  return (
-                    <span
-                      class={`text-[10px] tabular-nums ${row.status >= 500 ? "text-red-500" : row.status >= 400 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}
-                    >
-                      {row.status}
-                    </span>
-                  );
-                if (col.id === "duration")
-                  return (
-                    <span
-                      class={`text-[10px] tabular-nums ${row.durationMs >= 800 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}
-                    >
-                      {fmtMs(row.durationMs)}
-                    </span>
-                  );
-                if (col.id === "error")
-                  return row.errorKind ? (
-                    <span class="text-[10px] text-red-500">{row.errorKind}</span>
-                  ) : (
-                    <span class="text-[10px] text-dimmed">-</span>
-                  );
-                return "";
-              }}
-            />
-          </section>
-
-          <Pagination currentPage={pagination.page} totalPages={pagination.total_pages} baseUrl={baseUrl} />
+      <div class="app-rows">
+        <div class="min-w-0" style="view-transition-name: admin-telemetry-title">
+          <h1 class="text-base font-semibold text-primary">Telemetry</h1>
+          <p class="mt-1 text-xs text-dimmed">Request events, slow routes, and gateway errors.</p>
         </div>
+
+        <StatGrid columns={5}>
+          <StatCell value={summary.requests.toLocaleString()} label="Requests" sub="last 24h" />
+          <StatCell
+            value={summary.errors.toLocaleString()}
+            label="Errors"
+            sub="last 24h"
+            accent={summary.errors > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+          />
+          <StatCell
+            value={summary.slowRequests.toLocaleString()}
+            label="Slow"
+            sub=">= 800ms"
+            accent={summary.slowRequests > 0 ? { tone: "amber", icon: "ti ti-clock-exclamation" } : undefined}
+          />
+          <StatCell value={fmtMs(summary.avgDurationMs)} label="Average" sub="request time" />
+          <StatCell value={fmtMs(summary.p95DurationMs)} label="P95" sub="request time" />
+        </StatGrid>
+
+        {appId && sloWindows.length > 0 ? (
+          <section class="paper flex flex-col gap-2 p-3" aria-labelledby="request-slo-title">
+            <div>
+              <h2 id="request-slo-title" class="text-xs font-semibold text-primary">
+                Request availability
+              </h2>
+              <p class="text-[10px] text-dimmed">HTTP 5xx and gateway failures consume the 99.9% availability objective.</p>
+            </div>
+            <StatGrid columns={3} size="sm">
+              {sloWindows.map((window) => {
+                const completeSeconds = window.window === "1h" ? 3600 : window.window === "6h" ? 21_600 : 2_592_000;
+                const collecting = window.observedSeconds < completeSeconds * 0.95;
+                const missed = !collecting && window.requestCount > 0 && window.availabilityRatio < 0.999;
+                return (
+                  <StatCell
+                    label={window.window}
+                    value={window.requestCount === 0 ? "No traffic" : fmtRatio(window.availabilityRatio)}
+                    sub={
+                      collecting
+                        ? `${window.requestCount.toLocaleString()} requests · collecting history`
+                        : `${window.requestCount.toLocaleString()} requests`
+                    }
+                    valueClass={missed ? "text-red-500" : "text-primary"}
+                    accent={missed ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+                  />
+                );
+              })}
+            </StatGrid>
+          </section>
+        ) : null}
+
+        <section class="paper overflow-hidden">
+          <div class="flex flex-col gap-2 px-3 py-2">
+            <div>
+              <h2 class="text-xs font-semibold text-primary">Events</h2>
+              <p class="text-[10px] text-dimmed">
+                {events.items.length} of {events.total} request events
+              </p>
+            </div>
+            <SearchBar
+              action="/admin/observability/telemetry"
+              value={search}
+              placeholder="Search app, route, method, or error..."
+              ariaLabel="Search telemetry"
+            />
+            <TelemetryFilterBar search={search} appId={appId} slowOnly={slowOnly} errorsOnly={errorsOnly} apps={appOptions} />
+          </div>
+          <DataTable
+            rows={events.items}
+            columns={columns}
+            getRowId={(row) => String(row.id)}
+            hoverRows
+            highlightColumns={false}
+            density="compact"
+            class="overflow-x-auto"
+            empty="No telemetry events match the current filters"
+            renderCell={({ row, col }) => {
+              if (col.id === "time") return <span class="text-[10px] text-dimmed">{fmtDate(row.occurredAt)}</span>;
+              if (col.id === "app") return <span class="text-[10px] text-dimmed">{row.appId}</span>;
+              if (col.id === "route") return <code class="text-[10px] text-primary">{row.routePrefix}</code>;
+              if (col.id === "method") return <span class="text-[10px] font-medium text-dimmed">{row.method}</span>;
+              if (col.id === "status")
+                return (
+                  <span
+                    class={`text-[10px] tabular-nums ${row.status >= 500 ? "text-red-500" : row.status >= 400 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}
+                  >
+                    {row.status}
+                  </span>
+                );
+              if (col.id === "duration")
+                return (
+                  <span class={`text-[10px] tabular-nums ${row.durationMs >= 800 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}>
+                    {fmtMs(row.durationMs)}
+                  </span>
+                );
+              if (col.id === "error")
+                return row.errorKind ? (
+                  <span class="text-[10px] text-red-500">{row.errorKind}</span>
+                ) : (
+                  <span class="text-[10px] text-dimmed">-</span>
+                );
+              return "";
+            }}
+          />
+        </section>
+
+        <Pagination currentPage={pagination.page} totalPages={pagination.total_pages} baseUrl={baseUrl} />
       </div>
     </AdminLayout>
   );

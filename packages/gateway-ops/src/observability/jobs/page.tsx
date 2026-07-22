@@ -502,52 +502,50 @@ export default ssr<AuthContext>(async (c) => {
   });
 
   return () => (
-    <AdminLayout c={c} title="Background Jobs" stretch>
+    <AdminLayout c={c} title="Background Jobs">
       <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
       <JobsActionToast />
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-jobs-title">
-            <div class="flex items-center gap-2">
-              {filter.source ? (
-                <a href={buildJobsFilterUrl(baseUrl, { source: null, run: null, page: 1 }, filter)} class="btn-simple btn-sm text-dimmed">
-                  <i class="ti ti-arrow-left" />
-                </a>
-              ) : null}
-              <div class="min-w-0">
-                <h1 class="truncate text-base font-semibold text-primary">{filter.source ?? "Background Jobs"}</h1>
-                <p class="mt-1 text-xs text-dimmed">
-                  {filter.source
-                    ? `Runs for this source in the last ${windowLabel(filter)}.`
-                    : "Grouped trace-backed sync jobs, schedules, and manual background work."}
-                </p>
-              </div>
+      <div class="app-rows">
+        <div class="min-w-0" style="view-transition-name: admin-jobs-title">
+          <div class="flex items-center gap-2">
+            {filter.source ? (
+              <a href={buildJobsFilterUrl(baseUrl, { source: null, run: null, page: 1 }, filter)} class="btn-simple btn-sm text-dimmed">
+                <i class="ti ti-arrow-left" />
+              </a>
+            ) : null}
+            <div class="min-w-0">
+              <h1 class="truncate text-base font-semibold text-primary">{filter.source ?? "Background Jobs"}</h1>
+              <p class="mt-1 text-xs text-dimmed">
+                {filter.source
+                  ? `Runs for this source in the last ${windowLabel(filter)}.`
+                  : "Grouped trace-backed sync jobs, schedules, and manual background work."}
+              </p>
             </div>
           </div>
-
-          {statsGrid(stats, filter)}
-          <FeedbackBanner feedback={actionFeedback} />
-          <ControlWarning error={scheduleResult.error} />
-
-          <section class="paper p-3">
-            <JobsFilterBar filter={filter} />
-          </section>
-
-          {filter.source ? (
-            <div class={selectedSpan ? "grid min-h-0 gap-2 xl:grid-cols-[minmax(0,1fr)_26rem]" : "min-h-0"}>
-              <SourceRunsTable
-                spans={listResult.spans}
-                total={listResult.total}
-                pagination={pagination}
-                filter={filter}
-                selectedRunKey={selectedRunKey}
-              />
-              {selectedSpan ? <RunDetailPanel span={selectedSpan} events={selectedEvents} closeHref={closeRunUrl(filter)} /> : null}
-            </div>
-          ) : (
-            <OverviewTable rows={overviewRows} filter={filter} />
-          )}
         </div>
+
+        {statsGrid(stats, filter)}
+        <FeedbackBanner feedback={actionFeedback} />
+        <ControlWarning error={scheduleResult.error} />
+
+        <section class="paper p-3">
+          <JobsFilterBar filter={filter} />
+        </section>
+
+        {filter.source ? (
+          <div class={selectedSpan ? "grid min-h-0 gap-2 xl:grid-cols-[minmax(0,1fr)_26rem]" : "min-h-0"}>
+            <SourceRunsTable
+              spans={listResult.spans}
+              total={listResult.total}
+              pagination={pagination}
+              filter={filter}
+              selectedRunKey={selectedRunKey}
+            />
+            {selectedSpan ? <RunDetailPanel span={selectedSpan} events={selectedEvents} closeHref={closeRunUrl(filter)} /> : null}
+          </div>
+        ) : (
+          <OverviewTable rows={overviewRows} filter={filter} />
+        )}
       </div>
     </AdminLayout>
   );

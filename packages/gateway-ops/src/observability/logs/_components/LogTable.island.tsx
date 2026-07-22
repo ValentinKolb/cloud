@@ -128,7 +128,7 @@ export default function LogTable(props: Props) {
   ];
 
   return (
-    <div class="paper overflow-hidden">
+    <section class="overflow-hidden rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)]">
       <div class="flex flex-col gap-2 px-3 py-2">
         <div>
           <h2 class="text-xs font-semibold text-primary">Entries</h2>
@@ -163,6 +163,6 @@ export default function LogTable(props: Props) {
           }}
         />
       </Show>
-    </div>
+    </section>
   );
 }

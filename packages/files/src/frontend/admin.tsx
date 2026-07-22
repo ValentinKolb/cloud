@@ -23,22 +23,20 @@ export default ssr<AuthContext>(async (c) => {
   ]);
 
   return () => (
-    <AdminLayout c={c} title="Files" stretch>
+    <AdminLayout c={c} title="Files">
       <FilesLayoutHelp documents={filesHelp.manifest} />
-      <div class="flex-1 min-h-0 overflow-hidden">
-        <FilesSettingsForm
-          initial={{
-            "files.filegate_url": filegateUrl ?? "",
-            "files.filegate_token": "",
-            "files.base_homes": baseHomes ?? "",
-            "files.base_groups": baseGroups ?? "",
-            "files.home_dir_mode": homeDirMode ?? "",
-            "files.home_file_mode": homeFileMode ?? "",
-            "files.group_dir_mode": groupDirMode ?? "",
-            "files.group_file_mode": groupFileMode ?? "",
-          }}
-        />
-      </div>
+      <FilesSettingsForm
+        initial={{
+          "files.filegate_url": filegateUrl ?? "",
+          "files.filegate_token": "",
+          "files.base_homes": baseHomes ?? "",
+          "files.base_groups": baseGroups ?? "",
+          "files.home_dir_mode": homeDirMode ?? "",
+          "files.home_file_mode": homeFileMode ?? "",
+          "files.group_dir_mode": groupDirMode ?? "",
+          "files.group_file_mode": groupFileMode ?? "",
+        }}
+      />
     </AdminLayout>
   );
 });

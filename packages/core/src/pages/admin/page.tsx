@@ -14,24 +14,22 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <AdminLayout c={c} title="Overview">
       <CoreLayoutHelp documents={coreHelp.manifest} />
-      <div class="max-w-6xl mx-auto">
+      <div class="app-rows mx-auto w-full max-w-6xl">
         {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
-        <div class="mb-2">
-          <StatGrid columns={3}>
-            <StatCell label="Apps" value={allApps.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-stack-3" }} />
-            <StatCell
-              label="Admin panels"
-              value={adminApps.length}
-              sub="manageable"
-              accent={{
-                tone: "blue",
-                icon: "ti ti-shield",
-                ...(gatewayAdminAvailable ? { text: "gateway", href: "/admin/gateway" } : {}),
-              }}
-            />
-            <StatCell label="Navigation" value={appsWithNav.length} sub="visible to users" accent={{ tone: "blue", icon: "ti ti-eye" }} />
-          </StatGrid>
-        </div>
+        <StatGrid columns={3}>
+          <StatCell label="Apps" value={allApps.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-stack-3" }} />
+          <StatCell
+            label="Admin panels"
+            value={adminApps.length}
+            sub="manageable"
+            accent={{
+              tone: "blue",
+              icon: "ti ti-shield",
+              ...(gatewayAdminAvailable ? { text: "gateway", href: "/admin/gateway" } : {}),
+            }}
+          />
+          <StatCell label="Navigation" value={appsWithNav.length} sub="visible to users" accent={{ tone: "blue", icon: "ti ti-eye" }} />
+        </StatGrid>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {adminApps.map((app) => (

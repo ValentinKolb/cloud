@@ -62,7 +62,10 @@ export default function MetricsCatalogue(props: MetricsCatalogueProps) {
   });
 
   return (
-    <section class="paper overflow-hidden" style="view-transition-name: admin-metrics-table">
+    <section
+      class="overflow-hidden rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)]"
+      style="view-transition-name: admin-metrics-table"
+    >
       <div class="flex flex-col gap-2 px-3 py-2">
         <div>
           <h2 class="text-xs font-semibold text-primary">Metrics</h2>

@@ -117,19 +117,17 @@ export default ssr<AuthContext>(async (c) => {
   const search = (c.req.query("search") ?? "").trim();
 
   const renderPage = (description: string, content: JSX.Element) => () => (
-    <AdminLayout c={c} title="Notifications" stretch>
+    <AdminLayout c={c} title="Notifications">
       <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
-      <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
-        <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-notifications-title">
-            <h1 class="text-base font-semibold text-primary">Notifications</h1>
-            <p class="mt-1 text-xs text-dimmed">{description}</p>
-          </div>
-          <div class="self-start">
-            <NotificationViewSwitch view={view} />
-          </div>
-          {content}
+      <div class="app-rows">
+        <div class="min-w-0" style="view-transition-name: admin-notifications-title">
+          <h1 class="text-base font-semibold text-primary">Notifications</h1>
+          <p class="mt-1 text-xs text-dimmed">{description}</p>
         </div>
+        <div class="self-start">
+          <NotificationViewSwitch view={view} />
+        </div>
+        {content}
       </div>
     </AdminLayout>
   );

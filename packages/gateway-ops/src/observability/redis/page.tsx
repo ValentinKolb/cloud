@@ -67,92 +67,90 @@ export default ssr<AuthContext>(async (c) => {
   ];
 
   return () => (
-    <AdminLayout c={c} title="Redis" stretch>
+    <AdminLayout c={c} title="Redis">
       <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-redis-title">
-            <h1 class="text-base font-semibold text-primary">Redis</h1>
-            <p class="mt-1 text-xs text-dimmed">Keyspace health and bounded prefix sampling. Raw keys are not listed.</p>
-          </div>
-
-          <StatGrid columns={4}>
-            <StatCell
-              label="Keys"
-              value={formatNumber(diagnostics.dbSize)}
-              sub={diagnostics.scanComplete ? "full scan" : `${formatNumber(diagnostics.sampledKeys)} sampled`}
-              accent={{ tone: diagnostics.available ? "emerald" : "red", icon: "ti ti-database" }}
-            />
-            <StatCell label="Expiring" value={formatNumber(expiringKeys)} sub={expirySub} />
-            <StatCell
-              label="Avg TTL"
-              value={formatTtl(diagnostics.keyspace[0]?.avgTtlMs ?? 0)}
-              sub={diagnostics.keyspace[0]?.database ?? "db0"}
-            />
-            <StatCell
-              label="Warnings"
-              value={formatNumber(diagnostics.warnings.length)}
-              sub={diagnostics.warnings.length ? "needs review" : "none"}
-              valueClass={diagnostics.warnings.length ? "text-amber-600 dark:text-amber-400" : "text-primary"}
-              accent={
-                diagnostics.warnings.length ? { tone: "amber", icon: "ti ti-alert-triangle" } : { tone: "emerald", icon: "ti ti-check" }
-              }
-            />
-          </StatGrid>
-
-          {diagnostics.warnings.length ? (
-            <section class={warningGridClass(diagnostics.warnings.length)}>
-              {diagnostics.warnings.map((warning) => (
-                <article class={warningClasses}>
-                  <div class="flex items-start gap-2">
-                    <i class="ti ti-alert-triangle mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" />
-                    <div class="min-w-0">
-                      <h2 class="text-xs font-semibold">{warning.title}</h2>
-                      <p class="mt-1 text-[11px] opacity-80">{warning.detail}</p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </section>
-          ) : null}
-
-          <section class="paper p-3">
-            <h2 class="text-xs font-semibold text-primary">Prefix distribution</h2>
-            <p class="text-[10px] text-dimmed">
-              {diagnostics.scanComplete
-                ? `${formatNumber(diagnostics.sampledKeys)} keys scanned.`
-                : `${formatNumber(diagnostics.sampledKeys)} of ${formatNumber(diagnostics.dbSize)} keys sampled.`}
-            </p>
-            <Chart kind="donut" class="mt-2 h-72 text-dimmed" data={prefixChartData} legend />
-          </section>
-
-          <section class="paper overflow-hidden">
-            <div class="flex flex-col gap-2 px-3 py-2">
-              <div>
-                <h2 class="text-xs font-semibold text-primary">Prefixes</h2>
-                <p class="text-[10px] text-dimmed">
-                  {formatNumber(filteredPrefixes.length)} prefixes at depth {selectedDepth}. Prefix counts come from a bounded SCAN sample.
-                </p>
-              </div>
-              <SearchBar action={searchAction} value={search} placeholder="Search Redis prefixes..." ariaLabel="Search Redis prefixes" />
-              <RedisDataFilters search={search} depth={selectedDepth} />
-            </div>
-            <DataTable
-              rows={filteredPrefixes}
-              columns={prefixColumns}
-              getRowId={(prefix) => `${prefix.depth}:${prefix.prefix}`}
-              density="compact"
-              hoverRows
-              class="max-h-[34rem] overflow-auto"
-              empty="No matching Redis prefixes."
-              renderCell={({ col, value, render }) => {
-                if (col.id === "count") return <span class="tabular-nums">{formatNumber(Number(value ?? 0))}</span>;
-                if (col.id === "share") return <span class="tabular-nums">{((Number(value ?? 0) || 0) * 100).toFixed(1)}%</span>;
-                return render(value);
-              }}
-            />
-          </section>
+      <div class="app-rows">
+        <div class="min-w-0" style="view-transition-name: admin-redis-title">
+          <h1 class="text-base font-semibold text-primary">Redis</h1>
+          <p class="mt-1 text-xs text-dimmed">Keyspace health and bounded prefix sampling. Raw keys are not listed.</p>
         </div>
+
+        <StatGrid columns={4}>
+          <StatCell
+            label="Keys"
+            value={formatNumber(diagnostics.dbSize)}
+            sub={diagnostics.scanComplete ? "full scan" : `${formatNumber(diagnostics.sampledKeys)} sampled`}
+            accent={{ tone: diagnostics.available ? "emerald" : "red", icon: "ti ti-database" }}
+          />
+          <StatCell label="Expiring" value={formatNumber(expiringKeys)} sub={expirySub} />
+          <StatCell
+            label="Avg TTL"
+            value={formatTtl(diagnostics.keyspace[0]?.avgTtlMs ?? 0)}
+            sub={diagnostics.keyspace[0]?.database ?? "db0"}
+          />
+          <StatCell
+            label="Warnings"
+            value={formatNumber(diagnostics.warnings.length)}
+            sub={diagnostics.warnings.length ? "needs review" : "none"}
+            valueClass={diagnostics.warnings.length ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+            accent={
+              diagnostics.warnings.length ? { tone: "amber", icon: "ti ti-alert-triangle" } : { tone: "emerald", icon: "ti ti-check" }
+            }
+          />
+        </StatGrid>
+
+        {diagnostics.warnings.length ? (
+          <section class={warningGridClass(diagnostics.warnings.length)}>
+            {diagnostics.warnings.map((warning) => (
+              <article class={warningClasses}>
+                <div class="flex items-start gap-2">
+                  <i class="ti ti-alert-triangle mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" />
+                  <div class="min-w-0">
+                    <h2 class="text-xs font-semibold">{warning.title}</h2>
+                    <p class="mt-1 text-[11px] opacity-80">{warning.detail}</p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </section>
+        ) : null}
+
+        <section class="paper p-3">
+          <h2 class="text-xs font-semibold text-primary">Prefix distribution</h2>
+          <p class="text-[10px] text-dimmed">
+            {diagnostics.scanComplete
+              ? `${formatNumber(diagnostics.sampledKeys)} keys scanned.`
+              : `${formatNumber(diagnostics.sampledKeys)} of ${formatNumber(diagnostics.dbSize)} keys sampled.`}
+          </p>
+          <Chart kind="donut" class="mt-2 h-72 text-dimmed" data={prefixChartData} legend />
+        </section>
+
+        <section class="paper overflow-hidden">
+          <div class="flex flex-col gap-2 px-3 py-2">
+            <div>
+              <h2 class="text-xs font-semibold text-primary">Prefixes</h2>
+              <p class="text-[10px] text-dimmed">
+                {formatNumber(filteredPrefixes.length)} prefixes at depth {selectedDepth}. Prefix counts come from a bounded SCAN sample.
+              </p>
+            </div>
+            <SearchBar action={searchAction} value={search} placeholder="Search Redis prefixes..." ariaLabel="Search Redis prefixes" />
+            <RedisDataFilters search={search} depth={selectedDepth} />
+          </div>
+          <DataTable
+            rows={filteredPrefixes}
+            columns={prefixColumns}
+            getRowId={(prefix) => `${prefix.depth}:${prefix.prefix}`}
+            density="compact"
+            hoverRows
+            class="max-h-[34rem] overflow-auto"
+            empty="No matching Redis prefixes."
+            renderCell={({ col, value, render }) => {
+              if (col.id === "count") return <span class="tabular-nums">{formatNumber(Number(value ?? 0))}</span>;
+              if (col.id === "share") return <span class="tabular-nums">{((Number(value ?? 0) || 0) * 100).toFixed(1)}%</span>;
+              return render(value);
+            }}
+          />
+        </section>
       </div>
     </AdminLayout>
   );

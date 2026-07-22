@@ -169,31 +169,29 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   return () => (
-    <AdminLayout c={c} title={tab.title} stretch>
+    <AdminLayout c={c} title={tab.title}>
       <CoreLayoutHelp documents={coreHelp.manifest} />
-      <div class="flex-1 min-h-0 overflow-hidden">
-        <div class="flex h-full min-h-0 flex-col" style="view-transition-name: admin-settings-content">
-          {tab.group ? (
-            <CoreSettingsForm
-              title={tab.title}
-              subtitle={tab.description}
-              icon={tab.icon}
-              entries={entries}
-              showTestEmailAction={tab.id === "mail"}
-              showTestPdfAction={tab.id === "pdf-rendering"}
-              showLegacySettings={tab.id === "general"}
-              aiEnrichmentOverview={aiEnrichmentOverview}
-              aiSection={aiSection}
-              showAiJobsLink={showAiJobsLink}
-            />
-          ) : null}
+      <div class="flex min-h-0 flex-1 flex-col" style="view-transition-name: admin-settings-content">
+        {tab.group ? (
+          <CoreSettingsForm
+            title={tab.title}
+            subtitle={tab.description}
+            icon={tab.icon}
+            entries={entries}
+            showTestEmailAction={tab.id === "mail"}
+            showTestPdfAction={tab.id === "pdf-rendering"}
+            showLegacySettings={tab.id === "general"}
+            aiEnrichmentOverview={aiEnrichmentOverview}
+            aiSection={aiSection}
+            showAiJobsLink={showAiJobsLink}
+          />
+        ) : null}
 
-          {tab.id === "ai-skills" ? <AdminAiSkills title={tab.title} subtitle={tab.description} icon={tab.icon} /> : null}
+        {tab.id === "ai-skills" ? <AdminAiSkills title={tab.title} subtitle={tab.description} icon={tab.icon} /> : null}
 
-          {tab.id === "legal" && legalInitial ? (
-            <LegalSettingsForm title={tab.title} subtitle={tab.description} icon={tab.icon} initial={legalInitial} entries={entries} />
-          ) : null}
-        </div>
+        {tab.id === "legal" && legalInitial ? (
+          <LegalSettingsForm title={tab.title} subtitle={tab.description} icon={tab.icon} initial={legalInitial} entries={entries} />
+        ) : null}
       </div>
     </AdminLayout>
   );

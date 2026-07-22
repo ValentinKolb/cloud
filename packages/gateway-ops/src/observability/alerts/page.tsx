@@ -7,12 +7,10 @@ import { gatewayOpsHelp } from "../../help";
 
 export default ssr<AuthContext>(async (c) => {
   return () => (
-    <AdminLayout c={c} title="Webhooks" stretch>
+    <AdminLayout c={c} title="Webhooks">
       <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <HealthWebhooksPanel />
-        </div>
+      <div class="app-rows">
+        <HealthWebhooksPanel />
       </div>
     </AdminLayout>
   );

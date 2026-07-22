@@ -78,37 +78,35 @@ export default ssr<AuthContext>(async (c) => {
   );
 
   return () => (
-    <AdminLayout c={c} title="Metrics" stretch>
+    <AdminLayout c={c} title="Metrics">
       <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-metrics-title">
-            <h1 class="text-base font-semibold text-primary">Metrics</h1>
-            <p class="mt-1 text-xs text-dimmed">Prometheus-compatible Cloud metrics for Pulse or external scrapers.</p>
-          </div>
-
-          <StatGrid columns={4}>
-            <StatCell label="Endpoint" value={METRICS_ENDPOINT} sub="bearer token required" accent={{ tone: "blue", icon: "ti ti-plug" }} />
-            <StatCell
-              label="Collectors"
-              value={`${okCollectors}/${snapshot.collectors.length}`}
-              sub="healthy"
-              accent={
-                okCollectors === snapshot.collectors.length
-                  ? { tone: "emerald", icon: "ti ti-check" }
-                  : { tone: "amber", icon: "ti ti-alert-triangle" }
-              }
-            />
-            <StatCell label="Series" value={formatNumber(snapshot.series)} sub="last payload" />
-            <StatCell label="Tokens" value={formatNumber(tokens.length)} sub="active" accent={{ tone: "zinc", icon: "ti ti-key" }} />
-          </StatGrid>
-
-          <p class="text-[10px] text-dimmed">Last generated {formatDate(snapshot.generatedAt)}. Collection is cached for short scrapes.</p>
-
-          <MetricsTokens tokens={tokens} />
-
-          <MetricsCatalogue rows={metrics} sources={sources} />
+      <div class="app-rows">
+        <div class="min-w-0" style="view-transition-name: admin-metrics-title">
+          <h1 class="text-base font-semibold text-primary">Metrics</h1>
+          <p class="mt-1 text-xs text-dimmed">Prometheus-compatible Cloud metrics for Pulse or external scrapers.</p>
         </div>
+
+        <StatGrid columns={4}>
+          <StatCell label="Endpoint" value={METRICS_ENDPOINT} sub="bearer token required" accent={{ tone: "blue", icon: "ti ti-plug" }} />
+          <StatCell
+            label="Collectors"
+            value={`${okCollectors}/${snapshot.collectors.length}`}
+            sub="healthy"
+            accent={
+              okCollectors === snapshot.collectors.length
+                ? { tone: "emerald", icon: "ti ti-check" }
+                : { tone: "amber", icon: "ti ti-alert-triangle" }
+            }
+          />
+          <StatCell label="Series" value={formatNumber(snapshot.series)} sub="last payload" />
+          <StatCell label="Tokens" value={formatNumber(tokens.length)} sub="active" accent={{ tone: "zinc", icon: "ti ti-key" }} />
+        </StatGrid>
+
+        <p class="text-[10px] text-dimmed">Last generated {formatDate(snapshot.generatedAt)}. Collection is cached for short scrapes.</p>
+
+        <MetricsTokens tokens={tokens} />
+
+        <MetricsCatalogue rows={metrics} sources={sources} />
       </div>
     </AdminLayout>
   );
