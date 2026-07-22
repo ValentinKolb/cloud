@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isUniqueViolation, toPgTextArray, toPgUuidArray } from "./postgres";
+import { isUniqueViolation, toPgIntArray, toPgTextArray, toPgUuidArray } from "./postgres";
 
 describe("Postgres array helpers", () => {
   test("serializes UUID arrays and treats non-arrays as empty arrays", () => {
@@ -16,6 +16,13 @@ describe("Postgres array helpers", () => {
     );
     expect(toPgTextArray([])).toBe("{}");
     expect(toPgTextArray("{}" as unknown as string[])).toBe("{}");
+  });
+
+  test("serializes 32-bit integer arrays and rejects invalid values", () => {
+    expect(toPgIntArray([0, 2, 2_147_483_647])).toBe("{0,2,2147483647}");
+    expect(toPgIntArray([])).toBe("{}");
+    expect(() => toPgIntArray([1.5])).toThrow("Postgres INT[] values must be 32-bit integers");
+    expect(() => toPgIntArray([2_147_483_648])).toThrow("Postgres INT[] values must be 32-bit integers");
   });
 });
 

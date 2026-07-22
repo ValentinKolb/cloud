@@ -10,6 +10,15 @@ export const toPgUuidArray = (values: string[] | null | undefined): string => {
   return `{${values.join(",")}}`;
 };
 
+/** Convert 32-bit integers into a Postgres INT[] literal. */
+export const toPgIntArray = (values: number[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  if (values.some((value) => !Number.isInteger(value) || value < -2_147_483_648 || value > 2_147_483_647)) {
+    throw new RangeError("Postgres INT[] values must be 32-bit integers");
+  }
+  return `{${values.join(",")}}`;
+};
+
 /** Escape a user string for safe use inside a LIKE/ILIKE pattern with `ESCAPE '\'`. */
 export const escapeLikePattern = (value: string): string => value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 

@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import type { WorkflowInvocation } from "@valentinkolb/cloud/workflows";
 import type { WorkflowDryRunResult, WorkflowRuntimeRunIdentity } from "@valentinkolb/cloud/workflows/runtime";
 import { sql } from "bun";
+import { testShortId } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import type { GridsWorkflowChannel, GridsWorkflowPrincipal } from "../workflows/contracts";
 import { SqlGridsWorkflowEffectIntents } from "./workflow-kernel-actions";
 import {
   claimWorkflowRun,
+  finishWorkflowRun,
   GridsWorkflowRuntimeRepository,
   listExpiredWaitingWorkflowRuns,
   materializeWorkflowInvocation,
@@ -17,6 +19,180 @@ import { finishDryRun } from "./workflow-kernel-runtime";
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("workflow run materialization", () => {
+  postgresTest("finishes runs with scalar JSON results", async () => {
+    await migrate();
+    const baseId = Bun.randomUUIDv7();
+    const workflowId = Bun.randomUUIDv7();
+    const runId = Bun.randomUUIDv7();
+
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WRS00', 'Workflow scalar result test')`;
+      await sql`
+        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
+        VALUES (${workflowId}::uuid, 'WRS01', ${baseId}::uuid, 'Scalar workflow', 'steps: []', '{}'::jsonb, TRUE)
+      `;
+      await sql`
+        INSERT INTO grids.workflow_runs (
+          id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+          workflow_plan, status, occurred_at, execution_generation, heartbeat_at, lease_expires_at
+        ) VALUES (
+          ${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'scalar-run', 'scalar-run',
+          '{}'::jsonb, 'running', now(), 1, now(), now() + interval '2 minutes'
+        )
+      `;
+
+      expect(
+        await finishWorkflowRun(
+          {
+            runId,
+            executionGeneration: 1,
+            mode: "execute",
+            workflowId,
+            sourceHash: "source",
+            idempotencyKey: "scalar-run",
+          },
+          { status: "succeeded", result: true },
+        ),
+      ).toBe(true);
+      const [stored] = await sql<Array<{ status: string; result: string; finished_at: Date | null }>>`
+        SELECT status, result::text AS result, finished_at
+        FROM grids.workflow_runs
+        WHERE id = ${runId}::uuid
+      `;
+      expect(stored).toMatchObject({ status: "succeeded", result: "true" });
+      expect(stored?.finished_at).toBeInstanceOf(Date);
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
+  postgresTest("persists root and nested workflow iteration paths", async () => {
+    await migrate();
+    const baseId = Bun.randomUUIDv7();
+    const workflowId = Bun.randomUUIDv7();
+    const runId = Bun.randomUUIDv7();
+
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WRP00', 'Workflow path test')`;
+      await sql`
+        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
+        VALUES (${workflowId}::uuid, 'WRP01', ${baseId}::uuid, 'Path workflow', 'steps: []', '{}'::jsonb, TRUE)
+      `;
+      await sql`
+        INSERT INTO grids.workflow_runs (
+          id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+          workflow_plan, status, occurred_at, execution_generation, heartbeat_at, lease_expires_at
+        ) VALUES (
+          ${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'path-run', 'path-run',
+          '{}'::jsonb, 'running', now(), 1, now(), now() + interval '2 minutes'
+        )
+      `;
+
+      const repository = new GridsWorkflowRuntimeRepository();
+      const run = {
+        runId,
+        executionGeneration: 1,
+        mode: "execute" as const,
+        workflowId,
+        sourceHash: "source",
+        idempotencyKey: "path-run",
+      };
+      await repository.startStep({
+        ...run,
+        key: "steps.0",
+        sourcePath: ["steps", 0],
+        iterationPath: [],
+        path: ["steps", 0],
+        kind: "action",
+        action: "setVariable",
+      });
+      await repository.startStep({
+        ...run,
+        key: "steps.1.steps.0#2.3",
+        sourcePath: ["steps", 1, "steps", 0],
+        iterationPath: [2, 3],
+        path: ["steps", 1, "steps", 0, "$iteration", 2, "$iteration", 3],
+        kind: "action",
+        action: "setVariable",
+      });
+
+      const rows = await sql<Array<{ step_key: string; iteration_path: number[] }>>`
+        SELECT step_key, iteration_path
+        FROM grids.workflow_step_runs
+        WHERE run_id = ${runId}::uuid
+        ORDER BY step_key
+      `;
+      expect(rows.map((row) => ({ ...row, iteration_path: Array.from(row.iteration_path) }))).toEqual([
+        { step_key: "steps.0", iteration_path: [] },
+        { step_key: "steps.1.steps.0#2.3", iteration_path: [2, 3] },
+      ]);
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
+  postgresTest(
+    "persists concurrent no-op run completions without protocol errors or leaked runs",
+    async () => {
+      await migrate();
+      const baseId = Bun.randomUUIDv7();
+      const workflowId = Bun.randomUUIDv7();
+      const baseShortId = testShortId("B");
+      const workflowShortId = testShortId("W");
+      const runIds = Array.from({ length: 24 }, () => Bun.randomUUIDv7());
+
+      try {
+        await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Workflow concurrency test')`;
+        await sql`
+        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
+        VALUES (${workflowId}::uuid, ${workflowShortId}, ${baseId}::uuid, 'Concurrent no-op workflow', 'steps: []', '{}'::jsonb, TRUE)
+      `;
+        await Promise.all(
+          runIds.map(
+            (runId, index) => sql`
+          INSERT INTO grids.workflow_runs (
+            id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+            workflow_plan, status, occurred_at, execution_generation, heartbeat_at, lease_expires_at
+          ) VALUES (
+            ${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', ${`concurrent-${index}`},
+            ${`concurrent-${index}`}, '{}'::jsonb, 'running', now(), 1, now(), now() + interval '2 minutes'
+          )
+        `,
+          ),
+        );
+
+        const completions = await Promise.all(
+          runIds.map((runId, index) =>
+            finishWorkflowRun(
+              {
+                runId,
+                executionGeneration: 1,
+                mode: "execute",
+                workflowId,
+                sourceHash: "source",
+                idempotencyKey: `concurrent-${index}`,
+              },
+              { status: "succeeded", result: true },
+            ),
+          ),
+        );
+        expect(completions.every(Boolean)).toBe(true);
+
+        const [stored] = await sql<Array<{ total: number; succeeded: number; active: number }>>`
+        SELECT count(*)::int AS total,
+               count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
+               count(*) FILTER (WHERE status IN ('queued', 'running', 'waiting'))::int AS active
+        FROM grids.workflow_runs
+        WHERE id = ANY(${sql.array(runIds, "UUID")})
+        `;
+        expect(stored).toEqual({ total: runIds.length, succeeded: runIds.length, active: 0 });
+      } finally {
+        await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+      }
+    },
+    15_000,
+  );
+
   postgresTest("reuses an idempotent invocation after a workflow metadata revision", async () => {
     await migrate();
     const baseId = Bun.randomUUIDv7();

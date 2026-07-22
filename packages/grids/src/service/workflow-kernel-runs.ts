@@ -1,4 +1,4 @@
-import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { toPgIntArray, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import type {
   WorkflowBoundPlan,
   WorkflowDependency,
@@ -88,6 +88,13 @@ const mapRun = (row: DbRow): GridsWorkflowRun => ({
   startedAt: row.started_at ? (row.started_at as Date).toISOString() : null,
   finishedAt: row.finished_at ? (row.finished_at as Date).toISOString() : null,
 });
+
+const serializeJsonb = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new TypeError("Workflow JSON values must be serializable");
+  return serialized;
+};
 
 const materializedPrincipal = (
   input: Pick<MaterializeWorkflowInvocation, "invocation" | "principal" | "actorUserId" | "actorGroupIds" | "serviceAccountId">,
@@ -618,7 +625,7 @@ export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepository
       INSERT INTO grids.workflow_step_runs (
         run_id, step_key, source_path, iteration_path, kind, action, mode, status, execution_generation, started_at, finished_at, outcome
       )
-      SELECT owner.id, ${step.key}, ${step.sourcePath}::jsonb, ${step.iterationPath}::int[], ${step.kind}, ${step.action ?? null},
+      SELECT owner.id, ${step.key}, ${step.sourcePath}::jsonb, ${toPgIntArray(step.iterationPath)}::int[], ${step.kind}, ${step.action ?? null},
              ${step.mode}, 'running', ${step.executionGeneration}, now(), NULL, NULL
       FROM owner
       ON CONFLICT (run_id, step_key) DO UPDATE
@@ -721,8 +728,8 @@ export const finishWorkflowRun = async (
     const [row] = await tx<DbRow[]>`
       UPDATE grids.workflow_runs
       SET status = ${input.status},
-          result = ${input.result ?? null}::jsonb,
-          error = ${input.error ?? null}::jsonb,
+          result = (${serializeJsonb(input.result)}::text)::jsonb,
+          error = (${serializeJsonb(input.error)}::text)::jsonb,
           result_message = ${input.resultMessage ?? null},
           heartbeat_at = now(),
           lease_expires_at = NULL,
