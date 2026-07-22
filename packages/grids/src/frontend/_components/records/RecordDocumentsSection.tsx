@@ -1,5 +1,6 @@
 import {
   dialogCore,
+  Dropdown,
   PanelDialog,
   PdfPreview,
   panelDialogOptions,
@@ -8,6 +9,7 @@ import {
   toast,
   Tooltip,
 } from "@valentinkolb/cloud/ui";
+import { fileIcons } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -155,9 +157,6 @@ export default function RecordDocumentsSection(props: {
     return ((await res.json()) as { items: RecordSnapshotSummary[] }).items;
   };
 
-  const iconActionClass =
-    "inline-flex h-7 w-7 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-secondary disabled:cursor-not-allowed disabled:opacity-50";
-
   const refreshDocumentsMut = mutations.create<{ runs: DocumentRunSummary[]; snapshots: RecordSnapshotSummary[] }, void>({
     mutation: async () => {
       const [nextRuns, nextSnapshots] = await Promise.all([loadRuns(), loadSnapshots()]);
@@ -271,140 +270,145 @@ export default function RecordDocumentsSection(props: {
     if (generated) await refreshDocumentsMut.mutate(undefined);
   };
 
-  const availableTemplates = () => props.templates.filter((template) => template.enabled);
+  const availableTemplates = () =>
+    props.templates.filter((template) => template.enabled);
   const generatedRuns = runs;
   const manualSnapshots = snapshots;
-  const hasDocumentContent = () =>
-    manualSnapshots().length > 0 || generatedRuns().length > 0 || (props.live && availableTemplates().length > 0);
+  const generationActions = () =>
+    availableTemplates().map((template) => ({
+      label: template.name,
+      icon: "ti ti-file-type-pdf",
+      action: () => void generate(template),
+    }));
 
   return (
-    <Show
-      when={hasDocumentContent()}
-      fallback={
-        <Show when={props.live}>
-          <details class="detail-section-compact group">
-            <summary class="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-secondary">
-              <i class="ti ti-folders text-sm" />
-              Documents & snapshots
-              <i class="ti ti-chevron-down ml-auto text-xs text-dimmed transition-transform group-open:rotate-180" />
-            </summary>
-            <div class="mt-3 flex flex-col items-start gap-3">
-              <p class="text-xs leading-relaxed text-dimmed">Capture the current record before it changes.</p>
+    <>
+      <Show when={props.live || manualSnapshots().length > 0}>
+        <section class="detail-section flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="detail-section-label mb-0">Snapshots</h3>
+            <Show when={props.live}>
               <button
                 type="button"
-                class="btn-input btn-sm"
+                class="btn-secondary btn-sm"
                 onClick={() => createSnapshotMut.mutate(undefined)}
                 disabled={createSnapshotMut.loading()}
                 aria-busy={createSnapshotMut.loading()}
               >
-                {createSnapshotMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
+                {createSnapshotMut.loading() ? (
+                  <i class="ti ti-loader-2 animate-spin" />
+                ) : (
+                  <i class="ti ti-camera" />
+                )}
                 Create snapshot
               </button>
-            </div>
-          </details>
-        </Show>
-      }
-    >
-      <section class="detail-section flex flex-col gap-5">
-        <h3 class="detail-section-label mb-0">Documents & snapshots</h3>
-
-        <Show when={props.live || manualSnapshots().length > 0}>
-          <div class="flex flex-col gap-2">
-            <div class="flex items-center justify-between gap-2">
-              <h4 class="text-xs font-medium text-secondary">Snapshots</h4>
-              <Show when={props.live}>
-                <button
-                  type="button"
-                  class="btn-input btn-sm"
-                  onClick={() => createSnapshotMut.mutate(undefined)}
-                  disabled={createSnapshotMut.loading()}
-                  aria-busy={createSnapshotMut.loading()}
-                >
-                  {createSnapshotMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
-                  Create snapshot
-                </button>
-              </Show>
-            </div>
-            <Show when={manualSnapshots().length === 0}>
-              <p class="text-xs text-dimmed">No snapshots yet.</p>
             </Show>
-            <For each={manualSnapshots()}>
-              {(snapshot) => (
-                <div class="flex min-w-0 items-center gap-2 text-xs">
-                  <i class="ti ti-camera text-dimmed" />
-                  <span class="min-w-0 flex-1 truncate font-mono text-secondary">SNAP-{snapshot.id.slice(0, 8).toUpperCase()}</span>
-                  <span class="shrink-0 text-dimmed">{formatRecordRelativeTime(snapshot.createdAt)}</span>
-                  <Tooltip content="Inspect snapshot">
-                    <button
-                      type="button"
-                      class={iconActionClass}
-                      aria-label="Inspect snapshot"
-                      onClick={() => inspectSnapshotMut.mutate(snapshot)}
-                      disabled={inspectSnapshotMut.loading()}
-                      aria-busy={inspectSnapshotMut.loading()}
-                    >
-                      <i class={activeSnapshotId() === snapshot.id ? "ti ti-loader-2 animate-spin" : "ti ti-eye"} />
-                    </button>
-                  </Tooltip>
-                </div>
-              )}
-            </For>
           </div>
-        </Show>
+          <Show when={manualSnapshots().length === 0}>
+            <p class="text-sm text-dimmed">No snapshots yet.</p>
+          </Show>
+          <For each={manualSnapshots()}>
+            {(snapshot) => (
+              <button
+                type="button"
+                class="group flex min-w-0 items-center gap-2 py-1 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label={`Inspect snapshot ${snapshot.id}`}
+                onClick={() => inspectSnapshotMut.mutate(snapshot)}
+                disabled={inspectSnapshotMut.loading()}
+                aria-busy={activeSnapshotId() === snapshot.id}
+              >
+                <i
+                  aria-hidden="true"
+                  class={
+                    activeSnapshotId() === snapshot.id
+                      ? "ti ti-loader-2 shrink-0 animate-spin"
+                      : "ti ti-camera shrink-0 text-dimmed"
+                  }
+                />
+                <span class="min-w-0 flex-1 truncate font-mono text-secondary transition-colors group-hover:text-primary">
+                  SNAP-{snapshot.id.slice(0, 8).toUpperCase()}
+                </span>
+                <span class="shrink-0 text-xs text-dimmed">
+                  {formatRecordRelativeTime(snapshot.createdAt)}
+                </span>
+                <i
+                  aria-hidden="true"
+                  class="ti ti-chevron-right shrink-0 text-dimmed"
+                />
+              </button>
+            )}
+          </For>
+        </section>
+      </Show>
 
-        <Show when={props.live && availableTemplates().length > 0}>
-          <div class="flex flex-col gap-2">
-            <h4 class="text-xs font-medium text-secondary">Generate document</h4>
-            <For each={availableTemplates()}>
-              {(template) => (
-                <button
-                  type="button"
-                  class="flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--ui-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void generate(template)}
-                  aria-label={`Review ${template.name}`}
-                  disabled={refreshDocumentsMut.loading()}
-                >
-                  <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate font-medium text-primary">{template.name}</span>
-                    <Show when={template.description}>
-                      {(description) => <span class="mt-0.5 block truncate text-xs text-dimmed">{description()}</span>}
-                    </Show>
-                  </span>
-                  <i class="ti ti-chevron-right shrink-0 text-dimmed" />
-                </button>
-              )}
-            </For>
+      <Show
+        when={
+          generatedRuns().length > 0 ||
+          (props.live && availableTemplates().length > 0)
+        }
+      >
+        <section class="detail-section flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="detail-section-label mb-0">Documents</h3>
+            <Show when={props.live && availableTemplates().length > 0}>
+              <Dropdown
+                trigger={
+                  <button
+                    type="button"
+                    class="btn-secondary btn-sm"
+                    disabled={refreshDocumentsMut.loading()}
+                  >
+                    <i class="ti ti-file-plus" />
+                    Generate
+                    <i class="ti ti-chevron-down text-xs" />
+                  </button>
+                }
+                elements={generationActions()}
+                position="bottom-left"
+                width="w-64"
+              />
+            </Show>
           </div>
-        </Show>
-
-        <Show when={generatedRuns().length > 0}>
-          <div class="flex flex-col gap-2">
-            <h4 class="text-xs font-medium text-secondary">Generated documents</h4>
-            <For each={generatedRuns()}>
-              {(run) => (
-                <div class="flex items-center gap-2 text-xs">
-                  <i class="ti ti-file-description text-dimmed" />
-                  <span class="min-w-0 flex-1 truncate text-secondary">{run.filename}</span>
-                  <span class="shrink-0 text-dimmed">{formatRecordRelativeTime(run.generatedAt)}</span>
-                  <Tooltip content="Download document">
-                    <button
-                      type="button"
-                      class={iconActionClass}
-                      aria-label="Download document"
-                      onClick={() => redownloadMut.mutate(run)}
-                      disabled={redownloadMut.loading()}
-                      aria-busy={redownloadMut.loading()}
-                    >
-                      <i class={activeDownloadId() === run.id ? "ti ti-loader-2 animate-spin" : "ti ti-download"} />
-                    </button>
-                  </Tooltip>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      </section>
-    </Show>
+          <Show when={generatedRuns().length === 0}>
+            <p class="text-sm text-dimmed">No generated documents yet.</p>
+          </Show>
+          <For each={generatedRuns()}>
+            {(run) => (
+              <button
+                type="button"
+                class="group flex min-w-0 items-center gap-2 py-1 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label={`Download ${run.filename}`}
+                onClick={() => redownloadMut.mutate(run)}
+                disabled={redownloadMut.loading()}
+                aria-busy={activeDownloadId() === run.id}
+              >
+                <i
+                  aria-hidden="true"
+                  class={
+                    activeDownloadId() === run.id
+                      ? "ti ti-loader-2 shrink-0 animate-spin"
+                      : `ti ${fileIcons.getFileIcon({
+                          name: run.filename,
+                          type: "file",
+                          mimeType: "application/pdf",
+                        })} shrink-0 text-base`
+                  }
+                />
+                <span class="min-w-0 flex-1 truncate text-secondary transition-colors group-hover:text-primary">
+                  {run.filename}
+                </span>
+                <span class="shrink-0 text-xs text-dimmed">
+                  {formatRecordRelativeTime(run.generatedAt)}
+                </span>
+                <i
+                  aria-hidden="true"
+                  class="ti ti-download shrink-0 text-dimmed"
+                />
+              </button>
+            )}
+          </For>
+        </section>
+      </Show>
+    </>
   );
 }

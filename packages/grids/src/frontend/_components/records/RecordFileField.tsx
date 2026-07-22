@@ -1,5 +1,5 @@
 import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
-import { text } from "@valentinkolb/stdlib";
+import { fileIcons, text } from "@valentinkolb/stdlib";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, GridFile } from "../../../service";
@@ -79,17 +79,24 @@ export default function RecordFileField(props: {
         <div class="flex flex-col gap-1">
           <For each={files()}>
             {(file) => (
-              <div class="paper flex items-center gap-2 px-2.5 py-1.5 text-xs">
-                <i class="ti ti-paperclip text-dimmed" />
+              <div class="group flex min-w-0 items-center gap-2 py-1 text-sm">
+                <i
+                  aria-hidden="true"
+                  class={`ti ${fileIcons.getFileIcon({
+                    name: file.filename,
+                    type: "file",
+                    mimeType: file.mimeType,
+                  })} shrink-0 text-base`}
+                />
                 <Tooltip content={file.filename} class="min-w-0 flex-1">
                   <a
-                    class="min-w-0 flex-1 truncate text-secondary hover:text-primary"
+                    class="min-w-0 flex-1 truncate text-secondary transition-colors hover:text-primary"
                     href={`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}/${file.id}/content`}
                   >
                     {file.filename}
                   </a>
                 </Tooltip>
-                <span class="shrink-0 text-[10px] text-dimmed">{text.pprintBytes(file.sizeBytes)}</span>
+                <span class="shrink-0 text-xs text-dimmed">{text.pprintBytes(file.sizeBytes)}</span>
                 <Show when={props.canWrite}>
                   <Tooltip content="Delete file">
                     <button
