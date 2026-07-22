@@ -68,7 +68,9 @@ export default function GridsWorkspace(props: { state: OkWorkspaceState; helpDoc
       <AppWorkspace class={workspaceRootClass(props.state.adminModeRequested)}>
         <GridsLayoutHelpRegistrar documents={props.helpDocuments} />
         <GridsSidebar state={props.state} />
-        <GridsRoute state={routeClientState(props.state)} />
+        <AppWorkspace.Content>
+          <GridsRoute state={routeClientState(props.state)} />
+        </AppWorkspace.Content>
       </AppWorkspace>
     </>
   );

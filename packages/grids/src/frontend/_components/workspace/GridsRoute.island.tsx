@@ -135,7 +135,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
   }
 
   return (
-    <AppWorkspace.Content>
+    <>
       <AppWorkspace.Main class={workspaceMainClass(route.kind)}>
         <Switch>
           <Match when={route.kind === "dashboard"}>
@@ -293,6 +293,6 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
           )}
         </Show>
       </AppWorkspace.Detail>
-    </AppWorkspace.Content>
+    </>
   );
 }

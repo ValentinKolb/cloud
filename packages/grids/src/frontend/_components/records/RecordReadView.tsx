@@ -20,6 +20,7 @@ type RecordReadViewProps = {
   mode?: RecordReadViewMode;
   headerMeta?: JSX.Element;
   headerActions?: JSX.Element;
+  quickActions?: JSX.Element;
   relationLabels?: Record<string, string>;
   tableShortIds?: Record<string, string>;
   fieldsByTable?: Record<string, Field[]>;
@@ -31,6 +32,8 @@ type RecordReadViewProps = {
 };
 
 const visibleFieldsFor = (fields: Field[]) => fields.filter((field) => !field.deletedAt);
+
+export const hasRecordDetailValue = (value: unknown): boolean => value !== null && value !== undefined && value !== "";
 
 export default function RecordReadView(props: RecordReadViewProps) {
   const mode = () => props.mode ?? "live";
@@ -57,7 +60,8 @@ export default function RecordReadView(props: RecordReadViewProps) {
   const detailsFields = () =>
     bodyFields().filter((field) => !barcodeFieldIds().has(field.id) && !["longtext", "json", "file", "relation"].includes(field.type));
   const relationFields = () => bodyFields().filter((field) => field.type === "relation");
-  const textBlockFields = () => bodyFields().filter((field) => ["longtext", "json"].includes(field.type));
+  const textBlockFields = () =>
+    bodyFields().filter((field) => ["longtext", "json"].includes(field.type) && hasRecordDetailValue(props.record.data[field.id]));
   const fileFields = () => bodyFields().filter((field) => field.type === "file");
   const hasBodyFields = () =>
     barcodeFields().length > 0 ||
@@ -90,7 +94,7 @@ export default function RecordReadView(props: RecordReadViewProps) {
   };
 
   const defaultHeaderMeta = () => (
-    <div class="mt-1 flex items-center gap-1.5 text-[11px] text-dimmed">
+    <div class="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-dimmed">
       <Show when={mode() === "trash"}>
         <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
           <i class="ti ti-trash" /> deleted
@@ -110,6 +114,18 @@ export default function RecordReadView(props: RecordReadViewProps) {
       <span class="font-mono">{props.record.id.slice(0, 8)}</span>
     </div>
   );
+
+  const detailLabel = () => {
+    if (mode() === "snapshot") return "Record snapshot";
+    if (mode() === "trash") return "Deleted record";
+    return "Record details";
+  };
+
+  const identityIcon = () => {
+    if (mode() === "snapshot") return "ti-camera";
+    if (mode() === "trash") return "ti-trash";
+    return "ti-table-row";
+  };
 
   const Section = (sectionProps: { title: string; children: JSX.Element }) => (
     <section class="detail-section flex flex-col gap-3">
@@ -150,21 +166,29 @@ export default function RecordReadView(props: RecordReadViewProps) {
   return (
     <div class="flex h-full min-h-0 flex-col">
       <header class="detail-header">
-        <div class="flex items-start justify-between gap-2">
-          <div class="min-w-0 flex-1">
-            <h2 class="app-accent-text truncate text-lg font-semibold leading-tight">
-              {recordDisplayTitle({
-                fields: props.fields,
-                record: props.record,
-                fieldsByTable: props.fieldsByTable,
-                relationLabels: props.relationLabels,
-                dateConfig: props.dateConfig,
-                viewColumns: props.viewColumns,
-              })}
-            </h2>
-            {props.headerMeta ?? defaultHeaderMeta()}
-          </div>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-xs font-semibold text-secondary">{detailLabel()}</span>
           <Show when={props.headerActions}>{(actions) => <div class="flex shrink-0 items-center gap-0.5">{actions()}</div>}</Show>
+        </div>
+
+        <div class="mt-4 flex flex-col items-center text-center">
+          <span class="app-accent-text flex h-12 w-12 items-center justify-center rounded-[var(--ui-radius-surface)] bg-[var(--ui-selected)]">
+            <i class={`ti ${identityIcon()} text-xl`} />
+          </span>
+          <h2 class="mt-2 max-w-full truncate text-lg font-semibold leading-tight text-primary">
+            {recordDisplayTitle({
+              fields: props.fields,
+              record: props.record,
+              fieldsByTable: props.fieldsByTable,
+              relationLabels: props.relationLabels,
+              dateConfig: props.dateConfig,
+              viewColumns: props.viewColumns,
+            })}
+          </h2>
+          {props.headerMeta ?? defaultHeaderMeta()}
+          <Show when={props.quickActions}>
+            {(actions) => <div class="mt-3 flex flex-wrap items-center justify-center gap-2">{actions()}</div>}
+          </Show>
         </div>
       </header>
 
@@ -173,7 +197,7 @@ export default function RecordReadView(props: RecordReadViewProps) {
           when={hasBodyFields()}
           fallback={
             <Placeholder surface="paper" align="left">
-              No fields to show.
+              No record values yet.
             </Placeholder>
           }
         >

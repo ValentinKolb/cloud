@@ -1,4 +1,4 @@
-import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { Show } from "solid-js";
@@ -227,41 +227,49 @@ export default function RecordDetailPanel(props: Props) {
           headerActions={
             <>
               <Show when={props.canWrite && mode() === "live"}>
-                <Tooltip content="Edit record">
-                  <button type="button" class="icon-btn" aria-label="Edit record" onClick={() => handleEdit(rec)}>
-                    <i class="ti ti-pencil" />
-                  </button>
-                </Tooltip>
-                <Tooltip content="Delete record">
-                  <button
-                    type="button"
-                    class="icon-btn text-dimmed hover:text-red-500"
-                    aria-label="Delete record"
-                    onClick={() => handleDelete(rec)}
-                    disabled={deleteMut.loading()}
-                  >
-                    <i class="ti ti-trash" />
-                  </button>
-                </Tooltip>
-              </Show>
-              <Show when={props.canWrite && mode() === "trash"}>
-                <Tooltip content="Restore record">
-                  <button
-                    type="button"
-                    class="icon-btn text-dimmed hover:text-emerald-600"
-                    aria-label="Restore record"
-                    onClick={() => handleRestore(rec)}
-                    disabled={restoreMut.loading()}
-                  >
-                    <i class="ti ti-arrow-back-up" />
-                  </button>
-                </Tooltip>
+                <Dropdown
+                  trigger={
+                    <Tooltip content="More record actions">
+                      <button type="button" class="icon-btn" aria-label="More record actions">
+                        <i class="ti ti-dots" />
+                      </button>
+                    </Tooltip>
+                  }
+                  elements={[
+                    {
+                      sectionLabel: "Danger zone",
+                      items: [
+                        {
+                          label: "Move to trash",
+                          icon: "ti ti-trash",
+                          variant: "danger",
+                          action: () => handleDelete(rec),
+                        },
+                      ],
+                    },
+                  ]}
+                  position="bottom-left"
+                />
               </Show>
               <Tooltip content="Close details">
                 <button type="button" class="icon-btn" aria-label="Close detail panel" onClick={() => props.onClose()}>
                   <i class="ti ti-x" />
                 </button>
               </Tooltip>
+            </>
+          }
+          quickActions={
+            <>
+              <Show when={props.canWrite && mode() === "live"}>
+                <button type="button" class="btn-secondary btn-sm" onClick={() => handleEdit(rec)} disabled={updateMut.loading()}>
+                  <i class="ti ti-pencil" /> Edit
+                </button>
+              </Show>
+              <Show when={props.canWrite && mode() === "trash"}>
+                <button type="button" class="btn-secondary btn-sm" onClick={() => handleRestore(rec)} disabled={restoreMut.loading()}>
+                  <i class="ti ti-arrow-back-up" /> Restore
+                </button>
+              </Show>
             </>
           }
         >

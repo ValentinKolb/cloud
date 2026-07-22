@@ -650,7 +650,7 @@ export default function RecordsView(props: Props) {
 
   // ── Render ─────────────────────────────────────────────────────────
   return (
-    <AppWorkspace.Content>
+    <>
       <AppWorkspace.Main class={workspaceMainClass("records")}>
         <div class="flex flex-1 min-w-0 min-h-0 overflow-hidden" data-route-key={props.workspaceRouteKey}>
           {/* Records workbench splits into two zones:
@@ -857,6 +857,6 @@ export default function RecordsView(props: Props) {
           />
         </Show>
       </AppWorkspace.Detail>
-    </AppWorkspace.Content>
+    </>
   );
 }

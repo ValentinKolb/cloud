@@ -1,13 +1,4 @@
-import {
-  dialogCore,
-  PanelDialog,
-  PdfPreview,
-  Placeholder,
-  panelDialogOptions,
-  prompts,
-  StructuredDataPreview,
-  Tooltip,
-} from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, StructuredDataPreview, Tooltip } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -269,27 +260,48 @@ export default function RecordDocumentsSection(props: {
   const availableTemplates = () => props.templates.filter((template) => template.enabled);
   const generatedRuns = runs;
   const manualSnapshots = snapshots;
+  const hasDocumentContent = () =>
+    manualSnapshots().length > 0 || generatedRuns().length > 0 || (props.live && availableTemplates().length > 0);
 
   return (
-    <>
-      <section class="detail-section flex flex-col gap-3">
-        <div class="flex items-center justify-between gap-2">
-          <h3 class="detail-section-label mb-0">Snapshots</h3>
-          <Show when={props.live}>
-            <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
-              {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
-              Snapshot
-            </button>
-          </Show>
-        </div>
-
-        <Show when={manualSnapshots().length === 0}>
-          <Placeholder align="left" class="px-0 py-2">
-            No manual snapshots yet.
-          </Placeholder>
+    <Show
+      when={hasDocumentContent()}
+      fallback={
+        <Show when={props.live}>
+          <details class="detail-section-compact group">
+            <summary class="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-secondary">
+              <i class="ti ti-folders text-sm" />
+              Documents & snapshots
+              <i class="ti ti-chevron-down ml-auto text-xs text-dimmed transition-transform group-open:rotate-180" />
+            </summary>
+            <div class="mt-3 flex flex-col items-start gap-3">
+              <p class="text-xs leading-relaxed text-dimmed">Capture the current record before it changes.</p>
+              <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
+                {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
+                Create snapshot
+              </button>
+            </div>
+          </details>
         </Show>
-        <Show when={manualSnapshots().length > 0}>
+      }
+    >
+      <section class="detail-section flex flex-col gap-5">
+        <h3 class="detail-section-label mb-0">Documents & snapshots</h3>
+
+        <Show when={props.live || manualSnapshots().length > 0}>
           <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <h4 class="text-xs font-medium text-secondary">Snapshots</h4>
+              <Show when={props.live}>
+                <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
+                  {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
+                  Create snapshot
+                </button>
+              </Show>
+            </div>
+            <Show when={manualSnapshots().length === 0}>
+              <p class="text-xs text-dimmed">No snapshots yet.</p>
+            </Show>
             <For each={manualSnapshots()}>
               {(snapshot) => (
                 <div class="flex min-w-0 items-center gap-2 text-xs">
@@ -312,55 +324,35 @@ export default function RecordDocumentsSection(props: {
             </For>
           </div>
         </Show>
-      </section>
 
-      <Show when={props.live}>
-        <section class="detail-section flex flex-col gap-3">
-          <h3 class="detail-section-label mb-0">Generate document</h3>
-
-          <Show when={availableTemplates().length === 0}>
-            <Placeholder align="left" class="px-0 py-2">
-              No enabled document templates.
-            </Placeholder>
-          </Show>
-          <Show when={availableTemplates().length > 0}>
-            <div class="flex flex-col gap-2">
-              <For each={availableTemplates()}>
-                {(template) => (
-                  <button
-                    type="button"
-                    class="flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--ui-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => void generate(template)}
-                    aria-label={`Review ${template.name}`}
-                  >
-                    <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate font-medium text-primary">{template.name}</span>
-                      <Show when={template.description}>
-                        {(description) => <span class="mt-0.5 block truncate text-xs text-dimmed">{description()}</span>}
-                      </Show>
-                    </span>
-                    <span class="shrink-0 text-dimmed">
-                      <i class="ti ti-chevron-right" />
-                    </span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </section>
-      </Show>
-
-      <section class="detail-section flex flex-col gap-3">
-        <h3 class="detail-section-label mb-0">Generated documents</h3>
-
-        <Show when={generatedRuns().length === 0}>
-          <Placeholder align="left" class="px-0 py-2">
-            No generated documents yet.
-          </Placeholder>
+        <Show when={props.live && availableTemplates().length > 0}>
+          <div class="flex flex-col gap-2">
+            <h4 class="text-xs font-medium text-secondary">Generate document</h4>
+            <For each={availableTemplates()}>
+              {(template) => (
+                <button
+                  type="button"
+                  class="flex w-full min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-[var(--ui-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void generate(template)}
+                  aria-label={`Review ${template.name}`}
+                >
+                  <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate font-medium text-primary">{template.name}</span>
+                    <Show when={template.description}>
+                      {(description) => <span class="mt-0.5 block truncate text-xs text-dimmed">{description()}</span>}
+                    </Show>
+                  </span>
+                  <i class="ti ti-chevron-right shrink-0 text-dimmed" />
+                </button>
+              )}
+            </For>
+          </div>
         </Show>
+
         <Show when={generatedRuns().length > 0}>
           <div class="flex flex-col gap-2">
+            <h4 class="text-xs font-medium text-secondary">Generated documents</h4>
             <For each={generatedRuns()}>
               {(run) => (
                 <div class="flex items-center gap-2 text-xs">
@@ -384,6 +376,6 @@ export default function RecordDocumentsSection(props: {
           </div>
         </Show>
       </section>
-    </>
+    </Show>
   );
 }
