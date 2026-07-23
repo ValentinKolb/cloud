@@ -9,6 +9,7 @@ import type {
   PulseDashboardConfig,
   PulseDashboardDslCompileResult,
   PulseInventory,
+  PulseMapSeries,
   PulseMetricSeries,
   PulseMetricSummary,
   PulseQueryCompileResult,
@@ -100,6 +101,7 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
   );
   const [dashboardEvents, setDashboardEvents] = createSignal<Record<string, PulseRecordedEvent[]>>(props.initialDashboardEvents ?? {});
   const [dashboardStates, setDashboardStates] = createSignal<Record<string, PulseCurrentState[]>>(props.initialDashboardStates ?? {});
+  const [dashboardMaps, setDashboardMaps] = createSignal<Record<string, PulseMapSeries[]>>(props.initialDashboardMaps ?? {});
   const [dashboardControlValues, setDashboardControlValues] = createSignal<Record<string, Record<string, string>>>(
     initialDashboardId && Object.keys(props.initialDashboardControlValues ?? {}).length
       ? { [initialDashboardId]: props.initialDashboardControlValues ?? {} }
@@ -134,6 +136,7 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     dashboardPreviewConfig,
     dashboards,
     dashboardStates,
+    dashboardMaps,
     explorerEvents,
     explorerResultView,
     explorerStates,
@@ -196,6 +199,7 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     setDashboardPreviewConfig,
     setDashboards,
     setDashboardStates,
+    setDashboardMaps,
     setExplorerEvents,
     setExplorerResultView,
     setExplorerStates,

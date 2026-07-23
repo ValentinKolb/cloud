@@ -1,6 +1,7 @@
 import type {
   PulseDashboardConfig,
   PulseDashboardEventsWidget,
+  PulseDashboardMapWidget,
   PulseDashboardMetricWidget,
   PulseDashboardSection,
   PulseDashboardStatesWidget,
@@ -36,3 +37,6 @@ export const dashboardEventsWidgets = (config: PulseDashboardConfig): PulseDashb
 
 export const dashboardStatesWidgets = (config: PulseDashboardConfig): PulseDashboardStatesWidget[] =>
   dashboardLayoutWidgets(config).filter((widget): widget is PulseDashboardStatesWidget => widget.kind === "states");
+
+export const dashboardMapWidgets = (config: PulseDashboardConfig): PulseDashboardMapWidget[] =>
+  dashboardLayoutWidgets(config).filter((widget): widget is PulseDashboardMapWidget => widget.kind === "map");

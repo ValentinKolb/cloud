@@ -11,7 +11,7 @@ import type {
 } from "../contracts";
 import { compileDashboardDsl } from "../dashboard-dsl";
 import { compilePulseQueryText } from "../query-dsl";
-import { requireBaseAccess, type AccessScope } from "./access-control";
+import { type AccessScope, requireBaseAccess } from "./access-control";
 import {
   clearBaseData,
   createBase,
@@ -33,6 +33,7 @@ import {
   listDashboards,
   updateDashboard,
 } from "./dashboard-management";
+import { queryEventMapData } from "./event-map-query";
 import { ingestBatch, ingestByApiKey, recordEvent, recordMetric, setState } from "./ingest-writer";
 import { runMetricsSourceScrape } from "./metrics-scraper";
 import {
@@ -40,7 +41,7 @@ import {
   getPublicDashboardSnapshot as getPublicDashboardSnapshotWithDeps,
 } from "./public-dashboard-snapshot";
 import { queryEventsData, queryMetricData, queryStatesData } from "./query-execution";
-import { compileQueryText, queryMetric, queryMetricText } from "./query-management";
+import { compileQueryText, queryEventMapText, queryMetric, queryMetricText } from "./query-management";
 import { createSavedQuery, deleteSavedQuery, listSavedQueries } from "./saved-query-management";
 import {
   listCurrentStates,
@@ -105,11 +106,11 @@ const compileDashboardDslText = async (params: {
 };
 
 const getPublicDashboardSnapshot = async (token: string): Promise<Result<PulseDashboardSnapshot>> => {
-  return getPublicDashboardSnapshotWithDeps(token, { queryMetricData, queryEventsData, queryStatesData });
+  return getPublicDashboardSnapshotWithDeps(token, { queryMetricData, queryEventsData, queryStatesData, queryEventMapData });
 };
 
 const getDashboardSnapshot = async (params: { dashboardId: string; user: AccessScope }): Promise<Result<PulseDashboardSnapshot>> =>
-  getDashboardSnapshotWithDeps(params.dashboardId, params.user, { queryMetricData, queryEventsData, queryStatesData });
+  getDashboardSnapshotWithDeps(params.dashboardId, params.user, { queryMetricData, queryEventsData, queryStatesData, queryEventMapData });
 
 const capabilities = async (): Promise<Result<PulseCapabilitySnapshot>> => {
   const [extension] = await sql<{ installed: boolean }[]>`
@@ -181,6 +182,7 @@ export const pulseService = {
   query: {
     metric: queryMetric,
     metricText: queryMetricText,
+    eventMapText: queryEventMapText,
     compileText: compileQueryText,
     metrics: listMetrics,
     series: listMetricSeries,

@@ -7,6 +7,7 @@ import type {
   PulseDashboardEventQuery,
   PulseDashboardEventsWidget,
   PulseDashboardLayout,
+  PulseDashboardMapWidget,
   PulseDashboardMarkdownWidget,
   PulseDashboardMetricQuery,
   PulseDashboardMetricWidget,
@@ -15,6 +16,7 @@ import type {
   PulseDashboardStateQuery,
   PulseDashboardStatesWidget,
   PulseDashboardWidget,
+  PulseMapFieldSelector,
   StateQuery,
 } from "../contracts";
 import type {
@@ -23,6 +25,7 @@ import type {
   DashboardDslBlock,
   DashboardDslCard,
   DashboardDslDocument,
+  DashboardDslMap,
   DashboardDslMarkdown,
   DashboardDslSection,
   DashboardDslVisual,
@@ -154,8 +157,59 @@ const compileBlocksToRows = (blocks: DashboardDslBlock[], parentTitle: string, c
 const compileWidget = (block: DashboardDslBlock, context: DashboardCompilerContext): PulseDashboardWidget | null => {
   if (block.kind === "markdown") return compileMarkdownWidget(block, context.uniqueId);
   if (block.kind === "card") return compileCardWidget(block, context);
+  if (block.kind === "map") return compileMapWidget(block, context);
   if (block.kind === "visual") return compileVisualWidget(block, context);
   return null;
+};
+
+const compileMapWidget = (block: DashboardDslMap, context: DashboardCompilerContext): PulseDashboardMapWidget | null => {
+  if (!block.query || !block.latitude || !block.longitude) return null;
+  const invalidSelector = [block.latitude, block.longitude, block.label, block.series]
+    .filter((selector): selector is PulseMapFieldSelector => selector !== null)
+    .find((selector) => !validMapSelector(selector));
+  if (invalidSelector) {
+    pushMapDiagnostic(
+      context,
+      block,
+      `Map selector "${invalidSelector.path}" must be at most 240 characters and contain no empty attribute path segments`,
+    );
+    return null;
+  }
+  const resolvedQueryText = queryWithDefaultControls(block.query, context.document.controls);
+  const unresolvedVariable = resolvedQueryText.match(/\$[A-Za-z_][A-Za-z0-9_]*/)?.[0];
+  if (unresolvedVariable) {
+    pushMapDiagnostic(context, block, `Unknown dashboard variable "${unresolvedVariable}"`);
+    return null;
+  }
+  const query = context.compileQuery(resolvedQueryText);
+  if (!query.ok) {
+    pushMapDiagnostic(context, block, query.message);
+    return null;
+  }
+  if (query.data.kind !== "events" || (query.data.aggregation ?? "rows") !== "rows") {
+    pushMapDiagnostic(context, block, `Map widget "${block.title}" requires an event rows query`);
+    return null;
+  }
+  return {
+    id: context.uniqueId("map", block.title),
+    kind: "map",
+    title: block.title,
+    description: block.description,
+    queryText: block.query,
+    query: stripBaseId(query.data) as PulseDashboardEventQuery,
+    latitude: block.latitude,
+    longitude: block.longitude,
+    label: block.label ?? undefined,
+    series: block.series ?? undefined,
+    size: block.size,
+    span: block.span ?? undefined,
+  };
+};
+
+const validMapSelector = (selector: PulseMapFieldSelector): boolean => {
+  const path = selector.path.trim();
+  if (!path || path.length > 240) return false;
+  return selector.role === "dimension" || path.split(".").every((segment) => segment.length > 0);
 };
 
 const compileMarkdownWidget = (block: DashboardDslMarkdown, uniqueId: UniqueDashboardId): PulseDashboardMarkdownWidget => {
@@ -293,6 +347,15 @@ const widgetSpan = (block: DashboardDslVisual): number | undefined => block.span
 
 const pushWidgetDiagnostic = (context: DashboardCompilerContext, block: DashboardDslVisual, message: string) => {
   context.diagnostics.push({ severity: "error", message, line: widgetDiagnosticLine(block), column: widgetDiagnosticColumn(block) });
+};
+
+const pushMapDiagnostic = (context: DashboardCompilerContext, block: DashboardDslMap, message: string) => {
+  context.diagnostics.push({
+    severity: "error",
+    message,
+    line: block.queryPosition?.line ?? 1,
+    column: block.queryPosition?.column ?? 1,
+  });
 };
 
 const widgetDiagnosticLine = (block: DashboardDslVisual): number => block.queryPosition?.line ?? 1;

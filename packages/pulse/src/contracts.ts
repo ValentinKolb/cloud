@@ -267,6 +267,38 @@ export type PulseDashboardStateQuery = {
   limit: number;
 };
 
+export type PulseMapFieldSelector = {
+  role: "dimension" | "attribute";
+  path: string;
+};
+
+export type PulseMapPoint = {
+  latitude: number;
+  longitude: number;
+  label?: string;
+  size: number;
+};
+
+export type PulseMapSeries = {
+  label?: string;
+  data: PulseMapPoint[];
+};
+
+export type PulseDashboardMapWidget = {
+  id: string;
+  kind: "map";
+  title: string;
+  queryText: string;
+  query: PulseDashboardEventQuery;
+  latitude: PulseMapFieldSelector;
+  longitude: PulseMapFieldSelector;
+  label?: PulseMapFieldSelector;
+  series?: PulseMapFieldSelector;
+  size: "count" | "sum";
+  description?: string | null;
+  span?: number;
+};
+
 export type PulseDashboardMetricWidget = {
   id: string;
   kind: "metric";
@@ -333,6 +365,7 @@ export type PulseDashboardWidget =
   | PulseDashboardMetricWidget
   | PulseDashboardEventsWidget
   | PulseDashboardStatesWidget
+  | PulseDashboardMapWidget
   | PulseDashboardMarkdownWidget
   | PulseDashboardCardWidget;
 
@@ -390,6 +423,11 @@ export type PulsePublicDashboardEventsWidget = Omit<PulseDashboardEventsWidget, 
 
 export type PulsePublicDashboardStatesWidget = Omit<PulseDashboardStatesWidget, "query" | "queryText">;
 
+export type PulsePublicDashboardMapWidget = Omit<
+  PulseDashboardMapWidget,
+  "query" | "queryText" | "latitude" | "longitude" | "label" | "series" | "size"
+>;
+
 export type PulsePublicDashboardMarkdownWidget = PulseDashboardMarkdownWidget;
 
 export type PulsePublicDashboardCardWidget = Omit<PulseDashboardCardWidget, "rows"> & {
@@ -400,6 +438,7 @@ export type PulsePublicDashboardWidget =
   | PulsePublicDashboardMetricWidget
   | PulsePublicDashboardEventsWidget
   | PulsePublicDashboardStatesWidget
+  | PulsePublicDashboardMapWidget
   | PulsePublicDashboardMarkdownWidget
   | PulsePublicDashboardCardWidget;
 
@@ -440,6 +479,7 @@ export type PulseDashboardSnapshot = {
   points: Record<string, MetricQueryPoint[]>;
   events: Record<string, PulsePublicRecordedEvent[]>;
   states: Record<string, PulsePublicCurrentState[]>;
+  maps: Record<string, PulseMapSeries[]>;
 };
 
 type PulseDashboardDslDiagnostic = {

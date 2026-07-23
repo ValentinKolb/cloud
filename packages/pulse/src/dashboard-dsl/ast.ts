@@ -5,6 +5,7 @@ import type {
   PulseDashboardRow,
   PulseDashboardStatesWidget,
   PulseExplorerQuery,
+  PulseMapFieldSelector,
 } from "../contracts";
 
 type DashboardDslDiagnostic = {
@@ -24,7 +25,13 @@ export type DashboardDslDocument = {
   blocks: DashboardDslBlock[];
 };
 
-export type DashboardDslBlock = DashboardDslSection | DashboardDslCard | DashboardDslMarkdown | DashboardDslVisual | DashboardDslRow;
+export type DashboardDslBlock =
+  | DashboardDslSection
+  | DashboardDslCard
+  | DashboardDslMarkdown
+  | DashboardDslVisual
+  | DashboardDslMap
+  | DashboardDslRow;
 
 export type DashboardDslControl = {
   kind: PulseDashboardControl["kind"];
@@ -59,6 +66,17 @@ export type VisualBlockState = {
   queryPosition: Position | null;
   visual: DashboardDslVisual["visual"];
   conditions: PulseDashboardCondition[];
+};
+
+export type MapBlockState = {
+  description: string | null;
+  query: string | null;
+  queryPosition: Position | null;
+  latitude: PulseMapFieldSelector | null;
+  longitude: PulseMapFieldSelector | null;
+  label: PulseMapFieldSelector | null;
+  series: PulseMapFieldSelector | null;
+  size: "count" | "sum";
 };
 
 export type DashboardDslSection = {
@@ -99,6 +117,20 @@ export type DashboardDslVisual = {
   queryPosition: Position | null;
   span: number | null;
   conditions: PulseDashboardCondition[];
+};
+
+export type DashboardDslMap = {
+  kind: "map";
+  title: string;
+  description: string | null;
+  query: string | null;
+  queryPosition: Position | null;
+  latitude: PulseMapFieldSelector | null;
+  longitude: PulseMapFieldSelector | null;
+  label: PulseMapFieldSelector | null;
+  series: PulseMapFieldSelector | null;
+  size: "count" | "sum";
+  span: number | null;
 };
 
 export type Position = {

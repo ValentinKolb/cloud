@@ -11,6 +11,7 @@ Dashboard DSL is the only Pulse dashboard authoring format. It keeps layout, que
 - [Controls and variables](#controls-and-variables)
 - [Layout](#layout)
 - [Widgets](#widgets)
+- [Event maps](#event-maps)
 - [Conditions](#conditions)
 - [Markdown](#markdown)
 - [Compile, save, and inspect](#compile-save-and-inspect)
@@ -71,12 +72,13 @@ The root must start with `dashboard "Name" {`. An empty root is valid while crea
 
 | Container | Allowed children |
 | --- | --- |
-| Dashboard root | `description`, `controls`, `section`, `row`, `card`, `markdown`, visual widgets |
-| Section | `description`, nested `section`, `row`, `card`, `markdown`, visual widgets |
-| Row | `card`, `markdown`, visual widgets |
-| Card | `description`, `row`, `markdown`, visual widgets |
+| Dashboard root | `description`, `controls`, `section`, `row`, `card`, `markdown`, visual widgets, maps |
+| Section | `description`, nested `section`, `row`, `card`, `markdown`, visual widgets, maps |
+| Row | `card`, `markdown`, visual widgets, maps |
+| Card | `description`, `row`, `markdown`, visual widgets, maps |
 | Markdown | `description`, one triple-quoted Markdown string |
 | Visual widget | `description`, `visual`, `query`, `warn`, `critical` |
+| Map | `description`, `query`, `latitude`, `longitude`, optional `label`, `series`, and `size` |
 
 Sections and cards must not be empty. A row must contain at least one widget. Line comments start with `#` or `//` wherever whitespace is allowed.
 
@@ -260,6 +262,37 @@ stat "Checkout enabled" {
 
 Metric units are taken from the observed metric definition. The dashboard formats common units such as percentages, bytes, seconds, and milliseconds automatically; Dashboard DSL has no separate format expression.
 
+## Event maps
+
+Maps visualize event locations. They use an event rows query and explicit field selectors:
+
+```text
+map "QR engagement" span 12 {
+  description "Approximate places where campaign links were opened."
+  query events qr.opened since $range where campaign=summer limit 500
+  latitude attribute geo.latitude
+  longitude attribute geo.longitude
+  label attribute geo.city
+  series dimension campaign
+  size count
+}
+```
+
+`latitude` and `longitude` are required. `label` and `series` are optional. Each selector has one of two roles:
+
+| Role | Meaning | Example |
+| --- | --- | --- |
+| `dimension` | Read one exact dimension key. | `series dimension campaign` |
+| `attribute` | Read an attribute; dots traverse nested objects. | `latitude attribute geo.latitude` |
+
+Sensitive fields cannot be selected. Keep precise location or identity data in protected fields; publish only appropriately coarse coordinates as attributes when they are intended for maps.
+
+`size count` sizes a point by matching event count and is the default. `size sum` uses the non-negative sum of numeric event values; a negative total is treated as zero. Pulse groups across the complete query range by coordinate, optional label, and optional series. Coordinates outside latitude -90 to 90 or longitude -180 to 180 are ignored.
+
+One map returns at most 1,000 aggregated points. Use `source`, `entity`, `entity_type`, or `where` filters to keep broad, high-cardinality event sets readable. Maps are static point maps; they do not provide interactive zoom, clustering, regions, or choropleths.
+
+On a public dashboard, the aggregated coordinates, labels, and series rendered by the map are public. Use coarse coordinates and non-identifying labels for public displays.
+
 ## Conditions
 
 Metric widgets can apply visual warning and critical states:
@@ -334,7 +367,15 @@ Compile output:
   "dashboard": { "id": "dashboard-uuid", "name": "Operations", "config": { "layout": {} } },
   "points": { "metric-request-rate": [{ "bucket": "2026-07-12T12:00:00.000Z", "value": 42 }] },
   "events": { "events-recent-deploys": [] },
-  "states": { "states-checkout-enabled": [] }
+  "states": { "states-checkout-enabled": [] },
+  "maps": {
+    "map-qr-engagement": [
+      {
+        "label": "summer",
+        "data": [{ "latitude": 52.52, "longitude": 13.405, "label": "Berlin", "size": 18 }]
+      }
+    ]
+  }
 }
 ```
 
@@ -348,7 +389,7 @@ cld pulse dashboards public-url "Operations" --theme light --height scroll --yes
 cld pulse dashboards unpublish "Operations"
 ```
 
-Public URLs are bearer-style sharing credentials. Public snapshots expose the rendered dashboard layout and widget-bound values. They omit Dashboard DSL, query text, source IDs, and dimensions from returned event and state rows.
+Public URLs are bearer-style sharing credentials. Public snapshots expose the rendered dashboard layout and widget-bound values. They omit Dashboard DSL, query text, source IDs, and dimensions from returned event and state rows. Map snapshots contain only final series labels, point labels, coordinates, and sizes; they do not expose the map query or field selectors.
 
 Public displays use control defaults. URL options select `light|dark` theme and `scroll|full` height mode; they are not Dashboard DSL statements.
 
@@ -403,6 +444,16 @@ dashboard "Solar overview" {
           query metric grid.export_watts avg every 5m since $range entity $site
         }
       }
+    }
+
+    map "Recent visitors" span 12 {
+      description "Approximate locations from recent site visits."
+      query events website.visited since $range where site=warehouse limit 500
+      latitude attribute geo.latitude
+      longitude attribute geo.longitude
+      label attribute geo.city
+      series dimension channel
+      size count
     }
 
     markdown "Notes" {

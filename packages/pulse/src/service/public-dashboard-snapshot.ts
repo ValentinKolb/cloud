@@ -10,17 +10,20 @@ import type {
   PulseDashboard,
   PulseDashboardEventsWidget,
   PulseDashboardLayout,
+  PulseDashboardMapWidget,
   PulseDashboardMetricWidget,
   PulseDashboardRow,
   PulseDashboardSection,
   PulseDashboardSnapshot,
   PulseDashboardStatesWidget,
   PulseDashboardWidget,
+  PulseMapSeries,
   PulsePublicCurrentState,
   PulsePublicDashboard,
   PulsePublicDashboardCardWidget,
   PulsePublicDashboardEventsWidget,
   PulsePublicDashboardLayout,
+  PulsePublicDashboardMapWidget,
   PulsePublicDashboardMetricWidget,
   PulsePublicDashboardRow,
   PulsePublicDashboardSection,
@@ -30,14 +33,16 @@ import type {
   PulseRecordedEvent,
   StateQuery,
 } from "../contracts";
-import { requireBaseAccess, type AccessScope } from "./access-control";
+import { type AccessScope, requireBaseAccess } from "./access-control";
 import {
   dashboardEventsWidgets,
+  dashboardMapWidgets,
   dashboardMetricWidgets,
   dashboardRenderConfig,
   dashboardStatesWidgets,
   normalizeDashboardConfig,
 } from "./dashboard-config";
+import type { EventMapQuery } from "./event-map-query";
 import { publicDashboardTokenHash } from "./public-dashboard-tokens";
 import { iso } from "./telemetry-values";
 
@@ -57,12 +62,14 @@ type PublicDashboardSnapshotDeps = {
   queryMetricData: (query: MetricQuery) => Promise<Result<MetricQueryPoint[]>>;
   queryEventsData: (query: EventQuery) => Promise<Result<PulseRecordedEvent[]>>;
   queryStatesData: (query: StateQuery) => Promise<Result<PulseCurrentState[]>>;
+  queryEventMapData: (query: EventMapQuery) => Promise<Result<PulseMapSeries[]>>;
 };
 
 type PublicWidgetResults = {
   points: Record<string, MetricQueryPoint[]>;
   events: Record<string, PulsePublicRecordedEvent[]>;
   states: Record<string, PulsePublicCurrentState[]>;
+  maps: Record<string, PulseMapSeries[]>;
   metricUnitByName: Map<string, string | null>;
 };
 
@@ -140,10 +147,19 @@ const publicStatesWidget = (widget: PulseDashboardStatesWidget): PulsePublicDash
   span: widget.span,
 });
 
+const publicMapWidget = (widget: PulseDashboardMapWidget): PulsePublicDashboardMapWidget => ({
+  id: widget.id,
+  kind: "map",
+  title: widget.title,
+  description: widget.description,
+  span: widget.span,
+});
+
 const publicDashboardWidget = (widget: PulseDashboardWidget, metricUnitByName: Map<string, string | null>): PulsePublicDashboardWidget => {
   if (widget.kind === "metric") return publicMetricWidget(widget, metricUnitByName);
   if (widget.kind === "events") return publicEventsWidget(widget);
   if (widget.kind === "states") return publicStatesWidget(widget);
+  if (widget.kind === "map") return publicMapWidget(widget);
   if (widget.kind === "markdown") return widget;
   const card: PulsePublicDashboardCardWidget = {
     id: widget.id,
@@ -285,6 +301,26 @@ const runPublicStatesWidgets = async (
   return states;
 };
 
+const runPublicMapWidgets = async (
+  baseId: string,
+  widgets: PulseDashboardMapWidget[],
+  deps: PublicDashboardSnapshotDeps,
+): Promise<Record<string, PulseMapSeries[]>> => {
+  const maps: Record<string, PulseMapSeries[]> = {};
+  for (const widget of widgets) {
+    const result = await deps.queryEventMapData({
+      query: { baseId, ...widget.query },
+      latitude: widget.latitude,
+      longitude: widget.longitude,
+      label: widget.label,
+      series: widget.series,
+      size: widget.size,
+    });
+    maps[widget.id] = result.ok ? result.data : [];
+  }
+  return maps;
+};
+
 const collectPublicWidgetResults = async (dashboard: PulseDashboard, deps: PublicDashboardSnapshotDeps): Promise<PublicWidgetResults> => {
   const config = dashboardRenderConfig(dashboard);
   const metricWidgets = dashboardMetricWidgets(config);
@@ -292,13 +328,15 @@ const collectPublicWidgetResults = async (dashboard: PulseDashboard, deps: Publi
   const metrics = takePublicWidgets(metricWidgets, MAX_PUBLIC_EXECUTED_WIDGETS);
   const eventWidgets = takePublicWidgets(dashboardEventsWidgets(config), metrics.remaining);
   const stateWidgets = takePublicWidgets(dashboardStatesWidgets(config), eventWidgets.remaining);
+  const mapWidgets = takePublicWidgets(dashboardMapWidgets(config), stateWidgets.remaining);
 
-  const [points, events, states] = await Promise.all([
+  const [points, events, states, maps] = await Promise.all([
     runPublicMetricWidgets(dashboard.baseId, metrics.widgets, deps),
     runPublicEventsWidgets(dashboard.baseId, eventWidgets.widgets, deps),
     runPublicStatesWidgets(dashboard.baseId, stateWidgets.widgets, deps),
+    runPublicMapWidgets(dashboard.baseId, mapWidgets.widgets, deps),
   ]);
-  return { points, events, states, metricUnitByName };
+  return { points, events, states, maps, metricUnitByName };
 };
 
 const publicDashboardFromConfig = (dashboard: PulseDashboard, metricUnitByName: Map<string, string | null>): PulsePublicDashboard => {
@@ -320,10 +358,10 @@ export const getPublicDashboardSnapshot = async (
   const dashboardResult = await getPublicDashboardByToken(token);
   if (!dashboardResult.ok) return fail(dashboardResult.error);
   const dashboard = dashboardResult.data;
-  const { points, events, states, metricUnitByName } = await collectPublicWidgetResults(dashboard, deps);
+  const { points, events, states, maps, metricUnitByName } = await collectPublicWidgetResults(dashboard, deps);
   const publicDashboard = publicDashboardFromConfig(dashboard, metricUnitByName);
 
-  return ok({ dashboard: publicDashboard, points, events, states });
+  return ok({ dashboard: publicDashboard, points, events, states, maps });
 };
 
 export const getDashboardSnapshot = async (
@@ -334,11 +372,12 @@ export const getDashboardSnapshot = async (
   const dashboardResult = await getDashboardById(dashboardId, user);
   if (!dashboardResult.ok) return fail(dashboardResult.error);
   const dashboard = dashboardResult.data;
-  const { points, events, states, metricUnitByName } = await collectPublicWidgetResults(dashboard, deps);
+  const { points, events, states, maps, metricUnitByName } = await collectPublicWidgetResults(dashboard, deps);
   return ok({
     dashboard: publicDashboardFromConfig(dashboard, metricUnitByName),
     points,
     events,
     states,
+    maps,
   });
 };

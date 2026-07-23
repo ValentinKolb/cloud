@@ -11,7 +11,7 @@ Dashboard DSL describes the whole dashboard. Write and preview it as text so lay
 
 :::steps
 1. **Start with one section:** Give the dashboard a name and add the smallest section that answers one real question.
-2. **Add one widget:** Use stat, gauge, line, bar, histogram, heatmap, or table depending on the query output.
+2. **Add one widget:** Use stat, gauge, line, bar, histogram, heatmap, map, or table depending on the query output.
 3. **Add controls when repetition appears:** Use controls for range, source, entity, entity_type, label, or text values that multiple widgets share.
 4. **Group related widgets:** Use rows for side-by-side charts, cards for a related cluster, and sections for larger topics.
 5. **Explain decisions in place:** Use descriptions and markdown for operating notes, assumptions, and links.
@@ -108,6 +108,16 @@ dashboard "Name" {
       query states service.online entity $entity_id limit 50
     }
 
+    map "Recent engagement" {
+      description "Approximate places where recent QR links were opened."
+      query events qr.opened since $range where campaign=summer limit 500
+      latitude attribute geo.latitude
+      longitude attribute geo.longitude
+      label attribute geo.city
+      series dimension campaign
+      size count
+    }
+
     markdown "Notes" {
       """
       ## Markdown content
@@ -163,7 +173,11 @@ dashboard "Solar overview" {
 | `row height sm\|md\|lg { ... }` | dashboard, section, card | Places multiple widgets in one row. If height is omitted, md is used. | `row height lg { line "CPU" { query metric system.cpu.usage avg since 6h } }` |
 | `card "Name" [span n] { ... }` | dashboard, section, row | Frames related child widgets and optional markdown. Cards cannot contain nested cards or sections. Span is an optional integer from 1 to 12. | `card "Battery" span 6 { gauge "Charge" { query metric battery.charge latest since 10m } }` |
 | `markdown ["Name"] [span n] { """ ... """ }` | dashboard, section, row, card | Adds Markdown notes, explanations, runbooks, or links. Markdown content must be triple-quoted. | `markdown "Notes" { """## Notes\n- Check importer health.""" }` |
-| `line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"` | dashboard, section, row, card | Adds a query-backed widget. Dashboard statements and visual names are case-sensitive. Events render only as table widgets; states render as table or stat widgets. | `gauge "Charge" { query metric battery.charge latest since 10m }` |
+| `line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"` | dashboard, section, row, card | Adds a metric, event, or state widget. Dashboard statements and visual names are case-sensitive. Events render only as table widgets; states render as table or stat widgets. | `gauge "Charge" { query metric battery.charge latest since 10m }` |
+| `map "Name" [span n] { ... }` | dashboard, section, row, card | Plots event locations. It requires an event rows query plus latitude and longitude selectors. | `map "Scans" { query events qr.opened since 24h latitude attribute geo.latitude longitude attribute geo.longitude }` |
+| `latitude\|longitude dimension\|attribute <path>` | map | Selects decimal-degree coordinates from a dimension or attribute. Nested attribute paths use dots. Sensitive fields cannot be selected. | `latitude attribute geo.latitude` |
+| `label\|series dimension\|attribute <path>` | map | Optionally adds point labels or separates points into colored series. | `series dimension campaign` |
+| `size count\|sum` | map | Sizes points by matching event count or by the sum of numeric event values. Count is the default. | `size count` |
 | `visual <type>` | widget | Overrides the visual declared by the outer widget keyword. It accepts the same visual names. Prefer the direct widget keyword for hand-written DSL. | `line "Current value" { visual stat query metric service.online latest since 10m }` |
 | `query <Query DSL>` | widget | Uses metric, events, or states Query DSL. Dashboard controls may be referenced as $variables. Event widgets show individual rows; summarized event results are available in Query Explorer and the CLI. | `query metric orders.created increase every 1h since $range where region=$region` |
 | `warn\|critical when value <op> <value>` | metric widget | Applies visual state to metric values only. Operators are >, >=, <, <=, =, and !=. Optional message text can explain the condition. | `critical when value > 95 message "Capacity almost full"` |
@@ -173,6 +187,10 @@ dashboard "Solar overview" {
 
 :::info Dashboards compose query output
 Widget `query` lines use the same Query DSL. Metric widgets show values and charts; table widgets show individual events and current states. Summarized event results are available in Query Explorer and the CLI, not dashboard widgets.
+:::
+
+:::info Maps summarize event locations
+Use a map for events that contain decimal latitude and longitude fields. Pulse groups matching events by location, optional label, and optional series across the selected range. Invalid or out-of-range coordinates are ignored. A map shows at most 1,000 aggregated points, so use source, entity, and dimension filters when a broad query would hide useful detail. On a public dashboard, the aggregated coordinates, labels, and series shown by the map are public too.
 :::
 
 :::info Controls define variables

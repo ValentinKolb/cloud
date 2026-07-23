@@ -222,6 +222,79 @@ describe("Pulse dashboard DSL", () => {
     expect(statesWidget.query.limit).toBe(50);
   });
 
+  test("compiles an event map with explicit safe field selectors", () => {
+    const result = compileDashboardDsl(
+      `dashboard "Engagement" {
+        section "QR scans" {
+          map "Scan locations" span 12 {
+            description "Approximate scan locations."
+            query events qr.opened since 24h where campaign=summer limit 500
+            latitude attribute geo.latitude
+            longitude attribute geo.longitude
+            label attribute geo.city
+            series dimension campaign
+            size count
+          }
+        }
+      }`,
+      (query) => {
+        const compiled = compilePulseQueryText("00000000-0000-4000-8000-000000000000", query);
+        return compiled.ok ? { ok: true, data: compiled.data } : { ok: false, message: compiled.error.message };
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const widget = result.data.layout?.sections[0]?.rows[0]?.cells[0];
+    expect(widget).toMatchObject({
+      kind: "map",
+      latitude: { role: "attribute", path: "geo.latitude" },
+      longitude: { role: "attribute", path: "geo.longitude" },
+      label: { role: "attribute", path: "geo.city" },
+      series: { role: "dimension", path: "campaign" },
+      size: "count",
+    });
+  });
+
+  test("rejects maps without coordinates or with non-event queries", () => {
+    const missingCoordinates = parseDashboardDsl('dashboard "Broken" { map "Locations" { query events qr.opened since 24h } }');
+    expect(missingCoordinates.ok).toBe(false);
+    expect(missingCoordinates.diagnostics.map((item) => item.message)).toContain('Map "Locations" must contain a latitude selector');
+
+    const metricMap = compileDashboardDsl(
+      `dashboard "Broken" {
+        map "Locations" {
+          query metric request.count sum every 1h since 24h
+          latitude dimension latitude
+          longitude dimension longitude
+        }
+      }`,
+      (query) => {
+        const compiled = compilePulseQueryText("00000000-0000-4000-8000-000000000000", query);
+        return compiled.ok ? { ok: true, data: compiled.data } : { ok: false, message: compiled.error.message };
+      },
+    );
+    expect(metricMap.ok).toBe(false);
+    expect(metricMap.diagnostics[0]?.message).toContain("requires an event rows query");
+  });
+
+  test("rejects invalid nested map attribute paths", () => {
+    const result = compileDashboardDsl(
+      `dashboard "Broken" {
+        map "Locations" {
+          query events qr.opened since 24h
+          latitude attribute geo..latitude
+          longitude attribute geo.longitude
+        }
+      }`,
+      (query) => {
+        const compiled = compilePulseQueryText("00000000-0000-4000-8000-000000000000", query);
+        return compiled.ok ? { ok: true, data: compiled.data } : { ok: false, message: compiled.error.message };
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain("no empty attribute path segments");
+  });
+
   test("reports syntax diagnostics for unknown statements", () => {
     const result = parseDashboardDsl('dashboard "Broken" { widget "Nope" {} }');
     expect(result.ok).toBe(false);

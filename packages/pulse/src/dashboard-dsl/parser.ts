@@ -6,16 +6,18 @@ import type {
   DashboardDslCard,
   DashboardDslControl,
   DashboardDslDocument,
+  DashboardDslMap,
   DashboardDslMarkdown,
   DashboardDslRow,
   DashboardDslSection,
   DashboardDslVisual,
+  MapBlockState,
   MarkdownBlockState,
   Position,
   Result,
   VisualBlockState,
 } from "./ast";
-import { CONDITION_LEVELS, CONDITION_OPERATORS, CONTROL_KINDS, VISUALS } from "./constants";
+import { CONDITION_LEVELS, CONDITION_OPERATORS, CONTROL_KINDS, MAP_FIELD_ROLES, MAP_SIZE_MODES, VISUALS } from "./constants";
 
 const visualFromKeyword = (keyword: string): DashboardDslVisual["visual"] => {
   return keyword as DashboardDslVisual["visual"];
@@ -45,7 +47,7 @@ class Parser {
     const title = this.readString();
     if (title === null) this.error(this.position, "Dashboard title must be a quoted string");
     if (!this.readOpenBrace()) this.error(this.position, 'Expected "{" after dashboard title');
-    const body = this.readContainerBody(["description", "controls", "section", "card", "markdown", "row", ...VISUALS]);
+    const body = this.readContainerBody(["description", "controls", "section", "card", "markdown", "map", "row", ...VISUALS]);
     const document: DashboardDslDocument = {
       kind: "dashboard",
       title: title ?? "Dashboard",
@@ -110,6 +112,7 @@ class Parser {
     if (keyword === "card") return this.readCard(statementStart);
     if (keyword === "row") return this.readRow(statementStart);
     if (keyword === "markdown") return this.readMarkdown(statementStart);
+    if (keyword === "map") return this.readMap(statementStart);
     if (VISUALS.has(keyword)) return this.readVisual(keyword, statementStart);
     this.error(statementStart, `Unsupported dashboard statement "${keyword}"`);
     return null;
@@ -212,7 +215,7 @@ class Parser {
       this.error(this.position, 'Expected "{" after section title');
       return null;
     }
-    const body = this.readContainerBody(["description", "section", "card", "markdown", "row", ...VISUALS]);
+    const body = this.readContainerBody(["description", "section", "card", "markdown", "map", "row", ...VISUALS]);
     if (body.blocks.length === 0) this.error(start, `Section "${title}" must contain at least one section or widget`);
     return { kind: "section", title, description: body.description, blocks: body.blocks };
   }
@@ -228,7 +231,7 @@ class Parser {
       this.error(this.position, 'Expected "{" after card title');
       return null;
     }
-    const body = this.readContainerBody(["description", "markdown", "row", ...VISUALS]);
+    const body = this.readContainerBody(["description", "markdown", "map", "row", ...VISUALS]);
     if (body.blocks.length === 0) this.error(start, `Card "${title}" must contain at least one widget`);
     return { kind: "card", title, description: body.description, span, blocks: body.blocks };
   }
@@ -239,7 +242,7 @@ class Parser {
       this.error(start, 'Expected "{" after row');
       return null;
     }
-    const body = this.readContainerBody(["card", "markdown", ...VISUALS]);
+    const body = this.readContainerBody(["card", "markdown", "map", ...VISUALS]);
     if (body.blocks.length === 0) this.error(start, "Row must contain at least one widget");
     return { kind: "row", height, blocks: body.blocks };
   }
@@ -288,6 +291,75 @@ class Parser {
       span,
       conditions: state.conditions,
     };
+  }
+
+  private readMap(start: Position): DashboardDslMap | null {
+    const title = this.readString();
+    if (title === null) {
+      this.error(start, "Map title must be a quoted string");
+      return null;
+    }
+    const span = this.readOptionalSpan();
+    if (!this.readOpenBrace()) {
+      this.error(this.position, 'Expected "{" after map title');
+      return null;
+    }
+    const state: MapBlockState = {
+      description: null,
+      query: null,
+      queryPosition: null,
+      latitude: null,
+      longitude: null,
+      label: null,
+      series: null,
+      size: "count",
+    };
+    while (!this.isEnd()) {
+      this.skipWhitespace();
+      if (this.peek() === "}") {
+        this.advance();
+        break;
+      }
+      const statementStart = this.position;
+      const statement = this.readIdentifier();
+      if (statement === "description") this.readVisualDescription(state);
+      else if (statement === "query") {
+        state.queryPosition = statementStart;
+        state.query = this.readLine().trim();
+      } else if (statement === "latitude" || statement === "longitude" || statement === "label" || statement === "series") {
+        this.readMapField(statement, statementStart, state);
+      } else if (statement === "size") {
+        const size = this.readIdentifier();
+        if (!MAP_SIZE_MODES.has(size)) this.error(statementStart, 'Map size must be "count" or "sum"');
+        else state.size = size as MapBlockState["size"];
+      } else {
+        this.error(statementStart, `Unsupported map statement "${statement || this.peek()}"`);
+        this.recoverToNextStatement();
+      }
+    }
+    if (!state.query) this.error(start, `Map "${title}" must contain a query statement`);
+    if (!state.latitude) this.error(start, `Map "${title}" must contain a latitude selector`);
+    if (!state.longitude) this.error(start, `Map "${title}" must contain a longitude selector`);
+    return { kind: "map", title, span, ...state };
+  }
+
+  private readMapField(field: "latitude" | "longitude" | "label" | "series", start: Position, state: MapBlockState) {
+    if (state[field]) {
+      this.error(start, `Map ${field} selector can only be declared once`);
+      this.recoverToNextStatement();
+      return;
+    }
+    const role = this.readIdentifier();
+    const path = this.readBareOrString();
+    if (!MAP_FIELD_ROLES.has(role)) {
+      this.error(start, `Map ${field} selector must use dimension or attribute`);
+      return;
+    }
+    if (!path) {
+      this.error(start, `Map ${field} selector path is missing`);
+      return;
+    }
+    state[field] = { role: role as "dimension" | "attribute", path };
   }
 
   private readMarkdownBody(): MarkdownBlockState {
@@ -347,7 +419,7 @@ class Parser {
     return "continue";
   }
 
-  private readVisualDescription(state: VisualBlockState) {
+  private readVisualDescription(state: Pick<VisualBlockState, "description">) {
     const value = this.readString();
     if (value === null) this.error(this.position, "Description must be a quoted string");
     else state.description = value;

@@ -1,10 +1,12 @@
-import { jsonResponse, respond, v, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { pulseService } from "../../service";
 import {
   CompileTextQuerySchema,
+  EventMapQueryTextSchema,
+  EventMapResultSchema,
   MetricQueryResultSchema,
   MetricQuerySchema,
   QueryCompileResultSchema,
@@ -13,6 +15,16 @@ import {
 import { requestAccessScope } from "../shared";
 
 const routes = new Hono<AuthContext>()
+  .post(
+    "/query/event-map",
+    describeRoute({
+      tags: ["Pulse"],
+      summary: "Run a Pulse event map query",
+      responses: { 200: jsonResponse(EventMapResultSchema, "Map series") },
+    }),
+    v("json", EventMapQueryTextSchema),
+    async (c) => respond(c, pulseService.query.eventMapText({ ...c.req.valid("json"), user: requestAccessScope(c) })),
+  )
   .post(
     "/query/metric",
     describeRoute({

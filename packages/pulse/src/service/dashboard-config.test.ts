@@ -3,6 +3,7 @@ import type { PulseDashboardConfig } from "../contracts";
 import {
   compileDashboardConfigForSave,
   dashboardEventsWidgets,
+  dashboardMapWidgets,
   dashboardMetricWidgets,
   dashboardRenderConfig,
   dashboardStatesWidgets,
@@ -160,6 +161,53 @@ describe("Pulse dashboard config", () => {
     expect(dashboardMetricWidgets(compiled.data).map((widget) => widget.metric)).toEqual(["system.cpu.usage"]);
     expect(dashboardEventsWidgets(compiled.data).map((widget) => widget.query.event)).toEqual(["deploy.finished"]);
     expect(dashboardStatesWidgets(compiled.data).map((widget) => widget.query.state)).toEqual(["service.online"]);
+  });
+
+  test("normalizes map selectors and rejects unsafe selector roles", () => {
+    const config = normalizeDashboardConfig({
+      dsl: 'dashboard "Map" {}',
+      layout: {
+        version: 1,
+        sections: [
+          {
+            kind: "section",
+            title: "Engagement",
+            rows: [
+              {
+                kind: "row",
+                cells: [
+                  {
+                    kind: "map",
+                    title: "QR scans",
+                    query: {
+                      kind: "events",
+                      event: "qr.opened",
+                      since: "24h",
+                    },
+                    latitude: { role: "attribute", path: " geo.latitude " },
+                    longitude: { role: "dimension", path: "longitude" },
+                    label: { role: "sensitive", path: "ip_address" },
+                    series: { role: "attribute", path: "campaign.name" },
+                    size: "sum",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const widgets = dashboardMapWidgets(config);
+    expect(widgets).toHaveLength(1);
+    expect(widgets[0]).toMatchObject({
+      title: "QR scans",
+      latitude: { role: "attribute", path: "geo.latitude" },
+      longitude: { role: "dimension", path: "longitude" },
+      series: { role: "attribute", path: "campaign.name" },
+      size: "sum",
+    });
+    expect(widgets[0]?.label).toBeUndefined();
   });
 
   test("rejects saving dashboards without DSL", () => {

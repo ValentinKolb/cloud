@@ -8,12 +8,14 @@ import DashboardView, { type DashboardRenderContext } from "./workspace/Dashboar
 import { createDashboardController } from "./workspace/dashboard-controller";
 import {
   fetchDashboardEventsWidgetRows,
+  fetchDashboardMapWidgetSeries,
   fetchDashboardMetricWidgetPoints,
   fetchDashboardStatesWidgetRows,
 } from "./workspace/dashboard-runtime";
 import FocusedSignalView, { FocusedSignalDetail } from "./workspace/FocusedSignalView";
 import {
   dashboardEventsWidgets,
+  dashboardMapWidgets,
   dashboardMetricWidgets,
   dashboardStatesWidgets,
   eventKindQueryText,
@@ -81,6 +83,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     dashboardDslSeededFor,
     dashboardDslText,
     dashboardEvents,
+    dashboardMaps,
     dashboardPreviewConfig,
     dashboards,
     dashboardStates,
@@ -134,6 +137,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setDashboardDslSeededFor,
     setDashboardDslText,
     setDashboardEvents,
+    setDashboardMaps,
     setDashboardPreviewConfig,
     setDashboards,
     setDashboardStates,
@@ -312,6 +316,11 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           .then((states) => setDashboardStates((current) => ({ ...current, [widget.id]: states })))
           .catch(() => undefined),
       ),
+      ...dashboardMapWidgets(config).map((widget) =>
+        fetchDashboardMapWidgetSeries({ baseId, config, controlValues, dashboard, signal, widget })
+          .then((series) => setDashboardMaps((current) => ({ ...current, [widget.id]: series })))
+          .catch(() => undefined),
+      ),
     ]);
   };
 
@@ -471,6 +480,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     metricWidgetPoints,
     dashboardEvents,
     dashboardStates,
+    dashboardMaps,
     metricByName,
     sourceNameById,
     sources,

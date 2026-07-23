@@ -257,6 +257,31 @@ const DashboardStatesWidgetSchema = z.object({
   span: z.number().int().min(1).max(12).optional(),
 });
 
+const MapFieldSelectorSchema = z
+  .object({
+    role: z.enum(["dimension", "attribute"]),
+    path: z.string().trim().min(1).max(240),
+  })
+  .refine((selector) => selector.role === "dimension" || selector.path.split(".").every(Boolean), {
+    message: "Attribute paths cannot contain empty segments",
+    path: ["path"],
+  });
+
+const DashboardMapWidgetSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  kind: z.literal("map"),
+  title: z.string().trim().min(1).max(160),
+  queryText: z.string().trim().max(8_000),
+  query: DashboardEventQuerySchema,
+  latitude: MapFieldSelectorSchema,
+  longitude: MapFieldSelectorSchema,
+  label: MapFieldSelectorSchema.optional(),
+  series: MapFieldSelectorSchema.optional(),
+  size: z.enum(["count", "sum"]),
+  description: z.string().trim().max(500).nullable().optional(),
+  span: z.number().int().min(1).max(12).optional(),
+});
+
 const DashboardMarkdownWidgetSchema = z.object({
   id: z.string().trim().min(1).max(80),
   kind: z.literal("markdown"),
@@ -270,6 +295,7 @@ type DashboardWidgetInput =
   | z.infer<typeof DashboardMetricWidgetSchema>
   | z.infer<typeof DashboardEventsWidgetSchema>
   | z.infer<typeof DashboardStatesWidgetSchema>
+  | z.infer<typeof DashboardMapWidgetSchema>
   | z.infer<typeof DashboardMarkdownWidgetSchema>
   | {
       id: string;
@@ -291,6 +317,7 @@ const DashboardWidgetSchema: z.ZodType<DashboardWidgetInput> = z.lazy(() =>
     DashboardMetricWidgetSchema,
     DashboardEventsWidgetSchema,
     DashboardStatesWidgetSchema,
+    DashboardMapWidgetSchema,
     DashboardMarkdownWidgetSchema,
     z.object({
       id: z.string().trim().min(1).max(80),
@@ -422,6 +449,14 @@ const ExplorerQuerySchema = z.discriminatedUnion("kind", [CompiledMetricQuerySch
 export const QueryTextSchema = z.object({
   baseId: z.string().uuid(),
   query: z.string().trim().min(1).max(2_000),
+});
+
+export const EventMapQueryTextSchema = QueryTextSchema.extend({
+  latitude: MapFieldSelectorSchema,
+  longitude: MapFieldSelectorSchema,
+  label: MapFieldSelectorSchema.optional(),
+  series: MapFieldSelectorSchema.optional(),
+  size: z.enum(["count", "sum"]),
 });
 
 export const CompileTextQuerySchema = QueryTextSchema;
@@ -577,6 +612,18 @@ const StreamPointSchema = z.object({
   group: z.record(z.string(), z.string()).optional(),
 });
 
+const MapPointSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  label: z.string().max(240).optional(),
+  size: z.number().nonnegative(),
+});
+
+const MapSeriesSchema = z.object({
+  label: z.string().max(240).optional(),
+  data: z.array(MapPointSchema).max(1_000),
+});
+
 const PublicDashboardSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -631,7 +678,10 @@ export const DashboardSnapshotSchema = z.object({
   points: z.record(z.string(), z.array(StreamPointSchema)),
   events: z.record(z.string(), z.array(PublicRecordedEventSchema)),
   states: z.record(z.string(), z.array(PublicCurrentStateSchema)),
+  maps: z.record(z.string(), z.array(MapSeriesSchema)),
 });
+
+export const EventMapResultSchema = z.array(MapSeriesSchema).max(1_000);
 
 export const MetricSeriesSchema = z.object({
   id: z.string(),

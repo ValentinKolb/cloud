@@ -117,9 +117,9 @@ describe("Pulse query authoring", () => {
     expect(defaultPulseQuery([{ name: "requests.total", type: "counter", unit: "count", seriesCount: 1, lastSeenAt: null }])).toContain(
       " rate ",
     );
-    expect(defaultPulseQuery([{ name: "duration.bucket", type: "histogram", unit: "seconds", seriesCount: 1, lastSeenAt: null }])).toContain(
-      " p95 ",
-    );
+    expect(
+      defaultPulseQuery([{ name: "duration.bucket", type: "histogram", unit: "seconds", seriesCount: 1, lastSeenAt: null }]),
+    ).toContain(" p95 ");
     expect(defaultPulseQuery([{ name: "memory.usage", type: "gauge", unit: "percent", seriesCount: 1, lastSeenAt: null }])).toContain(
       " avg ",
     );
@@ -169,6 +169,15 @@ describe("Pulse query authoring", () => {
     expect(html).toContain('<span class="text-blue-600 dark:text-blue-300">dashboard</span>');
     expect(html).toContain('<span class="text-blue-600 dark:text-blue-300">gauge</span>');
     expect(html).toContain('<span class="text-emerald-700 dark:text-emerald-300">latest</span>');
+  });
+
+  test("highlights event map dashboard syntax", () => {
+    const html = pulseDashboardDslHighlight('map "Scans" { latitude attribute geo.latitude longitude attribute geo.longitude size count }');
+
+    expect(html).toContain('<span class="text-blue-600 dark:text-blue-300">map</span>');
+    expect(html).toContain('<span class="text-blue-600 dark:text-blue-300">latitude</span>');
+    expect(html).toContain('<span class="text-blue-600 dark:text-blue-300">attribute</span>');
+    expect(html).toContain('<span class="text-blue-600 dark:text-blue-300">count</span>');
   });
 
   test("highlights multiline dashboard markdown without dropping content", () => {

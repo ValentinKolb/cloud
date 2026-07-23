@@ -58,6 +58,7 @@ export default ssr<AuthContext>(async (c) => {
         initialMetricWidgetPoints={workspaceProps.initialMetricWidgetPoints}
         initialDashboardEvents={workspaceProps.initialDashboardEvents}
         initialDashboardStates={workspaceProps.initialDashboardStates}
+        initialDashboardMaps={workspaceProps.initialDashboardMaps}
         initialExplorerPanesValue={workspaceProps.initialExplorerPanesValue}
         initialDashboardEditorPanesValue={workspaceProps.initialDashboardEditorPanesValue}
         initialDateConfig={workspaceProps.initialDateConfig}

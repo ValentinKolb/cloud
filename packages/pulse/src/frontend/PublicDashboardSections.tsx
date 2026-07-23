@@ -1,11 +1,12 @@
-import { Chart, DataTable, MarkdownView, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { Chart, DataTable, type DataTableColumn, MarkdownView } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { For, Show, type JSX } from "solid-js";
+import { For, type JSX, Show } from "solid-js";
 import type {
   MetricQueryPoint,
   PulseDashboardSnapshot,
   PulsePublicDashboardEventsWidget,
+  PulsePublicDashboardMapWidget,
   PulsePublicDashboardMarkdownWidget,
   PulsePublicDashboardMetricWidget,
   PulsePublicDashboardRow,
@@ -257,6 +258,19 @@ export function PublicDashboardSections(props: Props) {
     );
   };
 
+  const renderMapWidget = (widget: PulsePublicDashboardMapWidget) => {
+    const series = props.snapshot.maps[widget.id] ?? [];
+    return renderWidgetFrame(
+      widget,
+      <Show
+        when={series.some((item) => item.data.length)}
+        fallback={<div class="flex h-64 items-center justify-center text-sm text-dimmed">No valid map points matched this query.</div>}
+      >
+        <Chart kind="map" class="h-64 text-dimmed" series={series} legend={series.some((item) => Boolean(item.label))} />
+      </Show>,
+    );
+  };
+
   const renderCardWidget = (widget: PulsePublicDashboardWidget & { kind: "card" }) =>
     renderWidgetFrame(
       widget,
@@ -277,7 +291,9 @@ export function PublicDashboardSections(props: Props) {
               ? renderEventsWidget(widget)
               : widget.kind === "states"
                 ? renderStatesWidget(widget)
-                : renderCardWidget(widget)}
+                : widget.kind === "map"
+                  ? renderMapWidget(widget)
+                  : renderCardWidget(widget)}
       </div>
     );
   };

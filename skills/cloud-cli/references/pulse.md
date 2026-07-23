@@ -249,7 +249,7 @@ cld pulse dashboards snapshot "Operations" --json
 cld pulse dashboards update "Operations" --file operations-v2.pulse --refresh 10 --json
 ```
 
-`dashboards compile` returns line-and-column diagnostics without saving. Create and DSL-bearing update compile before writing. `snapshot` executes the private dashboard and returns its public-safe dashboard shape plus point, event, and state data without publishing it.
+`dashboards compile` returns line-and-column diagnostics without saving. Create and DSL-bearing update compile before writing. `snapshot` executes the private dashboard and returns its public-safe dashboard shape plus point, event, state, and map data without publishing it.
 
 `--refresh` accepts `1`, `5`, `10`, `60`, or `never`. New dashboards default to five-second refresh. Updating DSL preserves the dashboard's current refresh setting unless `--refresh` is supplied.
 
@@ -478,7 +478,8 @@ Individual event rows include `id`, `kind`, `ts`, `value`, `sourceId`, `entityId
   },
   "points": { "widget-id": [{ "bucket": "2026-07-12T12:00:00.000Z", "value": 61.2 }] },
   "events": { "widget-id": [] },
-  "states": { "widget-id": [] }
+  "states": { "widget-id": [] },
+  "maps": { "widget-id": [] }
 }
 ```
 

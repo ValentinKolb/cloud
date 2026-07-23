@@ -29,6 +29,10 @@ describe("pulse help", () => {
     expect(dashboardHelp).toContain('An empty `dashboard "Name" {}` document is valid');
     expect(dashboardHelp).toContain("Dashboard statements and visual names are case-sensitive");
     expect(dashboardHelp).toContain("`visual <type>`");
+    expect(dashboardHelp).toContain('map "Recent engagement"');
+    expect(dashboardHelp).toContain("latitude attribute geo.latitude");
+    expect(dashboardHelp).toContain("Sensitive fields cannot be selected");
+    expect(dashboardHelp).toContain("at most 1,000 aggregated points");
     expect(dashboardHelp).toContain("Dashboard DSL is limited to 40,000 characters");
   });
 

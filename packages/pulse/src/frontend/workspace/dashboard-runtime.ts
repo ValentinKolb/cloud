@@ -4,8 +4,10 @@ import type {
   PulseDashboard,
   PulseDashboardConfig,
   PulseDashboardEventsWidget,
+  PulseDashboardMapWidget,
   PulseDashboardMetricWidget,
   PulseDashboardStatesWidget,
+  PulseMapSeries,
   PulseRecordedEvent,
 } from "../../contracts";
 import { jsonFetch } from "../http";
@@ -49,7 +51,7 @@ const metricWidgetQueryText = (widget: PulseDashboardMetricWidget): string => {
   );
 };
 
-const fetchDashboardQuery = <T,>(baseId: string, query: string, signal?: AbortSignal): Promise<T> =>
+const fetchDashboardQuery = <T>(baseId: string, query: string, signal?: AbortSignal): Promise<T> =>
   jsonFetch<T>("/api/pulse/query/metric-text", {
     method: "POST",
     signal,
@@ -103,4 +105,28 @@ export const fetchDashboardStatesWidgetRows = async (input: {
   );
   const data = await fetchDashboardQuery<{ states: PulseCurrentState[] }>(input.baseId, query, input.signal);
   return data.states ?? [];
+};
+
+export const fetchDashboardMapWidgetSeries = async (input: {
+  baseId: string;
+  config: PulseDashboardConfig;
+  controlValues?: Record<string, string>;
+  dashboard: PulseDashboard;
+  signal?: AbortSignal;
+  widget: PulseDashboardMapWidget;
+}): Promise<PulseMapSeries[]> => {
+  const query = resolveDashboardQueryText(input.widget.queryText, input.dashboard, input.config, input.controlValues);
+  return jsonFetch<PulseMapSeries[]>("/api/pulse/query/event-map", {
+    method: "POST",
+    signal: input.signal,
+    body: JSON.stringify({
+      baseId: input.baseId,
+      query,
+      latitude: input.widget.latitude,
+      longitude: input.widget.longitude,
+      label: input.widget.label,
+      series: input.widget.series,
+      size: input.widget.size,
+    }),
+  });
 };

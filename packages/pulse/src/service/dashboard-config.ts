@@ -1,24 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
-import { compileDashboardDsl } from "../dashboard-dsl";
-import { compilePulseQueryText } from "../query-dsl";
 import type {
-  Aggregation,
   PulseDashboard,
   PulseDashboardCardWidget,
   PulseDashboardConfig,
   PulseDashboardControl,
   PulseDashboardEventsWidget,
   PulseDashboardLayout,
+  PulseDashboardMapWidget,
   PulseDashboardMarkdownWidget,
   PulseDashboardMetricQuery,
   PulseDashboardMetricWidget,
   PulseDashboardRow,
   PulseDashboardSection,
-  PulseDashboardStateQuery,
   PulseDashboardStatesWidget,
   PulseDashboardWidget,
+  PulseMapFieldSelector,
 } from "../contracts";
+import { compileDashboardDsl } from "../dashboard-dsl";
+import { compilePulseQueryText } from "../query-dsl";
 import {
   isRecord,
   normalizeAggregation,
@@ -31,7 +31,8 @@ import {
   normalizeVisual,
   parseDashboardJson,
 } from "./dashboard-config-primitives";
-export { dashboardEventsWidgets, dashboardMetricWidgets, dashboardStatesWidgets } from "./dashboard-widget-selectors";
+
+export { dashboardEventsWidgets, dashboardMapWidgets, dashboardMetricWidgets, dashboardStatesWidgets } from "./dashboard-widget-selectors";
 
 const normalizeDashboardDimensions = (dimensions: Record<string, unknown> | undefined): Record<string, string> => {
   const entries = Object.entries(dimensions ?? {})
@@ -58,8 +59,7 @@ const normalizeMetricWidgetBase = (value: Record<string, unknown>) => {
   return { id, title, metric, visual, aggregation, bucket, since, sourceId, entityId, entityType, dimensions };
 };
 
-const normalizeId = (value: unknown): string =>
-  typeof value === "string" && value.trim() ? value.trim().slice(0, 80) : randomUUID();
+const normalizeId = (value: unknown): string => (typeof value === "string" && value.trim() ? value.trim().slice(0, 80) : randomUUID());
 
 const normalizeTitle = (value: unknown, fallback: string): string =>
   typeof value === "string" && value.trim() ? value.trim().slice(0, 160) : fallback;
@@ -170,17 +170,70 @@ const normalizeTableQueryBase = (rawQuery: Record<string, unknown>) => ({
   limit: typeof rawQuery.limit === "number" && Number.isInteger(rawQuery.limit) ? Math.min(1_000, Math.max(1, rawQuery.limit)) : 500,
 });
 
-const normalizeTableQueryName = (value: unknown): string | null =>
-  typeof value === "string" && value.trim() ? value : null;
+const normalizeTableQueryName = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value : null);
 
 const normalizeEventsWidget = (value: Record<string, unknown>): PulseDashboardEventsWidget | null => {
   const rawQuery = isRecord(value.query) ? value.query : null;
   if (rawQuery?.kind !== "events") return null;
-  return applyDescription<PulseDashboardEventsWidget>({
+  return applyDescription<PulseDashboardEventsWidget>(
+    {
+      id: normalizeId(value.id),
+      kind: "events",
+      title: normalizeTitle(value.title, "Events"),
+      visual: "table",
+      queryText: normalizeWidgetQueryText(value),
+      query: {
+        kind: "events",
+        event: normalizeTableQueryName(rawQuery.event),
+        since: normalizeDurationToken(rawQuery.since, "24h"),
+        ...normalizeTableQueryBase(rawQuery),
+      },
+      conditions: normalizeConditions(value.conditions),
+      span: normalizeSpan(value.span),
+    },
+    value,
+  );
+};
+
+const normalizeStatesWidget = (value: Record<string, unknown>): PulseDashboardStatesWidget | null => {
+  const rawQuery = isRecord(value.query) ? value.query : null;
+  if (rawQuery?.kind !== "states") return null;
+  return applyDescription<PulseDashboardStatesWidget>(
+    {
+      id: normalizeId(value.id),
+      kind: "states",
+      title: normalizeTitle(value.title, "States"),
+      visual: value.visual === "stat" ? "stat" : "table",
+      queryText: normalizeWidgetQueryText(value),
+      query: {
+        kind: "states",
+        state: normalizeTableQueryName(rawQuery.state),
+        since: normalizeDurationToken(rawQuery.since, "") || null,
+        ...normalizeTableQueryBase(rawQuery),
+      },
+      conditions: normalizeConditions(value.conditions),
+      span: normalizeSpan(value.span),
+    },
+    value,
+  );
+};
+
+const normalizeMapFieldSelector = (value: unknown): PulseMapFieldSelector | null => {
+  if (!isRecord(value) || (value.role !== "dimension" && value.role !== "attribute")) return null;
+  const path = normalizeTrimmedString(value.path, 240);
+  if (!path || (value.role === "attribute" && !path.split(".").every(Boolean))) return null;
+  return { role: value.role, path };
+};
+
+const normalizeMapWidget = (value: Record<string, unknown>): PulseDashboardMapWidget | null => {
+  const rawQuery = isRecord(value.query) ? value.query : null;
+  const latitude = normalizeMapFieldSelector(value.latitude);
+  const longitude = normalizeMapFieldSelector(value.longitude);
+  if (rawQuery?.kind !== "events" || !latitude || !longitude) return null;
+  const result: PulseDashboardMapWidget = {
     id: normalizeId(value.id),
-    kind: "events",
-    title: normalizeTitle(value.title, "Events"),
-    visual: "table",
+    kind: "map",
+    title: normalizeTitle(value.title, "Map"),
     queryText: normalizeWidgetQueryText(value),
     query: {
       kind: "events",
@@ -188,29 +241,16 @@ const normalizeEventsWidget = (value: Record<string, unknown>): PulseDashboardEv
       since: normalizeDurationToken(rawQuery.since, "24h"),
       ...normalizeTableQueryBase(rawQuery),
     },
-    conditions: normalizeConditions(value.conditions),
+    latitude,
+    longitude,
+    size: value.size === "sum" ? "sum" : "count",
     span: normalizeSpan(value.span),
-  }, value);
-};
-
-const normalizeStatesWidget = (value: Record<string, unknown>): PulseDashboardStatesWidget | null => {
-  const rawQuery = isRecord(value.query) ? value.query : null;
-  if (rawQuery?.kind !== "states") return null;
-  return applyDescription<PulseDashboardStatesWidget>({
-    id: normalizeId(value.id),
-    kind: "states",
-    title: normalizeTitle(value.title, "States"),
-    visual: value.visual === "stat" ? "stat" : "table",
-    queryText: normalizeWidgetQueryText(value),
-    query: {
-      kind: "states",
-      state: normalizeTableQueryName(rawQuery.state),
-      since: normalizeDurationToken(rawQuery.since, "") || null,
-      ...normalizeTableQueryBase(rawQuery),
-    },
-    conditions: normalizeConditions(value.conditions),
-    span: normalizeSpan(value.span),
-  }, value);
+  };
+  const label = normalizeMapFieldSelector(value.label);
+  const series = normalizeMapFieldSelector(value.series);
+  if (label) result.label = label;
+  if (series) result.series = series;
+  return applyDescription(result, value);
 };
 
 const normalizeCardWidget = (value: Record<string, unknown>): PulseDashboardCardWidget | null => {
@@ -241,12 +281,18 @@ const normalizeWidget = (widget: unknown): PulseDashboardWidget | null => {
   if (widget.kind === "metric") return normalizeMetricWidget(widget);
   if (widget.kind === "events") return normalizeEventsWidget(widget);
   if (widget.kind === "states") return normalizeStatesWidget(widget);
+  if (widget.kind === "map") return normalizeMapWidget(widget);
   if (widget.kind === "card") return normalizeCardWidget(widget);
   return null;
 };
 
 const normalizeRowCells = (cells: unknown): PulseDashboardWidget[] =>
-  Array.isArray(cells) ? cells.map(normalizeWidget).filter((cell): cell is PulseDashboardWidget => cell !== null).slice(0, 12) : [];
+  Array.isArray(cells)
+    ? cells
+        .map(normalizeWidget)
+        .filter((cell): cell is PulseDashboardWidget => cell !== null)
+        .slice(0, 12)
+    : [];
 
 const normalizeRow = (row: unknown): PulseDashboardRow | null => {
   if (!isRecord(row)) return null;
@@ -263,7 +309,12 @@ const normalizeRow = (row: unknown): PulseDashboardRow | null => {
 };
 
 const normalizeRows = (rows: unknown): PulseDashboardRow[] =>
-  Array.isArray(rows) ? rows.map(normalizeRow).filter((row): row is PulseDashboardRow => row !== null).slice(0, 24) : [];
+  Array.isArray(rows)
+    ? rows
+        .map(normalizeRow)
+        .filter((row): row is PulseDashboardRow => row !== null)
+        .slice(0, 24)
+    : [];
 
 const normalizeChildSections = (sections: unknown, depth: number): PulseDashboardSection[] =>
   Array.isArray(sections)
@@ -282,12 +333,15 @@ const normalizeSection = (section: unknown, depth = 0): PulseDashboardSection | 
   const rows = normalizeRows(value.rows);
   const sections = normalizeChildSections(value.sections, depth);
   if (rows.length === 0 && sections.length === 0) return null;
-  const result = applyDescription<PulseDashboardSection>({
-    id: normalizeId(value.id),
-    kind: "section",
-    title,
-    rows,
-  }, value);
+  const result = applyDescription<PulseDashboardSection>(
+    {
+      id: normalizeId(value.id),
+      kind: "section",
+      title,
+      rows,
+    },
+    value,
+  );
   if (sections.length) result.sections = sections;
   return result;
 };
@@ -303,7 +357,12 @@ const normalizeLayout = (layout: unknown): PulseDashboardLayout | null => {
   const result: PulseDashboardLayout = { version: 1, sections: sections.slice(0, 24) };
   const description = normalizeDescription(value.description, 1_000);
   if (description !== undefined) result.description = description;
-  const controls = Array.isArray(value.controls) ? value.controls.map(normalizeControl).filter((control): control is PulseDashboardControl => control !== null).slice(0, 24) : [];
+  const controls = Array.isArray(value.controls)
+    ? value.controls
+        .map(normalizeControl)
+        .filter((control): control is PulseDashboardControl => control !== null)
+        .slice(0, 24)
+    : [];
   if (controls.length) result.controls = controls;
   return result;
 };
@@ -311,9 +370,7 @@ const normalizeLayout = (layout: unknown): PulseDashboardLayout | null => {
 export const normalizeDashboardConfig = (config: unknown): PulseDashboardConfig => {
   const parsed = parseDashboardJson(config);
   const raw =
-    typeof parsed === "object" && parsed !== null
-      ? (parsed as { layout?: unknown; dsl?: unknown; refreshIntervalSeconds?: unknown })
-      : {};
+    typeof parsed === "object" && parsed !== null ? (parsed as { layout?: unknown; dsl?: unknown; refreshIntervalSeconds?: unknown }) : {};
   const dsl = typeof raw.dsl === "string" && raw.dsl.trim() ? raw.dsl.trim().slice(0, 40_000) : "";
   const result: PulseDashboardConfig = {
     dsl,

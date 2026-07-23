@@ -1,20 +1,22 @@
-import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
-import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { get as getSetting } from "@valentinkolb/cloud/services";
+import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
 import type {
   MetricQuery,
   MetricQueryPoint,
+  MetricType,
   PulseCurrentState,
   PulseDashboard,
   PulseDashboardConfig,
   PulseDashboardControl,
   PulseDashboardEventsWidget,
+  PulseDashboardMapWidget,
   PulseDashboardMetricWidget,
   PulseDashboardStatesWidget,
   PulseInventory,
+  PulseMapSeries,
   PulseMetricSeries,
-  MetricType,
   PulseRecordedEvent,
   PulseResourceMetric,
   PulseResourceSummary,
@@ -26,6 +28,7 @@ import { pulseService } from "../../service";
 import type { UserScope } from "../../service/access-control";
 import {
   dashboardEventsWidgets,
+  dashboardMapWidgets,
   dashboardMetricWidgets,
   dashboardStatesWidgets,
   FOCUSED_PAGE_SIZE,
@@ -71,6 +74,7 @@ type DashboardWidgetData = {
   initialMetricWidgetPoints: Record<string, MetricQueryPoint[]>;
   initialDashboardEvents: Record<string, PulseRecordedEvent[]>;
   initialDashboardStates: Record<string, PulseCurrentState[]>;
+  initialDashboardMaps: Record<string, PulseMapSeries[]>;
 };
 
 type ResourceInitialData = {
@@ -254,10 +258,10 @@ const loadDashboardWidgetData = async (
   controlValues: DashboardControlValues,
 ): Promise<DashboardWidgetData> => {
   if (!selectedDashboard || (routeState.view !== "dashboard" && routeState.view !== "dashboard-edit")) {
-    return { initialMetricWidgetPoints: {}, initialDashboardEvents: {}, initialDashboardStates: {} };
+    return { initialMetricWidgetPoints: {}, initialDashboardEvents: {}, initialDashboardStates: {}, initialDashboardMaps: {} };
   }
 
-  const [metricWidgetPointEntries, eventEntries, stateEntries] = await Promise.all([
+  const [metricWidgetPointEntries, eventEntries, stateEntries, mapEntries] = await Promise.all([
     Promise.all(
       dashboardMetricWidgets(selectedDashboard.config).map(async (widget): Promise<[string, MetricQueryPoint[]]> => {
         const result = await pulseService.query.metric(metricWidgetQuery(baseId, selectedDashboard, widget, controlValues), user);
@@ -284,12 +288,28 @@ const loadDashboardWidgetData = async (
         return [widget.id, result.ok ? result.data.states : []];
       }),
     ),
+    Promise.all(
+      dashboardMapWidgets(selectedDashboard.config).map(async (widget: PulseDashboardMapWidget): Promise<[string, PulseMapSeries[]]> => {
+        const result = await pulseService.query.eventMapText({
+          baseId,
+          query: resolveDashboardQueryText(widget.queryText, selectedDashboard.config, controlValues),
+          latitude: widget.latitude,
+          longitude: widget.longitude,
+          label: widget.label,
+          series: widget.series,
+          size: widget.size,
+          user,
+        });
+        return [widget.id, result.ok ? result.data : []];
+      }),
+    ),
   ]);
 
   return {
     initialMetricWidgetPoints: Object.fromEntries(metricWidgetPointEntries),
     initialDashboardEvents: Object.fromEntries(eventEntries),
     initialDashboardStates: Object.fromEntries(stateEntries),
+    initialDashboardMaps: Object.fromEntries(mapEntries),
   };
 };
 
@@ -449,5 +469,6 @@ async function loadPulseWorkspaceInitialData(params: {
     initialMetricWidgetPoints: widgetData.initialMetricWidgetPoints,
     initialDashboardEvents: widgetData.initialDashboardEvents,
     initialDashboardStates: widgetData.initialDashboardStates,
+    initialDashboardMaps: widgetData.initialDashboardMaps,
   };
 }

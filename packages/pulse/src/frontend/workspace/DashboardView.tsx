@@ -1,7 +1,7 @@
-import { Chart, DataTable, MarkdownView, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { Chart, DataTable, MarkdownView, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { createMemo, For, Show, type Accessor } from "solid-js";
+import { type Accessor, createMemo, For, Show } from "solid-js";
 import type {
   MetricQueryPoint,
   PulseCurrentState,
@@ -10,12 +10,14 @@ import type {
   PulseDashboardConfig,
   PulseDashboardControl,
   PulseDashboardEventsWidget,
+  PulseDashboardMapWidget,
   PulseDashboardMarkdownWidget,
   PulseDashboardMetricWidget,
   PulseDashboardRow,
   PulseDashboardSection,
   PulseDashboardStatesWidget,
   PulseDashboardWidget,
+  PulseMapSeries,
   PulseMetricSummary,
   PulseRecordedEvent,
   PulseSource,
@@ -42,6 +44,7 @@ export type DashboardRenderContext = {
   metricWidgetPoints: Accessor<Record<string, MetricQueryPoint[]>>;
   dashboardEvents: Accessor<Record<string, PulseRecordedEvent[]>>;
   dashboardStates: Accessor<Record<string, PulseCurrentState[]>>;
+  dashboardMaps: Accessor<Record<string, PulseMapSeries[]>>;
   metricByName: Accessor<Map<string, PulseMetricSummary>>;
   sourceNameById: Accessor<Map<string, string>>;
   sources: Accessor<PulseSource[]>;
@@ -238,6 +241,8 @@ const DashboardWidget = (props: { widget: PulseDashboardWidget; cellCount: numbe
         <EventsWidget widget={props.widget} context={props.context} />
       ) : props.widget.kind === "states" ? (
         <StatesWidget widget={props.widget} context={props.context} />
+      ) : props.widget.kind === "map" ? (
+        <MapWidget widget={props.widget} context={props.context} />
       ) : (
         <CardWidget widget={props.widget} context={props.context} />
       )}
@@ -332,6 +337,26 @@ const StatesWidget = (props: { widget: PulseDashboardStatesWidget; context: Dash
   );
 };
 
+function MapWidget(props: { widget: PulseDashboardMapWidget; context: DashboardRenderContext }) {
+  const series = () => props.context.dashboardMaps()[props.widget.id] ?? [];
+  return (
+    <article class="paper h-full p-4">
+      <div class="mb-3">
+        <p class="text-sm font-semibold text-primary">{props.widget.title}</p>
+        <Show when={props.widget.description}>
+          {(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}
+        </Show>
+      </div>
+      <Show
+        when={series().some((item) => item.data.length)}
+        fallback={<div class="flex h-64 items-center justify-center text-sm text-dimmed">No valid map points matched this query.</div>}
+      >
+        <Chart kind="map" class="h-64 text-dimmed" series={series()} legend={series().some((item) => Boolean(item.label))} />
+      </Show>
+    </article>
+  );
+}
+
 const DashboardSection = (props: { section: PulseDashboardSection; context: DashboardRenderContext }) => (
   <section class="space-y-3">
     <div>
@@ -359,12 +384,12 @@ const DashboardControls = (props: { dashboard: PulseDashboard; config: PulseDash
           {(control) => {
             const options = dashboardControlOptions(control, props.context);
             return (
-              <label class="min-w-40 text-xs font-semibold text-secondary">
-                <span class="mb-1 block">{control.label}</span>
+              <div class="min-w-40">
                 <Show
                   when={options.length}
                   fallback={
                     <TextInput
+                      label={control.label}
                       icon={control.kind === "entity" ? "ti ti-cube" : control.kind === "text" ? "ti ti-search" : "ti ti-filter"}
                       value={() => dashboardControlValue(props.dashboard, control, props.context)}
                       onInput={(value) => props.context.onControlChange(props.dashboard, control, value, props.config)}
@@ -373,6 +398,7 @@ const DashboardControls = (props: { dashboard: PulseDashboard; config: PulseDash
                   }
                 >
                   <SelectInput
+                    label={control.label}
                     icon={
                       control.kind === "range"
                         ? "ti ti-clock"
@@ -387,7 +413,7 @@ const DashboardControls = (props: { dashboard: PulseDashboard; config: PulseDash
                     options={options}
                   />
                 </Show>
-              </label>
+              </div>
             );
           }}
         </For>

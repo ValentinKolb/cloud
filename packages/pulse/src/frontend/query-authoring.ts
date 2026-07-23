@@ -1,5 +1,4 @@
 import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
-import { AGGREGATIONS } from "../contracts";
 import type {
   PulseCurrentState,
   PulseMetricSeries,
@@ -8,6 +7,7 @@ import type {
   PulseSignalField,
   PulseSource,
 } from "../contracts";
+import { AGGREGATIONS } from "../contracts";
 
 type PulseQueryAuthoringInventory = {
   metrics: PulseMetricSummary[];
@@ -46,11 +46,9 @@ const suggestion = (text: string, hint?: string, expansion?: string): Suggestion
 });
 
 const statementSuggestions = (query: string): Suggestion[] =>
-  [
-    suggestion("metric", "metric time series"),
-    suggestion("events", "event rows"),
-    suggestion("states", "current states"),
-  ].filter((item) => matches(item.text, query));
+  [suggestion("metric", "metric time series"), suggestion("events", "event rows"), suggestion("states", "current states")].filter((item) =>
+    matches(item.text, query),
+  );
 
 const metricNameSuggestions = (metrics: PulseMetricSummary[], query: string): Suggestion[] =>
   metrics
@@ -87,20 +85,31 @@ const withTriggerPrefix = (trigger: string, items: Suggestion[]): Suggestion[] =
 
 const uniqueValues = (values: (string | null | undefined)[]): string[] => [...new Set(values.filter((value): value is string => !!value))];
 
-const signalNames = (
-  params: PulseQueryAuthoringInventory,
-  scope: PulseSignalField["scope"],
-  loadedNames: string[],
-): string[] => uniqueValues([...loadedNames, ...(params.fields ?? []).filter((field) => field.scope === scope).map((field) => field.signalName)]);
+const signalNames = (params: PulseQueryAuthoringInventory, scope: PulseSignalField["scope"], loadedNames: string[]): string[] =>
+  uniqueValues([...loadedNames, ...(params.fields ?? []).filter((field) => field.scope === scope).map((field) => field.signalName)]);
 
 const eventKindSuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] =>
-  ["*", ...signalNames(params, "event", (params.events ?? []).map((event) => event.kind))]
+  [
+    "*",
+    ...signalNames(
+      params,
+      "event",
+      (params.events ?? []).map((event) => event.kind),
+    ),
+  ]
     .filter((kind) => matches(kind, query))
     .slice(0, 40)
     .map((kind) => suggestion(kind, kind === "*" ? "all events" : "event kind", quoteQueryValue(kind)));
 
 const stateKeySuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] =>
-  ["*", ...signalNames(params, "state", (params.states ?? []).map((state) => state.key))]
+  [
+    "*",
+    ...signalNames(
+      params,
+      "state",
+      (params.states ?? []).map((state) => state.key),
+    ),
+  ]
     .filter((key) => matches(key, query))
     .slice(0, 40)
     .map((key) => suggestion(key, key === "*" ? "all states" : "state key", quoteQueryValue(key)));
@@ -137,17 +146,19 @@ const dimensionSuggestions = (params: PulseQueryAuthoringInventory, query: strin
     .slice(0, 40)
     .map(([key, values]) => {
       const value = [...values][0] ?? "";
-      return suggestion(`${key}=`, values.size ? `${values.size} values` : "dimension", value ? `${key}=${quoteQueryValue(value)}` : `${key}=`);
+      return suggestion(
+        `${key}=`,
+        values.size ? `${values.size} values` : "dimension",
+        value ? `${key}=${quoteQueryValue(value)}` : `${key}=`,
+      );
     });
 };
 
 const dimensionKeySuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] =>
-  uniqueValues(
-    [
-      ...(params.fields ?? []).filter((field) => field.role === "dimension").map((field) => field.key),
-      ...[...params.series, ...(params.events ?? []), ...(params.states ?? [])].flatMap((item) => Object.keys(item.dimensions)),
-    ],
-  )
+  uniqueValues([
+    ...(params.fields ?? []).filter((field) => field.role === "dimension").map((field) => field.key),
+    ...[...params.series, ...(params.events ?? []), ...(params.states ?? [])].flatMap((item) => Object.keys(item.dimensions)),
+  ])
     .filter((key) => matches(key, query))
     .slice(0, 40)
     .map((key) => suggestion(key, "dimension key"));
@@ -208,10 +219,7 @@ const rowStatementSuggestions =
     const names = kind === "events" ? eventKindSuggestions(params, query) : stateKeySuggestions(params, query);
     if (tokenIndex === 1) return names;
     if (kind === "events" && tokenIndex === 2)
-      return [
-        ...literalSuggestions(["count", "sum", "unique"], query, "event aggregation"),
-        ...clauseSuggestions(kind, query, text),
-      ];
+      return [...literalSuggestions(["count", "sum", "unique"], query, "event aggregation"), ...clauseSuggestions(kind, query, text)];
     return clauseSuggestions(kind, query, text);
   };
 
@@ -305,7 +313,10 @@ const readWordEnd = (text: string, start: number, pattern: RegExp): number => {
   return end;
 };
 
-const highlightWords = (text: string, options: { wordPattern: RegExp; token: (token: string) => string; tripleQuoted?: boolean }): string => {
+const highlightWords = (
+  text: string,
+  options: { wordPattern: RegExp; token: (token: string) => string; tripleQuoted?: boolean },
+): string => {
   let out = "";
   let i = 0;
   while (i < text.length) {
@@ -384,6 +395,7 @@ const DASHBOARD_DSL_KEYWORDS = new Set([
   "line",
   "bar",
   "barGauge",
+  "map",
   "table",
   "markdown",
   "query",
@@ -391,6 +403,15 @@ const DASHBOARD_DSL_KEYWORDS = new Set([
   "critical",
   "when",
   "message",
+  "latitude",
+  "longitude",
+  "label",
+  "series",
+  "size",
+  "dimension",
+  "attribute",
+  "count",
+  "sum",
 ]);
 
 const DASHBOARD_QUERY_KEYWORDS = new Set(["metric", "events", "states", "every", "since", "where", "limit", "entity_type"]);
@@ -398,7 +419,8 @@ const DASHBOARD_QUERY_KEYWORDS = new Set(["metric", "events", "states", "every",
 const dashboardTokenHighlight = (token: string): string => {
   const lower = token.toLowerCase();
   if (DASHBOARD_DSL_KEYWORDS.has(token) || DASHBOARD_QUERY_KEYWORDS.has(lower)) return keywordSpan(token);
-  if (AGGREGATIONS.includes(lower as (typeof AGGREGATIONS)[number]) || lower === "latest" || lower === "increase") return aggregationSpan(token);
+  if (AGGREGATIONS.includes(lower as (typeof AGGREGATIONS)[number]) || lower === "latest" || lower === "increase")
+    return aggregationSpan(token);
   if (/^\$?[0-9]+[mhd]?$/.test(lower) || lower.startsWith("$")) return literalSpan(token);
   return escapeHtml(token);
 };

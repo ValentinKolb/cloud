@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { IngestBatchSchema, UpdateBaseSchema } from "./schemas";
+import { EventMapQueryTextSchema, IngestBatchSchema, UpdateBaseSchema } from "./schemas";
 
 describe("Pulse ingest API limits", () => {
   test("accepts the documented external maximum", () => {
@@ -39,9 +39,33 @@ describe("Pulse ingest API limits", () => {
   });
 
   test("accepts the three explicit V1 retention classes", () => {
-    expect(
-      UpdateBaseSchema.safeParse({ rawRetentionDays: 30, rollupRetentionDays: 365, sensitiveRetentionHours: 24 }).success,
-    ).toBe(true);
+    expect(UpdateBaseSchema.safeParse({ rawRetentionDays: 30, rollupRetentionDays: 365, sensitiveRetentionHours: 24 }).success).toBe(true);
     expect(UpdateBaseSchema.safeParse({ retentionDays: 30 }).success).toBe(false);
+  });
+});
+
+describe("Pulse event map API limits", () => {
+  test("accepts public field selectors and rejects malformed or sensitive selectors", () => {
+    const input = {
+      baseId: "00000000-0000-4000-8000-000000000000",
+      query: "events qr.opened since 24h",
+      latitude: { role: "attribute", path: "geo.latitude" },
+      longitude: { role: "dimension", path: "longitude" },
+      size: "count",
+    };
+
+    expect(EventMapQueryTextSchema.safeParse(input).success).toBe(true);
+    expect(
+      EventMapQueryTextSchema.safeParse({
+        ...input,
+        latitude: { role: "attribute", path: "geo..latitude" },
+      }).success,
+    ).toBe(false);
+    expect(
+      EventMapQueryTextSchema.safeParse({
+        ...input,
+        latitude: { role: "sensitive", path: "geo.latitude" },
+      }).success,
+    ).toBe(false);
   });
 });

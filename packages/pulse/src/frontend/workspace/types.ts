@@ -3,22 +3,23 @@ import type { PanesValue, ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type {
   MetricQueryPoint,
-  MetricType,
   PulseBase,
   PulseCapabilitySnapshot,
   PulseCurrentState,
   PulseDashboard,
   PulseExplorerQuery,
   PulseInventory,
+  PulseMapSeries,
   PulseMetricSeries,
   PulseMetricSummary,
-  PulseQueryCompileResult,
   PulseRecordedEvent,
   PulseSavedQuery,
   PulseSource,
   PulseSourceScrape,
 } from "../../contracts";
+
 export type { WorkspaceView } from "./routes";
+
 import type { ActivityQueryState, ResourceQueryState, WorkspaceRouteState } from "./routes";
 
 export type MetricTextQueryResult = {
@@ -97,6 +98,7 @@ export type PulseWorkspaceProps = {
   initialMetricWidgetPoints?: Record<string, MetricQueryPoint[]>;
   initialDashboardEvents?: Record<string, PulseRecordedEvent[]>;
   initialDashboardStates?: Record<string, PulseCurrentState[]>;
+  initialDashboardMaps?: Record<string, PulseMapSeries[]>;
   initialExplorerPanesValue?: PanesValue | null;
   initialDashboardEditorPanesValue?: PanesValue | null;
   initialDateConfig?: DateContext;
