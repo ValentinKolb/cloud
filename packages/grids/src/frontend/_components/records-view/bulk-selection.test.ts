@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
+import {
+  bulkSelectionRunPayload,
+  bulkWorkflowActionLabel,
+  bulkWorkflowTargetLabel,
+  pruneBulkSelection,
+  sameBulkSelection,
+} from "./bulk-selection";
 
 describe("records bulk selection helpers", () => {
   test("sends explicit record ids when the user selected rows", () => {
@@ -26,5 +32,11 @@ describe("records bulk selection helpers", () => {
   test("labels workflow actions by the active run scope", () => {
     expect(bulkWorkflowActionLabel("Print labels", 0)).toBe("Run Print labels for current query");
     expect(bulkWorkflowActionLabel("Print labels", 3)).toBe("Run Print labels for 3 selected");
+  });
+
+  test("describes the queued workflow target without reporting zero records", () => {
+    expect(bulkWorkflowTargetLabel(0)).toBe("the current result set");
+    expect(bulkWorkflowTargetLabel(1)).toBe("1 record");
+    expect(bulkWorkflowTargetLabel(3)).toBe("3 records");
   });
 });

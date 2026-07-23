@@ -1,4 +1,4 @@
-import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, SelectInput, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createMemo, createSignal, For, Index, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -502,9 +502,11 @@ function InlineRelationCreate(props: {
               <div class="flex flex-col gap-2">
                 <Show when={props.multi}>
                   <div class="flex justify-end">
-                    <button type="button" class="icon-btn h-7 w-7" onClick={() => removeDraft(index)} aria-label="Remove draft">
-                      <i class="ti ti-x" />
-                    </button>
+                    <Tooltip content="Remove draft">
+                      <button type="button" class="icon-btn h-7 w-7" onClick={() => removeDraft(index)} aria-label="Remove draft">
+                        <i class="ti ti-x" />
+                      </button>
+                    </Tooltip>
                   </div>
                 </Show>
                 <For each={inlineFields()}>

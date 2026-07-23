@@ -6,7 +6,7 @@ import type { RecordQuery } from "../../../contracts";
 import type { GridRecord } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceBulkLauncher } from "../workspace/workspace-state-model";
-import { bulkSelectionRunPayload, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
+import { bulkSelectionRunPayload, bulkWorkflowTargetLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 
 type BulkWorkflowRunInput = {
   launcher: WorkspaceBulkLauncher;
@@ -47,7 +47,7 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
     });
   };
 
-  const runWorkflow = mutation.create<{ runId: string; status: string }, BulkWorkflowRunInput>({
+  const runWorkflow = mutation.create<{ runId: string; status: string; launcherName: string; targetLabel: string }, BulkWorkflowRunInput>({
     mutation: async ({ launcher, selectedRecordIds, query }, { abortSignal }) => {
       const response = await apiClient.workflows.launchers[":launcherId"].invoke.bulk.$post(
         {
@@ -63,11 +63,18 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not start workflow."));
-      return response.json();
+      const run = await response.json();
+      return {
+        ...run,
+        launcherName: launcher.name,
+        targetLabel: bulkWorkflowTargetLabel(selectedRecordIds.length),
+      };
     },
     onSuccess: (run) => {
       clear();
-      toast.success(`Workflow queued: ${run.status}`);
+      toast.success(`${run.launcherName} queued for ${run.targetLabel}.`, {
+        title: "Workflow queued",
+      });
     },
     onError: (error) => prompts.error(error.message),
   });

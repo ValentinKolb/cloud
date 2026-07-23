@@ -99,26 +99,43 @@ export default function RecordsPrimaryToolbar(props: Props) {
             </span>
           }
           elements={[
-            { icon: "ti ti-user-search", label: "Record metadata", action: props.onOpenRecordMetadata },
-            { icon: "ti ti-download", label: "Export records", action: props.onExport },
-            ...props.bulkLaunchers.map((launcher) => ({
-              icon: "ti ti-route",
-              label: bulkWorkflowActionLabel(launcher.name, props.selectedBulkCount),
-              action: () => props.onQueueBulkWorkflow(launcher),
-            })),
-            { icon: "ti ti-code", label: "Open query", href: props.queryHref },
-            ...(props.tableKind === "federated" && props.canReadTable
-              ? [{ icon: "ti ti-history", label: "Audit trail", action: props.onOpenCombinedAudit }]
-              : []),
-            ...(props.canReadTable
+            {
+              sectionLabel: "Records",
+              items: [
+                { icon: "ti ti-user-search", label: "Record metadata", action: props.onOpenRecordMetadata },
+                { icon: "ti ti-download", label: "Export records", action: props.onExport },
+              ],
+            },
+            ...(props.bulkLaunchers.length > 0
               ? [
                   {
-                    icon: "ti ti-archive",
-                    label: "Show deleted",
-                    href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
+                    sectionLabel: "Workflows",
+                    items: props.bulkLaunchers.map((launcher) => ({
+                      icon: "ti ti-route",
+                      label: bulkWorkflowActionLabel(launcher.name, props.selectedBulkCount),
+                      action: () => props.onQueueBulkWorkflow(launcher),
+                    })),
                   },
                 ]
               : []),
+            {
+              sectionLabel: "Explore",
+              items: [
+                { icon: "ti ti-code", label: "Open query", href: props.queryHref },
+                ...(props.tableKind === "federated" && props.canReadTable
+                  ? [{ icon: "ti ti-history", label: "Audit trail", action: props.onOpenCombinedAudit }]
+                  : []),
+                ...(props.canReadTable
+                  ? [
+                      {
+                        icon: "ti ti-archive",
+                        label: "Show deleted",
+                        href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
+                      },
+                    ]
+                  : []),
+              ],
+            },
           ]}
         />
       </Show>

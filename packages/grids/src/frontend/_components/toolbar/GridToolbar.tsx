@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -299,15 +299,19 @@ export default function GridToolbar(props: Props) {
         </Show>
 
         {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
-        <button
-          type="button"
-          class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
-          onClick={onFilterClick}
-          disabled={!hasFilterableFields()}
-        >
-          <i class="ti ti-filter" />
-          Filter
-        </button>
+        <Tooltip content={hasFilterableFields() ? "" : "This table has no filterable fields."} disabled={hasFilterableFields()}>
+          <span class="inline-flex">
+            <button
+              type="button"
+              class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
+              onClick={onFilterClick}
+              disabled={!hasFilterableFields()}
+            >
+              <i class="ti ti-filter" />
+              Filter
+            </button>
+          </span>
+        </Tooltip>
 
         {/* Sort */}
         <button type="button" class={`btn-input btn-input-sm ${hasSort() ? "btn-input-active" : ""}`} onClick={onSortClick}>
@@ -344,8 +348,8 @@ export default function GridToolbar(props: Props) {
             becomes read-only after save. */}
         <Show when={hasSaveableQuery()}>
           <button type="button" class="btn-input btn-input-sm ml-auto" onClick={handleSaveView} disabled={saveViewMut.loading()}>
-            <i class="ti ti-bookmark-plus" />
-            Save as view
+            <i class={`ti ${saveViewMut.loading() ? "ti-loader-2 animate-spin" : "ti-bookmark-plus"}`} />
+            {saveViewMut.loading() ? "Saving…" : "Save as view"}
           </button>
         </Show>
       </div>

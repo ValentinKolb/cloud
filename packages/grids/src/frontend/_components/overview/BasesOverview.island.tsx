@@ -38,6 +38,7 @@ export default function BasesOverview(props: Props) {
   const [bases, setBases] = createSignal<Base[]>(props.bases);
   const [total, setTotal] = createSignal(props.total);
   const [offset, setOffset] = createSignal(props.offset);
+  const [creatingTemplateId, setCreatingTemplateId] = createSignal<string | null>(null);
   let abortCtl: AbortController | null = null;
 
   const currentPage = createMemo(() => Math.floor(offset() / props.limit) + 1);
@@ -134,14 +135,22 @@ export default function BasesOverview(props: Props) {
       return res.json();
     },
     onSuccess: (base) => {
+      setCreatingTemplateId(null);
       if (base) navigateTo(`/app/grids/${base.shortId}`);
     },
-    onError: (e) => prompts.error(e.message),
+    onError: (e) => {
+      setCreatingTemplateId(null);
+      prompts.error(e.message);
+    },
   });
 
+  const isCreating = () => createBaseMutation.loading() || createFromTemplateMutation.loading();
   const createBlank = () => createBaseMutation.mutate(undefined);
 
-  const createFromTemplate = (template: TemplateSummary) => createFromTemplateMutation.mutate(template);
+  const createFromTemplate = (template: TemplateSummary) => {
+    setCreatingTemplateId(template.id);
+    createFromTemplateMutation.mutate(template);
+  };
 
   const onSearchInput = (value: string) => {
     setQuery(value);
@@ -234,11 +243,14 @@ export default function BasesOverview(props: Props) {
                 type="button"
                 class="paper p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
                 onClick={() => createFromTemplate(template)}
-                disabled={createFromTemplateMutation.loading()}
+                disabled={isCreating()}
                 aria-label={`Create ${template.name} base`}
+                aria-busy={creatingTemplateId() === template.id}
               >
                 <span class="w-9 h-9 thumbnail bg-[var(--ui-surface-raised)] flex items-center justify-center shrink-0">
-                  <i class={`${template.icon} text-lg text-primary`} />
+                  <i
+                    class={`${creatingTemplateId() === template.id ? "ti ti-loader-2 animate-spin" : template.icon} text-lg text-primary`}
+                  />
                 </span>
                 <span class="min-w-0 flex-1">
                   <span class="block text-sm font-semibold text-primary">{template.name}</span>
@@ -262,10 +274,11 @@ export default function BasesOverview(props: Props) {
             type="button"
             class="paper p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
             onClick={createBlank}
-            disabled={createBaseMutation.loading()}
+            disabled={isCreating()}
+            aria-busy={createBaseMutation.loading()}
           >
             <span class="app-accent-text w-9 h-9 thumbnail bg-[var(--ui-selected)] flex items-center justify-center shrink-0">
-              <i class="ti ti-plus text-lg" />
+              <i class={`ti ${createBaseMutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-lg`} />
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-semibold text-primary">Blank base</span>

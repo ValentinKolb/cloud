@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { WorkflowRunEventSummary, WorkflowRunStepSummary } from "../../../lib/workflow-run-events";
@@ -590,16 +590,18 @@ export default function WorkflowScannerSurface(props: Props) {
     <div class={shellClass}>
       <Show when={props.mode === "page"}>
         <header class="flex shrink-0 items-center gap-3 px-4 py-3">
-          <a
-            href={
-              props.state.returnHref ??
-              `/app/grids/${props.state.baseShortId}/workflows/${props.state.workflowShortId ?? props.state.workflowId}`
-            }
-            class="icon-btn text-zinc-200 hover:text-white"
-            aria-label="Back to workflow"
-          >
-            <i class="ti ti-arrow-left" />
-          </a>
+          <Tooltip content="Back to workflow" placement="bottom">
+            <a
+              href={
+                props.state.returnHref ??
+                `/app/grids/${props.state.baseShortId}/workflows/${props.state.workflowShortId ?? props.state.workflowId}`
+              }
+              class="icon-btn text-zinc-200 hover:text-white"
+              aria-label="Back to workflow"
+            >
+              <i class="ti ti-arrow-left" />
+            </a>
+          </Tooltip>
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-semibold">{props.state.workflowName}</p>
             <p class="truncate text-xs text-zinc-400">Scanner</p>

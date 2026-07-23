@@ -25,3 +25,6 @@ export const sameBulkSelection = (left: ReadonlySet<string>, right: ReadonlySet<
 
 export const bulkWorkflowActionLabel = (workflowName: string, selectedCount: number): string =>
   selectedCount > 0 ? `Run ${workflowName} for ${selectedCount} selected` : `Run ${workflowName} for current query`;
+
+export const bulkWorkflowTargetLabel = (selectedCount: number): string =>
+  selectedCount > 0 ? `${selectedCount} record${selectedCount === 1 ? "" : "s"}` : "the current result set";

@@ -10,6 +10,7 @@ import RecordsView from "../records-view/RecordsView";
 import { WorkflowRunDetailPanel } from "../workflows/WorkflowRunDetailPanel";
 import WorkflowsPage from "../workflows/WorkflowsPage";
 import { createDeferredWorkspaceReload } from "./deferred-workspace-reload";
+import { notifyWorkspaceLiveUpdateFailure } from "./live-update-feedback";
 import { workspaceMainClass } from "./workspace-layout";
 import type {
   OkWorkspaceState,
@@ -68,7 +69,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
             refresh.schedule();
           },
           onRevoked: refresh.reloadNow,
-          onFatal: (error) => console.warn("Grids dashboard live updates stopped", error),
+          onFatal: (error) => notifyWorkspaceLiveUpdateFailure("dashboard", error),
         });
         provider.connect();
         return provider;

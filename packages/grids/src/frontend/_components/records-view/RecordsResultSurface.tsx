@@ -1,3 +1,4 @@
+import { Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { type ComponentProps, Match, Switch } from "solid-js";
 import type { AggregationSpec, ColumnSpec, GroupBySpec, RecordDisplayConfig } from "../../../contracts";
@@ -45,6 +46,8 @@ type Props = {
   canManageTable: boolean;
   savedView: boolean;
   canEditView: boolean;
+  resultNarrowed: boolean;
+  onClearResultNarrowing: () => void;
   bulkSelection: DatabaseTableProps["bulkSelection"];
   dateConfig?: DateContext;
   onRecordClick: (record: GridRecord) => void;
@@ -64,6 +67,8 @@ export default function RecordsResultSurface(props: Props) {
   const fieldsByTable = () => ({ ...props.fieldsByTable, [props.tableId]: props.fields });
   const hasMore = () => !props.trashMode && Boolean(props.nextCursor);
   const loadingMore = () => props.loading && Boolean(props.cursor);
+  const emptyNarrowedResult = () =>
+    props.resultNarrowed && !props.loading && (props.grouped ? props.buckets.length === 0 : props.items.length === 0);
 
   return (
     <div class="flex-1 min-h-0 flex flex-col gap-2">
@@ -95,6 +100,21 @@ export default function RecordsResultSurface(props: Props) {
           />
         }
       >
+        <Match when={emptyNarrowedResult()}>
+          <Placeholder
+            variant="panel"
+            icon="ti ti-search"
+            title="No matching records"
+            description="Clear the current search and filters to see all available records."
+            class="flex-1"
+            action={
+              <button type="button" class="btn-input btn-input-sm" onClick={props.onClearResultNarrowing}>
+                <i class="ti ti-filter-off" aria-hidden="true" />
+                Clear search and filters
+              </button>
+            }
+          />
+        </Match>
         <Match when={props.grouped}>
           <GroupedTable
             baseId={props.baseShortId}

@@ -33,6 +33,7 @@ import { RecordsAdminToolbar } from "./RecordsAdminToolbar";
 import RecordsDetailSurface from "./RecordsDetailSurface";
 import RecordsPrimaryToolbar from "./RecordsPrimaryToolbar";
 import RecordsResultSurface from "./RecordsResultSurface";
+import { recordCountText as formatRecordCount } from "./record-count";
 import { createRecordsAdminController } from "./records-admin-controller";
 import { createRecordsBulkController } from "./records-bulk-controller";
 import { createRecordsDataController } from "./records-data-controller";
@@ -432,6 +433,19 @@ export default function RecordsView(props: Props) {
     syncUrl({ replace: true });
   };
 
+  const resultNarrowed = () => Boolean(search().q.trim()) || (!props.viewMode && Boolean(query().filter || query().recordMeta));
+
+  const clearResultNarrowing = () => {
+    invalidateLiveRefreshes();
+    setSearch({ q: "", fieldIds: [], override: true });
+    if (!props.viewMode) {
+      setQuery((current) => ({ ...current, filter: undefined, recordMeta: undefined }));
+    }
+    setSelectedGroup(null);
+    setCursor(null);
+    syncUrl({ replace: true });
+  };
+
   const onCalendarChange = (next: RecordsState["calendar"]) => {
     invalidateLiveRefreshes();
     setCalendarState(next);
@@ -543,15 +557,9 @@ export default function RecordsView(props: Props) {
   // search bar, not inside the optional editing toolbar.
   const recordCountText = (): string => {
     if (isGrouped()) {
-      const n = buckets().length;
-      if (n === 0) return "No groups";
-      if (n === 1) return "1 group";
-      return `${n} groups`;
+      return formatRecordCount(buckets().length, "group", Boolean(nextCursor()));
     }
-    const n = items().length;
-    if (n === 0) return "No records";
-    if (n === 1) return "1 record";
-    return `${n} records`;
+    return formatRecordCount(items().length, "record", Boolean(nextCursor()));
   };
 
   const tableAggregationSpecs = (): AggregationSpec[] => {
@@ -800,6 +808,8 @@ export default function RecordsView(props: Props) {
               canManageTable={props.canManageTable}
               savedView={isSavedView()}
               canEditView={!!props.canEditActiveView}
+              resultNarrowed={resultNarrowed()}
+              onClearResultNarrowing={clearResultNarrowing}
               bulkSelection={
                 bulkSelectionEnabled()
                   ? {

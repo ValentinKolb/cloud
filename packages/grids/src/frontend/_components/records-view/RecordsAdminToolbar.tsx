@@ -1,3 +1,4 @@
+import { Tooltip } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
 
 const ADMIN_BUTTON_CLASS = "btn-input-success btn-input-sm";
@@ -17,6 +18,12 @@ export function RecordsAdminToolbar(props: {
   onAddViewColumn: () => void;
   onDone: () => void;
 }) {
+  const viewDisabledReason = () => {
+    if (!props.activeViewAvailable) return "This view is no longer available.";
+    if (!props.canEditActiveView) return "You don't have permission to edit this view.";
+    return "";
+  };
+
   return (
     <div class="flex flex-wrap items-center gap-2 shrink-0">
       <Show
@@ -41,14 +48,13 @@ export function RecordsAdminToolbar(props: {
         }
       >
         <>
-          <button
-            type="button"
-            class={ADMIN_BUTTON_CLASS}
-            onClick={props.onOpenViewSettings}
-            disabled={!props.activeViewAvailable || !props.canEditActiveView}
-          >
-            <i class="ti ti-table-spark" /> View
-          </button>
+          <Tooltip content={viewDisabledReason()} disabled={!viewDisabledReason()}>
+            <span class="inline-flex">
+              <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onOpenViewSettings} disabled={Boolean(viewDisabledReason())}>
+                <i class="ti ti-table-spark" /> View
+              </button>
+            </span>
+          </Tooltip>
           <Show when={props.hiddenViewColumnCount > 0}>
             <button type="button" class={ADMIN_BUTTON_CLASS} onClick={props.onAddViewColumn}>
               <i class="ti ti-plus" /> Add column

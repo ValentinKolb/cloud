@@ -1,6 +1,7 @@
 import { onCleanup, onMount } from "solid-js";
 import { createDeferredWorkspaceReload } from "./deferred-workspace-reload";
 import { createGridsMetadataEventsProvider } from "./grids-metadata-events-provider";
+import { notifyWorkspaceLiveUpdateFailure } from "./live-update-feedback";
 
 export default function WorkspaceMetadataRefresh(props: { baseId: string; initialCursor: string | null }) {
   onMount(() => {
@@ -18,7 +19,7 @@ export default function WorkspaceMetadataRefresh(props: { baseId: string; initia
         refresh.schedule();
       },
       onRevoked: refresh.reloadNow,
-      onFatal: (error) => console.warn("Grids metadata live updates stopped", error),
+      onFatal: (error) => notifyWorkspaceLiveUpdateFailure("metadata", error),
     });
     provider.connect();
 

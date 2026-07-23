@@ -32,6 +32,9 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
   const queryResultViewRoute = route.kind === "queryResultView" ? (route as WorkspaceQueryResultViewRoute) : null;
   const workflowsRoute = route.kind === "workflows" ? (route as WorkspaceWorkflowsRoute) : null;
   const canCreateStructure = state.adminModeRequested && state.canCreateTables;
+  const sidebarViews = state.catalog.tables.flatMap((table) =>
+    (state.catalog.viewsByTable[table.id] ?? []).map((view) => ({ table, view })),
+  );
   const renderQueryItem = () =>
     state.canUseQueryWorkspace ? (
       <SidebarLink href={`/app/grids/${state.base.shortId}/query`} active={route.kind === "query"}>
@@ -95,9 +98,9 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
         {canCreateStructure && <CreateTableButton baseId={state.base.id} baseShortId={state.base.shortId} />}
       </AppWorkspace.SidebarSection>
 
-      <AppWorkspace.SidebarSection title="Views">
-        {state.catalog.tables.flatMap((table) =>
-          (state.catalog.viewsByTable[table.id] ?? []).map((view) => {
+      {sidebarViews.length > 0 && (
+        <AppWorkspace.SidebarSection title="Views">
+          {sidebarViews.map(({ table, view }) => {
             const active =
               (recordsRoute?.activeTable.id === table.id && recordsRoute.activeView?.id === view.id) ||
               queryResultViewRoute?.activeView.id === view.id;
@@ -113,9 +116,9 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
                 <SidebarTableMeta tableName={table.name} />
               </SidebarLink>
             );
-          }),
-        )}
-      </AppWorkspace.SidebarSection>
+          })}
+        </AppWorkspace.SidebarSection>
+      )}
 
       {state.catalog.sidebarForms.length > 0 && (
         <AppWorkspace.SidebarSection title="Forms">

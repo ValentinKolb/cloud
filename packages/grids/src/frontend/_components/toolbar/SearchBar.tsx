@@ -29,14 +29,15 @@ export default function SearchBar(props: Props) {
   const [q, setQ] = createSignal(props.initialQ);
   const [qFields, setQFields] = createSignal<string[]>(props.initialQFields);
 
-  createEffect(() => {
-    setQ(props.initialQ);
-    setQFields(props.initialQFields);
-  });
-
   const debounce = timing.debounce((next: string, fields: string[]) => {
     props.onSearchChange({ q: next.trim(), fieldIds: fields });
   }, 250);
+
+  createEffect(() => {
+    debounce.cancel();
+    setQ(props.initialQ);
+    setQFields(props.initialQFields);
+  });
 
   const onInput = (next: string) => {
     setQ(next);
@@ -44,8 +45,8 @@ export default function SearchBar(props: Props) {
   };
 
   const onFieldsChange = (next: string[]) => {
+    debounce.cancel();
     setQFields(next);
-    // Column-scope changes commit immediately — there's no typing race.
     props.onSearchChange({ q: q().trim(), fieldIds: next });
   };
 
@@ -59,22 +60,26 @@ export default function SearchBar(props: Props) {
   };
 
   return (
-    <div class="flex items-center gap-2">
-      <div class="flex-1 min-w-0">
+    <div class="grid w-full min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-2">
+      <div class="min-w-0">
         <TextInput
+          name="grids-record-search"
+          type="search"
+          ariaLabel="Search records"
           icon="ti ti-search"
           placeholder="Search records..."
           value={q}
           onInput={onInput}
           clearable
           onClear={() => {
+            debounce.cancel();
             setQ("");
             props.onSearchChange({ q: "", fieldIds: qFields() });
           }}
         />
       </div>
       <Show when={props.fields.length > 0}>
-        <div class="w-64 shrink-0">
+        <div class="min-w-0">
           <MultiSelectInput
             icon="ti ti-columns"
             placeholder={allFieldsLabel()}
