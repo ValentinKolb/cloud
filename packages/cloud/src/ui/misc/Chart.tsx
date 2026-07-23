@@ -1,6 +1,8 @@
+import type { MapViewport } from "@valentinkolb/stdlib";
 import { charts } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { DEFAULT_MAP_VIEWPORT, normalizeMapViewport, panMapViewport, zoomMapViewport } from "./chart-map-viewport";
 
 /**
  * Chart — minimal Solid wrapper around `stdlib.charts`.
@@ -26,8 +28,11 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
  * **Why so thin.** The props are a discriminated union over each
  * stdlib chart function — `kind: "line"` brings in exactly the params
  * `charts.line` expects, `kind: "bar"` brings in `charts.bar`'s, etc.
- * Zero invented API, zero option renaming. If stdlib gains a new
- * option, it's automatically available at every callsite.
+ * Options stay aligned with stdlib without renaming. The sole wrapper
+ * extension is `interactive` for maps, which adds bounded pan / zoom
+ * controls while keeping stdlib's viewport as the rendering contract.
+ * If stdlib gains a new option, it's automatically available at every
+ * callsite.
  *
  * **Theming.** stdlib charts use `currentColor` for axes / ticks /
  * tick labels — set the wrapping element's `color` (via Tailwind
@@ -43,6 +48,8 @@ import { createSignal, onCleanup, onMount, Show } from "solid-js";
  * <Chart kind="donut" class="h-48" data={slices()} />
  *
  * <Chart kind="sparkline" class="w-24 h-6 text-emerald-600" data={trend()} />
+ *
+ * <Chart kind="map" class="h-64" series={locations()} interactive />
  * ```
  */
 
@@ -57,10 +64,12 @@ export type ChartKind = keyof typeof charts;
  * get full type safety.
  */
 export type ChartProps = {
-  [K in ChartKind]: { kind: K; class?: string; style?: JSX.CSSProperties | string } & Omit<
-    Parameters<(typeof charts)[K]>[0],
-    "width" | "height"
-  >;
+  [K in ChartKind]: {
+    kind: K;
+    class?: string;
+    style?: JSX.CSSProperties | string;
+  } & Omit<Parameters<(typeof charts)[K]>[0], "width" | "height"> &
+    (K extends "map" ? { interactive?: boolean } : {});
 }[ChartKind];
 
 /**
@@ -70,10 +79,15 @@ export type ChartProps = {
  * types; an explicit per-kind switch would type it but balloon the
  * component for no runtime benefit.
  */
-const renderSvg = (props: ChartProps, width: number, height: number): string => {
-  const { kind, class: _class, style: _style, ...opts } = props;
+const renderSvg = (props: ChartProps, width: number, height: number, viewport?: MapViewport): string => {
+  const { kind, class: _class, style: _style, interactive: _interactive, ...opts } = props as ChartProps & { interactive?: boolean };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (charts[kind] as (o: unknown) => string)({ ...(opts as any), width, height });
+  return (charts[kind] as (o: unknown) => string)({
+    ...(opts as any),
+    ...(kind === "map" && viewport ? { viewport } : {}),
+    width,
+    height,
+  });
 };
 
 /** Empty-data short-circuit. Kept per-kind because stdlib's payload
@@ -102,6 +116,104 @@ const Chart = (props: ChartProps): JSX.Element => {
   // render is sensible. The observer updates this on the first
   // client-side frame; the SVG re-renders reactively via innerHTML.
   const [size, setSize] = createSignal({ width: 480, height: 280 });
+  const initialMapViewport = props.kind === "map" ? normalizeMapViewport(props.viewport) : DEFAULT_MAP_VIEWPORT;
+  const [mapViewport, setMapViewport] = createSignal<MapViewport>(initialMapViewport);
+  const [dragging, setDragging] = createSignal(false);
+  let drag:
+    | {
+        pointerId: number;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        viewport: MapViewport;
+      }
+    | undefined;
+
+  const interactiveMap = () => props.kind === "map" && props.interactive === true;
+
+  const mapDimensions = () => {
+    const viewportElement = containerRef?.querySelector(".stdlib-chart-map-viewport");
+    const rect = viewportElement?.getBoundingClientRect();
+    if (rect && rect.width > 0 && rect.height > 0) {
+      return { width: rect.width, height: rect.height };
+    }
+    return size();
+  };
+
+  const zoom = (delta: number) => {
+    setMapViewport((current) => zoomMapViewport(current, delta));
+  };
+
+  const reset = () => {
+    setMapViewport(initialMapViewport);
+  };
+
+  const handlePointerDown: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
+    if (!interactiveMap() || event.button !== 0 || (event.target as Element).closest("button")) {
+      return;
+    }
+    const dimensions = mapDimensions();
+    drag = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      width: dimensions.width,
+      height: dimensions.height,
+      viewport: mapViewport(),
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  };
+
+  const handlePointerMove: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setMapViewport(panMapViewport(drag.viewport, event.clientX - drag.x, event.clientY - drag.y, drag.width, drag.height));
+  };
+
+  const stopDragging: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    drag = undefined;
+    setDragging(false);
+  };
+
+  const handleWheel: JSX.EventHandlerUnion<HTMLDivElement, WheelEvent> = (event) => {
+    if (!interactiveMap() || (!event.ctrlKey && !event.metaKey)) return;
+    event.preventDefault();
+    zoom(event.deltaY < 0 ? 1 : -1);
+  };
+
+  const handleKeyDown: JSX.EventHandlerUnion<HTMLDivElement, KeyboardEvent> = (event) => {
+    if (!interactiveMap()) return;
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoom(1);
+      return;
+    }
+    if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      zoom(-1);
+      return;
+    }
+    if (event.key === "0" || event.key === "Home") {
+      event.preventDefault();
+      reset();
+      return;
+    }
+    const delta: readonly [number, number] | undefined = {
+      ArrowLeft: [40, 0],
+      ArrowRight: [-40, 0],
+      ArrowUp: [0, 40],
+      ArrowDown: [0, -40],
+    }[event.key] as readonly [number, number] | undefined;
+    if (!delta) return;
+    event.preventDefault();
+    const dimensions = mapDimensions();
+    setMapViewport((current) => panMapViewport(current, delta[0], delta[1], dimensions.width, dimensions.height));
+  };
 
   onMount(() => {
     if (!containerRef) return;
@@ -147,10 +259,44 @@ const Chart = (props: ChartProps): JSX.Element => {
           without ceremony. */}
       <div
         ref={containerRef}
-        class={`block ${props.class ?? ""}`}
+        class={`relative block ${
+          interactiveMap() ? (dragging() ? "cursor-grabbing select-none" : "cursor-grab") : ""
+        } ${props.class ?? ""}`}
         style={props.style}
-        innerHTML={renderSvg(props, size().width, size().height)}
-      />
+        role="group"
+        aria-label={interactiveMap() ? "Interactive map" : undefined}
+        tabIndex={interactiveMap() ? 0 : undefined}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopDragging}
+        onPointerCancel={stopDragging}
+        onWheel={handleWheel}
+        onKeyDown={handleKeyDown}
+      >
+        <div
+          class="h-full w-full"
+          innerHTML={renderSvg(props, size().width, size().height, interactiveMap() ? mapViewport() : undefined)}
+        />
+        <Show when={interactiveMap()}>
+          <div class="absolute right-2 top-2 z-10 flex items-center gap-1">
+            <button type="button" class="icon-btn bg-[var(--ui-field)]" aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoom(1)}>
+              <i class="ti ti-plus" aria-hidden="true" />
+            </button>
+            <button type="button" class="icon-btn bg-[var(--ui-field)]" aria-label="Zoom out" title="Zoom out (-)" onClick={() => zoom(-1)}>
+              <i class="ti ti-minus" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn bg-[var(--ui-field)]"
+              aria-label="Reset map view"
+              title="Reset map view (0)"
+              onClick={reset}
+            >
+              <i class="ti ti-focus-centered" aria-hidden="true" />
+            </button>
+          </div>
+        </Show>
+      </div>
     </Show>
   );
 };
