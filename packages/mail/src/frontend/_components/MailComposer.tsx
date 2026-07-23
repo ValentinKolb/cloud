@@ -43,6 +43,7 @@ type LeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: 
 
 type ComposerSeed = {
   intent: DraftIntent;
+  senderIdentityId?: string | null;
   conversationId?: string | null;
   sourceMessageId?: string | null;
   to?: string[];
@@ -102,7 +103,10 @@ export default function MailComposer(props: {
   const [lease, setLease] = createSignal<AcquiredDraftLease | null>(null);
   const [status, setStatus] = createSignal<ComposerStatus>("preparing");
   const [statusMessage, setStatusMessage] = createSignal("Preparing draft...");
-  const [identityId, setIdentityId] = createSignal(props.initialDraft?.senderIdentityId ?? defaultIdentity()?.id ?? "");
+  const [identityId, setIdentityId] = createSignal(
+    props.initialDraft?.senderIdentityId ??
+      (props.seed?.senderIdentityId !== undefined ? (props.seed.senderIdentityId ?? "") : (defaultIdentity()?.id ?? "")),
+  );
   const [to, setTo] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.to) : (props.seed?.to ?? []));
   const [cc, setCc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.cc) : (props.seed?.cc ?? []));
   const [bcc, setBcc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.bcc) : []);
@@ -345,7 +349,7 @@ export default function MailComposer(props: {
   const initialize = async (): Promise<MailDraft | null> => {
     if (verifiedIdentities().length === 0) {
       setStatus("readonly");
-      setStatusMessage("Configure and verify a sender identity before composing mail.");
+      setStatusMessage("Configure and verify an identity before composing mail.");
       return null;
     }
     let currentDraft = draft();
@@ -569,7 +573,7 @@ export default function MailComposer(props: {
     window.addEventListener("pageshow", onPageShow);
     if (verifiedIdentities().length === 0) {
       setStatus("readonly");
-      setStatusMessage("Configure and verify a sender identity before composing mail.");
+      setStatusMessage("Configure and verify an identity before composing mail.");
       return;
     }
     if (draft()) {
@@ -1119,7 +1123,7 @@ export default function MailComposer(props: {
         <div class="grid shrink-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 py-2 text-sm">
           <span class="text-dimmed">From</span>
           <Select
-            placeholder="Choose sender identity"
+            placeholder="Choose identity"
             value={identityId}
             onChange={(value) => {
               setIdentityId(value);
@@ -1127,7 +1131,8 @@ export default function MailComposer(props: {
             }}
             options={verifiedIdentities().map((identity) => ({
               id: identity.id,
-              label: `${identity.displayName || identity.fromAddress} <${identity.fromAddress}>`,
+              label: identity.label,
+              description: `${identity.displayName ? `${identity.displayName} · ` : ""}${identity.fromAddress}`,
             }))}
             disabled={!editable()}
           />

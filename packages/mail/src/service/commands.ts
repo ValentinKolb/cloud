@@ -236,7 +236,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
       ...base,
       requiredPermission: "admin",
       target: { parentFolderId: input.parentFolderId ?? null },
-      payload: { name: input.name, subscribe: input.subscribe },
+      payload: { name: input.name, subscribe: input.subscribe, showInSidebar: input.showInSidebar },
       folderRequirements: input.parentFolderId ? [{ folderId: input.parentFolderId, rights: [] }] : [],
     });
   }

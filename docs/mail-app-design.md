@@ -581,27 +581,39 @@ Rights are refreshed during discovery, before delayed mutations, and after permi
 
 IMAP shared and other-user namespaces are account-local provider state. If Alice's authenticated account exposes `Shared/Support`, that folder appears in Alice's Cloud mailbox and is synchronized with Alice's effective `MYRIGHTS`. Bob connecting his own account creates a separate Cloud mailbox projection, even if his server exposes a folder with the same path. Cloud does not attempt cross-principal folder equivalence, credential failover, or folder-level sharing. A team that needs one collaborative Cloud mailbox connects a functional mailbox or another deliberately shared provider account and then shares the Cloud mailbox through normal Cloud permissions.
 
-### Sender identities
+Folder administration uses one hierarchy and one durable command path. Mailbox administrators can create personal top-level folders and permitted subfolders, rename or delete eligible folders, and change the provider subscription. The settings UI derives these capabilities from current namespace and rights data; the command runtime rechecks the pinned binding immediately before every provider effect. Shared and other-user folders without authoritative ACL evidence are fail-closed for destructive administration.
 
-A sender identity is an allowlisted configuration, not a free-form `From` field. It contains:
+Cloud sidebar visibility is a mailbox-local property of the canonical folder and is independent from provider access, IMAP subscription, and synchronization eligibility. Hiding a folder removes its entire visible subtree from normal navigation without deleting mail, changing provider state, or discarding each child's preference. Missing and ambiguous folders remain visible to administrators for diagnosis but never appear in ordinary mailbox navigation. Special-folder mappings remain separate selections over active, selectable folders.
 
-- display name and exact `From` address;
+### Sending identities
+
+A sending identity is an allowlisted, mailbox-scoped sending context, not a free-form `From` field. It contains:
+
+- an internal label that helps collaborators distinguish roles without exposing implementation details to recipients;
+- recipient-visible display name and exact `From` address;
 - optional `Reply-To` and envelope sender;
+- default Cc recipients and one mailbox default signature;
 - interactive and automation authentication policy, verified submission binding, and authenticated provider principal;
 - Drafts and Sent folder mappings;
 - verification state and last provider rejection.
 
-The provider decides whether a binding may submit mail using an identity. SMTP has no portable discovery command for this authorization. Configuration requires an exact `From` allowlist entry and a successful test send through each eligible binding; a successful IMAP `MYRIGHTS` check never marks a sender identity as authorized. A later provider rejection invalidates that binding's verification until it is tested again.
+Several identities may use the same `From` address. This supports roles such as private and business contexts without conflating their label, defaults, folder mappings, or verification state. There is no separate alias or legacy sender model.
+
+The provider decides whether a binding may submit mail using an identity. SMTP has no portable discovery command for this authorization. Configuration requires an exact `From` allowlist entry and a successful test send through each eligible binding; a successful IMAP `MYRIGHTS` check never marks an identity as authorized. A later provider rejection invalidates that binding's verification until it is tested again.
 
 The envelope sender defaults to the visible `From` address. A different envelope sender is allowed only through a provider preset or a separately tested exact configuration; it is never free-form compose input.
 
-Reply defaults use the identity whose address received the original message and whose mailbox root contains the conversation. The composer always shows the selected identity. Changing it is limited to configured identities; arbitrary sender spoofing is not supported.
+Reply defaults use a verified identity whose address received the original message. A unique match is selected automatically; a default identity resolves duplicate matches, while an unresolved duplicate requires an explicit choice. The composer always shows the internal identity label together with the recipient-visible sender. Changing it is limited to configured identities; arbitrary sender spoofing is not supported.
+
+Default Cc recipients are materialized only when a person creates an interactive draft. They remain editable and are not injected into workflow or automatic-response drafts. The mailbox default signature is likewise inserted only when a new message is created. A personal signature override takes precedence, and changing identity settings never silently rewrites an existing draft.
 
 Sent-copy behavior belongs to the identity. A functional address can therefore authenticate to SMTP with a person's account while placing the resulting sent copy in a shared Sent folder when the provider permits both operations.
 
 ### Provider-exposed shared folders
 
 Generic IMAP may expose functional or delegated folders in an authenticated user's shared or other-user namespace. Cloud discovers those folders with the rest of that account and stores their subscription state and effective rights. They are not separate Cloud resources and cannot be shared independently from the mailbox.
+
+Provider subscription changes made by another client or administrator are reflected after rediscovery. Mail does not silently subscribe every newly exposed shared folder: an administrator can subscribe or unsubscribe explicitly in folder settings, while Cloud sidebar visibility remains a separate local choice.
 
 This deliberately does not reproduce Thunderbird's cross-account Shared Folder setup. If Alice and Bob each connect personal university accounts, each gets an independent Cloud mailbox projection of what that account can see. Cloud does not claim that similarly named folders are the same remote resource and does not fail over from Alice's credentials to Bob's. If Alice loses university access, only Alice's mailbox loses provider connectivity; its PostgreSQL mirror remains readable to existing Cloud collaborators and remote operations pause.
 

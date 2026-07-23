@@ -3,6 +3,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
+import { markComposeTemplateSegment } from "./compose-renderer";
 import {
   createComposeTemplate,
   listComposeTemplates,
@@ -15,7 +16,7 @@ import {
 } from "./compose-templates";
 import { createDraft } from "./drafts";
 import { createMailbox } from "./mailboxes";
-import { markComposeTemplateSegment } from "./compose-renderer";
+import { updateSenderIdentity } from "./sender-identities";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -112,9 +113,9 @@ suite("mail compose templates", () => {
 
     const [identity] = await sql<{ id: string }[]>`
       INSERT INTO mail.sender_identities (
-        mailbox_id, display_name, from_address, automation_policy, is_default, status
+        mailbox_id, label, display_name, from_address, automation_policy, is_default, status
       ) VALUES (
-        ${mailboxId}::uuid, 'Compose Test', ${`compose-${suffix}@example.test`}, 'disabled', true, 'verified'
+        ${mailboxId}::uuid, 'Compose Test', 'Compose Test', ${`compose-${suffix}@example.test`}, 'disabled', true, 'verified'
       )
       RETURNING id
     `;
@@ -188,6 +189,20 @@ suite("mail compose templates", () => {
     if (!visibleToCollaborator.ok) return;
     expect(visibleToCollaborator.data.map((template) => template.id)).toEqual([mailboxSnippet.data.id]);
 
+    const mailboxSignature = await createComposeTemplate({
+      context: owner,
+      mailboxId,
+      input: {
+        kind: "signature",
+        scope: "mailbox",
+        name: "Team signature",
+        shortcut: "team",
+        body: "Team regards,\n{{ actor.display_name }}",
+      },
+    });
+    expect(mailboxSignature.ok).toBe(true);
+    if (!mailboxSignature.ok) return;
+
     const selected = await setComposeSignatureDefault({
       context: owner,
       mailboxId,
@@ -195,6 +210,22 @@ suite("mail compose templates", () => {
       input: { scope: "private", templateId: privateSignature.data.id, expectedRevision: null },
     });
     expect(selected.ok).toBe(true);
+
+    const identityDefaults = await updateSenderIdentity({
+      context: owner,
+      mailboxId,
+      senderIdentityId,
+      input: {
+        defaultCc: [
+          { name: "Archive", address: "archive@example.test" },
+          { name: null, address: "reader@example.test" },
+        ],
+        defaultSignatureTemplateId: mailboxSignature.data.id,
+      },
+    });
+    expect(identityDefaults.ok).toBe(true);
+    if (!identityDefaults.ok) return;
+    expect(identityDefaults.data.defaultSignatureTemplateId).toBe(mailboxSignature.data.id);
 
     const draft = await createDraft({
       context: owner,
@@ -217,6 +248,30 @@ suite("mail compose templates", () => {
     const signatureSource = markComposeTemplateSegment("Regards,\n{{ actor.display_name }}");
     expect(draft.data.body).toBe(`Message body\n\n${signatureSource}`);
     expect(draft.data.initialSignatureSource).toBe(signatureSource);
+    expect(draft.data.cc).toEqual([{ name: "Archive", address: "archive@example.test" }]);
+
+    const collaboratorDraft = await createDraft({
+      context: collaborator,
+      mailboxId,
+      input: {
+        conversationId: null,
+        intent: "new",
+        sourceMessageId: null,
+        senderIdentityId,
+        to: [{ name: null, address: "reader@example.test" }],
+        cc: [],
+        bcc: [],
+        subject: "Team hello",
+        body: "Shared message body",
+        format: "markdown",
+      },
+    });
+    expect(collaboratorDraft.ok).toBe(true);
+    if (!collaboratorDraft.ok) return;
+    const mailboxSignatureSource = markComposeTemplateSegment("Team regards,\n{{ actor.display_name }}");
+    expect(collaboratorDraft.data.body).toBe(`Shared message body\n\n${mailboxSignatureSource}`);
+    expect(collaboratorDraft.data.initialSignatureSource).toBe(mailboxSignatureSource);
+    expect(collaboratorDraft.data.cc).toEqual([{ name: "Archive", address: "archive@example.test" }]);
   });
 
   test("resolves snippets immediately and signatures only through preview", async () => {

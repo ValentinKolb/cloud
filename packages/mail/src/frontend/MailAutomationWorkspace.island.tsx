@@ -248,7 +248,7 @@ export default function MailAutomationWorkspace(props: {
                   identities={props.data.identities}
                   initialConfigurations={automaticReplies()}
                   canManage={props.data.canManageAutomaticReplies}
-                  onManageSenders={props.data.permission === "admin" ? () => void openSettings("senders") : undefined}
+                  onManageIdentities={props.data.permission === "admin" ? () => void openSettings("identities") : undefined}
                   onConfigurationsChange={setAutomaticReplies}
                   referenceConfigured={Boolean(referenceConfiguration()?.enabled)}
                   onConfigureReference={props.data.advanced ? () => selectSection("references") : undefined}

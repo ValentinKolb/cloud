@@ -2250,6 +2250,7 @@ test("folder create submits one durable provider command and waits for rediscove
     MAILBOX_ID,
     "--parent",
     FOLDER_ID,
+    "--hide-in-sidebar",
     "--idempotency-key",
     "folder-create-test",
     "--wait",
@@ -2263,9 +2264,37 @@ test("folder create submits one durable provider command and waits for rediscove
     parentFolderId: FOLDER_ID,
     name: "Cloud Smoke",
     subscribe: true,
+    showInSidebar: false,
     idempotencyKey: "folder-create-test",
   });
   expect(JSON.parse(result.stdout)).toMatchObject({ kind: "create_folder", state: "confirmed" });
+});
+
+test("folder hide changes only Cloud Mail sidebar visibility", async () => {
+  let body: unknown;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "PATCH" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/folders/${FOLDER_ID}`) {
+      body = await request.json();
+      return api({ folderId: FOLDER_ID, showInSidebar: false });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "folder",
+    "hide",
+    FOLDER_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(body).toEqual({ showInSidebar: false });
+  expect(JSON.parse(result.stdout)).toEqual({ folderId: FOLDER_ID, showInSidebar: false });
 });
 
 test("message read uses an additive state command", async () => {
@@ -2681,10 +2710,13 @@ test("default sender setup preserves an existing display name when no name is pa
       return api({
         id: IDENTITY_ID,
         mailboxId: MAILBOX_ID,
+        label: "Existing sender",
         displayName: "Existing sender",
         fromAddress: "sender@example.com",
         replyTo: null,
+        defaultCc: [],
         envelopeSender: null,
+        defaultSignatureTemplateId: null,
         authenticationPolicy: { automation: "disabled" },
         sentFolderId: FOLDER_ID,
         draftsFolderId: null,
@@ -2722,10 +2754,13 @@ test("sender creation keeps the default automation policy unless explicitly disa
       return api({
         id: IDENTITY_ID,
         mailboxId: MAILBOX_ID,
+        label: "Work",
         displayName: "",
         fromAddress: "sender@example.com",
         replyTo: null,
+        defaultCc: [],
         envelopeSender: null,
+        defaultSignatureTemplateId: null,
         authenticationPolicy: { automation: bodies.length === 1 ? "mailbox" : "disabled" },
         sentFolderId: null,
         draftsFolderId: null,
@@ -2746,6 +2781,8 @@ test("sender creation keeps the default automation policy unless explicitly disa
     "add",
     "--mailbox",
     MAILBOX_ID,
+    "--label",
+    "Work",
     "--address",
     "sender@example.com",
   ]);
@@ -2756,6 +2793,8 @@ test("sender creation keeps the default automation policy unless explicitly disa
     "add",
     "--mailbox",
     MAILBOX_ID,
+    "--label",
+    "Work",
     "--address",
     "sender@example.com",
     "--automation",
@@ -2765,17 +2804,90 @@ test("sender creation keeps the default automation policy unless explicitly disa
   expect([defaultResult.exitCode, disabledResult.exitCode]).toEqual([0, 0]);
   expect(bodies).toEqual([
     {
+      label: "Work",
       displayName: "",
       fromAddress: "sender@example.com",
+      defaultCc: [],
+      defaultSignatureTemplateId: null,
       isDefault: false,
     },
     {
+      label: "Work",
       displayName: "",
       fromAddress: "sender@example.com",
+      defaultCc: [],
+      defaultSignatureTemplateId: null,
       authenticationPolicy: { automation: "disabled" },
       isDefault: false,
     },
   ]);
+});
+
+test("identity configuration sends identity-specific defaults without hidden legacy fields", async () => {
+  let body: unknown;
+  const server = withMailbox(async (request) => {
+    const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/sender-identities/${IDENTITY_ID}`;
+    if (request.method === "PATCH" && new URL(request.url).pathname === expectedPath) {
+      body = await request.json();
+      return api({
+        id: IDENTITY_ID,
+        mailboxId: MAILBOX_ID,
+        label: "University",
+        displayName: "Student representation",
+        fromAddress: "sender@example.com",
+        replyTo: "replies@example.com",
+        defaultCc: [
+          { address: "archive@example.com" },
+          { address: "team@example.com" },
+        ],
+        envelopeSender: null,
+        defaultSignatureTemplateId: COMPOSE_TEMPLATE_ID,
+        authenticationPolicy: { automation: "mailbox" },
+        sentFolderId: null,
+        draftsFolderId: null,
+        isDefault: false,
+        status: "verified",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:01.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "identity",
+    "configure",
+    IDENTITY_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--label",
+    "University",
+    "--name",
+    "Student representation",
+    "--reply-to",
+    "replies@example.com",
+    "--default-cc",
+    "archive@example.com",
+    "--default-cc",
+    "team@example.com",
+    "--default-signature",
+    COMPOSE_TEMPLATE_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(body).toEqual({
+    label: "University",
+    displayName: "Student representation",
+    replyTo: "replies@example.com",
+    defaultCc: [
+      { name: null, address: "archive@example.com" },
+      { name: null, address: "team@example.com" },
+    ],
+    defaultSignatureTemplateId: COMPOSE_TEMPLATE_ID,
+  });
 });
 
 const workflowSource = `inputs:

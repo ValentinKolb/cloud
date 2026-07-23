@@ -1156,6 +1156,23 @@ const folderSubscriptionCommand = (path: "folder subscribe" | "folder unsubscrib
     },
   });
 
+const folderSidebarVisibilityCommand = (path: "folder show" | "folder hide", showInSidebar: boolean) =>
+  command(path, {
+    summary: `${showInSidebar ? "Show" : "Hide"} a provider folder in the Cloud Mail sidebar`,
+    args: { folderId: arg.required({ description: "Canonical folder id" }) },
+    flags: mailboxFlag,
+    run: async ({ ctx, args, flags }) => {
+      const mailbox = await resolveMailbox(ctx, flags.mailbox);
+      const result = await readApi<{ folderId: string; showInSidebar: boolean }>(
+        ctx,
+        `/mailboxes/${mailbox.id}/folders/${args.folderId}`,
+        jsonRequest("PATCH", { showInSidebar }),
+      );
+      if (printStructured(ctx, result)) return;
+      ctx.print(`${showInSidebar ? "Shown" : "Hidden"} ${args.folderId} in the Cloud Mail sidebar.`);
+    },
+  });
+
 const messageStateCommand = (path: string, summary: string, change: Record<string, unknown>) =>
   command(path, {
     summary,
@@ -1936,6 +1953,7 @@ export default defineCliCommands({
             name: folder.name,
             role: folder.role,
             namespace: folder.namespaceKinds.join(","),
+            sidebar: folder.showInSidebar ? "shown" : "hidden",
             total: folder.total,
             unread: folder.unread,
             discovery: folder.discoveryState,
@@ -1946,6 +1964,7 @@ export default defineCliCommands({
             { key: "name", label: "NAME" },
             { key: "role", label: "ROLE" },
             { key: "namespace", label: "NAMESPACE" },
+            { key: "sidebar", label: "SIDEBAR" },
             { key: "total", label: "TOTAL" },
             { key: "unread", label: "UNREAD" },
             { key: "discovery", label: "DISCOVERY" },
@@ -1967,6 +1986,10 @@ export default defineCliCommands({
           name: "no-subscribe",
           description: "Create without subscribing",
         }),
+        hideInSidebar: flag.boolean({
+          name: "hide-in-sidebar",
+          description: "Create without showing the folder in the Cloud Mail sidebar",
+        }),
         wait: flag.boolean({
           description: "Wait for provider confirmation and rediscovery",
         }),
@@ -1982,6 +2005,7 @@ export default defineCliCommands({
             parentFolderId: flags.parent ?? null,
             name: args.name,
             subscribe: !flags.noSubscribe,
+            showInSidebar: !flags.hideInSidebar,
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
             correlationId: flags.correlationId,
           },
@@ -2051,6 +2075,8 @@ export default defineCliCommands({
     }),
     folderSubscriptionCommand("folder subscribe", true),
     folderSubscriptionCommand("folder unsubscribe", false),
+    folderSidebarVisibilityCommand("folder show", true),
+    folderSidebarVisibilityCommand("folder hide", false),
     command("folder role set", {
       summary: "Map a semantic role to one canonical folder",
       args: {
@@ -3739,16 +3765,20 @@ export default defineCliCommands({
           ctx,
           identities,
           identities.map((identity) => ({
+            label: identity.label,
             address: identity.fromAddress,
             name: identity.displayName,
+            defaultCc: identity.defaultCc.map((recipient) => recipient.address).join(", "),
             status: identity.status,
             automation: identity.authenticationPolicy.automation === "mailbox" ? "enabled" : "disabled",
             default: identity.isDefault ? "yes" : "",
             id: identity.id,
           })),
           [
+            { key: "label", label: "LABEL" },
             { key: "address", label: "ADDRESS" },
             { key: "name", label: "NAME" },
+            { key: "defaultCc", label: "DEFAULT CC" },
             { key: "status", label: "STATUS" },
             { key: "automation", label: "AUTOMATIC REPLIES" },
             { key: "default", label: "DEFAULT" },
@@ -3761,8 +3791,14 @@ export default defineCliCommands({
       summary: "Create a sender identity",
       flags: {
         ...mailboxFlag,
+        label: flag.string({ required: true, description: "Private identity label shown to collaborators" }),
         address: flag.string({ required: true }),
-        name: flag.string({ description: "Display name" }),
+        name: flag.string({ description: "Recipient-visible display name" }),
+        defaultCc: flag.stringList({ name: "default-cc", description: "Default Cc recipient; repeatable" }),
+        defaultSignature: flag.string({
+          name: "default-signature",
+          description: "Mailbox signature template id",
+        }),
         sentFolder: flag.string({
           name: "sent-folder",
           description: "Canonical Sent folder id",
@@ -3778,15 +3814,18 @@ export default defineCliCommands({
           ctx,
           `/mailboxes/${mailbox.id}/sender-identities`,
           jsonRequest("POST", {
+            label: flags.label,
             displayName: flags.name ?? "",
             fromAddress: flags.address,
+            defaultCc: parseAddresses(flags.defaultCc),
+            defaultSignatureTemplateId: flags.defaultSignature ?? null,
             ...(flags.automation !== undefined ? { authenticationPolicy: { automation: flags.automation } } : {}),
             sentFolderId: flags.sentFolder,
             isDefault: flags.default,
           }),
         );
         if (printStructured(ctx, identity)) return;
-        ctx.print(`Created unverified identity ${identity.fromAddress} (${identity.id}).`);
+        ctx.print(`Created unverified identity ${identity.label} (${identity.id}).`);
       },
     }),
     command("identity setup-default", {
@@ -3796,6 +3835,7 @@ export default defineCliCommands({
       },
       flags: {
         ...mailboxFlag,
+        label: flag.string({ description: "Private identity label shown to collaborators" }),
         name: flag.string({ description: "User-visible sender display name" }),
         providerSavesSent: flag.boolean({
           name: "provider-saves-sent",
@@ -3809,12 +3849,13 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/sender-identities/default/setup`,
           jsonRequest("POST", {
             bindingId: args.bindingId,
+            ...(flags.label !== undefined ? { label: flags.label } : {}),
             ...(flags.name !== undefined ? { displayName: flags.name } : {}),
             savesSentAutomatically: flags.providerSavesSent,
           }),
         );
         if (printStructured(ctx, identity)) return;
-        ctx.print(`Default sender ${identity.fromAddress} is ${identity.status}.`);
+        ctx.print(`Default identity ${identity.label} is ${identity.status}.`);
       },
     }),
     command("identity configure", {
@@ -3822,10 +3863,15 @@ export default defineCliCommands({
       args: { identityId: arg.required({ description: "Sender identity id" }) },
       flags: {
         ...mailboxFlag,
+        label: flag.string({ description: "Private identity label shown to collaborators" }),
         address: flag.string({ description: "From address" }),
-        name: flag.string({ description: "Display name" }),
+        name: flag.string({ description: "Recipient-visible display name" }),
         replyTo: flag.string({ name: "reply-to" }),
         clearReplyTo: flag.boolean({ name: "clear-reply-to" }),
+        defaultCc: flag.stringList({ name: "default-cc", description: "Default Cc recipient; repeatable" }),
+        clearDefaultCc: flag.boolean({ name: "clear-default-cc" }),
+        defaultSignature: flag.string({ name: "default-signature", description: "Mailbox signature template id" }),
+        clearDefaultSignature: flag.boolean({ name: "clear-default-signature" }),
         envelopeSender: flag.string({ name: "envelope-sender" }),
         clearEnvelopeSender: flag.boolean({ name: "clear-envelope-sender" }),
         automation: flag.enum(["disabled", "mailbox"] as const, {
@@ -3841,6 +3887,12 @@ export default defineCliCommands({
       },
       run: async ({ ctx, args, flags }) => {
         if (flags.replyTo && flags.clearReplyTo) throw new Error("Use either --reply-to or --clear-reply-to.");
+        if (flags.defaultCc.length > 0 && flags.clearDefaultCc) {
+          throw new Error("Use either --default-cc or --clear-default-cc.");
+        }
+        if (flags.defaultSignature && flags.clearDefaultSignature) {
+          throw new Error("Use either --default-signature or --clear-default-signature.");
+        }
         if (flags.envelopeSender && flags.clearEnvelopeSender) {
           throw new Error("Use either --envelope-sender or --clear-envelope-sender.");
         }
@@ -3848,9 +3900,16 @@ export default defineCliCommands({
         if (flags.draftsFolder && flags.clearDraftsFolder) throw new Error("Use either --drafts-folder or --clear-drafts-folder.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const update = {
+          ...(flags.label !== undefined ? { label: flags.label } : {}),
           ...(flags.address !== undefined ? { fromAddress: flags.address } : {}),
           ...(flags.name !== undefined ? { displayName: flags.name } : {}),
           ...(flags.replyTo !== undefined || flags.clearReplyTo ? { replyTo: flags.clearReplyTo ? null : flags.replyTo } : {}),
+          ...(flags.defaultCc.length > 0 || flags.clearDefaultCc
+            ? { defaultCc: flags.clearDefaultCc ? [] : parseAddresses(flags.defaultCc) }
+            : {}),
+          ...(flags.defaultSignature !== undefined || flags.clearDefaultSignature
+            ? { defaultSignatureTemplateId: flags.clearDefaultSignature ? null : flags.defaultSignature }
+            : {}),
           ...(flags.envelopeSender !== undefined || flags.clearEnvelopeSender
             ? {
                 envelopeSender: flags.clearEnvelopeSender ? null : flags.envelopeSender,
@@ -3874,7 +3933,7 @@ export default defineCliCommands({
           jsonRequest("PATCH", update),
         );
         if (printStructured(ctx, identity)) return;
-        ctx.print(`Updated ${identity.fromAddress} (${identity.status}).`);
+        ctx.print(`Updated ${identity.label} (${identity.status}).`);
       },
     }),
     command("identity disable", {

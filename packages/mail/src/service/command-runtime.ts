@@ -506,7 +506,7 @@ export const mutationFailureState = (error: unknown, providerEffectStarted = tru
 
 const providerEffectStartedForAttempt = async (command: Pick<DbCommandExecution, "id" | "attempt">): Promise<boolean> => {
   const [state] = await sql<{ started: boolean }[]>`
-    SELECT provider_effect_attempt = ${command.attempt} AS started
+    SELECT COALESCE(provider_effect_attempt = ${command.attempt}, false) AS started
     FROM mail.commands
     WHERE id = ${command.id}::uuid
   `;
@@ -1100,7 +1100,11 @@ const folderTargetSchema = z.object({
   folderId: z.string().uuid().optional(),
   parentFolderId: z.string().uuid().nullable().optional(),
 });
-const createFolderPayloadSchema = z.object({ name: z.string().min(1).max(255), subscribe: z.boolean() });
+const createFolderPayloadSchema = z.object({
+  name: z.string().min(1).max(255),
+  subscribe: z.boolean(),
+  showInSidebar: z.boolean().default(true),
+});
 const renameFolderPayloadSchema = z.object({ name: z.string().min(1).max(255) });
 const subscriptionPayloadSchema = z.object({ subscribed: z.boolean() });
 
@@ -1154,7 +1158,10 @@ const replacementPath = (folder: DbFolderCommandTarget, name: string): string =>
   return separator < 0 ? name : `${folder.remote_path.slice(0, separator)}${folder.delimiter}${name}`;
 };
 
-const defaultBindingNamespace = async (bindingId: string): Promise<{ path: string; delimiter: string | null }> => {
+const defaultBindingNamespace = async (
+  bindingId: string,
+  runtime: MutationRuntime,
+): Promise<{ path: string; delimiter: string | null }> => {
   const [[namespace], [folder]] = await Promise.all([
     sql<{ prefix: string; delimiter: string | null }[]>`
       SELECT prefix, delimiter
@@ -1171,7 +1178,11 @@ const defaultBindingNamespace = async (bindingId: string): Promise<{ path: strin
       LIMIT 1
     `,
   ]);
-  const delimiter = namespace?.delimiter ?? folder?.delimiter ?? null;
+  let delimiter = namespace?.delimiter ?? folder?.delimiter ?? null;
+  if (!delimiter) {
+    const remoteFolders = await imapSmtpConnector.discoverFolders(runtime);
+    delimiter = remoteFolders.find((remoteFolder) => remoteFolder.delimiter)?.delimiter ?? null;
+  }
   const prefix = namespace?.prefix ?? "";
   const path = delimiter && prefix.endsWith(delimiter) ? prefix.slice(0, -delimiter.length) : prefix;
   return { path, delimiter };
@@ -1204,6 +1215,7 @@ type PreparedFolderOperation = {
   path: string;
   newPath: string | null;
   subscribed: boolean | null;
+  showInSidebar: boolean | null;
   folder: DbFolderCommandTarget | null;
 };
 
@@ -1215,10 +1227,18 @@ const prepareFolderOperation = async (command: DbCommandExecution): Promise<Prep
     const payload = createFolderPayloadSchema.parse(parseJsonRecord(command.payload));
     const parent = target.parentFolderId ? await loadFolderCommandTarget(command, target.parentFolderId) : null;
     if (parent) assertFolderAclRight(parent, "create_children");
-    const namespace = parent ? null : await defaultBindingNamespace(command.selected_binding_id);
+    const namespace = parent ? null : await defaultBindingNamespace(command.selected_binding_id, runtime);
     const delimiter = parent?.delimiter ?? namespace?.delimiter ?? null;
     const path = leafPath(parent?.remote_path ?? namespace?.path ?? "", delimiter, payload.name);
-    return { binding, runtime, path, newPath: null, subscribed: payload.subscribe, folder: parent };
+    return {
+      binding,
+      runtime,
+      path,
+      newPath: null,
+      subscribed: payload.subscribe,
+      showInSidebar: payload.showInSidebar,
+      folder: parent,
+    };
   }
   if (!target.folderId) throw Object.assign(new Error("Folder command target is missing"), { code: "INVALID_COMMAND_TARGET" });
   const folder = await loadFolderCommandTarget(command, target.folderId);
@@ -1235,6 +1255,7 @@ const prepareFolderOperation = async (command: DbCommandExecution): Promise<Prep
       path: folder.remote_path,
       newPath: replacementPath(folder, payload.name),
       subscribed: null,
+      showInSidebar: null,
       folder,
     };
   }
@@ -1243,10 +1264,18 @@ const prepareFolderOperation = async (command: DbCommandExecution): Promise<Prep
       throw Object.assign(new Error("Protected provider folders cannot be deleted"), { code: "PROTECTED_FOLDER" });
     }
     assertFolderAclRight(folder, "delete_folder");
-    return { binding, runtime, path: folder.remote_path, newPath: null, subscribed: null, folder };
+    return { binding, runtime, path: folder.remote_path, newPath: null, subscribed: null, showInSidebar: null, folder };
   }
   const payload = subscriptionPayloadSchema.parse(parseJsonRecord(command.payload));
-  return { binding, runtime, path: folder.remote_path, newPath: null, subscribed: payload.subscribed, folder };
+  return {
+    binding,
+    runtime,
+    path: folder.remote_path,
+    newPath: null,
+    subscribed: payload.subscribed,
+    showInSidebar: null,
+    folder,
+  };
 };
 
 const remoteFolderByPath = async (operation: PreparedFolderOperation) => {
@@ -1276,15 +1305,43 @@ const finishFolderOperation = async (
   operation: PreparedFolderOperation,
   state: "confirmed" | "reconciled",
 ): Promise<void> => {
+  let folderId: string | null = null;
   await persistMutationOutcome(async () => {
     const discovery = await rediscoverProviderBinding({ bindingId: command.selected_binding_id });
+    if (command.kind !== "delete_folder") {
+      const resolvedPath = operation.newPath ?? operation.path;
+      const [resolvedFolder] = await sql<{ folder_id: string }[]>`
+        SELECT ref.folder_id
+        FROM mail.binding_folder_refs ref
+        WHERE ref.binding_id = ${command.selected_binding_id}::uuid
+          AND ref.remote_path = ${resolvedPath}
+          AND ref.missing_since IS NULL
+      `;
+      folderId = resolvedFolder?.folder_id ?? null;
+      if (command.kind === "create_folder" && folderId && operation.showInSidebar !== null) {
+        await sql`
+          UPDATE mail.folders
+          SET show_in_sidebar = ${operation.showInSidebar}, updated_at = now()
+          WHERE id = ${folderId}::uuid
+        `;
+      }
+    }
     await recordCommandResult(command, {
+      folderId,
       path: operation.path,
       newPath: operation.newPath,
       subscribed: operation.subscribed,
+      showInSidebar: operation.showInSidebar,
       discoveryGeneration: discovery.discoveryGeneration,
     });
     await commandState(command, state);
+  });
+  await publishMailMailboxEvent({
+    mailboxId: command.mailbox_id,
+    conversationId: null,
+    reason: "folder",
+    targetId: folderId ?? operation.folder?.folder_id ?? null,
+    activityId: `folder-command:${command.id}:${state}`,
   });
 };
 

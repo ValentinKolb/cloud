@@ -204,8 +204,8 @@ suite("mail manual conversation threading", () => {
     if (!comment.ok) throw new Error(comment.error.message);
     sourceCommentId = comment.data.id;
     const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (mailbox_id, display_name, from_address, is_default, status)
-      VALUES (${mailboxId}::uuid, 'Thread Sender', 'support@example.com', true, 'verified')
+      INSERT INTO mail.sender_identities (mailbox_id, label, display_name, from_address, is_default, status)
+      VALUES (${mailboxId}::uuid, 'Thread Sender', 'Thread Sender', 'support@example.com', true, 'verified')
       RETURNING id
     `;
     await sql`

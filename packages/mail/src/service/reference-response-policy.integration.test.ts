@@ -350,9 +350,10 @@ suite("conversation references and automatic reply policies", () => {
     if (!enabled.ok) throw new Error(enabled.error.message);
     const [identity] = await sql<{ id: string }[]>`
       INSERT INTO mail.sender_identities (
-        mailbox_id, display_name, from_address, automation_policy, is_default, status
+        mailbox_id, label, display_name, from_address, automation_policy, is_default, status
       ) VALUES (
         ${mailboxId}::uuid,
+        'Reply drafts',
         'Reply drafts',
         ${`drafts-${suffix}@example.com`},
         'disabled',
@@ -522,9 +523,10 @@ suite("conversation references and automatic reply policies", () => {
   test("creates and updates managed automatic replies atomically", async () => {
     const [identity] = await sql<{ id: string }[]>`
       INSERT INTO mail.sender_identities (
-        mailbox_id, display_name, from_address, automation_policy, is_default, status
+        mailbox_id, label, display_name, from_address, automation_policy, is_default, status
       ) VALUES (
         ${mailboxId}::uuid,
+        'Automatic replies',
         'Automatic replies',
         ${`automatic-${suffix}@example.com`},
         'mailbox',

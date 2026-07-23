@@ -25,7 +25,7 @@ The email provider remains the source for portable mail state. Moving a message,
 3. In the settings dialog, open **Connections**.
 4. Enter the email address and select **Find settings**, or enter the IMAP and SMTP hosts, ports, and TLS modes yourself.
 5. For a configured Google or Microsoft account, select the browser OAuth button and approve access. Otherwise enter the password, app password, or OAuth2 access token supplied by the provider.
-6. Leave **Create the default sender for this address** enabled for a normal mailbox.
+6. Leave **Create the default identity for this address** enabled for a normal mailbox.
 7. Select **Verify and connect**.
 :::
 
@@ -35,11 +35,13 @@ After setup, Mail discovers the provider's folders and begins synchronization. I
 
 ## Check that sending is ready {icon="send"}
 
-Open **Settings > Senders**. A sender determines the address and display name recipients see.
+Open **Settings > Identities**. An identity groups everything Mail should use for one sending context:
 
-- A normal connection creates a sender for the account address by default.
-- A sender must be **verified** before Mail can use it reliably.
-- **Automatic replies** is a separate sender permission. It is enabled by default for new senders, but automatic mail is sent only after an administrator creates and enables an automatic reply or workflow.
+- **Identity label** is private to the mailbox and helps collaborators choose the right context, such as “University” or “Private”.
+- **Display name** and **From address** are visible to recipients.
+- A normal connection creates a default identity for the account address.
+- Every identity must be **verified** before Mail can send with it. Two identities may use the same From address while keeping different defaults.
+- **Automatic replies** is a separate identity permission. It is enabled by default for new identities, but automatic mail is sent only after an administrator creates and enables an automatic reply or workflow.
 
 ## Understand the mailbox workspace {icon="layout-grid"}
 
@@ -48,7 +50,7 @@ The left navigation contains:
 - **Work** views for Needs action, assignment, Waiting for reply, Done, and recent activity, plus a separate **Follow-up** view for Snoozed conversations and Scheduled delivery under Drafts.
 - **Automations** for out-of-office replies, acknowledgements, and advanced mailbox workflows with inline response windows.
 - **Saved views** created from reusable mailbox and collaboration filters.
-- **Folders** synchronized from the provider, plus **All mail**.
+- **Folders** synchronized from the provider, shown in their nested hierarchy, plus **All mail**. Mailbox administrators can hide folders from this navigation without deleting or unsubscribing them.
 - **Sync mailbox** and **Settings** at the bottom when your permission allows them.
 
 The center list shows one row per conversation. The reader groups the messages in that conversation. Use the **Conversation details** button to open team context, local tags, ownership, comments, reminders, and recent activity. You can hide the conversation list when you need more reading space.

@@ -342,14 +342,14 @@ function AutomaticReplyEditor(props: {
                 const identity = props.identities.find((item) => item.id === draft().senderIdentityId);
                 if (!identity) return undefined;
                 const unavailable = !automationIdentities().some((item) => item.id === identity.id);
-                return `${identity.displayName || identity.fromAddress} <${identity.fromAddress}>${unavailable ? " (unavailable)" : ""}`;
+                return `${identity.label}${unavailable ? " (unavailable)" : ""}`;
               }}
               options={selectableIdentities().map((identity) => ({
                 id: identity.id,
-                label: `${identity.displayName || identity.fromAddress}${
+                label: `${identity.label}${
                   automationIdentities().some((item) => item.id === identity.id) ? "" : " (unavailable)"
                 }`,
-                description: identity.fromAddress,
+                description: `${identity.displayName ? `${identity.displayName} · ` : ""}${identity.fromAddress}`,
                 icon: "ti ti-mail",
               }))}
               onChange={(value) => update("senderIdentityId", value)}
@@ -358,7 +358,7 @@ function AutomaticReplyEditor(props: {
           </div>
           <Show when={!senderAvailable()}>
             <p role="alert" class="text-xs text-danger">
-              This sender is no longer available for automatic replies. Choose a verified sender with Automatic replies enabled or disable
+              This identity is no longer available for automatic replies. Choose a verified identity with Automatic replies enabled or disable
               this configuration.
             </p>
           </Show>
@@ -560,7 +560,7 @@ export default function MailAutomaticReplySettings(props: {
   identities: SenderIdentity[];
   initialConfigurations: AutomaticReplyConfiguration[];
   canManage?: boolean;
-  onManageSenders?: () => void;
+  onManageIdentities?: () => void;
   onConfigurationsChange?: (configurations: AutomaticReplyConfiguration[]) => void;
   referenceConfigured?: boolean;
   onConfigureReference?: () => void;
@@ -651,14 +651,14 @@ export default function MailAutomaticReplySettings(props: {
             title="Automatic replies need a sender"
             description={
               configurations().length > 0
-                ? "Existing automatic replies remain available to review or disable. Open Senders and enable Automatic replies for a verified address to create or re-enable one."
-                : "Open Senders and enable Automatic replies for a verified address before adding a response."
+                ? "Existing automatic replies remain available to review or disable. Open Identities and enable Automatic replies for a verified identity to create or re-enable one."
+                : "Open Identities and enable Automatic replies for a verified identity before adding a response."
             }
             icon="ti ti-mail-off"
             action={
-              props.onManageSenders ? (
-                <button type="button" class="btn-secondary btn-sm" onClick={props.onManageSenders}>
-                  <i class="ti ti-at" aria-hidden="true" /> Manage senders
+              props.onManageIdentities ? (
+                <button type="button" class="btn-secondary btn-sm" onClick={props.onManageIdentities}>
+                  <i class="ti ti-at" aria-hidden="true" /> Manage identities
                 </button>
               ) : undefined
             }

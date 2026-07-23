@@ -13,6 +13,7 @@ import {
   draftContentInputSchema,
   draftEditableContentInputSchema,
   MAX_DRAFT_ATTACHMENT_BYTES,
+  type MailAddress,
   type MailDraft,
 } from "../contracts";
 import { deriveReplyAddressObjects } from "../reply-recipients";
@@ -211,16 +212,42 @@ const mapRecoveryCopy = (row: DbRecoveryCopy): DraftRecoveryCopy => ({
   resultingRevision: row.resulting_revision === null ? null : Number(row.resulting_revision),
 });
 
-const validateIdentity = async (params: { mailboxId: string; senderIdentityId: string; db: typeof sql }): Promise<Result<void>> => {
-  const [identity] = await params.db<{ id: string }[]>`
-    SELECT id
+const validateIdentity = async (params: {
+  mailboxId: string;
+  senderIdentityId: string;
+  db: typeof sql;
+}): Promise<Result<{ defaultCc: MailAddress[] }>> => {
+  const [identity] = await params.db<{ default_cc: MailAddress[] | string }[]>`
+    SELECT default_cc
     FROM mail.sender_identities
     WHERE id = ${params.senderIdentityId}::uuid
       AND mailbox_id = ${params.mailboxId}::uuid
       AND status = 'verified'
     FOR SHARE
   `;
-  return identity ? ok() : fail(err.badInput("A verified sender identity is required"));
+  if (!identity) return fail(err.badInput("A verified sender identity is required"));
+  return ok({
+    defaultCc: typeof identity.default_cc === "string" ? (JSON.parse(identity.default_cc) as MailAddress[]) : identity.default_cc,
+  });
+};
+
+const mergeDefaultCc = (params: {
+  to: MailAddress[];
+  cc: MailAddress[];
+  bcc: MailAddress[];
+  defaultCc: MailAddress[];
+}): MailAddress[] => {
+  const blocked = new Set([...params.to, ...params.bcc].map((recipient) => recipient.address.trim().toLowerCase()));
+  const merged = new Map<string, MailAddress>();
+  for (const recipient of [...params.cc, ...params.defaultCc]) {
+    const key = recipient.address.trim().toLowerCase();
+    if (blocked.has(key) || merged.has(key)) continue;
+    merged.set(key, {
+      ...(recipient.name?.trim() ? { name: recipient.name.trim() } : {}),
+      address: key,
+    });
+  }
+  return [...merged.values()];
 };
 
 const resolveDraftContext = async (params: {
@@ -429,7 +456,12 @@ export const createDraft = async (params: {
       const initialContent = draftContentInputSchema.safeParse({
         ...parsed.data,
         to: initialRecipients.data.to,
-        cc: initialRecipients.data.cc,
+        cc: mergeDefaultCc({
+          to: initialRecipients.data.to,
+          cc: initialRecipients.data.cc,
+          bcc: parsed.data.bcc,
+          defaultCc: identity.data.defaultCc,
+        }),
         subject: initialSubject,
         body: initialBody,
       });

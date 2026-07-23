@@ -1,15 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import type { SenderIdentity } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
-import { deriveReplyRecipients } from "./mail-compose-derivation";
+import { deriveReplyIdentityId, deriveReplyRecipients } from "./mail-compose-derivation";
 
 const identity = {
   id: "00000000-0000-4000-8000-000000000001",
   mailboxId: "00000000-0000-4000-8000-000000000002",
+  label: "Team",
   displayName: "Team",
   fromAddress: "team@example.com",
   replyTo: null,
+  defaultCc: [],
   envelopeSender: null,
+  defaultSignatureTemplateId: null,
   authenticationPolicy: { automation: "mailbox" },
   sentFolderId: null,
   draftsFolderId: null,
@@ -96,5 +99,38 @@ describe("deriveReplyRecipients", () => {
       [identity],
     );
     expect(recipients).toEqual({ to: ["customer@example.com"], cc: ["manager@example.com"] });
+  });
+});
+
+describe("deriveReplyIdentityId", () => {
+  test("selects the identity that received the source message", () => {
+    const alternate = {
+      ...identity,
+      id: "00000000-0000-4000-8000-000000000004",
+      label: "Support",
+      fromAddress: "support@example.com",
+      isDefault: false,
+    };
+    expect(
+      deriveReplyIdentityId(
+        message({ to: [{ name: "Support", address: "support@example.com" }] }),
+        [identity, alternate],
+      ),
+    ).toBe(alternate.id);
+  });
+
+  test("requires an explicit choice when duplicate addresses are ambiguous", () => {
+    const duplicate = {
+      ...identity,
+      id: "00000000-0000-4000-8000-000000000005",
+      label: "Business",
+      isDefault: false,
+    };
+    expect(
+      deriveReplyIdentityId(
+        message({ to: [{ name: "Team", address: "team@example.com" }] }),
+        [{ ...identity, isDefault: false }, duplicate],
+      ),
+    ).toBeNull();
   });
 });

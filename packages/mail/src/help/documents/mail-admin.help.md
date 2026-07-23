@@ -2,7 +2,7 @@
 id: mail-admin
 title: Set up and manage a mailbox
 icon: ti ti-settings
-description: Manage transport, senders, folders, access, automation, and mailbox lifecycle.
+description: Manage transport, identities, folders, access, automation, and mailbox lifecycle.
 order: 50
 ---
 
@@ -50,23 +50,46 @@ Mail reports IMAP and SMTP verification independently. An IMAP failure blocks sy
 
 Removing the connection disconnects transport. It does not delete provider mail or the retained Cloud mailbox data.
 
-## Manage sender identities {icon="send"}
+## Manage sending identities {icon="send"}
 
-**Senders** controls the From addresses available to collaborators.
+**Identities** controls the sending contexts available to collaborators. Use separate identities when the same address needs different defaults for roles such as private mail, university work, or a business.
 
-A sender can define a display name, From address, Reply-to address, envelope sender, Sent folder, Drafts folder, and whether it is the default. Verify the sender by choosing a provider binding and a recipient for a real verification message.
+The **Identity label** is visible only inside the mailbox. Recipients see the **Display name** and **From address**. Each identity can also define a Reply-to address, default Cc recipients, default signature, Sent folder, Drafts folder, and whether it is the default.
 
-The **Automatic replies** switch is separate from verification. Automatic replies can use only a verified sender with this switch enabled. Enabling the switch does not itself send anything; an enabled automatic reply or workflow is still required.
+**Advanced delivery** contains provider-specific settings that most people should leave unchanged. The optional **Return-path address** receives technical delivery failures and bounce reports. Leave it empty unless your mail provider explicitly requires a separate address.
 
-## Map provider folders {icon="user-cog"}
+Default Cc recipients are added when a person starts a new message, reply, or forward with that identity. They are not added to automatic replies or workflow messages, and the writer can remove them before sending. A mailbox signature is inserted only when a new message is created; changing the identity later does not rewrite an edited draft. A personal signature override takes precedence.
 
-**Folders** maps provider folders to Sent, Drafts, Archive, Trash, and Junk operations. Inbox is discovered from the provider.
+Two identities may deliberately share the same From address. Mail keeps their labels, Cc recipients, signatures, Reply-to values, folder mappings, and verification states separate. When a reply matches exactly one identity, Mail selects it automatically. If several matching identities are equally valid, the writer must choose one explicitly.
 
-Only active, selectable provider folders can be mapped. An incorrect or missing mapping can prevent the corresponding conversation action or sent/draft projection from completing.
+Verify every identity by choosing a provider binding and a recipient for a real verification message. **Ready to send** means that the provider accepted this test with the identity's exact From address and advanced delivery settings. IMAP folder access alone does not prove that the provider permits those sending settings.
 
-If the IMAP account exposes shared or other-user folders, **Rediscover** can make them appear as ordinary provider folders. Cloud does not provide separate permissions for one provider folder: **Access** shares the whole Cloud mailbox. Mail also does not combine the same remote shared folder from several users' separate provider accounts.
+The **Allow automatic replies** option is separate from verification. Automatic replies can use only a ready identity with this option enabled. Enabling it does not itself send anything; an enabled automatic reply or workflow is still required.
 
-Provider-side namespace or subscription changes can make a folder missing or ambiguous. Review **Status > Folder discovery**, update the provider subscription or rights when necessary, then run **Rediscover**.
+## Manage provider folders {icon="user-cog"}
+
+**Folders** shows the hierarchy discovered from the connected mail provider. From here, a mailbox administrator can:
+
+- create a top-level folder in the personal mailbox namespace;
+- create a subfolder where the provider grants that right;
+- rename or delete an eligible provider folder;
+- subscribe or unsubscribe on the provider; and
+- show or hide a folder in the Cloud Mail sidebar.
+
+These controls affect different things:
+
+- **Show in sidebar** is only a Cloud navigation preference. Hiding a folder does not unsubscribe it, delete it, change provider permissions, or remove already synchronized mail.
+- **Subscribe on the mail provider** changes the IMAP subscription. Other mail clients may use that subscription to decide which folders they show.
+- **Provider access** is controlled by the provider. Cloud displays shared and other-user folders only when the connected account can see them, and enables destructive actions only when current provider rights allow them.
+- **Synchronization** follows the configured mailbox scope and provider state. It is not enabled or disabled by the sidebar switch.
+
+Deleting a folder removes it at the provider and is therefore offered only for an empty folder without subfolders. Inbox and other protected folders cannot be deleted. A folder operation is durable: leaving the settings page does not cancel it, and Mail rediscovers provider state before confirming the result.
+
+**Special folder mappings** selects the active, selectable folders used for Sent, Drafts, Archive, Trash, and Junk operations. Inbox is discovered from the provider. An incorrect or missing mapping can prevent the corresponding conversation action or sent/draft projection from completing.
+
+If the IMAP account exposes shared or other-user folders, **Rediscover** can make them appear in the same hierarchy. They are provider state of this connected account, not separate Cloud resources. Cloud does not provide folder-level sharing, edit upstream ACLs, combine similarly named folders from several accounts, or use another person's credential if this connection loses access.
+
+Provider-side namespace, subscription, or permission changes can make a folder unavailable or ambiguous. Review **Status > Folder discovery**, correct the provider state when necessary, then run **Rediscover**.
 
 ## Configure access {icon="shield-lock"}
 
@@ -81,7 +104,7 @@ Provider-side namespace or subscription changes can make a folder missing or amb
 - **Mailbox writers and admins** lets writers create and change guided out-of-office replies and acknowledgements.
 - **Mailbox admins only** is the secure default for new and existing mailboxes.
 
-This policy does not let writers configure sender identities, reference-number settings, or YAML workflows. Those remain mailbox-admin operations.
+This policy does not let writers configure identities, reference-number settings, or YAML workflows. Those remain mailbox-admin operations.
 
 Credentials remain hidden even from administrators. Sharing a mailbox grants Cloud access to the mailbox; it does not reveal the provider password or token.
 
@@ -103,7 +126,7 @@ Cloud **Admin** access, which is separate from mailbox Admin access, is required
 
 ## Configure signatures and email design {icon="pencil"}
 
-Under **Compose**, create private or mailbox signatures and snippets. Administrators can set a mailbox default signature per verified sender. A collaborator's personal default takes precedence.
+Under **Compose**, create private or mailbox signatures and snippets. Assign the mailbox default signature in **Identities**. A collaborator's personal default under **Compose** takes precedence.
 
 Markdown messages always receive the built-in readable email design. **Email design** adds validated mailbox CSS overrides for company branding; it does not replace the safe base design. Use the composer Preview to verify the rendered result before relying on a CSS change.
 

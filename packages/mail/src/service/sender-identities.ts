@@ -6,6 +6,7 @@ import {
   createSenderIdentityInputSchema,
   type DefaultSenderSetupInput,
   defaultSenderSetupInputSchema,
+  type MailAddress,
   type SenderIdentity,
   type UpdateSenderIdentityInput,
   updateSenderIdentityInputSchema,
@@ -20,10 +21,13 @@ import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
 type DbIdentity = {
   id: string;
   mailbox_id: string;
+  label: string;
   display_name: string;
   from_address: string;
   reply_to: string | null;
+  default_cc: MailAddress[] | string;
   envelope_sender: string | null;
+  default_signature_template_id: string | null;
   automation_policy: "disabled" | "mailbox";
   sent_folder_id: string | null;
   drafts_folder_id: string | null;
@@ -46,10 +50,19 @@ type DbSenderVerification = DbIdentity & {
 const identityColumns = sql`
   si.id,
   si.mailbox_id,
+  si.label,
   si.display_name,
   si.from_address,
   si.reply_to,
+  si.default_cc,
   si.envelope_sender,
+  (
+    SELECT signature_default.template_id
+    FROM mail.compose_signature_defaults signature_default
+    WHERE signature_default.mailbox_id = si.mailbox_id
+      AND signature_default.sender_identity_id = si.id
+      AND signature_default.user_id IS NULL
+  ) AS default_signature_template_id,
   si.automation_policy,
   si.sent_folder_id,
   si.drafts_folder_id,
@@ -62,10 +75,13 @@ const identityColumns = sql`
 const mapIdentity = (row: DbIdentity): SenderIdentity => ({
   id: row.id,
   mailboxId: row.mailbox_id,
+  label: row.label,
   displayName: row.display_name,
   fromAddress: row.from_address,
   replyTo: row.reply_to,
+  defaultCc: typeof row.default_cc === "string" ? (JSON.parse(row.default_cc) as MailAddress[]) : row.default_cc,
   envelopeSender: row.envelope_sender,
+  defaultSignatureTemplateId: row.default_signature_template_id,
   authenticationPolicy: { automation: row.automation_policy },
   sentFolderId: row.sent_folder_id,
   draftsFolderId: row.drafts_folder_id,
@@ -74,6 +90,67 @@ const mapIdentity = (row: DbIdentity): SenderIdentity => ({
   createdAt: (row.created_at instanceof Date ? row.created_at : new Date(row.created_at)).toISOString(),
   updatedAt: (row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)).toISOString(),
 });
+
+const normalizeAddresses = (addresses: MailAddress[]): MailAddress[] => {
+  const normalized = new Map<string, MailAddress>();
+  for (const address of addresses) {
+    const key = address.address.trim().toLowerCase();
+    if (!normalized.has(key)) {
+      normalized.set(key, {
+        ...(address.name?.trim() ? { name: address.name.trim() } : {}),
+        address: key,
+      });
+    }
+  }
+  return [...normalized.values()];
+};
+
+const setMailboxDefaultSignature = async (params: {
+  db: SqlClient;
+  mailboxId: string;
+  senderIdentityId: string;
+  templateId: string | null | undefined;
+}): Promise<Result<void>> => {
+  if (params.templateId === undefined) return ok();
+  if (params.templateId === null) {
+    await params.db`
+      DELETE FROM mail.compose_signature_defaults
+      WHERE mailbox_id = ${params.mailboxId}::uuid
+        AND sender_identity_id = ${params.senderIdentityId}::uuid
+        AND user_id IS NULL
+    `;
+    return ok();
+  }
+  const [template] = await params.db<{ id: string }[]>`
+    SELECT id
+    FROM mail.compose_templates
+    WHERE id = ${params.templateId}::uuid
+      AND mailbox_id = ${params.mailboxId}::uuid
+      AND kind = 'signature'
+      AND scope = 'mailbox'
+      AND archived_at IS NULL
+    FOR SHARE
+  `;
+  if (!template) return fail(err.badInput("The selected mailbox signature is not available"));
+  await params.db`
+    INSERT INTO mail.compose_signature_defaults (
+      mailbox_id, sender_identity_id, user_id, template_id, revision, updated_at
+    ) VALUES (
+      ${params.mailboxId}::uuid,
+      ${params.senderIdentityId}::uuid,
+      NULL,
+      ${params.templateId}::uuid,
+      1,
+      now()
+    )
+    ON CONFLICT (mailbox_id, sender_identity_id) WHERE user_id IS NULL
+    DO UPDATE SET
+      template_id = EXCLUDED.template_id,
+      revision = mail.compose_signature_defaults.revision + 1,
+      updated_at = now()
+  `;
+  return ok();
+};
 
 const loadSenderVerification = async (params: {
   mailboxId: string;
@@ -162,9 +239,11 @@ export const createSenderIdentity = async (params: {
       const [row] = await tx<DbIdentity[]>`
         INSERT INTO mail.sender_identities AS si (
           mailbox_id,
+          label,
           display_name,
           from_address,
           reply_to,
+          default_cc,
           envelope_sender,
           automation_policy,
           sent_folder_id,
@@ -174,9 +253,11 @@ export const createSenderIdentity = async (params: {
         )
         VALUES (
           ${params.mailboxId}::uuid,
+          ${parsed.data.label},
           ${parsed.data.displayName},
           ${parsed.data.fromAddress.toLowerCase()},
           ${parsed.data.replyTo?.toLowerCase() ?? null},
+          ${normalizeAddresses(parsed.data.defaultCc)}::jsonb,
           ${parsed.data.envelopeSender?.toLowerCase() ?? null},
           ${parsed.data.authenticationPolicy.automation},
           ${parsed.data.sentFolderId ?? null}::uuid,
@@ -187,21 +268,39 @@ export const createSenderIdentity = async (params: {
         RETURNING ${identityColumns}
       `;
       if (!row) throw new Error("Sender identity insert returned no row");
+      const signature = await setMailboxDefaultSignature({
+        db: tx,
+        mailboxId: params.mailboxId,
+        senderIdentityId: row.id,
+        templateId: parsed.data.defaultSignatureTemplateId,
+      });
+      if (!signature.ok) throw signature.error;
+      const [created] = await tx<DbIdentity[]>`
+        SELECT ${identityColumns}
+        FROM mail.sender_identities si
+        WHERE si.id = ${row.id}::uuid
+      `;
+      if (!created) throw new Error("Created sender identity could not be reloaded");
       await audit.record(
         {
           action: "mail.sender_identity.create",
           outcome: "allowed",
           actor: auditActorFromRequest(params.context),
-          target: { type: "sender_identity", id: row.id, label: row.from_address },
+          target: { type: "sender_identity", id: created.id, label: created.label },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, authenticationPolicy: parsed.data.authenticationPolicy },
+          metadata: {
+            mailboxId: params.mailboxId,
+            fromAddress: created.from_address,
+            authenticationPolicy: parsed.data.authenticationPolicy,
+          },
         },
         tx,
       );
-      return ok(mapIdentity(row));
+      return ok(mapIdentity(created));
     });
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Sender identity"));
+    if (isServiceError(error)) return fail(error);
     return fail(err.internal("Failed to create sender identity"));
   }
 };
@@ -213,7 +312,7 @@ export const listSenderIdentities = async (context: MailRequestContext, mailboxI
     SELECT ${identityColumns}
     FROM mail.sender_identities si
     WHERE si.mailbox_id = ${mailboxId}::uuid AND si.status <> 'disabled'
-    ORDER BY si.is_default DESC, si.from_address, si.id
+    ORDER BY si.is_default DESC, lower(si.label), si.id
   `;
   return ok(rows.map(mapIdentity));
 };
@@ -248,6 +347,12 @@ export const updateSenderIdentity = async (params: {
       const replyTo = parsed.data.replyTo === undefined ? current.reply_to : (parsed.data.replyTo?.toLowerCase() ?? null);
       const envelopeSender =
         parsed.data.envelopeSender === undefined ? current.envelope_sender : (parsed.data.envelopeSender?.toLowerCase() ?? null);
+      const defaultCc =
+        parsed.data.defaultCc === undefined
+          ? typeof current.default_cc === "string"
+            ? (JSON.parse(current.default_cc) as MailAddress[])
+            : current.default_cc
+          : normalizeAddresses(parsed.data.defaultCc);
       const providerRelevantChanged =
         fromAddress !== current.from_address ||
         replyTo !== current.reply_to ||
@@ -269,12 +374,21 @@ export const updateSenderIdentity = async (params: {
           WHERE sender_identity_id = ${params.senderIdentityId}::uuid AND revoked_at IS NULL
         `;
       }
+      const signature = await setMailboxDefaultSignature({
+        db: tx,
+        mailboxId: params.mailboxId,
+        senderIdentityId: params.senderIdentityId,
+        templateId: parsed.data.defaultSignatureTemplateId,
+      });
+      if (!signature.ok) throw signature.error;
       const [updated] = await tx<DbIdentity[]>`
         UPDATE mail.sender_identities si
         SET
+          label = ${parsed.data.label ?? current.label},
           display_name = ${parsed.data.displayName ?? current.display_name},
           from_address = ${fromAddress},
           reply_to = ${replyTo},
+          default_cc = ${defaultCc}::jsonb,
           envelope_sender = ${envelopeSender},
           automation_policy = ${nextPolicy.automation},
           sent_folder_id = ${sentFolderId}::uuid,
@@ -286,18 +400,29 @@ export const updateSenderIdentity = async (params: {
         RETURNING ${identityColumns}
       `;
       if (!updated) return fail(err.internal("Sender identity update returned no row"));
+      const [reloaded] = await tx<DbIdentity[]>`
+        SELECT ${identityColumns}
+        FROM mail.sender_identities si
+        WHERE si.id = ${updated.id}::uuid
+      `;
+      if (!reloaded) return fail(err.internal("Updated sender identity could not be reloaded"));
       await audit.record(
         {
           action: "mail.sender_identity.update",
           outcome: "allowed",
           actor: auditActorFromRequest(params.context),
-          target: { type: "sender_identity", id: updated.id, label: updated.from_address },
+          target: { type: "sender_identity", id: reloaded.id, label: reloaded.label },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, providerRelevantChanged, automationPolicyChanged },
+          metadata: {
+            mailboxId: params.mailboxId,
+            fromAddress: reloaded.from_address,
+            providerRelevantChanged,
+            automationPolicyChanged,
+          },
         },
         tx,
       );
-      return ok(mapIdentity(updated));
+      return ok(mapIdentity(reloaded));
     });
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Sender identity"));
@@ -409,7 +534,11 @@ export const setupDefaultSender = async (params: {
   const [existing] = await sql<DbIdentity[]>`
     SELECT ${identityColumns}
     FROM mail.sender_identities si
-    WHERE si.mailbox_id = ${params.mailboxId}::uuid AND lower(si.from_address) = lower(${binding.email})
+    WHERE si.mailbox_id = ${params.mailboxId}::uuid
+      AND lower(si.from_address) = lower(${binding.email})
+      AND si.status <> 'disabled'
+    ORDER BY si.is_default DESC, si.created_at, si.id
+    LIMIT 1
   `;
   let identity: Result<SenderIdentity>;
   if (existing) {
@@ -418,6 +547,7 @@ export const setupDefaultSender = async (params: {
       mailboxId: params.mailboxId,
       senderIdentityId: existing.id,
       input: {
+        ...(parsed.data.label !== undefined ? { label: parsed.data.label } : {}),
         ...(parsed.data.displayName !== undefined ? { displayName: parsed.data.displayName } : {}),
         sentFolderId: sent?.data.id ?? null,
         draftsFolderId: drafts.ok ? drafts.data.id : null,
@@ -429,8 +559,10 @@ export const setupDefaultSender = async (params: {
       context: params.context,
       mailboxId: params.mailboxId,
       input: {
+        label: parsed.data.label ?? (parsed.data.displayName?.trim() || binding.email),
         displayName: parsed.data.displayName ?? "",
         fromAddress: binding.email,
+        defaultCc: [],
         authenticationPolicy: { automation: "mailbox" },
         sentFolderId: sent?.data.id ?? null,
         draftsFolderId: drafts.ok ? drafts.data.id : null,

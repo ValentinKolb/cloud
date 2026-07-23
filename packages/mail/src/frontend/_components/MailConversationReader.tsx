@@ -11,7 +11,7 @@ import MailComposer from "./MailComposer";
 import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
 import { getMailAction, type MailActionId } from "./mail-actions";
-import { deriveReplyRecipients } from "./mail-compose-derivation";
+import { deriveReplyIdentityId, deriveReplyRecipients } from "./mail-compose-derivation";
 import { buildMailListHref } from "./mail-navigation";
 
 const formatAddress = (address: { name: string | null; address: string }): string =>
@@ -642,6 +642,7 @@ export default function MailConversationReader(props: {
                     ? undefined
                     : {
                         intent: active().intent,
+                        senderIdentityId: deriveReplyIdentityId(active().message, props.identities),
                         conversationId: props.selectedConversationId,
                         sourceMessageId: active().message.id,
                         to: composerRecipients(active(), props.identities).to,

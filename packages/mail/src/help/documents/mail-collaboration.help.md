@@ -38,7 +38,7 @@ Mailbox access is granted in **Settings > Access**.
 | --- | --- |
 | Read | Read and search mail, download attachments, view collaboration context, write internal comments, and use personal reminders |
 | Write | All Read actions plus compose and send, change provider mail state, assign work, change status, snooze, and manage conversation tags |
-| Admin | All Write actions plus connections, senders, folder mappings, shared settings, access, response policy, workflows, and mailbox deletion |
+| Admin | All Write actions plus connections, identities, folder mappings, shared settings, access, response policy, workflows, and mailbox deletion |
 
 Access can be granted through the standard Cloud permission editor to the supported people, groups, or service accounts. Removing access takes effect for the mailbox, including open live views and future agent or service-account actions.
 

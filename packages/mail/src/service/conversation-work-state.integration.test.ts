@@ -81,8 +81,8 @@ suite("mail conversation work-state projection", () => {
     remoteResourceId = resource!.id;
     folderId = folder!.id;
     const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (mailbox_id, display_name, from_address, is_default, status)
-      VALUES (${mailboxId}::uuid, 'Support', 'support@example.test', true, 'verified')
+      INSERT INTO mail.sender_identities (mailbox_id, label, display_name, from_address, is_default, status)
+      VALUES (${mailboxId}::uuid, 'Support', 'Support', 'support@example.test', true, 'verified')
       RETURNING id
     `;
     senderIdentityId = identity!.id;

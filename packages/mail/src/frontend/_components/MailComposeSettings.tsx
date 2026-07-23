@@ -188,6 +188,7 @@ export default function MailComposeSettings(props: {
   initialDefaults: ComposeSignatureDefault[];
   initialStyle: MailboxComposeStyle;
   identities: SenderIdentity[];
+  onTemplatesChange?: (templates: ComposeTemplate[]) => void;
 }) {
   const [templates, setTemplates] = createSignal(props.initialTemplates);
   const [defaults, setDefaults] = createSignal(props.initialDefaults);
@@ -219,11 +220,13 @@ export default function MailComposeSettings(props: {
   };
 
   const replaceTemplate = (template: ComposeTemplate) =>
-    setTemplates((current) =>
-      current.some((item) => item.id === template.id)
+    setTemplates((current) => {
+      const next = current.some((item) => item.id === template.id)
         ? current.map((item) => (item.id === template.id ? template : item))
-        : [...current, template],
-    );
+        : [...current, template];
+      props.onTemplatesChange?.(next);
+      return next;
+    });
 
   const openTemplate = (template: ComposeTemplate | null = null) =>
     dialogCore.open<void>(
@@ -265,7 +268,11 @@ export default function MailComposeSettings(props: {
       }
       return prompts.error(await readApiError(response, "Failed to archive compose template"));
     }
-    setTemplates((current) => current.filter((item) => item.id !== template.id));
+    setTemplates((current) => {
+      const next = current.filter((item) => item.id !== template.id);
+      props.onTemplatesChange?.(next);
+      return next;
+    });
     setDefaults((current) => current.filter((item) => item.templateId !== template.id));
     toast.success("Template archived");
   };
@@ -393,46 +400,29 @@ export default function MailComposeSettings(props: {
 
       <Show when={signatures().length > 0 && props.identities.length > 0}>
         <section>
-          <h3 class="text-sm font-semibold text-primary">Default signatures</h3>
+          <h3 class="text-sm font-semibold text-primary">Personal signature overrides</h3>
           <p class="mb-2 mt-0.5 text-xs text-dimmed">
-            A new message uses your personal default when set; otherwise it uses the mailbox default. The inserted source remains editable.
+            Override an identity's mailbox signature only for yourself. Identity defaults are managed under Identities.
           </p>
           <div class="flex flex-col gap-3">
             <For each={props.identities.filter((identity) => identity.status === "verified")}>
               {(identity) => {
                 const privateDefault = () =>
                   defaults().find((item) => item.senderIdentityId === identity.id && item.userId !== null)?.templateId ?? "";
-                const mailboxDefault = () =>
-                  defaults().find((item) => item.senderIdentityId === identity.id && item.userId === null)?.templateId ?? "";
                 return (
-                  <div class="grid gap-3 sm:grid-cols-2">
-                    <Select
-                      label={`${identity.fromAddress} · My default`}
-                      description="Overrides the mailbox default only for you."
-                      value={privateDefault}
-                      onChange={(value) => void setDefault(identity, "private", value)}
-                      disabled={pendingDefaults().has(`${identity.id}:private`)}
-                      options={signatures().map((template) => ({
-                        id: template.id,
-                        label: template.name,
-                        description: template.scope === "mailbox" ? "Mailbox signature" : "Private signature",
-                      }))}
-                      clearable
-                    />
-                    <Show when={props.permission === "admin"}>
-                      <Select
-                        label="Mailbox default"
-                        description="Used when a collaborator has no personal default."
-                        value={mailboxDefault}
-                        onChange={(value) => void setDefault(identity, "mailbox", value)}
-                        disabled={pendingDefaults().has(`${identity.id}:mailbox`)}
-                        options={signatures()
-                          .filter((template) => template.scope === "mailbox")
-                          .map((template) => ({ id: template.id, label: template.name }))}
-                        clearable
-                      />
-                    </Show>
-                  </div>
+                  <Select
+                    label={`${identity.label} · My signature`}
+                    description={`Overrides the identity default for ${identity.fromAddress}.`}
+                    value={privateDefault}
+                    onChange={(value) => void setDefault(identity, "private", value)}
+                    disabled={pendingDefaults().has(`${identity.id}:private`)}
+                    options={signatures().map((template) => ({
+                      id: template.id,
+                      label: template.name,
+                      description: template.scope === "mailbox" ? "Mailbox signature" : "Private signature",
+                    }))}
+                    clearable
+                  />
                 );
               }}
             </For>

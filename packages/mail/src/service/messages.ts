@@ -43,6 +43,7 @@ export type MailFolderView = {
   providerRole: string;
   configuredRole: string | null;
   selectable: boolean;
+  showInSidebar: boolean;
   namespaceKinds: Array<"personal" | "other_users" | "shared">;
   discoveryState: "active" | "missing" | "ambiguous";
   missingSince: string | null;
@@ -63,6 +64,7 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       provider_role: string;
       configured_role: string | null;
       selectable: boolean;
+      show_in_sidebar: boolean;
       namespace_kinds: MailFolderView["namespaceKinds"];
       discovery_state: MailFolderView["discoveryState"];
       missing_since: Date | string | null;
@@ -79,6 +81,7 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       f.role AS provider_role,
       role_override.role AS configured_role,
       f.selectable,
+      f.show_in_sidebar,
       ARRAY(
         SELECT DISTINCT ref.namespace_kind
         FROM mail.binding_folder_refs ref
@@ -131,6 +134,7 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       providerRole: row.provider_role,
       configuredRole: row.configured_role,
       selectable: row.selectable,
+      showInSidebar: row.show_in_sidebar,
       namespaceKinds: row.namespace_kinds,
       discoveryState: row.discovery_state,
       missingSince: row.missing_since ? toIso(row.missing_since) : null,

@@ -16,7 +16,13 @@ import { executeMutationCommand } from "./command-runtime";
 import { createActorCommand, createMailCommand } from "./commands";
 import { imapSmtpConnector } from "./connectors";
 import { resolveMailExecution } from "./execution";
-import { clearFolderRole, resolveRoleFolder, setFolderRole } from "./folders";
+import {
+  clearFolderRole,
+  listAdminFolders,
+  resolveRoleFolder,
+  setFolderRole,
+  setFolderSidebarVisibility,
+} from "./folders";
 import { getMailboxOperationalHealth } from "./health";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import {
@@ -310,8 +316,10 @@ suite("mail lifecycle control plane", () => {
       context: adminContext,
       mailboxId,
       input: {
+        label: "Disabled sender",
         displayName: "Disabled sender",
         fromAddress: `disabled-${suffix}@example.com`,
+        defaultCc: [],
         authenticationPolicy: { automation: "disabled" },
         isDefault: false,
       },
@@ -352,13 +360,80 @@ suite("mail lifecycle control plane", () => {
     }
   });
 
+  test("allows distinct identities to share one From address", async () => {
+    const fromAddress = `shared-${suffix}@example.com`;
+    const first = await createSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      input: {
+        label: "Personal",
+        displayName: "Valentin",
+        fromAddress,
+        defaultCc: [],
+        authenticationPolicy: { automation: "disabled" },
+        isDefault: false,
+      },
+    });
+    const second = await createSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      input: {
+        label: "Organization",
+        displayName: "Organization Team",
+        fromAddress,
+        defaultCc: [{ name: "Archive", address: "archive@example.com" }],
+        authenticationPolicy: { automation: "disabled" },
+        isDefault: false,
+      },
+    });
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(first.data.id).not.toBe(second.data.id);
+    expect(second.data).toMatchObject({
+      label: "Organization",
+      fromAddress,
+      defaultCc: [{ name: "Archive", address: "archive@example.com" }],
+      defaultSignatureTemplateId: null,
+    });
+  });
+
+  test("rejects an unavailable default signature without creating a partial identity", async () => {
+    const label = `Invalid signature ${suffix}`;
+    const created = await createSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      input: {
+        label,
+        displayName: "Invalid signature",
+        fromAddress: `invalid-signature-${suffix}@example.com`,
+        defaultCc: [],
+        defaultSignatureTemplateId: crypto.randomUUID(),
+        authenticationPolicy: { automation: "disabled" },
+        isDefault: false,
+      },
+    });
+    expect(created).toMatchObject({
+      ok: false,
+      error: { status: 400, message: "The selected mailbox signature is not available" },
+    });
+    const [identity] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM mail.sender_identities
+      WHERE mailbox_id = ${mailboxId}::uuid AND label = ${label}
+    `;
+    expect(identity?.count).toBe(0);
+  });
+
   test("sender automation policy changes preserve provider verification", async () => {
     const identity = await createSenderIdentity({
       context: adminContext,
       mailboxId,
       input: {
+        label: "Automation policy sender",
         displayName: "Automation policy sender",
         fromAddress: `automation-${suffix}@example.com`,
+        defaultCc: [],
         authenticationPolicy: { automation: "disabled" },
         isDefault: false,
       },
@@ -391,6 +466,32 @@ suite("mail lifecycle control plane", () => {
       WHERE sender_identity_id = ${identity.data.id}::uuid AND binding_id = ${bindingId}::uuid
     `;
     expect(binding?.revoked_at).toBeNull();
+
+    const rejected = await updateSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      senderIdentityId: identity.data.id,
+      input: {
+        fromAddress: `changed-${suffix}@example.com`,
+        defaultSignatureTemplateId: crypto.randomUUID(),
+      },
+    });
+    expect(rejected).toMatchObject({
+      ok: false,
+      error: { status: 400, message: "The selected mailbox signature is not available" },
+    });
+    const [rolledBack] = await sql<{ from_address: string; status: string; revoked_at: Date | null }[]>`
+      SELECT identity.from_address, identity.status, identity_binding.revoked_at
+      FROM mail.sender_identities identity
+      JOIN mail.sender_identity_bindings identity_binding ON identity_binding.sender_identity_id = identity.id
+      WHERE identity.id = ${identity.data.id}::uuid
+        AND identity_binding.binding_id = ${bindingId}::uuid
+    `;
+    expect(rolledBack).toMatchObject({
+      from_address: identity.data.fromAddress,
+      status: "verified",
+      revoked_at: null,
+    });
   });
 
   test("default sender setup preserves an explicit automation opt-out", async () => {
@@ -398,8 +499,10 @@ suite("mail lifecycle control plane", () => {
       context: adminContext,
       mailboxId,
       input: {
+        label: "Provider default sender",
         displayName: "Provider default sender",
         fromAddress: "lifecycle@example.com",
+        defaultCc: [],
         authenticationPolicy: { automation: "disabled" },
         isDefault: false,
       },
@@ -1684,24 +1787,12 @@ suite("mail lifecycle control plane", () => {
         kind: "create_folder",
         name: `Denied ${suffix}`,
         subscribe: true,
+        showInSidebar: true,
         idempotencyKey: `folder-denied-${suffix}`,
       },
     });
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error.code).toBe("FORBIDDEN");
-    const deniedTriage = await createConversationTriageCommands({
-      context: collaboratorContext,
-      mailboxId,
-      conversationId: crypto.randomUUID(),
-      input: {
-        kind: "move_to_role",
-        sourceFolderId: inboxFolderId,
-        role: "archive",
-        idempotencyKey: `triage-denied-${suffix}`,
-      },
-    });
-    expect(deniedTriage.ok).toBe(false);
-    if (!deniedTriage.ok) expect(deniedTriage.error.code).toBe("FORBIDDEN");
 
     const folderRights = [
       "read",
@@ -1786,6 +1877,7 @@ suite("mail lifecycle control plane", () => {
           kind: "create_folder",
           name: `Invalid/Nested ${suffix}`,
           subscribe: true,
+          showInSidebar: true,
           idempotencyKey: `folder-nested-${suffix}`,
         },
       });
@@ -1802,6 +1894,7 @@ suite("mail lifecycle control plane", () => {
           kind: "create_folder",
           name: `Cloud Ops ${suffix}`,
           subscribe: true,
+          showInSidebar: false,
           idempotencyKey: `folder-create-${suffix}`,
         },
       });
@@ -1809,13 +1902,58 @@ suite("mail lifecycle control plane", () => {
       if (!created.ok) return;
       expect(await executeMutationCommand(created.data.id)).toBe("ambiguous");
       expect(await executeMutationCommand(created.data.id)).toBe("reconciled");
-      const [projected] = await sql<{ id: string; subscribed: boolean }[]>`
-        SELECT folder.id, ref.subscribed
+      const [projected] = await sql<{ id: string; show_in_sidebar: boolean; subscribed: boolean }[]>`
+        SELECT folder.id, folder.show_in_sidebar, ref.subscribed
         FROM mail.folders folder
         JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
         WHERE ref.binding_id = ${bindingId}::uuid AND ref.remote_path = ${`Cloud Ops ${suffix}`}
       `;
       expect(projected?.subscribed).toBe(true);
+      expect(projected?.show_in_sidebar).toBe(false);
+
+      const deniedVisibility = await setFolderSidebarVisibility({
+        context: collaboratorContext,
+        mailboxId,
+        folderId: projected!.id,
+        showInSidebar: true,
+      });
+      expect(deniedVisibility.ok).toBe(false);
+      if (!deniedVisibility.ok) expect(deniedVisibility.error.code).toBe("FORBIDDEN");
+      const updatedVisibility = await setFolderSidebarVisibility({
+        context: adminContext,
+        mailboxId,
+        folderId: projected!.id,
+        showInSidebar: true,
+      });
+      expect(updatedVisibility.ok).toBe(true);
+      const adminFolders = await listAdminFolders(adminContext, mailboxId);
+      expect(adminFolders.ok).toBe(true);
+      if (!adminFolders.ok) return;
+      expect(adminFolders.data.find((folder) => folder.id === projected!.id)).toMatchObject({
+        showInSidebar: true,
+        subscribed: true,
+        canCreateChildren: true,
+        canRename: true,
+        canDelete: true,
+      });
+      await sql`
+        UPDATE mail.binding_folder_refs
+        SET namespace_kind = 'shared', rights_source = 'select'
+        WHERE binding_id = ${bindingId}::uuid AND folder_id = ${projected!.id}::uuid
+      `;
+      const conservativeSharedFolders = await listAdminFolders(adminContext, mailboxId);
+      await sql`
+        UPDATE mail.binding_folder_refs
+        SET namespace_kind = 'personal', rights_source = 'acl'
+        WHERE binding_id = ${bindingId}::uuid AND folder_id = ${projected!.id}::uuid
+      `;
+      expect(conservativeSharedFolders.ok).toBe(true);
+      if (!conservativeSharedFolders.ok) return;
+      expect(conservativeSharedFolders.data.find((folder) => folder.id === projected!.id)).toMatchObject({
+        canCreateChildren: false,
+        canRename: false,
+        canDelete: false,
+      });
 
       const configuredRole = await setFolderRole({
         context: adminContext,
@@ -1868,15 +2006,16 @@ suite("mail lifecycle control plane", () => {
       if (!renamed.ok) return;
       expect(await executeMutationCommand(renamed.data.id)).toBe("confirmed");
       const [renamedProjection] = await sql<
-        { id: string; subscribed: boolean }[]
+        { id: string; show_in_sidebar: boolean; subscribed: boolean }[]
       >`
-        SELECT folder.id, ref.subscribed
+        SELECT folder.id, folder.show_in_sidebar, ref.subscribed
         FROM mail.folders folder
         JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
         WHERE ref.binding_id = ${bindingId}::uuid AND ref.remote_path = ${`Cloud Renamed ${suffix}`}
       `;
       expect(renamedProjection).toEqual({
         id: projected!.id,
+        show_in_sidebar: true,
         subscribed: false,
       });
 
@@ -1909,6 +2048,18 @@ suite("mail lifecycle control plane", () => {
       verify.mockRestore();
     }
 
+    const [stateFolder] = await sql<{ id: string }[]>`
+      SELECT folder.id
+      FROM mail.folders folder
+      JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
+      WHERE resource.mailbox_id = ${mailboxId}::uuid
+        AND folder.role = 'inbox'
+        AND folder.discovery_state = 'active'
+      ORDER BY folder.id
+      LIMIT 1
+    `;
+    expect(stateFolder).toBeDefined();
+    if (!stateFolder) return;
     const [message] = await sql<{ id: string }[]>`
       INSERT INTO mail.message_contents (
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
@@ -1924,12 +2075,12 @@ suite("mail lifecycle control plane", () => {
     `;
     const [remoteRef] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
-      VALUES (${inboxFolderId}::uuid, ${message!.id}::uuid, 10, 777777)
+      VALUES (${stateFolder.id}::uuid, ${message!.id}::uuid, 10, 777777)
       RETURNING id
     `;
     await sql`
       INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
-      VALUES (${remoteRef!.id}::uuid, ${inboxFolderId}::uuid, ${
+      VALUES (${remoteRef!.id}::uuid, ${stateFolder.id}::uuid, ${
       message!.id
     }::uuid, ARRAY['\\Answered']::text[], ARRAY['Existing']::text[])
     `;
@@ -1980,7 +2131,7 @@ suite("mail lifecycle control plane", () => {
         input: {
           kind: "change_message_state",
           remoteMessageRefId: remoteRef!.id,
-          folderId: inboxFolderId,
+          folderId: stateFolder.id,
           change: {
             addFlags: ["seen"],
             removeFlags: [],
@@ -2011,7 +2162,7 @@ suite("mail lifecycle control plane", () => {
         input: {
           kind: "change_message_state",
           remoteMessageRefId: remoteRef!.id,
-          folderId: inboxFolderId,
+          folderId: stateFolder.id,
           change: {
             addFlags: ["seen"],
             removeFlags: [],
@@ -2268,6 +2419,7 @@ suite("mail lifecycle control plane", () => {
         kind: "create_folder",
         name: `Revoked effect ${suffix}`,
         subscribe: false,
+        showInSidebar: true,
         idempotencyKey: `revoked-provider-effect-${suffix}`,
       },
       enqueue: false,

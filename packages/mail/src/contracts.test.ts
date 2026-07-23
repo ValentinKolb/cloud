@@ -168,14 +168,29 @@ describe("automatic reply configuration contracts", () => {
 });
 
 describe("sender identity contracts", () => {
-  test("makes normal senders automation-ready while preserving explicit opt-out", () => {
+  test("requires an internal label and supplies safe identity defaults", () => {
     expect(
-      createSenderIdentityInputSchema.parse({
+      createSenderIdentityInputSchema.safeParse({
         fromAddress: "sender@example.com",
-      }).authenticationPolicy,
-    ).toEqual({ automation: "mailbox" });
+      }).success,
+    ).toBe(false);
     expect(
       createSenderIdentityInputSchema.parse({
+        label: "Work",
+        fromAddress: "sender@example.com",
+      }),
+    ).toMatchObject({
+      label: "Work",
+      displayName: "",
+      defaultCc: [],
+      authenticationPolicy: { automation: "mailbox" },
+    });
+  });
+
+  test("preserves an explicit automation opt-out", () => {
+    expect(
+      createSenderIdentityInputSchema.parse({
+        label: "Work",
         fromAddress: "sender@example.com",
         authenticationPolicy: { automation: "disabled" },
       }).authenticationPolicy,

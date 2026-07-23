@@ -999,6 +999,7 @@ export const actorCommandInputSchema = z.discriminatedUnion("kind", [
     parentFolderId: z.string().uuid().nullable().optional(),
     name: folderLeafNameSchema,
     subscribe: z.boolean().default(true),
+    showInSidebar: z.boolean().default(true),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("rename_folder"),
@@ -2154,13 +2155,22 @@ export type SenderAuthenticationPolicy = z.infer<
   typeof senderAuthenticationPolicySchema
 >;
 
+export const mailAddressSchema = z.object({
+  name: z.string().trim().max(200).nullable().optional(),
+  address: z.string().email().max(320),
+});
+export type MailAddress = z.infer<typeof mailAddressSchema>;
+
 export const senderIdentitySchema = z.object({
   id: z.string().uuid(),
   mailboxId: z.string().uuid(),
+  label: z.string(),
   displayName: z.string(),
   fromAddress: z.string().email(),
   replyTo: z.string().email().nullable(),
+  defaultCc: z.array(mailAddressSchema),
   envelopeSender: z.string().email().nullable(),
+  defaultSignatureTemplateId: z.string().uuid().nullable(),
   authenticationPolicy: senderAuthenticationPolicySchema,
   sentFolderId: z.string().uuid().nullable(),
   draftsFolderId: z.string().uuid().nullable(),
@@ -2172,10 +2182,13 @@ export const senderIdentitySchema = z.object({
 export type SenderIdentity = z.infer<typeof senderIdentitySchema>;
 
 export const createSenderIdentityInputSchema = z.object({
+  label: z.string().trim().min(1).max(200),
   displayName: z.string().trim().max(200).default(""),
   fromAddress: z.string().email().max(320),
   replyTo: z.string().email().max(320).nullable().optional(),
+  defaultCc: z.array(mailAddressSchema).max(50).default([]),
   envelopeSender: z.string().email().max(320).nullable().optional(),
+  defaultSignatureTemplateId: z.string().uuid().nullable().optional(),
   authenticationPolicy: senderAuthenticationPolicySchema.default({
     automation: "mailbox",
   }),
@@ -2190,8 +2203,10 @@ export type CreateSenderIdentityInput = z.infer<
 export const updateSenderIdentityInputSchema = createSenderIdentityInputSchema
   .omit({ fromAddress: true })
   .extend({
+    label: z.string().trim().min(1).max(200).optional(),
     displayName: z.string().trim().max(200).optional(),
     fromAddress: z.string().email().max(320).optional(),
+    defaultCc: z.array(mailAddressSchema).max(50).optional(),
     authenticationPolicy: senderAuthenticationPolicySchema.optional(),
   })
   .partial()
@@ -2205,18 +2220,13 @@ export type UpdateSenderIdentityInput = z.infer<
 
 export const defaultSenderSetupInputSchema = z.object({
   bindingId: z.string().uuid(),
+  label: z.string().trim().min(1).max(200).optional(),
   displayName: z.string().trim().max(200).optional(),
   savesSentAutomatically: z.boolean().default(false),
 });
 export type DefaultSenderSetupInput = z.infer<
   typeof defaultSenderSetupInputSchema
 >;
-
-export const mailAddressSchema = z.object({
-  name: z.string().trim().max(200).nullable().optional(),
-  address: z.string().email().max(320),
-});
-export type MailAddress = z.infer<typeof mailAddressSchema>;
 
 export const draftAttachmentSchema = z.object({
   id: z.string().uuid(),

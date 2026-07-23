@@ -96,8 +96,8 @@ suite("Mail storage observability", () => {
     `;
 
     const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (mailbox_id, display_name, from_address)
-      VALUES (${mailboxId}::uuid, 'Storage', ${`storage-${suffix}@example.com`})
+      INSERT INTO mail.sender_identities (mailbox_id, label, display_name, from_address)
+      VALUES (${mailboxId}::uuid, 'Storage', 'Storage', ${`storage-${suffix}@example.com`})
       RETURNING id
     `;
     const actorId = adminContext.accessSubject.type === "user" ? adminContext.accessSubject.userId : "";

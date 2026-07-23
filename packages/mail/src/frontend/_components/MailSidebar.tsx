@@ -1,12 +1,13 @@
 import { AppWorkspace, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type LinkNavigateEvent, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationView } from "../../contracts";
 import type { ConversationViewCounts, MailFolderView } from "../../service/messages";
 import type { SavedConversationView } from "../../service/saved-views";
 import { readApiError } from "./api-response";
+import { buildVisibleMailFolderTree, flattenMailFolderTree, type MailFolderTreeNode } from "./mail-folder-tree";
 
 type MailViewItem = {
   id: ConversationView;
@@ -73,6 +74,9 @@ export default function MailSidebar(props: {
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
   const [dropFolderId, setDropFolderId] = createSignal<string | null>(null);
+  const [collapsedFolders, setCollapsedFolders] = createSignal<Set<string>>(new Set());
+  const folderTree = createMemo(() => buildVisibleMailFolderTree(props.folders));
+  const hasVisibleDrafts = createMemo(() => flattenMailFolderTree(folderTree()).some(({ folder }) => folder.role === "drafts"));
   const sync = mutations.create<void, void>({
     mutation: async () => {
       const response = await apiClient.mailboxes[":mailboxId"].commands.$post({
@@ -153,52 +157,76 @@ export default function MailSidebar(props: {
     </AppWorkspace.SidebarItem>
   );
 
-  const folderItems = (suffix: string) => (
-    <>
-      <For each={props.folders}>
-        {(folder) => (
-          <>
-            <div
-              class="rounded-md"
-              role="group"
-              aria-label={`Folder ${folder.name}; drop a conversation here to move it`}
-              classList={{
-                "bg-[var(--ui-selected)]": dropFolderId() === folder.id,
-              }}
-              onDragEnter={(event) => {
-                if (!props.canWrite || !folder.selectable) return;
-                event.preventDefault();
-                setDropFolderId(folder.id);
-              }}
-              onDragOver={(event) => {
-                if (!props.canWrite || !folder.selectable) return;
-                event.preventDefault();
-                if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-              }}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropFolderId(null);
-              }}
-              onDrop={(event) => props.canWrite && folder.selectable && dropConversation(event, folder.id)}
+  const toggleFolder = (folderId: string) =>
+    setCollapsedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+
+  const folderNode = (node: MailFolderTreeNode, suffix: string, depth: number): JSX.Element => {
+    const folder = node.folder;
+    const hasChildren = node.children.length > 0;
+    const collapsed = () => collapsedFolders().has(folder.id);
+    return (
+      <>
+        <div
+          class="flex items-center rounded-md"
+          role="group"
+          aria-label={`Folder ${folder.name}; drop a conversation here to move it`}
+          style={{ "padding-left": `${depth * 12}px` }}
+          classList={{ "bg-[var(--ui-selected)]": dropFolderId() === folder.id }}
+          onDragEnter={(event) => {
+            if (!props.canWrite || !folder.selectable) return;
+            event.preventDefault();
+            setDropFolderId(folder.id);
+          }}
+          onDragOver={(event) => {
+            if (!props.canWrite || !folder.selectable) return;
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropFolderId(null);
+          }}
+          onDrop={(event) => props.canWrite && folder.selectable && dropConversation(event, folder.id)}
+        >
+          <Show when={hasChildren} fallback={<span class="h-7 w-5 shrink-0" aria-hidden="true" />}>
+            <button
+              type="button"
+              class="icon-btn h-7 w-5 shrink-0"
+              aria-label={`${collapsed() ? "Expand" : "Collapse"} ${folder.name}`}
+              aria-expanded={!collapsed()}
+              onClick={() => toggleFolder(folder.id)}
             >
-              <AppWorkspace.SidebarItem
-                href={`/app/mail/${props.mailboxId}?folder=${folder.id}`}
-                icon={folderIcon(folder.role)}
-                active={props.activeFolderId === folder.id}
-                meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
-                title={folder.name}
-                viewTransitionName={`mail-folder-${folder.id}-${suffix}`}
-                onNavigate={props.onNavigate}
-                scroll="preserve"
-              >
-                {folder.name}
-              </AppWorkspace.SidebarItem>
-            </div>
-            <Show when={folder.role === "drafts"}>{scheduledItem(suffix)}</Show>
-          </>
-        )}
-      </For>
-    </>
-  );
+              <i class={`ti ${collapsed() ? "ti-chevron-right" : "ti-chevron-down"} text-xs`} aria-hidden="true" />
+            </button>
+          </Show>
+          <div class="min-w-0 flex-1">
+            <AppWorkspace.SidebarItem
+              href={folder.selectable ? `/app/mail/${props.mailboxId}?folder=${folder.id}` : undefined}
+              icon={folderIcon(folder.role)}
+              active={props.activeFolderId === folder.id}
+              meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
+              title={folder.name}
+              viewTransitionName={`mail-folder-${folder.id}-${suffix}`}
+              onNavigate={folder.selectable ? props.onNavigate : undefined}
+              scroll="preserve"
+            >
+              {folder.name}
+            </AppWorkspace.SidebarItem>
+          </div>
+        </div>
+        <Show when={folder.role === "drafts"}>{scheduledItem(suffix)}</Show>
+        <Show when={!collapsed()}>
+          <For each={node.children}>{(child) => folderNode(child, suffix, depth + 1)}</For>
+        </Show>
+      </>
+    );
+  };
+
+  const folderItems = (suffix: string) => <For each={folderTree()}>{(node) => folderNode(node, suffix, 0)}</For>;
 
   const allMail = () => (
     <AppWorkspace.SidebarItem
@@ -262,7 +290,7 @@ export default function MailSidebar(props: {
           )}
           <AppWorkspace.SidebarSection title="Folders">
             {allMail()}
-            <Show when={!props.folders.some((folder) => folder.role === "drafts")}>{scheduledItem("mobile")}</Show>
+            <Show when={!hasVisibleDrafts()}>{scheduledItem("mobile")}</Show>
             {folderItems("mobile")}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarMobileBody>
@@ -282,7 +310,7 @@ export default function MailSidebar(props: {
           )}
           <AppWorkspace.SidebarSection title="Folders">
             {allMail()}
-            <Show when={!props.folders.some((folder) => folder.role === "drafts")}>{scheduledItem("desktop")}</Show>
+            <Show when={!hasVisibleDrafts()}>{scheduledItem("desktop")}</Show>
             {folderItems("desktop")}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarBody>

@@ -4,6 +4,8 @@ import { sql } from "bun";
 import { configurableFolderRoleSchema, type ConfigurableFolderRole, type FolderRole } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
+import { publishMailMailboxEvent } from "./events";
+import { listFolders, type MailFolderView } from "./messages";
 
 type SqlClient = typeof sql;
 
@@ -12,6 +14,160 @@ export type ResolvedRoleFolder = {
   role: ConfigurableFolderRole;
   providerRole: FolderRole;
   configured: boolean;
+};
+
+export type MailAdminFolderView = MailFolderView & {
+  subscribed: boolean | null;
+  rightsSource: "acl" | "select" | "probe" | "unknown" | null;
+  effectiveRights: string[];
+  canCreateChildren: boolean;
+  canRename: boolean;
+  canDelete: boolean;
+  canManageSubscription: boolean;
+};
+
+type DbFolderProviderState = {
+  folder_id: string;
+  delimiter: string | null;
+  namespace_kind: "personal" | "other_users" | "shared" | null;
+  subscribed: boolean;
+  effective_rights: string[];
+  rights_source: "acl" | "select" | "probe" | "unknown";
+};
+
+const allowsProviderFolderOperation = (
+  provider: DbFolderProviderState,
+  right: "create_children" | "delete_folder",
+): boolean => {
+  if (provider.rights_source === "acl") return provider.effective_rights.includes(right);
+  // Shared namespaces without ACL evidence are intentionally fail-closed in the UI.
+  // The command runtime still rechecks authoritative provider state before every effect.
+  return provider.namespace_kind === "personal";
+};
+
+export const listAdminFolders = async (
+  context: MailRequestContext,
+  mailboxId: string,
+): Promise<Result<MailAdminFolderView[]>> => {
+  const permission = await requireMailboxPermission(context, mailboxId, "admin");
+  if (!permission.ok) return permission;
+  const folderResult = await listFolders(context, mailboxId);
+  if (!folderResult.ok) return folderResult;
+  const providerRows = await sql<DbFolderProviderState[]>`
+    SELECT
+      ref.folder_id,
+      ref.delimiter,
+      ref.namespace_kind,
+      ref.subscribed,
+      ref.effective_rights,
+      ref.rights_source
+    FROM mail.binding_folder_refs ref
+    JOIN mail.provider_bindings binding ON binding.id = ref.binding_id
+    JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+    WHERE resource.mailbox_id = ${mailboxId}::uuid
+      AND binding.state <> 'revoked'
+      AND ref.missing_since IS NULL
+  `;
+  const providerByFolder = new Map(providerRows.map((row) => [row.folder_id, row]));
+  return ok(
+    folderResult.data.map((folder) => {
+      const provider = providerByFolder.get(folder.id) ?? null;
+      const parentProvider = folder.parentId ? (providerByFolder.get(folder.parentId) ?? null) : null;
+      const active = folder.discoveryState === "active" && provider !== null;
+      const canDeleteAtProvider = Boolean(provider && allowsProviderFolderOperation(provider, "delete_folder"));
+      const canCreateAtParent = folder.parentId
+        ? Boolean(parentProvider && allowsProviderFolderOperation(parentProvider, "create_children"))
+        : provider?.namespace_kind === "personal";
+      const protectedFolder = ["inbox", "all"].includes(folder.providerRole);
+      return {
+        ...folder,
+        subscribed: provider?.subscribed ?? null,
+        rightsSource: provider?.rights_source ?? null,
+        effectiveRights: provider?.effective_rights ?? [],
+        canCreateChildren: Boolean(
+          active &&
+            provider?.delimiter &&
+            allowsProviderFolderOperation(provider, "create_children"),
+        ),
+        canRename: active && !protectedFolder && canDeleteAtProvider && canCreateAtParent,
+        canDelete: active && folder.selectable && !protectedFolder && canDeleteAtProvider,
+        canManageSubscription: active,
+      };
+    }),
+  );
+};
+
+export const setFolderSidebarVisibility = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  folderId: string;
+  showInSidebar: boolean;
+}): Promise<Result<{ folderId: string; showInSidebar: boolean }>> => {
+  const actor = actorRefFromRequest(params.context);
+  let activityId: string | null = null;
+  try {
+    const result = await sql.begin(async (tx) => {
+      const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
+      if (!permission.ok) return permission;
+      const [folder] = await tx<{ id: string }[]>`
+        UPDATE mail.folders folder
+        SET
+          show_in_sidebar = ${params.showInSidebar},
+          updated_at = CASE
+            WHEN folder.show_in_sidebar <> ${params.showInSidebar} THEN now()
+            ELSE folder.updated_at
+          END
+        FROM mail.remote_resources resource
+        WHERE folder.id = ${params.folderId}::uuid
+          AND resource.id = folder.remote_resource_id
+          AND resource.mailbox_id = ${params.mailboxId}::uuid
+        RETURNING folder.id
+      `;
+      if (!folder) return fail(err.notFound("Mail folder"));
+      const [activity] = await tx<{ id: string }[]>`
+        INSERT INTO mail.activity_events (
+          mailbox_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+        ) VALUES (
+          ${params.mailboxId}::uuid,
+          ${actor.kind},
+          ${actor.kind === "user" ? actor.userId : actor.kind === "service_account" ? actor.serviceAccountId : null}::uuid,
+          'folder.sidebar_visibility_changed',
+          'confirmed',
+          'folder',
+          ${folder.id}::uuid,
+          ${{ showInSidebar: params.showInSidebar }}::jsonb
+        )
+        RETURNING id
+      `;
+      if (!activity) throw new Error("Folder visibility activity insert returned no row");
+      activityId = String(activity.id);
+      await audit.record(
+        {
+          action: "mail.folder.sidebar_visibility.change",
+          outcome: "allowed",
+          actor: auditActorFromRequest(params.context),
+          target: { type: "mailbox", id: params.mailboxId },
+          requestId: params.context.requestId,
+          metadata: { folderId: folder.id, showInSidebar: params.showInSidebar },
+        },
+        tx,
+      );
+      return ok({ folderId: folder.id, showInSidebar: params.showInSidebar });
+    });
+    if (result.ok && activityId) {
+      await publishMailMailboxEvent({
+        mailboxId: params.mailboxId,
+        conversationId: null,
+        reason: "folder",
+        targetId: params.folderId,
+        activityId,
+      });
+    }
+    return result;
+  } catch (error) {
+    if (isServiceError(error)) return fail(error);
+    return fail(err.internal("Failed to update folder visibility"));
+  }
 };
 
 export const resolveRoleFolder = async (

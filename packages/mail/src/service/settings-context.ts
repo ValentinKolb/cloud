@@ -6,6 +6,7 @@ import * as bindings from "./bindings";
 import * as collaboration from "./collaboration";
 import * as composeTemplates from "./compose-templates";
 import * as health from "./health";
+import * as folders from "./folders";
 import * as localTags from "./local-tags";
 import * as mailboxes from "./mailboxes";
 import * as messages from "./messages";
@@ -61,18 +62,20 @@ export const loadMailboxSettingsContext = async (
 
   if (permission !== "admin") return ok({ mailbox: mailboxResult.data, permission, organization, compose, admin: null });
 
-  const [accessResult, connectionResult, bindingResult, healthResult, identityResult] = await Promise.all([
+  const [accessResult, connectionResult, bindingResult, healthResult, identityResult, adminFolderResult] = await Promise.all([
     mailboxAccess.listMailboxAccess(context, mailboxId),
     providerConnections.listProviderConnections(context, mailboxId),
     bindings.listProviderBindings(context, mailboxId),
     health.getMailboxOperationalHealth(context, mailboxId),
     senderIdentities.listSenderIdentities(context, mailboxId),
+    folders.listAdminFolders(context, mailboxId),
   ]);
   if (!accessResult.ok) return fail(accessResult.error);
   if (!connectionResult.ok) return fail(connectionResult.error);
   if (!bindingResult.ok) return fail(bindingResult.error);
   if (!healthResult.ok) return fail(healthResult.error);
   if (!identityResult.ok) return fail(identityResult.error);
+  if (!adminFolderResult.ok) return fail(adminFolderResult.error);
   return ok({
     mailbox: mailboxResult.data,
     permission,
@@ -82,7 +85,7 @@ export const loadMailboxSettingsContext = async (
       accessEntries: accessResult.data,
       connections: connectionResult.data,
       bindings: bindingResult.data,
-      folders: organizationFolderResult.data,
+      folders: adminFolderResult.data,
       health: healthResult.data,
       identities: identityResult.data,
     },

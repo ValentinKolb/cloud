@@ -258,7 +258,7 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
       dryRun: "full",
       outputType: "mail.draft",
       config: object({
-        sender: text("Automation-enabled sender identity name or ID.", false, 500),
+        sender: text("Automation-enabled identity label or ID.", false, 500),
         to: { kind: "value", description: "Recipient address array or expression." },
         cc: { kind: "value", optional: true, description: "CC address array or expression." },
         bcc: { kind: "value", optional: true, description: "BCC address array or expression." },
@@ -300,7 +300,7 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
       config: object({
         message: messageReference,
         conversation: conversationReference,
-        sender: text("Automation-enabled sender identity name or ID.", false, 500),
+        sender: text("Automation-enabled identity label or ID.", false, 500),
         subject: text("Reply subject or text expression.", false, 998),
         body: text("Reply body or text expression.", false, 2 * 1024 * 1024),
         format: { kind: "string", enum: ["plain", "markdown"], optional: true, description: "Reply body format." },

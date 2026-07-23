@@ -11,6 +11,7 @@ import type {
 } from "./contracts";
 import type { MailAssignableUser } from "./service/collaboration";
 import type { LocalTag } from "./service/local-tags";
+import type { MailAdminFolderView } from "./service/folders";
 import type { MailFolderView } from "./service/messages";
 import type { SavedConversationView } from "./service/saved-views";
 
@@ -18,7 +19,7 @@ export type MailboxAdminSettingsContext = {
   accessEntries: AccessEntry[];
   bindings: ProviderBinding[];
   connections: ProviderConnection[];
-  folders: MailFolderView[];
+  folders: MailAdminFolderView[];
   health: MailboxOperationalHealth;
   identities: SenderIdentity[];
 };

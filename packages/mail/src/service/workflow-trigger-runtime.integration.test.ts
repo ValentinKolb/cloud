@@ -288,9 +288,9 @@ suite("mail workflow trigger event runtime", () => {
     folderId = folder.id;
     const [senderIdentity] = await sql<{ id: string }[]>`
       INSERT INTO mail.sender_identities (
-        mailbox_id, display_name, from_address, automation_policy, is_default, status
+        mailbox_id, label, display_name, from_address, automation_policy, is_default, status
       ) VALUES (
-        ${mailboxId}::uuid, 'Support', 'support@example.com', 'mailbox', true, 'verified'
+        ${mailboxId}::uuid, 'Support', 'Support', 'support@example.com', 'mailbox', true, 'verified'
       )
       RETURNING id
     `;

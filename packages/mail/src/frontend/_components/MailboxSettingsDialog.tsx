@@ -58,7 +58,7 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
           </button>
           <Show
             when={load.error()}
-            fallback={<Placeholder state="loading" variant="panel" title="Loading mailbox settings" class="flex-1" />}
+            fallback={<Placeholder state="loading" variant="panel" title="Loading mailbox settings" class="flex-1 justify-center" />}
           >
             {(error) => (
               <Placeholder

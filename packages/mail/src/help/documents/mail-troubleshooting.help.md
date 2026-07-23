@@ -32,6 +32,17 @@ Initial synchronization loads history progressively. A message can appear before
 
 For provider-shared folders, first confirm that the connected IMAP account still has the required subscription and rights. Mail can rediscover only folders the provider exposes to that account.
 
+## A folder is missing from the sidebar {icon="folder"}
+
+Mailbox administrators should open **Settings > Folders** and distinguish these cases:
+
+- **Sidebar is off:** turn it on to restore the folder to Cloud navigation. This does not change the provider.
+- **Not subscribed:** subscribe if this provider or another mail client uses IMAP subscriptions to control its visible folder list.
+- **Unavailable:** the connected account no longer exposes the folder. Check the provider account, namespace, and permissions, then run **Rediscover**.
+- **Needs review:** discovery found conflicting provider state. Review **Status > Folder discovery** before changing mail.
+
+A hidden parent also hides its nested children from the sidebar so the hierarchy remains understandable. Their mail and individual visibility settings are retained.
+
 ## Sending says "Mailbox transport is paused" {icon="send"}
 
 An administrator paused the mailbox or restored it into its required paused state. Open **Settings > Status**, verify the provider connection and health, then select **Resume mailbox**.
@@ -51,16 +62,16 @@ Check these conditions:
 
 If the provider credential changed, use **Settings > Connections > Replace**. The existing secret cannot be displayed or partially edited.
 
-## Automatic replies say that no sender is available {icon="send"}
+## Automatic replies say that no identity is available {icon="send"}
 
-Open **Settings > Senders** and check both conditions on one sender:
+Open **Settings > Identities** and check both conditions on one identity:
 
 :::steps
-1. The sender status is **verified**.
+1. The identity status is **verified**.
 2. **Automatic replies** is enabled.
 :::
 
-Then return to **Automations > Automatic replies**. Existing automatic replies can remain visible while no eligible sender exists, but creating or re-enabling one requires an eligible sender.
+Then return to **Automations > Automatic replies**. Existing automatic replies can remain visible while no eligible identity exists, but creating or re-enabling one requires an eligible identity.
 
 ## A scheduled message did not send {icon="send"}
 
@@ -109,16 +120,16 @@ Do not repeat a move, delete, flag change, folder operation, or send when Mail r
 
 ## A provider folder action fails {icon="lifebuoy"}
 
-Archive, Trash, Junk, Sent, and Drafts depend on folder mappings under **Settings > Folders**. An administrator should:
+Folder creation, rename, deletion, subscription, and Archive, Trash, Junk, Sent, and Drafts mappings depend on current provider state. An administrator should:
 
 :::steps
 1. run **Rediscover** under **Status**,
-2. confirm the provider folder is active and selectable,
-3. update the corresponding mapping, and
+2. confirm the folder is active and that the provider grants the required operation,
+3. update the corresponding mapping or subscription when necessary, and
 4. retry the action once.
 :::
 
-Repeatedly clicking a queued action can make the result harder to interpret. Wait for the live update or check the destination folder before retrying.
+Shared and other-user folders may be readable while folder creation, rename, or deletion remains unavailable. Cloud does not grant or edit those upstream rights. Repeatedly clicking a queued action can make the result harder to interpret; wait for the live update or inspect the provider before retrying.
 
 ## The mailbox was restored but still does not sync {icon="point"}
 

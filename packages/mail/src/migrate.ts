@@ -200,6 +200,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
         CHECK (role IN ('inbox', 'sent', 'drafts', 'trash', 'archive', 'junk', 'all', 'other')),
       selectable BOOLEAN NOT NULL DEFAULT true,
       selected_for_sync BOOLEAN NOT NULL DEFAULT true,
+      show_in_sidebar BOOLEAN NOT NULL DEFAULT true,
       discovery_generation BIGINT NOT NULL DEFAULT 0 CHECK (discovery_generation >= 0),
       sync_status TEXT NOT NULL DEFAULT 'pending'
         CHECK (sync_status IN ('pending', 'syncing', 'current', 'degraded', 'rebuilding', 'excluded')),
@@ -4308,6 +4309,45 @@ type MailMigration = {
   online?: boolean;
 };
 
+const addFolderSidebarVisibility = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.folders
+    ADD COLUMN IF NOT EXISTS show_in_sidebar BOOLEAN NOT NULL DEFAULT true
+  `;
+};
+
+const completeSenderIdentities = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.sender_identities
+      ADD COLUMN IF NOT EXISTS label TEXT,
+      ADD COLUMN IF NOT EXISTS default_cc JSONB NOT NULL DEFAULT '[]'::jsonb
+  `;
+  await db`
+    UPDATE mail.sender_identities
+    SET label = COALESCE(NULLIF(btrim(display_name), ''), from_address)
+    WHERE label IS NULL OR btrim(label) = ''
+  `;
+  await db`
+    ALTER TABLE mail.sender_identities
+      ALTER COLUMN label SET NOT NULL,
+      DROP CONSTRAINT IF EXISTS sender_identities_label_chk,
+      DROP CONSTRAINT IF EXISTS sender_identities_default_cc_array_chk,
+      DROP CONSTRAINT IF EXISTS sender_identities_mailbox_id_from_address_key
+  `;
+  await db`
+    ALTER TABLE mail.sender_identities
+      ADD CONSTRAINT sender_identities_label_chk
+        CHECK (char_length(btrim(label)) BETWEEN 1 AND 200),
+      ADD CONSTRAINT sender_identities_default_cc_array_chk
+        CHECK (jsonb_typeof(default_cc) = 'array')
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS sender_identities_mailbox_from_idx
+    ON mail.sender_identities (mailbox_id, lower(from_address), id)
+    WHERE status <> 'disabled'
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4387,6 +4427,8 @@ const migrations: readonly MailMigration[] = [
   { version: 77, name: "counterparty_participant_summaries", run: repairConversationParticipantSummaries, online: true },
   { version: 78, name: "remove_conversation_followers_and_mentions", run: removeConversationFollowersAndMentions },
   { version: 79, name: "unified_conversation_work_states", run: unifyConversationWorkStates },
+  { version: 80, name: "folder_sidebar_visibility", run: addFolderSidebarVisibility },
+  { version: 81, name: "complete_sender_identities", run: completeSenderIdentities },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

@@ -1,11 +1,13 @@
-import { Checkbox, NumberInput, Placeholder, prompts, Select, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { Checkbox, CheckboxCard, NumberInput, Placeholder, prompts, Select, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { Mailbox, MailOAuthProviderId, ProviderConnectionDetails, SenderIdentity } from "../../contracts";
+import type { ComposeTemplate, Mailbox, MailOAuthProviderId, ProviderConnectionDetails, SenderIdentity } from "../../contracts";
 import type { DiscoveredMailConfiguration } from "../../service/onboarding-discovery";
 import type { MailboxAdminSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
+import MailRecipientInput from "./MailRecipientInput";
+import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
 
 type ProviderSettingsProps = {
   mailbox: Mailbox;
@@ -177,7 +179,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
       json: { bindingId: binding.id, savesSentAutomatically: false },
     });
     if (!senderResponse.ok)
-      throw new Error(await readApiError(senderResponse, "Provider connected, but the default sender could not be created"));
+      throw new Error(await readApiError(senderResponse, "Provider connected, but the default identity could not be created"));
     return true;
   };
 
@@ -213,7 +215,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
         result.replaced
           ? "Provider credentials replaced"
           : result.senderCreated
-            ? "Provider and default sender connected"
+            ? "Provider and default identity connected"
             : "Provider connected",
       );
       setEditing(false);
@@ -252,7 +254,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   const finishSetup = mutation.create<{ senderCreated: boolean }, string>({
     mutation: async (connectionId) => ({ senderCreated: await attachConnection(connectionId) }),
     onSuccess: (result) => {
-      toast.success(result.senderCreated ? "Provider and default sender connected" : "Provider connected");
+      toast.success(result.senderCreated ? "Provider and default identity connected" : "Provider connected");
       props.onWorkspaceChange();
       void props.onReload();
     },
@@ -379,8 +381,8 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
           </div>
           <Show when={!replacingConnectionId()}>
             <Checkbox
-              label="Create the default sender for this address"
-              description="Recommended for normal mailboxes. Disable only when the remote folder and sender use different accounts."
+              label="Create the default identity for this address"
+              description="Recommended for normal mailboxes. Disable only when the remote mailbox and sending identity use different accounts."
               value={createSender}
               onChange={setCreateSender}
             />
@@ -486,15 +488,18 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   );
 }
 
-type SenderEditor = { kind: "create" } | { kind: "edit"; identity: SenderIdentity } | { kind: "verify"; identity: SenderIdentity };
+type IdentityEditor = { kind: "create" } | { kind: "edit"; identity: SenderIdentity } | { kind: "verify"; identity: SenderIdentity };
 
-export function MailSenderSettings(props: ProviderSettingsProps) {
-  const [editor, setEditor] = createSignal<SenderEditor | null>(null);
+export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSignatures: ComposeTemplate[] }) {
+  const [editor, setEditor] = createSignal<IdentityEditor | null>(null);
   const [identities, setIdentities] = createSignal(props.admin.identities);
+  const [label, setLabel] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [address, setAddress] = createSignal("");
   const [replyTo, setReplyTo] = createSignal("");
+  const [defaultCc, setDefaultCc] = createSignal<string[]>([]);
   const [envelopeSender, setEnvelopeSender] = createSignal("");
+  const [defaultSignatureTemplateId, setDefaultSignatureTemplateId] = createSignal("");
   const [sentFolderId, setSentFolderId] = createSignal("");
   const [draftsFolderId, setDraftsFolderId] = createSignal("");
   const [isDefault, setIsDefault] = createSignal(false);
@@ -509,6 +514,13 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
     props.admin.folders.filter((folder) => folder.selectable && folder.discoveryState === "active"),
   );
   const activeBindings = createMemo(() => props.admin.bindings.filter((binding) => binding.state === "active"));
+  const mailboxSignatures = createMemo(() =>
+    props.mailboxSignatures.filter((template) => template.kind === "signature" && template.scope === "mailbox"),
+  );
+  const editingIdentity = createMemo(() => {
+    const current = editor();
+    return current?.kind === "edit" ? current.identity : null;
+  });
   const replaceIdentity = (identity: SenderIdentity) =>
     setIdentities((current) =>
       current.some((item) => item.id === identity.id)
@@ -517,10 +529,13 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
     );
 
   const openCreate = () => {
+    setLabel(props.admin.connections[0]?.name ?? props.admin.connections[0]?.email ?? "New identity");
     setDisplayName("");
     setAddress(props.admin.connections[0]?.email ?? props.currentUserEmail ?? "");
     setReplyTo("");
+    setDefaultCc([]);
     setEnvelopeSender("");
+    setDefaultSignatureTemplateId("");
     setSentFolderId(selectableFolders().find((folder) => folder.role === "sent")?.id ?? "");
     setDraftsFolderId(selectableFolders().find((folder) => folder.role === "drafts")?.id ?? "");
     setIsDefault(identities().length === 0);
@@ -529,10 +544,13 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
   };
 
   const openEdit = (identity: SenderIdentity) => {
+    setLabel(identity.label);
     setDisplayName(identity.displayName);
     setAddress(identity.fromAddress);
     setReplyTo(identity.replyTo ?? "");
+    setDefaultCc(formatMailRecipients(identity.defaultCc));
     setEnvelopeSender(identity.envelopeSender ?? "");
+    setDefaultSignatureTemplateId(identity.defaultSignatureTemplateId ?? "");
     setSentFolderId(identity.sentFolderId ?? "");
     setDraftsFolderId(identity.draftsFolderId ?? "");
     setIsDefault(identity.isDefault);
@@ -552,22 +570,25 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
       const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].$post({
         param: { mailboxId: props.mailbox.id },
         json: {
+          label: label().trim(),
           displayName: displayName().trim(),
           fromAddress: address().trim(),
           replyTo: replyTo().trim() || null,
+          defaultCc: parseMailRecipients(defaultCc()),
           envelopeSender: envelopeSender().trim() || null,
+          defaultSignatureTemplateId: defaultSignatureTemplateId() || null,
           authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
           sentFolderId: sentFolderId() || null,
           draftsFolderId: draftsFolderId() || null,
           isDefault: isDefault(),
         },
       });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to add sender identity"));
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to add identity"));
       return response.json();
     },
     onSuccess: (identity) => {
       replaceIdentity(identity);
-      toast.success("Sender identity added");
+      toast.success("Identity added");
       setEditor(null);
       props.onWorkspaceChange();
       void props.onReload();
@@ -578,26 +599,29 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
   const updateIdentity = mutation.create<SenderIdentity, void>({
     mutation: async () => {
       const current = editor();
-      if (!current || current.kind !== "edit") throw new Error("No sender identity selected");
+      if (!current || current.kind !== "edit") throw new Error("No identity selected");
       const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$patch({
         param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
         json: {
+          label: label().trim(),
           displayName: displayName().trim(),
           fromAddress: address().trim(),
           replyTo: replyTo().trim() || null,
+          defaultCc: parseMailRecipients(defaultCc()),
           envelopeSender: envelopeSender().trim() || null,
+          defaultSignatureTemplateId: defaultSignatureTemplateId() || null,
           authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
           sentFolderId: sentFolderId() || null,
           draftsFolderId: draftsFolderId() || null,
           isDefault: isDefault(),
         },
       });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update sender identity"));
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update identity"));
       return response.json();
     },
     onSuccess: (identity) => {
       replaceIdentity(identity);
-      toast.success("Sender identity updated");
+      toast.success("Identity updated");
       setEditor(null);
       props.onWorkspaceChange();
       void props.onReload();
@@ -609,19 +633,20 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
     mutation: async (identity) => {
       const confirmed = await prompts.confirm(
         "Existing sent mail remains unchanged. This address can no longer be selected for new messages or automatic replies.",
-        { title: `Disable ${identity.fromAddress}?`, confirmText: "Disable sender", variant: "danger" },
+        { title: `Disable ${identity.label}?`, confirmText: "Disable identity", variant: "danger" },
       );
       if (!confirmed) return { disabled: false, identity };
       const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$delete({
         param: { mailboxId: props.mailbox.id, senderIdentityId: identity.id },
       });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to disable sender identity"));
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to disable identity"));
       return { disabled: true, identity };
     },
     onSuccess: async ({ disabled, identity }) => {
       if (!disabled) return;
       setIdentities((current) => current.filter((item) => item.id !== identity.id));
-      toast.success("Sender identity disabled");
+      setEditor(null);
+      toast.success("Identity disabled");
       props.onWorkspaceChange();
       await props.onReload();
     },
@@ -631,7 +656,7 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
   const verifyIdentity = mutation.create<SenderIdentity, void>({
     mutation: async () => {
       const current = editor();
-      if (!current || current.kind !== "verify") throw new Error("No sender identity selected");
+      if (!current || current.kind !== "verify") throw new Error("No identity selected");
       const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].verify.$post({
         param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
         json: { bindingId: bindingId(), verificationRecipient: recipient().trim(), savesSentAutomatically: savesSent() },
@@ -641,30 +666,8 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
     },
     onSuccess: (identity) => {
       replaceIdentity(identity);
-      toast.success("Sender identity verified");
+      toast.success("Identity verified");
       setEditor(null);
-      props.onWorkspaceChange();
-      void props.onReload();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const updateAutomation = mutation.create<SenderIdentity, { identity: SenderIdentity; enabled: boolean }>({
-    mutation: async ({ identity, enabled }) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$patch({
-        param: { mailboxId: props.mailbox.id, senderIdentityId: identity.id },
-        json: { authenticationPolicy: { automation: enabled ? "mailbox" : "disabled" } },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update automatic reply access"));
-      return response.json();
-    },
-    onSuccess: (identity) => {
-      replaceIdentity(identity);
-      toast.success(
-        identity.authenticationPolicy.automation === "mailbox"
-          ? "Automatic replies enabled for sender"
-          : "Automatic replies disabled for sender",
-      );
       props.onWorkspaceChange();
       void props.onReload();
     },
@@ -677,54 +680,30 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
       fallback={
         <div class="flex flex-col gap-2">
           <button type="button" class="btn-primary btn-sm self-start" disabled={props.reloading} onClick={openCreate}>
-            <i class="ti ti-plus" aria-hidden="true" /> Add sender
+            <i class="ti ti-plus" aria-hidden="true" /> Add identity
           </button>
           <Show
             when={identities().length > 0}
             fallback={
               <Placeholder
-                title="No sender identities"
-                description="Add a From address for new messages and replies."
+                title="No identities"
+                description="Add an identity for new messages, replies, and forwards."
                 icon="ti ti-at-off"
               />
             }
           >
             <For each={identities()}>
               {(identity) => (
-                <div class="paper flex items-center gap-3 p-3">
-                  <i class="ti ti-user-circle text-lg text-dimmed" aria-hidden="true" />
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate text-sm font-medium">{identity.displayName || identity.fromAddress}</span>
-                    <span class="block truncate text-xs text-dimmed">{identity.fromAddress}</span>
-                  </span>
-                  <span class="badge">{identity.status}</span>
-                  <Switch
-                    label="Automatic replies"
-                    value={() => identity.authenticationPolicy.automation === "mailbox"}
-                    disabled={identity.status !== "verified" || updateAutomation.loading() || props.reloading}
-                    onChange={(enabled) => updateAutomation.mutate({ identity, enabled })}
-                  />
-                  <Show when={identity.status !== "verified"}>
-                    <button
-                      type="button"
-                      class="btn-secondary btn-sm"
-                      disabled={activeBindings().length === 0 || props.reloading}
-                      onClick={() => openVerify(identity)}
-                    >
-                      Verify
-                    </button>
+                <div class="flex min-h-11 items-center gap-2 px-1 py-2">
+                  <span class="min-w-0 flex-1 truncate text-sm font-medium text-primary">{identity.label}</span>
+                  <Show when={identity.isDefault}>
+                    <span class="badge">Default</span>
                   </Show>
-                  <button type="button" class="icon-btn" aria-label={`Edit ${identity.fromAddress}`} onClick={() => openEdit(identity)}>
+                  <Show when={identity.authenticationPolicy.automation === "mailbox"}>
+                    <span class="badge">Automatic replies</span>
+                  </Show>
+                  <button type="button" class="icon-btn" aria-label={`Edit ${identity.label}`} onClick={() => openEdit(identity)}>
                     <i class="ti ti-edit" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn text-red-600"
-                    aria-label={`Disable ${identity.fromAddress}`}
-                    disabled={disableIdentity.loading()}
-                    onClick={() => disableIdentity.mutate(identity)}
-                  >
-                    <i class="ti ti-trash" aria-hidden="true" />
                   </button>
                 </div>
               )}
@@ -740,10 +719,17 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
             fallback={
               <>
                 <EditorHeading
-                  title="Verify sender"
-                  description={`Send a real verification message for ${(currentEditor() as Extract<SenderEditor, { kind: "verify" }>).identity.fromAddress}.`}
+                  title="Verify identity"
+                  description={`Confirm that the provider accepts messages sent with ${(currentEditor() as Extract<IdentityEditor, { kind: "verify" }>).identity.label}.`}
                   onBack={() => setEditor(null)}
                 />
+                <div class="info-block-info flex items-start gap-2 text-xs">
+                  <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
+                  <p>
+                    Mail sends a real test message through this provider. The identity is ready to use only after the provider
+                    accepts its From address and delivery settings.
+                  </p>
+                </div>
                 <Select
                   label="Provider binding"
                   value={bindingId}
@@ -771,12 +757,63 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
             }
           >
             <EditorHeading
-              title={currentEditor().kind === "edit" ? "Edit sender" : "Add sender"}
-              description="Configure the sender collaborators and automatic replies can use."
+              title={currentEditor().kind === "edit" ? "Edit identity" : "Add identity"}
+              description="Configure one selectable sending context for collaborators."
               onBack={() => setEditor(null)}
             />
-            <TextInput label="Display name" description="The name recipients see." value={displayName} onInput={setDisplayName} />
-            <TextInput label="From address" type="email" value={address} onInput={setAddress} required />
+            <Show when={editingIdentity()}>
+              {(identity) => (
+                <Show
+                  when={identity().status === "verified"}
+                  fallback={
+                    <div class="info-block-warning flex items-center justify-between gap-3 text-xs" role="status">
+                      <span class="flex min-w-0 items-start gap-2">
+                        <i class="ti ti-alert-circle mt-0.5 shrink-0" aria-hidden="true" />
+                        <span>
+                          This identity is not ready to send. Verify that the provider accepts its From address and delivery settings.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        class="btn-secondary btn-sm shrink-0"
+                        disabled={activeBindings().length === 0 || props.reloading}
+                        onClick={() => openVerify(identity())}
+                      >
+                        Verify identity
+                      </button>
+                    </div>
+                  }
+                >
+                  <div class="info-block-success flex items-start gap-2 text-xs" role="status">
+                    <i class="ti ti-circle-check mt-0.5 shrink-0" aria-hidden="true" />
+                    <p>Ready to send. The provider accepted a test message with this identity.</p>
+                  </div>
+                </Show>
+              )}
+            </Show>
+            <TextInput
+              label="Identity label"
+              description="The private name collaborators see in identity pickers."
+              value={label}
+              onInput={setLabel}
+              required
+            />
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <TextInput
+                label="Display name"
+                description="The name recipients see."
+                value={displayName}
+                onInput={setDisplayName}
+              />
+              <TextInput
+                label="From address"
+                description="The address recipients see."
+                type="email"
+                value={address}
+                onInput={setAddress}
+                required
+              />
+            </div>
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <TextInput
                 label="Reply-to address"
@@ -785,64 +822,119 @@ export function MailSenderSettings(props: ProviderSettingsProps) {
                 value={replyTo}
                 onInput={setReplyTo}
               />
-              <TextInput
-                label="Envelope sender"
-                description="Optional return-path used for delivery."
-                type="email"
-                value={envelopeSender}
-                onInput={setEnvelopeSender}
+            </div>
+            <div>
+              <p class="text-sm font-medium text-primary">Default Cc</p>
+              <p class="mb-1 text-xs text-dimmed">
+                Added to new interactive drafts that use this identity. Writers can remove recipients before sending.
+              </p>
+              <MailRecipientInput
+                value={defaultCc}
+                onChange={setDefaultCc}
+                placeholder="Add default Cc recipient"
+                disabled={createIdentity.loading() || updateIdentity.loading()}
               />
             </div>
             <Select
-              label="Sent folder"
-              description="Required when the provider does not save submitted mail automatically."
-              value={sentFolderId}
-              onChange={setSentFolderId}
-              options={selectableFolders().map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" }))}
+              label="Default signature"
+              description="Mailbox signature inserted into new messages unless a writer has a personal override."
+              value={defaultSignatureTemplateId}
+              onChange={setDefaultSignatureTemplateId}
+              options={mailboxSignatures().map((template) => ({ id: template.id, label: template.name }))}
               clearable
             />
-            <Select
-              label="Drafts folder"
-              description="Provider folder used for projected drafts."
-              value={draftsFolderId}
-              onChange={setDraftsFolderId}
-              options={selectableFolders().map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" }))}
-              clearable
-            />
-            <Checkbox label="Default sender" value={isDefault} onChange={setIsDefault} />
-            <div>
-              <Switch label="Allow automatic replies" value={allowAutomation} onChange={setAllowAutomation} />
-              <p class="mt-1 text-xs text-dimmed">
-                Enabled by default. Automatic replies still require an explicit mailbox rule before anything is sent.
-              </p>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <CheckboxCard
+                label="Default identity"
+                description="Preselected when Mail cannot determine a more specific identity."
+                icon="ti ti-star"
+                value={isDefault}
+                onChange={setIsDefault}
+              />
+              <CheckboxCard
+                label="Allow automatic replies"
+                description="Rules may use this identity. No message is sent until a rule is explicitly enabled."
+                icon="ti ti-message-reply"
+                value={allowAutomation}
+                onChange={setAllowAutomation}
+              />
             </div>
-            <div class="sticky bottom-0 flex justify-end gap-2 bg-[var(--ui-surface)] py-2">
-              <button
-                type="button"
-                class="btn-simple btn-sm"
-                disabled={createIdentity.loading() || updateIdentity.loading()}
-                onClick={() => setEditor(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                class="btn-primary btn-sm"
-                disabled={!address().trim() || createIdentity.loading() || updateIdentity.loading()}
-                onClick={() => (currentEditor().kind === "edit" ? updateIdentity.mutate() : createIdentity.mutate())}
-              >
-                <i
-                  class={
-                    createIdentity.loading() || updateIdentity.loading()
-                      ? "ti ti-loader-2 animate-spin"
-                      : currentEditor().kind === "edit"
-                        ? "ti ti-device-floppy"
-                        : "ti ti-plus"
-                  }
-                  aria-hidden="true"
+            <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
+              <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 text-sm font-medium text-primary">
+                <span class="flex items-center gap-2">
+                  <i class="ti ti-adjustments" aria-hidden="true" />
+                  Advanced delivery
+                </span>
+                <i class="ti ti-chevron-down transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div class="flex flex-col gap-2 px-3 pb-3">
+                <TextInput
+                  label="Return-path address"
+                  description="Optional technical address for delivery failures. Leave empty unless your mail provider requires a separate bounce address."
+                  type="email"
+                  value={envelopeSender}
+                  onInput={setEnvelopeSender}
                 />
-                {currentEditor().kind === "edit" ? "Save sender" : "Add sender"}
-              </button>
+                <Select
+                  label="Sent folder"
+                  description="Required when the provider does not save submitted mail automatically."
+                  value={sentFolderId}
+                  onChange={setSentFolderId}
+                  options={selectableFolders().map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" }))}
+                  clearable
+                />
+                <Select
+                  label="Drafts folder"
+                  description="Provider folder used for projected drafts."
+                  value={draftsFolderId}
+                  onChange={setDraftsFolderId}
+                  options={selectableFolders().map((folder) => ({ id: folder.id, label: folder.name, icon: "ti ti-folder" }))}
+                  clearable
+                />
+              </div>
+            </details>
+            <div class="sticky bottom-0 flex items-center justify-between gap-2 bg-[var(--ui-surface)] py-2">
+              <Show when={editingIdentity()} fallback={<span />}>
+                {(identity) => (
+                  <button
+                    type="button"
+                    class="btn-danger btn-sm"
+                    disabled={disableIdentity.loading() || updateIdentity.loading()}
+                    onClick={() => disableIdentity.mutate(identity())}
+                  >
+                    <i class={disableIdentity.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} aria-hidden="true" />
+                    Disable identity
+                  </button>
+                )}
+              </Show>
+              <span class="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  class="btn-simple btn-sm"
+                  disabled={createIdentity.loading() || updateIdentity.loading()}
+                  onClick={() => setEditor(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  class="btn-primary btn-sm"
+                  disabled={!label().trim() || !address().trim() || createIdentity.loading() || updateIdentity.loading()}
+                  onClick={() => (currentEditor().kind === "edit" ? updateIdentity.mutate() : createIdentity.mutate())}
+                >
+                  <i
+                    class={
+                      createIdentity.loading() || updateIdentity.loading()
+                        ? "ti ti-loader-2 animate-spin"
+                        : currentEditor().kind === "edit"
+                          ? "ti ti-device-floppy"
+                          : "ti ti-plus"
+                    }
+                    aria-hidden="true"
+                  />
+                  {currentEditor().kind === "edit" ? "Save identity" : "Add identity"}
+                </button>
+              </span>
             </div>
           </Show>
         </div>

@@ -1,25 +1,18 @@
 import { NumberInput, PermissionEditor, prompts, Select, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 import MailAttachmentLinksSettings from "./MailAttachmentLinksSettings";
 import MailComposeSettings from "./MailComposeSettings";
+import MailFolderSettings from "./MailFolderSettings";
 import MailOperationalSettings from "./MailOperationalSettings";
 import MailOrganizationSettings from "./MailOrganizationSettings";
-import { MailConnectionSettings, MailSenderSettings } from "./MailProviderSettings";
+import { MailConnectionSettings, MailIdentitySettings } from "./MailProviderSettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
-
-const FOLDER_ROLES: Array<{ id: ConfigurableFolderRole; label: string; icon: string }> = [
-  { id: "sent", label: "Sent", icon: "ti ti-send" },
-  { id: "drafts", label: "Drafts", icon: "ti ti-file-pencil" },
-  { id: "archive", label: "Archive", icon: "ti ti-archive" },
-  { id: "trash", label: "Trash", icon: "ti ti-trash" },
-  { id: "junk", label: "Junk", icon: "ti ti-alert-octagon" },
-];
 
 export default function MailboxSettings(props: {
   context: MailboxSettingsContext;
@@ -89,6 +82,13 @@ export default function MailboxSettings(props: {
     onSuccess: ({ role, folderId }) => {
       props.onContextChange((context) => ({
         ...context,
+        organization: {
+          ...context.organization,
+          folders: context.organization.folders.map((folder) => ({
+            ...folder,
+            configuredRole: folder.id === folderId ? role : folder.configuredRole === role ? null : folder.configuredRole,
+          })),
+        },
         admin: context.admin
           ? {
               ...context.admin,
@@ -104,6 +104,26 @@ export default function MailboxSettings(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+
+  const setFolderVisibility = (folderId: string, showInSidebar: boolean) => {
+    props.onContextChange((context) => ({
+      ...context,
+      organization: {
+        ...context.organization,
+        folders: context.organization.folders.map((folder) =>
+          folder.id === folderId ? { ...folder, showInSidebar } : folder,
+        ),
+      },
+      admin: context.admin
+        ? {
+            ...context.admin,
+            folders: context.admin.folders.map((folder) =>
+              folder.id === folderId ? { ...folder, showInSidebar } : folder,
+            ),
+          }
+        : null,
+    }));
+  };
 
   const saveAutomaticReplyAccess = mutation.create<Mailbox, void>({
     mutation: async () => {
@@ -214,6 +234,11 @@ export default function MailboxSettings(props: {
               initialDefaults={compose().defaults}
               initialStyle={compose().style}
               identities={compose().identities}
+              onTemplatesChange={(templates) =>
+                props.onContextChange((context) =>
+                  context.compose ? { ...context, compose: { ...context.compose, templates } } : context,
+                )
+              }
             />
           </SettingsModal.Tab>
         )}
@@ -290,14 +315,19 @@ export default function MailboxSettings(props: {
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
-            id="senders"
-            title="Senders"
+            id="identities"
+            title="Identities"
             icon="ti ti-at"
-            description="Verified From addresses and permission to use them for automatic replies."
+            description="Sending contexts, defaults, signatures, and provider verification."
           >
-            <MailSenderSettings
+            <MailIdentitySettings
               mailbox={props.context.mailbox}
               admin={admin()}
+              mailboxSignatures={
+                props.context.compose?.templates.filter(
+                  (template) => template.kind === "signature" && template.scope === "mailbox",
+                ) ?? []
+              }
               currentUserEmail={props.currentUserEmail}
               reloading={props.reloading}
               onReload={props.onReload}
@@ -309,37 +339,22 @@ export default function MailboxSettings(props: {
             <MailAttachmentLinksSettings mailboxId={props.context.mailbox.id} dateConfig={props.dateConfig} />
           </SettingsModal.Tab>
 
-          <SettingsModal.Tab id="folders" title="Folders" icon="ti ti-folders" description="Map provider folders to portable Mail actions.">
-            <div class="flex flex-col gap-3">
-              <p class="text-xs text-dimmed">
-                Inbox is discovered from the provider. These mappings control sent mail, drafts, archive, trash, and junk actions.
-              </p>
-              <For each={FOLDER_ROLES}>
-                {(role) => {
-                  const current = () => admin().folders.find((folder) => folder.configuredRole === role.id || folder.role === role.id);
-                  return (
-                    <Select
-                      label={role.label}
-                      description={`Provider folder used for ${role.label.toLowerCase()} operations.`}
-                      icon={role.icon}
-                      value={() => current()?.id}
-                      selectedLabel={() => current()?.name}
-                      options={admin()
-                        .folders.filter((folder) => folder.selectable && folder.discoveryState === "active")
-                        .map((folder) => ({
-                          id: folder.id,
-                          label: folder.name,
-                          description: folder.namespaceKinds.join(", "),
-                          icon: "ti ti-folder",
-                        }))}
-                      clearable
-                      disabled={updateFolderRole.loading() || props.reloading}
-                      onChange={(folderId) => updateFolderRole.mutate({ role: role.id, folderId })}
-                    />
-                  );
-                }}
-              </For>
-            </div>
+          <SettingsModal.Tab
+            id="folders"
+            title="Folders"
+            icon="ti ti-folders"
+            description="Create provider folders and control which ones appear in Mail."
+          >
+            <MailFolderSettings
+              mailboxId={props.context.mailbox.id}
+              folders={admin().folders}
+              reloading={props.reloading}
+              onReload={props.onReload}
+              onWorkspaceChange={props.onWorkspaceChange}
+              onFolderVisibilityChange={setFolderVisibility}
+              onFolderRoleChange={(role, folderId) => updateFolderRole.mutate({ role, folderId })}
+              folderRolePending={updateFolderRole.loading()}
+            />
           </SettingsModal.Tab>
 
           <SettingsModal.Tab
@@ -351,7 +366,7 @@ export default function MailboxSettings(props: {
             <div class="mb-4 flex flex-col gap-2">
               <Select
                 label="Who can manage automatic replies?"
-                description="Writers can already send and organize mail. Allow them to manage absences and acknowledgements without giving access to connections, senders, or advanced workflows."
+                description="Writers can already send and organize mail. Allow them to manage absences and acknowledgements without giving access to connections, identities, or advanced workflows."
                 icon="ti ti-message-cog"
                 value={automaticReplyManagementPermission}
                 onChange={(value) => setAutomaticReplyManagementPermission(value === "write" ? "write" : "admin")}

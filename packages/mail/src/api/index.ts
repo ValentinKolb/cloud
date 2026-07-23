@@ -171,6 +171,7 @@ const roleParamSchema = z.object({
   role: configurableFolderRoleSchema,
 });
 const folderRoleInputSchema = z.object({ folderId: z.string().uuid() });
+const folderVisibilityInputSchema = z.object({ showInSidebar: z.boolean() }).strict();
 const draftRevisionSchema = z.object({
   expectedRevision: z.coerce.number().int().positive(),
 });
@@ -576,6 +577,22 @@ const mailOperationsApi = new Hono<AuthContext>()
   })
   .get("/mailboxes/:mailboxId/folders", v("param", uuidParamSchema), async (c) =>
     respond(c, messages.listFolders(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .patch(
+    "/mailboxes/:mailboxId/folders/:folderId",
+    v("param", mailboxAndIdParamSchema("folderId")),
+    v("json", folderVisibilityInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; folderId: string };
+      return respond(
+        c,
+        folders.setFolderSidebarVisibility({
+          context: requestContext(c),
+          ...params,
+          showInSidebar: c.req.valid("json").showInSidebar,
+        }),
+      );
+    },
   )
   .get("/mailboxes/:mailboxId/notification-targets/:kind/:sourceId", v("param", notificationTargetParamSchema), async (c) => {
     const resolved = await notificationTargets.resolveMailNotificationTarget({

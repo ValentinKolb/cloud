@@ -172,8 +172,8 @@ suite("mail PostgreSQL foundation", () => {
     `;
     const [identity] = await sql<{ id: string }[]>`
       INSERT INTO mail.sender_identities (
-        mailbox_id, display_name, from_address, automation_policy, is_default, status
-      ) VALUES (${mailbox.data.id}::uuid, 'Fixture Sender', 'sender@example.com', 'disabled', true, 'verified')
+        mailbox_id, label, display_name, from_address, automation_policy, is_default, status
+      ) VALUES (${mailbox.data.id}::uuid, 'Fixture Sender', 'Fixture Sender', 'sender@example.com', 'disabled', true, 'verified')
       RETURNING id
     `;
     await sql`
