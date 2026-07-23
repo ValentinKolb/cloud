@@ -222,6 +222,40 @@ describe("Pulse dashboard DSL", () => {
     expect(statesWidget.query.limit).toBe(50);
   });
 
+  test("compiles grouped metrics and event aggregates as chart widgets", () => {
+    const result = compileDashboardDsl(
+      `dashboard "Ops" {
+        section "Overview" {
+          line "CPU by service" {
+            query metric docker.compose.service.cpu.usage avg every 5m reduce sum group by resource since 24h
+          }
+          stat "Failed tasks" {
+            query events proxmox.task.failed count every 1h since 24h
+          }
+        }
+      }`,
+      (query) => {
+        const compiled = compilePulseQueryText("base", query);
+        return compiled.ok ? { ok: true, data: compiled.data } : { ok: false, message: compiled.error.message };
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [metricWidget, eventWidget] = result.data.layout?.sections[0]?.rows[0]?.cells ?? [];
+    expect(metricWidget).toMatchObject({
+      kind: "metric",
+      reduce: "sum",
+      groupBy: "resource",
+      query: { kind: "metric", reduce: "sum", groupBy: "resource" },
+    });
+    expect(eventWidget).toMatchObject({
+      kind: "metric",
+      metric: "proxmox.task.failed",
+      aggregation: "count",
+      query: { kind: "events", aggregation: "count", bucket: "1h" },
+    });
+  });
+
   test("compiles an event map with explicit safe field selectors", () => {
     const result = compileDashboardDsl(
       `dashboard "Engagement" {

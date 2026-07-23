@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { sql } from "bun";
 import type { PulseIngestBatch } from "../contracts";
 import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
-import { telemetryValueKind, type PulseTelemetryValueKind } from "../telemetry-contract";
+import { type PulseTelemetryValueKind, telemetryValueKind } from "../telemetry-contract";
 import { enforceMetricSeriesBudget } from "./metric-cardinality";
 import { lockStateIdentities } from "./state-transitions";
 import { normalizeDimensions } from "./telemetry-values";
@@ -136,7 +136,8 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     explicitResource?: PulseResourceIdentity | null,
   ) => {
     observeFields(scope, signalName, "dimension", dimensions, seenAt);
-    const resource = explicitResource === undefined ? derivePulseResource({ signalName, sourceId, entityId, entityType, dimensions }) : explicitResource;
+    const resource =
+      explicitResource === undefined ? derivePulseResource({ signalName, sourceId, entityId, entityType, dimensions }) : explicitResource;
     if (!resource) return null;
     const current = resources.get(resource.key);
     resources.set(resource.key, {
@@ -154,7 +155,8 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     const dimensions = normalizeDimensions(metric.dimensions);
     const hash = dimensionsHash(dimensions);
     const ts = isoTime(metric.ts);
-    const resource = observe("metric", metric.name, metric.entityId, metric.entityType, dimensions, ts);
+    const explicitResource = metric.resource === undefined ? undefined : explicitPulseResource(metric.resource);
+    const resource = observe("metric", metric.name, metric.entityId, metric.entityType, dimensions, ts, explicitResource);
     return {
       ordinal,
       name: metric.name,
@@ -201,7 +203,8 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     const dimensions = normalizeDimensions(state.dimensions);
     const hash = dimensionsHash(dimensions);
     const ts = isoTime(state.ts);
-    const resource = observe("state", state.key, state.entityId, state.entityType, dimensions, ts);
+    const explicitResource = state.resource === undefined ? undefined : explicitPulseResource(state.resource);
+    const resource = observe("state", state.key, state.entityId, state.entityType, dimensions, ts, explicitResource);
     return {
       ordinal,
       key: state.key,

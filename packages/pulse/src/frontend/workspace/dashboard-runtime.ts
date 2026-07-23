@@ -1,4 +1,5 @@
 import type {
+  Aggregation,
   MetricQueryPoint,
   PulseCurrentState,
   PulseDashboard,
@@ -34,20 +35,25 @@ const resolveDashboardQueryText = (
   );
 };
 
-const metricWidgetQueryText = (widget: PulseDashboardMetricWidget): string => {
+export const metricWidgetQueryText = (widget: PulseDashboardMetricWidget): string => {
   if (widget.queryText && widget.query) return widget.queryText;
+  if (widget.query?.kind === "events") return dashboardEventQueryText(widget.query);
   return dashboardMetricQueryText(
-    widget.query ?? {
-      kind: "metric",
-      metric: widget.metric,
-      aggregation: widget.aggregation,
-      bucket: widget.bucket,
-      since: widget.since,
-      sourceId: widget.sourceId ?? null,
-      entityId: widget.entityId ?? null,
-      entityType: widget.entityType ?? null,
-      dimensions: widget.dimensions,
-    },
+    widget.query?.kind === "metric"
+      ? widget.query
+      : {
+          kind: "metric",
+          metric: widget.metric,
+          aggregation: widget.aggregation as Aggregation,
+          bucket: widget.bucket,
+          since: widget.since,
+          sourceId: widget.sourceId ?? null,
+          entityId: widget.entityId ?? null,
+          entityType: widget.entityType ?? null,
+          dimensions: widget.dimensions,
+          reduce: widget.reduce,
+          groupBy: widget.groupBy,
+        },
   );
 };
 

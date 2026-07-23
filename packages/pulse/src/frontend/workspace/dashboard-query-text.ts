@@ -1,8 +1,4 @@
-import type {
-  PulseDashboardEventQuery,
-  PulseDashboardMetricQuery,
-  PulseDashboardStateQuery,
-} from "../../contracts";
+import type { PulseDashboardEventQuery, PulseDashboardMetricQuery, PulseDashboardStateQuery } from "../../contracts";
 
 export const quoteQueryPart = (value: string): string =>
   /[\s,=]/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;
@@ -18,10 +14,18 @@ const queryFiltersToText = (query: PulseDashboardMetricQuery | PulseDashboardEve
 };
 
 export const dashboardMetricQueryText = (query: PulseDashboardMetricQuery): string =>
-  `metric ${query.metric} ${query.aggregation} every ${query.bucket} since ${query.since}${queryFiltersToText(query)}`;
+  `metric ${query.metric} ${query.aggregation} every ${query.bucket}${query.reduce ? ` reduce ${query.reduce}` : ""}${
+    query.groupBy ? ` group by ${quoteQueryPart(query.groupBy)}` : ""
+  } since ${query.since}${queryFiltersToText(query)}`;
 
 export const dashboardEventQueryText = (query: PulseDashboardEventQuery): string =>
-  `events ${query.event ?? "*"} since ${query.since}${queryFiltersToText(query)}`;
+  `events ${query.event ?? "*"}${
+    query.aggregation && query.aggregation !== "rows"
+      ? ` ${query.aggregation.replace("_", " ")} every ${query.bucket ?? "1h"}${
+          query.groupBy?.length ? ` group by ${query.groupBy.map(quoteQueryPart).join(", ")}` : ""
+        }`
+      : ""
+  } since ${query.since}${queryFiltersToText(query)}`;
 
 export const dashboardStateQueryText = (query: PulseDashboardStateQuery): string =>
   `states ${query.state ?? "*"}${query.since ? ` since ${query.since}` : ""}${queryFiltersToText(query)}`;

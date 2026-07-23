@@ -123,6 +123,8 @@ type MetricTokenParts = {
   metric: string;
   aggregation: Aggregation;
   bucket: string;
+  reduce: MetricQuery["reduce"];
+  groupBy: string | null;
   sharedTokens: string[];
 };
 
@@ -235,7 +237,14 @@ const readMetricTokenParts = (tokens: string[]): Result<MetricTokenParts> => {
   if (!aggregation.ok) return fail(aggregation.error);
   const metricOptions = readMetricOptions(tokens, metric);
   if (!metricOptions.ok) return fail(metricOptions.error);
-  return ok({ metric, aggregation: aggregation.data, bucket: metricOptions.data.bucket, sharedTokens: metricOptions.data.sharedTokens });
+  return ok({
+    metric,
+    aggregation: aggregation.data,
+    bucket: metricOptions.data.bucket,
+    reduce: metricOptions.data.reduce,
+    groupBy: metricOptions.data.groupBy,
+    sharedTokens: metricOptions.data.sharedTokens,
+  });
 };
 
 const readMetricAggregation = (value: string | undefined): Result<Aggregation> => {
@@ -243,9 +252,16 @@ const readMetricAggregation = (value: string | undefined): Result<Aggregation> =
   return ok(value as Aggregation);
 };
 
-const readMetricOptions = (tokens: string[], _metric: string): Result<Pick<MetricTokenParts, "bucket" | "sharedTokens">> => {
+const readMetricOptions = (
+  tokens: string[],
+  _metric: string,
+): Result<Pick<MetricTokenParts, "bucket" | "reduce" | "groupBy" | "sharedTokens">> => {
   let bucket = "5m";
   let everySeen = false;
+  let reduce: MetricQuery["reduce"] = null;
+  let reduceSeen = false;
+  let groupBy: string | null = null;
+  let groupSeen = false;
   let index = 3;
   const sharedTokens: string[] = [];
   while (index < tokens.length) {
@@ -259,10 +275,31 @@ const readMetricOptions = (tokens: string[], _metric: string): Result<Pick<Metri
       index += 2;
       continue;
     }
+    if (token === "reduce") {
+      if (reduceSeen) return fail(err.badInput('Clause "reduce" may only be used once'));
+      const value = tokens[index + 1]?.toLowerCase();
+      if (!value || !["sum", "avg", "min", "max"].includes(value)) {
+        return fail(err.badInput(`Unsupported reducer "${value ?? ""}"`));
+      }
+      reduceSeen = true;
+      reduce = value as NonNullable<MetricQuery["reduce"]>;
+      index += 2;
+      continue;
+    }
+    if (token === "group") {
+      if (groupSeen) return fail(err.badInput('Clause "group by" may only be used once'));
+      if (tokens[index + 1]?.toLowerCase() !== "by") return fail(err.badInput('Group clause must use "group by <resource|dimension>"'));
+      const value = tokens[index + 2]?.trim();
+      if (!value || value === ",") return fail(err.badInput("Group by value is missing"));
+      groupSeen = true;
+      groupBy = value;
+      index += 3;
+      continue;
+    }
     sharedTokens.push(tokens[index]!);
     index += 1;
   }
-  return ok({ bucket, sharedTokens });
+  return ok({ bucket, reduce, groupBy, sharedTokens });
 };
 
 const metricQueryFromParts = (baseId: string, parts: MetricTokenParts, shared: SharedClauses): MetricQuery => ({
@@ -276,6 +313,8 @@ const metricQueryFromParts = (baseId: string, parts: MetricTokenParts, shared: S
   entityId: shared.entityId,
   entityType: shared.entityType,
   dimensions: shared.dimensions,
+  reduce: parts.reduce,
+  groupBy: parts.groupBy,
 });
 
 const compileEventQueryTokens = (baseId: string, tokens: string[]): Result<EventQuery> => {

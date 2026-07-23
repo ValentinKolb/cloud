@@ -13,6 +13,7 @@ describe("Pulse bulk ingest preparation", () => {
             sourceId: "22222222-2222-4222-8222-222222222222",
             entityId: "host:alpha",
             entityType: "host",
+            resource: { type: "host", id: "alpha", label: "Alpha" },
             dimensions: { host: "alpha" },
           },
         ],
@@ -22,7 +23,7 @@ describe("Pulse bulk ingest preparation", () => {
             sourceId: null,
             entityId: "host:alpha",
             entityType: "host",
-            resource: { type: "host", id: "host:alpha", label: "alpha" },
+            resource: { type: "host", id: "alpha", label: "Alpha" },
             attributes: { request_id: "request-1", location: { city: "Berlin" } },
             sensitive: { ip: "203.0.113.42" },
           },
@@ -34,6 +35,7 @@ describe("Pulse bulk ingest preparation", () => {
             sourceId: "33333333-3333-4333-8333-333333333333",
             entityId: "host:alpha",
             entityType: "host",
+            resource: { type: "host", id: "alpha", label: "Alpha" },
           },
         ],
       },
@@ -42,7 +44,14 @@ describe("Pulse bulk ingest preparation", () => {
 
     expect(prepared.metrics[0]?.seriesKey.startsWith(`${sourceId}\u001f`)).toBe(true);
     expect(prepared.resources).toHaveLength(1);
-    expect(prepared.resources[0]?.key).toBe("host:host:alpha");
+    expect(prepared.resources[0]).toEqual(
+      expect.objectContaining({
+        key: "host:alpha",
+        id: "alpha",
+        type: "host",
+        label: "Alpha",
+      }),
+    );
     expect(prepared.events[0]?.attributes).toEqual({ request_id: "request-1", location: { city: "Berlin" } });
     expect(prepared.events[0]?.sensitive).toEqual({ ip: "203.0.113.42" });
   });
@@ -66,6 +75,39 @@ describe("Pulse bulk ingest preparation", () => {
 
     expect(prepared.resources).toEqual([]);
     expect(prepared.events[0]?.resourceKey).toBeNull();
+  });
+
+  test("uses explicit metric and state resources instead of dimension inference", () => {
+    const prepared = prepareIngestBatch(
+      {
+        metrics: [
+          {
+            name: "docker.container.cpu.usage",
+            value: 12,
+            entityId: "container:host-a:app",
+            entityType: "docker-container",
+            resource: { type: "docker-container", id: "host-a:app", label: "app" },
+            dimensions: { host: "host-a", container: "app", container_id: "volatile-id" },
+          },
+        ],
+        states: [
+          {
+            key: "docker.container.running",
+            value: true,
+            entityId: "container:host-a:app",
+            entityType: "docker-container",
+            resource: { type: "docker-container", id: "host-a:app", label: "app" },
+            dimensions: { host: "host-a", container: "app", container_id: "volatile-id" },
+          },
+        ],
+      },
+      "11111111-1111-4111-8111-111111111111",
+    );
+
+    expect(prepared.metrics[0]?.resourceKey).toBe("docker-container:host-a:app");
+    expect(prepared.states[0]?.resourceKey).toBe("docker-container:host-a:app");
+    expect(prepared.resources).toHaveLength(1);
+    expect(prepared.resources[0]?.label).toBe("app");
   });
 
   test("catalogs event dimensions, attributes, and sensitive fields without storing their values", () => {

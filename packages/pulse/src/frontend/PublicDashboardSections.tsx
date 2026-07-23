@@ -24,9 +24,11 @@ import {
   formatSignalValue,
   formatValue,
   gaugeMax,
+  metricPointGroupLabel,
   pointsToBars,
   pointsToHeatmap,
   pointsToHistogram,
+  pointsToLineSeries,
 } from "./workspace/helpers";
 
 type Props = {
@@ -36,6 +38,7 @@ type Props = {
 
 const queryPointColumns = (dateContext: DateContext): DataTableColumn<MetricQueryPoint>[] => [
   { id: "bucket", header: "Bucket", value: (point) => compactDate(point.bucket, dateContext), cellClass: "w-32 whitespace-nowrap" },
+  { id: "group", header: "Group", value: (point) => metricPointGroupLabel(point) || "-" },
   { id: "value", header: "Value", value: (point) => formatValue(point.value), cellClass: "w-32 whitespace-nowrap" },
 ];
 
@@ -102,7 +105,7 @@ const renderLineMetricVisual = (widget: PulsePublicDashboardMetricWidget, data: 
   <Chart
     kind="line"
     class="h-56 text-dimmed"
-    series={[{ label: widget.title, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
+    series={pointsToLineSeries(data, widget.title)}
     xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), dateContext) }}
     yAxis={{ format: metricWidgetValueFormat(widget) }}
     smooth

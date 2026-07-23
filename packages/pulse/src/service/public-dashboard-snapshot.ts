@@ -2,6 +2,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type {
+  Aggregation,
   DashboardRefreshInterval,
   EventQuery,
   MetricQuery,
@@ -60,6 +61,7 @@ type DashboardRow = {
 
 type PublicDashboardSnapshotDeps = {
   queryMetricData: (query: MetricQuery) => Promise<Result<MetricQueryPoint[]>>;
+  queryEventAggregateData: (query: EventQuery) => Promise<Result<MetricQueryPoint[]>>;
   queryEventsData: (query: EventQuery) => Promise<Result<PulseRecordedEvent[]>>;
   queryStatesData: (query: StateQuery) => Promise<Result<PulseCurrentState[]>>;
   queryEventMapData: (query: EventMapQuery) => Promise<Result<PulseMapSeries[]>>;
@@ -117,9 +119,9 @@ const publicMetricWidget = (
   kind: "metric",
   title: widget.title,
   metric: widget.metric,
-  unit: metricUnitByName.get(widget.query?.metric ?? widget.metric) ?? null,
+  unit: metricUnitByName.get(widget.query?.kind === "metric" ? widget.query.metric : widget.metric) ?? null,
   visual: widget.visual,
-  aggregation: widget.aggregation,
+  aggregation: widget.aggregation as Aggregation,
   bucket: widget.bucket,
   since: widget.since,
   description: widget.description,
@@ -204,7 +206,13 @@ const publicDashboardLayout = (
     : null;
 
 const publicDashboardMetricUnits = async (baseId: string, widgets: PulseDashboardMetricWidget[]): Promise<Map<string, string | null>> => {
-  const names = [...new Set(widgets.map((widget) => widget.query?.metric ?? widget.metric).filter(Boolean))];
+  const names = [
+    ...new Set(
+      widgets
+        .filter((widget) => widget.query?.kind !== "events")
+        .map((widget) => (widget.query?.kind === "metric" ? widget.query.metric : widget.metric)),
+    ),
+  ];
   if (!names.length) return new Map();
   const rows = await sql<{ name: string; unit: string | null }[]>`
     SELECT name, unit
@@ -241,21 +249,26 @@ const fallbackMetricWidgetQuery = (baseId: string, widget: PulseDashboardMetricW
   kind: "metric",
   baseId,
   metric: widget.metric,
-  aggregation: widget.aggregation,
+  aggregation: widget.aggregation as Aggregation,
   bucket: widget.bucket,
   since: widget.since,
   sourceId: nullable(widget.sourceId),
   entityId: nullable(widget.entityId),
   entityType: nullable(widget.entityType),
   dimensions: widget.dimensions,
+  reduce: widget.reduce,
+  groupBy: widget.groupBy,
 });
 
-const metricWidgetQuery = (baseId: string, widget: PulseDashboardMetricWidget): MetricQuery => ({
-  ...fallbackMetricWidgetQuery(baseId, widget),
-  ...(widget.query ?? {}),
-  baseId,
-  kind: "metric",
-});
+const metricWidgetQuery = (baseId: string, widget: PulseDashboardMetricWidget): MetricQuery | EventQuery => {
+  if (widget.query?.kind === "events") return { ...widget.query, baseId };
+  return {
+    ...fallbackMetricWidgetQuery(baseId, widget),
+    ...(widget.query ?? {}),
+    baseId,
+    kind: "metric",
+  };
+};
 
 const takePublicWidgets = <T>(widgets: T[], remaining: number): { widgets: T[]; remaining: number } => {
   const allowed = Math.max(0, remaining);
@@ -269,7 +282,8 @@ const runPublicMetricWidgets = async (
 ): Promise<Record<string, MetricQueryPoint[]>> => {
   const points: Record<string, MetricQueryPoint[]> = {};
   for (const widget of widgets) {
-    const result = await deps.queryMetricData(metricWidgetQuery(baseId, widget));
+    const query = metricWidgetQuery(baseId, widget);
+    const result = query.kind === "events" ? await deps.queryEventAggregateData(query) : await deps.queryMetricData(query);
     points[widget.id] = result.ok ? result.data : [];
   }
   return points;

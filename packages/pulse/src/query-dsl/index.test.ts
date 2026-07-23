@@ -37,6 +37,23 @@ describe("Pulse query DSL", () => {
     });
   });
 
+  test("compiles resource grouping and cross-series reduction", () => {
+    const result = compilePulseQueryText(
+      baseId,
+      "metric docker.container.network.rx rate every 5m reduce sum group by resource since 24h where interface=eth0",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        kind: "metric",
+        aggregation: "rate",
+        reduce: "sum",
+        groupBy: "resource",
+        dimensions: { interface: "eth0" },
+      },
+    });
+  });
+
   test("compiles events and states queries", () => {
     const events = compilePulseQueryText(baseId, "events deploy.finished since 24h entity app-core limit 50");
     const states = compilePulseQueryText(baseId, "states service.online entity app-core entity_type service limit 10");
@@ -54,23 +71,25 @@ describe("Pulse query DSL", () => {
   });
 
   test("compiles SQL event aggregations with bounded grouping", () => {
-    expect(compilePulseQueryText(baseId, "events page.viewed count every 1h since 7d where channel=qr group by campaign, country")).toEqual({
-      ok: true,
-      data: {
-        kind: "events",
-        baseId,
-        event: "page.viewed",
-        since: "7d",
-        sourceId: null,
-        entityId: null,
-        entityType: null,
-        dimensions: { channel: "qr" },
-        aggregation: "count",
-        bucket: "1h",
-        groupBy: ["campaign", "country"],
-        limit: 500,
+    expect(compilePulseQueryText(baseId, "events page.viewed count every 1h since 7d where channel=qr group by campaign, country")).toEqual(
+      {
+        ok: true,
+        data: {
+          kind: "events",
+          baseId,
+          event: "page.viewed",
+          since: "7d",
+          sourceId: null,
+          entityId: null,
+          entityType: null,
+          dimensions: { channel: "qr" },
+          aggregation: "count",
+          bucket: "1h",
+          groupBy: ["campaign", "country"],
+          limit: 500,
+        },
       },
-    });
+    );
     expect(compilePulseQueryText(baseId, "events page.viewed unique actor every 1d since 30d")).toMatchObject({
       ok: true,
       data: { aggregation: "unique_actor", bucket: "1d" },
@@ -120,6 +139,7 @@ describe("Pulse query DSL", () => {
   test("rejects duplicate clauses and excessive row limits", () => {
     for (const [query, message] of [
       ["metric system.cpu.usage avg every 1m every 5m", 'Clause "every" may only be used once'],
+      ["metric system.cpu.usage avg reduce sum reduce avg", 'Clause "reduce" may only be used once'],
       ["events deploy.finished since 1h since 2h", 'Clause "since" may only be used once'],
       ["states service.online limit 1001", "Limit cannot exceed 1000 rows"],
       ["events deploy.finished where limit 10", "Where requires at least one key=value filter"],

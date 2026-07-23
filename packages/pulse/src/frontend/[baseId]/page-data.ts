@@ -3,7 +3,6 @@ import { get as getSetting } from "@valentinkolb/cloud/services";
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
 import type {
-  MetricQuery,
   MetricQueryPoint,
   MetricType,
   PulseCurrentState,
@@ -12,7 +11,6 @@ import type {
   PulseDashboardControl,
   PulseDashboardEventsWidget,
   PulseDashboardMapWidget,
-  PulseDashboardMetricWidget,
   PulseDashboardStatesWidget,
   PulseInventory,
   PulseMapSeries,
@@ -23,9 +21,9 @@ import type {
   PulseSource,
   PulseSourceScrape,
 } from "../../contracts";
-import { compilePulseQueryText } from "../../query-dsl";
 import { pulseService } from "../../service";
 import type { UserScope } from "../../service/access-control";
+import { metricWidgetQueryText } from "../workspace/dashboard-runtime";
 import {
   dashboardEventsWidgets,
   dashboardMapWidgets,
@@ -94,30 +92,6 @@ const resolveDashboardQueryText = (text: string, config: PulseDashboardConfig, v
   return text.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, variable: string) =>
     typeof controls[variable] === "string" ? quoteQueryPart(controls[variable]) : match,
   );
-};
-
-const metricWidgetQuery = (
-  baseId: string,
-  dashboard: PulseDashboard,
-  widget: PulseDashboardMetricWidget,
-  controlValues: DashboardControlValues,
-): MetricQuery => {
-  if (widget.queryText) {
-    const compiled = compilePulseQueryText(baseId, resolveDashboardQueryText(widget.queryText, dashboard.config, controlValues));
-    if (compiled.ok && compiled.data.kind === "metric") return compiled.data;
-  }
-  return {
-    kind: "metric",
-    baseId,
-    metric: widget.metric,
-    aggregation: widget.aggregation,
-    bucket: widget.bucket,
-    since: widget.since,
-    sourceId: widget.sourceId ?? null,
-    entityId: widget.entityId ?? null,
-    entityType: widget.entityType ?? null,
-    dimensions: widget.dimensions ?? undefined,
-  };
 };
 
 const widgetQueryText = (
@@ -264,8 +238,12 @@ const loadDashboardWidgetData = async (
   const [metricWidgetPointEntries, eventEntries, stateEntries, mapEntries] = await Promise.all([
     Promise.all(
       dashboardMetricWidgets(selectedDashboard.config).map(async (widget): Promise<[string, MetricQueryPoint[]]> => {
-        const result = await pulseService.query.metric(metricWidgetQuery(baseId, selectedDashboard, widget, controlValues), user);
-        return [widget.id, result.ok ? result.data : []];
+        const result = await pulseService.query.metricText({
+          baseId,
+          query: resolveDashboardQueryText(metricWidgetQueryText(widget), selectedDashboard.config, controlValues),
+          user,
+        });
+        return [widget.id, result.ok ? result.data.points : []];
       }),
     ),
     Promise.all(

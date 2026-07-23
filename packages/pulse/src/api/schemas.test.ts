@@ -2,6 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { EventMapQueryTextSchema, IngestBatchSchema, UpdateBaseSchema } from "./schemas";
 
 describe("Pulse ingest API limits", () => {
+  test("accepts explicit resources for every ingest signal kind", () => {
+    const resource = { type: "host", id: "server-01", label: "server-01" };
+    const result = IngestBatchSchema.safeParse({
+      metrics: [{ name: "system.cpu.usage", value: 42, resource }],
+      events: [{ kind: "system.rebooted", resource }],
+      states: [{ key: "system.online", value: true, resource }],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   test("accepts the documented external maximum", () => {
     const result = IngestBatchSchema.safeParse({
       metrics: Array.from({ length: 500 }, (_, index) => ({ name: `metric.${index}`, value: index })),

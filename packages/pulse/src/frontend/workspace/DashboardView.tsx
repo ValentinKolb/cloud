@@ -34,6 +34,7 @@ import {
   pointsToBars,
   pointsToHeatmap,
   pointsToHistogram,
+  pointsToLineSeries,
   queryPointColumns,
   signalSubject,
   sourceKindIcon,
@@ -165,7 +166,7 @@ const MetricWidgetChart = (props: { widget: PulseDashboardMetricWidget; context:
     <Chart
       kind="line"
       class="h-48 text-dimmed"
-      series={[{ label: props.widget.title, data: data().map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
+      series={pointsToLineSeries(data(), props.widget.title)}
       xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), props.context.dateContext()) }}
       yAxis={{ format: valueFormat }}
       smooth

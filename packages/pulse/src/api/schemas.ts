@@ -59,6 +59,15 @@ const EventSensitiveSchema = z
   })
   .optional();
 
+const ResourceSchema = z
+  .object({
+    type: z.string().trim().min(1).max(80),
+    id: z.string().trim().min(1).max(500),
+    label: z.string().trim().min(1).max(240).nullable().optional(),
+  })
+  .nullable()
+  .optional();
+
 const MetricSchema = z.object({
   name: z.string().trim().min(1),
   value: z.number().finite(),
@@ -68,6 +77,7 @@ const MetricSchema = z.object({
   sourceId: z.string().uuid().nullable().optional(),
   entityId: z.string().trim().min(1).nullable().optional(),
   entityType: z.string().trim().min(1).nullable().optional(),
+  resource: ResourceSchema,
   dimensions: DimensionsSchema,
 });
 
@@ -81,14 +91,7 @@ const EventSchema = z.object({
   actorId: z.string().trim().min(1).nullable().optional(),
   sessionId: z.string().trim().min(1).nullable().optional(),
   correlationId: z.string().trim().min(1).nullable().optional(),
-  resource: z
-    .object({
-      type: z.string().trim().min(1).max(80),
-      id: z.string().trim().min(1).max(500),
-      label: z.string().trim().min(1).max(240).nullable().optional(),
-    })
-    .nullable()
-    .optional(),
+  resource: ResourceSchema,
   dimensions: DimensionsSchema,
   attributes: EventAttributesSchema,
   sensitive: EventSensitiveSchema,
@@ -102,6 +105,7 @@ const StateSchema = z.object({
   sourceId: z.string().uuid().nullable().optional(),
   entityId: z.string().trim().min(1).nullable().optional(),
   entityType: z.string().trim().min(1).nullable().optional(),
+  resource: ResourceSchema,
   dimensions: DimensionsSchema,
 });
 
@@ -413,6 +417,8 @@ export const MetricQuerySchema = z.object({
   entityId: z.string().nullable().optional(),
   entityType: z.string().nullable().optional(),
   dimensions: DimensionsSchema,
+  reduce: z.enum(["sum", "avg", "min", "max"]).nullable().optional(),
+  groupBy: z.string().trim().min(1).max(80).nullable().optional(),
 });
 
 const CompiledMetricQuerySchema = MetricQuerySchema.extend({ kind: z.literal("metric") });

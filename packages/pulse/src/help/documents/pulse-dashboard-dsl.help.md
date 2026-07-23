@@ -173,20 +173,20 @@ dashboard "Solar overview" {
 | `row height sm\|md\|lg { ... }` | dashboard, section, card | Places multiple widgets in one row. If height is omitted, md is used. | `row height lg { line "CPU" { query metric system.cpu.usage avg since 6h } }` |
 | `card "Name" [span n] { ... }` | dashboard, section, row | Frames related child widgets and optional markdown. Cards cannot contain nested cards or sections. Span is an optional integer from 1 to 12. | `card "Battery" span 6 { gauge "Charge" { query metric battery.charge latest since 10m } }` |
 | `markdown ["Name"] [span n] { """ ... """ }` | dashboard, section, row, card | Adds Markdown notes, explanations, runbooks, or links. Markdown content must be triple-quoted. | `markdown "Notes" { """## Notes\n- Check importer health.""" }` |
-| `line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"` | dashboard, section, row, card | Adds a metric, event, or state widget. Dashboard statements and visual names are case-sensitive. Events render only as table widgets; states render as table or stat widgets. | `gauge "Charge" { query metric battery.charge latest since 10m }` |
+| `line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"` | dashboard, section, row, card | Adds a metric, summarized-event, event-row, or state widget. Metric and summarized-event queries use numeric visuals; event rows use tables; states use tables or stats. | `gauge "Charge" { query metric battery.charge latest since 10m }` |
 | `map "Name" [span n] { ... }` | dashboard, section, row, card | Plots event locations. It requires an event rows query plus latitude and longitude selectors. | `map "Scans" { query events qr.opened since 24h latitude attribute geo.latitude longitude attribute geo.longitude }` |
 | `latitude\|longitude dimension\|attribute <path>` | map | Selects decimal-degree coordinates from a dimension or attribute. Nested attribute paths use dots. Sensitive fields cannot be selected. | `latitude attribute geo.latitude` |
 | `label\|series dimension\|attribute <path>` | map | Optionally adds point labels or separates points into colored series. | `series dimension campaign` |
 | `size count\|sum` | map | Sizes points by matching event count or by the sum of numeric event values. Count is the default. | `size count` |
 | `visual <type>` | widget | Overrides the visual declared by the outer widget keyword. It accepts the same visual names. Prefer the direct widget keyword for hand-written DSL. | `line "Current value" { visual stat query metric service.online latest since 10m }` |
-| `query <Query DSL>` | widget | Uses metric, events, or states Query DSL. Dashboard controls may be referenced as $variables. Event widgets show individual rows; summarized event results are available in Query Explorer and the CLI. | `query metric orders.created increase every 1h since $range where region=$region` |
+| `query <Query DSL>` | widget | Uses metric, events, or states Query DSL. Dashboard controls may be referenced as $variables. Summarized events can drive numeric widgets. | `query events order.created count every 1h since $range group by channel` |
 | `warn\|critical when value <op> <value>` | metric widget | Applies visual state to metric values only. Operators are >, >=, <, <=, =, and !=. Optional message text can explain the condition. | `critical when value > 95 message "Capacity almost full"` |
 | `# comment or // comment` | anywhere whitespace is allowed | Adds a line comment that does not change the rendered dashboard. | `# explain why this section exists` |
 
 ## Design rules {icon="book-2"}
 
 :::info Dashboards compose query output
-Widget `query` lines use the same Query DSL. Metric widgets show values and charts; table widgets show individual events and current states. Summarized event results are available in Query Explorer and the CLI, not dashboard widgets.
+Widget `query` lines use the same Query DSL. Metrics and summarized events show values and charts. Table widgets show individual events and current states. Metric `group by resource` and `group by <dimension>` create separate chart series.
 :::
 
 :::info Maps summarize event locations

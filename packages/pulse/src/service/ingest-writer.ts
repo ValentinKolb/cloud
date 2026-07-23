@@ -294,13 +294,16 @@ const recordMetricInClient = async (params: {
 
   const dimensions = normalizeDimensions(params.metric.dimensions);
   const db = params.db ?? sql;
-  const resource = deriveResourceForSignal({
-    signalName: params.metric.name,
-    sourceId: params.sourceId,
-    entityId: params.metric.entityId,
-    entityType: params.metric.entityType,
-    dimensions,
-  });
+  const resource =
+    params.metric.resource === undefined
+      ? deriveResourceForSignal({
+          signalName: params.metric.name,
+          sourceId: params.sourceId,
+          entityId: params.metric.entityId,
+          entityType: params.metric.entityType,
+          dimensions,
+        })
+      : explicitPulseResource(params.metric.resource);
   const series = await resolveMetricSeries({
     baseId: params.baseId,
     sourceId: params.sourceId,
@@ -471,13 +474,16 @@ const setStateInClient = async (params: {
   const hash = dimensionsHash(dimensions);
   const encodedValue = JSON.stringify(params.state.value);
   const db = params.db ?? sql;
-  const resource = deriveResourceForSignal({
-    signalName: params.state.key,
-    sourceId: params.sourceId,
-    entityId: params.state.entityId,
-    entityType: params.state.entityType,
-    dimensions,
-  });
+  const resource =
+    params.state.resource === undefined
+      ? deriveResourceForSignal({
+          signalName: params.state.key,
+          sourceId: params.sourceId,
+          entityId: params.state.entityId,
+          entityType: params.state.entityType,
+          dimensions,
+        })
+      : explicitPulseResource(params.state.resource);
 
   await lockStateIdentities(params.baseId, [{ key: params.state.key, entityId: params.state.entityId ?? "", dimensionsHash: hash }], db);
   await db`

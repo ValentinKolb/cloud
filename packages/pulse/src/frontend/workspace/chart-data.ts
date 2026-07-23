@@ -1,8 +1,25 @@
-import type { DateContext } from "@valentinkolb/stdlib";
 import type { DataTableColumn } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { MetricQueryPoint } from "../../contracts";
 import { compactDate, compactDateWithDelta, compactDay } from "./date-format";
 import { formatValue } from "./metric-format";
+
+export const metricPointGroupLabel = (point: MetricQueryPoint): string =>
+  Object.entries(point.group ?? {})
+    .map(([key, value]) => `${key}=${value || "(none)"}`)
+    .join(" · ");
+
+export const pointsToLineSeries = (points: MetricQueryPoint[], fallbackLabel: string) => {
+  const grouped = new Map<string, MetricQueryPoint[]>();
+  for (const point of points) {
+    const label = metricPointGroupLabel(point) || fallbackLabel;
+    grouped.set(label, [...(grouped.get(label) ?? []), point]);
+  }
+  return [...grouped.entries()].map(([label, data]) => ({
+    label,
+    data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })),
+  }));
+};
 
 export const pointsToBars = (points: MetricQueryPoint[], context?: DateContext) =>
   points.slice(-48).map((point) => ({
@@ -28,7 +45,7 @@ export const queryPointColumns: DataTableColumn<MetricQueryPoint>[] = [
   {
     id: "group",
     header: "Group",
-    value: (point) => Object.entries(point.group ?? {}).map(([key, value]) => `${key}=${value || "(none)"}`).join(" · ") || "-",
+    value: (point) => metricPointGroupLabel(point) || "-",
   },
   { id: "value", header: "Value", value: (point) => formatValue(point.value), cellClass: "w-32 whitespace-nowrap" },
 ];

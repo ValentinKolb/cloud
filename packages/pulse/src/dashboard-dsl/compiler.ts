@@ -274,6 +274,8 @@ const compileMetricWidget = (block: DashboardDslVisual, query: MetricQuery, uniq
   entityId: query.entityId,
   entityType: query.entityType,
   dimensions: query.dimensions,
+  reduce: query.reduce,
+  groupBy: query.groupBy,
   queryText: widgetQueryText(block),
   query: stripBaseId(query) as PulseDashboardMetricQuery,
   conditions: widgetConditions(block),
@@ -295,7 +297,31 @@ const compileEventsWidget = (
   block: DashboardDslVisual,
   query: EventQuery,
   context: DashboardCompilerContext,
-): PulseDashboardEventsWidget | null => {
+): PulseDashboardEventsWidget | PulseDashboardMetricWidget | null => {
+  if ((query.aggregation ?? "rows") !== "rows") {
+    if (block.visual === "table") {
+      pushWidgetDiagnostic(context, block, `Aggregated events widget "${block.title}" must use a chart, stat, or gauge visual`);
+      return null;
+    }
+    return {
+      id: context.uniqueId("metric", block.title),
+      kind: "metric",
+      title: block.title,
+      visual: normalizeMetricVisual(block.visual),
+      metric: query.event ?? "events",
+      aggregation: query.aggregation as Exclude<NonNullable<EventQuery["aggregation"]>, "rows">,
+      bucket: query.bucket ?? "1h",
+      since: query.since,
+      sourceId: query.sourceId,
+      entityId: query.entityId,
+      entityType: query.entityType,
+      dimensions: query.dimensions,
+      queryText: widgetQueryText(block),
+      query: stripBaseId(query) as PulseDashboardEventQuery,
+      conditions: widgetConditions(block),
+      span: widgetSpan(block),
+    };
+  }
   if (block.visual !== "table") {
     pushWidgetDiagnostic(context, block, `Events widget "${block.title}" must use table visual`);
     return null;

@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import type {
+  Aggregation,
+  EventAggregation,
   PulseDashboard,
   PulseDashboardCardWidget,
   PulseDashboardConfig,
   PulseDashboardControl,
+  PulseDashboardEventQuery,
   PulseDashboardEventsWidget,
   PulseDashboardLayout,
   PulseDashboardMapWidget,
@@ -17,6 +20,7 @@ import type {
   PulseDashboardWidget,
   PulseMapFieldSelector,
 } from "../contracts";
+import { EVENT_AGGREGATIONS } from "../contracts";
 import { compileDashboardDsl } from "../dashboard-dsl";
 import { compilePulseQueryText } from "../query-dsl";
 import {
@@ -49,7 +53,12 @@ const normalizeMetricWidgetBase = (value: Record<string, unknown>) => {
   const id = normalizeId(value.id);
   const title = normalizeTitle(value.title, metric);
   const visual = normalizeVisual(value.visual);
-  const aggregation = normalizeAggregation(value.aggregation, "avg");
+  const aggregation =
+    typeof value.aggregation === "string" &&
+    EVENT_AGGREGATIONS.includes(value.aggregation as EventAggregation) &&
+    value.aggregation !== "rows"
+      ? (value.aggregation as Exclude<EventAggregation, "rows">)
+      : normalizeAggregation(value.aggregation, "avg");
   const bucket = normalizeDurationToken(value.bucket, "5m");
   const since = normalizeDurationToken(value.since, "24h");
   const sourceId = normalizeTrimmedString(value.sourceId, 80);
@@ -122,18 +131,45 @@ const normalizeQueryStringOrNull = (value: unknown, max: number): string | null 
 const normalizeMetricQuery = (
   query: unknown,
   base: NonNullable<ReturnType<typeof normalizeMetricWidgetBase>>,
-): PulseDashboardMetricQuery | undefined => {
-  if (!isRecord(query) || query.kind !== "metric" || typeof query.metric !== "string") return undefined;
+): PulseDashboardMetricQuery | PulseDashboardEventQuery | undefined => {
+  if (!isRecord(query)) return undefined;
+  if (query.kind === "events") {
+    const aggregation =
+      typeof query.aggregation === "string" &&
+      EVENT_AGGREGATIONS.includes(query.aggregation as EventAggregation) &&
+      query.aggregation !== "rows"
+        ? (query.aggregation as Exclude<EventAggregation, "rows">)
+        : null;
+    if (!aggregation) return undefined;
+    return {
+      kind: "events",
+      event: normalizeTableQueryName(query.event),
+      since: normalizeDurationToken(query.since, base.since),
+      sourceId: normalizeQueryStringOrNull(query.sourceId, 80),
+      entityId: normalizeQueryStringOrNull(query.entityId, 240),
+      entityType: normalizeQueryStringOrNull(query.entityType, 80),
+      dimensions: normalizeQueryDimensions(query.dimensions),
+      aggregation,
+      bucket: normalizeDurationToken(query.bucket, base.bucket),
+      groupBy: Array.isArray(query.groupBy)
+        ? query.groupBy.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 4)
+        : undefined,
+      limit: typeof query.limit === "number" ? Math.min(1_000, Math.max(1, Math.trunc(query.limit))) : 500,
+    };
+  }
+  if (query.kind !== "metric" || typeof query.metric !== "string") return undefined;
   return {
     kind: "metric",
     metric: query.metric,
-    aggregation: normalizeAggregation(query.aggregation, base.aggregation),
+    aggregation: normalizeAggregation(query.aggregation, base.aggregation as Aggregation),
     bucket: normalizeDurationToken(query.bucket, base.bucket),
     since: normalizeDurationToken(query.since, base.since),
     sourceId: normalizeQueryStringOrNull(query.sourceId, 80),
     entityId: normalizeQueryStringOrNull(query.entityId, 240),
     entityType: normalizeQueryStringOrNull(query.entityType, 80),
     dimensions: normalizeQueryDimensions(query.dimensions),
+    reduce: query.reduce === "sum" || query.reduce === "avg" || query.reduce === "min" || query.reduce === "max" ? query.reduce : null,
+    groupBy: normalizeQueryStringOrNull(query.groupBy, 80),
   };
 };
 

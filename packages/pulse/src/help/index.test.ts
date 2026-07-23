@@ -19,7 +19,8 @@ describe("pulse help", () => {
     const dashboardHelp = pulseHelp.getMarkdown("pulse-dashboard-dsl");
     expect(queryHelp).toContain("metric http_requests_total rate every 1m since 1h");
     expect(queryHelp).toContain("more than 2,000 time windows");
-    expect(queryHelp).toContain("averages the latest value from each matched variant");
+    expect(queryHelp).toContain("Metric queries use two reduction stages");
+    expect(queryHelp).toContain("group by resource");
     expect(queryHelp).toContain("Shared clauses may follow");
     expect(queryHelp).toContain("backslash escapes the next character");
     expect(queryHelp).toContain("Query text is limited to 2,000 characters");

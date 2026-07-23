@@ -72,6 +72,7 @@ export type PulseMetric = {
   sourceId?: string | null;
   entityId?: string | null;
   entityType?: string | null;
+  resource?: PulseResourceRef | null;
   dimensions?: Record<string, string | number | boolean | null>;
 };
 
@@ -105,6 +106,7 @@ export type PulseState = {
   sourceId?: string | null;
   entityId?: string | null;
   entityType?: string | null;
+  resource?: PulseResourceRef | null;
   dimensions?: Record<string, string | number | boolean | null>;
 };
 
@@ -243,6 +245,8 @@ export type PulseDashboardMetricQuery = {
   entityId?: string | null;
   entityType?: string | null;
   dimensions?: Record<string, string | number | boolean | null>;
+  reduce?: MetricReducer | null;
+  groupBy?: string | null;
 };
 
 export type PulseDashboardEventQuery = {
@@ -253,6 +257,9 @@ export type PulseDashboardEventQuery = {
   entityId?: string | null;
   entityType?: string | null;
   dimensions?: Record<string, string | number | boolean | null>;
+  aggregation?: EventAggregation;
+  bucket?: string | null;
+  groupBy?: string[];
   limit: number;
 };
 
@@ -305,15 +312,17 @@ export type PulseDashboardMetricWidget = {
   title: string;
   metric: string;
   visual: PanelVisual;
-  aggregation: Aggregation;
+  aggregation: Aggregation | Exclude<EventAggregation, "rows">;
   bucket: string;
   since: string;
   sourceId?: string | null;
   entityId?: string | null;
   entityType?: string | null;
   dimensions?: Record<string, string | number | boolean | null>;
+  reduce?: MetricReducer | null;
+  groupBy?: string | null;
   queryText?: string;
-  query?: PulseDashboardMetricQuery;
+  query?: PulseDashboardMetricQuery | PulseDashboardEventQuery;
   description?: string | null;
   conditions?: PulseDashboardCondition[];
   span?: number;
@@ -506,7 +515,11 @@ export type MetricQuery = {
   entityId?: string | null;
   entityType?: string | null;
   dimensions?: Record<string, string | number | boolean | null>;
+  reduce?: MetricReducer | null;
+  groupBy?: string | null;
 };
+
+export type MetricReducer = "sum" | "avg" | "min" | "max";
 
 export type EventQuery = {
   kind: "events";

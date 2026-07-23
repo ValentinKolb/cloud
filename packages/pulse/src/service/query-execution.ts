@@ -1,28 +1,22 @@
-import { fail, ok, err, type Result } from "@valentinkolb/cloud/server";
+import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import type {
-  EventQuery,
-  MetricQuery,
-  MetricQueryPoint,
-  PulseCurrentState,
-  PulseRecordedEvent,
-  StateQuery,
-} from "../contracts";
+import type { EventQuery, MetricQuery, MetricQueryPoint, PulseCurrentState, PulseRecordedEvent, StateQuery } from "../contracts";
 import { durationToInterval, intervalToMs } from "../query-dsl";
 import {
   type CurrentStateRow,
-  type RecordedEventRow,
   iso,
   jsonbObject,
   mapCurrentState,
   mapRecordedEvent,
   normalizeDimensions,
   parseJsonObject,
+  type RecordedEventRow,
 } from "./telemetry-values";
 
 const MAX_METRIC_BUCKETS = 2_000;
 const MAX_MATCHED_SERIES = 250;
+const MAX_METRIC_POINTS = 100_000;
 
 type MetricWindow = {
   bucketInterval: string;
@@ -32,8 +26,18 @@ type MetricWindow = {
 };
 
 type MetricValueRow = {
+  series_id: string;
   bucket: Date | string;
   value: number | null;
+};
+
+type MetricSeriesMatch = {
+  id: string;
+  resource_key: string | null;
+  resource_id: string | null;
+  resource_type: string | null;
+  resource_label: string | null;
+  dimensions: unknown;
 };
 
 type StateQueryParams = {
@@ -46,8 +50,50 @@ type StateQueryParams = {
   limit: number;
 };
 
-const metricRowsToPoints = (rows: MetricValueRow[]): MetricQueryPoint[] =>
-  rows.map((row) => ({ bucket: iso(row.bucket), value: row.value }));
+const metricGroup = (series: MetricSeriesMatch, groupBy: string | null | undefined): { key: string; group?: Record<string, string> } => {
+  if (!groupBy) return { key: "" };
+  if (groupBy === "resource") {
+    const key = series.resource_key ?? `${series.resource_type ?? ""}:${series.resource_id ?? ""}`;
+    return {
+      key,
+      group: {
+        resource: series.resource_label || key || "(none)",
+        resource_key: key || "(none)",
+      },
+    };
+  }
+  const value = normalizeDimensions(parseJsonObject(series.dimensions))[groupBy] ?? "(none)";
+  return { key: value, group: { [groupBy]: value } };
+};
+
+const reduceMetricValues = (values: number[], reducer: NonNullable<MetricQuery["reduce"]>): number | null => {
+  if (values.length === 0) return null;
+  if (reducer === "sum") return values.reduce((sum, value) => sum + value, 0);
+  if (reducer === "min") return Math.min(...values);
+  if (reducer === "max") return Math.max(...values);
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+};
+
+const metricRowsToPoints = (query: MetricQuery, rows: MetricValueRow[], series: MetricSeriesMatch[]): MetricQueryPoint[] => {
+  const seriesGroups = new Map(series.map((item) => [item.id, metricGroup(item, query.groupBy)]));
+  const buckets = new Map<string, { bucket: string; group?: Record<string, string>; values: number[] }>();
+  for (const row of rows) {
+    const group = seriesGroups.get(row.series_id) ?? { key: "" };
+    const bucket = iso(row.bucket);
+    const key = `${bucket}\u001f${group.key}`;
+    const entry = buckets.get(key) ?? { bucket, group: group.group, values: [] };
+    if (row.value !== null && Number.isFinite(Number(row.value))) entry.values.push(Number(row.value));
+    buckets.set(key, entry);
+  }
+  const reducer = query.reduce ?? "avg";
+  return [...buckets.values()]
+    .map((entry) => ({
+      bucket: entry.bucket,
+      value: reduceMetricValues(entry.values, reducer),
+      ...(entry.group ? { group: entry.group } : {}),
+    }))
+    .sort((a, b) => a.bucket.localeCompare(b.bucket) || JSON.stringify(a.group ?? {}).localeCompare(JSON.stringify(b.group ?? {})));
+};
 
 const resolveMetricWindow = (query: MetricQuery): Result<MetricWindow> => {
   const bucketInterval = durationToInterval(query.bucket);
@@ -84,9 +130,9 @@ const filterMetricSeriesByDimensions = async (seriesIds: string[], dimensions: R
   return filtered;
 };
 
-const resolveMetricSeriesIds = async (query: MetricQuery): Promise<string[]> => {
-  const rows = await sql<{ id: string }[]>`
-    SELECT ms.id
+const resolveMetricSeries = async (query: MetricQuery): Promise<MetricSeriesMatch[]> => {
+  const rows = await sql<MetricSeriesMatch[]>`
+    SELECT ms.id, ms.resource_key, ms.resource_id, ms.resource_type, ms.resource_label, ms.dimensions
     FROM pulse.metric_series ms
     JOIN pulse.metric_defs md ON md.id = ms.metric_id
     WHERE ms.base_id = ${query.baseId}::uuid
@@ -95,10 +141,13 @@ const resolveMetricSeriesIds = async (query: MetricQuery): Promise<string[]> => 
       AND (${query.entityId ?? null}::text IS NULL OR ms.entity_id = ${query.entityId ?? null})
       AND (${query.entityType ?? null}::text IS NULL OR ms.entity_type = ${query.entityType ?? null})
   `;
-  return filterMetricSeriesByDimensions(
-    rows.map((row) => row.id),
-    normalizeDimensions(query.dimensions),
+  const filtered = new Set(
+    await filterMetricSeriesByDimensions(
+      rows.map((row) => row.id),
+      normalizeDimensions(query.dimensions),
+    ),
   );
+  return rows.filter((row) => filtered.has(row.id));
 };
 
 const canUseHourlyRollup = (query: MetricQuery, window: MetricWindow): boolean =>
@@ -122,39 +171,35 @@ const hourlyRollupAggregateSql = (aggregation: MetricQuery["aggregation"]) => {
     case "count":
       return sql`SUM(sample_count)::double precision`;
     case "latest":
-      return sql`AVG(last_value)`;
+      return sql`(array_agg(last_value ORDER BY bucket DESC))[1]`;
     default:
       return sql`SUM(value_sum) / NULLIF(SUM(sample_count), 0)`;
   }
 };
 
-const queryHourlyRollup = async (
-  query: MetricQuery,
-  window: MetricWindow,
-  seriesIds: string[],
-): Promise<MetricQueryPoint[] | null> => {
+const queryHourlyRollupRows = async (query: MetricQuery, window: MetricWindow, seriesIds: string[]): Promise<MetricValueRow[] | null> => {
   if (!canUseHourlyRollup(query, window)) return null;
 
   const rows = await sql<MetricValueRow[]>`
-    SELECT date_bin(${window.bucketInterval}::interval, bucket, '1970-01-01'::timestamptz) AS bucket,
+    SELECT series_id, date_bin(${window.bucketInterval}::interval, bucket, '1970-01-01'::timestamptz) AS bucket,
       ${hourlyRollupAggregateSql(query.aggregation)} AS value
     FROM pulse.metric_rollups_hourly
     WHERE base_id = ${query.baseId}::uuid
       AND series_id = ANY(${toPgUuidArray(seriesIds)}::uuid[])
       AND bucket >= ${window.since}
-    GROUP BY 1
-    ORDER BY bucket ASC
-    LIMIT 2000
+    GROUP BY series_id, 2
+    ORDER BY bucket ASC, series_id ASC
+    LIMIT ${MAX_METRIC_POINTS}
   `;
 
   const firstRollup = rows[0];
   if (!firstRollup) return null;
   const firstBucketMs = new Date(firstRollup.bucket).getTime();
   if (!Number.isFinite(firstBucketMs) || firstBucketMs > window.since.getTime() + window.bucketMs) return null;
-  return metricRowsToPoints(rows);
+  return rows;
 };
 
-const queryLatestMetric = async (query: MetricQuery, window: MetricWindow, seriesIds: string[]): Promise<MetricQueryPoint[]> => {
+const queryLatestMetric = async (query: MetricQuery, window: MetricWindow, seriesIds: string[]): Promise<MetricValueRow[]> => {
   const rows = await sql<MetricValueRow[]>`
     WITH bucketed AS (
       SELECT
@@ -175,20 +220,19 @@ const queryLatestMetric = async (query: MetricQuery, window: MetricWindow, serie
       FROM bucketed
       ORDER BY series_id, bucket, ts DESC
     )
-    SELECT bucket, AVG(value) AS value
+    SELECT series_id, bucket, value
     FROM latest_per_series
-    GROUP BY bucket
-    ORDER BY bucket ASC
-    LIMIT 2000
+    ORDER BY bucket ASC, series_id ASC
+    LIMIT ${MAX_METRIC_POINTS}
   `;
-  return metricRowsToPoints(rows);
+  return rows;
 };
 
-const queryCounterDeltaMetric = async (query: MetricQuery, window: MetricWindow, seriesIds: string[]): Promise<MetricQueryPoint[]> => {
+const queryCounterDeltaMetric = async (query: MetricQuery, window: MetricWindow, seriesIds: string[]): Promise<MetricValueRow[]> => {
   const valueSql =
     query.aggregation === "rate"
-      ? sql`AVG(GREATEST(last_value - first_value, 0) / NULLIF(seconds, 0))`
-      : sql`AVG(GREATEST(last_value - first_value, 0))`;
+      ? sql`GREATEST(last_value - first_value, 0) / NULLIF(seconds, 0)`
+      : sql`GREATEST(last_value - first_value, 0)`;
   const rows = await sql<MetricValueRow[]>`
     WITH bucketed AS (
       SELECT
@@ -211,13 +255,12 @@ const queryCounterDeltaMetric = async (query: MetricQuery, window: MetricWindow,
       FROM bucketed
       GROUP BY bucket, series_id
     )
-    SELECT bucket, ${valueSql} AS value
+    SELECT series_id, bucket, ${valueSql} AS value
     FROM series_bucket
-    GROUP BY bucket
-    ORDER BY bucket ASC
-    LIMIT 2000
+    ORDER BY bucket ASC, series_id ASC
+    LIMIT ${MAX_METRIC_POINTS}
   `;
-  return metricRowsToPoints(rows);
+  return rows;
 };
 
 const sampleAggregateSql = (aggregation: MetricQuery["aggregation"]) => {
@@ -243,40 +286,45 @@ const sampleAggregateSql = (aggregation: MetricQuery["aggregation"]) => {
   }
 };
 
-const querySampleAggregateMetric = async (query: MetricQuery, window: MetricWindow, seriesIds: string[]): Promise<MetricQueryPoint[]> => {
+const querySampleAggregateMetric = async (query: MetricQuery, window: MetricWindow, seriesIds: string[]): Promise<MetricValueRow[]> => {
   const rows = await sql<MetricValueRow[]>`
-    SELECT date_bin(${window.bucketInterval}::interval, ts, '1970-01-01'::timestamptz) AS bucket,
+    SELECT series_id, date_bin(${window.bucketInterval}::interval, ts, '1970-01-01'::timestamptz) AS bucket,
       ${sampleAggregateSql(query.aggregation)} AS value
     FROM pulse.metric_samples
     WHERE base_id = ${query.baseId}::uuid
       AND series_id = ANY(${toPgUuidArray(seriesIds)}::uuid[])
       AND ts >= ${window.since}
-    GROUP BY bucket
-    ORDER BY bucket ASC
-    LIMIT 2000
+    GROUP BY series_id, bucket
+    ORDER BY bucket ASC, series_id ASC
+    LIMIT ${MAX_METRIC_POINTS}
   `;
-  return metricRowsToPoints(rows);
+  return rows;
 };
 
 export const queryMetricData = async (query: MetricQuery): Promise<Result<MetricQueryPoint[]>> => {
   const window = resolveMetricWindow(query);
   if (!window.ok) return window;
 
-  const seriesIds = await resolveMetricSeriesIds(query);
-  if (seriesIds.length === 0) return ok([]);
-  if (seriesIds.length > MAX_MATCHED_SERIES) {
+  const series = await resolveMetricSeries(query);
+  if (series.length === 0) return ok([]);
+  if (series.length > MAX_MATCHED_SERIES) {
     return fail(err.badInput("This query matches too many series. Add a source or dimension filter."));
   }
+  const groups = new Set(series.map((item) => metricGroup(item, query.groupBy).key));
+  if (Math.ceil(window.data.sinceMs / window.data.bucketMs) * Math.max(groups.size, 1) > MAX_METRIC_POINTS) {
+    return fail(err.badInput("This query creates too many grouped points. Use a larger bucket, shorter range, or narrower filter."));
+  }
+  const seriesIds = series.map((item) => item.id);
 
-  const rollupPoints = await queryHourlyRollup(query, window.data, seriesIds);
-  if (rollupPoints) return ok(rollupPoints);
+  const rollupRows = await queryHourlyRollupRows(query, window.data, seriesIds);
+  if (rollupRows) return ok(metricRowsToPoints(query, rollupRows, series));
 
-  if (query.aggregation === "latest") return ok(await queryLatestMetric(query, window.data, seriesIds));
+  if (query.aggregation === "latest") return ok(metricRowsToPoints(query, await queryLatestMetric(query, window.data, seriesIds), series));
   if (query.aggregation === "rate" || query.aggregation === "increase") {
-    return ok(await queryCounterDeltaMetric(query, window.data, seriesIds));
+    return ok(metricRowsToPoints(query, await queryCounterDeltaMetric(query, window.data, seriesIds), series));
   }
 
-  return ok(await querySampleAggregateMetric(query, window.data, seriesIds));
+  return ok(metricRowsToPoints(query, await querySampleAggregateMetric(query, window.data, seriesIds), series));
 };
 
 export const queryEventsData = async (query: EventQuery): Promise<Result<PulseRecordedEvent[]>> => {
