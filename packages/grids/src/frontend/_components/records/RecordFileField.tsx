@@ -1,5 +1,6 @@
 import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { fileIcons, text } from "@valentinkolb/stdlib";
+import { showFileDialog } from "@valentinkolb/stdlib/browser";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, GridFile } from "../../../service";
@@ -31,11 +32,7 @@ export default function RecordFileField(props: {
     return Array.isArray(raw) ? raw.join(",") : undefined;
   };
 
-  const upload = async (event: Event) => {
-    const input = event.currentTarget as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
+  const upload = async (file: File) => {
     setUploading(true);
     try {
       const res = await uploadRecordFile({
@@ -50,6 +47,18 @@ export default function RecordFileField(props: {
       prompts.error(e instanceof Error ? e.message : "Failed to upload file");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const chooseFile = async () => {
+    if (uploading()) return;
+    try {
+      await upload(await showFileDialog({ accept: accept() }));
+    } catch (error) {
+      if (error instanceof Error && (error.message === "File dialog cancelled" || error.message === "No file selected")) {
+        return;
+      }
+      prompts.error(error instanceof Error ? error.message : "Could not open the file picker");
     }
   };
 
@@ -115,11 +124,16 @@ export default function RecordFileField(props: {
         </div>
       </Show>
       <Show when={props.canWrite}>
-        <label class={`btn-input btn-input-sm w-fit ${uploading() ? "pointer-events-none opacity-60" : ""}`}>
-          <i class={`ti ${uploading() ? "ti-loader-2 animate-spin" : "ti-upload"} text-sm`} />
+        <button
+          type="button"
+          class="btn-input btn-input-sm w-fit"
+          disabled={uploading()}
+          aria-busy={uploading()}
+          onClick={() => void chooseFile()}
+        >
+          <i aria-hidden="true" class={`ti ${uploading() ? "ti-loader-2 animate-spin" : "ti-upload"} text-sm`} />
           Upload
-          <input type="file" class="sr-only" accept={accept()} onChange={(event) => void upload(event)} disabled={uploading()} />
-        </label>
+        </button>
       </Show>
     </div>
   );
