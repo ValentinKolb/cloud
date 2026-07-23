@@ -1010,7 +1010,7 @@ export default function MailComposer(props: {
       <Show when={preview() && previewMutation.error()?.message}>
         <div class="absolute inset-x-2 top-2 flex items-center gap-2 border border-red-200 bg-white px-2 py-1 text-xs text-red-600 shadow-sm">
           <span class="min-w-0 flex-1 truncate">{previewMutation.error()?.message}</span>
-          <button type="button" class="btn-simple btn-xs" onClick={retryPreview}>
+          <button type="button" class="btn-simple btn-sm" onClick={retryPreview}>
             Retry
           </button>
         </div>

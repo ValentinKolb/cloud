@@ -63,7 +63,7 @@ function RelatedMail(props: {
     <div class="mt-2">
       <button
         type="button"
-        class="btn-simple btn-xs"
+        class="btn-simple btn-sm"
         aria-expanded={open()}
         onClick={() => {
           const next = !open();
@@ -97,7 +97,7 @@ function RelatedMail(props: {
           <Show when={page().nextCursor}>
             <button
               type="button"
-              class="btn-simple btn-xs mt-2"
+              class="btn-simple btn-sm mt-2"
               disabled={loading()}
               onClick={() => void load(page().nextCursor ?? undefined)}
             >
@@ -344,7 +344,7 @@ export default function MailConversationContext(props: {
                 {(cursor) => (
                   <button
                     type="button"
-                    class="btn-simple btn-xs mt-3"
+                    class="btn-simple btn-sm mt-3"
                     disabled={loading()}
                     onClick={() => void queueContactsPage(cursor())}
                   >

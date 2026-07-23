@@ -627,7 +627,7 @@ export default function MailWorkflowSettings(props: {
               )}
             </For>
             <Show when={runsNextCursor()}>
-              <button type="button" class="btn-secondary self-start" onClick={() => void loadMoreRuns()}>
+              <button type="button" class="btn-secondary btn-sm self-start" onClick={() => void loadMoreRuns()}>
                 Load more runs
               </button>
             </Show>

@@ -221,7 +221,7 @@ export default function MailOverview(props: {
               {(cursor) => (
                 <button
                   type="button"
-                  class="btn btn-subtle btn-sm self-start"
+                  class="btn-secondary btn-sm self-start"
                   disabled={loadDeletedMailboxes.loading()}
                   onClick={() => loadDeletedMailboxes.mutate(cursor())}
                 >

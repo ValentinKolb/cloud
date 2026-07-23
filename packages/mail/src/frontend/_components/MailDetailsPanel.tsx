@@ -549,22 +549,26 @@ export default function MailDetailsPanel(props: {
                   const canModerate = () =>
                     !comment.deletedAt && (props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId));
                   return (
-                    <article class="group flex items-start gap-2.5">
-                      <Avatar
-                        username={comment.author.displayName}
-                        userId={comment.author.kind === "user" ? comment.author.id : undefined}
-                        avatarHash={comment.author.avatarHash}
-                        size="sm"
-                      />
-                      <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-2">
-                          <span class="truncate text-xs font-semibold text-primary">{comment.author.displayName}</span>
-                          <time class="text-xs text-dimmed" dateTime={comment.createdAt}>
-                            {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
-                          </time>
-                          <span class="ml-auto flex items-center gap-1">
-                            <Show when={canModerate()}>
-                              <span class="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                    <article class="group flex min-w-0 flex-col gap-1.5">
+                      <div class="flex min-w-0 items-center gap-2">
+                        <Avatar
+                          username={comment.author.displayName}
+                          userId={comment.author.kind === "user" ? comment.author.id : undefined}
+                          avatarHash={comment.author.avatarHash}
+                          size="xs"
+                        />
+                        <span class="truncate text-xs font-semibold text-primary">{comment.author.displayName}</span>
+                        <time
+                          class="shrink-0 text-[11px] text-dimmed"
+                          dateTime={comment.createdAt}
+                          title={dates.formatDateTime(comment.createdAt, props.dateConfig)}
+                        >
+                          {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
+                        </time>
+                        <span class="ml-auto flex shrink-0 items-center gap-0.5">
+                          <Show when={canModerate()}>
+                            <span class="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                              <Tooltip content="Edit comment">
                                 <button
                                   type="button"
                                   class="icon-btn"
@@ -573,6 +577,8 @@ export default function MailDetailsPanel(props: {
                                 >
                                   <i class="ti ti-edit" aria-hidden="true" />
                                 </button>
+                              </Tooltip>
+                              <Tooltip content="Delete comment">
                                 <button
                                   type="button"
                                   class="icon-btn"
@@ -581,36 +587,39 @@ export default function MailDetailsPanel(props: {
                                 >
                                   <i class="ti ti-trash" aria-hidden="true" />
                                 </button>
-                              </span>
-                            </Show>
-                            <Show when={!comment.deletedAt}>
+                              </Tooltip>
+                            </span>
+                          </Show>
+                          <Show when={!comment.deletedAt}>
+                            <Tooltip content={`Reply to ${comment.author.displayName}`}>
                               <button
                                 type="button"
-                                class="btn-simple btn-xs"
+                                class="icon-btn"
+                                aria-label={`Reply to ${comment.author.displayName}`}
                                 onClick={() => {
                                   setReplyingTo(comment);
                                   setCommentBody("");
                                 }}
                               >
-                                <i class="ti ti-arrow-back-up" aria-hidden="true" /> Reply
+                                <i class="ti ti-arrow-back-up" aria-hidden="true" />
                               </button>
-                            </Show>
-                          </span>
-                        </div>
-                        <Show when={comment.parentCommentId}>
-                          <p class="mt-1 truncate text-xs text-dimmed">
-                            <i class="ti ti-arrow-back-up mr-1" aria-hidden="true" />
-                            Reply to {parent()?.author.displayName ?? "an earlier comment"}
-                          </p>
-                        </Show>
-                        <p
-                          class={`mt-1 whitespace-pre-wrap break-words text-sm ${
-                            comment.deletedAt ? "italic text-dimmed" : "text-primary"
-                          }`}
-                        >
-                          {comment.deletedAt ? "Comment deleted" : comment.body}
-                        </p>
+                            </Tooltip>
+                          </Show>
+                        </span>
                       </div>
+                      <Show when={comment.parentCommentId}>
+                        <p class="truncate text-[11px] text-dimmed">
+                          <i class="ti ti-arrow-back-up mr-1" aria-hidden="true" />
+                          Reply to {parent()?.author.displayName ?? "an earlier comment"}
+                        </p>
+                      </Show>
+                      <p
+                        class={`whitespace-pre-wrap break-words text-sm ${
+                          comment.deletedAt ? "italic text-dimmed" : "text-primary"
+                        }`}
+                      >
+                        {comment.deletedAt ? "Comment deleted" : comment.body}
+                      </p>
                     </article>
                   );
                 }}
@@ -622,9 +631,11 @@ export default function MailDetailsPanel(props: {
               <div class="mb-2 flex items-center gap-2 text-xs text-dimmed">
                 <i class="ti ti-arrow-back-up" aria-hidden="true" />
                 <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
-                <button type="button" class="btn-simple btn-xs" onClick={() => setReplyingTo(null)}>
-                  Cancel
-                </button>
+                <Tooltip content="Cancel reply">
+                  <button type="button" class="icon-btn" aria-label="Cancel reply" onClick={() => setReplyingTo(null)}>
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </Show>
@@ -673,7 +684,7 @@ export default function MailDetailsPanel(props: {
               </For>
             </div>
             <Show when={activityItems().length > 8}>
-              <button type="button" class="btn-simple btn-xs mt-2" onClick={() => setShowAllActivity((value) => !value)}>
+              <button type="button" class="btn-simple btn-sm mt-2" onClick={() => setShowAllActivity((value) => !value)}>
                 {showAllActivity() ? "Show less" : `Show all ${activityItems().length}`}
               </button>
             </Show>

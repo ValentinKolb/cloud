@@ -392,7 +392,7 @@ function AutomaticReplyEditor(props: {
                   {(configure) => (
                     <button
                       type="button"
-                      class="btn-simple btn-xs"
+                      class="btn-simple btn-sm"
                       onClick={() => {
                         const openReferenceSettings = configure();
                         props.close();

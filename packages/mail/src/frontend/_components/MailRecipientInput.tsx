@@ -108,7 +108,7 @@ export default function MailRecipientInput(props: {
               <span class="truncate">{recipient}</span>
               <button
                 type="button"
-                class="icon-btn icon-btn-xs"
+                class="icon-btn !h-5 !w-5 !p-0"
                 aria-label={`Remove ${recipient}`}
                 disabled={props.disabled}
                 onClick={() => remove(recipient)}
