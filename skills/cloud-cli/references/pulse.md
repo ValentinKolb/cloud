@@ -38,7 +38,7 @@ The UI calls an observed object a resource. Query DSL calls its identifier `enti
 - An **event** is something that happened at a point in time, such as a deployment or completed order.
 - A **state** is the latest known value of a fact, such as online status or current version.
 
-Repeated signal names usually represent variants, not duplicates. For example, `docker.container.cpu.usage` can have one variant per container.
+Repeated signal names usually represent variants, not duplicates. For example, `docker.container.cpu.usage` can have one variant per container. Metric queries aggregate each variant independently, then combine variants with `reduce` (default `avg`) and optionally split output with `group by resource` or `group by <dimension>`.
 
 Events separate fields by role:
 
@@ -224,6 +224,14 @@ cld pulse query list --json
 
 `query compile` returns diagnostics and the compiled query without reading telemetry. `query run` returns exactly one populated result collection: `points`, `events`, or `states`.
 
+Use `reduce sum` for totals across metric variants and `group by resource` for one series per browsable resource:
+
+```bash
+cld pulse query run \
+  --query 'metric docker.container.network.rx rate every 5m reduce sum group by resource since 24h' \
+  --json
+```
+
 ```bash
 cld pulse query save --name "Checkout errors" \
   --description "Critical checkout events" \
@@ -239,7 +247,7 @@ Read [Pulse Query DSL](pulse-query-dsl.md) for the complete grammar, defaults, a
 
 ## Build dashboards
 
-Dashboard DSL is the only dashboard authoring format. The saved dashboard name comes from `--name`; the quoted root title in the DSL is part of the document and should normally match it.
+Dashboard DSL is the only dashboard authoring format. The saved dashboard name comes from `--name`; the quoted root title in the DSL is part of the document and should normally match it. Numeric widgets accept metric queries and summarized event queries; tables accept event rows and states.
 
 ```bash
 cld pulse dashboards compile --file operations.pulse --json
