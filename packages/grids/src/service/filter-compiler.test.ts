@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MAX_FILTER_DEPTH, MAX_FILTER_GROUP_ITEMS } from "../contracts";
-import { type CompiledClause, compileFilter } from "./filter-compiler";
+import { normalizedSql } from "../sql-test-utils";
+import { type CompiledClause, compileFilter, renderClause } from "./filter-compiler";
 import type { Field } from "./types";
 
 const mkField = (id: string, type: string, config: Record<string, unknown> = {}): Field => ({
@@ -205,6 +206,36 @@ describe("compileFilter — structural compilation", () => {
     expect(r.ok).toBe(true);
     if (r.ok && r.clause.kind === "predicate") {
       expect(r.clause.value).toEqual(["open", "blocked"]);
+    }
+  });
+
+  test("renders single-select predicates as scalar comparisons and multi-select predicates as containment", () => {
+    const single = compileFilter({ fieldId: "fld_status", op: "is", value: "open" }, fields);
+    expect(single.ok).toBe(true);
+    if (single.ok) {
+      expect(single.clause).toMatchObject({ kind: "predicate", selectMultiple: false });
+      const text = normalizedSql(renderClause(single.clause));
+      expect(text).toContain("->>0");
+      expect(text).not.toContain("@>");
+    }
+
+    const multiple = compileFilter({ fieldId: "fld_tags", op: "is", value: "open" }, fields);
+    expect(multiple.ok).toBe(true);
+    if (multiple.ok) {
+      expect(multiple.clause).toMatchObject({ kind: "predicate", selectMultiple: true });
+      expect(normalizedSql(renderClause(multiple.clause))).toContain("@>");
+    }
+  });
+
+  test("keeps empty and negative single-select predicates null-safe", () => {
+    for (const [op, expected] of [
+      ["isNot", "IS DISTINCT FROM"],
+      ["isEmpty", "IS NULL"],
+      ["isNotEmpty", "IS NOT NULL"],
+    ] as const) {
+      const result = compileFilter({ fieldId: "fld_status", op, ...(op === "isNot" ? { value: "open" } : {}) }, fields);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(normalizedSql(renderClause(result.clause))).toContain(expected);
     }
   });
 

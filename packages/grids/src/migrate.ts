@@ -1,5 +1,6 @@
 import { sql as defaultSql, type SQL } from "bun";
 import { migrateDashboardValueFormats } from "./dashboard-value-format-migration";
+import { dropOrphanedFieldIndexes } from "./service/field-indexes";
 import { migrateWorkflowKernel } from "./workflows/migrate";
 
 const MIGRATION_LOCK_NAME = "grids:migrate";
@@ -1368,6 +1369,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateWorkflowKernel(connection);
     await migrateRecordScanCodes(connection);
     await migrateOperationalHealth(connection);
+    await dropOrphanedFieldIndexes(connection);
     console.log("  ✓ grids schema ready");
   } finally {
     if (locked) {

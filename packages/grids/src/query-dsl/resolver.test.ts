@@ -2376,6 +2376,9 @@ sort missing desc`),
 
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
+    const groupedSql = normalizedSql(compiled.query.sql);
+    expect(groupedSql).toContain("->>0");
+    expect(groupedSql).not.toContain("jsonb_array_elements_text");
     expect(compiled.query.columns).toEqual([
       {
         kind: "group",
@@ -2525,6 +2528,7 @@ sort missing desc`),
   });
 
   test("grouped relation joins support exploded and computed joined group fields with guardrails", () => {
+    const customerTierFieldId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb9";
     const customerTagsFieldId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb4";
     const customerFormulaFieldId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb5";
     const customerLookupFieldId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb6";
@@ -2535,6 +2539,15 @@ sort missing desc`),
         ...ctx().fieldsByTableId,
         [customers.id]: [
           ...customerFields,
+          field({
+            id: customerTierFieldId,
+            tableId: customers.id,
+            shortId: "tier",
+            name: "Tier",
+            type: "select",
+            config: { multiple: false, options: [{ id: "gold", label: "Gold" }] },
+            position: 3,
+          }),
           field({
             id: customerTagsFieldId,
             tableId: customers.id,
@@ -2610,6 +2623,23 @@ sort missing desc`),
     expect(relationSql.ok).toBe(true);
     if (!relationSql.ok) return;
     expect(normalizedSql(relationSql.query.sql)).toContain("JOIN grids.record_links jg_rl_0");
+
+    const singleSelect = resolveDslQueryToQueryPlan(
+      parseOk(`
+        join table Custs as customer on customer_link = customer.id
+        group by customer.tier
+        aggregate count(*) as rows
+      `),
+      context,
+    );
+    expect(singleSelect.ok).toBe(true);
+    if (!singleSelect.ok) return;
+    const singleSelectSql = compileDslGroupedQueryPlanToSql(singleSelect.plan, { fieldsByTableId: context.fieldsByTableId });
+    expect(singleSelectSql.ok).toBe(true);
+    if (!singleSelectSql.ok) return;
+    const singleSelectText = normalizedSql(singleSelectSql.query.sql);
+    expect(singleSelectText).toContain("->>0");
+    expect(singleSelectText).not.toContain("jsonb_array_elements_text");
 
     const multiSelect = resolveDslQueryToQueryPlan(
       parseOk(`

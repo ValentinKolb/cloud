@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
-import { fieldUniqueIndexName } from "./field-indexes";
+import {
+  dropFieldIndex,
+  dropOrphanedFieldIndexes,
+  ensureFieldIndex,
+  fieldPerformanceIndexName,
+  fieldUniqueIndexName,
+} from "./field-indexes";
 import * as fields from "./fields";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
@@ -22,6 +28,63 @@ const createTableFixture = async (name: string) => {
 };
 
 describe("field lifecycle Postgres integration", () => {
+  postgresTest(
+    "removes dynamic indexes after their field was hard-deleted",
+    async () => {
+      await migrate();
+      const fixture = await createTableFixture(`Orphan index ${Bun.randomUUIDv7()}`);
+      const fieldId = Bun.randomUUIDv7();
+      const indexName = fieldPerformanceIndexName(fieldId);
+      try {
+        await ensureFieldIndex(fieldId, "number", fixture.tableId);
+        const before = await sql<Array<{ exists: boolean }>>`
+        SELECT to_regclass(${"grids." + indexName}) IS NOT NULL AS exists
+      `;
+        expect(before[0]?.exists).toBe(true);
+
+        expect(await dropOrphanedFieldIndexes()).toBeGreaterThanOrEqual(1);
+        const after = await sql<Array<{ exists: boolean }>>`
+        SELECT to_regclass(${"grids." + indexName}) IS NOT NULL AS exists
+      `;
+        expect(after[0]?.exists).toBe(false);
+      } finally {
+        await dropFieldIndex(fieldId);
+        await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
+      }
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "uses btree for single-select and GIN containment for multi-select indexes",
+    async () => {
+      await migrate();
+      const fixture = await createTableFixture(`Select indexes ${Bun.randomUUIDv7()}`);
+      const singleId = Bun.randomUUIDv7();
+      const multiId = Bun.randomUUIDv7();
+      try {
+        await ensureFieldIndex(singleId, "select", fixture.tableId, { multiple: false });
+        await ensureFieldIndex(multiId, "select", fixture.tableId, { multiple: true });
+        const names = [fieldPerformanceIndexName(singleId), fieldPerformanceIndexName(multiId)];
+        const definitions = await sql<Array<{ name: string; definition: string }>>`
+          SELECT indexname AS name, indexdef AS definition
+          FROM pg_indexes
+          WHERE schemaname = 'grids' AND indexname::text = ANY(${sql.array(names, "TEXT")})
+        `;
+        const byName = new Map(definitions.map((row) => [row.name, row.definition]));
+        expect(byName.get(names[0]!)).toContain("USING btree");
+        expect(byName.get(names[0]!)).toContain("->> 0");
+        expect(byName.get(names[1]!)).toContain("USING gin");
+        expect(byName.get(names[1]!)).toContain("jsonb_path_ops");
+      } finally {
+        await dropFieldIndex(singleId);
+        await dropFieldIndex(multiId);
+        await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
+      }
+    },
+    30_000,
+  );
+
   postgresTest(
     "returns name conflicts without aborting the surrounding field transaction",
     async () => {

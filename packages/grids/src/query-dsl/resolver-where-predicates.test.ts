@@ -227,7 +227,7 @@ describe("GQL where predicates — first-class per field type", () => {
     expect(mixed.ok).toBe(false);
 
     const sql = planSql(`where Status = 'Open' and amount > cost`);
-    expect(sql).toContain("@>");
+    expect(sql).toContain("->>0 =");
     expect(sql).toContain("> (grids.try_numeric(r.data->>");
 
     // NOT compiles to a negated SQL group.

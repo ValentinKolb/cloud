@@ -3,9 +3,10 @@ import { sql } from "bun";
 import type { DslQueryPreviewColumn, DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../contracts";
 import { decimalStringToCanonical } from "../formula/numeric";
 import { normalizeRefKey } from "../ref-syntax";
+import { runBoundedQuery } from "../service/bounded-query";
 import { buildComputedFieldSqlMap } from "../service/computed-projections";
 import { type FederatedRevisionScope, verifyRevisionScope } from "../service/federated-tables";
-import { storageOf } from "../service/field-storage";
+import { isMultiSelectField, storageOf } from "../service/field-storage";
 import { buildRelationLabelCacheForIds, type ExpansionViewer } from "../service/relations";
 import { compileSearchClause } from "../service/search";
 import type { Field } from "../service/types";
@@ -136,7 +137,7 @@ const groupExplodes = (plan: DslResolvedSqlQueryPlan, fieldsByTableId: Record<st
     const field = byId.get(group.fieldId);
     if (!field) return false;
     const kind = storageOf(field).kind;
-    return kind === "relationLink" || kind === "jsonbArray";
+    return kind === "relationLink" || (kind === "jsonbArray" && isMultiSelectField(field));
   });
 };
 
@@ -325,14 +326,6 @@ const labelRelationPreviewValues = async (
     return values ? { ...row, values } : row;
   });
 };
-
-/** Run one preview statement under a bounded statement_timeout so a pathological
- *  (but valid) query can't hold a connection indefinitely. */
-const runPreview = async <T>(query: unknown): Promise<T[]> =>
-  sql.begin(async (tx) => {
-    await tx`SET LOCAL statement_timeout = 5000`;
-    return tx<T[]>`${query}`;
-  });
 
 const joinOr = (parts: unknown[]): unknown => parts.slice(1).reduce((acc, part) => sql`${acc} OR ${part}`, parts[0]!);
 
@@ -524,7 +517,7 @@ export const previewDslQuery = async (
       });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-      const rows = await runPreview<Record<string, unknown>>(compiled.query.sql);
+      const rows = await runBoundedQuery<Record<string, unknown>>(compiled.query.sql, 5_000);
       const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
       const columns = groupColumns(compiled.query.columns, plan.tableId);
       const previewRows = visible.map((row) => ({
@@ -552,7 +545,7 @@ export const previewDslQuery = async (
       });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-      const rows = await runPreview<Record<string, unknown>>(compiled.query.sql);
+      const rows = await runBoundedQuery<Record<string, unknown>>(compiled.query.sql, 5_000);
       const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
       const columns = groupColumns(compiled.query.columns, (plan.joins?.length ?? 0) === 0 ? plan.tableId : undefined);
       const previewRows = visible.map((row) => ({
@@ -574,7 +567,7 @@ export const previewDslQuery = async (
       const compiled = compileDslAggregateQueryPlanToSql(plan, { ...options, ...compileInputs, limit: 1 });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-      const rows = await runPreview<{ result: Record<string, unknown> }>(compiled.query.sql);
+      const rows = await runBoundedQuery<{ result: Record<string, unknown> }>(compiled.query.sql, 5_000);
       const columns = aggregateColumns(compiled.query.columns);
       return finish({
         ok: true,
@@ -606,7 +599,7 @@ export const previewDslQuery = async (
     });
     if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-    const rows = await runPreview<Record<string, unknown>>(compiled.query.sql);
+    const rows = await runBoundedQuery<Record<string, unknown>>(compiled.query.sql, 5_000);
     const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
     const columns = rowColumns(compiled.query.columns);
     const previewRows = visible.map((row) => ({

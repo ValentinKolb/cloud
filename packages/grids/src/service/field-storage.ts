@@ -23,10 +23,9 @@ import type { Field } from "./types";
  *  - Text-shape projections like `data->>${id}` for `IS NULL` / select-id
  *    equality. That's a different concern from the typed projection
  *    and stays inline in filter-compiler.
- *  - Select jsonb-array operations. Select uses
- *    `(data->fieldId)::jsonb @> ...` style which has no scalar
- *    projection equivalent; consumers handle it via the descriptor's
- *    `kind: "jsonbArray"`.
+ *  - Select operations. Values share one JSONB-array storage shape, while
+ *    consumers use `isMultiSelectField` to choose scalar single-select or
+ *    array multi-select semantics.
  *  - Relation / lookup / rollup / formula / system fields — they have
  *    their own pipelines (record_links + computed-projections); the
  *    descriptor reports `null` from `project()` and the right kind so
@@ -38,7 +37,7 @@ export type ProjectionKind =
   | "boolean" // try_boolean(data->>id)
   | "date" // try_iso_date(data->>id)
   | "datetime" // try_timestamptz(data->>id)
-  | "jsonbArray" // select arrays; no scalar projection
+  | "jsonbArray" // select arrays; consumers distinguish single/multiple config
   | "relationLink" // record_links junction
   | "computed" // formula/lookup/rollup; hydrated post-query
   | "system" // created_at / updated_at / created_by / updated_by — column, not JSONB
@@ -196,8 +195,8 @@ const STORAGE: Record<string, StorageDescriptor> = {
     project: () => null,
     formatKind: "select",
     sortable: false /* arrays have no canonical scalar sort */,
-    filterable: true /* via @> */,
-    groupable: true /* explode-mode group: one bucket contribution per selected option */,
+    filterable: true,
+    groupable: true,
     aggregatable: false,
     cursorable: false,
     searchable: false,
@@ -348,6 +347,9 @@ const UNKNOWN_DESCRIPTOR: StorageDescriptor = {
  * silently coerces.
  */
 export const storageOf = (field: Field): StorageDescriptor => STORAGE[field.type] ?? UNKNOWN_DESCRIPTOR;
+
+export const isMultiSelectField = (field: Pick<Field, "type" | "config">): boolean =>
+  field.type === "select" && (field.config as { multiple?: boolean }).multiple === true;
 
 const systemSqlTypeFor = (field: Field): FieldSqlScalarType => {
   if (field.type === "created_at" || field.type === "updated_at" || field.type === "deleted_at") return "datetime";

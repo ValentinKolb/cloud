@@ -11,31 +11,43 @@ const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice
 type TestShape = {
   baseId: string;
   tableId: string;
+  targetTableId: string;
   recordId: string;
   secondRecordId: string;
+  targetRecordId: string;
   priceId: string;
   quantityId: string;
   subtotalId: string;
   grossId: string;
+  statusId: string;
+  relationId: string;
+  targetNameId: string;
 };
 
 const insertSqlFormulaFixture = async (): Promise<TestShape> => {
   const baseId = uuid();
   const tableId = uuid();
+  const targetTableId = uuid();
   const recordId = uuid();
   const secondRecordId = uuid();
+  const targetRecordId = uuid();
   const priceId = uuid();
   const quantityId = uuid();
   const subtotalId = uuid();
   const grossId = uuid();
+  const statusId = uuid();
+  const relationId = uuid();
+  const targetNameId = uuid();
 
   await sql`
     INSERT INTO grids.bases (id, short_id, name)
     VALUES (${baseId}::uuid, ${shortId("B")}, 'SQL formula integration')
   `;
   await sql`
-    INSERT INTO grids.tables (id, short_id, base_id, name)
-    VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Line items')
+    INSERT INTO grids.tables (id, short_id, base_id, name, position)
+    VALUES
+      (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Line items', 0),
+      (${targetTableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Products', 1)
   `;
   await sql`
     INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
@@ -43,7 +55,24 @@ const insertSqlFormulaFixture = async (): Promise<TestShape> => {
       (${priceId}::uuid, 'PRICE', ${tableId}::uuid, 'Price', 'number', '{}'::jsonb, 0),
       (${quantityId}::uuid, 'QTY01', ${tableId}::uuid, 'Quantity', 'number', '{}'::jsonb, 1),
       (${subtotalId}::uuid, 'SUBTL', ${tableId}::uuid, 'Subtotal', 'formula', ${{ expression: "#PRICE + #QTY01 * 0.20" }}::jsonb, 2),
-      (${grossId}::uuid, 'GROSS', ${tableId}::uuid, 'Gross', 'formula', ${{ expression: "#SUBTL + 1" }}::jsonb, 3)
+      (${grossId}::uuid, 'GROSS', ${tableId}::uuid, 'Gross', 'formula', ${{ expression: "#SUBTL + 1" }}::jsonb, 3),
+      (
+        ${statusId}::uuid,
+        'STAT1',
+        ${tableId}::uuid,
+        'Status',
+        'select',
+        ${{
+          multiple: false,
+          options: [
+            { id: "open", label: "Open" },
+            { id: "done", label: "Done" },
+          ],
+        }}::jsonb,
+        4
+      ),
+      (${relationId}::uuid, 'REL01', ${tableId}::uuid, 'Product', 'relation', ${{ targetTableId }}::jsonb, 5),
+      (${targetNameId}::uuid, 'NAME1', ${targetTableId}::uuid, 'Name', 'text', '{}'::jsonb, 0)
   `;
   await sql`
     INSERT INTO grids.records (id, table_id, data, version)
@@ -51,18 +80,42 @@ const insertSqlFormulaFixture = async (): Promise<TestShape> => {
       (
         ${recordId}::uuid,
         ${tableId}::uuid,
-        ${{ [priceId]: "0.10", [quantityId]: "1.00" }}::jsonb,
+        ${{ [priceId]: "0.10", [quantityId]: "1.00", [statusId]: ["open"] }}::jsonb,
         1
       ),
       (
         ${secondRecordId}::uuid,
         ${tableId}::uuid,
-        ${{ [priceId]: "1.00", [quantityId]: "1.00" }}::jsonb,
+        ${{ [priceId]: "1.00", [quantityId]: "1.00", [statusId]: ["done"] }}::jsonb,
+        1
+      ),
+      (
+        ${targetRecordId}::uuid,
+        ${targetTableId}::uuid,
+        ${{ [targetNameId]: "Product A" }}::jsonb,
         1
       )
   `;
+  await sql`
+    INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
+    VALUES (${recordId}::uuid, ${relationId}::uuid, ${targetRecordId}::uuid, 0)
+  `;
 
-  return { baseId, tableId, recordId, secondRecordId, priceId, quantityId, subtotalId, grossId };
+  return {
+    baseId,
+    tableId,
+    targetTableId,
+    recordId,
+    secondRecordId,
+    targetRecordId,
+    priceId,
+    quantityId,
+    subtotalId,
+    grossId,
+    statusId,
+    relationId,
+    targetNameId,
+  };
 };
 
 const cleanupFixture = async (baseId: string): Promise<void> => {
@@ -70,6 +123,35 @@ const cleanupFixture = async (baseId: string): Promise<void> => {
 };
 
 describe("records SQL formula projection integration", () => {
+  postgresTest(
+    "releases record-list transactions after concurrent queries",
+    async () => {
+      const fixture = await insertSqlFormulaFixture();
+      try {
+        const results = await Promise.all(
+          Array.from({ length: 16 }, () => list({ tableId: fixture.tableId, limit: 10, includeRelations: true })),
+        );
+
+        expect(results).toHaveLength(16);
+        expect(results.every((result) => result.ok && result.data.items.length === 2)).toBe(true);
+        expect(
+          results.every((result) => {
+            if (!result.ok) return false;
+            const record = result.data.items.find((item) => item.id === fixture.recordId);
+            return record?.expanded?.[fixture.targetRecordId]?.[fixture.targetNameId] === "Product A";
+          }),
+        ).toBe(true);
+
+        const followUp = await list({ tableId: fixture.tableId, limit: 10 });
+        expect(followUp.ok).toBe(true);
+        if (followUp.ok) expect(followUp.data.items).toHaveLength(2);
+      } finally {
+        await cleanupFixture(fixture.baseId);
+      }
+    },
+    15_000,
+  );
+
   postgresTest("list returns SQL-projected formula values and keeps JS fallback dependencies correct", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {
@@ -181,6 +263,55 @@ describe("records SQL formula projection integration", () => {
       if (!result.ok) return;
 
       expect(result.data.items.map((item) => item.id)).toEqual([fixture.recordId]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("filters and groups single-select values without explode semantics", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      await sql`
+        INSERT INTO grids.records (id, table_id, data, version)
+        VALUES (${uuid()}::uuid, ${fixture.tableId}::uuid, ${{ [fixture.quantityId]: "2.00" }}::jsonb, 1)
+      `;
+
+      const filtered = await list({
+        tableId: fixture.tableId,
+        limit: 10,
+        filter: { fieldId: fixture.statusId, op: "is", value: "open" },
+      });
+      expect(filtered.ok).toBe(true);
+      if (!filtered.ok) return;
+      expect(filtered.data.items.map((item) => item.id)).toEqual([fixture.recordId]);
+
+      const notOpen = await list({
+        tableId: fixture.tableId,
+        limit: 10,
+        filter: { fieldId: fixture.statusId, op: "isNot", value: "open" },
+      });
+      expect(notOpen.ok).toBe(true);
+      if (!notOpen.ok) return;
+      expect(notOpen.data.items).toHaveLength(2);
+      expect(notOpen.data.items.find((item) => item.id === fixture.secondRecordId)?.data[fixture.statusId]).toEqual(["done"]);
+      expect(notOpen.data.items.some((item) => item.data[fixture.statusId] === undefined)).toBe(true);
+
+      const grouped = await group({
+        tableId: fixture.tableId,
+        groupBy: [{ fieldId: fixture.statusId }],
+        aggregations: [{ fieldId: "*", agg: "count" }],
+        limit: 10,
+      });
+      expect(grouped.ok).toBe(true);
+      if (!grouped.ok) return;
+      expect(grouped.data.explode).toBe(false);
+      expect(new Map(grouped.data.buckets.map((bucket) => [bucket.keys[0], bucket.values["*__count"]]))).toEqual(
+        new Map([
+          [null, 1],
+          ["done", 1],
+          ["open", 1],
+        ]),
+      );
     } finally {
       await cleanupFixture(fixture.baseId);
     }

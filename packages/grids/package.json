@@ -17,6 +17,12 @@
     "sql-boundary-smoke": "bun run scripts/sql-boundary-smoke.ts",
     "smoke": "bash scripts/smoke.sh",
     "soak:100k": "bun run scripts/soak-100k.ts",
+    "load:prepare": "bun --env-file=../../.env run scripts/load-test.ts reset",
+    "load:smoke": "bun --env-file=../../.env run scripts/load-test.ts run smoke",
+    "load:test": "bun --env-file=../../.env run scripts/load-test.ts run load",
+    "load:soak": "bun --env-file=../../.env run scripts/load-test.ts run soak",
+    "load:stress": "bun --env-file=../../.env run scripts/load-test.ts run stress",
+    "load:cleanup": "bun --env-file=../../.env run scripts/load-test.ts cleanup",
     "pdf-previews": "bun run scripts/render-document-template-previews.ts"
   },
   "dependencies": {

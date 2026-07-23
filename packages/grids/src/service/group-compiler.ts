@@ -12,7 +12,7 @@ import {
   isFieldAggregatable,
   isFormulaAggregatable,
 } from "./aggregate-capabilities";
-import { storageOf } from "./field-storage";
+import { isMultiSelectField, storageOf } from "./field-storage";
 import { compileFilter, renderClause } from "./filter-compiler";
 import {
   compileFormulaAstToSql,
@@ -40,7 +40,7 @@ import type { Field } from "./types";
 // granularity is part of the group key, so buckets match the values
 // the UI shows in the header column.
 //
-// Relation and select grouping use explode-semantics. A record
+// Relation and multi-select grouping use explode-semantics. A record
 // with [TagA, TagB] contributes to BOTH buckets. The total count across
 // buckets can exceed the total record count — caller documents this as
 // "explode-mode" so the UI can warn.
@@ -159,7 +159,7 @@ const resolveGroupProjection = (
       relationJoinIndex: joinIndex,
     };
   }
-  if (descriptor.kind === "jsonbArray") {
+  if (descriptor.kind === "jsonbArray" && isMultiSelectField(field)) {
     const joinIndex = nextJoinIndex();
     return {
       spec,
@@ -168,6 +168,9 @@ const resolveGroupProjection = (
       expr: sql`ms_${sql.unsafe(String(joinIndex))}.value`,
       selectJoinIndex: joinIndex,
     };
+  }
+  if (descriptor.kind === "jsonbArray") {
+    return { spec, field, alias, expr: sql`r.data->${field.id}->>0` };
   }
   if (field.type === "date" && spec.granularity) {
     const value = (field.config as { includeTime?: boolean }).includeTime

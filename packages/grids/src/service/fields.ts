@@ -423,8 +423,15 @@ const syncFieldIndexes = async (existing: Field, field: Field, actorId: string |
       }
     }
   }
-  // Toggle indexed state outside the row commit. Both calls are idempotent.
-  if (existing.indexed !== field.indexed) {
+  const indexShapeChanged =
+    field.indexed &&
+    ((field.type === "select" &&
+      (existing.config as { multiple?: boolean }).multiple !== (field.config as { multiple?: boolean }).multiple) ||
+      (field.type === "date" &&
+        (existing.config as { includeTime?: boolean }).includeTime !== (field.config as { includeTime?: boolean }).includeTime));
+  // Toggle or rebuild performance indexes outside the row commit. Both calls
+  // are idempotent and index DDL runs concurrently.
+  if (existing.indexed !== field.indexed || indexShapeChanged) {
     if (field.indexed) void ensureFieldIndex(field.id, field.type, field.tableId, field.config);
     else void dropFieldIndex(field.id);
   }

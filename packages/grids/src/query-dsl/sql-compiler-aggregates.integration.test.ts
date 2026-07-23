@@ -19,6 +19,31 @@ beforeAll(async () => {
 });
 
 describe("Query DSL Postgres smoke — computed, labels, and aggregates", () => {
+  postgresTest(
+    "releases preview transactions after concurrent queries",
+    async () => {
+      const fixture = await insertDslDbFixture();
+      try {
+        const source = `
+          group by STAT1
+          aggregate count(*) as rows, sum(AMT01) as revenue
+          sort STAT1 asc
+        `;
+        const results = await Promise.all(Array.from({ length: 16 }, () => preview(fixture, source)));
+
+        expect(results).toHaveLength(16);
+        expect(results.every((result) => result.mode === "groups" && result.rows.length === 3)).toBe(true);
+
+        const followUp = await preview(fixture, "sort AMT01 asc");
+        expect(followUp.mode).toBe("rows");
+        expect(followUp.rows).toHaveLength(3);
+      } finally {
+        await cleanupFixture(fixture.baseId);
+      }
+    },
+    15_000,
+  );
+
   postgresTest("paginates grouped results without duplicate buckets", async () => {
     const fixture = await insertDslDbFixture();
     try {

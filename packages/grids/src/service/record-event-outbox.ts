@@ -94,66 +94,105 @@ export const dispatchRecordEventOutbox = async (
   id: string,
   publish: (event: GridsRecordEvent) => Promise<void> = publishRecordEventWithFederatedTargets,
 ): Promise<"delivered" | "already-delivered" | "dead"> => {
-  const result = await sql.begin(async (tx) => {
-    const [row] = await tx<OutboxRow[]>`
-      SELECT id::text, base_id::text, payload, status, attempts
-      FROM grids.record_event_outbox
-      WHERE id = ${id}::uuid
-      FOR UPDATE
+  const active = activeDispatches.get(id);
+  if (active) {
+    const status = await active;
+    return status === "dead" ? "dead" : "already-delivered";
+  }
+
+  const delivery = dispatchRecordEventOutboxOnce(id, publish);
+  activeDispatches.set(id, delivery);
+  try {
+    return await delivery;
+  } finally {
+    activeDispatches.delete(id);
+  }
+};
+
+type DispatchStatus = "delivered" | "already-delivered" | "dead";
+
+const activeDispatches = new Map<string, Promise<DispatchStatus>>();
+
+const recordDeliveryFailure = async (row: OutboxRow, error: unknown): Promise<"failed" | "dead"> => {
+  const attempts = row.attempts + 1;
+  const delaySeconds = Math.min(300, 2 ** Math.min(attempts, 8));
+  const status = error instanceof InvalidRecordEventPayloadError || attempts >= MAX_DELIVERY_ATTEMPTS ? "dead" : "failed";
+  const message = error instanceof Error ? error.message : String(error);
+
+  await sql.begin(async (tx) => {
+    const updated = await tx<Array<{ id: string }>>`
+      UPDATE grids.record_event_outbox
+      SET status = ${status},
+          attempts = ${attempts},
+          next_attempt_at = now() + (${delaySeconds} * interval '1 second'),
+          last_error = ${message},
+          dead_at = ${status === "dead" ? sql`now()` : null}
+      WHERE id = ${row.id}::uuid
+        AND status IN ('pending', 'failed')
+        AND attempts = ${row.attempts}
+      RETURNING id::text AS id
     `;
-    if (!row || row.status === "delivered") return { status: "already-delivered" as const };
-    if (row.status === "dead") return { status: "dead" as const };
-    try {
-      const event = parsePayload(row.payload);
-      await publish(event);
-      await tx`
-        UPDATE grids.record_event_outbox
-        SET status = 'delivered', delivered_at = now(), last_error = NULL
-        WHERE id = ${id}::uuid
-      `;
-      return { status: "delivered" as const };
-    } catch (error) {
-      const attempts = row.attempts + 1;
-      const delaySeconds = Math.min(300, 2 ** Math.min(attempts, 8));
-      const status = error instanceof InvalidRecordEventPayloadError || attempts >= MAX_DELIVERY_ATTEMPTS ? "dead" : "failed";
-      const message = error instanceof Error ? error.message : String(error);
-      await tx`
-        UPDATE grids.record_event_outbox
-        SET status = ${status},
-            attempts = ${attempts},
-            next_attempt_at = now() + (${delaySeconds} * interval '1 second'),
-            last_error = ${message},
-            dead_at = ${status === "dead" ? sql`now()` : null}
-        WHERE id = ${id}::uuid
-      `;
-      if (status === "dead") {
-        await tx`
-          INSERT INTO grids.record_event_delivery_failures (
-            base_id, consumer_group, event_id, payload, error, attempts, status, dead_at
-          ) VALUES (
-            ${row.base_id}::uuid,
-            'record-event-outbox',
-            ${row.id},
-            ${JSON.stringify(row.payload)},
-            ${message},
-            ${attempts},
-            'dead',
-            now()
-          )
-          ON CONFLICT (base_id, consumer_group, event_id) DO UPDATE SET
-            payload = EXCLUDED.payload,
-            error = EXCLUDED.error,
-            attempts = EXCLUDED.attempts,
-            status = 'dead',
-            last_seen_at = now(),
-            dead_at = COALESCE(grids.record_event_delivery_failures.dead_at, now())
-        `;
-      }
-      return { status, error };
-    }
+    if (updated.length === 0 || status !== "dead") return;
+    await tx`
+      INSERT INTO grids.record_event_delivery_failures (
+        base_id, consumer_group, event_id, payload, error, attempts, status, dead_at
+      ) VALUES (
+        ${row.base_id}::uuid,
+        'record-event-outbox',
+        ${row.id},
+        ${JSON.stringify(row.payload)},
+        ${message},
+        ${attempts},
+        'dead',
+        now()
+      )
+      ON CONFLICT (base_id, consumer_group, event_id) DO UPDATE SET
+        payload = EXCLUDED.payload,
+        error = EXCLUDED.error,
+        attempts = EXCLUDED.attempts,
+        status = 'dead',
+        last_seen_at = now(),
+        dead_at = COALESCE(grids.record_event_delivery_failures.dead_at, now())
+    `;
   });
-  if ("error" in result) throw result.error;
-  return result.status;
+  return status;
+};
+
+const dispatchRecordEventOutboxOnce = async (id: string, publish: (event: GridsRecordEvent) => Promise<void>): Promise<DispatchStatus> => {
+  const [row] = await sql<OutboxRow[]>`
+    SELECT id::text, base_id::text, payload, status, attempts
+    FROM grids.record_event_outbox
+    WHERE id = ${id}::uuid
+  `;
+  if (!row || row.status === "delivered") return "already-delivered";
+  if (row.status === "dead") return "dead";
+
+  try {
+    const event = parsePayload(row.payload);
+    // Sync publication may perform network I/O and database-backed target
+    // resolution. It must never run inside the outbox state transaction.
+    await publish(event);
+  } catch (error) {
+    await recordDeliveryFailure(row, error);
+    throw error;
+  }
+
+  const updated = await sql`
+    UPDATE grids.record_event_outbox
+    SET status = 'delivered', delivered_at = now(), last_error = NULL
+    WHERE id = ${id}::uuid
+      AND status IN ('pending', 'failed')
+      AND attempts = ${row.attempts}
+    RETURNING id
+  `;
+  if (updated.length > 0) return "delivered";
+
+  const [current] = await sql<Array<{ status: OutboxRow["status"] }>>`
+    SELECT status
+    FROM grids.record_event_outbox
+    WHERE id = ${id}::uuid
+  `;
+  return current?.status === "dead" ? "dead" : "already-delivered";
 };
 
 let activeDeliveries = 0;
@@ -212,31 +251,32 @@ export const notifyRecordEventOutbox = (outboxId: string): void => {
 
 export const claimRecordEventOutboxBatch = async (limit = RECONCILE_BATCH_SIZE): Promise<string[]> => {
   const cap = Math.min(Math.max(limit, 1), RECONCILE_BATCH_SIZE);
-  const rows = await sql.begin(
-    (tx) => tx<Array<{ id: string }>>`
-    WITH candidates AS MATERIALIZED (
-      SELECT candidate.id
-      FROM grids.record_event_outbox candidate
-      WHERE candidate.status IN ('pending', 'failed')
-        AND candidate.next_attempt_at <= now()
-        AND NOT EXISTS (
-          SELECT 1
-          FROM grids.record_event_outbox predecessor
-          WHERE predecessor.record_id = candidate.record_id
-            AND predecessor.status IN ('pending', 'failed', 'dead')
-            AND (predecessor.created_at, predecessor.id) < (candidate.created_at, candidate.id)
-        )
-      ORDER BY candidate.next_attempt_at, candidate.created_at, candidate.id
-      LIMIT ${cap}
-      FOR UPDATE SKIP LOCKED
-    )
-    UPDATE grids.record_event_outbox outbox
-    SET next_attempt_at = now() + (${RECONCILE_CLAIM_MS} * interval '1 millisecond')
-    FROM candidates
-    WHERE outbox.id = candidates.id
-    RETURNING outbox.id::text AS id
-  `,
-  );
+  const rows = await sql.begin(async (tx) => {
+    const claimed = await tx<Array<{ id: string }>>`
+      WITH candidates AS MATERIALIZED (
+        SELECT candidate.id
+        FROM grids.record_event_outbox candidate
+        WHERE candidate.status IN ('pending', 'failed')
+          AND candidate.next_attempt_at <= now()
+          AND NOT EXISTS (
+            SELECT 1
+            FROM grids.record_event_outbox predecessor
+            WHERE predecessor.record_id = candidate.record_id
+              AND predecessor.status IN ('pending', 'failed', 'dead')
+              AND (predecessor.created_at, predecessor.id) < (candidate.created_at, candidate.id)
+          )
+        ORDER BY candidate.next_attempt_at, candidate.created_at, candidate.id
+        LIMIT ${cap}
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE grids.record_event_outbox outbox
+      SET next_attempt_at = now() + (${RECONCILE_CLAIM_MS} * interval '1 millisecond')
+      FROM candidates
+      WHERE outbox.id = candidates.id
+      RETURNING outbox.id::text AS id
+    `;
+    return [...claimed];
+  });
   return rows.map((row) => row.id);
 };
 

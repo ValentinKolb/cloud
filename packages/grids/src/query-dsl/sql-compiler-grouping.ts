@@ -9,7 +9,7 @@ import {
   isFieldAggregatable,
   isFormulaAggregatable,
 } from "../service/aggregate-capabilities";
-import { groupSqlTypeForField, storageOf } from "../service/field-storage";
+import { groupSqlTypeForField, isMultiSelectField, storageOf } from "../service/field-storage";
 import { compileFormulaAstToSql, type FormulaSqlFieldResolver, type FormulaSqlType } from "../service/formula-sql-compiler";
 import type { GroupAggregationSpec } from "../service/group-compiler";
 import type { Field } from "../service/types";
@@ -230,7 +230,7 @@ export const groupFieldProjection = (
       ],
     };
   }
-  if (descriptor.kind === "jsonbArray") {
+  if (descriptor.kind === "jsonbArray" && isMultiSelectField(field)) {
     const alias = `jg_ms_${index}`;
     return {
       ok: true,
@@ -245,6 +245,13 @@ export const groupFieldProjection = (
           END
         ) AS ${sql.unsafe(alias)}(value)`,
       ],
+    };
+  }
+  if (descriptor.kind === "jsonbArray") {
+    return {
+      ok: true,
+      expr: sql`${sql.unsafe(recordAlias)}.data->${field.id}->>0`,
+      sqlType: "text",
     };
   }
   if (field.type === "date" && group.granularity) {

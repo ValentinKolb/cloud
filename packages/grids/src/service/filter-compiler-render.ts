@@ -169,7 +169,33 @@ const renderBooleanPredicate = (predicate: PredicateClause, projection: Predicat
 
 const selectContains = (projection: PredicateProjection, value: unknown): any => sql`(${projection.rawJson})::jsonb @> ${[value]}::jsonb`;
 
-const renderSelectPredicate = (predicate: PredicateClause, projection: PredicateProjection): any => {
+const renderSingleSelectPredicate = (predicate: PredicateClause, projection: PredicateProjection): any => {
+  const selected = sql`${projection.rawJson}->>0`;
+  switch (predicate.op) {
+    case "is":
+      return sql`${selected} = ${predicate.value}`;
+    case "isNot":
+      return sql`${selected} IS DISTINCT FROM ${predicate.value}`;
+    case "isAnyOf": {
+      const items = (predicate.value as string[]) ?? [];
+      if (items.length === 0) return sql`FALSE`;
+      return sql`(${items.map((item) => sql`${selected} = ${item}`).reduce((acc, part) => sql`${acc} OR ${part}`)})`;
+    }
+    case "isNoneOf": {
+      const items = (predicate.value as string[]) ?? [];
+      if (items.length === 0) return sql`TRUE`;
+      return sql`(${items.map((item) => sql`${selected} IS DISTINCT FROM ${item}`).reduce((acc, part) => sql`${acc} AND ${part}`)})`;
+    }
+    case "isEmpty":
+      return sql`${selected} IS NULL`;
+    case "isNotEmpty":
+      return sql`${selected} IS NOT NULL`;
+    default:
+      return sql`FALSE`;
+  }
+};
+
+const renderMultiSelectPredicate = (predicate: PredicateClause, projection: PredicateProjection): any => {
   switch (predicate.op) {
     case "is":
       return selectContains(projection, predicate.value);
@@ -210,6 +236,9 @@ const renderSelectPredicate = (predicate: PredicateClause, projection: Predicate
       return sql`FALSE`;
   }
 };
+
+const renderSelectPredicate = (predicate: PredicateClause, projection: PredicateProjection): any =>
+  predicate.selectMultiple ? renderMultiSelectPredicate(predicate, projection) : renderSingleSelectPredicate(predicate, projection);
 
 const renderRelationPredicate = (predicate: PredicateClause, options: RenderOptions = {}): any => {
   const recordAlias = options.recordAlias ?? "r";

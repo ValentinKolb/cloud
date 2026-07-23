@@ -32,7 +32,7 @@ describe("isGroupable", () => {
   test("relation is groupable (explode-mode)", () => {
     expect(isGroupable(mkField("x", "relation"))).toBe(true);
   });
-  test("select is groupable with explode semantics", () => {
+  test("select is groupable", () => {
     expect(isGroupable(mkField("x", "select"))).toBe(true);
   });
   test("lookup / rollup deferred — not groupable yet", () => {
@@ -339,8 +339,22 @@ describe("compileGroupQuery — basic shape", () => {
     if (!fromEnd.ok) expect(fromEnd.error).toBe("offset pagination is not supported for tail-window grouped queries");
   });
 
-  test("compiles select explode grouping", () => {
-    const tags = mkField("dddddddd-dddd-dddd-dddd-dddddddddddd", "select", "tags");
+  test("groups single-select directly and explodes multi-select", () => {
+    const status = mkField("cccccccc-cccc-cccc-cccc-cccccccccccc", "select", "status");
+    const single = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: status.id }],
+      aggregations: [{ fieldId: "*", agg: "count" }],
+      fields: [status],
+    });
+    expect(single.ok).toBe(true);
+    if (single.ok) {
+      const text = normalizedSql(single.query);
+      expect(text).toContain("->>0");
+      expect(text).not.toContain("jsonb_array_elements_text");
+    }
+
+    const tags = mkField("dddddddd-dddd-dddd-dddd-dddddddddddd", "select", "tags", { config: { multiple: true } });
     const r = compileGroupQuery({
       tableId,
       groupBy: [{ fieldId: tags.id }],
@@ -351,6 +365,7 @@ describe("compileGroupQuery — basic shape", () => {
     if (r.ok) {
       expect(r.resolvedGroups).toHaveLength(1);
       expect(r.cursorable).toBe(true);
+      expect(normalizedSql(r.query)).toContain("jsonb_array_elements_text");
     }
   });
 

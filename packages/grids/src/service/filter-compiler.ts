@@ -1,4 +1,5 @@
 import { type FilterTree, MAX_FILTER_DEPTH, MAX_FILTER_GROUP_ITEMS, MAX_FILTER_NODES } from "../contracts";
+import { isMultiSelectField } from "./field-storage";
 import { filterOperatorsForType, validateFilterValue } from "./filter-compiler-validation";
 import type { Field } from "./types";
 
@@ -18,6 +19,7 @@ export type CompiledClause =
       value?: unknown;
       caseInsensitive?: boolean;
       dateIncludeTime?: boolean;
+      selectMultiple?: boolean;
       timeZone?: string;
     };
 
@@ -73,6 +75,7 @@ const compileTree = (
       value: tree.value,
       caseInsensitive: tree.caseInsensitive,
       ...(field.type === "date" ? { dateIncludeTime, timeZone: options.timeZone ?? "UTC" } : {}),
+      ...(field.type === "select" ? { selectMultiple: isMultiSelectField(field) } : {}),
     },
   };
 };

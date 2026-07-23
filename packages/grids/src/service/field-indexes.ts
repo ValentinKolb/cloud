@@ -1,5 +1,6 @@
 import { logger } from "@valentinkolb/cloud/services";
-import { sql } from "bun";
+import { type SQL, sql } from "bun";
+import { isMultiSelectField } from "./field-storage";
 
 const log = logger("grids:field-indexes");
 
@@ -14,7 +15,7 @@ const log = logger("grids:field-indexes");
  * the partial index applies and falls back to seq scans on 100k+ rows.
  */
 
-const indexName = (fieldId: string): string => `idx_grids_data_${fieldId.replace(/-/g, "")}`;
+export const fieldPerformanceIndexName = (fieldId: string): string => `idx_grids_data_${fieldId.replace(/-/g, "")}`;
 const trgmIndexName = (fieldId: string): string => `idx_grids_trgm_${fieldId.replace(/-/g, "")}`;
 export const fieldUniqueIndexName = (fieldId: string): string => `uq_grids_data_${fieldId.replace(/-/g, "")}`;
 const generatedIdSeqPrefix = (fieldId: string): string => `grids_id_${fieldId.replace(/-/g, "")}`;
@@ -22,6 +23,7 @@ const generatedIdSeqName = (fieldId: string, scope?: string): string => {
   const suffix = scope ? `_${scope.replace(/[^a-zA-Z0-9_]/g, "")}` : "";
   return `${generatedIdSeqPrefix(fieldId)}${suffix}`;
 };
+const dynamicFieldIndexPattern = /^(?:idx_grids_data_|idx_grids_trgm_|uq_grids_data_)([a-f0-9]{32})$/;
 
 /** Strict UUID-with-or-without-dashes validator. Used as the safety
  *  gate before embedding fieldId in DDL identifiers. */
@@ -45,8 +47,7 @@ const indexExpressionForType = (fieldId: string, type: string, config?: Record<s
     case "id":
       return `((data->>'${fieldId}'))`;
     case "select":
-      // jsonb GIN with path_ops for containment.
-      return null;
+      return isMultiSelectField({ type, config: config ?? {} }) ? null : `((data->'${fieldId}'->>0))`;
     default:
       return null;
   }
@@ -70,9 +71,9 @@ export const ensureFieldIndex = async (fieldId: string, type: string, tableId: s
 
   const expression = indexExpressionForType(fieldId, type, config);
   if (!expression) {
-    // select / unsupported types use a different strategy (jsonb_path_ops GIN).
+    // Multi-select uses JSONB containment; unsupported types have no index.
     if (type === "select") {
-      const idx = indexName(fieldId);
+      const idx = fieldPerformanceIndexName(fieldId);
       try {
         await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${idx}`);
         await sql.unsafe(
@@ -80,15 +81,15 @@ export const ensureFieldIndex = async (fieldId: string, type: string, tableId: s
            ON grids.records USING gin ((data->'${fieldId}') jsonb_path_ops)
            ${fieldIndexWhere(fieldId, tableId)}`,
         );
-        log.info("Created select GIN index", { fieldId, tableId, idx });
+        log.info("Created multi-select GIN index", { fieldId, tableId, idx });
       } catch (e) {
-        log.error("Failed to create select GIN index", { fieldId, tableId, error: String(e) });
+        log.error("Failed to create multi-select GIN index", { fieldId, tableId, error: String(e) });
       }
     }
     return;
   }
 
-  const idx = indexName(fieldId);
+  const idx = fieldPerformanceIndexName(fieldId);
   // Recreate by name so old alpha indexes with narrower predicates are
   // replaced the next time ensureFieldIndex runs.
   for (const name of [idx, trgmIndexName(fieldId)]) {
@@ -134,13 +135,50 @@ export const ensureFieldIndex = async (fieldId: string, type: string, tableId: s
 export const dropFieldIndex = async (fieldId: string): Promise<void> => {
   if (!isSafeFieldId(fieldId)) return;
 
-  for (const idx of [indexName(fieldId), trgmIndexName(fieldId)]) {
+  for (const idx of [fieldPerformanceIndexName(fieldId), trgmIndexName(fieldId)]) {
     try {
       await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${idx}`);
     } catch (e) {
       log.error("Failed to drop index", { fieldId, idx, error: String(e) });
     }
   }
+};
+
+/**
+ * Removes dynamic record indexes whose field was hard-deleted through a
+ * cascading base cleanup. PostgreSQL keeps these partial indexes because they
+ * belong to the shared records table, not the deleted field row.
+ */
+export const dropOrphanedFieldIndexes = async (db: SQL = sql): Promise<number> => {
+  const indexes = await db<Array<{ name: string }>>`
+    SELECT indexname::text AS name
+    FROM pg_indexes
+    WHERE schemaname = 'grids'
+      AND indexname ~ '^(idx_grids_data_|idx_grids_trgm_|uq_grids_data_)[a-f0-9]{32}$'
+  `;
+  const fields = await db<Array<{ key: string }>>`
+    SELECT replace(id::text, '-', '') AS key
+    FROM grids.fields
+  `;
+  const fieldKeys = new Set(fields.map((field) => field.key));
+  const orphaned = indexes.filter((index) => {
+    const match = dynamicFieldIndexPattern.exec(index.name);
+    return match ? !fieldKeys.has(match[1]!) : false;
+  });
+
+  let dropped = 0;
+  for (const index of orphaned) {
+    try {
+      // The regex above is the identifier safety gate. CONCURRENTLY keeps
+      // other Grids replicas readable while a stale index is removed.
+      await db.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${index.name}`);
+      dropped += 1;
+    } catch (error) {
+      log.warn("Failed to drop orphaned field index", { index: index.name, error: String(error) });
+    }
+  }
+  if (dropped > 0) log.info("Dropped orphaned field indexes", { dropped });
+  return dropped;
 };
 
 // Unique field constraints use partial expression indexes over live records.

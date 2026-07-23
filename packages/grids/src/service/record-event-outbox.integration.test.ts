@@ -123,6 +123,22 @@ describe("record event outbox integration", () => {
       });
       const firstDispatch = dispatchRecordEventOutbox(created.outboxId, async (event) => {
         published.push(event);
+        const connection = await sql.reserve();
+        try {
+          await connection`BEGIN`;
+          await connection`
+            SELECT id
+            FROM grids.record_event_outbox
+            WHERE id = ${created.outboxId}::uuid
+            FOR UPDATE NOWAIT
+          `;
+        } finally {
+          try {
+            await connection`ROLLBACK`;
+          } finally {
+            connection.release();
+          }
+        }
         markPublishStarted();
         await publishBarrier;
       });

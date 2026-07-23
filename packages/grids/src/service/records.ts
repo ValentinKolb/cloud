@@ -4,6 +4,7 @@ import type { ComputedColumnSpec, FilterTree, GroupBySpec, GroupSortSpec, Record
 import type { Expr } from "../formula/types";
 import { defaultTableAggregations } from "../table-defaults";
 import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
+import { runBoundedQuery } from "./bounded-query";
 import {
   applyComputedProjections,
   buildComputedColumnSqlProjections,
@@ -11,7 +12,7 @@ import {
   buildFormulaSqlProjections,
   readableComputedTargetTableIds,
 } from "./computed-projections";
-import { storageOf } from "./field-storage";
+import { isMultiSelectField, storageOf } from "./field-storage";
 import { listByTable as listFields } from "./fields";
 import { listFirstImagePreviews } from "./files";
 import { compileFilter, renderClause } from "./filter-compiler";
@@ -35,12 +36,6 @@ import type { Field, RecordList } from "./types";
 
 type DbRow = Record<string, unknown>;
 const RECORD_QUERY_TIMEOUT_MS = 5_000;
-
-const runRecordQuery = async <T>(query: unknown): Promise<T[]> =>
-  sql.begin(async (tx) => {
-    await tx`SELECT set_config('statement_timeout', ${`${RECORD_QUERY_TIMEOUT_MS}ms`}, true)`;
-    return tx<T[]>`${query}`;
-  });
 
 const defaultListAggregates = (fields: Field[]): AggregateRequest[] =>
   defaultTableAggregations(fields).map((a) => ({ fieldId: a.fieldId, agg: a.agg }));
@@ -148,14 +143,17 @@ export const list = async (params: {
   // predicate still pins r.table_id = ${tableId}, so the JOIN's table
   // row is uniquely identified — Postgres treats this as a cheap
   // semi-join.
-  const rows = await runRecordQuery<DbRow>(sql`
-    SELECT r.*${projectionFragments}${cursorSelect}
-    FROM grids.records r
-    JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
-    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-    WHERE ${where}
-    ORDER BY ${orderBy} LIMIT ${limit + 1}
-  `);
+  const rows = await runBoundedQuery<DbRow>(
+    sql`
+      SELECT r.*${projectionFragments}${cursorSelect}
+      FROM grids.records r
+      JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+      WHERE ${where}
+      ORDER BY ${orderBy} LIMIT ${limit + 1}
+    `,
+    RECORD_QUERY_TIMEOUT_MS,
+  );
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(mapRecordRow);
 
@@ -344,13 +342,13 @@ export const group = async (params: {
     }
   }
   // Explode-mode: at least one groupBy dimension is a relation or
-  // select field. The `*__count` aggregate then counts
+  // multi-select field. The `*__count` aggregate then counts
   // (record × linked/selected value) pairs rather than unique records,
   // which the UI should surface as a hint.
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const explode = params.groupBy.some((g) => {
-    const type = fieldsById.get(g.fieldId)?.type;
-    return type === "relation" || type === "select";
+    const field = fieldsById.get(g.fieldId);
+    return field?.type === "relation" || (field ? isMultiSelectField(field) : false);
   });
   return ok({ buckets, nextCursor, explode });
 };
