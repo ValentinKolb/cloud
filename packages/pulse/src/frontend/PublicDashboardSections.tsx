@@ -266,7 +266,7 @@ export function PublicDashboardSections(props: Props) {
         when={series.some((item) => item.data.length)}
         fallback={<div class="flex h-64 items-center justify-center text-sm text-dimmed">No valid map points matched this query.</div>}
       >
-        <Chart kind="map" class="h-64 text-dimmed" series={series} legend={series.some((item) => Boolean(item.label))} />
+        <Chart kind="map" class="h-64 text-dimmed" series={series} legend={series.some((item) => Boolean(item.label))} interactive />
       </Show>,
     );
   };

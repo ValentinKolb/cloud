@@ -186,7 +186,6 @@ export default function PulseSidebar(props: Props) {
             onClick={props.openActivityMetrics}
           />
         </AppWorkspace.SidebarIconGrid>
-        <div class="min-h-0 flex-1" />
         <AppWorkspace.SidebarFooter sidebarMode="collapsed">
           <AppWorkspace.SidebarIconGrid>
             <AppWorkspace.SidebarIconAction
