@@ -245,11 +245,13 @@ export default function MailConversationList(props: {
                   <i class="ti ti-adjustments-search" aria-hidden="true" />
                 </button>
               </Tooltip>
-              <Tooltip content="Hide conversation list">
-                <button type="button" class="icon-btn hidden lg:inline-flex" aria-label="Hide conversation list" onClick={props.onCollapse}>
-                  <i class="ti ti-layout-sidebar-left-collapse" aria-hidden="true" />
-                </button>
-              </Tooltip>
+              <Show when={props.selectedConversationId || props.selectedMessageId}>
+                <Tooltip content="Hide conversation list">
+                  <button type="button" class="icon-btn hidden lg:inline-flex" aria-label="Hide conversation list" onClick={props.onCollapse}>
+                    <i class="ti ti-layout-sidebar-left-collapse" aria-hidden="true" />
+                  </button>
+                </Tooltip>
+              </Show>
             </div>
           }
         >
