@@ -9,16 +9,12 @@ import type {
   MailboxOperatorOperations,
   OperatorActionEligibility,
   ProviderBinding,
+  RedactedOperatorCommand,
 } from "../../contracts";
 import { readApiError } from "./api-response";
 
 const healthTone = (health: Mailbox["health"]): string =>
   health === "active" ? "badge-success" : health === "paused" ? "" : "badge-warning";
-
-const countLabel = (values: Record<string, number>): string => {
-  const entries = Object.entries(values).filter(([, count]) => count > 0);
-  return entries.length > 0 ? entries.map(([state, count]) => `${count} ${state.replaceAll("_", " ")}`).join(", ") : "None";
-};
 
 const actionLabel = (kind: OperatorActionEligibility["kind"]): string =>
   ({
@@ -34,6 +30,50 @@ const actionLabel = (kind: OperatorActionEligibility["kind"]): string =>
     retry_command: "Retry work",
     cancel_command: "Cancel work",
   })[kind];
+
+const activityLabel = (kind: RedactedOperatorCommand["kind"]): string =>
+  ({
+    sync_mailbox: "Mailbox synchronization",
+    sync_folder: "Folder synchronization",
+    discover_folders: "Folder discovery",
+    verify_binding: "Connection verification",
+    rebuild_folder: "Folder rebuild",
+    hydrate_missing: "Message hydration repair",
+    rebuild_search: "Search index rebuild",
+    rebuild_threads: "Conversation repair",
+    reconcile_effect: "Provider reconciliation",
+    retry_command: "Maintenance retry",
+    cancel_command: "Maintenance cancellation",
+    set_flags: "Message flag update",
+    change_message_state: "Message state update",
+    move: "Message move",
+    copy: "Message copy",
+    delete: "Message deletion",
+    create_folder: "Folder creation",
+    rename_folder: "Folder rename",
+    delete_folder: "Folder deletion",
+    set_folder_subscription: "Folder subscription",
+    send: "Message delivery",
+  })[kind];
+
+const activityState = (state: RedactedOperatorCommand["state"]): { label: string; icon: string; badge: string } => {
+  if (state === "confirmed" || state === "reconciled") {
+    return { label: "Completed", icon: "ti-circle-check", badge: "badge-success" };
+  }
+  if (state === "failed") {
+    return { label: "Failed", icon: "ti-alert-circle", badge: "badge-danger" };
+  }
+  if (state === "ambiguous" || state === "needs_attention") {
+    return { label: "Needs attention", icon: "ti-alert-triangle", badge: "badge-warning" };
+  }
+  if (state === "executing") {
+    return { label: "In progress", icon: "ti-loader-2 animate-spin", badge: "" };
+  }
+  if (state === "queued") {
+    return { label: "Queued", icon: "ti-clock", badge: "" };
+  }
+  return { label: "Cancelled", icon: "ti-circle-minus", badge: "" };
+};
 
 export default function MailOperationalSettings(props: {
   mailbox: Mailbox;
@@ -114,6 +154,7 @@ export default function MailOperationalSettings(props: {
             : "Folder discovery started",
       );
       props.onWorkspaceChange();
+      await operatorStatusActions.refetch();
       await props.onReload();
     },
     onError: (error) => prompts.error(error.message),
@@ -148,28 +189,39 @@ export default function MailOperationalSettings(props: {
 
   const busy = () => props.reloading || updateSync.loading() || command.loading() || operatorCommand.loading();
 
+  const connectedBinding = () =>
+    props.bindings.find((binding) => binding.state === "active") ?? props.bindings.find((binding) => binding.state !== "revoked");
+  const discoveryNeedsAttention = () => props.health.discovery.missingFolders + props.health.discovery.ambiguousFolders;
+
   return (
-    <div class="flex flex-col gap-2">
-      <div class="paper flex flex-wrap items-start gap-3 p-3">
-        <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center">
-          <i class={`ti ${props.health.health === "active" ? "ti-circle-check" : "ti-alert-circle"}`} aria-hidden="true" />
+    <div class="flex flex-col gap-5">
+      <section class="flex flex-wrap items-start gap-4 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4">
+        <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center app-accent-text">
+          <i class={`ti ${props.health.health === "active" ? "ti-heartbeat" : "ti-alert-circle"}`} aria-hidden="true" />
         </span>
-        <div class="min-w-0 flex-1">
+        <div class="min-w-64 flex-1">
           <div class="flex flex-wrap items-center gap-2">
-            <p class="text-sm font-semibold text-primary">Mailbox connection</p>
+            <h3 class="text-base font-semibold text-primary">Mailbox connection</h3>
             <span class={`badge ${healthTone(props.health.health)}`}>{props.health.health.replaceAll("_", " ")}</span>
           </div>
-          <p class="mt-1 text-xs text-dimmed">
+          <p class="mt-1 text-sm text-secondary">
             {props.health.healthReason ||
               (props.health.health === "active"
                 ? "Provider access and background synchronization are operational."
                 : "Review provider access before relying on delivery or synchronization.")}
           </p>
+          <p class="mt-2 text-xs text-dimmed">
+            {connectedBinding()?.authenticatedPrincipal || "No connected account"}
+            {" · "}
+            {props.health.sync.lastAt
+              ? `Last synchronized ${dates.formatDateTimeRelative(props.health.sync.lastAt, props.dateConfig)}`
+              : "Not synchronized yet"}
+          </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="btn-secondary btn-sm"
+            class="btn-primary btn-sm"
             disabled={busy() || !props.mailbox.syncEnabled}
             onClick={() => command.mutate({ kind: "sync_mailbox" })}
           >
@@ -179,7 +231,7 @@ export default function MailOperationalSettings(props: {
           <Show
             when={props.mailbox.syncEnabled}
             fallback={
-              <button type="button" class="btn-primary btn-sm" disabled={busy()} onClick={() => updateSync.mutate(true)}>
+              <button type="button" class="btn-secondary btn-sm" disabled={busy()} onClick={() => updateSync.mutate(true)}>
                 <i class="ti ti-player-play" aria-hidden="true" /> Resume mailbox
               </button>
             }
@@ -189,51 +241,39 @@ export default function MailOperationalSettings(props: {
             </button>
           </Show>
         </div>
-      </div>
+      </section>
 
-      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div class="paper p-3">
-          <p class="text-xs font-semibold text-primary">Connected account</p>
-          <p class="mt-1 text-sm text-secondary">
-            {props.health.bindings.active} active of {props.health.bindings.total}
-          </p>
-          <p class="mt-1 text-xs text-dimmed">
-            Last verified{" "}
-            {props.health.bindings.lastVerifiedAt
-              ? dates.formatDateTimeRelative(props.health.bindings.lastVerifiedAt, props.dateConfig)
-              : "never"}
-          </p>
-        </div>
-        <div class="paper p-3">
-          <p class="text-xs font-semibold text-primary">Folder discovery</p>
-          <p class="mt-1 text-sm text-secondary">{props.health.discovery.activeFolders} active folders</p>
-          <p class="mt-1 text-xs text-dimmed">
-            {props.health.discovery.missingFolders} missing, {props.health.discovery.ambiguousFolders} need review
-          </p>
-        </div>
-        <div class="paper p-3">
-          <p class="text-xs font-semibold text-primary">Synchronization</p>
-          <p class="mt-1 text-sm text-secondary">
-            {props.health.sync.runningRuns > 0 ? `${props.health.sync.runningRuns} running` : "Idle"}
-          </p>
-          <p class="mt-1 text-xs text-dimmed">{countLabel(props.health.sync.folderStates)}</p>
-        </div>
-        <div class="paper p-3">
-          <p class="text-xs font-semibold text-primary">Search index</p>
-          <p class="mt-1 text-sm text-secondary">{props.health.search.configuredBackend.replaceAll("_", " ")}</p>
-          <p class="mt-1 text-xs text-dimmed">{props.health.search.bm25Ready ? "Enhanced ranking ready" : "Standard search available"}</p>
-        </div>
+      <div class="flex flex-wrap gap-x-5 gap-y-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-muted)] px-3 py-2.5 text-xs text-secondary">
+        <span class="flex items-center gap-1.5">
+          <i class="ti ti-server app-accent-text" aria-hidden="true" />
+          {props.health.bindings.active} {props.health.bindings.active === 1 ? "account" : "accounts"}
+        </span>
+        <span class="flex items-center gap-1.5">
+          <i class={`ti ${discoveryNeedsAttention() > 0 ? "ti-alert-triangle" : "ti-folders"} app-accent-text`} aria-hidden="true" />
+          {props.health.discovery.activeFolders} folders
+          <Show when={discoveryNeedsAttention() > 0}> · {discoveryNeedsAttention()} need review</Show>
+        </span>
+        <span class="flex items-center gap-1.5">
+          <i class="ti ti-refresh app-accent-text" aria-hidden="true" />
+          {props.health.sync.runningRuns > 0
+            ? `${props.health.sync.runningRuns} running`
+            : `${props.health.sync.folderStates.current ?? 0} current`}
+        </span>
+        <span class="flex items-center gap-1.5">
+          <i class="ti ti-search app-accent-text" aria-hidden="true" />
+          {props.health.search.bm25Ready ? "Search ready" : "Standard search"}
+        </span>
       </div>
 
       <Show when={operatorStatus.loading}>
-        <Placeholder state="loading" variant="panel" title="Loading advanced diagnostics" />
+        <Placeholder state="loading" variant="panel" title="Loading mailbox activity" />
       </Show>
       <Show when={operatorStatus.error}>
         <Placeholder
           state="error"
           variant="panel"
-          title="Could not load advanced diagnostics"
-          description={operatorStatus.error instanceof Error ? operatorStatus.error.message : "Try loading the diagnostics again."}
+          title="Could not load mailbox activity"
+          description={operatorStatus.error instanceof Error ? operatorStatus.error.message : "Try loading the mailbox status again."}
           action={
             <button type="button" class="btn-secondary btn-sm" onClick={() => void operatorStatusActions.refetch()}>
               <i class="ti ti-refresh" aria-hidden="true" />
@@ -244,16 +284,65 @@ export default function MailOperationalSettings(props: {
       </Show>
       <Show when={operatorStatus()}>
         {(status) => (
-          <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
-            <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 text-sm font-medium text-primary">
-              <span class="flex items-center gap-2">
-                <i class="ti ti-tool" aria-hidden="true" />
-                Advanced diagnostics and repairs
-              </span>
-              <i class="ti ti-chevron-down transition-transform group-open:rotate-180" aria-hidden="true" />
-            </summary>
-            <section class="flex flex-col gap-3 px-3 pb-3">
-              <div class="flex flex-wrap items-start justify-between gap-2">
+          <section class="flex flex-col gap-3">
+            <div>
+              <h3 class="text-sm font-semibold text-primary">Recent activity</h3>
+              <p class="mt-1 text-xs text-dimmed">Synchronization, discovery, and repair work for this mailbox.</p>
+            </div>
+            <div class="flex flex-col rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-1">
+              <For each={status().recentCommands}>
+                {(item) => {
+                  const state = activityState(item.state);
+                  const detail = item.errorCode ? `Error ${item.errorCode}` : item.attempt > 1 ? `Attempt ${item.attempt}` : null;
+                  return (
+                    <div class="flex items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5">
+                      <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center">
+                        <i class={`ti ${state.icon}`} aria-hidden="true" />
+                      </span>
+                      <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm font-medium text-primary">{activityLabel(item.kind)}</span>
+                        <Show when={detail}>{(value) => <span class="block truncate text-xs text-dimmed">{value()}</span>}</Show>
+                      </span>
+                      <span class={`badge badge-sm ${state.badge}`}>{state.label}</span>
+                      <time class="shrink-0 text-xs text-dimmed" datetime={item.updatedAt}>
+                        {dates.formatDateTimeRelative(item.updatedAt, props.dateConfig)}
+                      </time>
+                    </div>
+                  );
+                }}
+              </For>
+              <Show when={status().recentCommands.length === 0}>
+                <Show when={status().sync.lastAt} fallback={<p class="px-3 py-4 text-sm text-dimmed">No maintenance activity yet.</p>}>
+                  {(lastAt) => (
+                    <div class="flex items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5">
+                      <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center">
+                        <i class="ti ti-circle-check" aria-hidden="true" />
+                      </span>
+                      <span class="min-w-0 flex-1 text-sm font-medium text-primary">Mailbox synchronized</span>
+                      <time class="shrink-0 text-xs text-dimmed" datetime={lastAt()}>
+                        {dates.formatDateTimeRelative(lastAt(), props.dateConfig)}
+                      </time>
+                    </div>
+                  )}
+                </Show>
+              </Show>
+            </div>
+          </section>
+        )}
+      </Show>
+
+      <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
+        <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 text-sm font-medium text-primary">
+          <span class="flex items-center gap-2">
+            <i class="ti ti-tool" aria-hidden="true" />
+            Advanced diagnostics and repairs
+          </span>
+          <i class="ti ti-chevron-down transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        <section class="flex flex-col gap-5 px-3 pb-3">
+          <Show when={operatorStatus()}>
+            {(status) => (
+              <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p class="text-xs font-semibold text-primary">Repair and projection coverage</p>
                   <p class="mt-1 text-xs text-dimmed">
@@ -282,124 +371,146 @@ export default function MailOperationalSettings(props: {
                   </For>
                 </div>
               </div>
-              <Show when={status().folders.length > 0}>
-                <div class="mt-3 flex flex-col gap-2">
-                  <p class="pb-1 text-xs font-semibold text-primary">Folder maintenance</p>
-                  <For each={status().folders}>
-                    {(folder) => (
-                      <div class="flex flex-wrap items-center gap-2 py-1">
-                        <span class="min-w-0 flex-1 break-all text-xs text-secondary">
-                          <span class="font-medium text-primary">{folder.id}</span> · {folder.discoveryState.replaceAll("_", " ")} ·{" "}
-                          {folder.syncStatus.replaceAll("_", " ")}
-                        </span>
-                        <For each={folder.actions}>
-                          {(action) => (
-                            <button
-                              type="button"
-                              class="btn-secondary btn-sm"
-                              disabled={busy() || !action.eligible}
-                              title={action.reason ?? actionLabel(action.kind)}
-                              onClick={() => operatorCommand.mutate(action)}
-                            >
-                              <i class="ti ti-tool" aria-hidden="true" /> {actionLabel(action.kind)}
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-              <Show when={status().attentionCommands.length > 0}>
-                <div class="mt-3 flex flex-col gap-2">
-                  <For each={status().attentionCommands}>
-                    {(item) => (
-                      <div class="flex flex-wrap items-center gap-2 py-2">
-                        <span class="min-w-0 flex-1 text-xs text-secondary">
-                          <span class="font-medium text-primary">{item.kind.replaceAll("_", " ")}</span> {item.state.replaceAll("_", " ")} ·{" "}
-                          {item.id}
-                          {item.errorCode ? ` · ${item.errorCode}` : ""}
-                        </span>
-                        <For each={item.actions.filter((action) => action.eligible)}>
-                          {(action) => (
-                            <button
-                              type="button"
-                              class="btn-secondary btn-sm"
-                              disabled={busy()}
-                              onClick={() => operatorCommand.mutate(action)}
-                            >
-                              {actionLabel(action.kind)}
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    )}
-                  </For>
-                  <Show when={status().nextAttentionCursor}>
-                    {(cursor) => (
+            )}
+          </Show>
+
+          <div class="flex flex-col gap-2">
+            <p class="text-xs font-semibold text-primary">Connected accounts</p>
+            <Show
+              when={props.bindings.some((binding) => binding.state !== "revoked")}
+              fallback={<p class="text-xs text-dimmed">No connected account. Connect a provider before running discovery.</p>}
+            >
+              <For each={props.bindings.filter((binding) => binding.state !== "revoked")}>
+                {(binding) => (
+                  <div class="flex flex-wrap items-center gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-3 py-2.5">
+                    <i class="ti ti-server text-lg text-dimmed" aria-hidden="true" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-medium text-primary">
+                        {binding.authenticatedPrincipal || "Remote mailbox"}
+                      </span>
+                      <span class="block text-xs text-dimmed">
+                        {binding.state.replaceAll("_", " ")}
+                        {binding.lastError ? ` · ${binding.lastError}` : ""}
+                      </span>
+                    </span>
+                    <Show
+                      when={binding.state === "pending"}
+                      fallback={
+                        <button
+                          type="button"
+                          class="btn-secondary btn-sm"
+                          disabled={busy()}
+                          onClick={() => command.mutate({ kind: "discover_folders", bindingId: binding.id })}
+                        >
+                          <i class="ti ti-folders" aria-hidden="true" /> Rediscover
+                        </button>
+                      }
+                    >
                       <button
                         type="button"
-                        class="btn-simple btn-sm self-center"
-                        disabled={loadMoreAttention.loading()}
-                        onClick={() => loadMoreAttention.mutate(cursor())}
+                        class="btn-primary btn-sm"
+                        disabled={busy()}
+                        onClick={() => command.mutate({ kind: "verify_binding", bindingId: binding.id })}
                       >
-                        <i class={loadMoreAttention.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"} aria-hidden="true" />
-                        Load more attention items
+                        <i class="ti ti-shield-check" aria-hidden="true" /> Verify connection
                       </button>
-                    )}
-                  </Show>
-                </div>
-              </Show>
-            </section>
-          </details>
-        )}
-      </Show>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
 
-      <Show
-        when={props.bindings.some((binding) => binding.state !== "revoked")}
-        fallback={
-          <Placeholder icon="ti ti-plug-off" title="No connected account" description="Connect a provider before running discovery." />
-        }
-      >
-        <div class="flex flex-col gap-2">
-          <For each={props.bindings.filter((binding) => binding.state !== "revoked")}>
-            {(binding) => (
-              <div class="paper flex items-center gap-3 p-3">
-                <i class="ti ti-server text-lg text-dimmed" aria-hidden="true" />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium text-primary">{binding.authenticatedPrincipal || "Remote mailbox"}</span>
-                  <span class="block text-xs text-dimmed">
-                    {binding.state.replaceAll("_", " ")}
-                    {binding.lastError ? ` · ${binding.lastError}` : ""}
-                  </span>
-                </span>
-                <Show
-                  when={binding.state === "pending"}
-                  fallback={
-                    <button
-                      type="button"
-                      class="btn-secondary btn-sm"
-                      disabled={busy()}
-                      onClick={() => command.mutate({ kind: "discover_folders", bindingId: binding.id })}
-                    >
-                      <i class="ti ti-folders" aria-hidden="true" /> Rediscover
-                    </button>
-                  }
-                >
-                  <button
-                    type="button"
-                    class="btn-primary btn-sm"
-                    disabled={busy()}
-                    onClick={() => command.mutate({ kind: "verify_binding", bindingId: binding.id })}
-                  >
-                    <i class="ti ti-shield-check" aria-hidden="true" /> Verify connection
-                  </button>
+          <Show when={operatorStatus()}>
+            {(status) => (
+              <>
+                <Show when={status().folders.length > 0}>
+                  <div class="flex flex-col gap-2">
+                    <p class="text-xs font-semibold text-primary">Folder maintenance</p>
+                    <div class="info-block-note flex items-start gap-2">
+                      <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
+                      <p>
+                        <strong>Sync folder</strong> fetches new and changed messages. <strong>Rebuild folder</strong> downloads the folder
+                        again from your mail provider. Try Sync first; use Rebuild when messages stay missing or outdated.
+                      </p>
+                    </div>
+                    <For each={status().folders}>
+                      {(folder) => (
+                        <div class="flex flex-wrap items-center gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-3 py-2">
+                          <span class="min-w-0 flex-1 text-xs text-secondary">
+                            <span class="block truncate font-medium text-primary">{folder.name}</span>
+                            <span>
+                              {folder.discoveryState.replaceAll("_", " ")} · {folder.syncStatus.replaceAll("_", " ")}
+                            </span>
+                          </span>
+                          <For each={folder.actions}>
+                            {(action) => (
+                              <button
+                                type="button"
+                                class="btn-secondary btn-sm"
+                                disabled={busy() || !action.eligible}
+                                title={action.reason ?? actionLabel(action.kind)}
+                                onClick={() => operatorCommand.mutate(action)}
+                              >
+                                <i class="ti ti-tool" aria-hidden="true" /> {actionLabel(action.kind)}
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      )}
+                    </For>
+                  </div>
                 </Show>
-              </div>
+
+                <Show when={status().attentionCommands.length > 0}>
+                  <div class="flex flex-col gap-2">
+                    <p class="text-xs font-semibold text-primary">Needs attention</p>
+                    <For each={status().attentionCommands}>
+                      {(item) => (
+                        <div class="flex flex-wrap items-center gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-3 py-2">
+                          <span class="min-w-0 flex-1 text-xs text-secondary">
+                            <span class="font-medium text-primary">{item.kind.replaceAll("_", " ")}</span> {item.state.replaceAll("_", " ")}{" "}
+                            · {item.id}
+                            {item.errorCode ? ` · ${item.errorCode}` : ""}
+                          </span>
+                          <For each={item.actions.filter((action) => action.eligible)}>
+                            {(action) => (
+                              <button
+                                type="button"
+                                class="btn-secondary btn-sm"
+                                disabled={busy()}
+                                onClick={() => operatorCommand.mutate(action)}
+                              >
+                                {actionLabel(action.kind)}
+                              </button>
+                            )}
+                          </For>
+                        </div>
+                      )}
+                    </For>
+                    <Show when={status().nextAttentionCursor}>
+                      {(cursor) => (
+                        <button
+                          type="button"
+                          class="btn-simple btn-sm self-center"
+                          disabled={loadMoreAttention.loading()}
+                          onClick={() => loadMoreAttention.mutate(cursor())}
+                        >
+                          <i
+                            class={loadMoreAttention.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"}
+                            aria-hidden="true"
+                          />
+                          Load more attention items
+                        </button>
+                      )}
+                    </Show>
+                  </div>
+                </Show>
+              </>
             )}
-          </For>
-        </div>
-      </Show>
+          </Show>
+        </section>
+      </details>
     </div>
   );
 }

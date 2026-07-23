@@ -1196,12 +1196,14 @@ export const mailboxOperatorOperationsSchema = z
     folders: z.array(
       z.object({
         id: z.string().uuid(),
+        name: z.string().min(1).max(1000),
         discoveryState: z.enum(["active", "missing", "ambiguous"]),
         syncStatus: z.string(),
         selectedForSync: z.boolean(),
         actions: z.array(operatorActionEligibilitySchema),
       })
     ),
+    recentCommands: z.array(redactedOperatorCommandSchema),
     attentionCommands: z.array(redactedOperatorCommandSchema),
     attentionCount: z.number().int().nonnegative(),
     nextAttentionCursor: z.string().nullable(),

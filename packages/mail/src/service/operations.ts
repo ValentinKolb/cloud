@@ -117,6 +117,7 @@ const encodeAttentionCursor = (row: DbAttentionCommand): string =>
 
 type DbFolder = {
   id: string;
+  name: string;
   discovery_state: "active" | "missing" | "ambiguous";
   sync_status: string;
   selected_for_sync: boolean;
@@ -261,11 +262,11 @@ const loadMailboxOperations = async (
     options.includeFolderActions === false
       ? []
       : await sql<DbFolder[]>`
-          SELECT folder.id, folder.discovery_state, folder.sync_status, folder.selected_for_sync
+          SELECT folder.id, folder.name, folder.discovery_state, folder.sync_status, folder.selected_for_sync
           FROM mail.folders folder
           JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
           WHERE resource.mailbox_id = ${mailboxId}::uuid
-          ORDER BY folder.id
+          ORDER BY lower(folder.name), folder.id
         `;
   const attentionLimit = Math.min(
     Math.max(options.attentionLimit ?? 100, 1),
@@ -284,6 +285,26 @@ const loadMailboxOperations = async (
   `;
   const hasMoreAttention = attentionCommandsPage.length > attentionLimit;
   const attentionCommands = attentionCommandsPage.slice(0, attentionLimit);
+  const recentCommands = await sql<DbAttentionCommand[]>`
+    SELECT id, kind, state, attempt, last_error_code, provider_effect_started_at, created_at, updated_at
+    FROM mail.commands
+    WHERE mailbox_id = ${mailboxId}::uuid
+      AND kind IN (
+        'sync_mailbox',
+        'sync_folder',
+        'discover_folders',
+        'verify_binding',
+        'rebuild_folder',
+        'hydrate_missing',
+        'rebuild_search',
+        'rebuild_threads',
+        'reconcile_effect',
+        'retry_command',
+        'cancel_command'
+      )
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 6
+  `;
   const activeActions = await sql<
     { kind: string; target: Record<string, string> | string }[]
   >`
@@ -406,6 +427,7 @@ const loadMailboxOperations = async (
     },
     folders: folders.map((folder) => ({
       id: folder.id,
+      name: folder.name,
       discoveryState: folder.discovery_state,
       syncStatus: folder.sync_status,
       selectedForSync: folder.selected_for_sync,
@@ -416,6 +438,17 @@ const loadMailboxOperations = async (
           duplicate(kind, { folderId: folder.id })
         )
       ),
+    })),
+    recentCommands: recentCommands.map((command) => ({
+      id: command.id,
+      kind: command.kind,
+      state: command.state,
+      attempt: Number(command.attempt),
+      errorCode: command.last_error_code,
+      providerEffectStarted: command.provider_effect_started_at !== null,
+      createdAt: toIso(command.created_at),
+      updatedAt: toIso(command.updated_at),
+      actions: [],
     })),
     attentionCommands: attentionCommands.map((command) => ({
       id: command.id,

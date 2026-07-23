@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  mailboxOperatorOperationsSchema,
-  platformMailboxOperationSummarySchema,
-  platformMailOperationsSchema,
-} from "../contracts";
+import { mailboxOperatorOperationsSchema, platformMailboxOperationSummarySchema, platformMailOperationsSchema } from "../contracts";
 
 const mailboxId = "00000000-0000-4000-8000-000000000001";
 
@@ -40,6 +36,7 @@ const snapshot = {
   },
   references: { configured: false, allocated: 0 },
   folders: [],
+  recentCommands: [],
   attentionCommands: [],
   attentionCount: 0,
   nextAttentionCursor: null,
@@ -67,27 +64,78 @@ describe("Mail operator read model contract", () => {
       mailboxOperatorOperationsSchema.safeParse({
         ...snapshot,
         subject: "Secret subject",
-      }).success
+      }).success,
     ).toBe(false);
     expect(
       mailboxOperatorOperationsSchema.safeParse({
         ...snapshot,
         providerEndpoint: "imap.example.com",
-      }).success
+      }).success,
     ).toBe(false);
   });
 
-  test("keeps a platform-wide attention total separate from the bounded mailbox page", () => {
+  test("accepts redacted recent maintenance activity", () => {
+    const recentCommand = {
+      id: "00000000-0000-4000-8000-000000000002",
+      kind: "sync_mailbox" as const,
+      state: "confirmed" as const,
+      attempt: 1,
+      errorCode: null,
+      providerEffectStarted: true,
+      createdAt: "2026-07-21T09:59:00.000Z",
+      updatedAt: "2026-07-21T10:00:00.000Z",
+      actions: [],
+    };
+
     expect(
-      platformMailboxOperationSummarySchema.parse(platformSummary)
-    ).toEqual(platformSummary);
+      mailboxOperatorOperationsSchema.parse({
+        ...snapshot,
+        recentCommands: [recentCommand],
+      }).recentCommands,
+    ).toEqual([recentCommand]);
+
+    expect(
+      mailboxOperatorOperationsSchema.safeParse({
+        ...snapshot,
+        recentCommands: [{ ...recentCommand, subject: "Secret subject" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  test("exposes a user-facing folder name without provider details", () => {
+    const folder = {
+      id: "00000000-0000-4000-8000-000000000003",
+      name: "Inbox",
+      discoveryState: "active" as const,
+      syncStatus: "current",
+      selectedForSync: true,
+      actions: [],
+    };
+
+    expect(
+      mailboxOperatorOperationsSchema.parse({
+        ...snapshot,
+        folders: [folder],
+      }).folders,
+    ).toEqual([folder]);
+
+    expect(
+      mailboxOperatorOperationsSchema.parse({
+        ...snapshot,
+        folders: [{ ...folder, remotePath: "INBOX" }],
+      }).folders,
+    ).toEqual([folder]);
+  });
+
+  test("keeps a platform-wide attention total separate from the bounded mailbox page", () => {
+    expect(platformMailboxOperationSummarySchema.parse(platformSummary)).toEqual(platformSummary);
     expect(
       platformMailOperationsSchema.parse({
         mailboxes: [platformSummary],
         attentionCount: 42,
         generatedAt: snapshot.generatedAt,
         nextCursor: null,
-      }).attentionCount
+      }).attentionCount,
     ).toBe(42);
   });
 });
