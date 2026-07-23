@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { crypto, err, fail, ok, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { User } from "../contracts/shared";
@@ -69,6 +70,7 @@ type DbCredentialRow = {
 };
 
 type DbCredentialWithSecretRow = DbCredentialRow & {
+  activity_due: boolean;
   secret_hash: string;
 } & DbCredentialServiceAccountFields;
 
@@ -97,6 +99,8 @@ type DbCredentialOverviewRow = DbCredentialRow &
 const TOKEN_PREFIX = "cld";
 const TOKEN_PATTERN = /^cld_([0-9a-f]{24})_([0-9a-f]{64})$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SECRET_HASH_PATTERN = /^sha256:([0-9a-f]{64})$/;
+const SUCCESS_ACTIVITY_INTERVAL_MS = 60_000;
 
 const isForeignKeyViolation = (error: unknown): boolean => {
   if (!error || typeof error !== "object") return false;
@@ -178,6 +182,24 @@ const generateTokenParts = (): { tokenPrefix: string; secret: string; token: str
   const tokenPrefix = crypto.common.generateKey(12);
   const secret = crypto.common.generateKey(32);
   return { tokenPrefix, secret, token: `${TOKEN_PREFIX}_${tokenPrefix}_${secret}` };
+};
+
+// API token secrets carry 256 bits of entropy, so a fast digest is sufficient and avoids password-KDF cost per request.
+const hashApiTokenSecret = (secret: string): string => `sha256:${createHash("sha256").update(secret).digest("hex")}`;
+
+const verifyApiTokenSecret = async (secret: string, storedHash: string): Promise<boolean> => {
+  const match = storedHash.match(SECRET_HASH_PATTERN);
+  if (match) {
+    const actual = Buffer.from(hashApiTokenSecret(secret).slice("sha256:".length), "hex");
+    const expected = Buffer.from(match[1]!, "hex");
+    return timingSafeEqual(actual, expected);
+  }
+
+  try {
+    return await Bun.password.verify(secret, storedHash);
+  } catch {
+    return false;
+  }
 };
 
 const generateUniqueTokenParts = async (): Promise<{ tokenPrefix: string; secret: string; token: string }> => {
@@ -302,7 +324,7 @@ const insertApiToken = async (
   }
 
   const parts = await generateUniqueTokenParts();
-  const secretHash = await Bun.password.hash(parts.secret);
+  const secretHash = hashApiTokenSecret(parts.secret);
 
   try {
     const [row] = await db<DbCredentialRow[]>`
@@ -656,6 +678,10 @@ const findActiveByTokenPrefix = async (tokenPrefix: string): Promise<DbCredentia
       c.scopes,
       c.expires_at,
       c.last_used_at,
+      (
+        c.last_used_at IS NULL
+        OR c.last_used_at < now() - (${SUCCESS_ACTIVITY_INTERVAL_MS} * interval '1 millisecond')
+      ) AS activity_due,
       c.created_by,
       c.created_at,
       c.revoked_at,
@@ -680,6 +706,70 @@ const findActiveByTokenPrefix = async (tokenPrefix: string): Promise<DbCredentia
   return row ?? null;
 };
 
+const recordSuccessfulAuthentication = async (params: {
+  row: DbCredentialWithSecretRow;
+  secret: string;
+  serviceAccount: ServiceAccount;
+  delegatedUser: User | null;
+}): Promise<void> => {
+  const upgradedSecretHash = SECRET_HASH_PATTERN.test(params.row.secret_hash) ? null : hashApiTokenSecret(params.secret);
+  if (!upgradedSecretHash && !params.row.activity_due) return;
+
+  await sql.begin(async (tx) => {
+    // Telemetry must never queue live requests behind another request updating the same credential.
+    const [locked] = await tx<{ activity_due: boolean; secret_hash: string }[]>`
+      SELECT
+        secret_hash,
+        (
+          last_used_at IS NULL
+          OR last_used_at < now() - (${SUCCESS_ACTIVITY_INTERVAL_MS} * interval '1 millisecond')
+        ) AS activity_due
+      FROM auth.service_account_credentials
+      WHERE id = ${params.row.id}::uuid
+        AND status = 'active'
+        AND (
+          (${upgradedSecretHash !== null} AND secret_hash = ${params.row.secret_hash})
+          OR last_used_at IS NULL
+          OR last_used_at < now() - (${SUCCESS_ACTIVITY_INTERVAL_MS} * interval '1 millisecond')
+        )
+      FOR UPDATE SKIP LOCKED
+    `;
+    if (!locked) return;
+
+    if (upgradedSecretHash && locked.secret_hash === params.row.secret_hash) {
+      await tx`
+        UPDATE auth.service_account_credentials
+        SET secret_hash = ${upgradedSecretHash}
+        WHERE id = ${params.row.id}::uuid
+      `;
+    }
+
+    if (!locked.activity_due) return;
+
+    const [activity] = await tx<{ last_used_at: Date }[]>`
+      UPDATE auth.service_account_credentials
+      SET last_used_at = now()
+      WHERE id = ${params.row.id}::uuid
+      RETURNING last_used_at
+    `;
+    if (!activity) return;
+
+    await audit.record(
+      {
+        action: "service_account_credential.authenticate",
+        outcome: "allowed",
+        actor: params.delegatedUser ? actorForUser(params.delegatedUser) : null,
+        target: { type: "service_account_credential", id: params.row.id, label: params.row.name },
+        metadata: {
+          serviceAccountId: params.row.service_account_id,
+          serviceAccountKind: params.serviceAccount.kind,
+        },
+      },
+      tx,
+    );
+  });
+};
+
 export const authenticateApiToken = async (token: string): Promise<AuthenticatedServiceAccountCredential | null> => {
   const parsed = parseToken(token);
   if (!parsed) return null;
@@ -695,7 +785,7 @@ export const authenticateApiToken = async (token: string): Promise<Authenticated
     return null;
   }
 
-  const valid = await Bun.password.verify(parsed.secret, row.secret_hash);
+  const valid = await verifyApiTokenSecret(parsed.secret, row.secret_hash);
   if (!valid) {
     await audit.record({
       action: "service_account_credential.authenticate",
@@ -720,27 +810,7 @@ export const authenticateApiToken = async (token: string): Promise<Authenticated
     return null;
   }
 
-  await sql.begin(async (tx) => {
-    await tx`
-      UPDATE auth.service_account_credentials
-      SET last_used_at = now()
-      WHERE id = ${row.id}::uuid
-    `;
-
-    await audit.record(
-      {
-        action: "service_account_credential.authenticate",
-        outcome: "allowed",
-        actor: delegatedUser ? actorForUser(delegatedUser) : null,
-        target: { type: "service_account_credential", id: row.id, label: row.name },
-        metadata: {
-          serviceAccountId: row.service_account_id,
-          serviceAccountKind: serviceAccount.kind,
-        },
-      },
-      tx,
-    );
-  });
+  await recordSuccessfulAuthentication({ row, secret: parsed.secret, serviceAccount, delegatedUser });
 
   return {
     credential: mapCredential({ ...row, last_used_at: new Date() }),
