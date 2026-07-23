@@ -72,7 +72,6 @@ export default function MailDetailsPanel(props: {
   const [commentBody, setCommentBody] = createSignal("");
   const [replyingTo, setReplyingTo] = createSignal<ConversationComment | null>(null);
   const [commentError, setCommentError] = createSignal<string | null>(null);
-  const [showAllActivity, setShowAllActivity] = createSignal(false);
   const [reminderDueAt, setReminderDueAt] = createSignal(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
   let confirmedState = props.initialState;
   let confirmedTagState = props.initialConversationLocalTags;
@@ -81,7 +80,6 @@ export default function MailDetailsPanel(props: {
   const latestMessage = () => props.messages.at(-1);
   const attachmentCount = () => props.messages.reduce((total, message) => total + message.attachments.length, 0);
   const activityItems = createMemo(() => presentMailActivity(props.activity));
-  const visibleActivity = createMemo(() => (showAllActivity() ? activityItems() : activityItems().slice(0, 8)));
   const addressList = (addresses: Array<{ name: string | null; address: string }>) =>
     addresses.map((address) => address.name || address.address).join(", ");
 
@@ -355,7 +353,6 @@ export default function MailDetailsPanel(props: {
         setCommentBody("");
         setReplyingTo(null);
         setCommentError(null);
-        setShowAllActivity(false);
       },
       { defer: true },
     ),
@@ -662,10 +659,16 @@ export default function MailDetailsPanel(props: {
         </section>
 
         <Show when={props.activity.length > 0}>
-          <section class="detail-section">
-            <h3 class="detail-section-label">Recent activity</h3>
-            <div class="flex flex-col gap-2">
-              <For each={visibleActivity()}>
+          <details class="detail-section group/recent-activity">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+              <span class="detail-section-label mb-0">Recent activity</span>
+              <i
+                class="ti ti-chevron-down text-dimmed transition-transform group-open/recent-activity:rotate-180"
+                aria-hidden="true"
+              />
+            </summary>
+            <div class="mt-3 flex max-h-56 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
+              <For each={activityItems()}>
                 {(event) => (
                   <div class="flex min-w-0 items-center gap-2 text-xs">
                     <i
@@ -683,12 +686,7 @@ export default function MailDetailsPanel(props: {
                 )}
               </For>
             </div>
-            <Show when={activityItems().length > 8}>
-              <button type="button" class="btn-simple btn-sm mt-2" onClick={() => setShowAllActivity((value) => !value)}>
-                {showAllActivity() ? "Show less" : `Show all ${activityItems().length}`}
-              </button>
-            </Show>
-          </section>
+          </details>
         </Show>
 
         <details class="detail-section group/mail-details">
