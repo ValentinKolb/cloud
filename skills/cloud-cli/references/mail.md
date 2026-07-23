@@ -16,6 +16,7 @@ Mailbox deletion is reversible. It retains the Cloud mirror and never deletes pr
 ```bash
 cld mail delete <mailbox-id> --yes
 cld --json mail mailbox deleted list
+cld --json mail mailbox deleted get <mailbox-id>
 cld mail mailbox restore <mailbox-id> --yes
 cld --json mail status --mailbox <mailbox-id>
 cld mail rediscover --mailbox <mailbox-id> --wait
@@ -172,9 +173,15 @@ cld --json mail tag create "Priority"
 cld --json mail tag list
 cld --json mail tag rename <tag-id> "Urgent" --revision <tag-revision>
 cld --json mail conversation tag set <conversation-id> --revision <conversation-revision> --tag <tag-id>
+cld --json mail conversation tag add \
+  --conversation <conversation-id> \
+  --conversation <second-conversation-id> \
+  --tag <tag-id>
 cld --json mail conversation tag list <conversation-id>
 cld --json mail tag delete <tag-id> --revision <tag-revision> --yes
 ```
+
+`conversation tag set` replaces the complete tag set for one revision-fenced conversation. `conversation tag add` is an idempotent additive bulk operation for up to 50 conversations and 50 tags; existing assignments remain unchanged.
 
 Add, edit, or tombstone internal Markdown comments:
 
@@ -547,6 +554,55 @@ Then send the same version, occurrence time, inputs, and query to `/invoke`, `/o
 
 The server recomputes the preflight in the execution transaction. A changed target snapshot, precondition, query, input, catalog binding, version, or budget makes the hash stale and prevents the run from being created.
 
+## Compose templates and previews
+
+List, create, update, and archive mailbox or private signatures and snippets:
+
+```bash
+cld --json mail compose template list
+cld --json mail compose template create \
+  --kind snippet \
+  --scope mailbox \
+  --name "Meeting details" \
+  --shortcut meeting \
+  --body-file meeting.md
+cld --json mail compose template update <template-id> --revision <revision> --body-file meeting.md
+cld mail compose template archive <template-id> --revision <revision> --yes
+```
+
+Compose rendering needs the same editable draft context as the Mail composer. Store it as JSON so recipients, sender identity, subject, format, and body remain explicit:
+
+```json
+{
+  "senderIdentityId": "<identity-id>",
+  "to": [{ "name": null, "address": "recipient@example.com" }],
+  "cc": [],
+  "bcc": [],
+  "subject": "Example",
+  "body": "Hello",
+  "format": "markdown"
+}
+```
+
+Render one template, query rendered slash-command suggestions, or preview the final HTML and plaintext:
+
+```bash
+cld --json mail compose snippet render <template-id> --draft-file draft.json
+cld --json mail compose suggestions meet --draft-file draft.json
+cld --json mail compose preview --draft-file draft.json
+```
+
+Pass `--conversation <conversation-id>` when the compose context belongs to an existing thread. `compose suggestions` accepts an empty query when you omit its optional positional argument.
+
+Set a personal or mailbox-wide default signature for a sender identity and manage the validated mailbox CSS:
+
+```bash
+cld --json mail compose signature list
+cld --json mail compose signature default <identity-id> --scope private --template <template-id>
+cld --json mail compose style get
+cld --json mail compose style set --css-file mail.css
+```
+
 ## Draft and send
 
 Create or replace a revision-checked shared draft:
@@ -563,6 +619,26 @@ cld --json mail draft update <draft-id> \
   --identity <identity-id> \
   --to recipient@example.com \
   --subject "Updated subject" \
+  --body-file body.md
+```
+
+List all active drafts or only the drafts attached to one conversation:
+
+```bash
+cld --json mail draft list
+cld --json mail conversation drafts <conversation-id> --limit 20
+```
+
+For a forward, copy the source message's eligible attachments into the new draft explicitly:
+
+```bash
+cld --json mail draft create \
+  --identity <identity-id> \
+  --conversation <conversation-id> \
+  --intent forward \
+  --source-message <message-id> \
+  --include-source-attachments \
+  --subject "Fwd: Message subject" \
   --body-file body.md
 ```
 
@@ -705,6 +781,15 @@ Download a complete attachment or an explicit byte range:
 ```bash
 cld --json mail attachment download <message-id> <attachment-id> --out attachment.bin
 cld --json mail attachment download <message-id> <attachment-id> --offset 0 --length 1048576 --out first-megabyte.bin
+```
+
+Create a revocable public link for a mirrored message attachment or a draft attachment. Passwords are accepted only from stdin or a file:
+
+```bash
+cld --json mail attachment link create <message-id> <attachment-id> --source message --expires-at <ISO-timestamp>
+cld --json mail attachment link create <draft-id> <attachment-id> --source draft --password-stdin
+cld --json mail attachment link list
+cld mail attachment link revoke <link-id> --yes
 ```
 
 ## Two-account smoke test

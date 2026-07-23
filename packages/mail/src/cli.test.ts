@@ -124,6 +124,46 @@ test("conversation context commands use the Contacts integration API", async () 
   expect(results.every((result) => result.exitCode === 0 && result.stderr === "")).toBe(true);
 });
 
+test("conversation drafts lists resumable work for one conversation", async () => {
+  const drafts = [
+    {
+      id: DRAFT_ID,
+      intent: "reply",
+      subject: "Re: Support request",
+      bodyPreview: "We are looking into this.",
+      createdByDisplayName: "Writer",
+      updatedAt: "2026-07-23T09:00:00.000Z",
+    },
+  ];
+  let requestedPath = "";
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    requestedPath = `${url.pathname}${url.search}`;
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/drafts`) {
+      return api(drafts);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "drafts",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--limit",
+    "12",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(requestedPath).toBe(`/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/drafts?limit=12`);
+  expect(JSON.parse(result.stdout)).toEqual(drafts);
+});
+
 test("mailbox configure maps automatic reply access to the mailbox policy", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
@@ -285,11 +325,22 @@ test("compose template and style commands preserve exact source input", async ()
     createdAt: "2026-07-17T00:00:00.000Z",
     updatedAt: "2026-07-17T00:00:00.000Z",
   };
+  const signatureDefault = {
+    mailboxId: MAILBOX_ID,
+    senderIdentityId: IDENTITY_ID,
+    userId: null,
+    templateId: COMPOSE_TEMPLATE_ID,
+    revision: 1,
+    updatedAt: "2026-07-17T00:00:00.000Z",
+  };
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
     const body = request.method === "GET" ? null : await request.json();
     requests.push({ method: request.method, path: url.pathname, body });
     if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/compose-templates` && request.method === "POST") return api(template);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/compose-signature-defaults` && request.method === "GET") {
+      return api([signatureDefault]);
+    }
     if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/compose-style` && request.method === "GET") {
       return api({ mailboxId: MAILBOX_ID, customCss: "", revision: 1, updatedAt: "2026-07-17T00:00:00.000Z" });
     }
@@ -332,9 +383,20 @@ test("compose template and style commands preserve exact source input", async ()
     ["--json", "mail", "compose", "style", "set", "--mailbox", MAILBOX_ID, "--css-stdin"],
     ".mail-content { color: #123456; }",
   );
+  const defaults = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "compose",
+    "signature",
+    "list",
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
 
   expect(created.exitCode).toBe(0);
   expect(styled.exitCode).toBe(0);
+  expect(defaults.exitCode).toBe(0);
+  expect(JSON.parse(defaults.stdout)).toEqual([signatureDefault]);
   expect(requests).toEqual([
     {
       method: "POST",
@@ -353,7 +415,94 @@ test("compose template and style commands preserve exact source input", async ()
       path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-style`,
       body: { expectedRevision: 1, customCss: ".mail-content { color: #123456; }" },
     },
+    {
+      method: "GET",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-signature-defaults`,
+      body: null,
+    },
   ]);
+});
+
+test("compose rendering commands send one validated draft context", async () => {
+  const requests: Array<{ path: string; body: unknown }> = [];
+  const draft = {
+    senderIdentityId: IDENTITY_ID,
+    to: [{ name: null, address: "recipient@example.com" }],
+    cc: [],
+    bcc: [],
+    subject: "Hello",
+    body: "Draft body",
+    format: "markdown",
+  };
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method !== "POST") return api({ message: "unexpected" }, { status: 500 });
+    requests.push({ path: url.pathname, body: await request.json() });
+    if (url.pathname.endsWith("/compose-snippet")) return api({ markdown: "Rendered snippet" });
+    if (url.pathname.endsWith("/compose-suggestions")) {
+      return api([
+        {
+          templateId: COMPOSE_TEMPLATE_ID,
+          name: "Greeting",
+          shortcut: "hello",
+          kind: "snippet",
+          markdown: "Rendered greeting",
+        },
+      ]);
+    }
+    if (url.pathname.endsWith("/compose-preview")) return api({ html: "<p>Draft body</p>", text: "Draft body" });
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+  const input = JSON.stringify(draft);
+
+  const snippet = await runCli(
+    origin,
+    [
+      "--json",
+      "mail",
+      "compose",
+      "snippet",
+      "render",
+      COMPOSE_TEMPLATE_ID,
+      "--mailbox",
+      MAILBOX_ID,
+      "--conversation",
+      CONVERSATION_ID,
+      "--draft-stdin",
+    ],
+    input,
+  );
+  const suggestions = await runCli(
+    origin,
+    ["--json", "mail", "compose", "suggestions", "gre", "--mailbox", MAILBOX_ID, "--conversation", CONVERSATION_ID, "--draft-stdin"],
+    input,
+  );
+  const preview = await runCli(
+    origin,
+    ["--json", "mail", "compose", "preview", "--mailbox", MAILBOX_ID, "--conversation", CONVERSATION_ID, "--draft-stdin"],
+    input,
+  );
+
+  expect([snippet, suggestions, preview].every((result) => result.exitCode === 0 && result.stderr === "")).toBe(true);
+  expect(requests).toEqual([
+    {
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-snippet`,
+      body: { templateId: COMPOSE_TEMPLATE_ID, draft, conversationId: CONVERSATION_ID },
+    },
+    {
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-suggestions`,
+      body: { query: "gre", draft, conversationId: CONVERSATION_ID },
+    },
+    {
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-preview`,
+      body: { draft, conversationId: CONVERSATION_ID },
+    },
+  ]);
+  expect(JSON.parse(snippet.stdout)).toEqual({ markdown: "Rendered snippet" });
+  expect(JSON.parse(suggestions.stdout)[0]).toMatchObject({ shortcut: "hello", markdown: "Rendered greeting" });
+  expect(JSON.parse(preview.stdout)).toEqual({ html: "<p>Draft body</p>", text: "Draft body" });
 });
 
 test("local tag CLI creates catalog entries and fences conversation assignments", async () => {
@@ -411,6 +560,54 @@ test("local tag CLI creates catalog entries and fences conversation assignments"
   ]);
 });
 
+test("conversation tag add exposes bounded additive bulk assignment", async () => {
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/local-tags`) {
+      requestBody = await request.json();
+      return api({
+        updatedConversationIds: [CONVERSATION_ID],
+        unchangedConversationIds: [SOURCE_CONVERSATION_ID],
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "tag",
+    "add",
+    "--mailbox",
+    MAILBOX_ID,
+    "--conversation",
+    CONVERSATION_ID,
+    "--conversation",
+    SOURCE_CONVERSATION_ID,
+    "--conversation",
+    CONVERSATION_ID,
+    "--tag",
+    TAG_ID,
+    "--tag",
+    COMPOSE_TEMPLATE_ID,
+    "--tag",
+    TAG_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(requestBody).toEqual({
+    conversationIds: [CONVERSATION_ID, SOURCE_CONVERSATION_ID],
+    tagIds: [TAG_ID, COMPOSE_TEMPLATE_ID],
+  });
+  expect(JSON.parse(result.stdout)).toEqual({
+    updatedConversationIds: [CONVERSATION_ID],
+    unchangedConversationIds: [SOURCE_CONVERSATION_ID],
+  });
+});
+
 test("reference config set preserves unspecified settings", async () => {
   let requestBody: unknown;
   const current = {
@@ -459,7 +656,7 @@ test("reference config set preserves unspecified settings", async () => {
   expect(JSON.parse(result.stdout)).toEqual(updated);
 });
 
-test("deleted mailbox CLI lists and restores retained mailboxes", async () => {
+test("deleted mailbox CLI lists, reads, and restores retained mailboxes", async () => {
   const requests: Array<{ method: string; path: string }> = [];
   const deleted = { ...mailbox, deletedAt: "2026-07-16T12:00:00.000Z", permission: "admin" };
   const server = withMailbox((request) => {
@@ -467,6 +664,7 @@ test("deleted mailbox CLI lists and restores retained mailboxes", async () => {
     requests.push({ method: request.method, path: `${url.pathname}${url.search}` });
     if (request.method === "GET" && url.pathname === "/api/mail/mailboxes/deleted")
       return api({ items: [deleted], nextCursor: "next-page" });
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/deleted`) return api(deleted);
     if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/restore`) {
       return api({ ...mailbox, health: "paused", healthReason: "Mailbox restored", syncEnabled: false });
     }
@@ -475,13 +673,17 @@ test("deleted mailbox CLI lists and restores retained mailboxes", async () => {
   servers.push(server);
 
   const listed = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "mailbox", "deleted", "list"]);
+  const read = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "mailbox", "deleted", "get", MAILBOX_ID]);
   const restored = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "mailbox", "restore", MAILBOX_ID, "--yes"]);
 
   expect(listed.exitCode).toBe(0);
   expect(JSON.parse(listed.stdout)).toEqual({ items: [deleted], nextCursor: "next-page" });
+  expect(read.exitCode).toBe(0);
+  expect(JSON.parse(read.stdout)).toEqual(deleted);
   expect(restored.exitCode).toBe(0);
   expect(JSON.parse(restored.stdout)).toMatchObject({ id: MAILBOX_ID, health: "paused", syncEnabled: false });
   expect(requests).toContainEqual({ method: "GET", path: "/api/mail/mailboxes/deleted?limit=100" });
+  expect(requests).toContainEqual({ method: "GET", path: `/api/mail/mailboxes/${MAILBOX_ID}/deleted` });
   expect(requests).toContainEqual({ method: "POST", path: `/api/mail/mailboxes/${MAILBOX_ID}/restore` });
 });
 
@@ -1402,6 +1604,68 @@ test("send carries reply context and can wait for delivery", async () => {
   expect(bodies[0]).toMatchObject({ conversationId: CONVERSATION_ID, body: "Reply body" });
   expect(bodies[1]).toMatchObject({ kind: "send", expectedDraftRevision: 1, undoSeconds: 0 });
   expect(JSON.parse(result.stdout).command.state).toBe("confirmed");
+});
+
+test("draft create can include source attachments for a forward", async () => {
+  let requestBody: unknown;
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/drafts`) {
+      requestBody = await request.json();
+      return api({
+        id: DRAFT_ID,
+        mailboxId: MAILBOX_ID,
+        conversationId: CONVERSATION_ID,
+        senderIdentityId: IDENTITY_ID,
+        to: [],
+        cc: [],
+        bcc: [],
+        subject: "Fwd: CLI test",
+        body: "Forward body",
+        format: "markdown",
+        revision: 1,
+        state: "draft",
+        attachments: [],
+        createdAt: "2026-07-23T00:00:00.000Z",
+        updatedAt: "2026-07-23T00:00:00.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(
+    `http://127.0.0.1:${server.port}`,
+    [
+      "--json",
+      "mail",
+      "draft",
+      "create",
+      "--mailbox",
+      MAILBOX_ID,
+      "--identity",
+      IDENTITY_ID,
+      "--conversation",
+      CONVERSATION_ID,
+      "--intent",
+      "forward",
+      "--source-message",
+      MESSAGE_ID,
+      "--include-source-attachments",
+      "--subject",
+      "Fwd: CLI test",
+      "--body-stdin",
+    ],
+    "Forward body",
+  );
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(requestBody).toMatchObject({
+    conversationId: CONVERSATION_ID,
+    intent: "forward",
+    sourceMessageId: MESSAGE_ID,
+    includeSourceAttachments: true,
+  });
 });
 
 test("provider credentials are accepted from stdin and never printed", async () => {

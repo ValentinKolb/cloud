@@ -22,7 +22,9 @@ import {
   type CancelScheduledSendResult,
   type ComposePreview,
   type ComposeSignatureDefault,
+  type ComposeSuggestion,
   type ComposeTemplate,
+  type ConversationDraftSummary,
   type CreatedAttachmentLink,
   createAutomaticReplyConfigurationSchema,
   type DeletedMailbox,
@@ -72,7 +74,7 @@ import type {
   EnsureConversationReferenceResult,
 } from "./service/conversation-reference";
 import type { MergeConversationsResult, ReassignConversationMessageResult, SplitConversationResult } from "./service/conversations";
-import type { ConversationLocalTags, LocalTag } from "./service/local-tags";
+import type { AddConversationLocalTagsResult, ConversationLocalTags, LocalTag } from "./service/local-tags";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { DiscoveredMailConfiguration } from "./service/onboarding-discovery";
 import type { ConversationReminder } from "./service/reminders";
@@ -514,6 +516,13 @@ const draftEditableContentFlags = {
   format: flag.enum(["plain", "markdown"] as const, { default: "markdown" }),
 };
 
+const composeDraftInputFlag = flag.input({
+  required: true,
+  stdinName: "draft-stdin",
+  fileName: "draft-file",
+  description: "Draft JSON with sender identity, recipients, subject, body, and format",
+});
+
 const draftContentFlags = {
   ...draftEditableContentFlags,
   conversation: flag.string({
@@ -525,6 +534,10 @@ const draftContentFlags = {
   sourceMessage: flag.string({
     name: "source-message",
     description: "Source message id for reply or forward drafts",
+  }),
+  includeSourceAttachments: flag.boolean({
+    name: "include-source-attachments",
+    description: "Copy source-message attachments into a forward draft",
   }),
 };
 
@@ -558,13 +571,30 @@ const readDraftContent = async (
     conversation?: string;
     intent?: DraftIntent;
     sourceMessage?: string;
+    includeSourceAttachments: boolean;
   },
 ) => ({
   ...(await readDraftEditableContent(flags)),
   conversationId: flags.conversation,
   intent: flags.intent,
   sourceMessageId: flags.sourceMessage,
+  ...(flags.includeSourceAttachments ? { includeSourceAttachments: true } : {}),
 });
+
+const readComposeDraftInput = async (input: Parameters<typeof readCliInput>[0]) => {
+  const source = await readCliInput(input, {
+    label: "draft JSON",
+    required: true,
+  });
+  if (!source) throw new Error("Draft input is empty.");
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch {
+    throw new Error("Draft input must be valid JSON.");
+  }
+  return draftEditableContentInputSchema.parse(value);
+};
 
 const createDraft = async (ctx: CloudCliContext, mailboxId: string, flags: Parameters<typeof readDraftContent>[0]): Promise<MailDraft> =>
   readApi(ctx, `/mailboxes/${mailboxId}/drafts`, jsonRequest("POST", await readDraftContent(flags)));
@@ -1278,6 +1308,19 @@ export default defineCliCommands({
         if (ctx.options.output === "text" && page.nextCursor) ctx.print(`Next cursor: ${page.nextCursor}`);
       },
     }),
+    command("mailbox deleted get", {
+      summary: "Show one recoverable deleted mailbox",
+      args: { mailboxId: arg.required({ description: "Deleted mailbox id" }) },
+      run: async ({ ctx, args }) => {
+        if (!isUuid(args.mailboxId)) throw new Error("Mailbox id must be a UUID.");
+        const mailbox = await readApi<DeletedMailbox>(ctx, `/mailboxes/${args.mailboxId}/deleted`);
+        if (printStructured(ctx, mailbox)) return;
+        ctx.print(`${mailbox.name} (${mailbox.id})`);
+        ctx.print(`Deleted at: ${mailbox.deletedAt}`);
+        ctx.print(`Health: ${mailbox.health}${mailbox.healthReason ? ` - ${mailbox.healthReason}` : ""}`);
+        ctx.print(`Synchronization: ${mailbox.syncEnabled ? "enabled" : "paused"}`);
+      },
+    }),
     command("mailbox restore", {
       summary: "Restore a deleted mailbox in paused diagnostic state",
       args: { mailboxId: arg.required({ description: "Deleted mailbox id" }) },
@@ -1321,7 +1364,7 @@ export default defineCliCommands({
       },
     }),
     command("configure", {
-      summary: "Update mailbox identity or search ranking",
+      summary: "Update mailbox settings",
       flags: {
         ...mailboxFlag,
         name: flag.string({ description: "New mailbox name" }),
@@ -1495,6 +1538,78 @@ export default defineCliCommands({
         ctx.print(`Archived compose template ${args.templateId}.`);
       },
     }),
+    command("compose snippet render", {
+      summary: "Render a visible signature or snippet for a draft",
+      args: {
+        templateId: arg.required({ description: "Compose template id" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        draft: composeDraftInputFlag,
+        conversation: flag.string({
+          description: "Optional conversation id for compose context",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const rendered = await readApi<{ markdown: string }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/compose-snippet`,
+          jsonRequest("POST", {
+            templateId: args.templateId,
+            draft: await readComposeDraftInput(flags.draft),
+            conversationId: flags.conversation ?? null,
+          }),
+        );
+        if (printStructured(ctx, rendered)) return;
+        ctx.print(rendered.markdown);
+      },
+    }),
+    command("compose suggestions", {
+      summary: "List rendered signatures and snippets matching a shortcut or name",
+      args: {
+        query: arg.optional({
+          description: "Shortcut or template name fragment; omit to list all suggestions",
+        }),
+      },
+      flags: {
+        ...mailboxFlag,
+        draft: composeDraftInputFlag,
+        conversation: flag.string({
+          description: "Optional conversation id for compose context",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const suggestions = await readApi<ComposeSuggestion[]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/compose-suggestions`,
+          jsonRequest("POST", {
+            query: args.query ?? "",
+            draft: await readComposeDraftInput(flags.draft),
+            conversationId: flags.conversation ?? null,
+          }),
+        );
+        printTable(
+          ctx,
+          suggestions,
+          suggestions.map((suggestion) => ({
+            shortcut: `/${suggestion.shortcut}`,
+            kind: suggestion.kind,
+            name: suggestion.name,
+            markdown: suggestion.markdown,
+            id: suggestion.templateId,
+          })),
+          [
+            { key: "shortcut", label: "SHORTCUT" },
+            { key: "kind", label: "KIND" },
+            { key: "name", label: "NAME" },
+            { key: "markdown", label: "RENDERED MARKDOWN" },
+            { key: "id", label: "TEMPLATE ID" },
+          ],
+        );
+      },
+    }),
     command("compose signature default", {
       summary: "Set or clear a personal or mailbox default signature",
       args: {
@@ -1527,6 +1642,30 @@ export default defineCliCommands({
         );
         if (printStructured(ctx, next)) return;
         ctx.print(next ? `Set ${scope} signature default to ${next.templateId}.` : `Cleared ${scope} signature default.`);
+      },
+    }),
+    command("compose signature list", {
+      summary: "List personal and mailbox default signatures",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const defaults = await readApi<ComposeSignatureDefault[]>(ctx, `/mailboxes/${mailbox.id}/compose-signature-defaults`);
+        printTable(
+          ctx,
+          defaults,
+          defaults.map((entry) => ({
+            scope: entry.userId === null ? "mailbox" : "private",
+            senderIdentityId: entry.senderIdentityId,
+            templateId: entry.templateId,
+            revision: entry.revision,
+          })),
+          [
+            { key: "scope", label: "SCOPE" },
+            { key: "senderIdentityId", label: "SENDER IDENTITY ID" },
+            { key: "templateId", label: "TEMPLATE ID" },
+            { key: "revision", label: "REV" },
+          ],
+        );
       },
     }),
     command("compose style get", {
@@ -1569,31 +1708,20 @@ export default defineCliCommands({
       summary: "Render a draft payload through the canonical email pipeline",
       flags: {
         ...mailboxFlag,
-        draft: flag.input({
-          required: true,
-          stdinName: "draft-stdin",
-          fileName: "draft-file",
-          description: "Draft JSON with sender identity, recipients, subject, body, and format",
+        draft: composeDraftInputFlag,
+        conversation: flag.string({
+          description: "Optional conversation id for compose context",
         }),
       },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const source = await readCliInput(flags.draft, {
-          label: "draft JSON",
-          required: true,
-        });
-        if (!source) throw new Error("Draft input is empty.");
-        let value: unknown;
-        try {
-          value = JSON.parse(source);
-        } catch {
-          throw new Error("Draft input must be valid JSON.");
-        }
-        const draft = draftEditableContentInputSchema.parse(value);
         const preview = await readApi<ComposePreview>(
           ctx,
           `/mailboxes/${mailbox.id}/compose-preview`,
-          jsonRequest("POST", { draft, conversationId: null }),
+          jsonRequest("POST", {
+            draft: await readComposeDraftInput(flags.draft),
+            conversationId: flags.conversation ?? null,
+          }),
         );
         if (printStructured(ctx, preview)) return;
         ctx.print(preview.html);
@@ -2614,6 +2742,43 @@ export default defineCliCommands({
         );
       },
     }),
+    command("conversation drafts", {
+      summary: "List active drafts attached to a conversation",
+      args: {
+        conversationId: arg.required({ description: "Conversation id" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        limit: flag.int({ min: 1, max: 50, default: 20 }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const drafts = await readApi<ConversationDraftSummary[]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/drafts?limit=${flags.limit ?? 20}`,
+        );
+        printTable(
+          ctx,
+          drafts,
+          drafts.map((draft) => ({
+            updated: draft.updatedAt,
+            author: draft.createdByDisplayName,
+            intent: draft.intent,
+            subject: draft.subject,
+            preview: draft.bodyPreview,
+            id: draft.id,
+          })),
+          [
+            { key: "updated", label: "UPDATED" },
+            { key: "author", label: "AUTHOR" },
+            { key: "intent", label: "INTENT" },
+            { key: "subject", label: "SUBJECT" },
+            { key: "preview", label: "PREVIEW" },
+            { key: "id", label: "DRAFT ID" },
+          ],
+        );
+      },
+    }),
     command("conversation merge", {
       summary: "Merge one conversation into another and pin the resulting thread",
       args: {
@@ -2825,6 +2990,40 @@ export default defineCliCommands({
         }
       },
     }),
+    command("conversation tag add", {
+      summary: "Add local tags to one or more conversations",
+      flags: {
+        ...mailboxFlag,
+        conversation: flag.stringList({
+          description: "Conversation id; repeatable; maximum 50",
+        }),
+        tag: flag.stringList({
+          description: "Local tag id; repeatable; maximum 50",
+        }),
+      },
+      run: async ({ ctx, flags }) => {
+        const conversationIds = [...new Set(flags.conversation)];
+        const tagIds = [...new Set(flags.tag)];
+        if (conversationIds.length === 0) throw new Error("Pass at least one --conversation.");
+        if (tagIds.length === 0) throw new Error("Pass at least one --tag.");
+        if (conversationIds.length > 50) throw new Error("Pass at most 50 unique conversations.");
+        if (tagIds.length > 50) throw new Error("Pass at most 50 unique tags.");
+        const invalidConversationId = conversationIds.find((id) => !isUuid(id));
+        if (invalidConversationId) throw new Error(`Conversation id must be a UUID: ${invalidConversationId}`);
+        const invalidTagId = tagIds.find((id) => !isUuid(id));
+        if (invalidTagId) throw new Error(`Tag id must be a UUID: ${invalidTagId}`);
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const result = await readApi<AddConversationLocalTagsResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/local-tags`,
+          jsonRequest("POST", { conversationIds, tagIds }),
+        );
+        if (printStructured(ctx, result)) return;
+        ctx.print(
+          `Added ${tagIds.length} tag(s) to ${result.updatedConversationIds.length} conversation(s); ${result.unchangedConversationIds.length} unchanged.`,
+        );
+      },
+    }),
     command("conversation tag set", {
       summary: "Replace the Cloud-local tags assigned to a conversation",
       args: {
@@ -2860,7 +3059,7 @@ export default defineCliCommands({
       },
     }),
     command("conversation update", {
-      summary: "Update assignment, queue state, response-needed, or snooze",
+      summary: "Update assignment, work state, or snooze",
       args: {
         conversationId: arg.required({ description: "Conversation id" }),
       },
