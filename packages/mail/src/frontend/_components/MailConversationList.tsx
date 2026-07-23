@@ -463,9 +463,9 @@ export default function MailConversationList(props: {
                         </span>
                         <span class="mail-list-preview">{item.preview || "\u00a0"}</span>
                       </span>
-                      <span class="mail-list-meta transition-opacity group-focus-within:opacity-0 group-hover:opacity-0">
+                      <span class="mail-list-meta">
                         <time
-                          class="shrink-0 tabular-nums"
+                          class="shrink-0 tabular-nums transition-opacity group-focus-within:opacity-0 group-hover:opacity-0 [@media(hover:none)]:opacity-0"
                           dateTime={item.latestMessageAt}
                           title={dates.formatDateTime(item.latestMessageAt, props.dateConfig)}
                         >
@@ -511,12 +511,12 @@ export default function MailConversationList(props: {
                       </span>
                     </a>
                     <Show when={props.canWrite && !props.selectionMode && item.conversationId}>
-                      <div class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                      <div class="absolute right-3 top-2 z-10 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
                         <Dropdown
                           trigger={
                             <button
                               type="button"
-                              class="icon-btn icon-btn-sm bg-[var(--ui-surface)]"
+                              class="icon-btn icon-btn-sm"
                               aria-label={`Actions for ${item.subject || "conversation"}`}
                             >
                               <i class="ti ti-dots" aria-hidden="true" />
