@@ -23,7 +23,7 @@ The format selector applies to the current draft:
 - **Plain text** has no Preview pane and sends no HTML alternative.
 :::
 
-Your default format is stored under **Settings > Preferences > Compose format**. Changing the default does not rewrite existing drafts.
+Your default format is stored under **Settings > Writing > Compose format**. Changing the default does not rewrite existing drafts.
 
 ## Resume an existing conversation draft {icon="pencil"}
 
@@ -46,7 +46,7 @@ Type `/` in the body to search available signatures and snippets. The selected t
 
 When a verified sender has a default signature, new drafts insert it automatically. A personal default overrides the mailbox default for that sender. The inserted source remains editable; signatures are not mandatory or locked.
 
-Administrators manage templates, defaults, and mailbox CSS under **Settings > Compose**. Markdown preview uses the same rendering path as delivery, including the built-in readable design and safe mailbox CSS overrides.
+Administrators manage templates and defaults under **Settings > Writing**. Choose **Edit design** there to open the mailbox CSS editor. Its preview updates from the current unsaved CSS, while the composer Preview uses the same rendering path as delivery.
 
 ## Attach files {icon="paperclip"}
 
@@ -58,7 +58,7 @@ When forwarding a message with attachments, **Include original attachments** app
 
 ## Send now, undo, or schedule delivery {icon="send"}
 
-Select the main action button to queue delivery now. If **Undo send window** is greater than zero under **Settings > Preferences**, Mail delays immediate delivery for that many seconds and offers an undo route through **Scheduled**. The setting can be between 0 and 60 seconds.
+Select the main action button to queue delivery now. If **Undo send window** is greater than zero under **Settings > Writing**, Mail delays immediate delivery for that many seconds and offers an undo route through **Scheduled**. The setting can be between 0 and 60 seconds.
 
 Select the clock side of the split action button to open **Schedule delivery**. Choose a time at least one minute in the future. The dialog shows the effective mailbox time zone and the exact delivery time.
 

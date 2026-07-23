@@ -10,21 +10,22 @@ Mailbox administrators manage the provider connection and the Cloud policies aro
 
 ## Know which settings are personal {icon="settings"}
 
-All mailbox readers can access settings that apply to themselves:
+Settings are grouped by intent:
 
-- **Preferences** stores the default compose format and Undo Send window on the current device.
-- **Views & tags** manages private saved views. Writers can also create shared views and mailbox-local tags.
-- **Compose** is available to writers and administrators for private templates and personal signature defaults. Mailbox templates, mailbox defaults, and email design require Admin access.
+- **Organization** is available to readers for private saved views. Writers can also create shared views and mailbox tags.
+- **Mailbox** is the first category for administrators and controls the shared name and description.
+- **Writing** is available to writers and administrators. It contains personal writing preferences, templates, signature defaults, and the email-design editor. Mailbox-wide content and design require Admin access.
+- **Mailbox**, **Delivery**, **Folders**, **Access**, and **Danger zone** are available only to mailbox administrators.
 
-The remaining tabs are visible only to mailbox administrators.
+Operational status and public attachment links are separate from configuration. Open them from **Mailbox tools** in the mailbox navigation.
 
 ## Monitor and pause transport {icon="route"}
 
-**Status** shows mailbox transport health, provider bindings, folder discovery, synchronization, and search-index state.
+**Mailbox tools > Mailbox health** shows transport health, the connected account, folder discovery, synchronization, and search-index state.
 
 - **Sync now** starts a mailbox synchronization.
 - **Rediscover** refreshes folders and remote namespace information.
-- **Verify binding** completes a pending provider binding.
+- **Verify connection** completes a pending provider connection.
 - **Pause mailbox** stops incoming synchronization, queued provider changes, scheduled delivery, and automatic replies.
 - **Resume mailbox** allows those background operations to continue again.
 
@@ -32,7 +33,7 @@ Pausing is an operational stop, not a visibility control. Existing mirrored mail
 
 ### Repair projections and failed work
 
-Mailbox administrators can use **Status > Repair and projection coverage** for asynchronous repairs. Hydration retry, search rebuild, thread-projection repair, folder rebuild, rediscovery, and synchronization are durable commands: leaving the page does not stop them, and Mail rechecks current Admin permission before execution.
+Mailbox administrators can use **Mailbox tools > Mailbox health > Advanced diagnostics and repairs** for asynchronous repairs. Hydration retry, search rebuild, thread-projection repair, folder rebuild, rediscovery, and synchronization are durable commands: leaving the dialog does not stop them, and Mail rechecks current Admin permission before execution.
 
 The action buttons reflect current eligibility. A disabled action includes the reason, such as paused synchronization, an inactive folder, or equivalent work already pending. Search rebuild replaces only derived search chunks. Thread repair creates links for orphaned messages and refreshes summaries; it does not discard manual thread overrides, comments, references, assignments, or conversation state.
 
@@ -42,9 +43,9 @@ Cloud administrators can review the same redacted aggregate under **Administrati
 
 ## Manage the provider connection {icon="user-cog"}
 
-**Connections** contains the current IMAP and SMTP credential. Mail verifies both protocols before storing a new or replacement credential.
+**Settings > Delivery > Connected account** contains the current incoming- and outgoing-mail credential. Mail verifies both protocols before storing a new or replacement credential.
 
-Use **Find settings** as a starting point, then review the discovered hosts, ports, and TLS modes. When the deployment has a matching Google or Microsoft OAuth client, continue in the provider's browser authorization screen. Access and refresh tokens are encrypted and never displayed. Use **Reconnect** after consent is revoked; use **Replace** for manual passwords, app passwords, or tokens.
+Use **Find settings** as the normal starting point. Open **Manual server settings** only when discovery is unavailable or incorrect. When the deployment has a matching Google or Microsoft OAuth client, continue in the provider's browser authorization screen. Access and refresh tokens are encrypted and never displayed. Use **Reconnect** after consent is revoked; use **Replace** for manual passwords, app passwords, or tokens.
 
 Mail reports IMAP and SMTP verification independently. An IMAP failure blocks synchronization and an SMTP failure blocks sending; correct the reported transport before retrying.
 
@@ -52,7 +53,7 @@ Removing the connection disconnects transport. It does not delete provider mail 
 
 ## Manage sending identities {icon="send"}
 
-**Identities** controls the sending contexts available to collaborators. Use separate identities when the same address needs different defaults for roles such as private mail, university work, or a business.
+**Settings > Delivery > Sending identities** controls the sending contexts available to collaborators. Use separate identities when the same address needs different defaults for roles such as private mail, university work, or a business.
 
 The **Identity label** is visible only inside the mailbox. Recipients see the **Display name** and **From address**. Each identity can also define a Reply-to address, default Cc recipients, default signature, Sent folder, Drafts folder, and whether it is the default.
 
@@ -62,7 +63,7 @@ Default Cc recipients are added when a person starts a new message, reply, or fo
 
 Two identities may deliberately share the same From address. Mail keeps their labels, Cc recipients, signatures, Reply-to values, folder mappings, and verification states separate. When a reply matches exactly one identity, Mail selects it automatically. If several matching identities are equally valid, the writer must choose one explicitly.
 
-Verify every identity by choosing a provider binding and a recipient for a real verification message. **Ready to send** means that the provider accepted this test with the identity's exact From address and advanced delivery settings. IMAP folder access alone does not prove that the provider permits those sending settings.
+Verify every identity by choosing the connected account and a recipient for a real verification message. **Ready to send** means that the provider accepted this test with the identity's exact From address and advanced delivery settings. IMAP folder access alone does not prove that the provider permits those sending settings.
 
 The **Allow automatic replies** option is separate from verification. Automatic replies can use only a ready identity with this option enabled. Enabling it does not itself send anything; an enabled automatic reply or workflow is still required.
 
@@ -78,18 +79,22 @@ The **Allow automatic replies** option is separate from verification. Automatic 
 
 These controls affect different things:
 
-- **Show in sidebar** is only a Cloud navigation preference. Hiding a folder does not unsubscribe it, delete it, change provider permissions, or remove already synchronized mail.
+- **Show in Mail** and **Hide from Mail** are only Cloud navigation preferences. Hiding a folder does not unsubscribe it, delete it, change provider permissions, or remove already synchronized mail.
 - **Subscribe on the mail provider** changes the IMAP subscription. Other mail clients may use that subscription to decide which folders they show.
 - **Provider access** is controlled by the provider. Cloud displays shared and other-user folders only when the connected account can see them, and enables destructive actions only when current provider rights allow them.
 - **Synchronization** follows the configured mailbox scope and provider state. It is not enabled or disabled by the sidebar switch.
 
 Deleting a folder removes it at the provider and is therefore offered only for an empty folder without subfolders. Inbox and other protected folders cannot be deleted. A folder operation is durable: leaving the settings page does not cancel it, and Mail rediscovers provider state before confirming the result.
 
-**Special folder mappings** selects the active, selectable folders used for Sent, Drafts, Archive, Trash, and Junk operations. Inbox is discovered from the provider. An incorrect or missing mapping can prevent the corresponding conversation action or sent/draft projection from completing.
+Use a folder's actions menu to choose **Show in Mail** or **Hide from Mail**. The status beside the folder shows **Visible**, **Hidden**, **Unavailable**, or **Needs review**. This menu placement prevents accidental visibility changes while managing provider folders.
+
+**Special folder mappings** appears above the folder hierarchy and selects the active, selectable folders used for Sent, Drafts, Archive, Trash, and Junk operations. Inbox is discovered from the provider. An incorrect or missing mapping can prevent the corresponding conversation action or sent/draft projection from completing.
 
 If the IMAP account exposes shared or other-user folders, **Rediscover** can make them appear in the same hierarchy. They are provider state of this connected account, not separate Cloud resources. Cloud does not provide folder-level sharing, edit upstream ACLs, combine similarly named folders from several accounts, or use another person's credential if this connection loses access.
 
-Provider-side namespace, subscription, or permission changes can make a folder unavailable or ambiguous. Review **Status > Folder discovery**, correct the provider state when necessary, then run **Rediscover**.
+Provider-side namespace, subscription, or permission changes can make a folder unavailable or ambiguous. Review **Mailbox tools > Mailbox health**, correct the provider state when necessary, then run **Rediscover**.
+
+When an unavailable folder is permanently gone, choose **Remove from Mail** from its actions menu. Confirming removes the unavailable folder and unavailable subfolders from Cloud Mail's folder list. It does not delete anything at the provider and does not remove mirrored messages or history. If the provider exposes the folder again, the next rediscovery restores it automatically.
 
 ## Configure access {icon="shield-lock"}
 
@@ -112,7 +117,7 @@ Credentials remain hidden even from administrators. Sharing a mailbox grants Clo
 
 Mailbox **Admin** access is required to create, list, or revoke a public attachment link. Open a received message or draft and use the link action beside an attachment. Files larger than 100 MiB cannot be shared this way.
 
-The public URL is disclosed only once, immediately after creation. Copy it before closing the result: Mail stores a hash of its secret token and cannot show the same URL again. **Settings > Shared attachments** lists every link in pages, including older active links, and lets an administrator revoke access without deleting the original message or draft attachment.
+The public URL is disclosed only once, immediately after creation. Copy it before closing the result: Mail stores a hash of its secret token and cannot show the same URL again. **Mailbox tools > Shared links** lists every link in pages, including older active links, and lets an administrator revoke access without deleting the original message or draft attachment.
 
 A link can have an optional password, expiry time, and maximum number of download sessions. Passwords are case-sensitive and can contain spaces. Range requests used to resume one granted download do not consume extra download counts. Revoked, expired, exhausted, invalid, and incorrectly passworded links fail without revealing attachment metadata.
 
@@ -126,7 +131,7 @@ Cloud **Admin** access, which is separate from mailbox Admin access, is required
 
 ## Configure signatures and email design {icon="pencil"}
 
-Under **Compose**, create private or mailbox signatures and snippets. Assign the mailbox default signature in **Identities**. A collaborator's personal default under **Compose** takes precedence.
+Under **Settings > Writing**, create private or mailbox signatures and snippets. Assign the mailbox default signature under **Delivery > Sending identities**. A collaborator's personal default under **Writing** takes precedence.
 
 Markdown messages always receive the built-in readable email design. **Email design** adds validated mailbox CSS overrides for company branding; it does not replace the safe base design. Use the composer Preview to verify the rendered result before relying on a CSS change.
 
@@ -164,4 +169,4 @@ See [Mail workflow YAML reference](/app/mail/help/mail-workflows) for all suppor
 
 **Danger zone > Delete mailbox** moves the mailbox into a recoverable deleted state. Provider mail and retained Cloud data are not purged.
 
-Deleted mailboxes appear under **Recently deleted** on the Mail overview for administrators who can restore them. A restored mailbox starts paused. Verify the connection, folder discovery, and health under **Status** before selecting **Resume mailbox**.
+Deleted mailboxes appear under **Recently deleted** on the Mail overview for administrators who can restore them. A restored mailbox starts paused. Verify the connection, folder discovery, and health under **Mailbox tools > Mailbox health** before selecting **Resume mailbox**.

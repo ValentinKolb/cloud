@@ -6,7 +6,7 @@ description: Diagnose missing mail, paused transport, sending failures, draft co
 order: 80
 ---
 
-Start with the visible symptom, then use the mailbox's **Settings > Status** page when transport, folders, or search may be involved.
+Start with the visible symptom, then use **Mailbox tools > Mailbox health** when transport, folders, or search may be involved.
 
 ## The mailbox is missing from the overview {icon="lifebuoy"}
 
@@ -22,7 +22,7 @@ Access is checked when the page loads and during live updates. If access was rev
 
 :::steps
 1. Check the health warning above the conversation list.
-2. Open **Settings > Status**.
+2. Open **Mailbox tools > Mailbox health**.
 3. If the mailbox is paused, select **Resume mailbox**.
 4. Select **Sync now**.
 5. If folders are missing or changed, select **Rediscover** for the active binding.
@@ -45,7 +45,7 @@ A hidden parent also hides its nested children from the sidebar so the hierarchy
 
 ## Sending says "Mailbox transport is paused" {icon="send"}
 
-An administrator paused the mailbox or restored it into its required paused state. Open **Settings > Status**, verify the provider connection and health, then select **Resume mailbox**.
+An administrator paused the mailbox or restored it into its required paused state. Open **Mailbox tools > Mailbox health**, verify the provider connection and health, then select **Resume mailbox**.
 
 While paused, incoming synchronization, queued provider changes, scheduled delivery, and automatic replies do not run.
 
@@ -55,16 +55,16 @@ Check these conditions:
 
 - You have Write or Admin permission.
 - **From** uses a verified sender.
-- **Settings > Status** shows usable transport and an active binding.
+- **Mailbox tools > Mailbox health** shows a usable connection.
 - The draft has recipients and either body content or an attachment.
 - Every attachment upload completed successfully and no file exceeds 100 MiB.
 - The provider credential has not expired or been revoked.
 
-If the provider credential changed, use **Settings > Connections > Replace**. The existing secret cannot be displayed or partially edited.
+If the provider credential changed, use **Settings > Delivery > Connected account > Replace**. The existing secret cannot be displayed or partially edited.
 
 ## Automatic replies say that no identity is available {icon="send"}
 
-Open **Settings > Identities** and check both conditions on one identity:
+Open **Settings > Delivery > Sending identities** and check both conditions on one identity:
 
 :::steps
 1. The identity status is **verified**.
@@ -110,7 +110,7 @@ If **Status > Repair and projection coverage** shows a gap, an administrator can
 
 ## A command needs attention {icon="lifebuoy"}
 
-Open **Settings > Status** and find the redacted command entry by ID and error code.
+Open **Mailbox tools > Mailbox health > Advanced diagnostics and repairs** and find the redacted command entry by ID and error code.
 
 - **Reconcile effect** is safe for an ambiguous provider outcome because it reads provider state before changing the command result.
 - **Retry work** is shown only for failed provider-read maintenance where no provider effect started.
@@ -123,7 +123,7 @@ Do not repeat a move, delete, flag change, folder operation, or send when Mail r
 Folder creation, rename, deletion, subscription, and Archive, Trash, Junk, Sent, and Drafts mappings depend on current provider state. An administrator should:
 
 :::steps
-1. run **Rediscover** under **Status**,
+1. run **Rediscover** under **Mailbox tools > Mailbox health**,
 2. confirm the folder is active and that the provider grants the required operation,
 3. update the corresponding mapping or subscription when necessary, and
 4. retry the action once.
@@ -133,4 +133,4 @@ Shared and other-user folders may be readable while folder creation, rename, or 
 
 ## The mailbox was restored but still does not sync {icon="point"}
 
-This is expected. Restore intentionally leaves the mailbox paused so an administrator can verify credentials, binding health, and folder discovery before background work resumes. Complete those checks under **Status**, then select **Resume mailbox**.
+This is expected. Restore intentionally leaves the mailbox paused so an administrator can verify credentials, connection health, and folder discovery before background work resumes. Complete those checks under **Mailbox tools > Mailbox health**, then select **Resume mailbox**.

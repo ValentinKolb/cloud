@@ -29,7 +29,6 @@ export default ssr<AuthContext>(async (c) => {
         deletedMailboxes={deletedResult.ok ? deletedResult.data.items : []}
         initialDeletedCursor={deletedResult.ok ? deletedResult.data.nextCursor : null}
         initialQuery={c.req.query("q") ?? ""}
-        currentUserId={user.id}
         currentUserEmail={user.mail}
       />
     </Layout>

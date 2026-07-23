@@ -11,7 +11,9 @@ import type { ConversationLocalTags } from "../service/local-tags";
 import type { ConversationPresenceSnapshot } from "../service/presence";
 import type { MailboxPageData, MailConversationDetailData, MailListItem } from "../service/workspace";
 import { readApiError } from "./_components/api-response";
+import { openMailAttachmentLinksDialog } from "./_components/MailAttachmentLinksDialog";
 import { chooseBulkTags, chooseConversationTags } from "./_components/MailBulkTagDialog";
+import { openMailboxHealthDialog } from "./_components/MailboxHealthDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
@@ -69,6 +71,7 @@ export default function MailWorkspace(props: {
     participants: [],
   });
   const [settingsOpening, setSettingsOpening] = createSignal(false);
+  const [managementOpening, setManagementOpening] = createSignal<"health" | "links" | null>(null);
   const [liveDegraded, setLiveDegraded] = createSignal(false);
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
   const [selectionMode, setSelectionMode] = createSignal(false);
@@ -87,6 +90,8 @@ export default function MailWorkspace(props: {
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
   const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
+  const workspaceRefreshBlocked = () =>
+    composerActive() || settingsOpening() || managementOpening() !== null || routeLoading() || selectionLoading();
 
   const applyPendingListState = (snapshot: MailboxPageData): MailboxPageData => {
     const reconciled = reconcileMailListOptimisticState(snapshot.listItems, pendingListState);
@@ -330,7 +335,7 @@ export default function MailWorkspace(props: {
 
   const liveRefresh = createMailLiveRefreshCoordinator({
     delayMs: 180,
-    isBlocked: () => composerActive() || routeLoading() || selectionLoading(),
+    isBlocked: workspaceRefreshBlocked,
     refresh: refreshLiveSnapshot,
     onApplied: (cursor) => {
       setLiveDegraded(false);
@@ -343,12 +348,19 @@ export default function MailWorkspace(props: {
   });
 
   createEffect(() => {
-    if (!composerActive() && !routeLoading() && !selectionLoading()) liveRefresh.resume();
+    if (workspaceRefreshBlocked()) {
+      // A server snapshot must never replace the workspace beneath an active
+      // editor or dialog. Invalidate and abort work that started beforehand.
+      liveRequest += 1;
+      liveController?.abort();
+      liveController = null;
+      return;
+    }
+    liveRefresh.resume();
   });
 
   const updateComposerActive = (active: boolean) => {
     setComposerActive(active);
-    if (!active) liveRefresh.resume();
   };
 
   const openSettings = async (initialTab?: string) => {
@@ -357,9 +369,7 @@ export default function MailWorkspace(props: {
     try {
       const result = await openMailboxSettingsDialog({
         mailboxId: data.mailbox.id,
-        currentUserId: props.currentUserId,
         currentUserEmail: props.currentUserEmail,
-        dateConfig: props.dateConfig,
         initialTab,
       });
       if (result.deleted) return documentNavigate("/app/mail");
@@ -368,6 +378,29 @@ export default function MailWorkspace(props: {
       if (refreshResult === "failed") toast.error("Mailbox settings were saved, but this view could not be refreshed yet.");
     } finally {
       setSettingsOpening(false);
+    }
+  };
+
+  const openHealth = async () => {
+    if (managementOpening()) return;
+    setManagementOpening("health");
+    try {
+      const result = await openMailboxHealthDialog({ mailboxId: data.mailbox.id, dateConfig: props.dateConfig });
+      if (!result.workspaceChanged) return;
+      const refreshResult = await replaceWorkspaceRoute(requestUrl());
+      if (refreshResult === "failed") toast.error("Mailbox health changed, but this view could not be refreshed yet.");
+    } finally {
+      setManagementOpening(null);
+    }
+  };
+
+  const openSharedLinks = async () => {
+    if (managementOpening()) return;
+    setManagementOpening("links");
+    try {
+      await openMailAttachmentLinksDialog({ mailboxId: data.mailbox.id, dateConfig: props.dateConfig });
+    } finally {
+      setManagementOpening(null);
     }
   };
 
@@ -404,7 +437,7 @@ export default function MailWorkspace(props: {
             toast.error("OAuth completed, but its connection status could not be loaded");
           }
         }
-        await openSettings("connections");
+        await openSettings("delivery");
       })();
     }
     let readyReceived = false;
@@ -1220,7 +1253,10 @@ export default function MailWorkspace(props: {
         viewCounts={data.viewCounts}
         canWrite={canWrite()}
         canAdmin={canAdmin()}
+        managementOpening={managementOpening()}
         settingsOpening={settingsOpening()}
+        onOpenHealth={() => void openHealth()}
+        onOpenSharedLinks={() => void openSharedLinks()}
         onOpenSettings={() => void openSettings()}
         onMoveConversation={(input) =>
           runAction("move", {

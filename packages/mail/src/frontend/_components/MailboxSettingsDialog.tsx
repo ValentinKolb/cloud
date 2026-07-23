@@ -1,5 +1,4 @@
 import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -7,7 +6,7 @@ import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 import MailboxSettings from "./MailboxSettings";
 
-const settingsDialogFrameClass = "flex h-[86vh] min-h-0 flex-col overflow-hidden";
+const settingsDialogFrameClass = "dialog-fixed-frame flex min-h-0 flex-col overflow-hidden";
 
 type MailboxSettingsDialogOutcome = { deleted?: boolean };
 
@@ -18,9 +17,7 @@ type MailboxSettingsDialogResult = {
 
 type MailboxSettingsDialogProps = {
   mailboxId: string;
-  currentUserId: string;
   currentUserEmail: string | null;
-  dateConfig?: DateContext;
   initialTab?: string;
   close: (outcome?: MailboxSettingsDialogOutcome) => void;
   onWorkspaceChange: () => void;
@@ -83,9 +80,7 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
         <MailboxSettings
           context={context()!}
           initialTab={props.initialTab}
-          currentUserId={props.currentUserId}
           currentUserEmail={props.currentUserEmail}
-          dateConfig={props.dateConfig ?? {}}
           reloading={load.loading()}
           onReload={reload}
           onContextChange={(update) => setContext((current) => (current ? update(current) : current))}
@@ -100,9 +95,7 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
 
 export const openMailboxSettingsDialog = async (params: {
   mailboxId: string;
-  currentUserId: string;
   currentUserEmail: string | null;
-  dateConfig?: DateContext;
   initialTab?: string;
 }): Promise<MailboxSettingsDialogResult> => {
   let workspaceChanged = false;
@@ -116,7 +109,7 @@ export const openMailboxSettingsDialog = async (params: {
         }}
       />
     ),
-    { surface: "bare", header: false, size: "large" },
+    { surface: "bare", header: false, size: "large", cancelBehavior: "ignore" },
   );
   return { deleted: outcome?.deleted === true, workspaceChanged };
 };

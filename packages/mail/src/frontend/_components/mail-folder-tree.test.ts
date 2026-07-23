@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MailFolderView } from "../../service/messages";
-import { buildMailFolderTree, buildVisibleMailFolderTree, flattenMailFolderTree } from "./mail-folder-tree";
+import { buildMailFolderTree, buildVisibleMailFolderTree, excludeMailFolderTreeRoles, flattenMailFolderTree } from "./mail-folder-tree";
 
 const folder = (id: string, overrides: Partial<MailFolderView> = {}): MailFolderView => ({
   id,
@@ -44,6 +44,22 @@ describe("Mail folder tree", () => {
     expect(flattenMailFolderTree(tree).map(({ folder: item }) => item.id)).toEqual(["visible"]);
   });
 
+  test("identifies descendants whose visible parent is hidden", () => {
+    const tree = buildMailFolderTree([
+      folder("visible"),
+      folder("hidden", { showInSidebar: false }),
+      folder("child", { parentId: "hidden" }),
+      folder("grandchild", { parentId: "child" }),
+    ]);
+
+    expect(flattenMailFolderTree(tree).map(({ folder: item, hiddenByParent }) => [item.id, hiddenByParent])).toEqual([
+      ["visible", false],
+      ["hidden", false],
+      ["child", true],
+      ["grandchild", true],
+    ]);
+  });
+
   test("keeps namespace containers only when they have visible children", () => {
     const tree = buildVisibleMailFolderTree([
       folder("shared", { selectable: false }),
@@ -65,5 +81,21 @@ describe("Mail folder tree", () => {
     ]);
 
     expect(new Set(flattenMailFolderTree(tree).map(({ folder: item }) => item.id))).toEqual(new Set(["orphan", "a", "b"]));
+  });
+
+  test("promotes custom children when known system folders are separated", () => {
+    const tree = buildVisibleMailFolderTree([
+      folder("inbox", { role: "inbox" }),
+      folder("project", { parentId: "inbox" }),
+      folder("customer", { parentId: "project" }),
+      folder("sent", { role: "sent" }),
+    ]);
+
+    const custom = excludeMailFolderTreeRoles(tree, new Set(["inbox", "sent"]));
+
+    expect(flattenMailFolderTree(custom).map(({ folder: item, depth }) => [item.id, depth])).toEqual([
+      ["project", 0],
+      ["customer", 1],
+    ]);
   });
 });

@@ -112,6 +112,7 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
         AND NOT ('\\Seen' = ANY(placement.flags))
     ) unread_counts ON true
     WHERE rr.mailbox_id = ${mailboxId}::uuid
+      AND NOT (f.discovery_state = 'missing' AND f.dismissed_at IS NOT NULL)
     ORDER BY
       CASE f.role
         WHEN 'inbox' THEN 0

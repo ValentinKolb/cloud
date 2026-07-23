@@ -3,26 +3,27 @@ import type { SwitchInputProps } from "./types";
 /**
  * Toggle switch component - accessible via hidden checkbox
  */
-const Switch = ({ label, value, onChange, disabled = false }: SwitchInputProps) => {
+const Switch = (props: SwitchInputProps) => {
   const inputId = crypto.randomUUID();
+  const disabled = () => props.disabled ?? false;
 
   return (
     <label
       for={inputId}
-      class={`inline-flex items-center gap-2 select-none ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+      class={`inline-flex items-center gap-2 select-none ${disabled() ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
     >
       {/* Hidden checkbox for accessibility */}
       <input
         id={inputId}
         type="checkbox"
-        checked={value?.() || false}
-        onChange={(e) => onChange?.(e.target.checked)}
-        disabled={disabled}
+        checked={props.value?.() || false}
+        onChange={(e) => props.onChange?.(e.target.checked)}
+        disabled={disabled()}
         class="sr-only peer"
       />
       {/* Visual switch track */}
       <span
-        data-state={value?.() ? "checked" : "idle"}
+        data-state={props.value?.() ? "checked" : "idle"}
         class={`
  ui-switch-track relative transition-colors
  w-9 h-5 rounded-full
@@ -46,15 +47,15 @@ const Switch = ({ label, value, onChange, disabled = false }: SwitchInputProps) 
  
  `}
           classList={{
-            "translate-x-4": value?.(),
-            "": value?.(),
+            "translate-x-4": props.value?.(),
+            "": props.value?.(),
           }}
         >
           {/* Checkmark icon in terminal mode when checked */}
-          <i class={`ti ti-check hidden text-[8px] leading-none ${value?.() ? " " : "text-transparent"}`} />
+          <i class={`ti ti-check hidden text-[8px] leading-none ${props.value?.() ? " " : "text-transparent"}`} />
         </span>
       </span>
-      {label && <span class="text-xs text-secondary select-none">{label}</span>}
+      {props.label && <span class="text-xs text-secondary select-none">{props.label}</span>}
     </label>
   );
 };

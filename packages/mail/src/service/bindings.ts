@@ -314,7 +314,8 @@ const upsertProjectedFolder = async (params: {
         selectable = ${params.folder.selectable},
         discovery_generation = ${params.discoveryGeneration},
         discovery_state = 'active',
-        missing_since = NULL
+        missing_since = NULL,
+        dismissed_at = NULL
       WHERE id = ${params.existing.folder_id}::uuid
       RETURNING id
     `;
@@ -325,7 +326,7 @@ const upsertProjectedFolder = async (params: {
   const [created] = await params.db<{ id: string }[]>`
     INSERT INTO mail.folders (
       remote_resource_id, stable_key, name, role, selectable, selected_for_sync,
-      discovery_generation, discovery_state, sync_status
+      show_in_sidebar, discovery_generation, discovery_state, sync_status
     )
     VALUES (
       ${params.remoteResourceId}::uuid,
@@ -334,6 +335,7 @@ const upsertProjectedFolder = async (params: {
       ${params.folder.role},
       ${params.folder.selectable},
       ${readable},
+      ${!params.folder.selectable || params.folder.subscribed},
       ${params.discoveryGeneration},
       'active',
       ${readable ? "pending" : "excluded"}
@@ -441,6 +443,7 @@ const finalizeFolderProjection = async (params: {
     SET
       discovery_state = CASE WHEN availability.available THEN 'active' ELSE 'missing' END,
       missing_since = CASE WHEN availability.available THEN NULL ELSE COALESCE(folder.missing_since, now()) END,
+      dismissed_at = CASE WHEN availability.available THEN NULL ELSE folder.dismissed_at END,
       selected_for_sync = folder.selected_for_sync AND availability.readable,
       sync_status = CASE
         WHEN NOT availability.available OR NOT availability.readable THEN 'excluded'

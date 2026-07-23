@@ -22,7 +22,7 @@ The email provider remains the source for portable mail state. Moving a message,
 :::steps
 1. Select **New mailbox**.
 2. Enter a **Name** that collaborators will recognize. The description is optional.
-3. In the settings dialog, open **Connections**.
+3. In the settings dialog, open **Delivery** and connect the account.
 4. Enter the email address and select **Find settings**, or enter the IMAP and SMTP hosts, ports, and TLS modes yourself.
 5. For a configured Google or Microsoft account, select the browser OAuth button and approve access. Otherwise enter the password, app password, or OAuth2 access token supplied by the provider.
 6. Leave **Create the default identity for this address** enabled for a normal mailbox.
@@ -31,11 +31,11 @@ The email provider remains the source for portable mail state. Moving a message,
 
 Mail verifies IMAP and SMTP separately before storing the credential. Credentials and OAuth refresh tokens are encrypted and write-only: after they are accepted, no user or mailbox administrator can reveal them again. Managed OAuth connections refresh automatically and show **Reconnect** when provider consent has expired or was revoked. Manual credentials remain available for every generic IMAP/SMTP provider.
 
-After setup, Mail discovers the provider's folders and begins synchronization. Initial history can appear progressively while the mailbox remains usable. Open **Settings > Status** to see transport health, folder discovery, synchronization, and search-index state.
+After setup, Mail discovers the provider's folders and begins synchronization. Initial history can appear progressively while the mailbox remains usable. Open **Mailbox tools > Mailbox health** to see connection health, folder discovery, synchronization, and search state.
 
 ## Check that sending is ready {icon="send"}
 
-Open **Settings > Identities**. An identity groups everything Mail should use for one sending context:
+Open **Settings > Delivery > Sending identities**. An identity groups everything Mail should use for one sending context:
 
 - **Identity label** is private to the mailbox and helps collaborators choose the right context, such as “University” or “Private”.
 - **Display name** and **From address** are visible to recipients.
@@ -47,10 +47,12 @@ Open **Settings > Identities**. An identity groups everything Mail should use fo
 
 The left navigation contains:
 
-- **Work** views for Needs action, assignment, Waiting for reply, Done, and recent activity, plus a separate **Follow-up** view for Snoozed conversations and Scheduled delivery under Drafts.
+- **Work** for Needs action, Assigned to me, Waiting for reply, Snoozed, and Done.
+- **Mail** for Inbox, Drafts, Scheduled, Sent, and All mail.
+- **Folders** for custom provider folders and their nested hierarchy. Mailbox administrators can hide folders here without deleting or unsubscribing them.
+- **Saved views** created from reusable mailbox and collaboration filters. This section appears only when at least one view exists.
+- **More** for Unassigned, Recent activity, Archive, Trash, and Junk. It opens automatically when one of these destinations is active.
 - **Automations** for out-of-office replies, acknowledgements, and advanced mailbox workflows with inline response windows.
-- **Saved views** created from reusable mailbox and collaboration filters.
-- **Folders** synchronized from the provider, shown in their nested hierarchy, plus **All mail**. Mailbox administrators can hide folders from this navigation without deleting or unsubscribing them.
 - **Sync mailbox** and **Settings** at the bottom when your permission allows them.
 
 The center list shows one row per conversation. The reader groups the messages in that conversation. Use the **Conversation details** button to open team context, local tags, ownership, comments, reminders, and recent activity. You can hide the conversation list when you need more reading space.

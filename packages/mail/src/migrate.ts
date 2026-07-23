@@ -4316,6 +4316,13 @@ const addFolderSidebarVisibility = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addDismissedFolderProjections = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.folders
+    ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMPTZ
+  `;
+};
+
 const completeSenderIdentities = async (db: SqlClient): Promise<void> => {
   await db`
     ALTER TABLE mail.sender_identities
@@ -4429,6 +4436,7 @@ const migrations: readonly MailMigration[] = [
   { version: 79, name: "unified_conversation_work_states", run: unifyConversationWorkStates },
   { version: 80, name: "folder_sidebar_visibility", run: addFolderSidebarVisibility },
   { version: 81, name: "complete_sender_identities", run: completeSenderIdentities },
+  { version: 82, name: "dismissed_folder_projections", run: addDismissedFolderProjections },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

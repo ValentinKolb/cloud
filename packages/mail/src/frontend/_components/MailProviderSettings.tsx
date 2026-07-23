@@ -1,6 +1,20 @@
-import { Checkbox, CheckboxCard, NumberInput, Placeholder, prompts, Select, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
+import {
+  CheckboxCard,
+  confirmDiscardIfDirty,
+  dialogCore,
+  Dropdown,
+  NumberInput,
+  PanelDialog,
+  Placeholder,
+  panelDialogFixedOptions,
+  prompts,
+  Select,
+  Switch,
+  TextInput,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ComposeTemplate, Mailbox, MailOAuthProviderId, ProviderConnectionDetails, SenderIdentity } from "../../contracts";
 import type { DiscoveredMailConfiguration } from "../../service/onboarding-discovery";
@@ -14,13 +28,14 @@ type ProviderSettingsProps = {
   admin: MailboxAdminSettingsContext;
   currentUserEmail: string | null;
   reloading: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
   onReload: () => Promise<void>;
   onWorkspaceChange: () => void;
 };
 
-const EditorHeading = (props: { title: string; description: string; onBack: () => void }) => (
+const EditorHeading = (props: { title: string; description: string; onBack: () => void | Promise<void> }) => (
   <div class="flex items-start gap-2">
-    <button type="button" class="icon-btn shrink-0" aria-label="Back" onClick={props.onBack}>
+    <button type="button" class="icon-btn shrink-0" aria-label="Back" onClick={() => void props.onBack()}>
       <i class="ti ti-arrow-left" aria-hidden="true" />
     </button>
     <div class="min-w-0">
@@ -29,6 +44,7 @@ const EditorHeading = (props: { title: string; description: string; onBack: () =
     </div>
   </div>
 );
+const connectionEditorDialogOptions = { ...panelDialogFixedOptions, cancelBehavior: "ignore" as const };
 
 export function MailConnectionSettings(props: ProviderSettingsProps) {
   const [editing, setEditing] = createSignal(false);
@@ -47,8 +63,34 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   const [createSender, setCreateSender] = createSignal(true);
   const [discoverySource, setDiscoverySource] = createSignal<string | null>(null);
   const [oauthProviderId, setOAuthProviderId] = createSignal<MailOAuthProviderId | null>(null);
+  const [editorBaseline, setEditorBaseline] = createSignal("");
+  let closeConnectionDialog: (() => void) | null = null;
   const currentConnection = createMemo(() => props.admin.connections.find((connection) => connection.status !== "revoked"));
   const currentBinding = createMemo(() => props.admin.bindings.find((binding) => binding.state !== "revoked"));
+  const editorValue = () =>
+    JSON.stringify({
+      replacingConnectionId: replacingConnectionId(),
+      name: name(),
+      email: email(),
+      username: username(),
+      imapHost: imapHost(),
+      imapPort: imapPort(),
+      imapTls: imapTls(),
+      smtpHost: smtpHost(),
+      smtpPort: smtpPort(),
+      smtpTls: smtpTls(),
+      auth: auth(),
+      secret: secret(),
+      createSender: createSender(),
+    });
+  const editorDirty = () => editing() && editorValue() !== editorBaseline();
+  const captureEditorBaseline = () => setEditorBaseline(editorValue());
+  const closeEditor = async () => {
+    if (!(await confirmDiscardIfDirty(editorDirty))) return;
+    closeConnectionDialog?.();
+    closeConnectionDialog = null;
+    setEditing(false);
+  };
 
   const resetEditor = () => {
     setReplacingConnectionId(null);
@@ -66,9 +108,10 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     setCreateSender(true);
     setDiscoverySource(null);
     setOAuthProviderId(null);
+    captureEditorBaseline();
   };
 
-  const replaceEditor = () => {
+  const prepareEdit = () => {
     const connection = currentConnection();
     if (!connection) return;
     setReplacingConnectionId(connection.id);
@@ -86,7 +129,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     setCreateSender(false);
     setDiscoverySource(null);
     setOAuthProviderId(connection.oauth?.providerId ?? null);
-    setEditing(true);
+    captureEditorBaseline();
   };
 
   const discover = mutation.create<DiscoveredMailConfiguration[], void>({
@@ -213,12 +256,15 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     onSuccess: (result) => {
       toast.success(
         result.replaced
-          ? "Provider credentials replaced"
+          ? "Connected account updated"
           : result.senderCreated
             ? "Provider and default identity connected"
             : "Provider connected",
       );
+      closeConnectionDialog?.();
+      closeConnectionDialog = null;
       setEditing(false);
+      setEditorBaseline("");
       setReplacingConnectionId(null);
       props.onWorkspaceChange();
       void props.onReload();
@@ -232,7 +278,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   const revoke = mutation.create<boolean, string>({
     mutation: async (connectionId) => {
       const confirmed = await prompts.confirm(
-        "This permanently removes the encrypted credential, revokes its remote mailbox binding, and stops provider operations until another connection is configured.",
+        "This permanently removes the encrypted credential, disconnects the remote mailbox, and stops provider operations until another connection is configured.",
         { title: "Remove provider connection?", confirmText: "Remove connection", variant: "danger" },
       );
       if (!confirmed) return false;
@@ -261,230 +307,302 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     onError: (error) => prompts.error(error.message),
   });
 
-  return (
-    <Show
-      when={!editing()}
-      fallback={
-        <div class="flex flex-col gap-4">
-          <EditorHeading
-            title={replacingConnectionId() ? "Replace provider credentials" : "Connect provider"}
-            description={
-              replacingConnectionId()
-                ? "Enter the complete connection again. The new credential is verified before replacing the current one."
-                : "Verify IMAP and SMTP before storing the encrypted credential."
-            }
-            onBack={() => setEditing(false)}
-          />
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <TextInput label="Label" description="Shown only in mailbox settings." value={name} onInput={setName} required />
-            <div class="flex items-end gap-2">
-              <div class="min-w-0 flex-1">
-                <TextInput label="Email address" type="email" value={email} onInput={setEmail} required />
-              </div>
-              <button
-                type="button"
-                class="btn-secondary btn-sm shrink-0"
-                disabled={!email().trim() || discover.loading()}
-                onClick={() => discover.mutate()}
+  const openConnectionEditor = async () => {
+    setEditing(true);
+    try {
+      await dialogCore.open<void>((close) => {
+        closeConnectionDialog = () => close();
+        return (
+          <PanelDialog>
+            <PanelDialog.Header
+              title={replacingConnectionId() ? "Edit connected account" : "Connect account"}
+              subtitle="Verify incoming and outgoing mail before saving"
+              icon="ti ti-server-cog"
+              close={() => void closeEditor()}
+            />
+            <PanelDialog.Body>
+              <PanelDialog.Section title="Account" subtitle="The mailbox address and provider login." icon="ti ti-at">
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <TextInput
+                    label="Label"
+                    description="The private name shown to mailbox administrators."
+                    value={name}
+                    onInput={setName}
+                    required
+                  />
+                  <div class="flex items-end gap-2">
+                    <div class="min-w-0 flex-1">
+                      <TextInput
+                        label="Email address"
+                        description="Used to find the provider's server settings."
+                        type="email"
+                        value={email}
+                        onInput={setEmail}
+                        required
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm shrink-0"
+                      disabled={!email().trim() || discover.loading()}
+                      onClick={() => discover.mutate()}
+                    >
+                      <i class={`ti ${discover.loading() ? "ti-loader-2 animate-spin" : "ti-wand"}`} aria-hidden="true" />
+                      Find settings
+                    </button>
+                  </div>
+                </div>
+                <Show when={discoverySource()}>
+                  {(source) => (
+                    <div class="info-block-success text-xs" role="status">
+                      Server settings were filled from {source()}. Review them, then enter the account secret.
+                    </div>
+                  )}
+                </Show>
+                <TextInput
+                  label="Username"
+                  description="The login name used for incoming and outgoing mail."
+                  value={username}
+                  onInput={setUsername}
+                  required
+                />
+              </PanelDialog.Section>
+
+              <PanelDialog.Section
+                title="Server settings"
+                subtitle="Automatic discovery fills these values when the provider publishes them."
+                icon="ti ti-server"
               >
-                <i class={`ti ${discover.loading() ? "ti-loader-2 animate-spin" : "ti-wand"}`} aria-hidden="true" />
-                Find settings
-              </button>
-            </div>
-          </div>
-          <Show when={discoverySource()}>
-            {(source) => (
-              <div class="info-block-success text-xs" role="status">
-                Server settings were filled from {source()}. Review them, then enter the account secret.
-              </div>
-            )}
-          </Show>
-          <TextInput label="Username" description="Login name sent to IMAP and SMTP." value={username} onInput={setUsername} required />
-          <div>
-            <p class="mb-2 text-xs font-semibold text-primary">Incoming mail</p>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_11rem]">
-              <TextInput label="IMAP host" placeholder="imap.example.com" value={imapHost} onInput={setImapHost} required />
-              <NumberInput label="Port" value={imapPort} onInput={(value) => setImapPort(value ?? 993)} min={1} max={65_535} />
-              <Select
-                label="TLS"
-                value={imapTls}
-                onChange={(value) => setImapTls(value === "starttls" ? "starttls" : "implicit")}
-                options={[
-                  { id: "implicit", label: "Implicit TLS" },
-                  { id: "starttls", label: "STARTTLS" },
-                ]}
-              />
-            </div>
-          </div>
-          <div>
-            <p class="mb-2 text-xs font-semibold text-primary">Outgoing mail</p>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_11rem]">
-              <TextInput label="SMTP host" placeholder="smtp.example.com" value={smtpHost} onInput={setSmtpHost} required />
-              <NumberInput label="Port" value={smtpPort} onInput={(value) => setSmtpPort(value ?? 587)} min={1} max={65_535} />
-              <Select
-                label="TLS"
-                value={smtpTls}
-                onChange={(value) => setSmtpTls(value === "implicit" ? "implicit" : "starttls")}
-                options={[
-                  { id: "starttls", label: "STARTTLS" },
-                  { id: "implicit", label: "Implicit TLS" },
-                ]}
-              />
-            </div>
-          </div>
-          <Show when={oauthProviderId()}>
-            {(providerId) => (
-              <button
-                type="button"
-                class="btn-primary btn-sm self-start"
-                disabled={!canStartOAuth() || startOAuth.loading()}
-                onClick={() =>
-                  startOAuth.mutate({
-                    providerId: providerId(),
-                    connectionId: replacingConnectionId() ?? undefined,
-                    connection: replacingConnectionId()
-                      ? {
-                          name: name().trim(),
-                          email: email().trim(),
-                          username: username().trim(),
-                          imap: { host: imapHost().trim(), port: imapPort(), tlsMode: imapTls() },
-                          smtp: { host: smtpHost().trim(), port: smtpPort(), tlsMode: smtpTls() },
-                        }
-                      : undefined,
-                  })
+                <div>
+                  <p class="mb-1 text-xs font-semibold text-primary">Incoming mail</p>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_11rem]">
+                    <TextInput label="IMAP host" placeholder="imap.example.com" value={imapHost} onInput={setImapHost} required />
+                    <NumberInput label="Port" value={imapPort} onInput={(value) => setImapPort(value ?? 993)} min={1} max={65_535} />
+                    <Select
+                      label="TLS"
+                      value={imapTls}
+                      onChange={(value) => setImapTls(value === "starttls" ? "starttls" : "implicit")}
+                      options={[
+                        { id: "implicit", label: "Implicit TLS" },
+                        { id: "starttls", label: "STARTTLS" },
+                      ]}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <p class="mb-1 text-xs font-semibold text-primary">Outgoing mail</p>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_11rem]">
+                    <TextInput label="SMTP host" placeholder="smtp.example.com" value={smtpHost} onInput={setSmtpHost} required />
+                    <NumberInput label="Port" value={smtpPort} onInput={(value) => setSmtpPort(value ?? 587)} min={1} max={65_535} />
+                    <Select
+                      label="TLS"
+                      value={smtpTls}
+                      onChange={(value) => setSmtpTls(value === "implicit" ? "implicit" : "starttls")}
+                      options={[
+                        { id: "starttls", label: "STARTTLS" },
+                        { id: "implicit", label: "Implicit TLS" },
+                      ]}
+                    />
+                  </div>
+                </div>
+              </PanelDialog.Section>
+
+              <PanelDialog.Section
+                title="Authentication"
+                subtitle={
+                  replacingConnectionId()
+                    ? "Enter the complete credential again. It is verified before the saved account is updated."
+                    : "The credential is encrypted after verification and never shown again."
                 }
+                icon="ti ti-key"
               >
-                <i class={startOAuth.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-login-2"} aria-hidden="true" />
-                Continue with {providerId() === "google" ? "Google" : "Microsoft"}
-              </button>
-            )}
-          </Show>
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Select
-              label="Authentication"
-              value={auth}
-              onChange={(value) => setAuth(value === "oauth2" ? "oauth2" : "password")}
-              options={[
-                { id: "password", label: "Password" },
-                { id: "oauth2", label: "OAuth2 access token" },
-              ]}
-            />
-            <TextInput
-              label={auth() === "oauth2" ? "Access token" : "Password"}
-              description="Encrypted after verification and never shown again."
-              value={secret}
-              onInput={setSecret}
-              password
-              required
-              autocomplete="off"
-            />
-          </div>
-          <Show when={!replacingConnectionId()}>
-            <Checkbox
-              label="Create the default identity for this address"
-              description="Recommended for normal mailboxes. Disable only when the remote mailbox and sending identity use different accounts."
-              value={createSender}
-              onChange={setCreateSender}
-            />
-          </Show>
-          <div class="sticky bottom-0 flex justify-end gap-2 bg-[var(--ui-surface)] py-2">
-            <button type="button" class="btn-simple btn-sm" disabled={connect.loading()} onClick={() => setEditing(false)}>
-              Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" disabled={!canSubmit() || connect.loading()} onClick={() => connect.mutate()}>
-              <i class={connect.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} aria-hidden="true" />
-              {replacingConnectionId() ? "Verify and replace" : "Verify and connect"}
-            </button>
-          </div>
-        </div>
-      }
-    >
-      <div class="flex flex-col gap-2">
-        <Show when={!currentConnection()}>
-          <button
-            type="button"
-            class="btn-primary btn-sm self-start"
-            disabled={props.reloading}
-            onClick={() => {
-              resetEditor();
-              setEditing(true);
-            }}
-          >
-            <i class="ti ti-plus" aria-hidden="true" /> Connect provider
-          </button>
-        </Show>
-        <Show
-          when={currentConnection()}
-          fallback={
-            <Placeholder
-              title="No provider connection"
-              description="Connect an IMAP and SMTP provider to synchronize mail."
-              icon="ti ti-plug-off"
-            />
-          }
-        >
-          {(connection) => (
-            <div class="paper flex flex-wrap items-center gap-3 p-3">
-              <i class="ti ti-server text-lg text-dimmed" aria-hidden="true" />
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-medium">{connection().name}</span>
-                <span class="block truncate text-xs text-dimmed">
-                  {connection().email} · {connection().imap.host}
-                  <Show when={connection().oauth}> {` · ${connection().oauth?.state.replaceAll("_", " ")}`}</Show>
-                </span>
-              </span>
-              <span class="badge">{connection().status}</span>
-              <button type="button" class="btn-secondary btn-sm" disabled={props.reloading || revoke.loading()} onClick={replaceEditor}>
-                <i class="ti ti-key" aria-hidden="true" /> Replace
-              </button>
-              <Show when={connection().oauth}>
-                {(oauth) => (
-                  <button
-                    type="button"
-                    class="btn-secondary btn-sm"
-                    disabled={props.reloading || startOAuth.loading()}
-                    onClick={() => startOAuth.mutate({ providerId: oauth().providerId, connectionId: connection().id })}
-                  >
-                    <i class={startOAuth.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} aria-hidden="true" /> Reconnect
-                  </button>
-                )}
-              </Show>
-              <button
-                type="button"
-                class="icon-btn text-red-600"
-                aria-label="Remove provider connection"
-                disabled={props.reloading || revoke.loading()}
-                onClick={() => revoke.mutate(connection().id)}
-              >
-                <i class="ti ti-trash" aria-hidden="true" />
-              </button>
-              <Show when={!currentBinding()}>
+                <Show when={oauthProviderId()}>
+                  {(providerId) => (
+                    <button
+                      type="button"
+                      class="btn-primary btn-sm self-start"
+                      disabled={!canStartOAuth() || startOAuth.loading()}
+                      onClick={() =>
+                        startOAuth.mutate({
+                          providerId: providerId(),
+                          connectionId: replacingConnectionId() ?? undefined,
+                          connection: replacingConnectionId()
+                            ? {
+                                name: name().trim(),
+                                email: email().trim(),
+                                username: username().trim(),
+                                imap: { host: imapHost().trim(), port: imapPort(), tlsMode: imapTls() },
+                                smtp: { host: smtpHost().trim(), port: smtpPort(), tlsMode: smtpTls() },
+                              }
+                            : undefined,
+                        })
+                      }
+                    >
+                      <i class={startOAuth.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-login-2"} aria-hidden="true" />
+                      Continue with {providerId() === "google" ? "Google" : "Microsoft"}
+                    </button>
+                  )}
+                </Show>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Select
+                    label="Authentication"
+                    description="Choose how Mail signs in to the provider."
+                    value={auth}
+                    onChange={(value) => setAuth(value === "oauth2" ? "oauth2" : "password")}
+                    options={[
+                      { id: "password", label: "Password" },
+                      { id: "oauth2", label: "OAuth2 access token" },
+                    ]}
+                  />
+                  <TextInput
+                    label={auth() === "oauth2" ? "Access token" : "Password"}
+                    description="Encrypted after verification and never shown again."
+                    value={secret}
+                    onInput={setSecret}
+                    password
+                    required
+                    autocomplete="off"
+                  />
+                </div>
+                <Show when={!replacingConnectionId()}>
+                  <CheckboxCard
+                    label="Create the default identity for this address"
+                    description="Recommended for normal mailboxes. Disable only when the remote mailbox and sending identity use different accounts."
+                    icon="ti ti-at"
+                    value={createSender}
+                    onChange={setCreateSender}
+                  />
+                </Show>
+              </PanelDialog.Section>
+            </PanelDialog.Body>
+            <PanelDialog.Footer>
+              <span />
+              <div class="flex items-center gap-2">
+                <button type="button" class="btn-simple btn-sm" disabled={connect.loading()} onClick={() => void closeEditor()}>
+                  Cancel
+                </button>
                 <button
                   type="button"
-                  class="btn-secondary btn-sm"
-                  disabled={finishSetup.loading() || props.reloading}
-                  onClick={() => finishSetup.mutate(connection().id)}
+                  class="btn-primary btn-sm"
+                  disabled={!canSubmit() || connect.loading()}
+                  onClick={() => connect.mutate()}
                 >
-                  <i class={finishSetup.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} aria-hidden="true" /> Finish
-                  setup
+                  <i class={connect.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} aria-hidden="true" />
+                  {replacingConnectionId() ? "Verify and save" : "Verify and connect"}
                 </button>
-              </Show>
-            </div>
-          )}
-        </Show>
-        <Show when={currentBinding()}>
-          {(binding) => (
-            <div class="paper flex items-center gap-3 p-3">
-              <i class="ti ti-folders text-lg text-dimmed" aria-hidden="true" />
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-medium">{binding().authenticatedPrincipal || "Remote mailbox"}</span>
-                <span class="block text-xs text-dimmed">{binding().state}</span>
+              </div>
+            </PanelDialog.Footer>
+          </PanelDialog>
+        );
+      }, connectionEditorDialogOptions);
+    } finally {
+      closeConnectionDialog = null;
+      setEditing(false);
+    }
+  };
+
+  return (
+    <div class="flex flex-col gap-2">
+      <Show
+        when={currentConnection()}
+        fallback={
+          <Placeholder
+            title="No connected account"
+            description="Connect an IMAP and SMTP account to synchronize mail."
+            icon="ti ti-plug-off"
+            action={
+              <button
+                type="button"
+                class="btn-primary btn-sm"
+                disabled={props.reloading}
+                onClick={() => {
+                  resetEditor();
+                  void openConnectionEditor();
+                }}
+              >
+                <i class="ti ti-plus" aria-hidden="true" />
+                Connect account
+              </button>
+            }
+          />
+        }
+      >
+        {(connection) => (
+          <div class="group flex min-h-14 items-center gap-3 rounded-[var(--ui-radius-control)] px-2 py-2 hover:bg-[var(--ui-hover)]">
+            <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center">
+              <i class="ti ti-server text-secondary" aria-hidden="true" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-sm font-medium text-primary">{connection().name}</span>
+              <span class="block truncate text-xs text-dimmed">
+                {connection().email} · {connection().imap.host}
+                <Show when={connection().oauth}> {` · ${connection().oauth?.state.replaceAll("_", " ")}`}</Show>
+                <Show when={currentBinding()}> {` · mailbox ${currentBinding()?.state.replaceAll("_", " ")}`}</Show>
               </span>
-            </div>
-          )}
-        </Show>
-      </div>
-    </Show>
+            </span>
+            <span class="badge capitalize">{connection().status.replaceAll("_", " ")}</span>
+            <Show when={!currentBinding()}>
+              <button
+                type="button"
+                class="btn-secondary btn-sm"
+                disabled={finishSetup.loading() || props.reloading}
+                onClick={() => finishSetup.mutate(connection().id)}
+              >
+                <i class={finishSetup.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} aria-hidden="true" />
+                Finish setup
+              </button>
+            </Show>
+            <Dropdown
+              trigger={
+                <button
+                  type="button"
+                  class="icon-btn opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                  aria-label="Connected account actions"
+                  disabled={props.reloading || revoke.loading() || startOAuth.loading()}
+                >
+                  <i class="ti ti-dots" aria-hidden="true" />
+                </button>
+              }
+              elements={[
+                {
+                  label: "Edit account",
+                  icon: "ti ti-pencil",
+                  action: () => {
+                    prepareEdit();
+                    void openConnectionEditor();
+                  },
+                },
+                ...(connection().oauth
+                  ? [
+                      {
+                        label: "Reconnect account",
+                        icon: "ti ti-refresh",
+                        action: () =>
+                          startOAuth.mutate({
+                            providerId: connection().oauth!.providerId,
+                            connectionId: connection().id,
+                          }),
+                      },
+                    ]
+                  : []),
+                {
+                  sectionLabel: "Danger zone",
+                  items: [
+                    {
+                      label: "Remove account",
+                      icon: "ti ti-trash",
+                      variant: "danger" as const,
+                      action: () => revoke.mutate(connection().id),
+                    },
+                  ],
+                },
+              ]}
+              position="bottom-left"
+            />
+          </div>
+        )}
+      </Show>
+    </div>
   );
 }
 
@@ -507,6 +625,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
   const [bindingId, setBindingId] = createSignal("");
   const [recipient, setRecipient] = createSignal("");
   const [savesSent, setSavesSent] = createSignal(false);
+  const [editorBaseline, setEditorBaseline] = createSignal("");
 
   createEffect(() => setIdentities(props.admin.identities));
 
@@ -521,6 +640,33 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
     const current = editor();
     return current?.kind === "edit" ? current.identity : null;
   });
+  const editorValue = () =>
+    JSON.stringify({
+      kind: editor()?.kind ?? null,
+      label: label(),
+      displayName: displayName(),
+      address: address(),
+      replyTo: replyTo(),
+      defaultCc: defaultCc(),
+      envelopeSender: envelopeSender(),
+      defaultSignatureTemplateId: defaultSignatureTemplateId(),
+      sentFolderId: sentFolderId(),
+      draftsFolderId: draftsFolderId(),
+      isDefault: isDefault(),
+      allowAutomation: allowAutomation(),
+      bindingId: bindingId(),
+      recipient: recipient(),
+      savesSent: savesSent(),
+    });
+  const editorDirty = () => editor() !== null && editorValue() !== editorBaseline();
+  const captureEditorBaseline = () => setEditorBaseline(editorValue());
+  const closeEditor = async () => {
+    if (!(await confirmDiscardIfDirty(editorDirty))) return;
+    setEditor(null);
+  };
+
+  createEffect(() => props.onDirtyChange?.(editorDirty()));
+  onCleanup(() => props.onDirtyChange?.(false));
   const replaceIdentity = (identity: SenderIdentity) =>
     setIdentities((current) =>
       current.some((item) => item.id === identity.id)
@@ -541,6 +687,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
     setIsDefault(identities().length === 0);
     setAllowAutomation(true);
     setEditor({ kind: "create" });
+    captureEditorBaseline();
   };
 
   const openEdit = (identity: SenderIdentity) => {
@@ -556,6 +703,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
     setIsDefault(identity.isDefault);
     setAllowAutomation(identity.authenticationPolicy.automation === "mailbox");
     setEditor({ kind: "edit", identity });
+    captureEditorBaseline();
   };
 
   const openVerify = (identity: SenderIdentity) => {
@@ -563,6 +711,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
     setRecipient(props.currentUserEmail ?? identity.fromAddress);
     setSavesSent(false);
     setEditor({ kind: "verify", identity });
+    captureEditorBaseline();
   };
 
   const createIdentity = mutation.create<SenderIdentity, void>({
@@ -590,6 +739,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
       replaceIdentity(identity);
       toast.success("Identity added");
       setEditor(null);
+      setEditorBaseline("");
       props.onWorkspaceChange();
       void props.onReload();
     },
@@ -623,6 +773,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
       replaceIdentity(identity);
       toast.success("Identity updated");
       setEditor(null);
+      setEditorBaseline("");
       props.onWorkspaceChange();
       void props.onReload();
     },
@@ -646,6 +797,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
       if (!disabled) return;
       setIdentities((current) => current.filter((item) => item.id !== identity.id));
       setEditor(null);
+      setEditorBaseline("");
       toast.success("Identity disabled");
       props.onWorkspaceChange();
       await props.onReload();
@@ -668,6 +820,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
       replaceIdentity(identity);
       toast.success("Identity verified");
       setEditor(null);
+      setEditorBaseline("");
       props.onWorkspaceChange();
       void props.onReload();
     },
@@ -679,7 +832,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
       when={editor()}
       fallback={
         <div class="flex flex-col gap-2">
-          <button type="button" class="btn-primary btn-sm self-start" disabled={props.reloading} onClick={openCreate}>
+          <button type="button" class="btn-secondary btn-sm self-end" disabled={props.reloading} onClick={openCreate}>
             <i class="ti ti-plus" aria-hidden="true" /> Add identity
           </button>
           <Show
@@ -692,28 +845,39 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
               />
             }
           >
-            <For each={identities()}>
-              {(identity) => (
-                <div class="flex min-h-11 items-center gap-2 px-1 py-2">
-                  <span class="min-w-0 flex-1 truncate text-sm font-medium text-primary">{identity.label}</span>
-                  <Show when={identity.isDefault}>
-                    <span class="badge">Default</span>
-                  </Show>
-                  <Show when={identity.authenticationPolicy.automation === "mailbox"}>
-                    <span class="badge">Automatic replies</span>
-                  </Show>
-                  <button type="button" class="icon-btn" aria-label={`Edit ${identity.label}`} onClick={() => openEdit(identity)}>
-                    <i class="ti ti-edit" aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-            </For>
+            <div class="flex flex-col gap-1">
+              <For each={identities()}>
+                {(identity) => (
+                  <div class="group flex min-h-12 items-center gap-3 rounded-[var(--ui-radius-control)] px-2 py-2 hover:bg-[var(--ui-hover)]">
+                    <i class="ti ti-at shrink-0 text-secondary" aria-hidden="true" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-medium text-primary">{identity.label}</span>
+                      <span class="block truncate text-xs text-dimmed">{identity.fromAddress}</span>
+                    </span>
+                    <Show when={identity.isDefault}>
+                      <span class="badge">Default</span>
+                    </Show>
+                    <Show when={identity.authenticationPolicy.automation === "mailbox"}>
+                      <span class="badge">Automatic replies</span>
+                    </Show>
+                    <button
+                      type="button"
+                      class="icon-btn opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                      aria-label={`Edit ${identity.label}`}
+                      onClick={() => openEdit(identity)}
+                    >
+                      <i class="ti ti-edit" aria-hidden="true" />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
           </Show>
         </div>
       }
     >
       {(currentEditor) => (
-        <div class="flex flex-col gap-4">
+        <div class="flex flex-col gap-2">
           <Show
             when={currentEditor().kind !== "verify"}
             fallback={
@@ -721,17 +885,17 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                 <EditorHeading
                   title="Verify identity"
                   description={`Confirm that the provider accepts messages sent with ${(currentEditor() as Extract<IdentityEditor, { kind: "verify" }>).identity.label}.`}
-                  onBack={() => setEditor(null)}
+                  onBack={closeEditor}
                 />
                 <div class="info-block-info flex items-start gap-2 text-xs">
                   <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
                   <p>
-                    Mail sends a real test message through this provider. The identity is ready to use only after the provider
-                    accepts its From address and delivery settings.
+                    Mail sends a real test message through this provider. The identity is ready to use only after the provider accepts its
+                    From address and delivery settings.
                   </p>
                 </div>
                 <Select
-                  label="Provider binding"
+                  label="Connected account"
                   value={bindingId}
                   onChange={setBindingId}
                   options={activeBindings().map((binding) => ({ id: binding.id, label: binding.authenticatedPrincipal ?? binding.id }))}
@@ -740,7 +904,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                 <TextInput label="Verification recipient" type="email" value={recipient} onInput={setRecipient} required />
                 <Switch label="Provider saves sent mail automatically" value={savesSent} onChange={setSavesSent} />
                 <div class="sticky bottom-0 flex justify-end gap-2 bg-[var(--ui-surface)] py-2">
-                  <button type="button" class="btn-simple btn-sm" disabled={verifyIdentity.loading()} onClick={() => setEditor(null)}>
+                  <button type="button" class="btn-simple btn-sm" disabled={verifyIdentity.loading()} onClick={() => void closeEditor()}>
                     Cancel
                   </button>
                   <button
@@ -759,7 +923,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
             <EditorHeading
               title={currentEditor().kind === "edit" ? "Edit identity" : "Add identity"}
               description="Configure one selectable sending context for collaborators."
-              onBack={() => setEditor(null)}
+              onBack={closeEditor}
             />
             <Show when={editingIdentity()}>
               {(identity) => (
@@ -799,12 +963,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
               required
             />
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <TextInput
-                label="Display name"
-                description="The name recipients see."
-                value={displayName}
-                onInput={setDisplayName}
-              />
+              <TextInput label="Display name" description="The name recipients see." value={displayName} onInput={setDisplayName} />
               <TextInput
                 label="From address"
                 description="The address recipients see."
@@ -814,15 +973,13 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                 required
               />
             </div>
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <TextInput
-                label="Reply-to address"
-                description="Optional address for recipient replies."
-                type="email"
-                value={replyTo}
-                onInput={setReplyTo}
-              />
-            </div>
+            <TextInput
+              label="Reply-to address"
+              description="Optional address for recipient replies."
+              type="email"
+              value={replyTo}
+              onInput={setReplyTo}
+            />
             <div>
               <p class="text-sm font-medium text-primary">Default Cc</p>
               <p class="mb-1 text-xs text-dimmed">
@@ -912,7 +1069,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                   type="button"
                   class="btn-simple btn-sm"
                   disabled={createIdentity.loading() || updateIdentity.loading()}
-                  onClick={() => setEditor(null)}
+                  onClick={() => void closeEditor()}
                 >
                   Cancel
                 </button>

@@ -1,5 +1,4 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { MailAutomationWorkspaceData } from "../service/automation-workspace";
 import MailAutomaticReplySettings, { type AutomaticReplyPresetId } from "./_components/MailAutomaticReplySettings";
@@ -18,9 +17,7 @@ const isAdminSection = (value: Section): value is AdminSection => ADMIN_SECTIONS
 export default function MailAutomationWorkspace(props: {
   data: MailAutomationWorkspaceData;
   initialSection: string;
-  currentUserId: string;
   currentUserEmail: string | null;
-  dateConfig: DateContext;
 }) {
   const resolveSection = (value: string): Section => {
     if (!isSection(value)) return "overview";
@@ -70,9 +67,7 @@ export default function MailAutomationWorkspace(props: {
     try {
       await openMailboxSettingsDialog({
         mailboxId: props.data.mailbox.id,
-        currentUserId: props.currentUserId,
         currentUserEmail: props.currentUserEmail,
-        dateConfig: props.dateConfig,
         initialTab,
       });
     } finally {
@@ -248,7 +243,7 @@ export default function MailAutomationWorkspace(props: {
                   identities={props.data.identities}
                   initialConfigurations={automaticReplies()}
                   canManage={props.data.canManageAutomaticReplies}
-                  onManageIdentities={props.data.permission === "admin" ? () => void openSettings("identities") : undefined}
+                  onManageIdentities={props.data.permission === "admin" ? () => void openSettings("delivery") : undefined}
                   onConfigurationsChange={setAutomaticReplies}
                   referenceConfigured={Boolean(referenceConfiguration()?.enabled)}
                   onConfigureReference={props.data.advanced ? () => selectSection("references") : undefined}

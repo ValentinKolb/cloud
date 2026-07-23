@@ -35,20 +35,14 @@ type DbFolderProviderState = {
   rights_source: "acl" | "select" | "probe" | "unknown";
 };
 
-const allowsProviderFolderOperation = (
-  provider: DbFolderProviderState,
-  right: "create_children" | "delete_folder",
-): boolean => {
+const allowsProviderFolderOperation = (provider: DbFolderProviderState, right: "create_children" | "delete_folder"): boolean => {
   if (provider.rights_source === "acl") return provider.effective_rights.includes(right);
   // Shared namespaces without ACL evidence are intentionally fail-closed in the UI.
   // The command runtime still rechecks authoritative provider state before every effect.
   return provider.namespace_kind === "personal";
 };
 
-export const listAdminFolders = async (
-  context: MailRequestContext,
-  mailboxId: string,
-): Promise<Result<MailAdminFolderView[]>> => {
+export const listAdminFolders = async (context: MailRequestContext, mailboxId: string): Promise<Result<MailAdminFolderView[]>> => {
   const permission = await requireMailboxPermission(context, mailboxId, "admin");
   if (!permission.ok) return permission;
   const folderResult = await listFolders(context, mailboxId);
@@ -84,11 +78,7 @@ export const listAdminFolders = async (
         subscribed: provider?.subscribed ?? null,
         rightsSource: provider?.rights_source ?? null,
         effectiveRights: provider?.effective_rights ?? [],
-        canCreateChildren: Boolean(
-          active &&
-            provider?.delimiter &&
-            allowsProviderFolderOperation(provider, "create_children"),
-        ),
+        canCreateChildren: Boolean(active && provider?.delimiter && allowsProviderFolderOperation(provider, "create_children")),
         canRename: active && !protectedFolder && canDeleteAtProvider && canCreateAtParent,
         canDelete: active && folder.selectable && !protectedFolder && canDeleteAtProvider,
         canManageSubscription: active,
@@ -121,6 +111,7 @@ export const setFolderSidebarVisibility = async (params: {
         WHERE folder.id = ${params.folderId}::uuid
           AND resource.id = folder.remote_resource_id
           AND resource.mailbox_id = ${params.mailboxId}::uuid
+          AND folder.discovery_state = 'active'
         RETURNING folder.id
       `;
       if (!folder) return fail(err.notFound("Mail folder"));
@@ -167,6 +158,116 @@ export const setFolderSidebarVisibility = async (params: {
   } catch (error) {
     if (isServiceError(error)) return fail(error);
     return fail(err.internal("Failed to update folder visibility"));
+  }
+};
+
+export const dismissUnavailableFolder = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  folderId: string;
+}): Promise<Result<{ folderId: string; dismissedFolderCount: number }>> => {
+  const actor = actorRefFromRequest(params.context);
+  let activityId: string | null = null;
+  try {
+    const result = await sql.begin(async (tx) => {
+      const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
+      if (!permission.ok) return permission;
+
+      const subtree = await tx<
+        {
+          id: string;
+          discovery_state: "active" | "ambiguous" | "missing";
+          has_active_provider_ref: boolean;
+        }[]
+      >`
+        WITH RECURSIVE folder_subtree AS (
+          SELECT folder.id
+          FROM mail.folders folder
+          JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
+          WHERE folder.id = ${params.folderId}::uuid
+            AND resource.mailbox_id = ${params.mailboxId}::uuid
+
+          UNION ALL
+
+          SELECT child.id
+          FROM mail.folders child
+          JOIN folder_subtree parent ON child.parent_id = parent.id
+          JOIN mail.remote_resources child_resource ON child_resource.id = child.remote_resource_id
+          WHERE child_resource.mailbox_id = ${params.mailboxId}::uuid
+        )
+        SELECT
+          folder.id,
+          folder.discovery_state,
+          EXISTS (
+            SELECT 1
+            FROM mail.binding_folder_refs ref
+            JOIN mail.provider_bindings binding ON binding.id = ref.binding_id
+            WHERE ref.folder_id = folder.id
+              AND ref.missing_since IS NULL
+              AND binding.state <> 'revoked'
+          ) AS has_active_provider_ref
+        FROM mail.folders folder
+        JOIN folder_subtree subtree ON subtree.id = folder.id
+        ORDER BY folder.id
+        FOR UPDATE OF folder
+      `;
+      if (subtree.length === 0) return fail(err.notFound("Mail folder"));
+      if (subtree.some((folder) => folder.discovery_state !== "missing" || folder.has_active_provider_ref)) {
+        return fail(err.conflict("Only unavailable folders can be removed from Mail"));
+      }
+
+      const folderIds = subtree.map((folder) => folder.id);
+      await tx`
+        UPDATE mail.folders
+        SET dismissed_at = now(), updated_at = now()
+        WHERE id IN (
+          SELECT value::uuid
+          FROM jsonb_array_elements_text(${folderIds}::jsonb)
+        )
+      `;
+      const [activity] = await tx<{ id: string }[]>`
+        INSERT INTO mail.activity_events (
+          mailbox_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+        ) VALUES (
+          ${params.mailboxId}::uuid,
+          ${actor.kind},
+          ${actor.kind === "user" ? actor.userId : actor.kind === "service_account" ? actor.serviceAccountId : null}::uuid,
+          'folder.unavailable_projection_dismissed',
+          'confirmed',
+          'folder',
+          ${params.folderId}::uuid,
+          ${{ dismissedFolderCount: folderIds.length }}::jsonb
+        )
+        RETURNING id
+      `;
+      if (!activity) throw new Error("Folder dismissal activity insert returned no row");
+      activityId = String(activity.id);
+      await audit.record(
+        {
+          action: "mail.folder.unavailable_projection.dismiss",
+          outcome: "allowed",
+          actor: auditActorFromRequest(params.context),
+          target: { type: "mailbox", id: params.mailboxId },
+          requestId: params.context.requestId,
+          metadata: { folderId: params.folderId, dismissedFolderCount: folderIds.length },
+        },
+        tx,
+      );
+      return ok({ folderId: params.folderId, dismissedFolderCount: folderIds.length });
+    });
+    if (result.ok && activityId) {
+      await publishMailMailboxEvent({
+        mailboxId: params.mailboxId,
+        conversationId: null,
+        reason: "folder",
+        targetId: params.folderId,
+        activityId,
+      });
+    }
+    return result;
+  } catch (error) {
+    if (isServiceError(error)) return fail(error);
+    return fail(err.internal("Failed to remove unavailable folder from Mail"));
   }
 };
 

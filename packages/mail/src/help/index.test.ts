@@ -93,7 +93,7 @@ describe("mailHelp", () => {
     expect(admin).toContain("Cloud **Admin** access");
     expect(admin).toContain("Reconcile storage** queues a background reconciliation");
     expect(admin).toContain("continue to show the last completed snapshot until that job finishes");
-    expect(work).toContain("Settings > Shared attachments");
+    expect(work).toContain("Mailbox tools > Shared links");
   });
 
   test("keeps every documented workflow example valid for the Mail vocabulary", async () => {

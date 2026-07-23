@@ -76,7 +76,7 @@ Select **Mail commands** above the conversation list to search the same actions 
 
 Received attachments stay with the message that carried them. Select an attachment chip to open or download it in a new browser tab.
 
-Mailbox administrators can also create a public download link from an attachment. The URL is shown only at creation and can be protected with a password, expiry time, and download-session limit. Manage or revoke existing links under **Settings > Shared attachments**.
+Mailbox administrators can also create a public download link from an attachment. The URL is shown only at creation and can be protected with a password, expiry time, and download-session limit. Manage or revoke existing links under **Mailbox tools > Shared links**.
 
 Under an expanded message, choose:
 
@@ -89,7 +89,7 @@ For composing, drafts, attachments, signatures, and delivery options, see [Write
 
 ## Create reusable views and local tags {icon="layout-list"}
 
-Open **Settings > Views & tags** to create a saved view from folder and collaboration filters. A view can filter by folder, assignee, work status, and snooze state.
+Open **Settings > Organization** to create a saved view from folder and collaboration filters. A view can filter by folder, assignee, work status, and snooze state.
 
 - **Only me** creates a private view.
 - **Everyone with mailbox access** creates a mailbox view and requires write access.

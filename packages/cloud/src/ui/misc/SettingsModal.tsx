@@ -63,7 +63,7 @@ const SettingsModal = ((props: SettingsModalProps) => {
   const activeTab = () => tabs().find((tab) => tab.id === activeTabId()) ?? tabs()[0] ?? null;
 
   const selectTab = (id: string) => {
-    setLocalActiveTab(id);
+    if (props.activeTab === undefined) setLocalActiveTab(id);
     props.onTabChange?.(id);
   };
 

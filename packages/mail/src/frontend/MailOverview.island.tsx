@@ -5,6 +5,7 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type { DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";
 import { readApiError } from "./_components/api-response";
+import { openMailboxHealthDialog } from "./_components/MailboxHealthDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 
 type MailboxWithPermission = Mailbox & { permission: "read" | "write" | "admin" };
@@ -14,7 +15,6 @@ export default function MailOverview(props: {
   deletedMailboxes: Array<DeletedMailbox & { permission: "admin" }>;
   initialDeletedCursor: string | null;
   initialQuery: string;
-  currentUserId: string;
   currentUserEmail: string | null;
 }) {
   const [query, setQuery] = createSignal(props.initialQuery);
@@ -55,9 +55,8 @@ export default function MailOverview(props: {
       toast.success("Mailbox created");
       void openMailboxSettingsDialog({
         mailboxId: mailbox.id,
-        currentUserId: props.currentUserId,
         currentUserEmail: props.currentUserEmail,
-        initialTab: "connections",
+        initialTab: "delivery",
       }).then((result) => navigateTo(result.deleted ? "/app/mail" : `/app/mail/${mailbox.id}`));
     },
     onError: (error) => prompts.error(error.message),
@@ -81,12 +80,7 @@ export default function MailOverview(props: {
       if (!mailbox) return;
       setDeletedMailboxes((current) => current.filter((entry) => entry.id !== mailbox.id));
       toast.success("Mailbox restored in paused state");
-      void openMailboxSettingsDialog({
-        mailboxId: mailbox.id,
-        currentUserId: props.currentUserId,
-        currentUserEmail: props.currentUserEmail,
-        initialTab: "status",
-      }).then((result) => navigateTo(result.deleted ? "/app/mail" : `/app/mail/${mailbox.id}`));
+      void openMailboxHealthDialog({ mailboxId: mailbox.id }).then(() => navigateTo(`/app/mail/${mailbox.id}`));
     },
     onError: (error) => prompts.error(error.message),
   });

@@ -1,7 +1,7 @@
 import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { AttachmentLink, AttachmentLinkPage } from "../../contracts";
 import { readApiError } from "./api-response";
@@ -16,39 +16,34 @@ const linkStatus = (link: AttachmentLink): "active" | "expired" | "exhausted" | 
 export default function MailAttachmentLinksSettings(props: { mailboxId: string; dateConfig: DateContext }) {
   const [links, setLinks] = createSignal<AttachmentLink[]>([]);
   const [nextCursor, setNextCursor] = createSignal<string | null>(null);
-  const [loading, setLoading] = createSignal(true);
-  const [loadError, setLoadError] = createSignal<string | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"]["attachment-links"].$get({
-        param: { mailboxId: props.mailboxId },
-        query: { limit: "50" },
-      });
-      if (!response.ok) {
-        setLoadError(await readApiError(response, "Could not load attachment links"));
-        return;
-      }
-      const page = await response.json();
+  const load = mutations.create<AttachmentLinkPage, void>({
+    mutation: async (_input, context) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["attachment-links"].$get(
+        {
+          param: { mailboxId: props.mailboxId },
+          query: { limit: "50" },
+        },
+        { init: { signal: context.abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not load attachment links"));
+      return response.json();
+    },
+    onSuccess: (page) => {
       setLinks(page.items);
       setNextCursor(page.nextCursor);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Could not load attachment links");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  onMount(() => void load());
+    },
+  });
 
   const loadMore = mutations.create<AttachmentLinkPage, string>({
-    mutation: async (cursor) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["attachment-links"].$get({
-        param: { mailboxId: props.mailboxId },
-        query: { limit: "50", cursor },
-      });
+    mutation: async (cursor, context) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["attachment-links"].$get(
+        {
+          param: { mailboxId: props.mailboxId },
+          query: { limit: "50", cursor },
+        },
+        { init: { signal: context.abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load more attachment links"));
       return response.json();
     },
@@ -63,15 +58,16 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
   });
 
   const revoke = mutations.create<string, AttachmentLink>({
-    mutation: async (link) => {
+    mutation: async (link, context) => {
       const confirmed = await prompts.confirm(
         `People using this link will no longer be able to download ${link.filename ?? "the attachment"}.`,
         { title: "Revoke public link?", confirmText: "Revoke link", variant: "danger" },
       );
       if (!confirmed) return "";
-      const response = await apiClient.mailboxes[":mailboxId"]["attachment-links"][":linkId"].$delete({
-        param: { mailboxId: props.mailboxId, linkId: link.id },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"]["attachment-links"][":linkId"].$delete(
+        { param: { mailboxId: props.mailboxId, linkId: link.id } },
+        { init: { signal: context.abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not revoke attachment link"));
       return link.id;
     },
@@ -83,23 +79,29 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
     onError: (error) => prompts.error(error.message),
   });
 
+  onMount(() => load.mutate());
+  onCleanup(() => {
+    load.abort();
+    loadMore.abort();
+    revoke.abort();
+  });
+
   return (
     <section class="flex flex-col gap-2">
-      <div>
-        <h3 class="text-sm font-semibold text-primary">Shared attachments</h3>
-        <p class="text-xs text-dimmed">Public download links created from received or draft attachments.</p>
-      </div>
-      <Show when={!loading()} fallback={<Placeholder state="loading" title="Loading shared attachments" />}>
+      <p class="text-xs text-dimmed">
+        Public download links created from received or draft attachments. Revoking a link does not delete the attachment.
+      </p>
+      <Show when={!load.loading()} fallback={<Placeholder state="loading" title="Loading shared links" />}>
         <Show
-          when={!loadError()}
+          when={!load.error()}
           fallback={
             <Placeholder
               variant="panel"
               icon="ti ti-alert-triangle"
-              title="Could not load shared attachments"
-              description={loadError() ?? undefined}
+              title="Could not load shared links"
+              description={load.error()?.message}
               action={
-                <button type="button" class="btn-secondary btn-sm" onClick={() => void load()}>
+                <button type="button" class="btn-secondary btn-sm" onClick={() => load.mutate()}>
                   Retry
                 </button>
               }
@@ -112,7 +114,7 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
               <Placeholder
                 variant="panel"
                 icon="ti ti-link-off"
-                title="No shared attachments"
+                title="No shared links"
                 description="Use the link button next to an attachment in a message to create one."
               />
             }

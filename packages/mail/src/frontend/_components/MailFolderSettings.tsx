@@ -1,4 +1,5 @@
 import {
+  confirmDiscardIfDirty,
   Dropdown,
   dialogCore,
   PanelDialog,
@@ -38,6 +39,7 @@ const terminalCommandStates = new Set(["confirmed", "reconciled", "failed", "can
 const folderEditorDialogOptions = {
   ...panelDialogOptions,
   panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(94vw,36rem)]"),
+  cancelBehavior: "ignore" as const,
 };
 
 const filterFolderOptions = (options: FolderSelectOption[], query: string, signal: AbortSignal): FolderSelectOption[] => {
@@ -114,6 +116,11 @@ function FolderEditor(props: {
   const [parentFolderId, setParentFolderId] = createSignal(props.parentFolderId);
   const [showInSidebar, setShowInSidebar] = createSignal(true);
   const [subscribe, setSubscribe] = createSignal(true);
+  const dirty = () =>
+    name() !== (props.folder?.name ?? "") || (create() && (parentFolderId() !== props.parentFolderId || !showInSidebar() || !subscribe()));
+  const closeSafely = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
   const parentOptions = createMemo<FolderSelectOption[]>(() => [
     {
       id: TOP_LEVEL_FOLDER_ID,
@@ -171,7 +178,7 @@ function FolderEditor(props: {
         title={create() ? "New folder" : "Rename folder"}
         subtitle={create() ? "Create a folder on the mail provider." : "Change this folder's name on the mail provider."}
         icon={create() ? "ti ti-folder-plus" : "ti ti-edit"}
-        close={props.close}
+        close={() => void closeSafely()}
       />
       <PanelDialog.Body>
         <div class="flex flex-col gap-2">
@@ -192,24 +199,22 @@ function FolderEditor(props: {
             <div class="flex flex-col gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-3 py-2">
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
-                  <p class="text-sm font-medium text-primary">Show in Mail</p>
                   <p class="text-xs text-dimmed">Add the folder to this mailbox's navigation.</p>
                 </div>
-                <Switch value={showInSidebar} onChange={setShowInSidebar} />
+                <Switch label="Show in Mail" value={showInSidebar} onChange={setShowInSidebar} />
               </div>
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
-                  <p class="text-sm font-medium text-primary">Subscribe on provider</p>
                   <p class="text-xs text-dimmed">Keep the folder in the provider's subscribed folder list.</p>
                 </div>
-                <Switch value={subscribe} onChange={setSubscribe} />
+                <Switch label="Subscribe on provider" value={subscribe} onChange={setSubscribe} />
               </div>
             </div>
           </Show>
         </div>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button type="button" class="btn-simple btn-sm" onClick={props.close}>
+        <button type="button" class="btn-simple btn-sm" onClick={() => void closeSafely()}>
           Cancel
         </button>
         <button type="button" class="btn-primary btn-sm" disabled={save.loading() || !name().trim()} onClick={() => save.mutate()}>
@@ -288,9 +293,9 @@ export default function MailFolderSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const providerMutation = mutation.create<
-    { changed: boolean; action: "subscription" | "delete" },
-    { folder: MailAdminFolderView; action: "subscription" | "delete" }
+  const folderMutation = mutation.create<
+    { changed: boolean; action: "subscription" | "delete" | "dismiss" },
+    { folder: MailAdminFolderView; action: "subscription" | "delete" | "dismiss" }
   >({
     mutation: async ({ folder, action }, context) => {
       setPendingFolderId(folder.id);
@@ -301,6 +306,18 @@ export default function MailFolderSettings(props: {
             { kind: "set_folder_subscription", folderId: folder.id, subscribed: folder.subscribed !== true },
             context.abortSignal,
           );
+          return { changed: true, action };
+        }
+        if (action === "dismiss") {
+          const confirmed = await prompts.confirm(
+            "This removes the unavailable folder and unavailable subfolders from Cloud Mail. It does not delete anything from the mail provider or remove mirrored messages. If the provider exposes the folder again, it returns automatically.",
+            { title: `Remove ${folder.name} from Mail?`, confirmText: "Remove from Mail", variant: "danger" },
+          );
+          if (!confirmed) return { changed: false, action };
+          const response = await apiClient.mailboxes[":mailboxId"].folders[":folderId"].$delete({
+            param: { mailboxId: props.mailboxId, folderId: folder.id },
+          });
+          if (!response.ok) throw new Error(await readApiError(response, "Could not remove the unavailable folder"));
           return { changed: true, action };
         }
         const confirmed = await prompts.confirm(
@@ -317,7 +334,13 @@ export default function MailFolderSettings(props: {
     onSuccess: async ({ changed, action }) => {
       if (!changed) return;
       await refresh();
-      toast.success(action === "delete" ? "Folder deleted" : "Provider subscription updated");
+      toast.success(
+        action === "delete"
+          ? "Folder deleted"
+          : action === "dismiss"
+            ? "Unavailable folder removed from Mail"
+            : "Provider subscription updated",
+      );
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -328,98 +351,12 @@ export default function MailFolderSettings(props: {
     <div class="flex flex-col gap-2">
       <div class="flex items-center justify-between gap-3">
         <p class="text-xs text-dimmed">
-          Choose what appears in Mail. Provider subscriptions are managed separately from sidebar visibility.
+          Choose what appears in Mail. Visibility changes apply immediately; provider subscriptions are managed separately.
         </p>
-        <button type="button" class="btn-primary btn-sm shrink-0" disabled={busy()} onClick={() => void openFolderEditor(null)}>
+        <button type="button" class="btn-secondary btn-sm shrink-0" disabled={busy()} onClick={() => void openFolderEditor(null)}>
           <i class="ti ti-folder-plus" aria-hidden="true" />
           New folder
         </button>
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <Show
-          when={rows().length > 0}
-          fallback={
-            <Placeholder icon="ti ti-folder-off" title="No folders discovered" description="Connect and rediscover the mailbox first." />
-          }
-        >
-          <For each={rows()}>
-            {({ folder, depth }) => {
-              const shared = () => folder.namespaceKinds.some((kind) => kind === "shared" || kind === "other_users");
-              const menuItems = () => [
-                ...(folder.canCreateChildren
-                  ? [{ label: "New subfolder", icon: "ti ti-folder-plus", action: () => void openFolderEditor(null, folder.id) }]
-                  : []),
-                ...(folder.canRename ? [{ label: "Rename", icon: "ti ti-edit", action: () => void openFolderEditor(folder) }] : []),
-                ...(folder.canManageSubscription
-                  ? [
-                      {
-                        label: folder.subscribed ? "Unsubscribe on provider" : "Subscribe on provider",
-                        icon: folder.subscribed ? "ti ti-bookmark-off" : "ti ti-bookmark",
-                        action: () => providerMutation.mutate({ folder, action: "subscription" }),
-                      },
-                    ]
-                  : []),
-                ...(folder.canDelete
-                  ? [
-                      {
-                        label: "Delete folder",
-                        icon: "ti ti-trash",
-                        variant: "danger" as const,
-                        action: () => providerMutation.mutate({ folder, action: "delete" }),
-                      },
-                    ]
-                  : []),
-              ];
-              return (
-                <div class="group flex min-h-12 items-center gap-3 rounded-[var(--ui-radius-control)] px-2 py-2 hover:bg-[var(--ui-hover)]">
-                  <span class="flex min-w-0 flex-1 items-center gap-2" style={{ "padding-left": `${depth * 16}px` }}>
-                    <i class={`ti ${folder.selectable ? "ti-folder" : "ti-folders"} shrink-0 text-secondary`} aria-hidden="true" />
-                    <span class="min-w-0">
-                      <span class="block truncate text-sm font-medium text-primary">{folder.name}</span>
-                      <span class="flex flex-wrap items-center gap-1 text-xs text-dimmed">
-                        <Show when={shared()}>
-                          <span>Shared by provider</span>
-                        </Show>
-                        <Show when={folder.discoveryState !== "active"}>
-                          <span>{folder.discoveryState === "missing" ? "Unavailable" : "Needs review"}</span>
-                        </Show>
-                        <Show when={folder.subscribed === false}>
-                          <span>Not subscribed</span>
-                        </Show>
-                        <Show when={!folder.selectable}>
-                          <span>Folder group</span>
-                        </Show>
-                      </span>
-                    </span>
-                  </span>
-                  <div class="flex shrink-0 items-center gap-2">
-                    <span class="hidden text-xs text-dimmed sm:inline">{folder.showInSidebar ? "Visible" : "Hidden"}</span>
-                    <Switch
-                      value={() => folder.showInSidebar}
-                      disabled={busy()}
-                      onChange={(showInSidebar) => updateVisibility.mutate({ folderId: folder.id, showInSidebar })}
-                    />
-                  </div>
-                  <Show when={menuItems().length > 0}>
-                    <Dropdown
-                      trigger={
-                        <button type="button" class="icon-btn" disabled={busy()} aria-label={`Actions for ${folder.name}`}>
-                          <i
-                            class={busy() && pendingFolderId() === folder.id ? "ti ti-loader-2 animate-spin" : "ti ti-dots"}
-                            aria-hidden="true"
-                          />
-                        </button>
-                      }
-                      elements={menuItems()}
-                      position="bottom-left"
-                    />
-                  </Show>
-                </div>
-              );
-            }}
-          </For>
-        </Show>
       </div>
 
       <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
@@ -455,6 +392,124 @@ export default function MailFolderSettings(props: {
           </For>
         </div>
       </details>
+
+      <div class="flex flex-col gap-0.5">
+        <Show
+          when={rows().length > 0}
+          fallback={
+            <Placeholder icon="ti ti-folder-off" title="No folders discovered" description="Connect and rediscover the mailbox first." />
+          }
+        >
+          <For each={rows()}>
+            {({ folder, depth, hiddenByParent }) => {
+              const shared = () => folder.namespaceKinds.some((kind) => kind === "shared" || kind === "other_users");
+              const canManageSidebarVisibility = () => folder.selectable || folder.subscribed !== false;
+              const menuItems = () => [
+                ...(folder.canCreateChildren
+                  ? [{ label: "New subfolder", icon: "ti ti-folder-plus", action: () => void openFolderEditor(null, folder.id) }]
+                  : []),
+                ...(folder.canRename ? [{ label: "Rename", icon: "ti ti-edit", action: () => void openFolderEditor(folder) }] : []),
+                ...(folder.canManageSubscription
+                  ? [
+                      {
+                        label: folder.subscribed ? "Unsubscribe on provider" : "Subscribe on provider",
+                        icon: folder.subscribed ? "ti ti-bookmark-off" : "ti ti-bookmark",
+                        action: () => folderMutation.mutate({ folder, action: "subscription" }),
+                      },
+                    ]
+                  : []),
+                ...(folder.discoveryState === "active" && canManageSidebarVisibility()
+                  ? [
+                      {
+                        label: folder.showInSidebar ? "Hide from Mail" : "Show in Mail",
+                        icon: folder.showInSidebar ? "ti ti-eye-off" : "ti ti-eye",
+                        action: () => updateVisibility.mutate({ folderId: folder.id, showInSidebar: !folder.showInSidebar }),
+                      },
+                    ]
+                  : []),
+                ...(folder.discoveryState === "missing"
+                  ? [
+                      {
+                        label: "Remove from Mail",
+                        icon: "ti ti-folder-off",
+                        variant: "danger" as const,
+                        action: () => folderMutation.mutate({ folder, action: "dismiss" }),
+                      },
+                    ]
+                  : []),
+                ...(folder.canDelete
+                  ? [
+                      {
+                        label: "Delete folder",
+                        icon: "ti ti-trash",
+                        variant: "danger" as const,
+                        action: () => folderMutation.mutate({ folder, action: "delete" }),
+                      },
+                    ]
+                  : []),
+              ];
+              const status = () => {
+                if (folder.discoveryState === "missing") {
+                  return { label: "Unavailable", icon: "ti ti-folder-off", class: "badge-warning" };
+                }
+                if (folder.discoveryState === "ambiguous") {
+                  return { label: "Needs review", icon: "ti ti-alert-triangle", class: "badge-warning" };
+                }
+                if (!canManageSidebarVisibility()) return null;
+                if (!folder.showInSidebar) return { label: "Hidden", icon: "ti ti-eye-off", class: "" };
+                if (hiddenByParent) return { label: "Parent hidden", icon: "ti ti-eye-off", class: "" };
+                return { label: "Visible", icon: "ti ti-eye", class: "" };
+              };
+              return (
+                <div class="group flex min-h-10 items-center gap-2 rounded-[var(--ui-radius-control)] px-2 py-1.5 hover:bg-[var(--ui-hover)]">
+                  <span class="flex min-w-0 flex-1 items-center gap-2" style={{ "padding-left": `${depth * 16}px` }}>
+                    <i class={`ti ${folder.selectable ? "ti-folder" : "ti-folders"} shrink-0 text-secondary`} aria-hidden="true" />
+                    <span class="min-w-0">
+                      <span class="block truncate text-sm font-medium text-primary">{folder.name}</span>
+                      <span class="flex flex-wrap items-center gap-1 text-xs text-dimmed">
+                        <Show when={shared()}>
+                          <span>Shared by provider</span>
+                        </Show>
+                        <Show when={folder.discoveryState !== "active"}>
+                          <span>{folder.discoveryState === "missing" ? "Unavailable" : "Needs review"}</span>
+                        </Show>
+                        <Show when={folder.subscribed === false}>
+                          <span>Not subscribed</span>
+                        </Show>
+                        <Show when={!folder.selectable}>
+                          <span>Folder group</span>
+                        </Show>
+                      </span>
+                    </span>
+                  </span>
+                  <Show when={status()}>
+                    {(currentStatus) => (
+                      <span class={`badge badge-sm shrink-0 ${currentStatus().class}`}>
+                        <i class={currentStatus().icon} aria-hidden="true" />
+                        {currentStatus().label}
+                      </span>
+                    )}
+                  </Show>
+                  <Show when={menuItems().length > 0}>
+                    <Dropdown
+                      trigger={
+                        <button type="button" class="icon-btn" disabled={busy()} aria-label={`Actions for ${folder.name}`}>
+                          <i
+                            class={busy() && pendingFolderId() === folder.id ? "ti ti-loader-2 animate-spin" : "ti ti-dots"}
+                            aria-hidden="true"
+                          />
+                        </button>
+                      }
+                      elements={menuItems()}
+                      position="bottom-left"
+                    />
+                  </Show>
+                </div>
+              );
+            }}
+          </For>
+        </Show>
+      </div>
     </div>
   );
 }

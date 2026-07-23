@@ -202,7 +202,7 @@ const requireAutomationSender = async (db: SqlClient, mailboxId: string, senderI
   `;
   return identity
     ? ok()
-    : fail(err.badInput("Select a verified identity with Automatic replies enabled in Settings > Identities"));
+    : fail(err.badInput("Select a verified identity with Automatic replies enabled in Settings > Delivery > Sending identities"));
 };
 
 const requireReferenceConfiguration = async (db: SqlClient, mailboxId: string): Promise<Result<void>> => {

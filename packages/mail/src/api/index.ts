@@ -594,6 +594,16 @@ const mailOperationsApi = new Hono<AuthContext>()
       );
     },
   )
+  .delete("/mailboxes/:mailboxId/folders/:folderId", v("param", mailboxAndIdParamSchema("folderId")), async (c) => {
+    const params = c.req.valid("param") as { mailboxId: string; folderId: string };
+    return respond(
+      c,
+      folders.dismissUnavailableFolder({
+        context: requestContext(c),
+        ...params,
+      }),
+    );
+  })
   .get("/mailboxes/:mailboxId/notification-targets/:kind/:sourceId", v("param", notificationTargetParamSchema), async (c) => {
     const resolved = await notificationTargets.resolveMailNotificationTarget({
       context: requestContext(c),

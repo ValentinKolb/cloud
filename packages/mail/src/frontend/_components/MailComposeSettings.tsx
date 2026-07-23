@@ -1,8 +1,10 @@
 import {
+  confirmDiscardIfDirty,
   dialogCore,
   MarkdownEditor,
   PanelDialog,
   Placeholder,
+  panelDialogFixedOptions,
   panelDialogOptions,
   prompts,
   Select,
@@ -32,6 +34,8 @@ const TEMPLATE_VARIABLES = [
   "sender.reply_to",
   "message.subject",
 ] as const;
+const templateEditorDialogOptions = { ...panelDialogOptions, cancelBehavior: "ignore" as const };
+const emailDesignDialogOptions = { ...panelDialogFixedOptions, cancelBehavior: "ignore" as const };
 
 function ComposeTemplateEditor(props: {
   mailboxId: string;
@@ -39,6 +43,7 @@ function ComposeTemplateEditor(props: {
   canCreateMailboxTemplate: boolean;
   close: () => void;
   onSaved: (template: ComposeTemplate) => void;
+  onArchive: (template: ComposeTemplate) => Promise<boolean>;
   reloadTemplate: (templateId: string) => Promise<ComposeTemplate | null>;
 }) {
   const [kind, setKind] = createSignal<ComposeTemplateKind>(props.template?.kind ?? "snippet");
@@ -49,6 +54,17 @@ function ComposeTemplateEditor(props: {
   const [shortcut, setShortcut] = createSignal(props.template?.shortcut ?? "");
   const [body, setBody] = createSignal(props.template?.body ?? "");
   const [revision, setRevision] = createSignal(props.template?.revision ?? null);
+  const baseline = JSON.stringify({
+    kind: props.template?.kind ?? "snippet",
+    scope: props.template?.scope ?? (props.canCreateMailboxTemplate ? "mailbox" : "private"),
+    name: props.template?.name ?? "",
+    shortcut: props.template?.shortcut ?? "",
+    body: props.template?.body ?? "",
+  });
+  const dirty = () => JSON.stringify({ kind: kind(), scope: scope(), name: name(), shortcut: shortcut(), body: body() }) !== baseline;
+  const closeSafely = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
 
   const save = mutations.create<ComposeTemplate, void>({
     mutation: async () => {
@@ -96,7 +112,7 @@ function ComposeTemplateEditor(props: {
         title={props.template ? `Edit ${props.template.kind}` : "New compose template"}
         subtitle="Markdown with safe compose variables"
         icon={kind() === "signature" ? "ti ti-signature" : "ti ti-bolt"}
-        close={props.close}
+        close={() => void closeSafely()}
       />
       <PanelDialog.Body>
         <PanelDialog.Section title="Template" subtitle="Inserted from the composer with a slash command." icon="ti ti-template">
@@ -164,18 +180,139 @@ function ComposeTemplateEditor(props: {
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button type="button" class="btn-simple btn-sm" onClick={props.close}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="btn-primary btn-sm"
-          disabled={save.loading() || !name().trim() || !shortcut().trim() || !body().trim()}
-          onClick={() => save.mutate()}
+        <Show when={props.template} fallback={<span />}>
+          {(template) => (
+            <button
+              type="button"
+              class="btn-danger btn-sm"
+              disabled={save.loading()}
+              onClick={() => void props.onArchive(template()).then((archived) => archived && props.close())}
+            >
+              <i class="ti ti-archive" aria-hidden="true" />
+              Archive
+            </button>
+          )}
+        </Show>
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-simple btn-sm" onClick={() => void closeSafely()}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn-primary btn-sm"
+            disabled={save.loading() || !name().trim() || !shortcut().trim() || !body().trim()}
+            onClick={() => save.mutate()}
+          >
+            <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+            Save template
+          </button>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
+  );
+}
+
+function EmailDesignEditor(props: {
+  mailboxId: string;
+  style: MailboxComposeStyle;
+  close: () => void;
+  onSaved: (style: MailboxComposeStyle) => void;
+}) {
+  const [customCss, setCustomCss] = createSignal(props.style.customCss);
+  const [revision, setRevision] = createSignal(props.style.revision);
+  const dirty = () => customCss() !== props.style.customCss;
+  const closeSafely = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
+  const save = mutations.create<MailboxComposeStyle, void>({
+    mutation: async () => {
+      const response = await apiClient.mailboxes[":mailboxId"]["compose-style"].$put({
+        param: { mailboxId: props.mailboxId },
+        json: { expectedRevision: revision(), customCss: customCss() },
+      });
+      if (!response.ok) {
+        if (response.status === 409) {
+          const currentResponse = await apiClient.mailboxes[":mailboxId"]["compose-style"].$get({
+            param: { mailboxId: props.mailboxId },
+          });
+          if (currentResponse.ok) setRevision((await currentResponse.json()).revision);
+          throw new Error("The email design changed in another session. Your CSS is preserved; review it and save again.");
+        }
+        throw new Error(await readApiError(response, "Failed to save email design"));
+      }
+      return response.json();
+    },
+    onSuccess: (style) => {
+      props.onSaved(style);
+      toast.success("Email design saved");
+      props.close();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  return (
+    <PanelDialog>
+      <PanelDialog.Header
+        title="Email design"
+        subtitle="Mailbox branding for Markdown messages"
+        icon="ti ti-palette"
+        close={() => void closeSafely()}
+      />
+      <PanelDialog.Body>
+        <PanelDialog.Section
+          title="CSS and preview"
+          subtitle="The built-in readable design remains active underneath these safe overrides."
+          icon="ti ti-code"
         >
-          <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
-          Save template
-        </button>
+          <div class="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
+            <TextInput
+              label="Mailbox CSS"
+              description="Unsaved changes appear immediately in the preview."
+              value={customCss}
+              onInput={setCustomCss}
+              multiline
+              lines={16}
+              monospace
+              placeholder=".mail-content { color: #18181b; }"
+            />
+            <div class="flex min-w-0 flex-col">
+              <p class="mb-1 text-sm font-medium text-primary">Preview</p>
+              <p class="mb-1 text-xs text-dimmed">Unsaved changes appear immediately in the preview.</p>
+              <iframe
+                title="Mailbox email design preview"
+                sandbox=""
+                class="paper min-h-[22rem] w-full flex-1 bg-white"
+                srcdoc={`<!doctype html><html><head><meta charset="utf-8"><style>
+                  body { margin: 0; padding: 24px; color: #18181b; background: #fff; font: 15px/1.55 system-ui, sans-serif; }
+                  .mail-content { max-width: 640px; margin: 0 auto; }
+                  h1 { margin: 0 0 16px; font-size: 22px; }
+                  p { margin: 0 0 14px; }
+                  a { color: #0f766e; }
+                  blockquote { margin: 16px 0; padding-left: 14px; border-left: 3px solid #d4d4d8; color: #52525b; }
+                  ${customCss().replaceAll("<", "\\3C ")}
+                </style></head><body><main class="mail-content">
+                  <h1>Project update</h1>
+                  <p>Hello Alex,</p>
+                  <p>The revised schedule is ready. You can review the <a href="#">project notes</a> before Friday.</p>
+                  <blockquote>Previous message content remains readable.</blockquote>
+                  <p>Kind regards,<br>Example Team</p>
+                </main></body></html>`}
+              />
+            </div>
+          </div>
+        </PanelDialog.Section>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        <span />
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-simple btn-sm" disabled={save.loading()} onClick={() => void closeSafely()}>
+            Cancel
+          </button>
+          <button type="button" class="btn-primary btn-sm" disabled={save.loading() || !dirty()} onClick={() => save.mutate()}>
+            <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+            Save email design
+          </button>
+        </div>
       </PanelDialog.Footer>
     </PanelDialog>
   );
@@ -193,7 +330,6 @@ export default function MailComposeSettings(props: {
   const [templates, setTemplates] = createSignal(props.initialTemplates);
   const [defaults, setDefaults] = createSignal(props.initialDefaults);
   const [style, setStyle] = createSignal(props.initialStyle);
-  const [customCss, setCustomCss] = createSignal(props.initialStyle.customCss);
   const [pendingDefaults, setPendingDefaults] = createSignal<Set<string>>(new Set());
   const signatures = createMemo(() => templates().filter((template) => template.kind === "signature"));
 
@@ -211,12 +347,6 @@ export default function MailComposeSettings(props: {
     });
     if (!response.ok) throw new Error(await readApiError(response, "Failed to reload signature defaults"));
     setDefaults(await response.json());
-  };
-
-  const reloadStyle = async (): Promise<void> => {
-    const response = await apiClient.mailboxes[":mailboxId"]["compose-style"].$get({ param: { mailboxId: props.mailboxId } });
-    if (!response.ok) throw new Error(await readApiError(response, "Failed to reload email design"));
-    setStyle(await response.json());
   };
 
   const replaceTemplate = (template: ComposeTemplate) =>
@@ -237,10 +367,11 @@ export default function MailComposeSettings(props: {
           canCreateMailboxTemplate={props.permission === "admin"}
           close={() => close()}
           onSaved={replaceTemplate}
+          onArchive={archiveTemplate}
           reloadTemplate={async (templateId) => (await reloadTemplates()).find((template) => template.id === templateId) ?? null}
         />
       ),
-      panelDialogOptions,
+      templateEditorDialogOptions,
     );
 
   const archiveTemplate = async (template: ComposeTemplate) => {
@@ -252,7 +383,7 @@ export default function MailComposeSettings(props: {
         variant: "danger",
       },
     );
-    if (!confirmed) return;
+    if (!confirmed) return false;
     const response = await apiClient.mailboxes[":mailboxId"]["compose-templates"][":templateId"].$delete({
       param: { mailboxId: props.mailboxId, templateId: template.id },
       json: { expectedRevision: template.revision },
@@ -261,12 +392,15 @@ export default function MailComposeSettings(props: {
       if (response.status === 409) {
         try {
           await Promise.all([reloadTemplates(), reloadDefaults()]);
-          return prompts.error("This template changed in another session. The latest version is now shown.");
+          prompts.error("This template changed in another session. The latest version is now shown.");
+          return false;
         } catch (error) {
-          return prompts.error(error instanceof Error ? error.message : "Failed to reload compose settings");
+          prompts.error(error instanceof Error ? error.message : "Failed to reload compose settings");
+          return false;
         }
       }
-      return prompts.error(await readApiError(response, "Failed to archive compose template"));
+      prompts.error(await readApiError(response, "Failed to archive compose template"));
+      return false;
     }
     setTemplates((current) => {
       const next = current.filter((item) => item.id !== template.id);
@@ -275,6 +409,7 @@ export default function MailComposeSettings(props: {
     });
     setDefaults((current) => current.filter((item) => item.templateId !== template.id));
     toast.success("Template archived");
+    return true;
   };
 
   const setDefault = async (identity: SenderIdentity, scope: "private" | "mailbox", templateId: string) => {
@@ -319,31 +454,14 @@ export default function MailComposeSettings(props: {
     }
   };
 
-  const saveStyle = mutations.create<MailboxComposeStyle, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"]["compose-style"].$put({
-        param: { mailboxId: props.mailboxId },
-        json: { expectedRevision: style().revision, customCss: customCss() },
-      });
-      if (!response.ok) {
-        if (response.status === 409) {
-          await reloadStyle();
-          throw new Error("The email design changed in another session. Your CSS is preserved; review it and save again.");
-        }
-        throw new Error(await readApiError(response, "Failed to save email design"));
-      }
-      return response.json();
-    },
-    onSuccess: (next) => {
-      setStyle(next);
-      setCustomCss(next.customCss);
-      toast.success("Email design saved");
-    },
-    onError: (error) => prompts.error(error.message),
-  });
+  const openEmailDesign = () =>
+    dialogCore.open<void>(
+      (close) => <EmailDesignEditor mailboxId={props.mailboxId} style={style()} close={() => close()} onSaved={setStyle} />,
+      emailDesignDialogOptions,
+    );
 
   return (
-    <div class="flex flex-col gap-4">
+    <div class="flex flex-col gap-6">
       <section>
         <div class="mb-2 flex items-start justify-between gap-3">
           <div>
@@ -366,29 +484,27 @@ export default function MailComposeSettings(props: {
             />
           }
         >
-          <div class="flex flex-col gap-2">
+          <div class="flex flex-col gap-1">
             <For each={templates()}>
               {(template) => (
-                <div class="flex items-center gap-3 py-2">
+                <div class="group flex min-h-12 items-center gap-3 rounded-[var(--ui-radius-control)] px-2 py-2 hover:bg-[var(--ui-hover)]">
                   <i class={`ti ${template.kind === "signature" ? "ti-signature" : "ti-bolt"} text-dimmed`} aria-hidden="true" />
                   <div class="min-w-0 flex-1">
                     <div class="flex min-w-0 items-center gap-2">
                       <span class="truncate text-sm font-medium text-primary">{template.name}</span>
+                      <span class="chip text-xs">{template.kind === "signature" ? "Signature" : "Snippet"}</span>
                       <span class="chip text-xs">{template.scope === "mailbox" ? "Mailbox" : "Private"}</span>
                     </div>
                     <p class="truncate text-xs text-dimmed">/{template.shortcut}</p>
                   </div>
                   <Show when={template.scope === "private" || props.permission === "admin"}>
-                    <button type="button" class="icon-btn" aria-label={`Edit ${template.name}`} onClick={() => void openTemplate(template)}>
-                      <i class="ti ti-pencil" aria-hidden="true" />
-                    </button>
                     <button
                       type="button"
-                      class="icon-btn"
-                      aria-label={`Archive ${template.name}`}
-                      onClick={() => void archiveTemplate(template)}
+                      class="icon-btn opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                      aria-label={`Edit ${template.name}`}
+                      onClick={() => void openTemplate(template)}
                     >
-                      <i class="ti ti-archive" aria-hidden="true" />
+                      <i class="ti ti-pencil" aria-hidden="true" />
                     </button>
                   </Show>
                 </div>
@@ -402,7 +518,8 @@ export default function MailComposeSettings(props: {
         <section>
           <h3 class="text-sm font-semibold text-primary">Personal signature overrides</h3>
           <p class="mb-2 mt-0.5 text-xs text-dimmed">
-            Override an identity's mailbox signature only for yourself. Identity defaults are managed under Identities.
+            Override an identity's mailbox signature only for yourself. Changes apply immediately. Identity defaults are managed under
+            Delivery.
           </p>
           <div class="flex flex-col gap-3">
             <For each={props.identities.filter((identity) => identity.status === "verified")}>
@@ -432,28 +549,14 @@ export default function MailComposeSettings(props: {
 
       <Show when={props.permission === "admin"}>
         <section>
-          <h3 class="text-sm font-semibold text-primary">Email design</h3>
-          <p class="mb-2 mt-0.5 text-xs text-dimmed">
-            The built-in readable email design is always applied. Add safe mailbox CSS overrides for company branding.
-          </p>
-          <TextInput
-            ariaLabel="Mailbox email CSS"
-            value={customCss}
-            onInput={setCustomCss}
-            multiline
-            lines={12}
-            monospace
-            placeholder=".mail-content { color: #18181b; }"
-          />
-          <div class="mt-2 flex justify-end">
-            <button
-              type="button"
-              class="btn-primary btn-sm"
-              disabled={saveStyle.loading() || customCss() === style().customCss}
-              onClick={() => saveStyle.mutate()}
-            >
-              <i class={`ti ${saveStyle.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
-              Save email design
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h3 class="text-sm font-semibold text-primary">Email design</h3>
+              <p class="mt-0.5 text-xs text-dimmed">Preview and adjust mailbox branding for Markdown messages.</p>
+            </div>
+            <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void openEmailDesign()}>
+              <i class="ti ti-palette" aria-hidden="true" />
+              Edit design
             </button>
           </div>
         </section>

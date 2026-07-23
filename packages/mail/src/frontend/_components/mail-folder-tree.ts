@@ -51,5 +51,18 @@ export const buildVisibleMailFolderTree = <T extends MailFolderView>(folders: re
 export const flattenMailFolderTree = <T extends MailFolderView>(
   nodes: readonly MailFolderTreeNode<T>[],
   depth = 0,
-): Array<{ folder: T; depth: number }> =>
-  nodes.flatMap((node) => [{ folder: node.folder, depth }, ...flattenMailFolderTree(node.children, depth + 1)]);
+  hiddenByParent = false,
+): Array<{ folder: T; depth: number; hiddenByParent: boolean }> =>
+  nodes.flatMap((node) => [
+    { folder: node.folder, depth, hiddenByParent },
+    ...flattenMailFolderTree(node.children, depth + 1, hiddenByParent || !node.folder.showInSidebar),
+  ]);
+
+export const excludeMailFolderTreeRoles = <T extends MailFolderView>(
+  nodes: readonly MailFolderTreeNode<T>[],
+  roles: ReadonlySet<string>,
+): MailFolderTreeNode<T>[] =>
+  nodes.flatMap((node) => {
+    const children = excludeMailFolderTreeRoles(node.children, roles);
+    return roles.has(node.folder.role) ? children : [{ folder: node.folder, children }];
+  });

@@ -1,6 +1,6 @@
 import { ColorInput, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { LocalTag } from "../../service/local-tags";
 import type { SavedConversationView } from "../../service/saved-views";
@@ -16,9 +16,13 @@ function TagEditor(props: {
   loading: boolean;
   onSave: (value: { name: string; color: string }) => void;
   onCancel: () => void;
+  onDirtyChange: (dirty: boolean) => void;
 }) {
   const [name, setName] = createSignal(props.tag?.name ?? "");
   const [color, setColor] = createSignal(props.tag?.color ?? "#6b7280");
+  createEffect(() => props.onDirtyChange(name() !== (props.tag?.name ?? "") || color() !== (props.tag?.color ?? "#6b7280")));
+  onCleanup(() => props.onDirtyChange(false));
+
   return (
     <form
       class="flex flex-col gap-2 py-2"
@@ -46,12 +50,17 @@ export default function MailOrganizationSettings(props: {
   mailboxId: string;
   permission: MailboxSettingsContext["permission"];
   initial: OrganizationContext;
+  onDirtyChange?: (dirty: boolean) => void;
   onWorkspaceChange: () => void;
 }) {
   const [views, setViews] = createSignal(props.initial.savedViews);
   const [tags, setTags] = createSignal(props.initial.localTags);
   const [tagEditor, setTagEditor] = createSignal<LocalTag | "new" | null>(null);
+  const [tagEditorDirty, setTagEditorDirty] = createSignal(false);
   const canWrite = () => props.permission === "write" || props.permission === "admin";
+
+  createEffect(() => props.onDirtyChange?.(tagEditorDirty()));
+  onCleanup(() => props.onDirtyChange?.(false));
 
   const editView = async (existing?: SavedConversationView) => {
     const result = await openMailSearchBuilder({
@@ -126,14 +135,14 @@ export default function MailOrganizationSettings(props: {
   };
 
   return (
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-8">
       <section class="flex flex-col gap-2">
         <div class="flex items-start justify-between gap-2">
           <div>
             <h3 class="text-sm font-semibold text-primary">Saved views</h3>
             <p class="text-xs text-dimmed">Reusable folder and collaboration filters shown in the mailbox navigation.</p>
           </div>
-          <button type="button" class="btn-primary btn-sm shrink-0 whitespace-nowrap" onClick={() => void editView()}>
+          <button type="button" class="btn-secondary btn-sm shrink-0 whitespace-nowrap" onClick={() => void editView()}>
             <i class="ti ti-plus" aria-hidden="true" /> New view
           </button>
         </div>
@@ -143,28 +152,42 @@ export default function MailOrganizationSettings(props: {
             <Placeholder variant="panel" icon="ti ti-filter-off" title="No saved views" description="Create a private or shared view." />
           }
         >
-          <For each={views()}>
-            {(view) => (
-              <div class="paper flex items-center gap-3 p-3">
-                <i class={`ti ${view.scope === "private" ? "ti-user" : "ti-users"} text-dimmed`} aria-hidden="true" />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium text-primary">{view.name}</span>
-                  <span class="block text-xs text-dimmed">{view.scope === "private" ? "Only me" : "Shared with mailbox"}</span>
-                  <span class="block truncate text-xs text-dimmed" title={summarizeMailSearchExpression(view.filter.expression)}>
-                    {summarizeMailSearchExpression(view.filter.expression)}
+          <div class="flex flex-col gap-1">
+            <For each={views()}>
+              {(view) => (
+                <div class="group flex min-h-12 items-center gap-3 rounded-[var(--ui-radius-control)] px-2 py-2 hover:bg-[var(--ui-hover)]">
+                  <i class={`ti ${view.scope === "private" ? "ti-user" : "ti-users"} text-secondary`} aria-hidden="true" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-medium text-primary">{view.name}</span>
+                    <span class="block truncate text-xs text-dimmed" title={summarizeMailSearchExpression(view.filter.expression)}>
+                      {view.scope === "private" ? "Only me" : "Shared with mailbox"} ·{" "}
+                      {summarizeMailSearchExpression(view.filter.expression)}
+                    </span>
                   </span>
-                </span>
-                <Show when={view.scope === "private" || canWrite()}>
-                  <button type="button" class="btn-simple btn-sm" onClick={() => void editView(view)}>
-                    <i class="ti ti-pencil" aria-hidden="true" /> Edit
-                  </button>
-                  <button type="button" class="icon-btn" aria-label={`Delete ${view.name}`} onClick={() => void removeView(view)}>
-                    <i class="ti ti-trash" aria-hidden="true" />
-                  </button>
-                </Show>
-              </div>
-            )}
-          </For>
+                  <Show when={view.scope === "private" || canWrite()}>
+                    <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                      <button
+                        type="button"
+                        class="icon-btn icon-btn-sm"
+                        aria-label={`Edit ${view.name}`}
+                        onClick={() => void editView(view)}
+                      >
+                        <i class="ti ti-pencil" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn icon-btn-sm"
+                        aria-label={`Delete ${view.name}`}
+                        onClick={() => void removeView(view)}
+                      >
+                        <i class="ti ti-trash" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
         </Show>
       </section>
 
@@ -175,7 +198,7 @@ export default function MailOrganizationSettings(props: {
               <h3 class="text-sm font-semibold text-primary">Conversation tags</h3>
               <p class="text-xs text-dimmed">Organize conversations for your team, saved views, and automations.</p>
             </div>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => setTagEditor("new")}>
+            <button type="button" class="btn-secondary btn-sm" disabled={tagEditor() !== null} onClick={() => setTagEditor("new")}>
               <i class="ti ti-plus" aria-hidden="true" /> New tag
             </button>
           </div>
@@ -184,6 +207,7 @@ export default function MailOrganizationSettings(props: {
               loading={saveTag.loading()}
               onSave={(value) => saveTag.mutate(value)}
               onCancel={() => setTagEditor(null)}
+              onDirtyChange={setTagEditorDirty}
             />
           </Show>
           <Show
@@ -199,10 +223,22 @@ export default function MailOrganizationSettings(props: {
                       <span class="h-3 w-3 shrink-0 rounded-full" style={{ "background-color": tag.color }} />
                       <span class="min-w-0 flex-1 truncate text-sm font-medium text-primary">{tag.name}</span>
                       <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/tag:opacity-100 sm:group-focus-within/tag:opacity-100">
-                        <button type="button" class="icon-btn icon-btn-sm" aria-label={`Edit ${tag.name}`} onClick={() => setTagEditor(tag)}>
+                        <button
+                          type="button"
+                          class="icon-btn icon-btn-sm"
+                          aria-label={`Edit ${tag.name}`}
+                          disabled={tagEditor() !== null}
+                          onClick={() => setTagEditor(tag)}
+                        >
                           <i class="ti ti-pencil" aria-hidden="true" />
                         </button>
-                        <button type="button" class="icon-btn icon-btn-sm" aria-label={`Delete ${tag.name}`} onClick={() => void removeTag(tag)}>
+                        <button
+                          type="button"
+                          class="icon-btn icon-btn-sm"
+                          aria-label={`Delete ${tag.name}`}
+                          disabled={tagEditor() !== null}
+                          onClick={() => void removeTag(tag)}
+                        >
                           <i class="ti ti-trash" aria-hidden="true" />
                         </button>
                       </div>
@@ -214,6 +250,7 @@ export default function MailOrganizationSettings(props: {
                     loading={saveTag.loading()}
                     onSave={(value) => saveTag.mutate({ existing: tag, ...value })}
                     onCancel={() => setTagEditor(null)}
+                    onDirtyChange={setTagEditorDirty}
                   />
                 </Show>
               )}

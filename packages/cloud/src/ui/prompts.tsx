@@ -6,7 +6,7 @@
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { createStore } from "solid-js/store";
-import { dialogCore } from "./dialog-core";
+import { dialogCore, type OpenDialogOptions } from "./dialog-core";
 import CheckboxInput from "./input/Checkbox";
 import { DatePicker, DateTimePicker } from "./input/DatePicker";
 import ImageInput from "./input/ImageInput";
@@ -36,6 +36,8 @@ export interface DialogOptions {
   surface?: "default" | "bare";
   /** Hide the default title row. Mainly useful together with surface: "bare". */
   header?: false;
+  /** Ignore Escape/backdrop cancellation when the rendered editor handles safe closing itself. */
+  cancelBehavior?: OpenDialogOptions["cancelBehavior"];
 }
 
 export type PromptSearchItem<T = unknown> = {
@@ -591,6 +593,7 @@ export const prompts = {
       {
         panelClassName: getPanelClassName(options),
         contentClassName: getContentClassName(options?.surface),
+        cancelBehavior: options?.cancelBehavior,
       },
     ),
 

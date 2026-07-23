@@ -4,15 +4,12 @@ import type {
   ComposeTemplate,
   Mailbox,
   MailboxComposeStyle,
-  MailboxOperationalHealth,
   ProviderBinding,
   ProviderConnection,
   SenderIdentity,
 } from "./contracts";
-import type { MailAssignableUser } from "./service/collaboration";
-import type { LocalTag } from "./service/local-tags";
 import type { MailAdminFolderView } from "./service/folders";
-import type { MailFolderView } from "./service/messages";
+import type { LocalTag } from "./service/local-tags";
 import type { SavedConversationView } from "./service/saved-views";
 
 export type MailboxAdminSettingsContext = {
@@ -20,7 +17,6 @@ export type MailboxAdminSettingsContext = {
   bindings: ProviderBinding[];
   connections: ProviderConnection[];
   folders: MailAdminFolderView[];
-  health: MailboxOperationalHealth;
   identities: SenderIdentity[];
 };
 
@@ -30,8 +26,6 @@ export type MailboxSettingsContext = {
   organization: {
     savedViews: SavedConversationView[];
     localTags: LocalTag[];
-    folders: MailFolderView[];
-    assignableUsers: MailAssignableUser[];
   };
   compose: {
     templates: ComposeTemplate[];

@@ -521,6 +521,12 @@ await prompts.dialog<void>(
 );
 ```
 
+When the rendered editor owns an unsaved-change confirmation, set
+`cancelBehavior: "ignore"` and route every visible close action through the
+editor's guarded close function. This prevents Escape and backdrop clicks from
+bypassing the dirty-state check. Do not use it to create an uncloseable dialog:
+the content must always expose an accessible close or cancel action.
+
 For a custom dialog that still uses the standard header layout, import `DialogHeader` from `@valentinkolb/cloud/ui` and pass only `{ close, title, icon }`.
 
 **Rule:** put `prompts.form()` and `prompts.dialog()` inside the mutation when the prompt is part of a write flow. That keeps prompt failures, API failures, loading state, success handling, and cancellation in one controller.

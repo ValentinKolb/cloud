@@ -1,4 +1,4 @@
-import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
 import { mailHelp } from "../../../help";
@@ -39,13 +39,7 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <MailLayoutHelp documents={mailHelp.manifest} />
-      <MailAutomationWorkspace
-        data={result.data}
-        initialSection={initialSection}
-        currentUserId={user.id}
-        currentUserEmail={user.mail}
-        dateConfig={getDateConfig(c)}
-      />
+      <MailAutomationWorkspace data={result.data} initialSection={initialSection} currentUserEmail={user.mail} />
     </Layout>
   );
 });
