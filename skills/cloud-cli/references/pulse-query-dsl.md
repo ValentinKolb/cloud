@@ -9,7 +9,7 @@ Pulse Query DSL selects metrics, events, or current states from one Pulse base. 
 - [Event queries](#event-queries)
 - [State queries](#state-queries)
 - [Shared filters](#shared-filters)
-- [Quoting and parsing](#quoting-and-parsing)
+- [Quoting and exact names](#quoting-and-exact-names)
 - [Compile and run](#compile-and-run)
 - [Limits and performance](#limits-and-performance)
 - [Examples](#examples)
@@ -18,7 +18,7 @@ Pulse Query DSL selects metrics, events, or current states from one Pulse base. 
 
 | Question | Statement | Result |
 | --- | --- | --- |
-| How did a numeric value change? | `metric` | Bucketed time-series points |
+| How did a numeric value change? | `metric` | Ordered points over time |
 | What happened? | `events` | Event rows ordered by time |
 | What is true now? | `states` | Latest current-state rows |
 
@@ -41,7 +41,7 @@ The metric name and aggregation are required. Defaults are:
 - `every 5m`
 - `since 24h`
 
-`every` defines the bucket width. `since` defines the lookback window. Durations use positive integers followed by `m`, `h`, or `d`, and may not exceed `90d`.
+`every` defines the time-window width. `since` defines the lookback window. Durations use positive integers followed by `m`, `h`, or `d`, and may not exceed `90d`.
 
 ```text
 metric system.memory.usage avg
@@ -52,22 +52,22 @@ metric system.memory.usage avg every 1m since 6h
 
 | Aggregation | Meaning |
 | --- | --- |
-| `avg` | Average all matched samples in each bucket. |
-| `sum` | Sum all matched sample values in each bucket. |
-| `min` | Smallest matched sample in each bucket. |
-| `max` | Largest matched sample in each bucket. |
-| `count` | Number of matched samples in each bucket, not the sum of their values. |
-| `latest` | Latest sample per matched series in each bucket, then average those latest values. |
-| `rate` | Average non-negative per-second change across matched series in each bucket. Counter resets are clamped to zero. |
-| `increase` | Average non-negative counter increase across matched series in each bucket. Counter resets are clamped to zero. |
-| `p50` | 50th percentile of matched sample values in each bucket. |
-| `p90` | 90th percentile of matched sample values in each bucket. |
-| `p95` | 95th percentile of matched sample values in each bucket. |
-| `p99` | 99th percentile of matched sample values in each bucket. |
+| `avg` | Average all matched values in each time window. |
+| `sum` | Sum all matched values in each time window. |
+| `min` | Smallest matched value in each time window. |
+| `max` | Largest matched value in each time window. |
+| `count` | Number of matched samples in each time window, not the sum of their values. |
+| `latest` | Latest sample per matched variant in each time window, then average those latest values. |
+| `rate` | Average non-negative per-second change across matched variants in each time window. Counter resets are ignored. |
+| `increase` | Average non-negative counter increase across matched variants in each time window. Counter resets are ignored. |
+| `p50` | 50th percentile of matched values in each time window. |
+| `p90` | 90th percentile of matched values in each time window. |
+| `p95` | 95th percentile of matched values in each time window. |
+| `p99` | 99th percentile of matched values in each time window. |
 
 Use `rate` or `increase` for counters when the question is about change. Use `avg`, `latest`, `min`, or `max` for gauges depending on the question.
 
-Metric output has at most 2,000 ordered points. Long windows with buckets of at least one hour can use Pulse hourly rollups for `avg`, `sum`, `min`, `max`, `count`, and `latest`.
+Metric output has at most 2,000 ordered points. If a range produces too many points, shorten `since` or increase `every`.
 
 ## Event queries
 
@@ -87,8 +87,8 @@ events [<kind>|*]
 Defaults are:
 
 - all event kinds when the kind is omitted or `*`
-- raw event rows when no aggregation is specified
-- `every 1h` for aggregated events
+- individual event rows when no aggregation is specified
+- `every 1h` for summarized events
 - `since 24h`
 - `limit 500`
 
@@ -99,18 +99,20 @@ events page.viewed count every 1h since 7d where channel=qr group by campaign, c
 events page.viewed unique actor every 1d since 30d
 ```
 
-Without an aggregation, event rows include the event kind and timestamp, optional numeric value, source and resource identifiers, dimensions, attributes, payload, and recorded timestamp. Raw rows intentionally omit sensitive fields and actor, session, and correlation identities.
+Without an aggregation, event rows include the event kind and timestamp, optional numeric value, source and resource identifiers, dimensions, attributes, payload, and recorded timestamp. Individual rows intentionally omit sensitive fields and actor, session, and correlation identities.
 
 ### Event aggregations
 
 | Aggregation | Meaning |
 | --- | --- |
-| `count` | Count matched events per bucket and optional dimension group. |
-| `sum` | Sum non-null event `value` fields per bucket and optional dimension group. |
-| `unique actor` | Count distinct non-null `actorId` values per bucket and optional dimension group. |
-| `unique session` | Count distinct non-null `sessionId` values per bucket and optional dimension group. |
+| `count` | Count matched events per time window and optional dimension group. |
+| `sum` | Sum non-null event `value` fields per time window and optional dimension group. |
+| `unique actor` | Count distinct non-null `actorId` values per time window and optional dimension group. |
+| `unique session` | Count distinct non-null `sessionId` values per time window and optional dimension group. |
 
-Aggregated events return time-series points instead of raw event rows. `every` defaults to `1h`. `group by` accepts one to four dimension keys and groups missing values as a separate null group. Grouping applies only to `dimensions`, not `attributes`, `sensitive`, or `payload`.
+Summarized events return points over time instead of individual event rows. `every` defaults to `1h`. `group by` accepts one to four dimension keys and groups missing values as a separate empty group. Grouping applies only to `dimensions`, not `attributes`, `sensitive`, or `payload`.
+
+The event aggregation must follow the event kind directly. `every` and `group by` require an aggregation. Shared clauses such as `since`, `source`, `entity`, `entity_type`, `where`, and `limit` may follow in any order.
 
 ```text
 events qr.opened count every 1h since 7d group by campaign, country
@@ -118,7 +120,7 @@ events page.viewed unique actor every 1d since 30d where channel=web
 events order.created sum every 1h since 24h group by currency
 ```
 
-Use first-class `actorId` and `sessionId` for unique counts. Do not duplicate unbounded identities into dimensions. Query DSL does not currently filter raw events by actor, session, correlation, attributes, sensitive fields, or payload.
+Use `actorId` and `sessionId` for unique counts. Do not duplicate unique identities into dimensions. Query DSL does not currently filter individual events by actor, session, correlation, attributes, sensitive fields, or payload.
 
 ## State queries
 
@@ -209,7 +211,7 @@ since 30d
 
 Applies to events and states. It must be a positive integer no larger than 1,000.
 
-## Quoting and parsing
+## Quoting and exact names
 
 Single and double quotes are supported. Quote metric names, event kinds, state keys, entity IDs, types, dimension keys, or values when they contain spaces, commas, or equals signs.
 
@@ -224,7 +226,7 @@ Inside a quoted token, backslash escapes the next character:
 where message="customer said \"retry\""
 ```
 
-Keywords are case-insensitive when parsed as statement or clause names. Observed names and filter values are passed through and should use their actual spelling.
+Statement and clause keywords are case-insensitive. Metric aggregations use the lowercase spelling shown in this reference. Observed names and filter values keep their spelling and should match the data exactly.
 
 ## Compile and run
 
@@ -286,11 +288,12 @@ Run output always contains `compiled`, `points`, `events`, and `states`. Exactly
 - Durations must be positive and no longer than 90 days.
 - Event and state result limits may not exceed 1,000 rows.
 - Event aggregations may group by at most four dimension keys and return at most 1,000 ordered points.
-- Metric execution rejects queries matching more than 250 series.
-- Metric output is limited to 2,000 buckets.
+- Metric execution rejects queries matching more than 250 variants.
+- Metric output is limited to 2,000 time windows.
+- A `where` clause accepts at most 32 distinct dimension filters.
 - A clause may appear only once.
 
-When a metric matches too many series, discover variants with `cld pulse series <metric> --json`, then add `source`, `entity`, `entity_type`, or `where` filters. Do not silently choose an arbitrary series.
+When a metric matches too many variants, inspect them with `cld pulse series <metric> --json`, then add `source`, `entity`, `entity_type`, or `where` filters. Do not silently choose an arbitrary variant.
 
 ## Examples
 

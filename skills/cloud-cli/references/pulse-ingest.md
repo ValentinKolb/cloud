@@ -120,7 +120,7 @@ All three collections are optional, but the batch must contain at least one item
 
 A metric variant is identified by metric name, authenticated source, resource identity, and normalized dimensions. Sending the same variant and timestamp again updates that sample rather than creating a second sample. Keep type and unit stable for one metric name: the first observed type remains the metric definition, while a later non-null unit can update its unit.
 
-One metric may have at most 10,000 series in one base. Values such as visitor IDs, request IDs, session IDs, full URLs, timestamps, or IP addresses create unbounded series and belong in events instead. Pulse rejects a batch that would exceed the metric's series budget.
+One metric may have at most 10,000 variants in one base. Values such as visitor IDs, request IDs, session IDs, full URLs, timestamps, or IP addresses create too many variants and belong in events instead. Pulse rejects a batch that would exceed the metric's variant limit.
 
 ### Events
 
@@ -168,12 +168,12 @@ One metric may have at most 10,000 series in one base. Values such as visitor ID
 | `correlationId` | No | Identifier joining one process across events. |
 | `resource` | No | Explicit stable resource `{ type, id, label? }` for inventory and resource scoping. |
 | `dimensions` | No | Bounded exact-match labels used by `where` and `group by`. |
-| `attributes` | No | Discoverable, returned JSON for irregular or high-cardinality event fields. |
+| `attributes` | No | Discoverable, returned JSON for irregular or unique event fields. |
 | `sensitive` | No | Classified JSON with independent short retention; never returned by normal event queries. |
-| `payload` | No | Opaque event-specific JSON returned with raw event rows but not cataloged by field. |
+| `payload` | No | Event-specific JSON returned with individual event rows but not listed by field. |
 | `sourceId` | No | Overridden by the authenticated ingest path. |
 
-`actorId`, `sessionId`, and `correlationId` are stored as first-class identities. Query DSL can count unique actors and sessions without normalizing them as dimensions. Raw event rows intentionally omit all three identities, while `correlationId` is retained for internal correlation and future query capabilities.
+Query DSL can count unique `actorId` and `sessionId` values without using them as dimensions. Individual event rows intentionally omit actor, session, and correlation identities.
 
 ## Classify event data
 
@@ -182,9 +182,9 @@ Classify fields by how Pulse must use and retain them. Do not duplicate one valu
 | Role | Put here | Do not put here |
 | --- | --- | --- |
 | `dimensions` | Stable fields users repeatedly filter or group by: campaign, channel, country, outcome | Request IDs, visitor IDs, full URLs, timestamps, raw IPs |
-| `attributes` | High-cardinality or irregular fields that should remain visible on raw events: full URL, referrer, user agent, order ID | Secrets or fields requiring shorter retention |
+| `attributes` | Unique or irregular fields that should remain visible on individual events: full URL, referrer, user agent, order ID | Secrets or fields requiring shorter retention |
 | `sensitive` | Raw IP, precise geolocation, or other classified event data | Data required after sensitive retention expires |
-| `payload` | Nested domain payload that should be returned as one opaque object | Fields that must appear in the field catalog or be grouped in SQL |
+| `payload` | Nested domain details that should be returned as one object | Fields that users must discover by name or use with `group by` |
 
 Example for a QR redirect:
 
@@ -208,7 +208,7 @@ Example for a QR redirect:
 }
 ```
 
-This shape keeps campaign reporting fast while retaining individual URLs and classified location data without creating a metric series or resource per visit.
+This shape keeps campaign reporting useful while retaining individual URLs and classified location data without creating a metric variant or resource per visit.
 
 Field limits are part of the public ingest contract:
 
@@ -217,7 +217,7 @@ Field limits are part of the public ingest contract:
 - `sensitive`: at most 32 top-level keys, 32 KiB encoded JSON, and 4 nested levels.
 - `payload`: at most 64 KiB encoded JSON and 8 nested levels.
 
-Pulse catalogs event field names, roles, observed value types, and counts. It does not copy every high-cardinality field value into catalog tables or create automatic JSON indexes.
+Pulse lists observed event field names, roles, value types, and counts. It does not list every distinct attribute or sensitive value.
 
 ### States
 
@@ -249,7 +249,7 @@ States represent current truth. Sending the same key, resource identity, and dim
 
 Input dimension values may be strings, numbers, booleans, or null. Pulse trims keys, drops null and undefined values, converts remaining values to strings, and sorts keys before storing them.
 
-Prefer stable, bounded dimensions that answer real filtering or grouping questions. Event dimensions may have more distinct values than metric dimensions, but arbitrary high-cardinality detail still belongs in event attributes. Never encode timestamps, request IDs, sessions, full URLs, or IP addresses as metric dimensions.
+Prefer stable dimensions that answer real filtering or grouping questions. Event dimensions may have more distinct values than metric dimensions, but arbitrary unique detail still belongs in event attributes. Never encode timestamps, request IDs, sessions, full URLs, or IP addresses as metric dimensions.
 
 ## Model resources and variants
 
@@ -304,16 +304,16 @@ Rules:
 
 - A key is scoped to one source.
 - The key may contain at most 200 characters.
-- Pulse marks the request record to expire after 24 hours and retains it until the expiration cleanup removes it.
+- Pulse remembers the key for at least 24 hours.
 - Repeating the same key with the same batch returns the original counts without writing again.
 - Reusing the key with different content returns HTTP `409 Conflict`.
-- Do not deliberately reuse old keys; an expired key remains reserved until cleanup runs.
+- Do not deliberately reuse old keys.
 
 Generate one deterministic key per logical batch and keep it unchanged across retries. Do not generate a new key for each retry attempt.
 
 `cld pulse ingest` does not currently expose an idempotency-key flag. Use it only when the caller can tolerate a deliberate retry strategy or when the batch's own metric timestamps make repeated metric samples harmless; repeated events are separate rows.
 
-## Limits and transaction behavior
+## Limits and all-or-nothing behavior
 
 - At most 500 metrics, 500 events, and 500 states per request.
 - At most 1,500 total items per request.
@@ -321,12 +321,12 @@ Generate one deterministic key per logical batch and keep it unchanged across re
 - Metric values and event numeric values must be finite.
 - Timestamps must parse as datetimes.
 - Idempotency keys may not exceed 200 characters.
-- One metric may have at most 10,000 series per base.
+- One metric may have at most 10,000 variants per base.
 - Event field objects must satisfy the key, byte, and nesting limits in [Classify event data](#classify-event-data).
 
-The externally reachable API schema applies these limits to both source-token requests and `cld pulse ingest`.
+These limits apply to both source-token requests and `cld pulse ingest`.
 
-Each accepted batch is written in one database transaction. Validation or persistence failure rolls back the complete batch; Pulse does not report partial success.
+A batch either succeeds completely or writes nothing. Pulse does not report partial success.
 
 Split larger collector output into bounded batches. Give each batch its own idempotency key.
 
@@ -346,7 +346,7 @@ cld pulse fields list --source "Warehouse importer" --scope event --json
 
 HTTP ingest updates the source's `lastSeenAt` and the credential's `lastUsedAt`. Prometheus scrape attempts additionally appear in `sources scrapes`; push-ingest requests do not create scrape-attempt rows.
 
-`fields list` shows observed field names, roles, value types, and counts without retaining catalog copies of their values. Confirm that resources, dimensions, field roles, units, and signal names match the intended model before building queries or dashboards.
+`fields list` shows observed field names, roles, value types, and counts without listing their individual values. Confirm that resources, dimensions, field roles, units, and signal names match the intended model before building queries or dashboards.
 
 Verify one modeled resource end to end:
 
@@ -365,7 +365,7 @@ cld pulse resources events "container:host-01/f06a6893f7bd" --json
 - Revoke a token before deleting a collector deployment.
 - Check `lastSeenAt` and token `lastUsedAt` when data stops arriving.
 - Use `clear-data` to remove telemetry while preserving sources, credentials, dashboards, saved queries, settings, and access.
-- Configure raw telemetry, hourly metric rollups, and sensitive event fields independently. When sensitive retention expires, Pulse clears only the event's `sensitive` object; the remaining event follows raw retention.
+- Configure detailed telemetry, long-range metric summaries, and sensitive event fields independently. When sensitive retention expires, Pulse clears only the event's `sensitive` object; the remaining event follows raw retention.
 - Deleting a source makes its source-bound credentials unusable and removes source metadata, but retained historical telemetry loses its source association rather than being deleted.
 
 Return to the [Pulse CLI reference](pulse.md) for base discovery, queries, dashboards, access, and lifecycle operations.

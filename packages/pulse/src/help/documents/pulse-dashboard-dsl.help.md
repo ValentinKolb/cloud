@@ -5,7 +5,7 @@ icon: ti ti-layout-dashboard
 description: Controls, sections, rows, cards, widgets, markdown, and conditions.
 order: 130
 ---
-Dashboard DSL is the dashboard source of truth. Write the operating view as text, preview it, and keep layout, queries, notes, and visual warning states reviewable in one place.
+Dashboard DSL describes the whole dashboard. Write and preview it as text so layout, queries, notes, and visual warning states stay together in one editable document.
 
 ## Build in layers {icon="square-plus"}
 
@@ -17,7 +17,7 @@ Dashboard DSL is the dashboard source of truth. Write the operating view as text
 5. **Explain decisions in place:** Use descriptions and markdown for operating notes, assumptions, and links.
 :::
 
-## Smallest useful dashboard {icon="layout-dashboard"}
+## Start with the smallest useful dashboard {icon="layout-dashboard"}
 
 **Minimal dashboard**
 
@@ -31,7 +31,27 @@ dashboard "Ops" {
 }
 ```
 
-This is enough to render a dashboard: a root document, one section, one widget, and one query. Add structure when the dashboard starts repeating itself.
+This is enough to render useful content: a root document, one section, one widget, and one query. An empty `dashboard "Name" {}` document is valid while creating a dashboard, but it has nothing to display.
+
+## Write exact Dashboard DSL {icon="braces"}
+
+Dashboard statements and visual names are case-sensitive. Use the spelling shown in this reference, including `barGauge`.
+
+Names, descriptions, messages, and other quoted text use double quotes. Inside quoted text, `\n` creates a line break, `\t` creates a tab, and a backslash escapes the following character. Markdown content uses triple double quotes:
+
+```text
+description "Line one\nLine two"
+
+markdown "Runbook" {
+  """
+  ## Recovery
+
+  Follow the service runbook.
+  """
+}
+```
+
+Use `#` or `//` for line comments wherever whitespace is allowed.
 
 ## Add controls when values repeat {icon="point"}
 
@@ -52,7 +72,9 @@ dashboard "Ops" {
 }
 ```
 
-Controls create variables such as `$range` or `$entity_id`. Public displays use the default values, so choose defaults that make sense without interaction.
+Controls create variables such as `$range` or `$entity_id`. If `variable` is omitted, Pulse derives it from the label, for example `Resource type` becomes `$resource_type`. If `default` is omitted, Pulse uses the first option. A range with neither a default nor options uses `24h`; other controls use an empty value.
+
+Public displays use control defaults and do not show interactive controls, so choose defaults that make sense without interaction.
 
 ## Full shape {icon="point"}
 
@@ -133,23 +155,24 @@ dashboard "Solar overview" {
 
 | Statement | Scope | Meaning | Example |
 | --- | --- | --- | --- |
-| `dashboard "Name" { ... }` | root | Defines one dashboard document. This is the canonical editable source. | `dashboard "Ops" { section "Main" {} }` |
+| `dashboard "Name" { ... }` | root | Defines one dashboard. Edit this document to change its content and layout. | `dashboard "Ops" { stat "Status" { query metric service.online latest since 10m } }` |
 | `description "Text"` | dashboard, section, card, widget, markdown | Adds reader-facing context without changing data queries. | `description "Live operational view."` |
 | `controls { ... }` | dashboard | Declares reusable variables rendered above the dashboard. | `controls { range "Range" variable range default 24h options 1h, 24h }` |
 | `range/source/entity/entity_type/label/text "Label"` | controls | Creates a control. Use variable, default, options, and type where useful. If default is omitted, the first option is used. | `entity "Container" variable entity_id type container default container:app-core` |
 | `section "Name" { ... }` | dashboard, section | Groups related rows and nested sections. | `section "Today" { line "Orders" { query metric orders.created increase since 24h } }` |
-| `row height sm\|md\|lg { ... }` | section, card | Places multiple widgets in one row. If height is omitted, md is used. | `row height lg { line "CPU" { query metric system.cpu.usage avg since 6h } }` |
-| `card "Name" [span n] { ... }` | section, row, card | Frames related child widgets and optional markdown. Span is an optional integer from 1 to 12. | `card "Battery" span 6 { gauge "Charge" { query metric battery.charge latest since 10m } }` |
-| `markdown ["Name"] [span n] { """ ... """ }` | section, row, card | Adds Markdown notes, explanations, runbooks, or links. Markdown content must be triple-quoted. | `markdown "Notes" { """## Notes\n- Check importer health.""" }` |
-| `line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"` | section, row, card | Adds a query-backed widget. barGauge is case-sensitive. Events render only as table widgets; states render as table or stat widgets. | `gauge "Charge" { query metric battery.charge latest since 10m }` |
-| `query <Query DSL>` | widget | Embeds metric, events, or states Query DSL. Dashboard controls may be referenced as $variables. Event widgets render raw rows; event aggregation points are Query Explorer and CLI results. | `query metric orders.created increase every 1h since $range where region=$region` |
+| `row height sm\|md\|lg { ... }` | dashboard, section, card | Places multiple widgets in one row. If height is omitted, md is used. | `row height lg { line "CPU" { query metric system.cpu.usage avg since 6h } }` |
+| `card "Name" [span n] { ... }` | dashboard, section, row | Frames related child widgets and optional markdown. Cards cannot contain nested cards or sections. Span is an optional integer from 1 to 12. | `card "Battery" span 6 { gauge "Charge" { query metric battery.charge latest since 10m } }` |
+| `markdown ["Name"] [span n] { """ ... """ }` | dashboard, section, row, card | Adds Markdown notes, explanations, runbooks, or links. Markdown content must be triple-quoted. | `markdown "Notes" { """## Notes\n- Check importer health.""" }` |
+| `line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"` | dashboard, section, row, card | Adds a query-backed widget. Dashboard statements and visual names are case-sensitive. Events render only as table widgets; states render as table or stat widgets. | `gauge "Charge" { query metric battery.charge latest since 10m }` |
+| `visual <type>` | widget | Overrides the visual declared by the outer widget keyword. It accepts the same visual names. Prefer the direct widget keyword for hand-written DSL. | `line "Current value" { visual stat query metric service.online latest since 10m }` |
+| `query <Query DSL>` | widget | Uses metric, events, or states Query DSL. Dashboard controls may be referenced as $variables. Event widgets show individual rows; summarized event results are available in Query Explorer and the CLI. | `query metric orders.created increase every 1h since $range where region=$region` |
 | `warn\|critical when value <op> <value>` | metric widget | Applies visual state to metric values only. Operators are >, >=, <, <=, =, and !=. Optional message text can explain the condition. | `critical when value > 95 message "Capacity almost full"` |
-| `# comment or // comment` | anywhere whitespace is allowed | Adds a line comment in the dashboard DSL source. Comments are ignored by the parser. | `# explain why this section exists` |
+| `# comment or // comment` | anywhere whitespace is allowed | Adds a line comment that does not change the rendered dashboard. | `# explain why this section exists` |
 
 ## Design rules {icon="book-2"}
 
 :::info Dashboards compose query output
-Widget `query` lines use the same Query DSL. Metric widgets render values and charts; table widgets render raw event rows and current states. Event aggregation points are available in the Query Explorer and CLI, not dashboard widgets.
+Widget `query` lines use the same Query DSL. Metric widgets show values and charts; table widgets show individual events and current states. Summarized event results are available in Query Explorer and the CLI, not dashboard widgets.
 :::
 
 :::info Controls define variables
@@ -167,3 +190,13 @@ Auto-refresh is configured outside Dashboard DSL. Choose 1, 5, 10, or 60 seconds
 :::warning Conditions are visual
 Use `warn when value > 80` or `critical when value = false` to mark metric widgets visually. Alert delivery and webhooks are a separate future layer.
 :::
+
+## Limits {icon="ruler"}
+
+- Dashboard DSL is limited to 40,000 characters.
+- Titles are limited to 160 characters. Dashboard descriptions are limited to 1,000 characters; section, card, widget, and Markdown descriptions to 500.
+- One Markdown block is limited to 8,000 characters.
+- A dashboard supports up to 24 controls and 24 top-level sections.
+- A section supports up to 24 rows and 12 nested sections. Nested sections stop after three child levels.
+- A row supports up to 12 cells. `span` must be an integer from 1 to 12.
+- One widget supports up to eight visual conditions.

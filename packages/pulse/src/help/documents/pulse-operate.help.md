@@ -5,32 +5,33 @@ icon: ti ti-lifebuoy
 description: Source health, retention, access, public displays, and common symptoms.
 order: 140
 ---
-Operation work in Pulse is about keeping data trustworthy: sources must be healthy, storage must stay bounded, access must be clear, and public displays must expose only the intended dashboard data.
+Use this page when data is missing, access needs to change, or a public display should show only one dashboard.
 
 ## Routine checks {icon="route"}
 
 :::reference
-- **Source health:** Use Sources to verify the latest scrape or ingest, duration, errors, ingested counts, and token usage.
-- **Retention and clear data:** Raw telemetry, hourly metric rollups, and classified sensitive event fields have independent retention. Sensitive expiry clears only the event's sensitive object; raw expiry removes the event. Clear telemetry to keep the base, sources, access, and settings while discarding collected data.
+- **Source health:** Sources show recent updates, duration, errors, received data, and API-key use where relevant.
+- **Retention and clear data:** Detailed data, long-term summaries, and protected event fields can be kept for different periods. Protected fields can expire before the rest of an event. Clear all data to keep the base, sources, API keys, access, dashboards, saved queries, and settings while discarding collected data.
 - **Access:** Base permissions control who can view, edit, or administer a base. Public dashboards are separate link-based read views.
-- **Public displays:** A public display reads only the dashboard DSL output behind its UUID link. Use useful defaults because public viewers do not edit controls.
+- **Public displays:** Anyone with the public link can see that dashboard and its results, but not the base browsers, source settings, saved queries, or API keys. Use useful defaults because public viewers do not edit controls.
+- **Long destructive operations:** Clearing or deleting a large base can take time after confirmation. An accepted request means the work started, not that all data disappeared immediately.
 :::
 
-## HTTP ingest guarantees {icon="point"}
+## Send data with HTTP ingest {icon="point"}
 
 :::reference
-- **Bounded batches:** One request accepts up to 500 metrics, 500 events, and 500 states, with at most 1,500 signals in total. Split larger payloads into separate requests.
-- **Source-bound tokens:** Every ingest token belongs to one source. Pulse ignores source identifiers in the payload and records all signals under the authenticated source.
-- **Retry-safe requests:** Send the same Idempotency-Key when retrying one batch. Pulse returns the original result for 24 hours and rejects reuse with different content.
-- **Bounded metric cardinality:** One metric may have at most 10,000 series in a base. Move request IDs, sessions, full URLs, IPs, and other unbounded values to events instead of metric dimensions.
+- **Requests are all or nothing:** Pulse rejects a request it cannot accept instead of keeping only part of its data. Split a rejected large request and retry each part separately.
+- **API keys belong to one source:** Pulse assigns received signals to the source that owns the API key. A source value sent with the data does not change that assignment.
+- **Retry-safe requests:** Send the same Idempotency-Key when retrying one batch. Pulse returns the original result for at least 24 hours and rejects reuse with different content.
+- **Keep metric variants manageable:** A metric can have up to 10,000 variants in a base. Move request IDs, sessions, full URLs, IPs, and other unique values to events instead of metric dimensions.
 :::
 
 ## Common symptoms {icon="lifebuoy"}
 
 :::reference
-- **No data appears:** Check the source first. A source must scrape or ingest successfully before resources, signals, or dashboards can show data.
+- **No data appears:** Check the source first. It must report a successful update before resources, signals, or dashboards can show data.
 - **A query matches too much:** Open Inventory or the signal page, then add source, entity, entity_type, or where filters.
 - **A chart is empty:** Check the time range and aggregation. Counters usually need rate or increase; gauges usually need avg or latest.
 - **Rows look duplicated:** Open the resource or signal page. Repeated rows are usually variants with different resources or dimensions.
-- **A metric hits the series limit:** Inspect its dimensions. Keep stable grouping labels, then move unbounded identities or event detail into an event's first-class identities, attributes, sensitive fields, or payload.
+- **A metric has too many variants:** Inspect its dimensions. Keep stable grouping labels, then move unique identities or event detail into an event's identity fields, attributes, sensitive fields, or payload.
 :::

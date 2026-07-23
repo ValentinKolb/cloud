@@ -7,6 +7,7 @@ Dashboard DSL is the only Pulse dashboard authoring format. It keeps layout, que
 - [Authoring workflow](#authoring-workflow)
 - [Smallest dashboard](#smallest-dashboard)
 - [Document structure](#document-structure)
+- [Writing rules](#writing-rules)
 - [Controls and variables](#controls-and-variables)
 - [Layout](#layout)
 - [Widgets](#widgets)
@@ -66,7 +67,7 @@ dashboard "Name" {
 }
 ```
 
-The root must start with `dashboard "Name" {` and contain at least one section or widget. Supported statements by container are:
+The root must start with `dashboard "Name" {`. An empty root is valid while creating a dashboard, but it has nothing to display. Supported statements by container are:
 
 | Container | Allowed children |
 | --- | --- |
@@ -78,6 +79,24 @@ The root must start with `dashboard "Name" {` and contain at least one section o
 | Visual widget | `description`, `visual`, `query`, `warn`, `critical` |
 
 Sections and cards must not be empty. A row must contain at least one widget. Line comments start with `#` or `//` wherever whitespace is allowed.
+
+## Writing rules
+
+Dashboard statements and visual names are case-sensitive. Use the spelling shown in this reference, including `barGauge`.
+
+Names, descriptions, messages, and other quoted text use double quotes. Inside quoted text, `\n` creates a line break, `\t` creates a tab, and a backslash escapes the following character. Markdown content uses triple double quotes:
+
+```text
+description "Line one\nLine two"
+
+markdown "Runbook" {
+  """
+  ## Recovery
+
+  Follow the service runbook.
+  """
+}
+```
 
 ## Controls and variables
 
@@ -221,8 +240,7 @@ Supported visual keywords are:
 | Event rows | `table` only |
 | State rows | `table` or `stat` |
 
-Metric `line` is the fallback if an unsupported metric visual reaches normalization. Events and states with incompatible visuals fail compilation.
-Dashboard event widgets always render raw event rows. Event aggregations such as `count`, `sum`, `unique actor`, and `unique session` are available in Query DSL through the Query Explorer and CLI, but are not dashboard widget result shapes.
+Events and states with incompatible visuals fail compilation. Dashboard event widgets always show individual event rows. Event summaries such as `count`, `sum`, `unique actor`, and `unique session` are available in Query DSL through the Query Explorer and CLI, but are not dashboard widget result shapes.
 
 Examples:
 
@@ -260,7 +278,7 @@ Syntax:
 warn|critical when value <operator> <value> [message "Text"]
 ```
 
-Operators are `>`, `>=`, `<`, `<=`, `=`, and `!=`. Values may be numbers, booleans, or strings. The parser accepts conditions in any visual block, but the current dashboard renderer evaluates warning styling only for metric widget values. Do not rely on event or state conditions. Conditions change presentation only; they do not send alerts or webhooks.
+Operators are `>`, `>=`, `<`, `<=`, `=`, and `!=`. Values may be numbers, booleans, or strings. Warning styling is available for metric widget values. Do not rely on event or state conditions. Conditions change presentation only; they do not send alerts or webhooks.
 
 ## Markdown
 
@@ -337,12 +355,12 @@ Public displays use control defaults. URL options select `light|dark` theme and 
 ## Limits and current boundaries
 
 - Dashboard DSL input is limited to 40,000 characters.
-- Titles are normalized to at most 160 characters; descriptions to 500 characters on widgets and 1,000 on the layout.
-- Markdown content is normalized to at most 8,000 characters per block.
-- A layout retains at most 24 controls and 24 top-level sections.
-- A section retains at most 24 rows and 12 nested sections; nesting deeper than three child levels is removed during normalization.
-- A row retains at most 12 cells.
-- A widget retains at most 8 visual conditions.
+- Titles are limited to 160 characters. Dashboard descriptions are limited to 1,000 characters; section, card, widget, and Markdown descriptions to 500.
+- Markdown content is limited to 8,000 characters per block.
+- A dashboard supports at most 24 controls and 24 top-level sections.
+- A section supports at most 24 rows and 12 nested sections. Nested sections stop after three child levels.
+- A row supports at most 12 cells.
+- A widget supports at most 8 visual conditions.
 - Span must be an integer from 1 to 12.
 
 Auto-refresh is stored as dashboard settings, not Dashboard DSL. Set it with `--refresh 1|5|10|60|never` on dashboard create or update. New dashboards default to five-second refresh; replacing DSL preserves the existing refresh setting unless `--refresh` is supplied.

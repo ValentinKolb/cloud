@@ -13,7 +13,8 @@ The fastest way to build a useful query is to find the right source, resource, o
 - **Start with Sources when data is missing:** Sources answer whether Pulse received anything recently. Check this before changing queries or dashboards.
 - **Start with Resources when you know the object:** Resources group the metrics, states, and events for one observed thing. This is the clearest path for hosts, containers, devices, customers, and orders.
 - **Start with Metrics, Events, or States when you know the name:** Signal pages show variants, current values, dimensions, and query actions for one metric, event, or state.
-- **Use Inventory as the lookup table:** Inventory is the live catalog for the current base. Filter it by source or entity, inspect observed field roles, then copy scoped snippets into Query explorer or Dashboard DSL.
+- **Use Inventory as the lookup table:** Open Reference, then choose Inventory. Filter the live catalog by source or entity, inspect observed field roles, then copy scoped snippets into Query explorer or Dashboard DSL.
+- **Save queries you will reuse:** Query explorer keeps run history for recent work. Save a stable query when it should remain available by name and description.
 :::
 
 ## Narrow in this order {icon="search"}

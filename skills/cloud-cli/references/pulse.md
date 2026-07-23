@@ -43,12 +43,12 @@ Repeated signal names usually represent variants, not duplicates. For example, `
 Events separate fields by role:
 
 - `dimensions` are bounded, exact-match fields used by `where` and `group by`.
-- `attributes` hold irregular or high-cardinality JSON such as full URLs, request IDs, and user-agent details.
+- `attributes` hold irregular or unique details such as full URLs, request IDs, and user-agent details.
 - `sensitive` holds classified JSON such as raw IP or precise geodata. Normal event results never return it, and Pulse clears it on the base's shorter sensitive-retention schedule.
-- `payload` holds opaque event-specific JSON that should be returned with a raw event but does not need field discovery.
+- `payload` holds event-specific JSON that should be returned with an individual event but does not need field discovery.
 - `actorId`, `sessionId`, and `correlationId` are first-class event identities. Query DSL can count unique actors and sessions without turning them into dimensions.
 
-Keep metric dimensions bounded. Pulse allows at most 10,000 series for one metric in one base; use events for unbounded identities or values. Resources are stable observed objects such as a campaign, link, host, or service, not one resource per visit, session, request, or IP address.
+Keep metric dimensions bounded. Pulse allows at most 10,000 variants for one metric in one base; use events for unique identities or values. Resources are stable observed objects such as a campaign, link, host, or service, not one resource per visit, session, request, or IP address.
 
 ## Agent workflow
 
@@ -144,15 +144,15 @@ cld pulse update \
 
 Use a separate base when access, retention, ownership, or reporting context should differ. A base is not tied to one technical domain.
 
-Raw retention applies to metric samples, events, and state transitions. Rollup retention applies to hourly metric rollups. Sensitive retention clears only the `sensitive` object from older events; the non-sensitive event remains until raw retention expires.
+Raw retention controls how long detailed metrics, events, and state changes remain available. Rollup retention controls how long long-range metric summaries remain available. Sensitive retention clears only the `sensitive` object from older events; the non-sensitive event remains until raw retention expires.
 
-`capabilities` reports whether TimescaleDB, `time_bucket`, and continuous aggregates are available on the selected Cloud instance:
+`capabilities` reports which optional long-range query features are available on the selected Cloud instance:
 
 ```bash
 cld pulse capabilities --json
 ```
 
-Pulse supports PostgreSQL-only development behavior. Capability output describes available database optimizations; it does not change the instance.
+Capability output is informational and does not change the selected base or Cloud instance.
 
 ## Explore data
 
@@ -193,7 +193,7 @@ The signal commands support source and resource scoping:
 - `events`: `--q`, `--kind`, `--resource`, `--entity`, `--entity-type`, source filters, and pagination.
 - `states`: `--q`, `--key`, `--resource`, `--entity`, `--entity-type`, source filters, and pagination.
 
-Use `series` when one metric has several resources or dimension sets. Use a resource command when the question starts from an observed object.
+Use `series` to inspect a metric's variants when it has several resources or dimension sets. Use a resource command when the question starts from an observed object.
 
 Do not combine `--resource` with `--entity` or `--entity-type`: resource mode resolves one resource first, while entity filters scope the base-wide signal endpoint.
 
@@ -209,7 +209,7 @@ cld pulse fields list --scope event --role sensitive --limit 100 --json
 
 The catalog returns field names, roles, observed value types, observation counts, source IDs, and first/last-seen timestamps. It never stores or returns field values. Payload keys and first-class actor, session, and correlation identities are not catalog fields.
 
-Use cataloged dimensions with Query DSL `where` and aggregated-event `group by`. Attributes and sensitive fields are discoverable for schema inspection but are not Query DSL filters. `--scope` accepts `metric`, `event`, or `state`; `--role` accepts `dimension`, `attribute`, or `sensitive`.
+Use discovered dimensions with Query DSL `where` and summarized-event `group by`. Attributes and sensitive fields are visible for field inspection but are not Query DSL filters. `--scope` accepts `metric`, `event`, or `state`; `--role` accepts `dimension`, `attribute`, or `sensitive`.
 
 ## Run and save queries
 
@@ -465,7 +465,7 @@ With `--include-inventory`, the same object additionally contains `inventory` an
 }
 ```
 
-Raw event rows include `id`, `kind`, `ts`, `value`, `sourceId`, `entityId`, `entityType`, `dimensions`, `attributes`, `payload`, and `recordedAt`. They intentionally omit `sensitive`, `actorId`, `sessionId`, and `correlationId`; aggregate queries can still count unique actors and sessions in SQL. State rows include `key`, `value`, `sourceId`, `entityId`, `entityType`, `dimensions`, and `updatedAt`.
+Individual event rows include `id`, `kind`, `ts`, `value`, `sourceId`, `entityId`, `entityType`, `dimensions`, `attributes`, `payload`, and `recordedAt`. They intentionally omit `sensitive`, `actorId`, `sessionId`, and `correlationId`; summarized queries can still count unique actors and sessions. State rows include `key`, `value`, `sourceId`, `entityId`, `entityType`, `dimensions`, and `updatedAt`.
 
 ### Dashboard snapshot
 
