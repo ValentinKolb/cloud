@@ -198,6 +198,9 @@ export const deleteOrphanedBlobs = async (olderThanMinutes = 60): Promise<number
         SELECT 1 FROM mail.message_parts part WHERE part.blob_id = blob.id
       )
       AND NOT EXISTS (
+        SELECT 1 FROM mail.message_contents message WHERE message.source_blob_id = blob.id
+      )
+      AND NOT EXISTS (
         SELECT 1 FROM mail.attachments attachment WHERE attachment.blob_id = blob.id
       )
       AND NOT EXISTS (

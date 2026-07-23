@@ -10,7 +10,6 @@ import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import { type JobCtx, job, ratelimit, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { cleanupPublicAttachmentLinks } from "./attachment-links";
-import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
 import { releaseDueSnoozes } from "./collaboration";
@@ -31,6 +30,7 @@ import { withLeaseHeartbeat } from "./lease-heartbeat";
 import { assertMailboxTransportFence, loadMailboxTransportFence } from "./mailbox-transport-fence";
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
+import { parseMessageProtocolFacts } from "./message-protocol";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isConcurrentCredentialRefresh, isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { cleanupProviderOAuthFlows } from "./provider-oauth-cleanup";
@@ -346,7 +346,7 @@ export const ingestEnvelope = async (params: {
   captureWorkflowTriggers?: boolean;
   workflowTriggerEventIds?: string[];
 }): Promise<string> => {
-  const protocolFacts = parseConnectorProtocolFacts(params.message.protocolFacts);
+  const protocolFacts = parseMessageProtocolFacts(params.message.protocolFacts);
   const contentHash = sha256Json({
     remoteResourceId: params.remoteResourceId,
     folderId: params.folderId,
@@ -382,7 +382,7 @@ export const ingestEnvelope = async (params: {
         sent_at,
         size_bytes,
         mime_structure,
-        selected_headers,
+        protocol_facts,
         content_hash,
         hydration_status
       )
@@ -413,7 +413,7 @@ export const ingestEnvelope = async (params: {
         sent_at = EXCLUDED.sent_at,
         size_bytes = EXCLUDED.size_bytes,
         mime_structure = EXCLUDED.mime_structure,
-        selected_headers = EXCLUDED.selected_headers
+        protocol_facts = EXCLUDED.protocol_facts
       RETURNING id
     `;
     if (!messageRow) throw new Error("Message envelope insert returned no row");
@@ -464,7 +464,7 @@ export const ingestEnvelope = async (params: {
       sent_at = ${params.message.sentAt},
       size_bytes = ${params.message.sizeBytes},
       mime_structure = ${params.message.mimeStructure}::jsonb,
-      selected_headers = ${protocolFacts}::jsonb
+      protocol_facts = ${protocolFacts}::jsonb
     WHERE id = ${messageContentId}::uuid
   `;
   await upsertAddresses(params.db, messageContentId, params.message);

@@ -2,7 +2,7 @@ import { sql } from "bun";
 import type { MailSearchExpression, WorkflowTargetQuery } from "../contracts";
 import { sha256Json } from "./canonical";
 import type { ConnectorProtocolFacts } from "./connectors";
-import { parseConnectorProtocolFacts } from "./auto-reply-policy";
+import { parseMessageProtocolFacts } from "./message-protocol";
 import { compileSearchExpression } from "./search";
 
 export type SqlClient = typeof sql;
@@ -92,7 +92,7 @@ type WorkflowSnapshotRow = {
   attachments: FrozenMailAttachment[] | string;
   internal_date: Date | string;
   sent_at: Date | string | null;
-  selected_headers: ConnectorProtocolFacts | string;
+  protocol_facts: ConnectorProtocolFacts | string;
   folder_id: string;
   modseq: string | number | null;
   flags: string[] | null;
@@ -165,7 +165,7 @@ const snapshotColumns = sql`
   COALESCE(attachment.value, '[]'::jsonb) AS attachments,
   mc.internal_date,
   mc.sent_at,
-  mc.selected_headers,
+  mc.protocol_facts,
   mp.folder_id,
   rmr.modseq,
   mp.flags,
@@ -263,7 +263,7 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
       internalDate,
       receivedAt: internalDate,
       sentAt: row.sent_at ? toIso(row.sent_at) : null,
-      protocolFacts: parseConnectorProtocolFacts(parseJson(row.selected_headers)),
+      protocolFacts: parseMessageProtocolFacts(parseJson(row.protocol_facts)),
     },
     conversation,
   };

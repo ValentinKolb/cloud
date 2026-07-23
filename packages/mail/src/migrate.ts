@@ -4355,6 +4355,116 @@ const completeSenderIdentities = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addMessageProtocolFoundations = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.message_contents
+      ADD COLUMN IF NOT EXISTS source_blob_id UUID REFERENCES mail.message_part_blobs(id) ON DELETE RESTRICT,
+      ADD COLUMN IF NOT EXISTS protocol_facts JSONB NOT NULL DEFAULT '{
+        "version": 1,
+        "returnPath": null,
+        "autoSubmitted": null,
+        "precedence": null,
+        "autoResponseSuppress": null,
+        "contentType": null,
+        "deliveryStatus": false,
+        "list": {
+          "id": null,
+          "unsubscribe": [],
+          "unsubscribePost": null,
+          "post": [],
+          "help": [],
+          "archive": []
+        },
+        "priority": {
+          "importance": null,
+          "priority": null,
+          "xPriority": null
+        },
+        "receipts": {
+          "dispositionNotificationTo": null
+        },
+        "spam": {
+          "flag": null,
+          "status": null,
+          "score": null
+        }
+      }'::jsonb
+  `;
+  await db`
+    ALTER TABLE mail.message_contents
+      DROP CONSTRAINT IF EXISTS message_contents_protocol_facts_object_chk,
+      ADD CONSTRAINT message_contents_protocol_facts_object_chk
+        CHECK (jsonb_typeof(protocol_facts) = 'object')
+  `;
+  await db`
+    UPDATE mail.message_contents
+    SET
+      protocol_facts = jsonb_build_object(
+        'version', 1,
+        'returnPath', COALESCE(selected_headers -> 'returnPath', selected_headers -> 'return-path', 'null'::jsonb),
+        'autoSubmitted', COALESCE(selected_headers -> 'autoSubmitted', selected_headers -> 'auto-submitted', 'null'::jsonb),
+        'precedence', COALESCE(selected_headers -> 'precedence', 'null'::jsonb),
+        'autoResponseSuppress',
+          COALESCE(selected_headers -> 'autoResponseSuppress', selected_headers -> 'x-auto-response-suppress', 'null'::jsonb),
+        'contentType', COALESCE(selected_headers -> 'contentType', selected_headers -> 'content-type', 'null'::jsonb),
+        'deliveryStatus',
+          COALESCE(
+            CASE
+              WHEN jsonb_typeof(selected_headers -> 'deliveryStatus') = 'boolean'
+                THEN (selected_headers ->> 'deliveryStatus')::boolean
+              ELSE NULL
+            END,
+            COALESCE(selected_headers ->> 'contentType', selected_headers ->> 'content-type', '')
+              ~* '(?:^|;)\\s*report-type\\s*=\\s*["'']?delivery-status\\b'
+          ),
+        'list', jsonb_build_object(
+          'id', COALESCE(selected_headers -> 'listId', selected_headers -> 'list-id', 'null'::jsonb),
+          'unsubscribe', '[]'::jsonb,
+          'unsubscribePost', COALESCE(selected_headers -> 'list-unsubscribe-post', 'null'::jsonb),
+          'post', '[]'::jsonb,
+          'help', '[]'::jsonb,
+          'archive', '[]'::jsonb
+        ),
+        'priority', jsonb_build_object(
+          'importance', COALESCE(selected_headers -> 'importance', 'null'::jsonb),
+          'priority', COALESCE(selected_headers -> 'priority', 'null'::jsonb),
+          'xPriority', COALESCE(selected_headers -> 'x-priority', 'null'::jsonb)
+        ),
+        'receipts', jsonb_build_object(
+          'dispositionNotificationTo', COALESCE(selected_headers -> 'disposition-notification-to', 'null'::jsonb)
+        ),
+        'spam', jsonb_build_object(
+          'flag', COALESCE(selected_headers -> 'x-spam-flag', 'null'::jsonb),
+          'status', COALESCE(selected_headers -> 'x-spam-status', 'null'::jsonb),
+          'score', COALESCE(selected_headers -> 'x-spam-score', 'null'::jsonb)
+        )
+      ),
+      selected_headers = selected_headers - ARRAY[
+        'returnPath',
+        'autoSubmitted',
+        'listId',
+        'autoResponseSuppress',
+        'contentType',
+        'deliveryStatus'
+      ]::text[]
+    WHERE protocol_facts ->> 'version' IS NULL
+       OR protocol_facts = '{}'::jsonb
+       OR selected_headers ?| ARRAY[
+         'returnPath',
+         'autoSubmitted',
+         'listId',
+         'autoResponseSuppress',
+         'contentType',
+         'deliveryStatus'
+       ]::text[]
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS message_contents_source_blob_idx
+    ON mail.message_contents (source_blob_id)
+    WHERE source_blob_id IS NOT NULL
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4437,6 +4547,7 @@ const migrations: readonly MailMigration[] = [
   { version: 80, name: "folder_sidebar_visibility", run: addFolderSidebarVisibility },
   { version: 81, name: "complete_sender_identities", run: completeSenderIdentities },
   { version: 82, name: "dismissed_folder_projections", run: addDismissedFolderProjections },
+  { version: 83, name: "message_protocol_foundations", run: addMessageProtocolFoundations },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

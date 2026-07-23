@@ -1,20 +1,13 @@
 import type { Readable } from "node:stream";
 import type { ConnectorVerification, ProviderConnectionInput, RemoteFolder, RemoteMessageRef } from "../../contracts";
+import type { MessageProtocolFacts } from "../message-protocol";
 
 export type ConnectorAddress = {
   name: string | null;
   address: string;
 };
 
-export type ConnectorProtocolFacts = {
-  returnPath: string | null;
-  autoSubmitted: string | null;
-  precedence: string | null;
-  listId: string | null;
-  autoResponseSuppress: string | null;
-  contentType: string | null;
-  deliveryStatus: boolean;
-};
+export type ConnectorProtocolFacts = MessageProtocolFacts;
 
 export type ConnectorEnvelope = {
   remoteRef: RemoteMessageRef;

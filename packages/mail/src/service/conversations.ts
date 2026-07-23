@@ -3,11 +3,11 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { MergeConversationsInput, ReassignConversationMessageInput, SplitConversationInput } from "../contracts";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
-import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import { mergeConversationReferencesInTransaction } from "./conversation-reference";
 import { deriveConversationWorkState, isAutomaticSubmission } from "./conversation-work-state";
 import { type MailConversationChangedEvent, publishMailCollaborationEvent } from "./events";
+import { parseMessageProtocolFacts } from "./message-protocol";
 import { MAIL_NOTIFICATION_DEFINITION_IDS } from "./notification-targets";
 
 type SqlClient = typeof sql;
@@ -84,7 +84,7 @@ const recomputeConversation = async (params: {
       latest_outbound: boolean;
       latest_in_reply_to: string | null;
       latest_reference_ids: string[];
-      latest_selected_headers: Record<string, unknown> | string;
+      latest_protocol_facts: Record<string, unknown> | string;
     }[]
   >`
     WITH classified AS (
@@ -94,7 +94,7 @@ const recomputeConversation = async (params: {
         message.internal_date,
         message.in_reply_to,
         message.reference_ids,
-        message.selected_headers,
+        message.protocol_facts,
         EXISTS (
           SELECT 1
           FROM mail.message_addresses sender
@@ -117,7 +117,7 @@ const recomputeConversation = async (params: {
       FROM classified
     ),
     latest AS (
-      SELECT message_id, subject, outbound, in_reply_to, reference_ids, selected_headers
+      SELECT message_id, subject, outbound, in_reply_to, reference_ids, protocol_facts
       FROM classified
       ORDER BY internal_date DESC, message_id DESC
       LIMIT 1
@@ -150,7 +150,7 @@ const recomputeConversation = async (params: {
       latest.outbound AS latest_outbound,
       latest.in_reply_to AS latest_in_reply_to,
       latest.reference_ids AS latest_reference_ids,
-      latest.selected_headers AS latest_selected_headers
+      latest.protocol_facts AS latest_protocol_facts
     FROM mail.conversations conversation, timeline, latest, participants
     WHERE conversation.id = ${params.conversationId}::uuid
       AND timeline.message_count > 0
@@ -158,10 +158,8 @@ const recomputeConversation = async (params: {
   `;
   if (!projection) throw new Error("Conversation projection cannot be recomputed without messages");
 
-  const protocolFacts = parseConnectorProtocolFacts(
-    typeof projection.latest_selected_headers === "string"
-      ? JSON.parse(projection.latest_selected_headers)
-      : projection.latest_selected_headers,
+  const protocolFacts = parseMessageProtocolFacts(
+    typeof projection.latest_protocol_facts === "string" ? JSON.parse(projection.latest_protocol_facts) : projection.latest_protocol_facts,
   );
   const transition = params.deriveCollaboration
     ? deriveConversationWorkState(projection.work_status, {

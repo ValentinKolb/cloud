@@ -1,7 +1,12 @@
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type ResponseScheduleDefinitionInput, responseScheduleDefinitionSchema } from "../contracts";
-import { type AutoReplySuppressionReason, evaluateAutoReplyPolicy, parseReturnPathAddress } from "./auto-reply-policy";
+import {
+  type AutoReplySuppressionReason,
+  autoReplyFactsFromProtocol,
+  evaluateAutoReplyPolicy,
+  parseReturnPathAddress,
+} from "./auto-reply-policy";
 import { sha256Json } from "./canonical";
 import type { ConnectorProtocolFacts } from "./connectors";
 import { createWorkflowReplyDraftInTransaction } from "./drafts";
@@ -166,12 +171,8 @@ export const prepareAutomaticReplyInTransaction = async (params: {
     const policy = evaluateAutoReplyPolicy({
       senderAddresses: recipient ? [recipient] : [],
       mailboxAddresses: identityRows.map((identity) => identity.from_address),
+      ...autoReplyFactsFromProtocol(params.protocolFacts),
       returnPath: recipient,
-      autoSubmitted: params.protocolFacts.autoSubmitted,
-      precedence: params.protocolFacts.precedence,
-      listId: params.protocolFacts.listId,
-      autoResponseSuppress: params.protocolFacts.autoResponseSuppress,
-      deliveryStatus: params.protocolFacts.deliveryStatus,
       alreadyReplied: duplicateRows[0]?.exists ?? false,
     });
     const suppressionReasons: AutomaticReplySuppressionReason[] = policy.allowed ? [] : [...policy.reasons];

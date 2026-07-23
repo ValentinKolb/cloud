@@ -1858,7 +1858,8 @@ suite("mail PostgreSQL foundation", () => {
     const referencedBlob = await storeReadableBlob(Readable.from([Buffer.from("referenced blob")]), 15);
     const orphanedBlob = await storeReadableBlob(Readable.from([Buffer.from("orphaned blob")]), 13);
     const uploadGuardedBlob = await storeReadableBlob(Readable.from([Buffer.from("upload guarded blob")]), 19);
-    ids.blobIds.push(referencedBlob.id, orphanedBlob.id, uploadGuardedBlob.id);
+    const sourceGuardedBlob = await storeReadableBlob(Readable.from([Buffer.from("source guarded blob")]), 19);
+    ids.blobIds.push(referencedBlob.id, orphanedBlob.id, uploadGuardedBlob.id, sourceGuardedBlob.id);
     const gcDraft = await createDraft({
       context,
       mailboxId: mailbox.data.id,
@@ -1894,7 +1895,12 @@ suite("mail PostgreSQL foundation", () => {
     await sql`
       UPDATE mail.message_part_blobs
       SET completed_at = now() - interval '10 minutes'
-      WHERE id IN (${referencedBlob.id}::uuid, ${orphanedBlob.id}::uuid, ${uploadGuardedBlob.id}::uuid)
+      WHERE id IN (
+        ${referencedBlob.id}::uuid,
+        ${orphanedBlob.id}::uuid,
+        ${uploadGuardedBlob.id}::uuid,
+        ${sourceGuardedBlob.id}::uuid
+      )
     `;
     await sql`
       INSERT INTO mail.message_parts (
@@ -1903,14 +1909,24 @@ suite("mail PostgreSQL foundation", () => {
         ${message!.id}::uuid, 'integration-part', 'text/plain', ${referencedBlob.byteLength}, ${referencedBlob.id}::uuid, 'complete'
       )
     `;
+    await sql`
+      UPDATE mail.message_contents
+      SET source_blob_id = ${sourceGuardedBlob.id}::uuid
+      WHERE id = ${message!.id}::uuid
+    `;
     expect(await deleteOrphanedBlobs(5)).toBeGreaterThanOrEqual(1);
     const remainingBlobs = await sql<{ id: string }[]>`
       SELECT id
       FROM mail.message_part_blobs
-      WHERE id IN (${referencedBlob.id}::uuid, ${orphanedBlob.id}::uuid, ${uploadGuardedBlob.id}::uuid)
+      WHERE id IN (
+        ${referencedBlob.id}::uuid,
+        ${orphanedBlob.id}::uuid,
+        ${uploadGuardedBlob.id}::uuid,
+        ${sourceGuardedBlob.id}::uuid
+      )
       ORDER BY id
     `;
-    expect(remainingBlobs.map((item) => item.id)).toEqual([referencedBlob.id, uploadGuardedBlob.id].sort());
+    expect(remainingBlobs.map((item) => item.id)).toEqual([referencedBlob.id, sourceGuardedBlob.id, uploadGuardedBlob.id].sort());
     await sql`DELETE FROM mail.drafts WHERE id = ${gcDraft.data.id}::uuid`;
 
     const [collaborator] = await sql<{ id: string }[]>`
@@ -2430,6 +2446,7 @@ suite("mail PostgreSQL foundation", () => {
         specialUse: true,
         acl: false,
         notify: false,
+        quota: false,
         gmailExtensions: false,
       },
       accounts: [{ id: "sender@example.com", name: "Fixture", locator: {}, namespaces: [] }],

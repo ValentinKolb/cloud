@@ -19,7 +19,6 @@ import type {
   UpdateConversationCollaboration,
 } from "../contracts";
 import { mailAddressSchema, responseScheduleDefinitionSchema } from "../contracts";
-import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { linkAutomaticReplyCommandInTransaction, prepareAutomaticReplyInTransaction } from "./automatic-reply";
 import { sha256Text } from "./canonical";
 import {
@@ -33,6 +32,7 @@ import { ensureConversationReferenceInTransaction } from "./conversation-referen
 import { createWorkflowDraftInTransaction } from "./drafts";
 import { publishMailCollaborationEvent } from "./events";
 import { updateWorkflowConversationLocalTagInTransaction } from "./local-tags";
+import { parseMessageProtocolFacts } from "./message-protocol";
 import {
   applyMailConversationTransition,
   applyMailMessageTransition,
@@ -674,7 +674,7 @@ export const createMailWorkflowActionPorts = (
         const conversationId = textValue(conversation.id, "conversation.id");
         if (message.conversationId !== conversationId) throw new Error("automatic reply message and conversation do not match");
         const senderIdentityId = textValue(actionBinding(context, step, "sender"), "sender identity");
-        const protocolFacts = parseConnectorProtocolFacts(message.protocolFacts);
+        const protocolFacts = parseMessageProtocolFacts(message.protocolFacts);
         const subject = await renderWorkflowMessage(context, step, "subject");
         const body = await renderWorkflowMessage(context, step, "body");
         const format = step.config.format ?? "plain";

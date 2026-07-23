@@ -22,6 +22,7 @@ import type {
   RemoteFolder,
   RemoteNamespace,
 } from "../../contracts";
+import { EMPTY_MESSAGE_PROTOCOL_FACTS, extractMessageProtocolFacts } from "../message-protocol";
 import type {
   ConnectorAddress,
   ConnectorChangeListener,
@@ -144,6 +145,7 @@ const mapCapabilities = (client: ImapFlow): ConnectorCapabilities => ({
   specialUse: capability(client, "SPECIAL-USE"),
   acl: capability(client, "ACL"),
   notify: capability(client, "NOTIFY"),
+  quota: capability(client, "QUOTA"),
   gmailExtensions: capability(client, "X-GM-EXT-1"),
 });
 
@@ -343,13 +345,6 @@ const structureToJson = (structure: MessageStructureObject | undefined): Record<
   };
 };
 
-const headerText = (headers: Map<string, unknown>, name: string): string | null => {
-  const value = headers.get(name);
-  if (typeof value === "string") return value.trim() || null;
-  if (value && typeof value === "object" && "text" in value && typeof value.text === "string") return value.text.trim() || null;
-  return value == null ? null : String(value).trim() || null;
-};
-
 const rawHeaderText = (lines: readonly { key: string; line: string }[], name: string): string | null => {
   const line = lines.find((candidate) => candidate.key.toLowerCase() === name)?.line;
   if (!line) return null;
@@ -362,15 +357,7 @@ export const parseEnvelopeHeaders = async (
 ): Promise<{ references: string[]; protocolFacts: ConnectorProtocolFacts }> => {
   const empty = {
     references: [],
-    protocolFacts: {
-      returnPath: null,
-      autoSubmitted: null,
-      precedence: null,
-      listId: null,
-      autoResponseSuppress: null,
-      contentType: null,
-      deliveryStatus: false,
-    },
+    protocolFacts: EMPTY_MESSAGE_PROTOCOL_FACTS,
   } satisfies { references: string[]; protocolFacts: ConnectorProtocolFacts };
   if (!headers?.length) return empty;
   const parsed = await simpleParser(headers, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true });
@@ -379,19 +366,10 @@ export const parseEnvelopeHeaders = async (
     : typeof parsed.references === "string"
       ? (parsed.references.match(/<[^>]+>/g) ?? parsed.references.split(/\s+/).filter(Boolean))
       : [];
-  const header = (name: string): string | null => rawHeaderText(parsed.headerLines, name) ?? headerText(parsed.headers, name);
-  const contentType = header("content-type");
+  const header = (name: string): unknown => rawHeaderText(parsed.headerLines, name) ?? parsed.headers.get(name);
   return {
     references,
-    protocolFacts: {
-      returnPath: header("return-path"),
-      autoSubmitted: header("auto-submitted"),
-      precedence: header("precedence"),
-      listId: header("list-id"),
-      autoResponseSuppress: header("x-auto-response-suppress"),
-      contentType,
-      deliveryStatus: /(?:^|;)\s*report-type\s*=\s*["']?delivery-status\b/i.test(contentType ?? ""),
-    },
+    protocolFacts: extractMessageProtocolFacts(header),
   };
 };
 
@@ -559,7 +537,27 @@ const fetchEnvelopeBatch = async (
               size: true,
               threadId: true,
               labels: true,
-              headers: ["references", "return-path", "auto-submitted", "precedence", "list-id", "x-auto-response-suppress", "content-type"],
+              headers: [
+                "references",
+                "return-path",
+                "auto-submitted",
+                "precedence",
+                "list-id",
+                "list-unsubscribe",
+                "list-unsubscribe-post",
+                "list-post",
+                "list-help",
+                "list-archive",
+                "x-auto-response-suppress",
+                "content-type",
+                "importance",
+                "priority",
+                "x-priority",
+                "disposition-notification-to",
+                "x-spam-flag",
+                "x-spam-status",
+                "x-spam-score",
+              ],
             },
             { uid: true },
           )) {

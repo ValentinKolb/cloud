@@ -21,6 +21,7 @@ import {
   mergeConversationsInputSchema,
   messageStateChangeSchema,
   oneShotWorkflowInputSchema,
+  parseConnectorCapabilities,
   preflightWorkflowInputSchema,
   reassignConversationMessageInputSchema,
   scheduledSendPageSchema,
@@ -376,5 +377,23 @@ describe("mail workflow contracts", () => {
   test("exposes materialization only as a parent run state", () => {
     expect(workflowRunStateSchema.parse("materializing")).toBe("materializing");
     expect(workflowTargetStateSchema.safeParse("materializing").success).toBe(false);
+  });
+
+  test("validates provider capability snapshots and defaults legacy quota evidence", () => {
+    const legacy = {
+      idle: true,
+      condstore: true,
+      qresync: false,
+      move: true,
+      uidplus: true,
+      namespace: true,
+      listExtended: true,
+      specialUse: true,
+      acl: false,
+      notify: false,
+      gmailExtensions: false,
+    };
+    expect(parseConnectorCapabilities(legacy)).toMatchObject({ idle: true, quota: false });
+    expect(parseConnectorCapabilities({ ...legacy, idle: "yes" })).toMatchObject({ idle: false, quota: false });
   });
 });

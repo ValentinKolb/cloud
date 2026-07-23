@@ -2491,18 +2491,42 @@ export type RemoteMessageRef = {
   modseq: string | null;
 };
 
-export type ConnectorCapabilities = {
-  idle: boolean;
-  condstore: boolean;
-  qresync: boolean;
-  move: boolean;
-  uidplus: boolean;
-  namespace: boolean;
-  listExtended: boolean;
-  specialUse: boolean;
-  acl: boolean;
-  notify: boolean;
-  gmailExtensions: boolean;
+export const connectorCapabilitiesSchema = z.object({
+  idle: z.boolean(),
+  condstore: z.boolean(),
+  qresync: z.boolean(),
+  move: z.boolean(),
+  uidplus: z.boolean(),
+  namespace: z.boolean(),
+  listExtended: z.boolean(),
+  specialUse: z.boolean(),
+  acl: z.boolean(),
+  notify: z.boolean(),
+  quota: z.boolean().default(false),
+  gmailExtensions: z.boolean(),
+});
+export type ConnectorCapabilities = z.infer<typeof connectorCapabilitiesSchema>;
+
+export const EMPTY_CONNECTOR_CAPABILITIES: ConnectorCapabilities = {
+  idle: false,
+  condstore: false,
+  qresync: false,
+  move: false,
+  uidplus: false,
+  namespace: false,
+  listExtended: false,
+  specialUse: false,
+  acl: false,
+  notify: false,
+  quota: false,
+  gmailExtensions: false,
+};
+
+export const parseConnectorCapabilities = (
+  value: unknown
+): ConnectorCapabilities => {
+  const parsed = connectorCapabilitiesSchema.safeParse(value);
+  return parsed.success ? parsed.data : EMPTY_CONNECTOR_CAPABILITIES;
 };
 
 export type ConnectorVerification = {

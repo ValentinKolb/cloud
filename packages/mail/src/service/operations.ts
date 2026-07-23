@@ -219,6 +219,7 @@ const loadMailboxOperations = async (
         'specialUse', COUNT(*) FILTER (WHERE binding.state = 'active' AND binding.capabilities ->> 'specialUse' = 'true'),
         'acl', COUNT(*) FILTER (WHERE binding.state = 'active' AND binding.capabilities ->> 'acl' = 'true'),
         'notify', COUNT(*) FILTER (WHERE binding.state = 'active' AND binding.capabilities ->> 'notify' = 'true'),
+        'quota', COUNT(*) FILTER (WHERE binding.state = 'active' AND binding.capabilities ->> 'quota' = 'true'),
         'gmailExtensions', COUNT(*) FILTER (WHERE binding.state = 'active' AND binding.capabilities ->> 'gmailExtensions' = 'true')
       ) AS capabilities
     FROM mail.provider_bindings binding

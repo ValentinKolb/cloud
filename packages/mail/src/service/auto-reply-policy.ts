@@ -1,3 +1,5 @@
+import type { MessageProtocolFacts } from "./message-protocol";
+
 const autoReplySuppressionReasons = [
   "missing_sender",
   "null_return_path",
@@ -25,31 +27,6 @@ export type AutoReplyFacts = {
 };
 
 type AutoReplyPolicyDecision = { allowed: true; reasons: readonly [] } | { allowed: false; reasons: readonly AutoReplySuppressionReason[] };
-
-const connectorProtocolFactsSchema = z.object({
-  returnPath: z.string().nullable().optional(),
-  autoSubmitted: z.string().nullable().optional(),
-  precedence: z.string().nullable().optional(),
-  listId: z.string().nullable().optional(),
-  autoResponseSuppress: z.string().nullable().optional(),
-  contentType: z.string().nullable().optional(),
-  deliveryStatus: z.boolean().optional(),
-});
-
-const UNKNOWN_PROTOCOL_FACTS: ConnectorProtocolFacts = {
-  returnPath: null,
-  autoSubmitted: null,
-  precedence: null,
-  listId: null,
-  autoResponseSuppress: null,
-  contentType: null,
-  deliveryStatus: false,
-};
-
-export const parseConnectorProtocolFacts = (value: unknown): ConnectorProtocolFacts => {
-  const parsed = connectorProtocolFactsSchema.safeParse(value);
-  return parsed.success ? { ...UNKNOWN_PROTOCOL_FACTS, ...parsed.data } : UNKNOWN_PROTOCOL_FACTS;
-};
 
 const normalizeAddress = (value: string): string => value.trim().replace(/^<|>$/g, "").toLowerCase();
 const normalizeHeader = (value: string | null | undefined): string => value?.trim().toLowerCase() ?? "";
@@ -90,5 +67,14 @@ export const evaluateAutoReplyPolicy = (facts: AutoReplyFacts): AutoReplyPolicyD
 
   return reasons.length === 0 ? { allowed: true, reasons: [] } : { allowed: false, reasons };
 };
-import { z } from "zod";
-import type { ConnectorProtocolFacts } from "./connectors";
+
+export const autoReplyFactsFromProtocol = (
+  protocolFacts: MessageProtocolFacts,
+): Pick<AutoReplyFacts, "returnPath" | "autoSubmitted" | "precedence" | "listId" | "autoResponseSuppress" | "deliveryStatus"> => ({
+  returnPath: protocolFacts.returnPath,
+  autoSubmitted: protocolFacts.autoSubmitted,
+  precedence: protocolFacts.precedence,
+  listId: protocolFacts.list.id,
+  autoResponseSuppress: protocolFacts.autoResponseSuppress,
+  deliveryStatus: protocolFacts.deliveryStatus,
+});

@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { Readable, Transform, type TransformCallback } from "node:stream";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import type { Headers } from "@zone-eu/mailsplit";
 import { sql } from "bun";
-import { type AttachmentStream, type Headers, MailParser, type MessageText } from "mailparser";
+import { type AttachmentStream, MailParser, type MessageText } from "mailparser";
 import sanitizeHtml from "sanitize-html";
-import { parseConnectorProtocolFacts } from "./auto-reply-policy";
 import { deriveConversationWorkState, isAutomaticSubmission } from "./conversation-work-state";
 import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
 import { assertMailboxTransportFence, type MailboxTransportFence } from "./mailbox-transport-fence";
-import { type StoredBlob, storeReadableBlob } from "./message-blobs";
+import { createBlobReadable, type StoredBlob, storeReadableBlob } from "./message-blobs";
+import { extractMessageProtocolFacts, parseMessageProtocolFacts, readMessageRootHeaders } from "./message-protocol";
 import { splitSearchText } from "./search-chunks";
 
 type HydratedPart = {
@@ -45,7 +46,7 @@ type VerifiedConversationProjection = {
   snoozed_until: Date | string | null;
   in_reply_to: string | null;
   reference_ids: string[];
-  selected_headers: Record<string, unknown> | string;
+  protocol_facts: Record<string, unknown> | string;
   outbound: boolean;
   is_latest_verified: boolean;
   message_count: number;
@@ -120,23 +121,6 @@ export const sanitizeIncomingMailHtml = (html: string): string =>
     },
   });
 
-const jsonValue = (value: unknown, depth = 0): unknown => {
-  if (value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
-  if (value instanceof Date) return value.toISOString();
-  if (depth > 6) return null;
-  if (Array.isArray(value)) return value.slice(0, 200).map((item) => jsonValue(item, depth + 1));
-  if (value instanceof Map)
-    return Object.fromEntries([...value.entries()].map(([key, child]) => [String(key), jsonValue(child, depth + 1)]));
-  if (typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .slice(0, 200)
-        .map(([key, child]) => [key, jsonValue(child, depth + 1)]),
-    );
-  }
-  return String(value);
-};
-
 const selectedHeaders = (headers: Headers | null): Record<string, unknown> => {
   if (!headers) return {};
   const names = [
@@ -154,36 +138,27 @@ const selectedHeaders = (headers: Headers | null): Record<string, unknown> => {
     "auto-submitted",
     "precedence",
     "list-id",
+    "list-unsubscribe",
+    "list-unsubscribe-post",
+    "list-post",
+    "list-help",
+    "list-archive",
     "x-auto-response-suppress",
     "content-type",
+    "importance",
+    "priority",
+    "x-priority",
+    "disposition-notification-to",
+    "x-spam-flag",
+    "x-spam-status",
+    "x-spam-score",
   ];
-  const selected = Object.fromEntries(names.flatMap((name) => (headers.has(name) ? [[name, jsonValue(headers.get(name))]] : [])));
-  const protocolNames = {
-    "return-path": "returnPath",
-    "auto-submitted": "autoSubmitted",
-    precedence: "precedence",
-    "list-id": "listId",
-    "x-auto-response-suppress": "autoResponseSuppress",
-    "content-type": "contentType",
-  } as const;
-  for (const [headerName, fieldName] of Object.entries(protocolNames)) {
-    const value = headers.get(headerName);
-    const text =
-      typeof value === "string"
-        ? value
-        : Array.isArray(value)
-          ? value.map(String).join(", ")
-          : value && typeof value === "object" && "text" in value && typeof value.text === "string"
-            ? value.text
-            : null;
-    if (text != null) selected[fieldName] = text;
-  }
-  if (headers.has("content-type")) {
-    const value = headers.get("content-type");
-    const contentType = typeof value === "string" ? value : "";
-    selected["deliveryStatus"] = /(?:^|;)\s*report-type\s*=\s*["']?delivery-status\b/i.test(contentType);
-  }
-  return selected;
+  return Object.fromEntries(
+    names.flatMap((name) => {
+      const value = headers.getFirst(name);
+      return value ? [[name, value]] : [];
+    }),
+  );
 };
 
 const findPartPath = (structure: Record<string, unknown>, contentType: string): string | null => {
@@ -205,6 +180,19 @@ const normalizeErrorCode = (error: unknown): string => {
 };
 
 const readableFromText = (value: string): Readable => Readable.from([Buffer.from(value, "utf8")]);
+
+const storeMessageSource = async (source: Readable, expectedSize?: number | null): Promise<StoredBlob> => {
+  try {
+    return await storeReadableBlob(source, expectedSize);
+  } catch (error) {
+    if (normalizeErrorCode(error) === "BLOB_SIZE_MISMATCH") {
+      throw Object.assign(new Error("Message source ended before the advertised byte count", { cause: error }), {
+        code: "MESSAGE_SIZE_MISMATCH",
+      });
+    }
+    throw error;
+  }
+};
 
 const claimMessage = async (messageId: string, claimId: string): Promise<ClaimedMessage | "complete" | null> => {
   const [claimed] = await sql<ClaimedMessage[]>`
@@ -362,6 +350,15 @@ const mergeVerifiedDuplicate = async (params: {
     SET message_id = ${canonical.id}::uuid
     WHERE message_id = ${params.messageId}::uuid
   `;
+  await params.db`
+    UPDATE mail.message_contents canonical_message
+    SET
+      source_blob_id = COALESCE(canonical_message.source_blob_id, current_message.source_blob_id),
+      source_hash = COALESCE(canonical_message.source_hash, current_message.source_hash)
+    FROM mail.message_contents current_message
+    WHERE canonical_message.id = ${canonical.id}::uuid
+      AND current_message.id = ${params.messageId}::uuid
+  `;
   await params.db`DELETE FROM mail.message_contents WHERE id = ${params.messageId}::uuid`;
   return { canonicalMessageId: canonical.id, duplicateFound: true };
 };
@@ -388,7 +385,7 @@ const applyVerifiedConversationTransition = async (params: {
       conversation.snoozed_until,
       message.in_reply_to,
       message.reference_ids,
-      message.selected_headers,
+      message.protocol_facts,
       EXISTS (
         SELECT 1
         FROM mail.message_addresses sender
@@ -417,8 +414,8 @@ const applyVerifiedConversationTransition = async (params: {
   `;
   if (!projection) return null;
 
-  const protocolFacts = parseConnectorProtocolFacts(
-    typeof projection.selected_headers === "string" ? JSON.parse(projection.selected_headers) : projection.selected_headers,
+  const protocolFacts = parseMessageProtocolFacts(
+    typeof projection.protocol_facts === "string" ? JSON.parse(projection.protocol_facts) : projection.protocol_facts,
   );
   const transition = projection.is_latest_verified
     ? deriveConversationWorkState(projection.work_status, {
@@ -553,15 +550,6 @@ export const hydrateMessageFromSource = async (params: {
 
   const mimeStructure =
     typeof claimed.mime_structure === "string" ? (JSON.parse(claimed.mime_structure) as Record<string, unknown>) : claimed.mime_structure;
-  const sourceHasher = new Bun.CryptoHasher("sha256");
-  let sourceBytes = 0;
-  const hashingStream = new Transform({
-    transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
-      sourceHasher.update(chunk);
-      sourceBytes += chunk.length;
-      callback(null, chunk);
-    },
-  });
   const parser = new MailParser({
     skipHtmlToText: false,
     skipTextToHtml: true,
@@ -570,18 +558,38 @@ export const hydrateMessageFromSource = async (params: {
     maxHtmlLengthToParse: 10 * 1024 * 1024,
     checksumAlgo: "sha256",
   });
-  let headers: Headers | null = null;
-  parser.once("headers", (value) => {
-    headers = value;
-  });
-
   const parts: HydratedPart[] = [];
   let plainText = "";
   let originalHtml: string | null = null;
   let attachmentIndex = 0;
-  const parsePipeline = pipeline(params.source, hashingStream, parser);
+  let sourceBlob: StoredBlob | null = null;
+  let parseSource: Readable | null = null;
+  let parsePipeline: Promise<void> | null = null;
 
   try {
+    const storedSource = await storeMessageSource(params.source, params.expectedSize);
+    sourceBlob = storedSource;
+    await sql.begin(async (tx) => {
+      const [current] = await tx<{ id: string }[]>`
+        SELECT id
+        FROM mail.message_contents
+        WHERE id = ${params.messageId}::uuid
+          AND hydration_status = 'hydrating'
+          AND hydration_claim_id = ${claimId}::uuid
+        FOR UPDATE
+      `;
+      if (!current) throw Object.assign(new Error("Message hydration claim was lost"), { code: "HYDRATION_CLAIM_LOST" });
+      if (params.transportFence) await assertMailboxTransportFence(params.transportFence, tx);
+      await tx`
+        UPDATE mail.message_contents
+        SET source_blob_id = ${storedSource.id}::uuid, source_hash = ${storedSource.contentHash}
+        WHERE id = ${params.messageId}::uuid AND hydration_claim_id = ${claimId}::uuid
+      `;
+    });
+
+    const headers = await readMessageRootHeaders(createBlobReadable(storedSource.id));
+    parseSource = createBlobReadable(storedSource.id);
+    parsePipeline = pipeline(parseSource, parser);
     for await (const value of parser as AsyncIterable<AttachmentStream | MessageText>) {
       if (value.type === "attachment") {
         const attachment = value as AttachmentStream & { partId?: string };
@@ -608,11 +616,6 @@ export const hydrateMessageFromSource = async (params: {
       }
     }
     await parsePipeline;
-    if (params.expectedSize != null && params.expectedSize >= 0 && sourceBytes !== params.expectedSize) {
-      throw Object.assign(new Error("Message source ended before the advertised byte count"), {
-        code: "MESSAGE_SIZE_MISMATCH",
-      });
-    }
 
     if (plainText) {
       const blob = await storeReadableBlob(readableFromText(plainText), Buffer.byteLength(plainText));
@@ -643,7 +646,8 @@ export const hydrateMessageFromSource = async (params: {
       });
     }
 
-    const sourceHash = sourceHasher.digest("hex");
+    const sourceHash = storedSource.contentHash;
+    const protocolFacts = extractMessageProtocolFacts((name) => headers.getFirst(name));
     const sanitizedHtml = originalHtml ? sanitizeIncomingMailHtml(originalHtml) : null;
     let canonicalMessageId: string | null = null;
     let collaborationEvent: Omit<MailCollaborationEvent, "type" | "at"> | null = null;
@@ -739,6 +743,7 @@ export const hydrateMessageFromSource = async (params: {
           plain_text = ${plainText || null},
           sanitized_html = ${sanitizedHtml},
           selected_headers = selected_headers || ${selectedHeaders(headers)}::jsonb,
+          protocol_facts = ${protocolFacts}::jsonb,
           source_hash = ${sourceHash},
           hydration_status = 'complete',
           hydration_error_code = NULL,
@@ -756,12 +761,21 @@ export const hydrateMessageFromSource = async (params: {
     return { status: "hydrated", sourceHash };
   } catch (error) {
     params.source.destroy();
-    await parsePipeline.catch(() => undefined);
+    parseSource?.destroy();
+    await parsePipeline?.catch(() => undefined);
     const transportChanged = normalizeErrorCode(error) === "MAILBOX_TRANSPORT_CHANGED";
     if (transportChanged) {
       await sql`
         UPDATE mail.message_contents
         SET
+          source_blob_id = CASE
+            WHEN source_blob_id = ${sourceBlob?.id ?? null}::uuid THEN NULL
+            ELSE source_blob_id
+          END,
+          source_hash = CASE
+            WHEN source_blob_id = ${sourceBlob?.id ?? null}::uuid THEN NULL
+            ELSE source_hash
+          END,
           hydration_status = ${claimed.resume_hydration_status},
           hydration_attempt = ${claimed.resume_hydration_attempt},
           hydration_error_code = ${claimed.resume_hydration_error_code},

@@ -14,6 +14,7 @@ import { createDraftAttachmentUpload } from "./draft-uploads";
 import { getDraft } from "./drafts";
 import { createMailbox } from "./mailboxes";
 import { hydrateMessageFromSource } from "./message-hydration";
+import { EMPTY_MESSAGE_PROTOCOL_FACTS } from "./message-protocol";
 import { cleanupMailRuntimeHistory } from "./runtime-history-retention";
 import { claimFence, commitSyncBatch } from "./sync-runtime";
 import { materializeAutomaticWorkflowRun } from "./workflow-automatic-materialization";
@@ -135,13 +136,10 @@ suite("mail workflow trigger event runtime", () => {
     inReplyTo: null,
     references: [],
     protocolFacts: {
+      ...EMPTY_MESSAGE_PROTOCOL_FACTS,
       returnPath: "<customer@example.com>",
       autoSubmitted: "no",
-      precedence: null,
-      listId: null,
-      autoResponseSuppress: null,
       contentType: "text/plain",
-      deliveryStatus: false,
     },
     subject,
     sentAt: null,

@@ -1,6 +1,7 @@
 import { createRuntimeLifecycle, logger } from "@valentinkolb/cloud/services";
 import { type Lock, type Mutex, mutex } from "@valentinkolb/sync";
 import { sql } from "bun";
+import { parseConnectorCapabilities } from "../contracts";
 import { sha256Json } from "./canonical";
 import type { ConnectorChangeHint, ConnectorChangeListener, ConnectorChangeListenerMode } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
@@ -163,12 +164,12 @@ export class FixedImapConnectionPermitPool implements PermitPool {
 const permits = new FixedImapConnectionPermitPool(listenerPermitMutex);
 
 const parseCapabilities = (value: Record<string, unknown> | string): ImapPushBindingPlan["capabilities"] => {
-  const parsed = typeof value === "string" ? (JSON.parse(value) as Record<string, unknown>) : value;
+  const parsed = parseConnectorCapabilities(typeof value === "string" ? JSON.parse(value) : value);
   return {
-    idle: parsed["idle"] === true,
-    condstore: parsed["condstore"] === true,
-    qresync: parsed["qresync"] === true,
-    notify: parsed["notify"] === true,
+    idle: parsed.idle,
+    condstore: parsed.condstore,
+    qresync: parsed.qresync,
+    notify: parsed.notify,
   };
 };
 

@@ -6,20 +6,19 @@ import type { MailRequestContext } from "./auth";
 import { releaseDueSnoozes } from "./collaboration";
 import type { ConnectorEnvelope, ConnectorProtocolFacts } from "./connectors";
 import { createMailbox } from "./mailboxes";
+import { createBlobReadable } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
+import { EMPTY_MESSAGE_PROTOCOL_FACTS } from "./message-protocol";
 import { ingestEnvelope } from "./sync-runtime";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 const protocolFacts = (autoSubmitted: string | null): ConnectorProtocolFacts => ({
+  ...EMPTY_MESSAGE_PROTOCOL_FACTS,
   returnPath: "<support@example.test>",
   autoSubmitted,
-  precedence: null,
-  listId: null,
-  autoResponseSuppress: null,
   contentType: "text/plain; charset=utf-8",
-  deliveryStatus: false,
 });
 
 suite("mail conversation work-state projection", () => {
@@ -27,6 +26,7 @@ suite("mail conversation work-state projection", () => {
   const mailboxIds: string[] = [];
   const userIds: string[] = [];
   const accessIds: string[] = [];
+  const sourceBlobIds: string[] = [];
   let mailboxId = "";
   let remoteResourceId = "";
   let folderId = "";
@@ -92,7 +92,20 @@ suite("mail conversation work-state projection", () => {
     for (const id of mailboxIds) {
       const rows = await sql<{ access_id: string }[]>`SELECT access_id FROM mail.mailbox_access WHERE mailbox_id = ${id}::uuid`;
       accessIds.push(...rows.map((row) => row.access_id));
+      const sourceRows = await sql<{ source_blob_id: string }[]>`
+        SELECT source_blob_id
+        FROM mail.message_contents
+        WHERE mailbox_id = ${id}::uuid
+          AND source_blob_id IS NOT NULL
+      `;
+      sourceBlobIds.push(...sourceRows.map((row) => row.source_blob_id));
       await sql`DELETE FROM mail.mailboxes WHERE id = ${id}::uuid`;
+    }
+    if (sourceBlobIds.length > 0) {
+      await sql`
+        DELETE FROM mail.message_part_blobs
+        WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${sourceBlobIds}::jsonb))
+      `;
     }
     if (accessIds.length > 0) {
       await sql`DELETE FROM auth.access WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${accessIds}::jsonb))`;
@@ -136,7 +149,12 @@ suite("mail conversation work-state projection", () => {
 
   const hydrate = async (messageId: string, source: readonly string[]) => {
     const body = Buffer.from([...source, "Content-Type: text/plain; charset=utf-8", "", "Work-state test body"].join("\r\n"));
-    return hydrateMessageFromSource({ messageId, source: Readable.from([body]), expectedSize: body.byteLength });
+    await hydrateMessageFromSource({
+      messageId,
+      source: Readable.from([body]),
+      expectedSize: body.byteLength,
+    });
+    return body;
   };
 
   test("projects verified inbound, automatic, and human replies deterministically", async () => {
@@ -150,12 +168,36 @@ suite("mail conversation work-state projection", () => {
       date: new Date("2026-07-22T08:00:00.000Z"),
     });
     const initialId = await ingestEnvelope({ db: sql, mailboxId, remoteResourceId, folderId, message: initial });
-    await hydrate(initialId, [
+    const initialSource = await hydrate(initialId, [
       `Message-ID: ${initialMessageId}`,
       "From: Customer <customer@example.test>",
       "To: Support <support@example.test>",
       `Subject: ${initial.subject}`,
     ]);
+    const [storedSource] = await sql<
+      {
+        source_blob_id: string;
+        source_hash: string;
+        protocol_facts: Record<string, unknown>;
+        selected_headers: Record<string, unknown>;
+      }[]
+    >`
+      SELECT source_blob_id, source_hash, protocol_facts, selected_headers
+      FROM mail.message_contents
+      WHERE id = ${initialId}::uuid
+    `;
+    expect(storedSource?.source_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(storedSource?.protocol_facts).toMatchObject({
+      version: 1,
+      autoSubmitted: null,
+      contentType: "text/plain; charset=utf-8",
+    });
+    expect(storedSource?.selected_headers).toHaveProperty("message-id");
+    expect(storedSource?.selected_headers["content-type"]).toBe("text/plain; charset=utf-8");
+    expect(storedSource?.selected_headers).not.toHaveProperty("autoSubmitted");
+    const sourceChunks: Buffer[] = [];
+    for await (const chunk of createBlobReadable(storedSource!.source_blob_id)) sourceChunks.push(Buffer.from(chunk));
+    expect(Buffer.concat(sourceChunks)).toEqual(initialSource);
     const [link] = await sql<{ conversation_id: string }[]>`
       SELECT conversation_id FROM mail.conversation_messages WHERE message_id = ${initialId}::uuid
     `;
@@ -280,5 +322,53 @@ suite("mail conversation work-state projection", () => {
     });
     expect(await releaseDueSnoozes(10)).toBe(0);
     expect(releaseDueSnoozes(0)).rejects.toThrow("positive safe integer");
+  }, 30_000);
+
+  test("retains the exact source when protocol parsing fails", async () => {
+    const failed = envelope({
+      uid: 5,
+      messageId: `<work-state-invalid-source-${suffix}@example.test>`,
+      inReplyTo: null,
+      from: "customer@example.test",
+      to: "support@example.test",
+      date: new Date("2026-07-22T08:04:00.000Z"),
+    });
+    const messageId = await ingestEnvelope({
+      db: sql,
+      mailboxId,
+      remoteResourceId,
+      folderId,
+      message: failed,
+    });
+    const source = Buffer.from(`X-Oversized: ${"x".repeat(2 * 1024 * 1024)}\r\n\r\nbody`);
+
+    await expect(
+      hydrateMessageFromSource({
+        messageId,
+        source: Readable.from([source]),
+        expectedSize: source.byteLength,
+      }),
+    ).rejects.toMatchObject({ code: "EMAXLEN" });
+
+    const [stored] = await sql<
+      {
+        source_blob_id: string;
+        source_hash: string;
+        hydration_status: string;
+        hydration_error_code: string;
+      }[]
+    >`
+      SELECT source_blob_id, source_hash, hydration_status, hydration_error_code
+      FROM mail.message_contents
+      WHERE id = ${messageId}::uuid
+    `;
+    expect(stored).toMatchObject({
+      hydration_status: "failed",
+      hydration_error_code: "EMAXLEN",
+    });
+    expect(stored?.source_hash).toMatch(/^[a-f0-9]{64}$/);
+    const chunks: Buffer[] = [];
+    for await (const chunk of createBlobReadable(stored!.source_blob_id)) chunks.push(Buffer.from(chunk));
+    expect(Buffer.concat(chunks)).toEqual(source);
   }, 30_000);
 });

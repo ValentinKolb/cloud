@@ -80,6 +80,7 @@ const fixtureVerification = (): ConnectorVerification => ({
     specialUse: true,
     acl: true,
     notify: false,
+    quota: false,
     gmailExtensions: false,
   },
   accounts: [

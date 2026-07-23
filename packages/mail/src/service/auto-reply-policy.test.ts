@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { evaluateAutoReplyPolicy, parseConnectorProtocolFacts, parseReturnPathAddress, type AutoReplyFacts } from "./auto-reply-policy";
+import { type AutoReplyFacts, evaluateAutoReplyPolicy, parseReturnPathAddress } from "./auto-reply-policy";
 
 const inbound = (overrides: Partial<AutoReplyFacts> = {}): AutoReplyFacts => ({
   senderAddresses: ["customer@example.test"],
@@ -49,33 +49,6 @@ describe("evaluateAutoReplyPolicy", () => {
     expect(evaluateAutoReplyPolicy(inbound({ senderAddresses: [], alreadyReplied: true }))).toEqual({
       allowed: false,
       reasons: ["missing_sender", "already_replied"],
-    });
-  });
-
-  test("keeps protocol facts when hydration adds unrelated selected headers", () => {
-    expect(
-      parseConnectorProtocolFacts({
-        returnPath: "<sender@example.test>",
-        autoSubmitted: "no",
-        precedence: null,
-        listId: null,
-        autoResponseSuppress: null,
-        contentType: "text/plain",
-        deliveryStatus: false,
-        "message-id": "<message@example.test>",
-      }),
-    ).toMatchObject({ returnPath: "<sender@example.test>", autoSubmitted: "no", deliveryStatus: false });
-  });
-
-  test("normalizes partial facts recovered from hydrated source headers", () => {
-    expect(parseConnectorProtocolFacts({ autoSubmitted: "auto-replied" })).toEqual({
-      returnPath: null,
-      autoSubmitted: "auto-replied",
-      precedence: null,
-      listId: null,
-      autoResponseSuppress: null,
-      contentType: null,
-      deliveryStatus: false,
     });
   });
 

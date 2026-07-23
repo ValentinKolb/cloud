@@ -257,7 +257,7 @@ const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promis
         (
           (message.in_reply_to IS NOT NULL OR cardinality(message.reference_ids) > 0)
           AND COALESCE(
-            NULLIF(lower(btrim(COALESCE(message.selected_headers->>'autoSubmitted', message.selected_headers->>'auto-submitted'))), ''),
+            NULLIF(lower(btrim(message.protocol_facts->>'autoSubmitted')), ''),
             'no'
           ) = 'no'
         ) AS human_reply,

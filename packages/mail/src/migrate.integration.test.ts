@@ -1040,4 +1040,72 @@ suite("mail migrations", () => {
     expect(savedViewShape?.private_index).toContain("disabled_at IS NULL");
     expect(savedViewShape?.mailbox_index).toContain("disabled_at IS NULL");
   });
+
+  test("installs exact message source and canonical protocol facts once", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        applied_count: number;
+        columns_present: boolean;
+        source_blob_restricted: boolean;
+        source_index_present: boolean;
+        invalid_protocol_facts: number;
+        legacy_machine_headers: number;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 83 AND name = 'message_protocol_foundations'
+        ) AS applied_count,
+        (
+          SELECT count(*) = 2
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'message_contents'
+            AND column_name IN ('source_blob_id', 'protocol_facts')
+        ) AS columns_present,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'mail.message_contents'::regclass
+            AND conname = 'message_contents_source_blob_id_fkey'
+            AND confdeltype = 'r'
+        ) AS source_blob_restricted,
+        to_regclass('mail.message_contents_source_blob_idx') IS NOT NULL AS source_index_present,
+        (
+          SELECT count(*)::int
+          FROM mail.message_contents
+          WHERE jsonb_typeof(protocol_facts) <> 'object'
+            OR protocol_facts ->> 'version' <> '1'
+            OR jsonb_typeof(protocol_facts -> 'list') <> 'object'
+            OR jsonb_typeof(protocol_facts -> 'priority') <> 'object'
+            OR jsonb_typeof(protocol_facts -> 'receipts') <> 'object'
+            OR jsonb_typeof(protocol_facts -> 'spam') <> 'object'
+        ) AS invalid_protocol_facts,
+        (
+          SELECT count(*)::int
+          FROM mail.message_contents
+          WHERE selected_headers ?| ARRAY[
+            'returnPath',
+            'autoSubmitted',
+            'listId',
+            'autoResponseSuppress',
+            'contentType',
+            'deliveryStatus'
+          ]::text[]
+        ) AS legacy_machine_headers
+    `;
+
+    expect(shape).toEqual({
+      applied_count: 1,
+      columns_present: true,
+      source_blob_restricted: true,
+      source_index_present: true,
+      invalid_protocol_facts: 0,
+      legacy_machine_headers: 0,
+    });
+  });
 });

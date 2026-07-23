@@ -1206,6 +1206,7 @@ suite("mail manual conversation threading", () => {
       source: Readable.from([source]),
       expectedSize: source.byteLength,
     });
+    await sql`UPDATE mail.message_contents SET source_blob_id = NULL WHERE id = ${canonicalId}::uuid`;
     const [canonicalLink] = await sql<{ conversation_id: string }[]>`
       SELECT conversation_id FROM mail.conversation_messages WHERE message_id = ${canonicalId}::uuid
     `;
@@ -1250,6 +1251,10 @@ suite("mail manual conversation threading", () => {
       expectedSize: source.byteLength,
     });
     expect(hydrated).toMatchObject({ status: "deduplicated", canonicalMessageId: canonicalId });
+    const [canonicalSource] = await sql<{ source_blob_id: string | null }[]>`
+      SELECT source_blob_id FROM mail.message_contents WHERE id = ${canonicalId}::uuid
+    `;
+    expect(canonicalSource?.source_blob_id).not.toBeNull();
     const [projection] = await sql<
       {
         contents: number;
@@ -1402,9 +1407,7 @@ suite("mail manual conversation threading", () => {
       expectedSize: source.byteLength,
     });
     expect(thirdHydration).toMatchObject({ status: "deduplicated", canonicalMessageId: incompatibleResetId });
-    const [thirdProjection] = await sql<
-      { contents: number; refs: number; work_status: string; revision: number; state_events: number }[]
-    >`
+    const [thirdProjection] = await sql<{ contents: number; refs: number; work_status: string; revision: number; state_events: number }[]>`
       SELECT
         (
           SELECT COUNT(*)::int

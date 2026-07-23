@@ -74,7 +74,12 @@ describe("IMAP References parsing", () => {
           "Auto-Submitted: no",
           "Precedence: bulk",
           "List-ID: Example list <list.example.com>",
+          "List-Unsubscribe: <mailto:leave@example.com>, <https://example.com/unsubscribe>",
+          "List-Unsubscribe-Post: List-Unsubscribe=One-Click",
           "X-Auto-Response-Suppress: OOF, AutoReply",
+          "Importance: high",
+          "Disposition-Notification-To: sender@example.com",
+          "X-Spam-Flag: NO",
           "Content-Type: multipart/report; report-type=delivery-status",
           "",
           "",
@@ -82,14 +87,22 @@ describe("IMAP References parsing", () => {
       ),
     );
     expect(parsed.references).toEqual(["<first@example.com>"]);
-    expect(parsed.protocolFacts).toEqual({
+    expect(parsed.protocolFacts).toMatchObject({
+      version: 1,
       returnPath: "<sender@example.com>",
       autoSubmitted: "no",
       precedence: "bulk",
-      listId: "Example list <list.example.com>",
       autoResponseSuppress: "OOF, AutoReply",
       contentType: "multipart/report; report-type=delivery-status",
       deliveryStatus: true,
+      list: {
+        id: "Example list <list.example.com>",
+        unsubscribe: ["mailto:leave@example.com", "https://example.com/unsubscribe"],
+        unsubscribePost: "List-Unsubscribe=One-Click",
+      },
+      priority: { importance: "high" },
+      receipts: { dispositionNotificationTo: "sender@example.com" },
+      spam: { flag: "NO" },
     });
   });
 });
