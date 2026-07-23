@@ -19,7 +19,7 @@
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/cloud-app-contacts": "workspace:*",
     "@valentinkolb/ssr": "0.11.0",
-    "@valentinkolb/stdlib": "0.14.1",
+    "@valentinkolb/stdlib": "0.15.0",
     "@valentinkolb/sync": "^5.5.2",
     "@zone-eu/mailsplit": "5.4.14",
     "fast-xml-parser": "^5.9.3",
