@@ -26,13 +26,29 @@
 
 @utility dialog-panel {
   @apply fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2;
-  @apply w-full max-w-md max-h-[90vh] p-4 overflow-x-hidden overflow-y-auto;
+  @apply p-4 overflow-x-hidden overflow-y-auto;
   @apply backdrop:bg-black/40;
+  width: min(28rem, var(--ui-dialog-available-width));
+  max-height: var(--ui-dialog-available-height);
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--ui-radius-surface);
   background: var(--ui-surface);
   /* Floating dialog (portaled) — outer shadow is fine here. */
   box-shadow: var(--ui-shadow-float);
+}
+
+@utility dialog-fixed-frame {
+  height: min(86vh, var(--ui-dialog-available-height));
+  max-height: var(--ui-dialog-available-height);
+}
+
+@utility dialog-viewport-content {
+  max-width: var(--ui-dialog-available-width);
+  max-height: var(--ui-dialog-available-height);
+
+  & > :first-child {
+    max-height: var(--ui-dialog-available-height);
+  }
 }
 
 @utility panel-dialog-shell {

@@ -36,7 +36,7 @@ const openModifyRetryDialog = (
       };
 
       return (
-        <div class="flex min-w-[min(92vw,34rem)] flex-col gap-4">
+        <div class="flex w-[min(var(--ui-dialog-available-width),34rem)] flex-col gap-4">
           <DialogHeader title="Edit and try again" icon="ti ti-pencil" close={() => close()} />
           <div class="px-4">
             <TextInput
@@ -66,8 +66,8 @@ const openModifyRetryDialog = (
     },
     {
       panelClassName:
-        "fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:backdrop:bg-black/35",
-      contentClassName: "p-0",
+        "fixed left-1/2 top-1/2 m-0 max-h-[var(--ui-dialog-available-height)] max-w-[var(--ui-dialog-available-width)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:backdrop:bg-black/35",
+      contentClassName: "dialog-viewport-content p-0",
     },
   );
 };

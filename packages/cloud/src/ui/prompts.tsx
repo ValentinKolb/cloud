@@ -263,10 +263,10 @@ export const DialogHeader = (props: { close: () => void; title?: string; icon?: 
 };
 
 const getSizeClassName = (size: DialogOptions["size"] = "medium") => {
-  if (size === "small") return "w-[min(90vw,22rem)] max-h-[72vh]";
-  if (size === "wide") return "w-[min(96vw,64rem)] max-h-[90vh]";
-  if (size === "large") return "w-[min(96vw,48rem)] max-h-[86vh]";
-  return "w-[min(94vw,28rem)] max-h-[90vh]";
+  if (size === "small") return "w-[min(var(--ui-dialog-available-width),22rem)] max-h-[min(72vh,var(--ui-dialog-available-height))]";
+  if (size === "wide") return "w-[min(var(--ui-dialog-available-width),64rem)] max-h-[min(90vh,var(--ui-dialog-available-height))]";
+  if (size === "large") return "w-[min(var(--ui-dialog-available-width),48rem)] max-h-[min(86vh,var(--ui-dialog-available-height))]";
+  return "w-[min(var(--ui-dialog-available-width),28rem)] max-h-[min(90vh,var(--ui-dialog-available-height))]";
 };
 
 const getVariantClassName = (variant?: DialogOptions["variant"]) => {
@@ -284,10 +284,10 @@ const getPanelClassName = (options?: Pick<DialogOptions, "variant" | "size" | "s
   return `prompt-panel fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 ${sizeClass} overflow-x-hidden overflow-y-auto rounded-2xl border-0 bg-white/95 p-4 text-zinc-900 shadow-none ring-1 ring-inset ${variantClass} backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:bg-zinc-950/95 dark:text-zinc-100`;
 };
 
-const getContentClassName = (surface?: DialogOptions["surface"]) => (surface === "bare" ? "" : undefined);
+const getContentClassName = (surface?: DialogOptions["surface"]) => (surface === "bare" ? "dialog-viewport-content" : undefined);
 
 const getSearchPanelClassName = () =>
-  "fixed left-1/2 top-[25vh] -translate-x-1/2 m-0 w-[min(96vw,46rem)] h-[50vh] border-0 bg-transparent p-0 text-zinc-900 shadow-none backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:text-zinc-100 [@media(min-height:1100px)]:top-[33vh] [@media(min-height:1100px)]:h-[33vh]";
+  "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 w-[min(var(--ui-dialog-available-width),46rem)] h-[var(--search-dialog-height)] [--search-dialog-height:min(50vh,var(--ui-dialog-available-height))] border-0 bg-transparent p-0 text-zinc-900 shadow-none backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:text-zinc-100 [@media(min-height:1100px)]:[--search-dialog-height:min(33vh,var(--ui-dialog-available-height))]";
 
 const isPreviewUrl = (value?: string) => typeof value === "string" && value.startsWith("/");
 
@@ -409,7 +409,7 @@ const openSearchPrompt = <T = unknown>(
       });
 
       return (
-        <div class="flex h-full min-h-0 flex-col gap-2 pb-1 [--search-body-max:calc(50vh-3.5rem)] [@media(min-height:1100px)]:[--search-body-max:calc(33vh-3.5rem)]">
+        <div class="flex h-full min-h-0 flex-col gap-2 pb-1 [--search-body-max:calc(var(--search-dialog-height)-3.5rem)]">
           <Show when={options?.title}>
             {(title) => <p class="px-1 text-base font-semibold text-white dark:text-zinc-100">{title()}</p>}
           </Show>

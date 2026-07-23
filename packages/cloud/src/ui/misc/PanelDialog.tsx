@@ -62,29 +62,27 @@ const usePanelDialogSurface = () => useContext(PanelDialogSurfaceContext);
 
 const panelDialogBasePanelClass =
   "panel-dialog-shell fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:text-zinc-100 dark:backdrop:bg-black/35";
-const panelDialogStandardWidthClass = "w-[min(96vw,48rem)]";
+const panelDialogStandardWidthClass = "w-[min(96vw,48rem)] max-w-[var(--ui-dialog-available-width)]";
 
-export const panelDialogPanelClass = `${panelDialogBasePanelClass} max-h-[86vh] ${panelDialogStandardWidthClass}`;
+export const panelDialogPanelClass = `${panelDialogBasePanelClass} max-h-[min(86vh,var(--ui-dialog-available-height))] ${panelDialogStandardWidthClass}`;
 
 export const panelDialogOptions = {
   panelClassName: panelDialogPanelClass,
-  // The content wrapper must carry the panel's max-height EXPLICITLY (same
-  // 86vh as the panel class — `max-h-[inherit]` proved unreliable across
-  // browser dialog UA styles) and be a flex column, otherwise
-  // PanelDialog.Body can never scroll and long content gets clipped by the
-  // panel's overflow-hidden.
-  contentClassName: "flex max-h-[86vh] min-h-0 flex-col p-0",
+  // The content wrapper must carry the panel's max-height explicitly;
+  // `max-height: inherit` is unreliable across browser dialog UA styles.
+  // Without it, PanelDialog.Body cannot scroll and long content is clipped.
+  contentClassName: "flex max-h-[min(86vh,var(--ui-dialog-available-height))] min-h-0 flex-col p-0",
 } satisfies OpenDialogOptions;
 
 /** Stable-height variant for tabbed or otherwise multi-view dialog bodies. */
-export const panelDialogFixedPanelClass = `${panelDialogBasePanelClass} h-[86vh] max-h-[86vh] ${panelDialogStandardWidthClass}`;
+export const panelDialogFixedPanelClass = `${panelDialogBasePanelClass} dialog-fixed-frame ${panelDialogStandardWidthClass}`;
 
 export const panelDialogFixedOptions = {
   panelClassName: panelDialogFixedPanelClass,
   contentClassName: "flex h-full min-h-0 flex-col p-0",
 } satisfies OpenDialogOptions;
 
-export const panelDialogWorkspacePanelClass = `${panelDialogBasePanelClass} h-[80vh] max-h-[80vh] w-[80vw] max-w-[80vw]`;
+export const panelDialogWorkspacePanelClass = `${panelDialogBasePanelClass} h-[min(80vh,var(--ui-dialog-available-height))] max-h-[var(--ui-dialog-available-height)] w-[min(80vw,var(--ui-dialog-available-width))] max-w-[var(--ui-dialog-available-width)]`;
 
 export const panelDialogWorkspaceOptions = {
   panelClassName: panelDialogWorkspacePanelClass,

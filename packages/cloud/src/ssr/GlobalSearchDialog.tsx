@@ -477,7 +477,7 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
 
   return (
     <div
-      class="flex h-full min-h-0 flex-col text-zinc-900 dark:text-zinc-100 [--spotlight-body-max:calc(50vh-5.5rem)] [@media(min-height:1100px)]:[--spotlight-body-max:calc(33vh-5.5rem)]"
+      class="flex h-full min-h-0 flex-col text-zinc-900 dark:text-zinc-100 [--spotlight-body-max:calc(var(--spotlight-dialog-height)-5.5rem)]"
       onWheel={(event) => event.stopPropagation()}
     >
       <div class="relative">
@@ -810,7 +810,7 @@ export const openGlobalSearchDialog = (helpApps: GlobalSearchHelpApp[] = []) => 
 
   void dialogCore.open<void>((close) => <GlobalSearchDialog close={close} helpApps={helpApps} />, {
     panelClassName:
-      "fixed left-1/2 top-[25vh] -translate-x-1/2 m-0 w-[min(96vw,72rem)] max-h-[50vh] overflow-hidden overscroll-y-contain rounded-2xl border-0 bg-white/92 p-0 text-zinc-900 shadow-xl ring-1 ring-inset ring-zinc-300/60 backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:bg-zinc-950/92 dark:text-zinc-100 dark:ring-zinc-700/60 [@media(min-height:1100px)]:top-[33vh] [@media(min-height:1100px)]:max-h-[33vh]",
+      "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 h-[var(--spotlight-dialog-height)] w-[min(var(--ui-dialog-available-width),72rem)] [--spotlight-dialog-height:min(50vh,var(--ui-dialog-available-height))] overflow-hidden overscroll-y-contain rounded-2xl border-0 bg-white/92 p-0 text-zinc-900 shadow-xl ring-1 ring-inset ring-zinc-300/60 backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:bg-zinc-950/92 dark:text-zinc-100 dark:ring-zinc-700/60 [@media(min-height:1100px)]:[--spotlight-dialog-height:min(33vh,var(--ui-dialog-available-height))]",
     contentClassName: "h-full min-h-0",
     initialFocus: "none",
   });

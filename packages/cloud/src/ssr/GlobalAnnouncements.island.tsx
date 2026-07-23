@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import {
   ANNOUNCEMENTS_COOKIE,
   ANNOUNCEMENTS_COOKIE_MAX_AGE_SECONDS,
@@ -7,7 +7,9 @@ import {
   mergeAnnouncementCookieState,
   serializeAnnouncementCookieState,
 } from "../contracts/announcements";
+import { dialogCore } from "../ui/dialog-core";
 import MarkdownView from "../ui/misc/MarkdownView";
+import PanelDialog, { panelDialogOptions } from "../ui/misc/PanelDialog";
 
 type Props = {
   banners: AnnouncementDisplayEntry[];
@@ -39,7 +41,6 @@ const toneIcon = (tone: AnnouncementDisplayEntry["tone"]) => {
 export default function GlobalAnnouncements(props: Props) {
   const [cookieState, setCookieState] = createSignal(props.cookieState);
   const [banners, setBanners] = createSignal(props.banners);
-  const [modalOpen, setModalOpen] = createSignal(props.announcements.length > 0);
 
   const dismissBanner = (version: number) => {
     const next = mergeAnnouncementCookieState(cookieState(), { dismissedBannerVersions: [version] });
@@ -54,88 +55,87 @@ export default function GlobalAnnouncements(props: Props) {
     });
     setCookieState(next);
     writeCookieState(next);
-    setModalOpen(false);
   };
 
-  return (
-    <>
-      <Show when={banners().length > 0}>
-        <div class="flex shrink-0 flex-col gap-1">
-          <For each={banners()}>
-            {(banner) => (
-              <section
-                class={`flex max-h-[min(40vh,14rem)] items-start gap-2 rounded-lg border px-3 py-2 text-xs shadow-sm ${toneClass(banner.tone)}`}
-              >
-                <i class={`${toneIcon(banner.tone)} mt-0.5 shrink-0`} />
-                <div class="min-h-0 min-w-0 flex-1">
-                  <p class="font-semibold">{banner.title}</p>
-                  <MarkdownView
-                    html={banner.bodyHtml}
-                    smallHeadings
-                    class="mt-1 max-h-36 overflow-y-auto overscroll-contain pr-1 [&_p]:my-0"
-                  />
-                </div>
-                <button
-                  type="button"
-                  class="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md opacity-70 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
-                  aria-label="Dismiss banner"
-                  onClick={() => dismissBanner(banner.version)}
-                >
-                  <i class="ti ti-x" />
-                </button>
-              </section>
-            )}
-          </For>
-        </div>
-      </Show>
+  onMount(() => {
+    if (props.announcements.length === 0) return;
 
-      <Show when={modalOpen()}>
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 backdrop-blur-sm">
-          <section class="flex max-h-[86vh] w-[min(96vw,42rem)] min-h-0 flex-col gap-1 overflow-hidden rounded-xl bg-white text-zinc-900 shadow-2xl dark:bg-zinc-950 dark:text-zinc-100">
-            <header class="flex shrink-0 items-center gap-3 px-4 pt-4 pb-3">
-              <i class="ti ti-speakerphone text-base text-blue-500" />
-              <div class="min-w-0">
-                <p class="font-semibold">Announcements</p>
-                <p class="text-xs text-dimmed">Latest platform updates</p>
-              </div>
-              <button type="button" class="icon-btn ml-auto" aria-label="Close announcements" onClick={closeAnnouncements}>
-                <i class="ti ti-x" />
-              </button>
-            </header>
-            <main class="min-h-0 flex-1 overflow-y-auto p-4">
-              <div class="flex flex-col gap-4">
-                <For each={props.announcements}>
-                  {(entry) => (
-                    <article class="rounded-lg bg-zinc-50 p-4 dark:bg-zinc-900/70">
-                      <div class="mb-3 flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                          <h2 class="text-base font-semibold text-primary">{entry.title}</h2>
-                          <p class="mt-0.5 text-xs text-dimmed">
-                            {new Date(entry.publishedAt).toLocaleDateString(undefined, {
-                              year: "numeric",
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </p>
-                        </div>
-                        <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-dimmed dark:bg-zinc-800">
-                          v{entry.version}
-                        </span>
+    void dialogCore
+      .open<void>(
+        (close) => (
+          <PanelDialog>
+            <PanelDialog.Header
+              title="Announcements"
+              subtitle="Latest platform updates"
+              icon="ti ti-speakerphone text-blue-500"
+              close={() => close()}
+            />
+            <PanelDialog.Body>
+              <For each={props.announcements}>
+                {(entry) => (
+                  <article class="panel-dialog-section rounded-[var(--ui-radius-surface)] p-4">
+                    <div class="mb-3 flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <h2 class="text-base font-semibold text-primary">{entry.title}</h2>
+                        <p class="mt-0.5 text-xs text-dimmed">
+                          {new Date(entry.publishedAt).toLocaleDateString(undefined, {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </p>
                       </div>
-                      <MarkdownView html={entry.bodyHtml} />
-                    </article>
-                  )}
-                </For>
-              </div>
-            </main>
-            <footer class="flex shrink-0 justify-end px-4 pt-1 pb-4">
-              <button type="button" class="btn-primary btn-sm" onClick={closeAnnouncements}>
+                      <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-dimmed dark:bg-zinc-800">
+                        v{entry.version}
+                      </span>
+                    </div>
+                    <MarkdownView html={entry.bodyHtml} />
+                  </article>
+                )}
+              </For>
+            </PanelDialog.Body>
+            <PanelDialog.Footer>
+              <span />
+              <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
                 Got it
               </button>
-            </footer>
-          </section>
-        </div>
-      </Show>
-    </>
+            </PanelDialog.Footer>
+          </PanelDialog>
+        ),
+        panelDialogOptions,
+      )
+      .then(closeAnnouncements);
+  });
+
+  return (
+    <Show when={banners().length > 0}>
+      <div class="flex shrink-0 flex-col gap-1">
+        <For each={banners()}>
+          {(banner) => (
+            <section
+              class={`flex max-h-[min(40vh,14rem)] items-start gap-2 rounded-lg border px-3 py-2 text-xs shadow-sm ${toneClass(banner.tone)}`}
+            >
+              <i class={`${toneIcon(banner.tone)} mt-0.5 shrink-0`} />
+              <div class="min-h-0 min-w-0 flex-1">
+                <p class="font-semibold">{banner.title}</p>
+                <MarkdownView
+                  html={banner.bodyHtml}
+                  smallHeadings
+                  class="mt-1 max-h-36 overflow-y-auto overscroll-contain pr-1 [&_p]:my-0"
+                />
+              </div>
+              <button
+                type="button"
+                class="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md opacity-70 hover:bg-black/5 hover:opacity-100 dark:hover:bg-white/10"
+                aria-label="Dismiss banner"
+                onClick={() => dismissBanner(banner.version)}
+              >
+                <i class="ti ti-x" />
+              </button>
+            </section>
+          )}
+        </For>
+      </div>
+    </Show>
   );
 }

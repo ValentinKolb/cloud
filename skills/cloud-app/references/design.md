@@ -312,6 +312,7 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
 - Resource settings opened from an `AppWorkspace` stay in a modal over the current workspace. Open the frame immediately, load settings data lazily inside it, and keep the current URL, main view, and detail panel intact. Do not maintain a parallel settings page solely to preload the modal.
 - If a settings write changes server-rendered workspace data, keep the dialog responsive and reconcile the workspace once after it closes. Do not reload the page while the user is still editing.
 - Dialogs with tabs or substantially different internal views use one fixed, viewport-bounded outer height. Tab and view changes scroll inside the body; they never resize or move the dialog frame. Simple single-view prompts remain content-sized.
+- Modal geometry comes from the shared dialog primitives. Their outer frame is clamped to the dynamic viewport and device safe areas; fixed headers and footers remain reachable while only the body scrolls. Apps must not introduce raw `vh`-only modal shells or custom fixed overlays.
 - Popovers align with their trigger and flip before overflowing the viewport.
 - Tooltips explain unfamiliar icon actions. They do not repeat visible labels.
 - Use `Tooltip` for one short, non-interactive hint around exactly one accessible trigger. Keep the control's accessible name on the control itself; the tooltip supplements it through `aria-describedby`.

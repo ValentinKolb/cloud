@@ -189,7 +189,10 @@ const aiProfileDialogOptions = {
   ...panelDialogOptions,
   panelClassName: panelDialogOptions.panelClassName
     .replace("w-[min(96vw,48rem)]", "w-[min(96vw,64rem)]")
-    .replace("max-h-[86vh]", "h-[min(92vh,calc(100vh-2rem))] max-h-[92vh]"),
+    .replace(
+      "max-h-[min(86vh,var(--ui-dialog-available-height))]",
+      "h-[min(92vh,var(--ui-dialog-available-height))] max-h-[var(--ui-dialog-available-height)]",
+    ),
   contentClassName: "flex h-full min-h-0 p-0",
 };
 

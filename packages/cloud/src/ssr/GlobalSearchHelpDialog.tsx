@@ -30,7 +30,7 @@ export default function GlobalSearchHelpDialog(props: GlobalSearchHelpDialogProp
   );
 
   return (
-    <div class="flex max-h-[min(80vh,42rem)] min-h-0 flex-col gap-4 text-zinc-900 dark:text-zinc-100">
+    <div class="flex max-h-[min(42rem,var(--ui-dialog-available-height))] min-h-0 flex-col gap-4 text-zinc-900 dark:text-zinc-100">
       <div class="flex items-start justify-between gap-3">
         <div>
           <p class="text-sm text-dimmed">

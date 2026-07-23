@@ -72,7 +72,7 @@ const readEmbeddedContext = (): AppLaunchpadContext | undefined => {
 };
 
 const AppLaunchpadPanel = (props: AppLaunchpadContext) => (
-  <div class="launchpad-panel mx-auto max-h-[min(86vh,calc(100dvh-1.5rem))] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto overscroll-contain p-4 text-primary sm:w-fit sm:p-6 md:p-7 dark:text-white">
+  <div class="launchpad-panel mx-auto max-h-[min(86vh,var(--ui-dialog-available-height))] w-[var(--ui-dialog-available-width)] max-w-[var(--ui-dialog-available-width)] overflow-y-auto overscroll-contain p-4 text-primary sm:w-fit sm:p-6 md:p-7 dark:text-white">
     <div class="flex flex-wrap justify-center gap-x-4 gap-y-4 sm:gap-x-7 sm:gap-y-6">
       <For each={props.apps}>
         {(app) => (

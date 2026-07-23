@@ -526,7 +526,7 @@ const HelpShell = (props: {
       ref={root}
       class={`app-accent-scope flex min-h-0 flex-col bg-[var(--ui-surface-raised)] ${
         props.surface === "modal"
-          ? "h-[min(86vh,48rem)] overflow-hidden panel-dialog-shell [box-shadow:var(--ui-shadow-float)]"
+          ? "h-[min(48rem,var(--ui-dialog-available-height))] overflow-hidden panel-dialog-shell [box-shadow:var(--ui-shadow-float)]"
           : props.surface === "page"
             ? "min-h-screen"
             : "h-full"
