@@ -592,12 +592,15 @@ export const listConversationMessages = async (params: {
 };
 
 export type MessageDetail = MessageSummary & {
+  contentType: string | null;
+  sizeBytes: number;
   replyTo: Array<{ name: string | null; address: string }>;
   cc: Array<{ name: string | null; address: string }>;
   plainText: string | null;
   sanitizedHtml: string | null;
   forwardText: string;
   selectedHeaders: Record<string, unknown>;
+  sourceAvailable: boolean;
   attachments: Array<{
     id: string;
     filename: string | null;
@@ -608,11 +611,14 @@ export type MessageDetail = MessageSummary & {
 };
 
 type DbMessageDetail = DbMessageSummary & {
+  content_type: string | null;
+  size_bytes: string | number;
   reply_to_addresses: Array<{ name: string | null; address: string }> | string;
   cc_addresses: Array<{ name: string | null; address: string }> | string;
   plain_text: string | null;
   sanitized_html: string | null;
   selected_headers: Record<string, unknown> | string;
+  source_available: boolean;
   attachments: Array<{ id: string; filename: string | null; contentType: string; sizeBytes: number; contentId: string | null }> | string;
 };
 
@@ -631,6 +637,8 @@ export const messageForwardText = (plainText: string | null, sanitizedHtml: stri
 
 const mapMessageDetail = (row: DbMessageDetail): MessageDetail => ({
   ...mapMessageSummary(row),
+  contentType: row.content_type,
+  sizeBytes: Number(row.size_bytes),
   replyTo: parseJsonArray(row.reply_to_addresses),
   cc: parseJsonArray(row.cc_addresses),
   plainText: row.plain_text,
@@ -638,13 +646,25 @@ const mapMessageDetail = (row: DbMessageDetail): MessageDetail => ({
   forwardText: messageForwardText(row.plain_text, row.sanitized_html),
   selectedHeaders:
     typeof row.selected_headers === "string" ? (JSON.parse(row.selected_headers) as Record<string, unknown>) : row.selected_headers,
+  sourceAvailable: row.source_available,
   attachments: parseJsonArray(row.attachments),
 });
 
 const messageDetailSelect = sql`
   ${messageSummarySelect},
+  NULLIF(mc.protocol_facts->>'contentType', '') AS content_type,
+  mc.size_bytes,
   mc.plain_text,
   mc.sanitized_html,
+  (
+    mc.source_blob_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM mail.message_part_blobs source_blob
+      WHERE source_blob.id = mc.source_blob_id
+        AND source_blob.complete = true
+    )
+  ) AS source_available,
   COALESCE(reply_to_rows.addresses, '[]'::jsonb) AS reply_to_addresses,
   COALESCE(cc_rows.addresses, '[]'::jsonb) AS cc_addresses,
   mc.selected_headers,

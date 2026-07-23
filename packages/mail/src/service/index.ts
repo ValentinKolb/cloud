@@ -22,6 +22,7 @@ import { imapPushRuntime } from "./imap-push-runtime";
 import * as localTags from "./local-tags";
 import * as mailboxes from "./mailboxes";
 import * as hydration from "./message-hydration";
+import * as messageInspector from "./message-inspector";
 import * as messages from "./messages";
 import * as notificationTargets from "./notification-targets";
 import * as operations from "./operations";
@@ -81,6 +82,7 @@ export {
   localTags,
   mailboxAccess,
   mailboxes,
+  messageInspector,
   messages,
   notificationTargets,
   operations,
@@ -121,6 +123,7 @@ export const mailService = {
   folders,
   hydration,
   mailboxes,
+  messageInspector,
   messages,
   notificationTargets,
   operations,

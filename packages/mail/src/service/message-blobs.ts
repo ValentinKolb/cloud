@@ -9,6 +9,7 @@ export type StoredBlob = {
   id: string;
   contentHash: string;
   byteLength: number;
+  chunkSize: number;
   chunkCount: number;
 };
 
@@ -18,10 +19,11 @@ export const getStoredBlob = async (blobId: string): Promise<StoredBlob> => {
       id: string;
       content_hash: string;
       byte_length: string | number;
+      chunk_size: number;
       chunk_count: number;
     }[]
   >`
-    SELECT id, content_hash, byte_length, chunk_count
+    SELECT id, content_hash, byte_length, chunk_size, chunk_count
     FROM mail.message_part_blobs
     WHERE id = ${blobId}::uuid AND complete = true
   `;
@@ -30,6 +32,7 @@ export const getStoredBlob = async (blobId: string): Promise<StoredBlob> => {
     id: blob.id,
     contentHash: blob.content_hash,
     byteLength: Number(blob.byte_length),
+    chunkSize: blob.chunk_size,
     chunkCount: blob.chunk_count,
   };
 };
@@ -55,6 +58,41 @@ export const createBlobReadable = (blobId: string): Readable =>
       }
     })(),
   );
+
+export const readStoredBlobPrefix = async (
+  blobId: string,
+  maxBytes: number,
+): Promise<{ blob: StoredBlob; bytes: Uint8Array; truncated: boolean }> => {
+  const boundedMaxBytes = Math.min(Math.max(Math.floor(maxBytes), 1), 4 * 1024 * 1024);
+  const blob = await getStoredBlob(blobId);
+  if (blob.byteLength === 0) return { blob, bytes: new Uint8Array(), truncated: false };
+
+  const requiredBytes = Math.min(blob.byteLength, boundedMaxBytes);
+  const requiredChunks = Math.ceil(requiredBytes / blob.chunkSize);
+  const chunks = await sql<{ position: number; bytes: Uint8Array }[]>`
+    SELECT position, bytes
+    FROM mail.message_part_chunks
+    WHERE blob_id = ${blobId}::uuid
+      AND position >= 0
+      AND position < ${requiredChunks}
+    ORDER BY position
+  `;
+  const bytes = new Uint8Array(requiredBytes);
+  let offset = 0;
+  for (let position = 0; position < requiredChunks; position += 1) {
+    const chunk = chunks[position];
+    if (!chunk || chunk.position !== position) {
+      throw Object.assign(new Error("Stored mail blob is incomplete"), { code: "MAIL_BLOB_INCOMPLETE" });
+    }
+    const available = Math.min(chunk.bytes.byteLength, requiredBytes - offset);
+    bytes.set(chunk.bytes.subarray(0, available), offset);
+    offset += available;
+  }
+  if (offset !== requiredBytes) {
+    throw Object.assign(new Error("Stored mail blob is incomplete"), { code: "MAIL_BLOB_INCOMPLETE" });
+  }
+  return { blob, bytes, truncated: blob.byteLength > requiredBytes };
+};
 
 const insertChunk = async (blobId: string, position: number, bytes: Buffer): Promise<void> => {
   await sql`
@@ -118,8 +156,8 @@ export const storeReadableBlob = async (stream: Readable, expectedSize?: number 
           SELECT id FROM mail.message_part_blobs WHERE id = ${created.id}::uuid AND complete = false FOR UPDATE
         `;
         if (!temporary) throw new Error("Blob upload claim was lost");
-        const [existing] = await tx<{ id: string; byte_length: string | number; chunk_count: number }[]>`
-          SELECT id, byte_length, chunk_count
+        const [existing] = await tx<{ id: string; byte_length: string | number; chunk_size: number; chunk_count: number }[]>`
+          SELECT id, byte_length, chunk_size, chunk_count
           FROM mail.message_part_blobs
           WHERE content_hash = ${contentHash} AND complete = true
           LIMIT 1
@@ -130,6 +168,7 @@ export const storeReadableBlob = async (stream: Readable, expectedSize?: number 
             id: existing.id,
             contentHash,
             byteLength: Number(existing.byte_length),
+            chunkSize: existing.chunk_size,
             chunkCount: existing.chunk_count,
           };
         }
@@ -145,13 +184,13 @@ export const storeReadableBlob = async (stream: Readable, expectedSize?: number 
           RETURNING id
         `;
         if (!row) throw new Error("Blob finalization returned no row");
-        return { id: row.id, contentHash, byteLength, chunkCount };
+        return { id: row.id, contentHash, byteLength, chunkSize: DEFAULT_CHUNK_SIZE, chunkCount };
       });
       return finalized;
     } catch (error) {
       if ((error as { code?: string } | null)?.code !== "23505") throw error;
-      const [existing] = await sql<{ id: string; byte_length: string | number; chunk_count: number }[]>`
-        SELECT id, byte_length, chunk_count
+      const [existing] = await sql<{ id: string; byte_length: string | number; chunk_size: number; chunk_count: number }[]>`
+        SELECT id, byte_length, chunk_size, chunk_count
         FROM mail.message_part_blobs
         WHERE content_hash = ${contentHash} AND complete = true
         LIMIT 1
@@ -162,6 +201,7 @@ export const storeReadableBlob = async (stream: Readable, expectedSize?: number 
         id: existing.id,
         contentHash,
         byteLength: Number(existing.byte_length),
+        chunkSize: existing.chunk_size,
         chunkCount: existing.chunk_count,
       };
     }

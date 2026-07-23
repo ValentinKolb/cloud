@@ -70,6 +70,7 @@ import {
   type MailRequestContext,
   mailboxAccess,
   mailboxes,
+  messageInspector,
   messages,
   notificationTargets,
   operations,
@@ -139,6 +140,15 @@ const attachmentQuerySchema = z.object({
     .enum(["true", "false"])
     .transform((value) => value === "true")
     .optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+  length: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(4 * 1024 * 1024)
+    .optional(),
+});
+const messageSourceQuerySchema = z.object({
   offset: z.coerce.number().int().nonnegative().optional(),
   length: z.coerce
     .number()
@@ -1075,6 +1085,47 @@ const mailOperationsApi = new Hono<AuthContext>()
     };
     return respond(c, messages.getMessage({ context: requestContext(c), ...params }));
   })
+  .get("/mailboxes/:mailboxId/messages/:messageId/inspector", v("param", mailboxAndIdParamSchema("messageId")), async (c) => {
+    const params = c.req.valid("param") as {
+      mailboxId: string;
+      messageId: string;
+    };
+    return respond(c, messageInspector.inspectMessage({ context: requestContext(c), ...params }));
+  })
+  .get(
+    "/mailboxes/:mailboxId/messages/:messageId/source-preview",
+    v("param", mailboxAndIdParamSchema("messageId")),
+    async (c) => {
+      const params = c.req.valid("param") as {
+        mailboxId: string;
+        messageId: string;
+      };
+      return respond(c, messageInspector.previewMessageSource({ context: requestContext(c), ...params }));
+    },
+  )
+  .get(
+    "/mailboxes/:mailboxId/messages/:messageId/source",
+    v("param", mailboxAndIdParamSchema("messageId")),
+    v("query", messageSourceQuerySchema),
+    async (c) => {
+      const params = c.req.valid("param") as {
+        mailboxId: string;
+        messageId: string;
+      };
+      const query = c.req.valid("query");
+      return attachmentDownloadResponse(
+        c,
+        await messageInspector.openMessageSource({ context: requestContext(c), ...params }),
+        { ...query, inline: false },
+        async (expectedBlobId) => {
+          const current = await messageInspector.openMessageSource({ context: requestContext(c), ...params });
+          if (!current.ok || current.data.blobId !== expectedBlobId) {
+            throw Object.assign(new Error("Message source access was revoked during transfer"), { code: "ACCESS_REVOKED" });
+          }
+        },
+      );
+    },
+  )
   .get(
     "/mailboxes/:mailboxId/messages/:messageId/attachments/:attachmentId",
     v(

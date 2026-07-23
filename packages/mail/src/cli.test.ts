@@ -1910,6 +1910,83 @@ test("attachment download writes the exact response bytes", async () => {
   expect(JSON.parse(result.stdout)).toMatchObject({ path: output, bytes: expected.byteLength, contentType: "text/plain" });
 });
 
+test("message inspect and source expose metadata and exact RFC bytes", async () => {
+  const expected = new TextEncoder().encode("Message-ID: <cli@example.test>\r\n\r\nCLI source\r\n");
+  const output = `/tmp/cloud-mail-cli-${crypto.randomUUID()}.eml`;
+  temporaryFiles.push(output);
+  const inspector = {
+    id: MESSAGE_ID,
+    messageId: "<cli@example.test>",
+    inReplyTo: null,
+    referenceIds: [],
+    subject: "CLI inspector",
+    internalDate: "2026-07-23T12:00:00.000Z",
+    sentAt: "2026-07-23T12:00:00.000Z",
+    sizeBytes: expected.byteLength,
+    hydrationStatus: "complete",
+    hydrationErrorCode: null,
+    contentHash: "a".repeat(64),
+    sourceHash: "b".repeat(64),
+    contentType: "text/plain",
+    source: {
+      available: true,
+      exact: true,
+      byteLength: expected.byteLength,
+      contentHash: "b".repeat(64),
+    },
+    headers: [{ name: "Message-ID", value: "<cli@example.test>" }],
+    rawHeaders: "Message-ID: <cli@example.test>",
+    headersComplete: true,
+    placements: [],
+    parts: [],
+    attachments: [],
+    warnings: [],
+  };
+  const server = withMailbox((request) => {
+    const pathname = new URL(request.url).pathname;
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/messages/${MESSAGE_ID}`;
+    if (pathname === `${base}/inspector`) return api(inspector);
+    if (pathname === `${base}/source`) {
+      return new Response(expected, {
+        headers: {
+          "Content-Type": "message/rfc822",
+          "Content-Length": String(expected.byteLength),
+          ETag: '"source-etag"',
+        },
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const inspected = await runCli(origin, ["--json", "mail", "message", "inspect", MESSAGE_ID, "--mailbox", MAILBOX_ID]);
+  expect(inspected.exitCode).toBe(0);
+  expect(inspected.stderr).toBe("");
+  expect(JSON.parse(inspected.stdout)).toEqual(inspector);
+
+  const downloaded = await runCli(origin, [
+    "--json",
+    "mail",
+    "message",
+    "source",
+    MESSAGE_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--out",
+    output,
+  ]);
+  expect(downloaded.exitCode).toBe(0);
+  expect(downloaded.stderr).toBe("");
+  expect(new Uint8Array(await readFile(output))).toEqual(expected);
+  expect(JSON.parse(downloaded.stdout)).toMatchObject({
+    path: output,
+    bytes: expected.byteLength,
+    contentType: "message/rfc822",
+    etag: '"source-etag"',
+  });
+});
+
 test("attachment link create supports message and draft API paths without echoing passwords", async () => {
   const requests: Array<{ path: string; body: unknown }> = [];
   const created = {

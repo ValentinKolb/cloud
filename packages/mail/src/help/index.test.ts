@@ -96,6 +96,16 @@ describe("mailHelp", () => {
     expect(work).toContain("Mailbox tools > Shared links");
   });
 
+  test("documents the permission-safe message inspector and exact source export", () => {
+    const work = mailHelp.getMarkdown("mail-work");
+
+    expect(work).toContain("Inspect an individual message");
+    expect(work).toContain("Download .eml");
+    expect(work).toContain("complete byte-exact file");
+    expect(work).toContain("Raw headers and `.eml` files can contain private");
+    expect(work).toContain("source and `.eml` download are unavailable");
+  });
+
   test("keeps every documented workflow example valid for the Mail vocabulary", async () => {
     const markdown = [mailHelp.getMarkdown("mail-automation"), mailHelp.getMarkdown("mail-workflows")].join("\n");
     const examples = [...markdown.matchAll(/```yaml\n([\s\S]*?)```/g)].map((match) => match[1]!);

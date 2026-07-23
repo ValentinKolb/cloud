@@ -72,6 +72,18 @@ These actions require write access and the corresponding folder mapping. If Mail
 
 Select **Mail commands** above the conversation list to search the same actions that appear in buttons and menus. Common commands also have keyboard shortcuts. Open **Configure keyboard shortcuts** from Mail commands to change or disable them on this device. Shortcuts do not run while you are typing in an input or message editor.
 
+## Inspect an individual message {icon="file-search"}
+
+Open **Conversation details**, expand **Mail details**, and choose **Headers** or **Source** when you need technical information about one message. In a conversation with several messages, select the exact message at the top of the inspector.
+
+- **Overview** shows message identifiers, provider placement, MIME parts, attachments, synchronization state, and any parsing warnings.
+- **Headers** shows every stored header, including repeated delivery headers.
+- **Source** shows a bounded preview of the exact original message. Choose **Download .eml** for the complete byte-exact file.
+
+An `.eml` file is useful when transferring one message to another mail client, reporting a delivery problem, or preserving the original message for investigation. Opening the inspector does not change the message or its provider state.
+
+Raw headers and `.eml` files can contain private addresses, server names, routing details, authentication results, and the complete message body. Review them before sharing. For older or partially synchronized messages, Mail may have the readable content without the exact original source; in that case the inspector explains that source and `.eml` download are unavailable.
+
 ## Open attachments and reply to a message {icon="paperclip"}
 
 Received attachments stay with the message that carried them. Select an attachment chip to open or download it in a new browser tab.

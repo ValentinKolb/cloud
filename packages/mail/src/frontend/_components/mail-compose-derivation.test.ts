@@ -37,10 +37,13 @@ const message = (overrides: Partial<MessageDetail> = {}): MessageDetail => ({
   remoteAvailable: true,
   remoteMessageRefId: null,
   folderId: null,
+  contentType: "text/plain",
+  sizeBytes: 8,
   plainText: "Question",
   sanitizedHtml: null,
   forwardText: "Question",
   selectedHeaders: {},
+  sourceAvailable: false,
   attachments: [],
   ...overrides,
 });

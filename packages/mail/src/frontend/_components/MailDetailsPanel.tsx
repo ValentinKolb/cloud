@@ -2,6 +2,7 @@ import {
   Avatar,
   ColorInput,
   DateTimeInput,
+  formatFileViewSize,
   MarkdownEditor,
   MultiSelect,
   Placeholder,
@@ -22,6 +23,7 @@ import type { ConversationPresenceParticipant } from "../../service/presence";
 import type { ConversationReminder } from "../../service/reminders";
 import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
+import { openMailMessageInspector } from "./MailMessageInspectorDialog";
 import { getMailAction } from "./mail-actions";
 import { presentMailActivity } from "./mail-activity-presentation";
 import {
@@ -725,7 +727,64 @@ export default function MailDetailsPanel(props: {
                 {latestMessage()?.messageId}
               </dd>
             </Show>
+            <Show when={latestMessage()}>
+              {(message) => (
+                <>
+                  <dt class="text-dimmed">Size</dt>
+                  <dd class="text-primary">{formatFileViewSize(message().sizeBytes)}</dd>
+                  <dt class="text-dimmed">Content</dt>
+                  <dd class="truncate text-primary" title={message().contentType ?? undefined}>
+                    {message().contentType ?? "Unavailable"}
+                  </dd>
+                  <dt class="text-dimmed">Mirror</dt>
+                  <dd class="text-primary">{message().hydrationStatus}</dd>
+                </>
+              )}
+            </Show>
           </dl>
+          <Show when={latestMessage()}>
+            {(message) => (
+              <div class="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  onClick={() =>
+                    void openMailMessageInspector({
+                      mailboxId: props.mailboxId,
+                      messages: props.messages,
+                      initialMessageId: message().id,
+                      initialTab: "headers",
+                    })
+                  }
+                >
+                  <i class="ti ti-list-details" aria-hidden="true" /> Headers
+                </button>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  onClick={() =>
+                    void openMailMessageInspector({
+                      mailboxId: props.mailboxId,
+                      messages: props.messages,
+                      initialMessageId: message().id,
+                      initialTab: "source",
+                    })
+                  }
+                >
+                  <i class="ti ti-code" aria-hidden="true" /> Source
+                </button>
+                <Show when={message().sourceAvailable}>
+                  <a
+                    class="btn-secondary btn-sm"
+                    href={`/api/mail/mailboxes/${props.mailboxId}/messages/${message().id}/source`}
+                    download={`${message().subject.trim() || "message"}.eml`}
+                  >
+                    <i class="ti ti-download" aria-hidden="true" /> Download .eml
+                  </a>
+                </Show>
+              </div>
+            )}
+          </Show>
         </details>
       </div>
     </div>

@@ -42,6 +42,7 @@ import {
   type MailCommand,
   type MailConversationContext,
   type MailDraft,
+  type MessageInspector,
   type MailSearchExpression,
   type MailStorageSummary,
   type MailWorkflow,
@@ -138,7 +139,7 @@ const attachmentLinkStatus = (link: AttachmentLink): "active" | "expired" | "exh
 };
 
 const streamResponseToFile = async (response: Response, path: string): Promise<number> => {
-  if (!response.body) throw new Error("Attachment download returned an empty response body.");
+  if (!response.body) throw new Error("Download returned an empty response body.");
   const temporaryPath = `${path}.cld-${crypto.randomUUID()}.part`;
   let bytes = 0;
   const counter = new Transform({
@@ -152,7 +153,7 @@ const streamResponseToFile = async (response: Response, path: string): Promise<n
     const contentLengthHeader = response.headers.get("content-length");
     const contentLength = contentLengthHeader === null ? null : Number(contentLengthHeader);
     if (contentLength !== null && Number.isSafeInteger(contentLength) && contentLength >= 0 && bytes !== contentLength) {
-      throw new Error(`Attachment download was incomplete: expected ${contentLength} bytes, received ${bytes}.`);
+      throw new Error(`Download was incomplete: expected ${contentLength} bytes, received ${bytes}.`);
     }
     await rename(temporaryPath, path);
     return bytes;
@@ -2376,6 +2377,62 @@ export default defineCliCommands({
           ctx.print("");
           ctx.print(message.plainText ?? "[Body not hydrated]");
         }
+      },
+    }),
+    command("message inspect", {
+      summary: "Inspect message headers, MIME structure, and provider placement",
+      args: { messageId: arg.required({ description: "Message content id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const inspector = await readApi<MessageInspector>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${args.messageId}/inspector`,
+        );
+        if (printStructured(ctx, inspector)) return;
+        ctx.print(`Subject: ${inspector.subject || "(no subject)"}`);
+        ctx.print(`Message-ID: ${inspector.messageId ?? "unavailable"}`);
+        ctx.print(`Stored source: ${inspector.source.available ? `${formatBytes(inspector.source.byteLength ?? 0)} exact` : "unavailable"}`);
+        ctx.print(`MIME parts: ${inspector.parts.length}; attachments: ${inspector.attachments.length}`);
+        ctx.print(`Provider placements: ${inspector.placements.length}`);
+        if (inspector.warnings.length > 0) {
+          ctx.print("");
+          for (const warning of inspector.warnings) ctx.print(`Warning: ${warning}`);
+        }
+        if (inspector.headers.length > 0) {
+          ctx.print("");
+          for (const header of inspector.headers) ctx.print(`${header.name}: ${header.value}`);
+        }
+      },
+    }),
+    command("message source", {
+      summary: "Download the exact stored RFC 822 message as an .eml file",
+      args: { messageId: arg.required({ description: "Message content id" }) },
+      flags: {
+        ...mailboxFlag,
+        out: flag.string({
+          required: true,
+          aliases: ["output"],
+          description: "Output .eml file path",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.out) throw new Error("Missing required flag --out.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const response = await ctx.fetch(apiPath(`/mailboxes/${mailbox.id}/messages/${args.messageId}/source`));
+        if (!response.ok) {
+          await ctx.readJson(response);
+          throw new Error(`Message source download failed with HTTP ${response.status}.`);
+        }
+        const bytes = await streamResponseToFile(response, flags.out);
+        const result = {
+          path: flags.out,
+          bytes,
+          contentType: response.headers.get("content-type"),
+          etag: response.headers.get("etag"),
+        };
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Wrote ${bytes} bytes to ${flags.out}.`);
       },
     }),
     command("message wait", {

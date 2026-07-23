@@ -7,6 +7,100 @@ import type {
 import { ContactMailMatchSchema, NormalizedParticipantEmailSchema } from "@valentinkolb/cloud-app-contacts/integration";
 import { z } from "zod";
 
+export const messageInspectorHeaderSchema = z
+  .object({
+    name: z.string().min(1).max(998),
+    value: z.string().max(2 * 1024 * 1024),
+  })
+  .strict();
+
+export const messageInspectorPlacementSchema = z
+  .object({
+    remoteMessageRefId: z.uuid(),
+    folderId: z.uuid(),
+    folderName: z.string().max(4096),
+    remotePath: z.string().max(4096),
+    uidValidity: z.string().max(128),
+    uid: z.string().max(128),
+    modseq: z.string().max(128).nullable(),
+    flags: z.array(z.string().max(4096)).max(1024),
+    keywords: z.array(z.string().max(4096)).max(1024),
+  })
+  .strict();
+
+export const messageInspectorPartSchema = z
+  .object({
+    id: z.uuid(),
+    partPath: z.string().max(4096),
+    contentType: z.string().max(4096),
+    charset: z.string().max(4096).nullable(),
+    transferEncoding: z.string().max(4096).nullable(),
+    disposition: z.string().max(4096).nullable(),
+    contentId: z.string().max(8192).nullable(),
+    filename: z.string().max(8192).nullable(),
+    sizeBytes: z.number().int().nonnegative(),
+    hydrationStatus: z.string().max(128),
+  })
+  .strict();
+
+export const messageInspectorAttachmentSchema = z
+  .object({
+    id: z.uuid(),
+    partId: z.uuid(),
+    filename: z.string().max(8192).nullable(),
+    contentType: z.string().max(4096),
+    disposition: z.string().max(4096).nullable(),
+    contentId: z.string().max(8192).nullable(),
+    sizeBytes: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const messageInspectorSchema = z
+  .object({
+    id: z.uuid(),
+    messageId: z.string().max(8192).nullable(),
+    inReplyTo: z.string().max(8192).nullable(),
+    referenceIds: z.array(z.string().max(8192)).max(10_000),
+    subject: z.string().max(32_768),
+    internalDate: z.string().datetime(),
+    sentAt: z.string().datetime().nullable(),
+    sizeBytes: z.number().int().nonnegative(),
+    hydrationStatus: z.string().max(128),
+    hydrationErrorCode: z.string().max(4096).nullable(),
+    contentHash: z.string().length(64),
+    sourceHash: z.string().length(64).nullable(),
+    contentType: z.string().max(4096).nullable(),
+    source: z
+      .object({
+        available: z.boolean(),
+        exact: z.boolean(),
+        byteLength: z.number().int().nonnegative().nullable(),
+        contentHash: z.string().length(64).nullable(),
+      })
+      .strict(),
+    headers: z.array(messageInspectorHeaderSchema).max(10_000),
+    rawHeaders: z.string().max(2 * 1024 * 1024),
+    headersComplete: z.boolean(),
+    placements: z.array(messageInspectorPlacementSchema).max(1000),
+    parts: z.array(messageInspectorPartSchema).max(10_000),
+    attachments: z.array(messageInspectorAttachmentSchema).max(10_000),
+    warnings: z.array(z.string().max(4096)).max(100),
+  })
+  .strict();
+export type MessageInspector = z.infer<typeof messageInspectorSchema>;
+
+export const messageSourcePreviewSchema = z
+  .object({
+    messageId: z.uuid(),
+    exact: z.literal(true),
+    text: z.string().max(256 * 1024),
+    byteLength: z.number().int().nonnegative(),
+    previewByteLength: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+export type MessageSourcePreview = z.infer<typeof messageSourcePreviewSchema>;
+
 export const mailConversationContextQuerySchema = z
   .object({
     contactsCursor: z.string().min(1).max(2048).optional(),
