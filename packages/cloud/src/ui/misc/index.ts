@@ -83,13 +83,16 @@ export { default as EntitySearch } from "./EntitySearch";
 export { FileBrowserPanel, type FileBrowserPanelProps, type FileSource, openFileBrowser } from "./FileBrowser";
 export { default as FileTree, type FileTreeActions, type FileTreeEntry, type FileTreeProps } from "./FileTree";
 export {
+  canPreviewFile,
   default as FileView,
   type FileViewContent,
   type FileViewFile,
+  type FileViewPreviewKind,
   type FileViewProps,
   type FileViewRenderer,
   type FileViewRendererProps,
   formatFileViewSize,
+  getFileViewPreviewKind,
   registerFileViewRenderer,
 } from "./FileView";
 export {

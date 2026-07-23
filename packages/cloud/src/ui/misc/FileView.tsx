@@ -7,15 +7,19 @@
  * Custom renderers (e.g. office previews in a future Files app) register via
  * registerFileViewRenderer.
  */
+
+import { type Component, createMemo, createResource, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
-import { type Component, createMemo, createResource, createSignal, type JSX, Match, Show, Switch } from "solid-js";
 import MarkdownEditor from "../input/markdown/MarkdownEditor";
 import { toast } from "../toast";
 import CodeDisplay, { type CodeDisplayLanguage } from "./CodeDisplay";
+import { type FileViewFile, fileViewExtension, getFileViewPreviewKind, parseDelimitedText } from "./file-view-preview";
 import MarkdownView from "./MarkdownView";
 import Placeholder from "./Placeholder";
+import StructuredDataPreview from "./StructuredDataPreview";
 
-export type FileViewFile = { path: string; mediaType?: string; size?: number };
+export type { FileViewFile, FileViewPreviewKind } from "./file-view-preview";
+export { canPreviewFile, getFileViewPreviewKind } from "./file-view-preview";
 export type FileViewContent = { encoding: "utf8" | "base64"; content: string; mediaType: string };
 
 export type FileViewProps = {
@@ -23,6 +27,8 @@ export type FileViewProps = {
   load: () => Promise<FileViewContent>;
   /** Presence enables editing for text-based renderers. */
   save?: (content: string) => Promise<void>;
+  /** Authenticated inline URL used by browser-native image, PDF, audio, and video previews. */
+  previewHref?: string | null;
   downloadHref?: string | null;
   class?: string;
 };
@@ -30,6 +36,7 @@ export type FileViewProps = {
 export type FileViewRendererProps = {
   file: FileViewFile;
   content: FileViewContent;
+  previewHref: string | null;
   downloadHref: string | null;
   /** Null when the file is read-only. */
   editor: {
@@ -49,14 +56,8 @@ export type FileViewRenderer = {
   editable?: boolean;
 };
 
-const extensionOf = (path: string): string => {
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-};
-
 const codeLanguage = (path: string): CodeDisplayLanguage => {
-  const extension = extensionOf(path);
+  const extension = fileViewExtension(path);
   if (extension === "ts" || extension === "mts" || extension === "cts") return "ts";
   if (extension === "tsx") return "tsx";
   if (extension === "js" || extension === "mjs" || extension === "cjs") return "js";
@@ -66,7 +67,7 @@ const codeLanguage = (path: string): CodeDisplayLanguage => {
 };
 
 const isMarkdown = (file: FileViewFile, content: FileViewContent) =>
-  content.mediaType === "text/markdown" || ["md", "markdown"].includes(extensionOf(file.path));
+  content.encoding === "utf8" && getFileViewPreviewKind({ ...file, mediaType: content.mediaType || file.mediaType }) === "markdown";
 
 /** Rendered previews hide a leading YAML frontmatter block — it's metadata, not content. */
 const stripFrontmatter = (text: string): string => {
@@ -93,6 +94,7 @@ function OverlayAction(props: { icon: string; title: string; onClick?: () => voi
       {(href) => (
         <a class={classes} href={href()} download={props.download ?? ""} title={props.title} aria-label={props.title}>
           <i class={`ti ${props.icon} text-sm`} aria-hidden="true" />
+          <span class="sr-only">{props.title}</span>
         </a>
       )}
     </Show>
@@ -202,6 +204,8 @@ function TextRenderer(props: FileViewRendererProps) {
         <div
           class="md-editor"
           data-fill="true"
+          role="group"
+          aria-label="Text editor"
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
               event.preventDefault();
@@ -248,28 +252,126 @@ function TextRenderer(props: FileViewRendererProps) {
   );
 }
 
+function JsonRenderer(props: FileViewRendererProps) {
+  const parsed = createMemo(() => {
+    try {
+      return { ok: true as const, value: JSON.parse(props.content.content) as unknown };
+    } catch {
+      return { ok: false as const };
+    }
+  });
+
+  return (
+    <OverlayPanel actions={downloadAction(props)}>
+      <div class="p-4">
+        <Show when={parsed().ok} fallback={<CodeDisplay code={props.content.content} language="text" />}>
+          <StructuredDataPreview data={parsed().ok ? parsed().value : null} maxRows={200} />
+        </Show>
+      </div>
+    </OverlayPanel>
+  );
+}
+
+function DelimitedTextRenderer(props: FileViewRendererProps) {
+  const delimiter = () =>
+    fileViewExtension(props.file.path) === "tsv" || props.content.mediaType === "text/tab-separated-values" ? "\t" : ",";
+  const preview = createMemo(() => parseDelimitedText(props.content.content, delimiter()));
+  const headers = createMemo(() => preview().rows[0] ?? []);
+  const rows = createMemo(() => preview().rows.slice(1));
+
+  return (
+    <OverlayPanel actions={downloadAction(props)}>
+      <Show
+        when={headers().length > 0}
+        fallback={<Placeholder icon="ti ti-table" title="Empty file" description="This delimited file contains no rows." />}
+      >
+        <div class="min-w-max">
+          <table class="w-full text-left text-xs">
+            <thead class="sticky top-0 z-[1] bg-[var(--ui-data-header)] text-secondary">
+              <tr>
+                <For each={headers()}>
+                  {(header, index) => (
+                    <th scope="col" class="max-w-72 px-3 py-2 font-semibold">
+                      <span class="block truncate">{header || `Column ${index() + 1}`}</span>
+                    </th>
+                  )}
+                </For>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={rows()}>
+                {(row) => (
+                  <tr class="hover:bg-[var(--ui-data-row-hover)]">
+                    <For each={headers()}>
+                      {(_, index) => <td class="max-w-72 px-3 py-2 align-top text-secondary">{row[index()] ?? ""}</td>}
+                    </For>
+                  </tr>
+                )}
+              </For>
+            </tbody>
+          </table>
+          <Show when={preview().truncated}>
+            <p class="px-3 py-2 text-xs text-dimmed">Preview limited to 200 data rows and 50 columns.</p>
+          </Show>
+        </div>
+      </Show>
+    </OverlayPanel>
+  );
+}
+
+const mediaSource = (props: FileViewRendererProps): string =>
+  props.previewHref ?? `data:${props.content.mediaType};base64,${props.content.content}`;
+
 function ImageRenderer(props: FileViewRendererProps) {
   return (
     <OverlayPanel actions={downloadAction(props)}>
       <div class="grid h-full place-items-center p-3">
-        <img
-          src={`data:${props.content.mediaType};base64,${props.content.content}`}
-          alt={props.file.path}
-          class="max-h-full max-w-full rounded-md object-contain"
-        />
+        <img src={mediaSource(props)} alt={props.file.path} class="max-h-full max-w-full rounded-md object-contain" />
       </div>
     </OverlayPanel>
   );
 }
 
 function PdfRenderer(props: FileViewRendererProps) {
+  const href = () => props.previewHref ?? props.downloadHref;
   return (
     <Show
-      when={props.downloadHref}
+      when={href()}
       fallback={<Placeholder icon="ti ti-file-type-pdf" title="PDF" description="No inline preview available for this source." />}
     >
       {(href) => <object data={href()} type="application/pdf" class="min-h-0 w-full flex-1 rounded-md" aria-label={props.file.path} />}
     </Show>
+  );
+}
+
+function AudioRenderer(props: FileViewRendererProps) {
+  return (
+    <OverlayPanel actions={downloadAction(props)}>
+      <div class="grid h-full min-h-48 place-items-center p-6">
+        <audio class="w-full max-w-2xl" controls preload="metadata" src={mediaSource(props)} aria-label={props.file.path}>
+          Your browser does not support audio playback.
+        </audio>
+      </div>
+    </OverlayPanel>
+  );
+}
+
+function VideoRenderer(props: FileViewRendererProps) {
+  return (
+    <OverlayPanel actions={downloadAction(props)}>
+      <div class="grid h-full place-items-center bg-black p-3">
+        <video
+          class="max-h-full max-w-full rounded-md"
+          controls
+          preload="metadata"
+          playsinline
+          src={mediaSource(props)}
+          aria-label={props.file.path}
+        >
+          Your browser does not support video playback.
+        </video>
+      </div>
+    </OverlayPanel>
   );
 }
 
@@ -297,10 +399,37 @@ const BUILTIN_RENDERERS: FileViewRenderer[] = [
   { id: "markdown", match: isMarkdown, component: MarkdownRenderer, editable: true },
   {
     id: "image",
-    match: (_file, content) => content.mediaType.startsWith("image/") && content.mediaType !== "image/svg+xml",
+    match: (file, content) => getFileViewPreviewKind({ ...file, mediaType: content.mediaType || file.mediaType }) === "image",
     component: ImageRenderer,
   },
-  { id: "pdf", match: (_file, content) => content.mediaType === "application/pdf", component: PdfRenderer },
+  {
+    id: "pdf",
+    match: (file, content) => getFileViewPreviewKind({ ...file, mediaType: content.mediaType || file.mediaType }) === "pdf",
+    component: PdfRenderer,
+  },
+  {
+    id: "json",
+    match: (file, content) =>
+      content.encoding === "utf8" && getFileViewPreviewKind({ ...file, mediaType: content.mediaType || file.mediaType }) === "json",
+    component: JsonRenderer,
+  },
+  {
+    id: "delimited-text",
+    match: (file, content) =>
+      content.encoding === "utf8" &&
+      getFileViewPreviewKind({ ...file, mediaType: content.mediaType || file.mediaType }) === "delimited-text",
+    component: DelimitedTextRenderer,
+  },
+  {
+    id: "audio",
+    match: (file, content) => getFileViewPreviewKind({ ...file, mediaType: content.mediaType || file.mediaType }) === "audio",
+    component: AudioRenderer,
+  },
+  {
+    id: "video",
+    match: (file, content) => getFileViewPreviewKind({ ...file, mediaType: content.mediaType || file.mediaType }) === "video",
+    component: VideoRenderer,
+  },
   { id: "text", match: (_file, content) => content.encoding === "utf8", component: TextRenderer, editable: true },
   { id: "binary", match: () => true, component: BinaryRenderer },
 ];
@@ -321,8 +450,21 @@ export const formatFileViewSize = (bytes: number): string => {
 };
 
 export default function FileView(props: FileViewProps) {
+  const browserPreviewContent = createMemo<FileViewContent | null>(() => {
+    const kind = getFileViewPreviewKind(props.file);
+    if (kind !== "image" && kind !== "pdf" && kind !== "audio" && kind !== "video") return null;
+    const href = props.previewHref ?? (kind === "pdf" ? props.downloadHref : null);
+    if (!href) return null;
+
+    const candidate: FileViewContent = {
+      encoding: "base64",
+      content: "",
+      mediaType: props.file.mediaType ?? "application/octet-stream",
+    };
+    return customRenderers.some((renderer) => renderer.match(props.file, candidate)) ? null : candidate;
+  });
   const [content] = createResource(
-    () => props.file.path,
+    () => (browserPreviewContent() ? null : props.file.path),
     async () => {
       const loaded = await props.load();
       setDraft(loaded.encoding === "utf8" ? loaded.content : "");
@@ -334,9 +476,10 @@ export default function FileView(props: FileViewProps) {
   const [draft, setDraft] = createSignal("");
   const [dirty, setDirty] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
+  const resolvedContent = createMemo(() => browserPreviewContent() ?? content());
 
   const renderer = createMemo(() => {
-    const loaded = content();
+    const loaded = resolvedContent();
     if (!loaded) return null;
     return [...customRenderers, ...BUILTIN_RENDERERS].find((candidate) => candidate.match(props.file, loaded)) ?? null;
   });
@@ -356,7 +499,7 @@ export default function FileView(props: FileViewProps) {
   };
 
   const editor = () =>
-    props.save && renderer()?.editable && content()?.encoding === "utf8"
+    props.save && renderer()?.editable && resolvedContent()?.encoding === "utf8"
       ? {
           draft,
           setDraft: (value: string) => {
@@ -378,10 +521,18 @@ export default function FileView(props: FileViewProps) {
         <Match when={content.error}>
           <Placeholder icon="ti ti-alert-circle" title="Failed to load file" description={String(content.error?.message ?? "")} />
         </Match>
-        <Match when={content() && renderer()}>
+        <Match when={resolvedContent() && renderer()}>
           {(active) => {
             const Renderer = active().component;
-            return <Renderer file={props.file} content={content()!} downloadHref={props.downloadHref ?? null} editor={editor()} />;
+            return (
+              <Renderer
+                file={props.file}
+                content={resolvedContent()!}
+                previewHref={props.previewHref ?? null}
+                downloadHref={props.downloadHref ?? null}
+                editor={editor()}
+              />
+            );
           }}
         </Match>
       </Switch>

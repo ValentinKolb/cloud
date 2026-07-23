@@ -977,7 +977,9 @@ const source: FileSource = {
 void openFileBrowser({ source, title: "Files" });
 ```
 
-`FileView` renders through a renderer registry (markdown → editor with in-toolbar save + preview/edit toggle, utf8 text → monospace editor with Ctrl/Cmd+S, images, PDF via `downloadHref`, binary fallback). Apps register custom renderers with `registerFileViewRenderer({ id, match, component, editable? })` — matched before the built-ins (e.g. office previews in a Files app).
+`FileView` renders through a renderer registry (markdown → editor with in-toolbar save + preview/edit toggle, UTF-8 text/code, structured JSON, bounded CSV/TSV tables, browser-native images/PDF/audio/video, binary fallback). Pass an authenticated `previewHref` for browser-native media so large files are streamed by the browser instead of buffered into island state; `load()` remains the source for text-based previews and editing. Apps register custom renderers with `registerFileViewRenderer({ id, match, component, editable? })` — matched before the built-ins (e.g. office previews in a Files app).
+
+Use `getFileViewPreviewKind({ path, mediaType, size })` or `canPreviewFile(...)` before exposing a preview action. Unsupported or over-limit files should offer download only; do not show an eye button that opens a fallback saying the file cannot be rendered.
 
 `FileTree` can be used standalone (`entries`, `selectedPath`/`onSelect`, optional controlled `expandedPaths`, `contextMenu(entry)` returning `DropdownItem[]`, `actions: { rename?, remove?, createFile?, createFolder?, move? }`). Rows expose their actions via a hover `⋯` dropdown AND right-click context menu; with `actions.move` files drag & drop onto folders (or the tree root). `FileBrowserPanel` derives `move` from `source.rename`. Keyboard: ↑/↓ navigate, ←/→ collapse/expand, Enter opens, F2 renames.
 
