@@ -25,7 +25,15 @@ import type { FederatedRevisionScope } from "../service/federated-tables";
 import { buildTrustedGqlResolverContext, hydrateDslViewQueries } from "../service/gql-resolver-context";
 import type { Field, Table } from "../service/types";
 import { type GqlRuntimeOperation, type GqlRuntimeTracer, traceGqlRuntime } from "./gql-observability";
-import { currentActorViewer, gateAt } from "./permissions";
+import {
+  currentAccessSubject,
+  currentActorViewer,
+  currentCredentialPermission,
+  currentResourceBoundBaseId,
+  gateAt,
+  minPermission,
+} from "./permissions";
+import { runWithQueryAdmission } from "./query-admission";
 
 export type DslCurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string } | undefined;
 
@@ -74,12 +82,29 @@ export const buildPermissionedGqlResolverContext = async (
   options: ResolverContextOptions = {},
 ): Promise<DslResolverContext> => {
   const viewer = currentActorViewer(c);
-  const tables = await gridsService.table.listByBase(baseId);
+  const [tables, catalogGrants] = await Promise.all([
+    gridsService.table.listByBase(baseId),
+    options.trustedAllSources
+      ? Promise.resolve([])
+      : gridsService.permission.loadBaseTableGrantsForSubject({
+          baseId,
+          subject: currentAccessSubject(c),
+        }),
+  ]);
 
   let readableTables: Table[] = tables;
   if (!options.trustedAllSources) {
-    const gates = await Promise.all(tables.map((table) => gateAt(c, { baseId, tableId: table.id }, "read")));
-    readableTables = tables.filter((_, index) => gates[index]?.ok);
+    const boundBaseId = currentResourceBoundBaseId(c);
+    const credentialPermission = currentCredentialPermission(c);
+    readableTables =
+      boundBaseId !== undefined && boundBaseId !== baseId
+        ? []
+        : tables.filter((table) =>
+            gridsService.permission.hasAtLeast(
+              minPermission(gridsService.permission.resolve(catalogGrants, { baseId, tableId: table.id }), credentialPermission),
+              "read",
+            ),
+          );
   }
 
   const dslTables: DslTableSource[] = readableTables.map((table) => ({
@@ -92,26 +117,20 @@ export const buildPermissionedGqlResolverContext = async (
   const views: DslViewSource[] = [];
 
   if (options.loadViews || needsDslViewCatalog(ast) || currentSource?.kind === "view") {
-    const viewGroups = await Promise.all(
-      readableTables.map((table) =>
-        gridsService.view.listForTable({
-          tableId: table.id,
-          ...viewer,
-        }),
-      ),
-    );
+    const visibleViews = await gridsService.view.listForTables({
+      tableIds: readableTables.map((table) => table.id),
+      ...viewer,
+    });
     views.push(
-      ...viewGroups.flatMap((visibleViews) =>
-        visibleViews.map((view) => ({
-          kind: "view" as const,
-          id: view.id,
-          shortId: view.shortId,
-          name: view.name,
-          tableId: view.tableId,
-          source: view.source,
-          query: {},
-        })),
-      ),
+      ...visibleViews.map((view) => ({
+        kind: "view" as const,
+        id: view.id,
+        shortId: view.shortId,
+        name: view.name,
+        tableId: view.tableId,
+        source: view.source,
+        query: {},
+      })),
     );
   }
 
@@ -126,13 +145,11 @@ export const buildPermissionedGqlResolverContext = async (
     options.loadAllFields || views.length > 0
       ? dslTables.map((table) => table.id)
       : collectDslFieldTableIds({ ast: effectiveAst, currentTableId: effectiveCurrentTableId, tables: dslTables, views });
-  const fieldGroups = await Promise.all(
-    fieldTableIds.map(async (tableId) => ({
-      tableId,
-      fields: await gridsService.field.listByTable(tableId),
-    })),
-  );
-  const fieldsByTableId = Object.fromEntries(fieldGroups.map((group) => [group.tableId, group.fields])) as Record<string, Field[]>;
+  const fieldGroups = await gridsService.field.listByTables(fieldTableIds);
+  const fieldsByTableId = Object.fromEntries(fieldTableIds.map((tableId) => [tableId, fieldGroups.get(tableId) ?? []])) as Record<
+    string,
+    Field[]
+  >;
   const hydratedViews = hydrateDslViewQueries({ tables: dslTables, views, fieldsByTableId });
 
   return {
@@ -149,13 +166,11 @@ const fieldsWithPlanExtras = async (
 ): Promise<Record<string, Field[]>> => {
   const missing = collectDslPlanExtraFieldTableIds(plan).filter((tableId) => fieldsByTableId[tableId] === undefined);
   if (missing.length === 0) return fieldsByTableId;
-  const groups = await Promise.all(
-    missing.map(async (tableId) => ({
-      tableId,
-      fields: await gridsService.field.listByTable(tableId),
-    })),
-  );
-  return { ...fieldsByTableId, ...Object.fromEntries(groups.map((group) => [group.tableId, group.fields])) };
+  const groups = await gridsService.field.listByTables(missing);
+  return {
+    ...fieldsByTableId,
+    ...Object.fromEntries(missing.map((tableId) => [tableId, groups.get(tableId) ?? []])),
+  };
 };
 
 const previewResolvedGqlPlan = async (
@@ -172,6 +187,7 @@ const previewResolvedGqlPlan = async (
     labelRelationValues?: boolean;
     expectedFederatedRevisionScope?: FederatedRevisionScope;
     onFederatedRevisionScope?: (scope: FederatedRevisionScope) => void;
+    signal?: AbortSignal;
   },
 ): Promise<DslQueryPreviewResponse> => {
   const dateConfig = await getDateConfig(c);
@@ -186,6 +202,7 @@ const previewResolvedGqlPlan = async (
     labelRelationValues: options.labelRelationValues,
     expectedFederatedRevisionScope: options.expectedFederatedRevisionScope,
     onFederatedRevisionScope: options.onFederatedRevisionScope,
+    ...(options.signal ? { signal: options.signal } : {}),
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
     viewer: currentActorViewer(c),
   });
@@ -240,19 +257,23 @@ export const canonicalGqlSource = async (
   return { ok: true, source: canonical.source, tableId: canonical.plan.tableId, plan: canonical.plan };
 };
 
-export const executeGqlSource = async (
+type ExecuteGqlSourceOptions = {
+  maxRows?: number;
+  operation?: GqlRuntimeOperation;
+  tracer?: GqlRuntimeTracer;
+  labelRelationValues?: boolean;
+  expectedFederatedRevisionScope?: FederatedRevisionScope;
+};
+
+const executeGqlSourceUnadmitted = async (
   c: Context<AuthContext>,
   baseId: string,
   body: DslQueryPreviewBody,
-  options: {
-    maxRows?: number;
-    operation?: GqlRuntimeOperation;
-    tracer?: GqlRuntimeTracer;
-    labelRelationValues?: boolean;
-    expectedFederatedRevisionScope?: FederatedRevisionScope;
-  } = {},
+  options: ExecuteGqlSourceOptions & { signal?: AbortSignal } = {},
 ) => {
   const operation = options.operation ?? "preview";
+  const startedAt = performance.now();
+  const timings: NonNullable<Parameters<Awaited<ReturnType<GqlRuntimeTracer>>["end"]>[0]["timings"]> = {};
   const trace = await (options.tracer ?? traceGqlRuntime)({
     baseId,
     operation,
@@ -262,27 +283,42 @@ export const executeGqlSource = async (
     ...(body.limit !== undefined ? { limit: body.limit } : {}),
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
   });
+  const endTrace = (event: Omit<Parameters<typeof trace.end>[0], "timings">) =>
+    trace.end({
+      ...event,
+      timings: {
+        ...timings,
+        totalMs: performance.now() - startedAt,
+      },
+    });
 
   try {
+    const parseStartedAt = performance.now();
     const parsed = parseGridsQueryDsl(body.query);
+    timings.parseMs = performance.now() - parseStartedAt;
     if (!parsed.ok) {
       const response = { ok: false as const, diagnostics: parsed.diagnostics };
-      await trace.end({ stage: "parse", outcome: "diagnostic", response });
+      await endTrace({ stage: "parse", outcome: "diagnostic", response });
       return { ok: true as const, response };
     }
 
+    const contextStartedAt = performance.now();
     const ctx = await buildPermissionedGqlResolverContext(c, baseId, body.currentTableId, body.currentSource, parsed.ast);
+    timings.contextMs = performance.now() - contextStartedAt;
+    const resolveStartedAt = performance.now();
     const ast = sourceAst(parsed.ast, body.currentSource, ctx);
     const canonical = canonicalizeDslQuery(ast, ctx);
     if (!canonical.ok) {
       const response = { ok: false as const, diagnostics: canonical.diagnostics };
-      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      timings.resolveMs = performance.now() - resolveStartedAt;
+      await endTrace({ stage: "resolve", outcome: "diagnostic", response });
       return { ok: true as const, response };
     }
     const resolved = resolveDslQueryToQueryPlan(ast, ctx);
     if (!resolved.ok) {
       const response = { ok: false as const, diagnostics: resolved.diagnostics };
-      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      timings.resolveMs = performance.now() - resolveStartedAt;
+      await endTrace({ stage: "resolve", outcome: "diagnostic", response });
       return { ok: true as const, response };
     }
     const cursorSigningKey = gqlCursorSigningKey();
@@ -299,11 +335,14 @@ export const executeGqlSource = async (
     const decodedCursor = decodeRuntimeCursor(body.cursor, cursorFingerprint, cursorSigningKey);
     if (!decodedCursor.ok) {
       const response = { ok: false as const, diagnostics: decodedCursor.diagnostics };
-      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      timings.resolveMs = performance.now() - resolveStartedAt;
+      await endTrace({ stage: "resolve", outcome: "diagnostic", response });
       return { ok: true as const, response };
     }
+    timings.resolveMs = performance.now() - resolveStartedAt;
 
     let revisionScope: FederatedRevisionScope = [];
+    const executeStartedAt = performance.now();
     const response = await previewResolvedGqlPlan(c, resolved.plan, ctx.fieldsByTableId, {
       limit: body.limit,
       pageSize: body.pageSize,
@@ -313,35 +352,52 @@ export const executeGqlSource = async (
       maxRows: options.maxRows,
       labelRelationValues: options.labelRelationValues,
       expectedFederatedRevisionScope: options.expectedFederatedRevisionScope,
+      ...(options.signal ? { signal: options.signal } : {}),
       onFederatedRevisionScope: (scope) => {
         revisionScope = scope;
       },
     });
-    await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
+    timings.executeMs = performance.now() - executeStartedAt;
+    await endTrace({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
     return { ok: true as const, response, revisionScope };
   } catch (error) {
-    await trace.end({ stage: "runtime", outcome: "error", error });
+    await endTrace({ stage: "runtime", outcome: "error", error });
     throw error;
   }
 };
+
+export const executeGqlSource = (
+  c: Context<AuthContext>,
+  baseId: string,
+  body: DslQueryPreviewBody,
+  options: ExecuteGqlSourceOptions = {},
+) =>
+  runWithQueryAdmission(c, (signal) =>
+    executeGqlSourceUnadmitted(c, baseId, body, {
+      ...options,
+      signal,
+    }),
+  );
 
 /** Executes the exact stored source of an authorized saved view. View read is
  * deliberately a data-product boundary: it grants the stored result, including
  * joins chosen by the view admin, without granting navigation to source tables.
  * Callers cannot substitute arbitrary GQL on this trusted resolver path. */
-export const executeSavedViewSource = async (
+type ExecuteSavedViewSourceOptions = {
+  maxRows?: number;
+  pageSize?: number;
+  cursor?: string;
+  recordId?: string;
+  operation?: GqlRuntimeOperation;
+  surface?: NonNullable<DslQuerySurface>;
+  tracer?: GqlRuntimeTracer;
+};
+
+const executeSavedViewSourceUnadmitted = async (
   c: Context<AuthContext>,
   baseId: string,
   viewId: string,
-  options: {
-    maxRows?: number;
-    pageSize?: number;
-    cursor?: string;
-    recordId?: string;
-    operation?: GqlRuntimeOperation;
-    surface?: NonNullable<DslQuerySurface>;
-    tracer?: GqlRuntimeTracer;
-  } = {},
+  options: ExecuteSavedViewSourceOptions & { signal?: AbortSignal } = {},
 ) => {
   const trace = await (options.tracer ?? traceGqlRuntime)({
     baseId,
@@ -427,6 +483,7 @@ export const executeSavedViewSource = async (
       cursor: decodedCursor.cursor,
       cursorFingerprint,
       cursorSigningKey,
+      ...(options.signal ? { signal: options.signal } : {}),
     });
     await trace.end({ stage: "execute", outcome: response.ok ? "success" : "diagnostic", plan: resolved.plan, response });
     return response;
@@ -435,6 +492,19 @@ export const executeSavedViewSource = async (
     throw error;
   }
 };
+
+export const executeSavedViewSource = (
+  c: Context<AuthContext>,
+  baseId: string,
+  viewId: string,
+  options: ExecuteSavedViewSourceOptions = {},
+) =>
+  runWithQueryAdmission(c, (signal) =>
+    executeSavedViewSourceUnadmitted(c, baseId, viewId, {
+      ...options,
+      signal,
+    }),
+  );
 
 export const compileGqlViewWrite = async (
   c: Context<AuthContext>,
@@ -463,7 +533,10 @@ export const compileGqlViewWrite = async (
 export const compileGqlToRecordQuery = async (
   c: Context<AuthContext>,
   params: { baseId: string; tableId: string; source: string; presentation?: RecordQuery; trustedAllSources?: boolean },
-): Promise<{ ok: true; source: string; query: RecordQuery } | { ok: false; diagnostics: DslQueryPreviewDiagnostic[] }> => {
+): Promise<
+  | { ok: true; source: string; query: RecordQuery; fields: Field[]; readableTableIds?: readonly string[] }
+  | { ok: false; diagnostics: DslQueryPreviewDiagnostic[] }
+> => {
   const parsed = parseGridsQueryDsl(params.source);
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
 
@@ -480,5 +553,11 @@ export const compileGqlToRecordQuery = async (
 
   const resolved = resolveDslQueryToRecordQuery(ast, ctx);
   if (!resolved.ok) return { ok: false, diagnostics: resolved.diagnostics };
-  return { ok: true, source: canonical.source, query: withViewPresentation(resolved.plan.query, params.presentation) };
+  return {
+    ok: true,
+    source: canonical.source,
+    query: withViewPresentation(resolved.plan.query, params.presentation),
+    fields: ctx.fieldsByTableId[params.tableId] ?? [],
+    ...(params.trustedAllSources ? {} : { readableTableIds: ctx.tables.map((table) => table.id) }),
+  };
 };

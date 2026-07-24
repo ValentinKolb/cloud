@@ -734,6 +734,6 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   return ok();
 };
 
-export { get, getByShortId, listByTable, listTrashedByBase } from "./field-read";
+export { get, getByShortId, listByTable, listByTables, listTrashedByBase } from "./field-read";
 
 export { materializeFieldDefault, validateDefaultValue };

@@ -1,4 +1,5 @@
 import { type AccessSubject, buildAccessPrincipalTierConditions } from "@valentinkolb/cloud/server";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type View, type ViewUiSettings, ViewUiSettingsSchema } from "../contracts";
@@ -76,12 +77,13 @@ export const getByIdOrShortId = async (tableId: string, idOrSlug: string): Promi
  *   matching grant is `none`, the view is hidden even if it would
  *   otherwise be a default-shared view.
  */
-export const listForTable = async (params: {
-  tableId: string;
+export const listForTables = async (params: {
+  tableIds: readonly string[];
   userId: string | null;
   userGroups?: string[];
   serviceAccountId?: string | null;
 }): Promise<View[]> => {
+  if (params.tableIds.length === 0) return [];
   const serviceAccountId = params.serviceAccountId ?? null;
   const subject: AccessSubject | null = params.userId
     ? { type: "user", userId: params.userId }
@@ -155,7 +157,7 @@ export const listForTable = async (params: {
       FROM grids.views v
       JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
       JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-      WHERE v.table_id = ${params.tableId}::uuid AND v.deleted_at IS NULL
+      WHERE v.table_id = ANY(${toPgUuidArray([...params.tableIds])}::uuid[]) AND v.deleted_at IS NULL
     )
     SELECT id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
     FROM ranked
@@ -169,6 +171,19 @@ export const listForTable = async (params: {
 
   return rows.map(mapRow);
 };
+
+export const listForTable = async (params: {
+  tableId: string;
+  userId: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
+}): Promise<View[]> =>
+  listForTables({
+    tableIds: [params.tableId],
+    userId: params.userId,
+    userGroups: params.userGroups,
+    serviceAccountId: params.serviceAccountId,
+  });
 
 // ──────────────────────────────────────────────────────────────────
 // Pure ACL tier resolution (testable)

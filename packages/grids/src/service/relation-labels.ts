@@ -4,7 +4,7 @@ import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql } from "./parent-checks";
 import { type ExpansionViewer, filterRelationTargetsByViewer } from "./relation-access";
-import { collectRelationTargetIds, loadRelationTargets, relationLabelFields } from "./relation-targets";
+import { collectRelationTargetIds, loadRelationTargetsBatch, relationLabelFields } from "./relation-targets";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
 
@@ -29,8 +29,8 @@ const formatLabelPart = (value: unknown): string => {
 
 const resolveLabelsByTargetTable = async (idsByTargetTable: Map<string, Set<string>>): Promise<Record<string, string>> => {
   const labels: Record<string, string> = {};
-  for (const [targetTableId, ids] of idsByTargetTable) {
-    const targets = await loadRelationTargets(targetTableId, ids);
+  const targetsByTable = await loadRelationTargetsBatch(idsByTargetTable);
+  for (const targets of targetsByTable.values()) {
     for (const record of targets.records) {
       const parts = targets.fields.map((field) => formatLabelPart(record.data[field.id])).filter((part) => part.length > 0);
       labels[record.id] = parts.length > 0 ? parts.join(" · ") : "Untitled record";

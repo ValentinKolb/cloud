@@ -8,6 +8,8 @@ import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
 import { gridsHelp } from "./help";
 import { migrate } from "./migrate";
 import { gridsService } from "./service";
+import { stopBoundedQueryPool } from "./service/bounded-query";
+import { startFieldIndexMaintenance, stopFieldIndexMaintenance } from "./service/field-index-maintenance";
 import { startRecordEventOutbox, stopRecordEventOutbox } from "./service/record-event-outbox";
 import { startWorkflowKernelRuntime, stopWorkflowKernelRuntime } from "./service/workflow-kernel-runtime";
 
@@ -24,8 +26,9 @@ const gridsRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
     await startRecordEventOutbox();
     await startWorkflowKernelRuntime();
+    startFieldIndexMaintenance();
   },
-  stop: () => stopRuntimeResources([stopWorkflowKernelRuntime, stopRecordEventOutbox]),
+  stop: () => stopRuntimeResources([stopFieldIndexMaintenance, stopWorkflowKernelRuntime, stopRecordEventOutbox, stopBoundedQueryPool]),
 });
 
 const result = await app.start({

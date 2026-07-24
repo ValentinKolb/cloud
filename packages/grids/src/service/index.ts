@@ -19,6 +19,7 @@ import { getOperationalHealth } from "./operational-health";
 import {
   hasAtLeast,
   hasGrantsForResource,
+  loadBaseTableGrantsForSubject,
   loadGrantsForSubject,
   loadGrantsForUser,
   resolveEffectivePermission,
@@ -102,6 +103,7 @@ export const gridsService = {
   },
   field: {
     listByTable: fields.listByTable,
+    listByTables: fields.listByTables,
     listTrashedByBase: fields.listTrashedByBase,
     get: fields.get,
     getByShortId: fields.getByShortId,
@@ -138,6 +140,7 @@ export const gridsService = {
     resolve: resolveEffectivePermission,
     loadGrants: loadGrantsForUser,
     loadGrantsForSubject,
+    loadBaseTableGrantsForSubject,
     hasAtLeast,
     hasGrantsForResource,
   },
@@ -162,6 +165,7 @@ export const gridsService = {
   },
   view: {
     listForTable: views.listForTable,
+    listForTables: views.listForTables,
     get: views.get,
     getByShortId: views.getByShortId,
     getByIdOrShortId: views.getByIdOrShortId,

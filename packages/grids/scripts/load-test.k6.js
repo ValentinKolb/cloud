@@ -16,8 +16,15 @@ const scenarioFilter = new Set(
 const includePdf = __ENV.GRIDS_LOAD_INCLUDE_PDF === "1" && Boolean(manifest.documentTemplateId);
 const businessErrors = new Rate("business_errors");
 const rateLimitedRequests = new Counter("rate_limited_requests");
+const ingressRateLimitedRequests = new Counter("ingress_rate_limited_requests");
+const queryOverloadedRequests = new Counter("query_overloaded_requests");
 const readRate = Number(__ENV.GRIDS_LOAD_READ_RATE || 20);
+const readMaxVus = Number(__ENV.GRIDS_LOAD_READ_MAX_VUS || 80);
+const readOperation = __ENV.GRIDS_LOAD_READ_OPERATION || "mixed";
+const readOperations = new Set(["mixed", "table", "gql-search", "gql-group"]);
 if (!Number.isInteger(readRate) || readRate <= 0) throw new Error("GRIDS_LOAD_READ_RATE must be a positive integer");
+if (!Number.isInteger(readMaxVus) || readMaxVus <= 0) throw new Error("GRIDS_LOAD_READ_MAX_VUS must be a positive integer");
+if (!readOperations.has(readOperation)) throw new Error("GRIDS_LOAD_READ_OPERATION must be mixed, table, gql-search, or gql-group");
 
 const profileOptions = {
   smoke: {
@@ -33,8 +40,8 @@ const profileOptions = {
       rate: readRate,
       timeUnit: "1s",
       duration: durationOverride || "10m",
-      preAllocatedVUs: 20,
-      maxVUs: 80,
+      preAllocatedVUs: Math.min(20, readMaxVus),
+      maxVUs: readMaxVus,
     },
     write: {
       executor: "constant-arrival-rate",
@@ -63,8 +70,8 @@ const profileOptions = {
       rate: readRate,
       timeUnit: "1s",
       duration: durationOverride || "2h",
-      preAllocatedVUs: 20,
-      maxVUs: 80,
+      preAllocatedVUs: Math.min(20, readMaxVus),
+      maxVUs: readMaxVus,
     },
     write: {
       executor: "constant-arrival-rate",
@@ -154,7 +161,12 @@ export const options = {
     business_errors: ["rate<0.01"],
     checks: ["rate>0.99"],
     http_req_failed: ["rate<0.01"],
-    http_req_duration: profile === "stress" ? ["p(95)<3000", "p(99)<6000"] : ["p(95)<1500", "p(99)<3000"],
+    http_req_duration:
+      profile === "stress"
+        ? ["p(95)<3000", "p(99)<6000"]
+        : profile === "load" || profile === "soak"
+          ? ["p(95)<250", "p(99)<500"]
+          : ["p(95)<1500", "p(99)<3000"],
     ...Object.fromEntries(operationThresholds),
   },
 };
@@ -174,7 +186,13 @@ const jsonRequest = (method, path, body, tags, responseType) =>
   });
 
 const responseOk = (response, label, validate) => {
-  if (response.status === 429) rateLimitedRequests.add(1, { operation: label });
+  if (response.status === 429) {
+    ingressRateLimitedRequests.add(1, { operation: label });
+    rateLimitedRequests.add(1, { operation: label });
+  } else if (response.status === 503) {
+    queryOverloadedRequests.add(1, { operation: label });
+    rateLimitedRequests.add(1, { operation: label });
+  }
   const transportOk = check(response, { [`${label}: status 2xx`]: (result) => result.status >= 200 && result.status < 300 });
   let bodyOk = transportOk;
   if (transportOk && validate) {
@@ -193,7 +211,7 @@ const recordId = (index) => `${manifest.recordIdPrefix}-0000-4000-8000-${index.t
 
 export function readFlow() {
   const roll = Math.random();
-  if (roll < 0.4) {
+  if (readOperation === "table" || (readOperation === "mixed" && roll < 0.4)) {
     const source = `from table {${manifest.tables.items}}\nwhere {${manifest.fields.status}} = 'Available'\nsort {${manifest.fields.purchaseDate}} desc nulls last\nlimit 50`;
     const first = jsonRequest("POST", `/api/grids/tables/${manifest.tables.items}/query`, { source }, { operation: "table-list" });
     if (responseOk(first, "table-list", (body) => Array.isArray(body.items))) {
@@ -208,7 +226,7 @@ export function readFlow() {
         responseOk(second, "table-page", (body) => Array.isArray(body.items));
       }
     }
-  } else if (roll < 0.7) {
+  } else if (readOperation === "gql-search" || (readOperation === "mixed" && roll < 0.7)) {
     const query = `from table {${manifest.tables.items}}\nsearch 'needle' in {${manifest.fields.name}}\nsort {${manifest.fields.assetId}} asc\nlimit 50`;
     const response = jsonRequest(
       "POST",

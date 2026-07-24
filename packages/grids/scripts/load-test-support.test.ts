@@ -64,6 +64,8 @@ describe("load test support", () => {
         http_req_failed: { values: { rate: 0 } },
         business_errors: { values: { rate: 0 } },
         rate_limited_requests: { values: { count: 0 } },
+        ingress_rate_limited_requests: { values: { count: 0 } },
+        query_overloaded_requests: { values: { count: 0 } },
         checks: { values: { rate: 1 } },
         http_req_duration: { values: { "p(95)": 200, "p(99)": 400 } },
       },
@@ -81,6 +83,8 @@ describe("load test support", () => {
     expect(passing.passed).toBe(true);
     expect(passing.requestsPerSecond).toBe(10);
     expect(passing.rateLimitedRequests).toBe(0);
+    expect(passing.ingressRateLimitedRequests).toBe(0);
+    expect(passing.queryOverloadedRequests).toBe(0);
 
     const failing = buildLoadReport({
       ...passing,

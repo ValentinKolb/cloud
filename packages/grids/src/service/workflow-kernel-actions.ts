@@ -35,7 +35,7 @@ import {
   type DocumentPdfRenderer,
   getDocumentRun,
   getTemplate,
-  publicDocumentLinkUrl,
+  publicDocumentLinkBaseUrl,
 } from "./documents";
 import * as emailTemplates from "./email-templates";
 import { parseJsonbRow } from "./jsonb";
@@ -83,6 +83,7 @@ export type GridsWorkflowActionServices = {
     tableId: string,
     values: Record<string, unknown>,
     actorId: string | null,
+    dateConfig: DateContext,
     client?: SqlClient,
   ): Promise<ServiceResult<GridRecord>>;
   updateRecord(
@@ -91,6 +92,7 @@ export type GridsWorkflowActionServices = {
     values: Record<string, unknown>,
     audit: RecordMutationAudit | undefined,
     actorId: string | null,
+    dateConfig: DateContext,
     client?: SqlClient,
   ): Promise<ServiceResult<GridRecord>>;
   getDocumentTemplate(id: string): Promise<DocumentTemplate | null>;
@@ -114,7 +116,7 @@ export type GridsWorkflowActionServices = {
     actorId: string | null;
     client?: SqlClient;
   }): Promise<ServiceResult<{ id: string; token: string; expiresAt: string }>>;
-  publicDocumentLinkUrl(token: string): Promise<string>;
+  publicDocumentLinkBaseUrl(): Promise<string>;
   getEmailTemplate(id: string): Promise<EmailTemplate | null>;
   getActiveStepRunId(input: { runId: string; stepKey: string; executionGeneration: number }): Promise<string>;
   sendEmail(input: {
@@ -310,17 +312,15 @@ const defaultServices = (options: CreateGridsWorkflowActionPortsOptions): GridsW
     audit: (input, client) => logAudit(input, client),
     getTable,
     getRecord: async (tableId, recordId) => getRecord(tableId, recordId, { includeRelations: true, dateConfig: await dateContext() }),
-    createRecord: async (tableId, values, actorId, client) => {
-      const config = await dateContext();
-      if (!client) return createRecord(tableId, values, actorId, { dateConfig: config });
-      const created = await createRecordInTransaction(client, tableId, values, actorId, { dateConfig: config });
+    createRecord: async (tableId, values, actorId, dateConfig, client) => {
+      if (!client) return createRecord(tableId, values, actorId, { dateConfig });
+      const created = await createRecordInTransaction(client, tableId, values, actorId, { dateConfig });
       return created.ok ? { ok: true, data: created.data.record } : created;
     },
-    updateRecord: async (tableId, recordId, values, audit, actorId, client) => {
-      const config = await dateContext();
-      if (!client) return updateRecord(tableId, recordId, values, actorId, undefined, { dateConfig: config, audit });
+    updateRecord: async (tableId, recordId, values, audit, actorId, dateConfig, client) => {
+      if (!client) return updateRecord(tableId, recordId, values, actorId, undefined, { dateConfig, audit });
       const updated = await updateRecordInTransaction(client, tableId, recordId, values, actorId, undefined, {
-        dateConfig: config,
+        dateConfig,
         audit,
       });
       return updated.ok ? { ok: true, data: updated.data.record } : updated;
@@ -352,7 +352,7 @@ const defaultServices = (options: CreateGridsWorkflowActionPortsOptions): GridsW
         ? { ok: true, data: { id: created.data.link.id, token: created.data.token, expiresAt: created.data.link.expiresAt } }
         : created;
     },
-    publicDocumentLinkUrl,
+    publicDocumentLinkBaseUrl,
     getEmailTemplate: emailTemplates.get,
     getActiveStepRunId: ({ runId, stepKey, executionGeneration }) =>
       getActiveWorkflowStepRunId({ runId, key: stepKey, executionGeneration }),
@@ -1039,6 +1039,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         await currentRecord(services, options, context, record, "write");
         const values = await evaluatedFieldPayload(context, step, "set");
         const audit = await evaluatedAuditAnswers(context, step);
+        const dateConfig = await services.dateContext();
         const requestFingerprint = await hashWorkflowJson(toJsonValue({ values, audit: audit ?? null }));
         return executeTransactional(
           effectIntents,
@@ -1051,7 +1052,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           },
           async (client) => {
             const updated = requireServiceResult(
-              await services.updateRecord(record.tableId, record.recordId, values, audit, actorId(context), client),
+              await services.updateRecord(record.tableId, record.recordId, values, audit, actorId(context), dateConfig, client),
             );
             await services.audit(
               {
@@ -1094,6 +1095,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         await currentTable(services, options, tableId);
         await requirePermission(services, options, context, { tableId }, "write");
         const values = await evaluatedFieldPayload(context, step, "values");
+        const dateConfig = await services.dateContext();
         const requestFingerprint = await hashWorkflowJson(toJsonValue(values));
         const outcome = await executeTransactional(
           effectIntents,
@@ -1105,7 +1107,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
             await requirePermission(services, options, context, { tableId }, "write", client);
           },
           async (client) => {
-            const created = requireServiceResult(await services.createRecord(tableId, values, actorId(context), client));
+            const created = requireServiceResult(await services.createRecord(tableId, values, actorId(context), dateConfig, client));
             await services.audit(
               {
                 baseId: options.workflow.baseId,
@@ -1274,6 +1276,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
             ? step.config.expiresIn
             : "30d";
         const comment = typeof commentValue === "string" ? commentValue : null;
+        const publicLinkBaseUrl = await services.publicDocumentLinkBaseUrl();
         const requestFingerprint = await hashWorkflowJson({ expiresIn, comment });
         const outcome = await executeTransactional(
           effectIntents,
@@ -1320,7 +1323,7 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
               kind: "documentLink",
               id: created.id,
               documentRunId: run.id,
-              url: await services.publicDocumentLinkUrl(created.token),
+              url: `${publicLinkBaseUrl}${encodeURIComponent(created.token)}`,
               expiresAt: created.expiresAt,
             });
           },

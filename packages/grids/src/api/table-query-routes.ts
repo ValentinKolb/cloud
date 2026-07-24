@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, getDateConfig, jsonResponse, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
@@ -14,17 +15,24 @@ import {
 } from "../contracts";
 import { aggregateQueryToGqlSource, simpleQueryToGqlSource } from "../query-dsl/record-query-source";
 import { gridsService } from "../service";
+import { isBoundedQueryTimeoutError } from "../service/bounded-query";
 import { verifyRevisionScope } from "../service/federated-tables";
 import type { GroupAggregationSpec } from "../service/group-compiler";
-import { validateRecordQueryForTable } from "../service/query-validation";
+import { validateRecordQueryForFields } from "../service/query-validation";
 import { compileGqlToRecordQuery, executeGqlSource } from "./gql-runtime";
 import { currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import { queryAdmissionMiddleware } from "./query-admission";
 import { requireUuidParam } from "./route-params";
 
 type TableQueryBody = ZodInfer<typeof TableQueryBodySchema>;
 type TableQueryResponse = ZodInfer<typeof TableQueryResponseSchema>;
 type RouteFailure = { ok: false; status: ClientErrorStatusCode | ServerErrorStatusCode; message: string };
 type RouteSuccess<T> = { ok: true; data: T };
+type ResolvedQuery = {
+  query: RecordQuery;
+  fields: Awaited<ReturnType<typeof gridsService.field.listByTable>> | null;
+  readableTableIds: readonly string[] | null;
+};
 type QueryView = {
   id: string;
   tableId: string;
@@ -42,7 +50,7 @@ type TableQueryRouteDeps = {
   service: typeof gridsService;
   compileGql: typeof compileGqlToRecordQuery;
   executeGql: typeof executeGqlSource;
-  validateQuery: typeof validateRecordQueryForTable;
+  validateQuery: typeof validateRecordQueryForFields;
   dateConfig: typeof getDateConfig;
   gate: typeof gateAt;
   resolve: typeof resolveWithGrants;
@@ -55,7 +63,7 @@ const defaultDeps: TableQueryRouteDeps = {
   service: gridsService,
   compileGql: compileGqlToRecordQuery,
   executeGql: executeGqlSource,
-  validateQuery: validateRecordQueryForTable,
+  validateQuery: validateRecordQueryForFields,
   dateConfig: getDateConfig,
   gate: gateAt,
   resolve: resolveWithGrants,
@@ -73,6 +81,33 @@ const withoutFooterAggregations = (query: RecordQuery): RecordQuery => {
   if ((query.groupBy?.length ?? 0) > 0) return query;
   const { aggregations: _aggregations, ...rest } = query;
   return rest;
+};
+
+const tableQueryExecutionKey = (params: {
+  target: QueryTarget;
+  query: RecordQuery;
+  body: TableQueryBody;
+  tableFields: Awaited<ReturnType<typeof gridsService.field.listByTable>>;
+  viewer: ReturnType<typeof currentActorViewer> & { readableTableIds?: ReadonlySet<string> };
+  dateConfig: Awaited<ReturnType<typeof getDateConfig>>;
+}): string => {
+  const payload = JSON.stringify(
+    {
+      body: params.body,
+      dateConfig: params.dateConfig,
+      fields: params.tableFields,
+      query: params.query,
+      target: params.target,
+      viewer: {
+        groups: [...params.viewer.userGroups].sort(),
+        readableTableIds: params.viewer.readableTableIds ? [...params.viewer.readableTableIds].sort() : null,
+        serviceAccountId: params.viewer.serviceAccountId ?? null,
+        userId: params.viewer.userId,
+      },
+    },
+    (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+  );
+  return createHash("sha256").update(payload).digest("base64url");
 };
 
 const previewError = (response: DslQueryPreviewResponse): RouteFailure | null =>
@@ -265,7 +300,7 @@ const resolveQuery = async (
   deps: TableQueryRouteDeps,
   target: QueryTarget,
   body: TableQueryBody,
-): Promise<RouteSuccess<RecordQuery> | RouteFailure> => {
+): Promise<RouteSuccess<ResolvedQuery> | RouteFailure> => {
   const { table, view, trustedView } = target;
   const compiled =
     body.source !== undefined || trustedView
@@ -286,8 +321,14 @@ const resolveQuery = async (
 
   const query = compiled?.ok ? compiled.query : body.query;
   if (!query) return fail(400, "source or query is required");
-  const queryValid = await deps.validateQuery(table.id, query);
-  return queryValid.ok ? { ok: true, data: query } : fail(queryValid.error.status, queryValid.error.message);
+  return {
+    ok: true,
+    data: {
+      query,
+      fields: compiled?.ok ? compiled.fields : null,
+      readableTableIds: compiled?.ok ? (compiled.readableTableIds ?? null) : null,
+    },
+  };
 };
 
 const runGroupedQuery = async (
@@ -299,6 +340,8 @@ const runGroupedQuery = async (
     tableFields: Awaited<ReturnType<typeof gridsService.field.listByTable>>;
     viewer: ReturnType<typeof currentActorViewer>;
     dateConfig: Awaited<ReturnType<typeof getDateConfig>>;
+    signal: AbortSignal;
+    dedupeKey: string;
   },
 ): Promise<RouteSuccess<TableQueryResponse> | RouteFailure> => {
   const { target, query, body, tableFields, viewer, dateConfig } = params;
@@ -321,6 +364,9 @@ const runGroupedQuery = async (
     deletedOnly: query.deletedOnly,
     viewer,
     dateConfig,
+    fields: tableFields,
+    signal: params.signal,
+    dedupeKey: `${params.dedupeKey}:group`,
   });
   if (!result.ok) return fail(result.error.status, result.error.message);
   const relationLabels = await deps.service.relations.buildLabelCacheForGroupedKeys(
@@ -346,8 +392,11 @@ const runListQuery = async (
     target: QueryTarget;
     query: RecordQuery;
     body: TableQueryBody;
+    tableFields: Awaited<ReturnType<typeof gridsService.field.listByTable>>;
     viewer: ReturnType<typeof currentActorViewer>;
     dateConfig: Awaited<ReturnType<typeof getDateConfig>>;
+    signal: AbortSignal;
+    dedupeKey: string;
   },
 ): Promise<RouteSuccess<TableQueryResponse> | RouteFailure> => {
   const { target, query, body, viewer, dateConfig } = params;
@@ -366,6 +415,9 @@ const runListQuery = async (
     dateConfig,
     computedColumns: query.columns?.filter((column): column is ComputedColumnSpec => "kind" in column && column.kind === "computed"),
     filePreviewFieldIds: body.filePreviewFieldIds,
+    fields: params.tableFields,
+    signal: params.signal,
+    dedupeKey: params.dedupeKey,
   });
   if (!listResult.ok) return fail(listResult.error.status, listResult.error.message);
 
@@ -381,6 +433,9 @@ const runListQuery = async (
       requests: query.aggregations.map((item) => ({ fieldId: item.fieldId, agg: item.agg })),
       viewer,
       dateConfig,
+      fields: params.tableFields,
+      signal: params.signal,
+      dedupeKey: `${params.dedupeKey}:aggregates`,
     });
     if (aggregateResult.ok) aggregates = { ...aggregates, ...aggregateResult.data };
   }
@@ -399,6 +454,7 @@ const runListQuery = async (
 export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) =>
   new Hono<AuthContext>().post(
     "/:tableId/query",
+    queryAdmissionMiddleware(),
     requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
@@ -409,6 +465,7 @@ export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) 
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Publication changed"),
+        503: jsonResponse(ErrorResponseSchema, "Query capacity exhausted"),
       },
     }),
     v("json", TableQueryBodySchema),
@@ -420,15 +477,49 @@ export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) 
       const resolved = await resolveQuery(c, deps, target.data, body);
       if (!resolved.ok) return c.json({ message: resolved.message }, resolved.status);
 
-      const [tableFields, dateConfig] = await Promise.all([deps.service.field.listByTable(target.data.table.id), deps.dateConfig(c)]);
-      const params = { target: target.data, query: resolved.data, body, tableFields, dateConfig, viewer: deps.viewer(c) };
-      const result =
-        target.data.table.kind === "federated"
-          ? await runFederatedQuery(c, deps, params)
-          : resolved.data.groupBy?.length
-            ? await runGroupedQuery(deps, params)
-            : await runListQuery(deps, params);
-      return result.ok ? c.json(result.data) : c.json({ message: result.message }, result.status);
+      const [tableFields, dateConfig] = await Promise.all([
+        resolved.data.fields ? Promise.resolve(resolved.data.fields) : deps.service.field.listByTable(target.data.table.id),
+        deps.dateConfig(c),
+      ]);
+      const queryValid = deps.validateQuery(target.data.table.id, resolved.data.query, tableFields);
+      if (!queryValid.ok) return c.json({ message: queryValid.error.message }, queryValid.error.status);
+
+      const viewer = {
+        ...deps.viewer(c),
+        ...(resolved.data.readableTableIds ? { readableTableIds: new Set(resolved.data.readableTableIds) } : {}),
+      };
+      const params = {
+        target: target.data,
+        query: resolved.data.query,
+        body,
+        tableFields,
+        dateConfig,
+        viewer,
+        signal: c.req.raw.signal,
+        dedupeKey: tableQueryExecutionKey({
+          target: target.data,
+          query: resolved.data.query,
+          body,
+          tableFields,
+          viewer,
+          dateConfig,
+        }),
+      };
+      try {
+        const result =
+          target.data.table.kind === "federated"
+            ? await runFederatedQuery(c, deps, params)
+            : resolved.data.query.groupBy?.length
+              ? await runGroupedQuery(deps, params)
+              : await runListQuery(deps, params);
+        return result.ok ? c.json(result.data) : c.json({ message: result.message }, result.status);
+      } catch (error) {
+        if (isBoundedQueryTimeoutError(error)) {
+          c.header("Retry-After", "1");
+          return c.json({ message: "Query took too long. Narrow the query and retry." }, 503);
+        }
+        throw error;
+      }
     },
   );
 

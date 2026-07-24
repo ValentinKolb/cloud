@@ -26,6 +26,7 @@ import {
   sourceAst,
 } from "./gql-runtime";
 import { gateAt } from "./permissions";
+import { queryAdmissionMiddleware } from "./query-admission";
 
 type GqlApiOptions = {
   requireAuthenticated?: MiddlewareHandler<AuthContext>;
@@ -41,6 +42,9 @@ const markdownAttachment = (c: Context, filename: string, body: string) =>
 export const createGqlApi = (options: GqlApiOptions = {}) =>
   new Hono<AuthContext>()
     .use(options.requireAuthenticated ?? auth.requireRole("authenticated"))
+    .use("/by-base/:baseId/preview", queryAdmissionMiddleware())
+    .use("/by-base/:baseId/execute", queryAdmissionMiddleware())
+    .use("/by-base/:baseId/views/:viewId/execute", queryAdmissionMiddleware())
     .get(
       "/by-base/:baseId/assistant/SKILL.md",
       describeRoute({
@@ -100,6 +104,7 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         responses: {
           200: jsonResponse(DslQueryPreviewResponseSchema, "Query diagnostics or tabular preview"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          503: jsonResponse(ErrorResponseSchema, "Query capacity exhausted"),
         },
       }),
       v("json", DslQueryPreviewBodySchema),
@@ -120,6 +125,7 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         summary: "Execute a GQL statement for records/table surfaces",
         responses: {
           200: jsonResponse(DslQueryExecuteResponseSchema, "Query diagnostics or tabular result"),
+          503: jsonResponse(ErrorResponseSchema, "Query capacity exhausted"),
         },
       }),
       v("json", DslQueryExecuteBodySchema),
@@ -140,6 +146,7 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         summary: "Execute the exact stored GQL source for one saved view",
         responses: {
           200: jsonResponse(DslQueryExecuteResponseSchema, "Query diagnostics or tabular result"),
+          503: jsonResponse(ErrorResponseSchema, "Query capacity exhausted"),
         },
       }),
       v("json", DslQueryExecuteBodySchema.pick({ pageSize: true, cursor: true, surface: true })),

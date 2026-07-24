@@ -1,5 +1,6 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import type { SqlClient } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import type { Field } from "./types";
 
@@ -43,10 +44,10 @@ export const getByShortId = async (tableId: string, shortId: string): Promise<Fi
   return row ? mapFieldRow(row) : null;
 };
 
-export const listByTable = async (tableId: string, includeDeleted = false): Promise<Field[]> => {
+export const listByTable = async (tableId: string, includeDeleted = false, client: SqlClient = sql): Promise<Field[]> => {
   // Live-parent invariant: fields under a trashed table or base never list.
   const rows = includeDeleted
-    ? await sql<DbRow[]>`
+    ? await client<DbRow[]>`
         SELECT f.*
         FROM grids.fields f
         JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
@@ -54,7 +55,7 @@ export const listByTable = async (tableId: string, includeDeleted = false): Prom
         WHERE f.table_id = ${tableId}::uuid
         ORDER BY f.position, f.created_at
       `
-    : await sql<DbRow[]>`
+    : await client<DbRow[]>`
         SELECT f.*
         FROM grids.fields f
         JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL

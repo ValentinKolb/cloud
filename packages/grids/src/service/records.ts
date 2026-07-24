@@ -71,9 +71,12 @@ export const list = async (params: {
   dateConfig?: DateContext;
   computedColumns?: ComputedColumnSpec[];
   filePreviewFieldIds?: string[];
+  fields?: Field[];
+  signal?: AbortSignal;
+  dedupeKey?: string;
 }): Promise<Result<RecordList>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
-  const fields = await listFields(params.tableId);
+  const fields = params.fields ?? (await listFields(params.tableId));
   const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
 
   // Filter compilation
@@ -153,6 +156,8 @@ export const list = async (params: {
       ORDER BY ${orderBy} LIMIT ${limit + 1}
     `,
     RECORD_QUERY_TIMEOUT_MS,
+    params.signal,
+    params.dedupeKey ? `${params.dedupeKey}:rows` : undefined,
   );
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(mapRecordRow);
@@ -217,6 +222,8 @@ export const list = async (params: {
         formulaWhere: params.formulaWhere,
         viewer: params.viewer,
         dateConfig: params.dateConfig,
+        fields,
+        dedupeKey: params.dedupeKey ? `${params.dedupeKey}:default-aggregates` : undefined,
       })
     : ok<Record<string, unknown>>({});
   if (!aggregatesResult.ok) return aggregatesResult;
@@ -251,8 +258,11 @@ export const group = async (params: {
   deletedOnly?: boolean;
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
+  fields?: Field[];
+  signal?: AbortSignal;
+  dedupeKey?: string;
 }): Promise<Result<{ buckets: GroupBucket[]; nextCursor: string | null; explode: boolean }>> => {
-  const fields = await listFields(params.tableId);
+  const fields = params.fields ?? (await listFields(params.tableId));
 
   // Cursor: keys-only (group rows have no id; the tuple itself is unique).
   let cursorKeys: { keys: unknown[] } | null = null;
@@ -297,7 +307,7 @@ export const group = async (params: {
   });
   if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-  const rows = await sql<DbRow[]>`${compiled.query}`;
+  const rows = await runBoundedQuery<DbRow>(compiled.query, RECORD_QUERY_TIMEOUT_MS, params.signal, params.dedupeKey);
   const hasMore = rows.length > limit;
   const visible = params.fromEnd && hasMore ? rows.slice(-limit) : rows.slice(0, limit);
 
@@ -364,8 +374,11 @@ export const aggregate = async (params: {
   deletedOnly?: boolean;
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
+  fields?: Field[];
+  signal?: AbortSignal;
+  dedupeKey?: string;
 }): Promise<Result<Record<string, unknown>>> => {
-  const fields = await listFields(params.tableId);
+  const fields = params.fields ?? (await listFields(params.tableId));
 
   const filterCompiled = compileFilter(params.filter ?? null, fields, { timeZone: params.dateConfig?.timeZone });
   if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
@@ -404,18 +417,23 @@ export const aggregate = async (params: {
   const jsonPairs = aggCompiled.columns.map((col) => sql`${col.key}::text, ${col.expr}`).reduce((acc, cur) => sql`${acc}, ${cur}`);
 
   // Live-parent JOIN — see records.list comment for rationale.
-  const rows = await sql<{ result: Record<string, unknown> }[]>`
-    SELECT jsonb_build_object(${jsonPairs}) AS result
-    FROM grids.records r
-    JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
-    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-    WHERE r.table_id = ${params.tableId}::uuid
-      AND ${params.deletedOnly || needsDeletedRows ? sql`r.deleted_at IS NOT NULL` : params.includeDeleted ? sql`TRUE` : sql`r.deleted_at IS NULL`}
-      AND ${filterClause}
-      AND ${formulaWhereCompiled?.ok ? formulaWhereCompiled.expression.sql : sql`TRUE`}
-      AND ${searchClause}
-      AND ${recordMetaClause}
-  `;
+  const rows = await runBoundedQuery<{ result: Record<string, unknown> }>(
+    sql`
+      SELECT jsonb_build_object(${jsonPairs}) AS result
+      FROM grids.records r
+      JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+      WHERE r.table_id = ${params.tableId}::uuid
+        AND ${params.deletedOnly || needsDeletedRows ? sql`r.deleted_at IS NOT NULL` : params.includeDeleted ? sql`TRUE` : sql`r.deleted_at IS NULL`}
+        AND ${filterClause}
+        AND ${formulaWhereCompiled?.ok ? formulaWhereCompiled.expression.sql : sql`TRUE`}
+        AND ${searchClause}
+        AND ${recordMetaClause}
+    `,
+    RECORD_QUERY_TIMEOUT_MS,
+    params.signal,
+    params.dedupeKey,
+  );
   return ok(parseJsonbRow<Record<string, unknown>>(rows[0]?.result, {}));
 };
 

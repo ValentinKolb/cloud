@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { DslQueryPreviewColumn, DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../contracts";
@@ -45,6 +46,7 @@ type DslQueryPreviewOptions = {
    * by their first statement. */
   expectedFederatedRevisionScope?: FederatedRevisionScope;
   onFederatedRevisionScope?: (scope: FederatedRevisionScope) => void;
+  signal?: AbortSignal;
 };
 
 const MAX_PREVIEW_ROWS = 500;
@@ -52,11 +54,11 @@ const MAX_PREVIEW_ROWS = 500;
 // expands to in the preview so a query over a record with thousands of links
 // can't blow up the preview cardinality. Aggregates/groups are NOT sampled —
 // they compute over the full matching set so preview numbers equal the real
-// numbers; the statement timeout below bounds runtime instead.
+// numbers; the bounded query cancellation below caps runtime instead.
 const MAX_PREVIEW_JOIN_FANOUT = 50;
-// Hard wall-clock cap for a single preview statement (5s, set via SET LOCAL in
-// runPreview). A user can author an arbitrarily expensive query; this keeps one
-// slow query from holding a connection. 100k-row aggregates run well under it.
+// Hard wall-clock cap for a single preview statement. A user can author an
+// arbitrarily expensive query; cancellation keeps one slow query from holding
+// a connection. 100k-row aggregates run well under it.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATEMENT_TIMEOUT_CODE = "57014";
 const FEDERATED_REVISION_ERROR_CODE = "P0001";
@@ -66,6 +68,38 @@ const revisionScopeKey = (scope: FederatedRevisionScope): string =>
     .map((entry) => `${entry.tableId}:${entry.revisionId}:${entry.revisionToken}`)
     .sort()
     .join(",");
+
+const queryExecutionKey = (
+  mode: "aggregate" | "derived" | "grouped" | "rows",
+  options: DslQueryPreviewOptions,
+  revisionScope: FederatedRevisionScope,
+  bounds: ReturnType<typeof pageBoundsForPlan>,
+): string | undefined => {
+  if (!options.cursorFingerprint) return undefined;
+  const viewer = options.viewer;
+  const payload = JSON.stringify(
+    {
+      bounds,
+      cursor: options.cursor,
+      fields: Object.entries(options.fieldsByTableId).sort(([left], [right]) => left.localeCompare(right)),
+      fingerprint: options.cursorFingerprint,
+      mode,
+      revisions: revisionScopeKey(revisionScope),
+      timeZone: options.timeZone ?? null,
+      viewer: viewer
+        ? {
+            groups: [...viewer.userGroups].sort(),
+            isAdmin: viewer.isAdmin ?? false,
+            readableTableIds: viewer.readableTableIds ? [...viewer.readableTableIds].sort() : null,
+            serviceAccountId: viewer.serviceAccountId ?? null,
+            userId: viewer.userId,
+          }
+        : null,
+    },
+    (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+  );
+  return createHash("sha256").update(payload).digest("base64url");
+};
 
 const asOptionalUuid = (value: string | undefined): string | undefined => (value && UUID_RE.test(value) ? value : undefined);
 
@@ -517,7 +551,12 @@ export const previewDslQuery = async (
       });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-      const rows = await runBoundedQuery<Record<string, unknown>>(compiled.query.sql, 5_000);
+      const rows = await runBoundedQuery<Record<string, unknown>>(
+        compiled.query.sql,
+        5_000,
+        options.signal,
+        queryExecutionKey("derived", options, revisionScope, bounds),
+      );
       const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
       const columns = groupColumns(compiled.query.columns, plan.tableId);
       const previewRows = visible.map((row) => ({
@@ -545,7 +584,12 @@ export const previewDslQuery = async (
       });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-      const rows = await runBoundedQuery<Record<string, unknown>>(compiled.query.sql, 5_000);
+      const rows = await runBoundedQuery<Record<string, unknown>>(
+        compiled.query.sql,
+        5_000,
+        options.signal,
+        queryExecutionKey("grouped", options, revisionScope, bounds),
+      );
       const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
       const columns = groupColumns(compiled.query.columns, (plan.joins?.length ?? 0) === 0 ? plan.tableId : undefined);
       const previewRows = visible.map((row) => ({
@@ -567,7 +611,12 @@ export const previewDslQuery = async (
       const compiled = compileDslAggregateQueryPlanToSql(plan, { ...options, ...compileInputs, limit: 1 });
       if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-      const rows = await runBoundedQuery<{ result: Record<string, unknown> }>(compiled.query.sql, 5_000);
+      const rows = await runBoundedQuery<{ result: Record<string, unknown> }>(
+        compiled.query.sql,
+        5_000,
+        options.signal,
+        queryExecutionKey("aggregate", options, revisionScope, bounds),
+      );
       const columns = aggregateColumns(compiled.query.columns);
       return finish({
         ok: true,
@@ -599,7 +648,12 @@ export const previewDslQuery = async (
     });
     if (!compiled.ok) return fail(err.badInput(compiled.error));
 
-    const rows = await runBoundedQuery<Record<string, unknown>>(compiled.query.sql, 5_000);
+    const rows = await runBoundedQuery<Record<string, unknown>>(
+      compiled.query.sql,
+      5_000,
+      options.signal,
+      queryExecutionKey("rows", options, revisionScope, bounds),
+    );
     const { visible, page, truncated } = pageForRows(rows, bounds, options, compiled.query.cursorValuesFromRow);
     const columns = rowColumns(compiled.query.columns);
     const previewRows = visible.map((row) => ({

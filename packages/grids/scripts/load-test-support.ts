@@ -117,6 +117,8 @@ export type LoadReport = {
   failedRequestRate: number;
   businessErrorRate: number;
   rateLimitedRequests: number;
+  ingressRateLimitedRequests: number;
+  queryOverloadedRequests: number;
   checksRate: number;
   p95Ms: number;
   p99Ms: number;
@@ -143,6 +145,8 @@ export const buildLoadReport = (input: {
   const failedRequestRate = metric(input.summary, "http_req_failed", "rate");
   const businessErrorRate = metric(input.summary, "business_errors", "rate");
   const rateLimitedRequests = metric(input.summary, "rate_limited_requests", "count");
+  const ingressRateLimitedRequests = metric(input.summary, "ingress_rate_limited_requests", "count");
+  const queryOverloadedRequests = metric(input.summary, "query_overloaded_requests", "count");
   const checksRate = metric(input.summary, "checks", "rate");
   const p95Ms = metric(input.summary, "http_req_duration", "p(95)");
   const p99Ms = metric(input.summary, "http_req_duration", "p(99)");
@@ -163,7 +167,12 @@ export const buildLoadReport = (input: {
     if (!before) return true;
     return container.memoryBytes - before.memoryBytes <= Math.max(256 * 1024 * 1024, before.memoryBytes * 0.5);
   });
-  const latencyLimit = input.profile === "stress" ? { p95: 3_000, p99: 6_000 } : { p95: 1_500, p99: 3_000 };
+  const latencyLimit =
+    input.profile === "stress"
+      ? { p95: 3_000, p99: 6_000 }
+      : input.profile === "load" || input.profile === "soak"
+        ? { p95: 250, p99: 500 }
+        : { p95: 1_500, p99: 3_000 };
   const gates = [
     { name: "k6 process", passed: input.k6ExitCode === 0, detail: `exit code ${input.k6ExitCode}` },
     { name: "HTTP failures", passed: failedRequestRate < 0.01, detail: `${(failedRequestRate * 100).toFixed(2)}% < 1.00%` },
@@ -221,6 +230,8 @@ export const buildLoadReport = (input: {
     failedRequestRate,
     businessErrorRate,
     rateLimitedRequests,
+    ingressRateLimitedRequests,
+    queryOverloadedRequests,
     checksRate,
     p95Ms,
     p99Ms,
@@ -242,7 +253,8 @@ export const renderLoadReport = (report: LoadReport): string => {
 - Fixture rows: ${report.rows.toLocaleString("en-US")}
 - Window: ${report.startedAt} to ${report.finishedAt}
 - Requests: ${report.requests.toLocaleString("en-US")} (${report.requestsPerSecond.toFixed(1)}/s)
-- Rate limited: ${report.rateLimitedRequests.toLocaleString("en-US")}
+- Ingress rate limited (429): ${report.ingressRateLimitedRequests.toLocaleString("en-US")}
+- Query admission rejected (503): ${report.queryOverloadedRequests.toLocaleString("en-US")}
 - Latency: p95 ${report.p95Ms.toFixed(0)}ms, p99 ${report.p99Ms.toFixed(0)}ms
 
 ## Gates

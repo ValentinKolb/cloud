@@ -62,6 +62,18 @@ const successfulAuthenticationEvents = async (credentialId: string): Promise<num
   return Number.parseInt(row?.count ?? "0", 10);
 };
 
+const deniedAuthenticationEvents = async (credentialId: string): Promise<number> => {
+  const [row] = await sql<{ count: string }[]>`
+    SELECT COUNT(*)::text AS count
+    FROM audit.events
+    WHERE action = 'service_account_credential.authenticate'
+      AND outcome = 'denied'
+      AND target_type = 'service_account_credential'
+      AND target_id = ${credentialId}
+  `;
+  return Number.parseInt(row?.count ?? "0", 10);
+};
+
 describe("serviceAccountCredentials", () => {
   test("creates, authenticates, lists, and revokes user delegated API keys", async () => {
     if (!(await canUseDatabase())) {
@@ -208,7 +220,36 @@ describe("serviceAccountCredentials", () => {
       expect(await successfulAuthenticationEvents(created.data.credential.id)).toBe(1);
 
       const invalidToken = `${created.data.token.slice(0, -1)}${created.data.token.endsWith("0") ? "1" : "0"}`;
-      expect(await serviceAccountCredentials.authenticateApiToken(invalidToken)).toBeNull();
+      const deniedBefore = await deniedAuthenticationEvents(created.data.credential.id);
+      const denied = await Promise.all(Array.from({ length: 8 }, () => serviceAccountCredentials.authenticateApiToken(invalidToken)));
+      expect(denied.every((result) => result === null)).toBe(true);
+      expect(await deniedAuthenticationEvents(created.data.credential.id)).toBe(deniedBefore + denied.length);
+
+      const revokedDuringVerification = await serviceAccountCredentials.createUserApiToken({
+        user,
+        name: "Concurrent revocation key",
+        expiresAt: null,
+      });
+      expect(revokedDuringVerification.ok).toBe(true);
+      if (!revokedDuringVerification.ok) return;
+      const revokedSecret = revokedDuringVerification.data.token.split("_")[2];
+      expect(revokedSecret).toHaveLength(64);
+      if (!revokedSecret) return;
+      await sql`
+        UPDATE auth.service_account_credentials
+        SET secret_hash = ${await Bun.password.hash(revokedSecret)}
+        WHERE id = ${revokedDuringVerification.data.credential.id}::uuid
+      `;
+      const verificationBeforeRevoke = serviceAccountCredentials.authenticateApiToken(revokedDuringVerification.data.token);
+      await Bun.sleep(20);
+      await sql`
+        UPDATE auth.service_account_credentials
+        SET status = 'revoked', revoked_at = now()
+        WHERE id = ${revokedDuringVerification.data.credential.id}::uuid
+      `;
+      const verificationAfterRevoke = serviceAccountCredentials.authenticateApiToken(revokedDuringVerification.data.token);
+      expect(await verificationAfterRevoke).toBeNull();
+      expect(await verificationBeforeRevoke).toBeNull();
 
       await sql`
         UPDATE auth.service_account_credentials

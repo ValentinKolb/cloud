@@ -62,8 +62,13 @@ describe("buildTrustedGqlResolverContext", () => {
       {
         listTablesByBase: async (requestedBaseId: string) =>
           requestedBaseId === baseId ? [table(ordersTableId, "Orders", "Orders"), table(hiddenTableId, "Hidden", "Hidden")] : [],
-        listFieldsByTable: async (tableId: string) =>
-          tableId === hiddenTableId ? [field(hiddenTableId, hiddenFieldId, "Secret", "Secret")] : [],
+        listFieldsByTables: async (tableIds: readonly string[]) =>
+          new Map(
+            tableIds.map((tableId) => [
+              tableId,
+              tableId === hiddenTableId ? [field(hiddenTableId, hiddenFieldId, "Secret", "Secret")] : [],
+            ]),
+          ),
         listViewsByBase: async () => [],
       },
     );

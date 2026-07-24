@@ -67,8 +67,11 @@ describe("gql runtime observability", () => {
     const starts: GqlRuntimeTraceStart[] = [];
     const ends: GqlRuntimeTraceEnd[] = [];
 
+    const context = {
+      req: { raw: new Request("http://localhost/api/grids/query") },
+    } as Context<AuthContext>;
     const result = await executeGqlSource(
-      {} as Context<AuthContext>,
+      context,
       uuid(),
       { query: "from table {", surface: "query-explorer" },
       {

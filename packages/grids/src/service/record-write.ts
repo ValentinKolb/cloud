@@ -75,9 +75,9 @@ const preflightRelationTargets = async (
 const validateForCreate = async (
   tableId: string,
   payload: Record<string, unknown>,
-  options: { dateConfig?: DateContext; client?: SqlClient } = {},
+  options: { dateConfig?: DateContext; client?: SqlClient; fields?: Field[] } = {},
 ): Promise<Result<Record<string, unknown>>> => {
-  const fields = await listFields(tableId);
+  const fields = options.fields ?? (await listFields(tableId, false, options.client));
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
   for (const key of Object.keys(payload)) {
@@ -116,8 +116,11 @@ const validateForCreate = async (
  * Omitted fields are left to the merge step in `update()` to preserve existing
  * values. Explicit `null` is a clear-the-field intent and must round-trip.
  */
-const validateForUpdate = async (tableId: string, payload: Record<string, unknown>): Promise<Result<Record<string, unknown>>> => {
-  const fields = await listFields(tableId);
+const validateForUpdate = async (
+  tableId: string,
+  payload: Record<string, unknown>,
+  fields: Field[],
+): Promise<Result<Record<string, unknown>>> => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
   for (const key of Object.keys(payload)) {
@@ -136,6 +139,44 @@ const validateForUpdate = async (tableId: string, payload: Record<string, unknow
     out[fieldId] = result.value;
   }
   return ok(out);
+};
+
+/** Keep update preflight on the caller's transaction connection once parent
+ * locks are held; a pool read here can deadlock behind concurrent schema DDL. */
+const loadStoredRecordForUpdate = async (
+  client: SqlClient,
+  tableId: string,
+  recordId: string,
+  fields: Field[],
+): Promise<GridRecord | null> => {
+  const [row] = await client<DbRow[]>`
+    SELECT r.*
+    FROM grids.records r
+    WHERE r.id = ${recordId}::uuid
+      AND r.table_id = ${tableId}::uuid
+      AND r.deleted_at IS NULL
+  `;
+  if (!row) return null;
+
+  const record = mapRecordRow(row);
+  const relationFieldIds = fields.filter((field) => field.type === "relation").map((field) => field.id);
+  if (relationFieldIds.length === 0) return record;
+
+  const links = await client<Array<{ from_field_id: string; to_record_id: string }>>`
+    SELECT from_field_id::text, to_record_id::text
+    FROM grids.record_links
+    WHERE from_record_id = ${recordId}::uuid
+      AND from_field_id = ANY(${client.array(relationFieldIds, "UUID")})
+    ORDER BY from_field_id, position
+  `;
+  const targetsByField = new Map<string, string[]>();
+  for (const link of links) {
+    const targets = targetsByField.get(link.from_field_id) ?? [];
+    targets.push(link.to_record_id);
+    targetsByField.set(link.from_field_id, targets);
+  }
+  for (const fieldId of relationFieldIds) record.data[fieldId] = targetsByField.get(fieldId) ?? [];
+  return record;
 };
 
 type CreateRecordInTransactionResult = {
@@ -166,7 +207,7 @@ export const createInTransaction = async (
     }
   }
 
-  const fields = await listFields(tableId);
+  const fields = await listFields(tableId, false, client);
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const hasRetryGeneratedId = fields.some(generatedIdRequiresRetry);
   const maxAttempts = hasRetryGeneratedId ? 10 : 1;
@@ -179,6 +220,7 @@ export const createInTransaction = async (
     validated = await validateForCreate(tableId, payload, {
       dateConfig: opts.dateConfig,
       client,
+      fields,
     });
     if (!validated.ok) return validated;
 
@@ -349,17 +391,17 @@ export const updateInTransaction = async (
 ): Promise<Result<UpdateRecordInTransactionResult>> => {
   const writable = await requireStoredTableWritable(tableId, client);
   if (!writable.ok) return writable;
-  const existing = await get(tableId, recordId);
+  const fields = await listFields(tableId, false, client);
+  const existing = await loadStoredRecordForUpdate(client, tableId, recordId, fields);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   if (ifMatchVersion !== undefined && ifMatchVersion !== existing.version) {
     return fail(recordVersionConflict());
   }
 
-  const validated = await validateForUpdate(tableId, payload);
+  const validated = await validateForUpdate(tableId, payload, fields);
   if (!validated.ok) return validated;
 
-  const fields = await listFields(tableId);
-  const fieldsIncludingDeleted = await listFields(tableId, true);
+  const fieldsIncludingDeleted = await listFields(tableId, true, client);
   const split = splitRelationsFromData(validated.data, fields);
 
   // Pre-flight relation-target existence check (same reasoning as create).

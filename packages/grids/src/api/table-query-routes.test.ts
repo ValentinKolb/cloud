@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { err, fail, ok } from "@valentinkolb/stdlib";
+import { BoundedQueryTimeoutError } from "../service/bounded-query";
 import { createTableQueryRoutes } from "./table-query-routes";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
@@ -27,6 +28,7 @@ const makeDeps = (
     explicitViewGrant?: boolean;
     onCompile?: (options: Record<string, unknown>) => void;
     onList?: () => void;
+    listError?: Error;
   } = {},
 ): RouteDeps => {
   const rank = { none: 0, read: 1, write: 2, admin: 3 };
@@ -40,6 +42,7 @@ const makeDeps = (
     record: {
       list: async () => {
         overrides.onList?.();
+        if (overrides.listError) throw overrides.listError;
         return { ok: true, data: { items: [], nextCursor: null, filePreviews: {} } };
       },
       aggregate: async () => ({ ok: true, data: {} }),
@@ -55,7 +58,7 @@ const makeDeps = (
   return {
     service,
     compileGql,
-    validateQuery: async () => ok(undefined),
+    validateQuery: () => ok(undefined),
     dateConfig: async () => ({}) as never,
     gate: async () =>
       overrides.tableReadable ? ok("read" as const) : fail(err.forbidden("You do not have permission to access this resource.")),
@@ -114,5 +117,13 @@ describe("table query routes", () => {
     expect(compileOptions).toMatchObject({ source: view.source, trustedAllSources: true });
     expect(listCalls).toBe(1);
     expect(await response.json()).toEqual({ items: [], nextCursor: null, filePreviews: {} });
+  });
+
+  test("returns a retryable response when the database query exceeds its budget", async () => {
+    const response = await requestQuery(makeDeps({ tableReadable: true, listError: new BoundedQueryTimeoutError(5_000) }), { query: {} });
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("1");
+    expect(await response.json()).toEqual({ message: "Query took too long. Narrow the query and retry." });
   });
 });

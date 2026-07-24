@@ -715,42 +715,37 @@ const recordSuccessfulAuthentication = async (params: {
   const upgradedSecretHash = SECRET_HASH_PATTERN.test(params.row.secret_hash) ? null : hashApiTokenSecret(params.secret);
   if (!upgradedSecretHash && !params.row.activity_due) return;
 
-  await sql.begin(async (tx) => {
-    // Telemetry must never queue live requests behind another request updating the same credential.
-    const [locked] = await tx<{ activity_due: boolean; secret_hash: string }[]>`
-      SELECT
-        secret_hash,
-        (
-          last_used_at IS NULL
-          OR last_used_at < now() - (${SUCCESS_ACTIVITY_INTERVAL_MS} * interval '1 millisecond')
-        ) AS activity_due
-      FROM auth.service_account_credentials
+  if (upgradedSecretHash) {
+    await sql`
+      UPDATE auth.service_account_credentials
+      SET secret_hash = ${upgradedSecretHash}
       WHERE id = ${params.row.id}::uuid
         AND status = 'active'
-        AND (
-          (${upgradedSecretHash !== null} AND secret_hash = ${params.row.secret_hash})
-          OR last_used_at IS NULL
-          OR last_used_at < now() - (${SUCCESS_ACTIVITY_INTERVAL_MS} * interval '1 millisecond')
-        )
-      FOR UPDATE SKIP LOCKED
+        AND secret_hash = ${params.row.secret_hash}
     `;
-    if (!locked) return;
+  }
+  if (!params.row.activity_due) return;
 
-    if (upgradedSecretHash && locked.secret_hash === params.row.secret_hash) {
-      await tx`
-        UPDATE auth.service_account_credentials
-        SET secret_hash = ${upgradedSecretHash}
-        WHERE id = ${params.row.id}::uuid
-      `;
-    }
-
-    if (!locked.activity_due) return;
-
+  await sql.begin(async (tx) => {
+    // Authentication telemetry is best-effort under contention. SKIP LOCKED
+    // keeps one replica from queuing live requests behind another replica.
     const [activity] = await tx<{ last_used_at: Date }[]>`
+      WITH claimed AS (
+        SELECT id
+        FROM auth.service_account_credentials
+        WHERE id = ${params.row.id}::uuid
+          AND status = 'active'
+          AND (
+            last_used_at IS NULL
+            OR last_used_at < now() - (${SUCCESS_ACTIVITY_INTERVAL_MS} * interval '1 millisecond')
+          )
+        FOR UPDATE SKIP LOCKED
+      )
       UPDATE auth.service_account_credentials
       SET last_used_at = now()
-      WHERE id = ${params.row.id}::uuid
-      RETURNING last_used_at
+      FROM claimed
+      WHERE auth.service_account_credentials.id = claimed.id
+      RETURNING auth.service_account_credentials.last_used_at
     `;
     if (!activity) return;
 
@@ -770,44 +765,86 @@ const recordSuccessfulAuthentication = async (params: {
   });
 };
 
+const pendingSecretVerifications = new Map<string, Promise<boolean>>();
+
+const verifyApiTokenSecretOnce = async (secret: string, row: DbCredentialWithSecretRow): Promise<boolean> => {
+  const key = `${row.id}:${row.secret_hash}:${hashApiTokenSecret(secret)}`;
+  let pending = pendingSecretVerifications.get(key);
+  if (!pending) {
+    pending = verifyApiTokenSecret(secret, row.secret_hash);
+    pendingSecretVerifications.set(key, pending);
+  }
+  try {
+    return await pending;
+  } finally {
+    if (pendingSecretVerifications.get(key) === pending) pendingSecretVerifications.delete(key);
+  }
+};
+
+const recordDeniedAuthentication = async (params: {
+  reason: string;
+  tokenPrefix: string;
+  row?: DbCredentialWithSecretRow;
+}): Promise<null> => {
+  await audit.record({
+    action: "service_account_credential.authenticate",
+    outcome: "denied",
+    ...(params.row ? { target: { type: "service_account_credential" as const, id: params.row.id, label: params.row.name } } : {}),
+    reason: params.reason,
+    metadata: {
+      tokenPrefix: params.tokenPrefix,
+      ...(params.row ? { serviceAccountId: params.row.service_account_id } : {}),
+    },
+  });
+  return null;
+};
+
 export const authenticateApiToken = async (token: string): Promise<AuthenticatedServiceAccountCredential | null> => {
   const parsed = parseToken(token);
   if (!parsed) return null;
 
-  const row = await findActiveByTokenPrefix(parsed.tokenPrefix);
+  let row = await findActiveByTokenPrefix(parsed.tokenPrefix);
   if (!row) {
-    await audit.record({
-      action: "service_account_credential.authenticate",
-      outcome: "denied",
+    return recordDeniedAuthentication({
       reason: "API key not found, inactive, or expired",
-      metadata: { tokenPrefix: parsed.tokenPrefix },
+      tokenPrefix: parsed.tokenPrefix,
     });
-    return null;
+  }
+  if (!(await verifyApiTokenSecretOnce(parsed.secret, row))) {
+    return recordDeniedAuthentication({
+      reason: "Invalid API key secret",
+      tokenPrefix: parsed.tokenPrefix,
+      row,
+    });
   }
 
-  const valid = await verifyApiTokenSecret(parsed.secret, row.secret_hash);
-  if (!valid) {
-    await audit.record({
-      action: "service_account_credential.authenticate",
-      outcome: "denied",
-      target: { type: "service_account_credential", id: row.id, label: row.name },
-      reason: "Invalid API key secret",
-      metadata: { tokenPrefix: parsed.tokenPrefix, serviceAccountId: row.service_account_id },
+  // Verification may be expensive. Refresh authorization afterwards so a
+  // request cannot join work that began before a credential was revoked.
+  const current = await findActiveByTokenPrefix(parsed.tokenPrefix);
+  if (!current || current.id !== row.id) {
+    return recordDeniedAuthentication({
+      reason: "API key not found, inactive, or expired",
+      tokenPrefix: parsed.tokenPrefix,
+      row,
     });
-    return null;
   }
+  if (current.secret_hash !== row.secret_hash && !(await verifyApiTokenSecretOnce(parsed.secret, current))) {
+    return recordDeniedAuthentication({
+      reason: "Invalid API key secret",
+      tokenPrefix: parsed.tokenPrefix,
+      row: current,
+    });
+  }
+  row = current;
 
   const serviceAccount = mapServiceAccount(row);
   const delegatedUser = serviceAccount.delegatedUserId ? await accounts.users.get({ id: serviceAccount.delegatedUserId }) : null;
   if (serviceAccount.kind === "user_delegated" && !delegatedUser) {
-    await audit.record({
-      action: "service_account_credential.authenticate",
-      outcome: "denied",
-      target: { type: "service_account_credential", id: row.id, label: row.name },
+    return recordDeniedAuthentication({
       reason: "Delegated user is missing",
-      metadata: { serviceAccountId: row.service_account_id },
+      tokenPrefix: parsed.tokenPrefix,
+      row,
     });
-    return null;
   }
 
   await recordSuccessfulAuthentication({ row, secret: parsed.secret, serviceAccount, delegatedUser });

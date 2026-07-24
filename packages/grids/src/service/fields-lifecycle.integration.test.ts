@@ -5,7 +5,10 @@ import {
   dropFieldIndex,
   dropOrphanedFieldIndexes,
   ensureFieldIndex,
+  ensureMissingFieldSortIndexes,
   fieldPerformanceIndexName,
+  fieldPlannerStatisticsName,
+  fieldReverseSortIndexName,
   fieldUniqueIndexName,
 } from "./field-indexes";
 import * as fields from "./fields";
@@ -35,18 +38,31 @@ describe("field lifecycle Postgres integration", () => {
       const fixture = await createTableFixture(`Orphan index ${Bun.randomUUIDv7()}`);
       const fieldId = Bun.randomUUIDv7();
       const indexName = fieldPerformanceIndexName(fieldId);
+      const statisticsName = fieldPlannerStatisticsName(fieldId);
       try {
         await ensureFieldIndex(fieldId, "number", fixture.tableId);
-        const before = await sql<Array<{ exists: boolean }>>`
-        SELECT to_regclass(${"grids." + indexName}) IS NOT NULL AS exists
-      `;
-        expect(before[0]?.exists).toBe(true);
+        const [before] = await sql<Array<{ indexExists: boolean; statisticsExists: boolean }>>`
+          SELECT to_regclass(${"grids." + indexName}) IS NOT NULL AS "indexExists",
+                 EXISTS (
+                   SELECT 1
+                   FROM pg_statistic_ext e
+                   JOIN pg_namespace n ON n.oid = e.stxnamespace
+                   WHERE n.nspname = 'grids' AND e.stxname = ${statisticsName}
+                 ) AS "statisticsExists"
+        `;
+        expect(before).toEqual({ indexExists: true, statisticsExists: true });
 
         expect(await dropOrphanedFieldIndexes()).toBeGreaterThanOrEqual(1);
-        const after = await sql<Array<{ exists: boolean }>>`
-        SELECT to_regclass(${"grids." + indexName}) IS NOT NULL AS exists
-      `;
-        expect(after[0]?.exists).toBe(false);
+        const [after] = await sql<Array<{ indexExists: boolean; statisticsExists: boolean }>>`
+          SELECT to_regclass(${"grids." + indexName}) IS NOT NULL AS "indexExists",
+                 EXISTS (
+                   SELECT 1
+                   FROM pg_statistic_ext e
+                   JOIN pg_namespace n ON n.oid = e.stxnamespace
+                   WHERE n.nspname = 'grids' AND e.stxname = ${statisticsName}
+                 ) AS "statisticsExists"
+        `;
+        expect(after).toEqual({ indexExists: false, statisticsExists: false });
       } finally {
         await dropFieldIndex(fieldId);
         await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
@@ -65,20 +81,80 @@ describe("field lifecycle Postgres integration", () => {
       try {
         await ensureFieldIndex(singleId, "select", fixture.tableId, { multiple: false });
         await ensureFieldIndex(multiId, "select", fixture.tableId, { multiple: true });
-        const names = [fieldPerformanceIndexName(singleId), fieldPerformanceIndexName(multiId)];
-        const definitions = await sql<Array<{ name: string; definition: string }>>`
-          SELECT indexname AS name, indexdef AS definition
-          FROM pg_indexes
-          WHERE schemaname = 'grids' AND indexname::text = ANY(${sql.array(names, "TEXT")})
+        const names = [fieldPerformanceIndexName(singleId), fieldReverseSortIndexName(singleId), fieldPerformanceIndexName(multiId)];
+        const statisticsNames = [fieldPlannerStatisticsName(singleId), fieldPlannerStatisticsName(multiId)];
+        const definitions = await sql<Array<{ name: string; definition: string; keyColumns: number }>>`
+          SELECT c.relname::text AS name, pg_get_indexdef(i.indexrelid) AS definition, i.indnkeyatts::int AS "keyColumns"
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_index i ON i.indexrelid = c.oid
+          WHERE n.nspname = 'grids' AND c.relname::text = ANY(${sql.array(names, "TEXT")})
         `;
         const byName = new Map(definitions.map((row) => [row.name, row.definition]));
+        const keyColumnsByName = new Map(definitions.map((row) => [row.name, row.keyColumns]));
         expect(byName.get(names[0]!)).toContain("USING btree");
         expect(byName.get(names[0]!)).toContain("->> 0");
-        expect(byName.get(names[1]!)).toContain("USING gin");
-        expect(byName.get(names[1]!)).toContain("jsonb_path_ops");
+        expect(keyColumnsByName.get(names[0]!)).toBe(2);
+        expect(byName.get(names[1]!)).toContain("DESC NULLS LAST");
+        expect(byName.get(names[1]!)).toContain("id DESC");
+        expect(keyColumnsByName.get(names[1]!)).toBe(2);
+        expect(byName.get(names[2]!)).toContain("USING gin");
+        expect(byName.get(names[2]!)).toContain("jsonb_path_ops");
+        const statistics = await sql<Array<{ name: string }>>`
+          SELECT e.stxname::text AS name
+          FROM pg_statistic_ext e
+          JOIN pg_namespace n ON n.oid = e.stxnamespace
+          WHERE n.nspname = 'grids'
+            AND e.stxname = ANY(${sql.array(statisticsNames, "TEXT")})
+        `;
+        expect(statistics.map((item) => item.name)).toEqual([statisticsNames[0]!]);
       } finally {
         await dropFieldIndex(singleId);
         await dropFieldIndex(multiId);
+        await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
+      }
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "upgrades legacy single-key sort indexes",
+    async () => {
+      await migrate();
+      const fixture = await createTableFixture(`Legacy sort index ${Bun.randomUUIDv7()}`);
+      const fieldId = Bun.randomUUIDv7();
+      const forwardName = fieldPerformanceIndexName(fieldId);
+      const reverseName = fieldReverseSortIndexName(fieldId);
+      try {
+        await sql`
+          INSERT INTO grids.fields (id, short_id, table_id, name, type, indexed)
+          VALUES (${fieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Indexed', 'number', TRUE)
+        `;
+        await sql.unsafe(
+          `CREATE INDEX ${forwardName}
+           ON grids.records ((grids.try_numeric(data->>'${fieldId}')))
+           WHERE table_id = '${fixture.tableId}'::uuid AND deleted_at IS NULL`,
+        );
+        await sql.unsafe(
+          `CREATE INDEX ${reverseName}
+           ON grids.records ((grids.try_numeric(data->>'${fieldId}')) DESC NULLS LAST)
+           WHERE table_id = '${fixture.tableId}'::uuid AND deleted_at IS NULL`,
+        );
+
+        const indexesCreated = await ensureMissingFieldSortIndexes();
+        expect(indexesCreated).toBeGreaterThanOrEqual(2);
+        const indexes = await sql<Array<{ name: string; keyColumns: number }>>`
+          SELECT c.relname::text AS name, i.indnkeyatts::int AS "keyColumns"
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_index i ON i.indexrelid = c.oid
+          WHERE n.nspname = 'grids'
+            AND c.relname::text = ANY(${sql.array([forwardName, reverseName], "TEXT")})
+        `;
+        expect(indexes).toHaveLength(2);
+        expect(indexes.every((index) => index.keyColumns === 2)).toBe(true);
+      } finally {
+        await dropFieldIndex(fieldId);
         await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
       }
     },

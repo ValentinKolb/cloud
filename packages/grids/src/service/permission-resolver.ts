@@ -146,7 +146,7 @@ type DbRow = Record<string, unknown>;
  * authenticated_only=TRUE ⇒ authenticated, all-null ⇒ public. The
  * resolver walks tiers from most-specific to least.
  */
-export type LoadGrantTargets = {
+type LoadGrantTargets = {
   baseId: string;
   tableId?: string | null;
   viewId?: string | null;
@@ -236,6 +236,54 @@ export const loadGrantsForSubject = async (
     FROM grids.workflow_access wa
     JOIN auth.access a ON a.id = wa.access_id
     WHERE wa.workflow_id = ${workflowId}::uuid AND ${principalMatch}
+  `;
+
+  return rows.map((row) => ({
+    resourceType: row.resource_type as ResourceType,
+    resourceId: row.resource_id as string,
+    principalTier: row.principal_tier as PrincipalTier,
+    level: row.level as PermissionLevel,
+  }));
+};
+
+/**
+ * Loads the base and table grants needed to authorize a complete table
+ * catalog. GQL uses this instead of issuing one grant query per table.
+ */
+export const loadBaseTableGrantsForSubject = async (
+  params: { baseId: string; subject: AccessSubject | null },
+  db: typeof sql = sql,
+): Promise<Grant[]> => {
+  const tierExpr = sql`CASE
+    WHEN a.service_account_id IS NOT NULL THEN 'serviceAccount'
+    WHEN a.user_id IS NOT NULL THEN 'user'
+    WHEN a.group_id IS NOT NULL THEN 'group'
+    WHEN a.authenticated_only = TRUE THEN 'authenticated'
+    ELSE 'public'
+  END`;
+  const principalMatch = buildAccessPrincipalCondition({
+    subject: params.subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+
+  const rows = await db<DbRow[]>`
+    SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier
+    FROM grids.base_access ba
+    JOIN auth.access a ON a.id = ba.access_id
+    WHERE ba.base_id = ${params.baseId}::uuid AND ${principalMatch}
+
+    UNION ALL
+
+    SELECT 'table'::text, ta.table_id::text, a.permission, ${tierExpr}
+    FROM grids.table_access ta
+    JOIN grids.tables t ON t.id = ta.table_id
+    JOIN auth.access a ON a.id = ta.access_id
+    WHERE t.base_id = ${params.baseId}::uuid AND ${principalMatch}
   `;
 
   return rows.map((row) => ({

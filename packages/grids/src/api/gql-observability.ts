@@ -1,4 +1,4 @@
-import { type TraceAttributes, type TraceContext, type TraceStatus, trace } from "@valentinkolb/cloud/services";
+import { type TraceAttributes, type TraceStatus, trace } from "@valentinkolb/cloud/services";
 import type { DslQueryPreviewBody, DslQueryPreviewResponse, DslQuerySurface } from "../contracts";
 import type { DslResolvedSqlQueryPlan } from "../query-dsl/resolver";
 
@@ -24,6 +24,13 @@ export type GqlRuntimeTraceEnd = {
   plan?: DslResolvedSqlQueryPlan;
   response?: DslQueryPreviewResponse;
   error?: unknown;
+  timings?: {
+    parseMs?: number;
+    contextMs?: number;
+    resolveMs?: number;
+    executeMs?: number;
+    totalMs?: number;
+  };
 };
 
 type GqlRuntimeTraceHandle = {
@@ -95,6 +102,11 @@ export const gqlRuntimeTraceAttributes = (start: GqlRuntimeTraceStart, event?: G
         "gql.diagnostic.class": diagnosticClass(event),
         "gql.outcome": event.outcome,
         "gql.stage": event.stage,
+        "gql.timing.context_ms": event.timings?.contextMs,
+        "gql.timing.execute_ms": event.timings?.executeMs,
+        "gql.timing.parse_ms": event.timings?.parseMs,
+        "gql.timing.resolve_ms": event.timings?.resolveMs,
+        "gql.timing.total_ms": event.timings?.totalMs,
         ...sourceAttributes(start, event.plan),
         ...responseMetrics(event.response),
       }
@@ -124,34 +136,29 @@ export const gqlRuntimeTraceSummary = (start: GqlRuntimeTraceStart, event: GqlRu
       }
     : {}),
   ...(!event.response?.ok && event.response ? { diagnostics: event.response.diagnostics.length } : {}),
+  ...(event.timings ? { timings: event.timings } : {}),
 });
 
 const traceStatus = (outcome: GqlRuntimeOutcome): TraceStatus => (outcome === "success" ? "ok" : "error");
 
 export const traceGqlRuntime: GqlRuntimeTracer = async (start) => {
-  const span: TraceContext = await trace.start({
-    name: `GQL ${start.operation}`,
-    source: GQL_TRACE_SOURCE,
-    appId: GQL_TRACE_APP_ID,
-    category: "custom",
-    kind: "server",
-    attributes: gqlRuntimeTraceAttributes(start),
-  });
+  const startedAt = new Date();
 
   return {
     end: async (event) => {
       const status = traceStatus(event.outcome);
       const statusMessage = event.outcome === "success" ? undefined : (errorMessage(event.error) ?? diagnosticClass(event));
-      await trace.record({
-        context: span,
-        event: `gql.${event.stage}.${event.outcome}`,
-        severity: event.outcome === "success" ? "info" : "warn",
-        attributes: gqlRuntimeTraceAttributes(start, event),
-      });
-      await trace.end({
-        context: span,
+      await trace.complete({
+        name: `GQL ${start.operation}`,
+        source: GQL_TRACE_SOURCE,
+        appId: GQL_TRACE_APP_ID,
+        category: "custom",
+        kind: "server",
+        startedAt,
+        endedAt: new Date(),
         status,
         statusMessage,
+        attributes: gqlRuntimeTraceAttributes(start, event),
         summary: gqlRuntimeTraceSummary(start, event),
       });
     },

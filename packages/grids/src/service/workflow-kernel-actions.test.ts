@@ -18,6 +18,7 @@ const FIELD_ID = "00000000-0000-4000-8000-000000000006";
 const TEMPLATE_ID = "00000000-0000-4000-8000-000000000007";
 const SERVICE_ACCOUNT_ID = "00000000-0000-4000-8000-000000000009";
 const CREDENTIAL_ID = "00000000-0000-4000-8000-000000000010";
+const TEST_DATE_CONTEXT = { timeZone: "UTC" } as const;
 
 const workflow = { id: WORKFLOW_ID, shortId: "abcde", baseId: BASE_ID, name: "Conformance" };
 const table = { id: TABLE_ID, baseId: BASE_ID } as Table;
@@ -159,6 +160,7 @@ const executingIntents = (): GridsWorkflowEffectIntentPort => ({
 const commonServices = () => ({
   audit: mock(async () => undefined),
   requirePermission: mock(async () => true),
+  dateContext: mock(async () => TEST_DATE_CONTEXT),
   getTable: mock(async () => table),
   getRecord: mock(async () => record),
 });
@@ -244,7 +246,45 @@ describe("Grids workflow kernel action ports", () => {
       { answers: { [auditQuestionId]: "Scheduled lifecycle update" } },
       ctx.invocation.actor.userId,
       expect.anything(),
+      expect.anything(),
     );
+  });
+
+  test("resolves date context before opening record mutation transactions", async () => {
+    const order: string[] = [];
+    const dateConfig = { timeZone: "Europe/Berlin" } as const;
+    const intents = executingIntents();
+    intents.executeTransactional = mock(async (_input, perform) => {
+      order.push("transaction");
+      const output = await perform({} as never);
+      return { state: "succeeded" as const, ...(output === undefined ? {} : { output }) };
+    });
+    const ports = createGridsWorkflowActionPorts({
+      workflow,
+      services: {
+        ...commonServices(),
+        dateContext: mock(async () => {
+          order.push("dateContext");
+          return dateConfig;
+        }),
+        updateRecord: mock(async (...args) => {
+          order.push("updateRecord");
+          expect(args[5]).toEqual(dateConfig);
+          return { ok: true as const, data: record };
+        }),
+      },
+      effectIntents: intents,
+    });
+    const step = actionStep("updateRecord", { record: "inputs.item", set: { Status: "Done" } });
+    const ctx = context("execute", step, {
+      plan: boundPlan({ "steps.0.updateRecord.set.Status": FIELD_ID }),
+      references: { "inputs.item": { kind: "record", tableId: TABLE_ID, recordId: RECORD_ID } },
+    }).value;
+
+    const outcome = await ports.execute.get("updateRecord")!.execute(ctx, step);
+
+    expect(outcome.state).toBe("completed");
+    expect(order).toEqual(["dateContext", "transaction", "updateRecord"]);
   });
 
   test("stores only a fingerprint and field ids for record effect intent matching", async () => {

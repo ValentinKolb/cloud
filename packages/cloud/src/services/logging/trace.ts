@@ -151,6 +151,13 @@ export type TraceEndParams = {
   endedAt?: Date | number | string;
 };
 
+export type TraceCompleteParams = TraceStartParams & {
+  status?: TraceStatus;
+  statusMessage?: string;
+  summary?: Record<string, unknown>;
+  endedAt?: Date | number | string;
+};
+
 export type TraceWithSpanOptions<T> = {
   summarize?: (result: T) => Record<string, unknown> | undefined;
   onError?: (error: unknown) => Record<string, unknown> | undefined;
@@ -491,6 +498,86 @@ const start = async (params: TraceStartParams): Promise<TraceContext> => {
     RETURNING trace_id, span_id
   `.catch((error: Error) => {
     console.error("[logging:trace] span start failed:", error.message);
+    return [];
+  });
+  return stored ? contextFor(stored.trace_id, stored.span_id) : context;
+};
+
+/**
+ * Persists a span whose complete lifecycle is already known. Hot request paths
+ * can retain exact tracing without a start/update round-trip pair.
+ */
+const complete = async (params: TraceCompleteParams): Promise<TraceContext> => {
+  const context = newContext(params.spanKey, params.parent);
+  const attributes = sanitizeAttributes(params.attributes);
+  const summary = sanitizeRecord(params.summary);
+  const attributesJson = attributes ? JSON.stringify(attributes) : null;
+  const summaryJson = summary ? JSON.stringify(summary) : null;
+  const statusMessage = params.statusMessage ? String(sanitizeJson(params.statusMessage)) : null;
+  const startedAt = normalizeDate(params.startedAt);
+  const endedAt = normalizeDate(params.endedAt);
+  const [stored] = await sql<Array<{ trace_id: string; span_id: string }>>`
+    INSERT INTO logging.trace_spans (
+      trace_id,
+      span_id,
+      span_key,
+      parent_span_id,
+      name,
+      source,
+      app_id,
+      category,
+      kind,
+      status,
+      status_message,
+      attributes,
+      summary,
+      started_at,
+      ended_at,
+      duration_ms,
+      updated_at
+    )
+    VALUES (
+      ${context.traceId},
+      ${context.spanId},
+      ${params.spanKey ?? null},
+      ${params.parent?.spanId ?? null},
+      ${params.name},
+      ${params.source},
+      ${params.appId ?? null},
+      ${params.category ?? "custom"},
+      ${params.kind ?? "internal"},
+      ${params.status ?? "ok"},
+      ${statusMessage},
+      (${attributesJson}::text)::jsonb,
+      (${summaryJson}::text)::jsonb,
+      ${startedAt},
+      ${endedAt},
+      GREATEST(0, EXTRACT(EPOCH FROM (${endedAt}::timestamptz - ${startedAt}::timestamptz)) * 1000),
+      now()
+    )
+    ON CONFLICT (trace_id, span_id) DO UPDATE
+    SET
+      span_key = COALESCE(logging.trace_spans.span_key, EXCLUDED.span_key),
+      parent_span_id = COALESCE(logging.trace_spans.parent_span_id, EXCLUDED.parent_span_id),
+      name = EXCLUDED.name,
+      source = EXCLUDED.source,
+      app_id = COALESCE(EXCLUDED.app_id, logging.trace_spans.app_id),
+      category = EXCLUDED.category,
+      kind = EXCLUDED.kind,
+      status = EXCLUDED.status,
+      status_message = EXCLUDED.status_message,
+      attributes = COALESCE(logging.trace_spans.attributes, '{}'::jsonb) || COALESCE(EXCLUDED.attributes, '{}'::jsonb),
+      summary = COALESCE(logging.trace_spans.summary, '{}'::jsonb) || COALESCE(EXCLUDED.summary, '{}'::jsonb),
+      started_at = LEAST(logging.trace_spans.started_at, EXCLUDED.started_at),
+      ended_at = GREATEST(logging.trace_spans.ended_at, EXCLUDED.ended_at),
+      duration_ms = GREATEST(
+        0,
+        EXTRACT(EPOCH FROM (GREATEST(logging.trace_spans.ended_at, EXCLUDED.ended_at) - LEAST(logging.trace_spans.started_at, EXCLUDED.started_at))) * 1000
+      ),
+      updated_at = now()
+    RETURNING trace_id, span_id
+  `.catch((error: Error) => {
+    console.error("[logging:trace] completed span write failed:", error.message);
     return [];
   });
   return stored ? contextFor(stored.trace_id, stored.span_id) : context;
@@ -996,6 +1083,7 @@ const fromSyncSchedule = <Result = unknown>(config: SyncScheduleTraceConfig<Resu
 
 export const trace = {
   start,
+  complete,
   record,
   end,
   withSpan,

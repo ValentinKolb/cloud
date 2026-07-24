@@ -53,7 +53,7 @@ describe("core resource OpenAPI contracts", () => {
       ["patch", "/tables/{tableId}", ["200", "400", "403", "404", "409"]],
       ["delete", "/tables/{tableId}", ["204", "403", "404"]],
       ["post", "/tables/{tableId}/restore", ["200", "403", "404", "409"]],
-      ["post", "/tables/{tableId}/query", ["200", "400", "403", "404", "409"]],
+      ["post", "/tables/{tableId}/query", ["200", "400", "403", "404", "409", "503"]],
       ["get", "/views/by-table/{tableId}", ["200", "403", "404"]],
       ["post", "/views/by-table/{tableId}", ["201", "400", "403", "404", "409"]],
       ["patch", "/views/{viewId}", ["200", "400", "403", "404", "409"]],

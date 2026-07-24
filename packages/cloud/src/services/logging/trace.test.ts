@@ -120,6 +120,44 @@ describe("logging.trace", () => {
     }
   });
 
+  test("persists completed spans in one operation", async () => {
+    if (!(await canUseTraceDatabase())) {
+      console.warn("Skipping trace DB test: logging trace tables are not available.");
+      return;
+    }
+
+    const suffix = crypto.randomUUID();
+    const source = `test:trace:complete:${suffix}`;
+    const startedAt = Date.now() - 250;
+
+    try {
+      const context = await trace.complete({
+        name: "Completed trace test",
+        source,
+        status: "error",
+        statusMessage: "Expected test failure",
+        attributes: { apiKey: "secret", safe: "ok" },
+        summary: { password: "secret", kept: "yes" },
+        startedAt,
+        endedAt: startedAt + 250,
+      });
+
+      const stored = await trace.getSpan(context);
+      expect(stored).toMatchObject({
+        name: "Completed trace test",
+        source,
+        status: "error",
+        statusMessage: "Expected test failure",
+        eventCount: 0,
+        durationMs: 250,
+      });
+      expect(stored?.attributes).toMatchObject({ apiKey: "[REDACTED]", safe: "ok" });
+      expect(stored?.summary).toMatchObject({ password: "[REDACTED]", kept: "yes" });
+    } finally {
+      await sql`DELETE FROM logging.trace_spans WHERE source = ${source}`;
+    }
+  });
+
   test("source groups keep latest status separate from window error stats", async () => {
     if (!(await canUseTraceDatabase())) {
       console.warn("Skipping trace DB test: logging trace tables are not available.");

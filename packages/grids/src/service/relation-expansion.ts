@@ -1,13 +1,13 @@
 import { type ExpansionViewer, filterRelationTargetsByViewer } from "./relation-access";
-import { collectRelationTargetIds, loadRelationTargets } from "./relation-targets";
+import { collectHydratedRelationTargetIds, loadRelationTargetsBatch } from "./relation-targets";
 import type { Field, GridRecord } from "./types";
 
 const resolveExpansionByTargetTable = async (
   idsByTargetTable: Map<string, Set<string>>,
 ): Promise<Record<string, Record<string, unknown>>> => {
   const expansion: Record<string, Record<string, unknown>> = {};
-  for (const [targetTableId, ids] of idsByTargetTable) {
-    const targets = await loadRelationTargets(targetTableId, ids);
+  const targetsByTable = await loadRelationTargetsBatch(idsByTargetTable);
+  for (const targets of targetsByTable.values()) {
     for (const record of targets.records) {
       const visibleFields: Record<string, unknown> = {};
       for (const field of targets.fields) {
@@ -25,7 +25,7 @@ export const buildRelationExpansionCache = async (
   fields: Field[],
   viewer?: ExpansionViewer,
 ): Promise<Record<string, Record<string, unknown>>> => {
-  const idsByTargetTable = await collectRelationTargetIds(records, fields);
+  const idsByTargetTable = collectHydratedRelationTargetIds(records, fields);
   const visibleTargets = viewer ? await filterRelationTargetsByViewer(idsByTargetTable, viewer) : idsByTargetTable;
   return resolveExpansionByTargetTable(visibleTargets);
 };

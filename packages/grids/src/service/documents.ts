@@ -8,6 +8,8 @@ export {
   createDocumentLink,
   getDocumentLink,
   listDocumentLinksForRun,
+  publicDocumentLinkBaseUrl,
+  publicDocumentLinkBaseUrlForAppUrl,
   publicDocumentLinkPath,
   publicDocumentLinkUrl,
   publicDocumentLinkUrlForAppUrl,

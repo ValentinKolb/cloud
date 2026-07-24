@@ -45,11 +45,17 @@ export const publicDocumentLinkPath = (token: string): string => `/share/grids/d
 
 const publicDocumentLinkOrigin = (appUrl: unknown): string => publicUrlValue(appUrl).replace(/\/+$/, "") || "https://localhost:3000";
 
+export const publicDocumentLinkBaseUrlForAppUrl = (appUrl: unknown): string =>
+  `${publicDocumentLinkOrigin(appUrl)}${publicDocumentLinkPath("")}`;
+
 export const publicDocumentLinkUrlForAppUrl = (appUrl: unknown, token: string): string =>
-  `${publicDocumentLinkOrigin(appUrl)}${publicDocumentLinkPath(token)}`;
+  `${publicDocumentLinkBaseUrlForAppUrl(appUrl)}${encodeURIComponent(token)}`;
+
+export const publicDocumentLinkBaseUrl = async (): Promise<string> =>
+  publicDocumentLinkBaseUrlForAppUrl(await coreSettings.get<string>("app.url"));
 
 export const publicDocumentLinkUrl = async (token: string): Promise<string> =>
-  publicDocumentLinkUrlForAppUrl(await coreSettings.get<string>("app.url"), token);
+  `${await publicDocumentLinkBaseUrl()}${encodeURIComponent(token)}`;
 
 export const listDocumentLinksForRun = async (documentRunId: string): Promise<DocumentLink[]> => {
   const rows = await sql<DocumentDbRow[]>`

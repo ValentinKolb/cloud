@@ -33,13 +33,13 @@ const loadBaseGqlDslViews = async (baseId: string): Promise<DslViewSource[]> => 
 
 type TrustedGqlResolverContextLoaders = {
   listTablesByBase: typeof tables.listByBase;
-  listFieldsByTable: typeof fields.listByTable;
+  listFieldsByTables: typeof fields.listByTables;
   listViewsByBase: typeof loadBaseGqlDslViews;
 };
 
 const defaultLoaders: TrustedGqlResolverContextLoaders = {
   listTablesByBase: tables.listByBase,
-  listFieldsByTable: fields.listByTable,
+  listFieldsByTables: fields.listByTables,
   listViewsByBase: loadBaseGqlDslViews,
 };
 
@@ -90,10 +90,11 @@ export const buildTrustedGqlResolverContext = async (
           tables: dslTables,
           views: viewsCatalog,
         });
-  const fieldGroups = await Promise.all(
-    fieldTableIds.map(async (tableId) => ({ tableId, fields: await loaders.listFieldsByTable(tableId) })),
-  );
-  const fieldsByTableId = Object.fromEntries(fieldGroups.map((group) => [group.tableId, group.fields])) as Record<string, Field[]>;
+  const fieldGroups = await loaders.listFieldsByTables(fieldTableIds);
+  const fieldsByTableId = Object.fromEntries(fieldTableIds.map((tableId) => [tableId, fieldGroups.get(tableId) ?? []])) as Record<
+    string,
+    Field[]
+  >;
   const views = hydrateDslViewQueries({ tables: dslTables, views: viewsCatalog, fieldsByTableId });
 
   return {

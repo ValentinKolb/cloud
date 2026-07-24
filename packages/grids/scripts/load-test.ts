@@ -5,7 +5,12 @@ import { accounts, serviceAccountCredentials, serviceAccounts } from "@valentink
 import { sql } from "bun";
 import { migrate } from "../src/migrate";
 import { gridsService } from "../src/service";
-import { dropOrphanedFieldIndexes, ensureFieldIndex } from "../src/service/field-indexes";
+import {
+  dropOrphanedFieldIndexes,
+  ensureFieldIndex,
+  fieldPerformanceIndexName,
+  fieldReverseSortIndexName,
+} from "../src/service/field-indexes";
 import {
   buildLoadReport,
   deterministicRecordId,
@@ -26,6 +31,7 @@ const STATE_DIR = resolve(process.env.GRIDS_LOAD_STATE_DIR ?? "/tmp/grids-load")
 const MANIFEST_PATH = resolve(process.env.GRIDS_LOAD_MANIFEST ?? join(STATE_DIR, "manifest.json"));
 const K6_IMAGE = process.env.GRIDS_LOAD_K6_IMAGE ?? "grafana/k6:0.54.0";
 const DEFAULT_ROWS = 10_000;
+const RATE_LIMIT_SETTING = "security.rate_limit_per_second";
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
 
@@ -40,11 +46,13 @@ const readManifest = async (): Promise<LoadManifest> => {
   return LoadManifestSchema.parse(JSON.parse(raw));
 };
 
-const writeManifest = async (manifest: LoadManifest): Promise<void> => {
-  await mkdir(dirname(MANIFEST_PATH), { recursive: true, mode: 0o700 });
-  await Bun.write(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
-  await chmod(MANIFEST_PATH, 0o600);
+const writeManifestFile = async (path: string, manifest: LoadManifest): Promise<void> => {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await Bun.write(path, `${JSON.stringify(manifest, null, 2)}\n`);
+  await chmod(path, 0o600);
 };
+
+const writeManifest = (manifest: LoadManifest): Promise<void> => writeManifestFile(MANIFEST_PATH, manifest);
 
 const adminLogin = async (): Promise<{ sessionToken: string; userId: string }> => {
   const response = await fetch(`${BASE_URL}/api/auth/admin-login`, {
@@ -68,6 +76,44 @@ const tableByName = <T extends { id: string; name: string }>(tables: T[], name: 
   const table = tables.find((candidate) => candidate.name === name);
   if (!table) throw new Error(`Inventory template is missing table ${name}`);
   return table;
+};
+
+const INDEXED_FIXTURE_FIELDS = ["Asset ID", "Name", "Status", "Quantity", "Replacement value", "Purchase date"] as const;
+const fieldTrigramIndexName = (fieldId: string): string => `idx_grids_trgm_${fieldId.replaceAll("-", "")}`;
+
+const prepareFixtureIndexes = async (manifest: LoadManifest): Promise<void> => {
+  const fields = await gridsService.field.listByTable(manifest.tables.items);
+  const selected = INDEXED_FIXTURE_FIELDS.map((name) => fieldByName(fields, name));
+  const names = selected.flatMap((field) => [
+    fieldPerformanceIndexName(field.id),
+    fieldReverseSortIndexName(field.id),
+    ...(field.type === "text" || field.type === "longtext" ? [fieldTrigramIndexName(field.id)] : []),
+  ]);
+  const existing = await sql<Array<{ name: string; keyColumns: number }>>`
+    SELECT c.relname::text AS name, i.indnkeyatts::int AS "keyColumns"
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_index i ON i.indexrelid = c.oid
+    WHERE n.nspname = 'grids'
+      AND i.indisvalid = TRUE
+      AND c.relname = ANY(${sql.array(names, "TEXT")})
+  `;
+  const keyColumns = new Map(existing.map((index) => [index.name, index.keyColumns]));
+  for (const field of selected) {
+    const sortIndexesCurrent =
+      keyColumns.get(fieldPerformanceIndexName(field.id)) === 2 && keyColumns.get(fieldReverseSortIndexName(field.id)) === 2;
+    const textIndexCurrent = field.type !== "text" && field.type !== "longtext" ? true : keyColumns.has(fieldTrigramIndexName(field.id));
+    if (sortIndexesCurrent && textIndexCurrent) continue;
+    await ensureFieldIndex(field.id, field.type, manifest.tables.items, field.config);
+  }
+  await sql`
+    UPDATE grids.fields
+    SET indexed = TRUE, updated_at = now()
+    WHERE id = ANY(${sql.array(
+      selected.map((field) => field.id),
+      "UUID",
+    )})
+  `;
 };
 
 const seedRecords = async (manifest: LoadManifest, categoryIds: string[], locationIds: string[]): Promise<void> => {
@@ -251,10 +297,7 @@ const seed = async (): Promise<LoadManifest> => {
       documentRecordId: deterministicRecordId(prefix, 1),
     };
     await seedRecords(manifest, [categoryRecords[0].id], [locationRecords[0].id]);
-    for (const name of ["Asset ID", "Name", "Status", "Quantity", "Replacement value", "Purchase date"] as const) {
-      const field = fieldByName(fields, name);
-      await ensureFieldIndex(field.id, field.type, items.id, field.config);
-    }
+    await prepareFixtureIndexes(manifest);
     await writeManifest(manifest);
     console.log(`Fixture ready: ${base.name} (${base.id}), ${rows.toLocaleString("en-US")} load records`);
     console.log(`Manifest: ${MANIFEST_PATH}`);
@@ -425,65 +468,139 @@ const waitForFixtureDrain = async (manifest: LoadManifest, timeoutSeconds: numbe
   return health;
 };
 
+const updateCoreSettings = async (sessionToken: string, body: { updates?: Record<string, unknown>; resets?: string[] }): Promise<void> => {
+  const response = await fetch(`${BASE_URL}/api/admin/core/settings`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      cookie: `session_token=${sessionToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`Could not update the load-test rate limit (${response.status}): ${await response.text()}`);
+  }
+};
+
+const logout = async (sessionToken: string): Promise<void> => {
+  await fetch(`${BASE_URL}/api/auth/logout`, {
+    method: "POST",
+    headers: { cookie: `session_token=${sessionToken}` },
+  }).catch(() => undefined);
+};
+
+const readStoredSettingValue = async (): Promise<string | null> => {
+  const [row] = await sql<Array<{ value: string }>>`
+    SELECT value
+    FROM settings.entries
+    WHERE key = ${RATE_LIMIT_SETTING}
+  `;
+  return row?.value ?? null;
+};
+
+const withLoadRateLimit = async <T>(task: (sessionToken: string) => Promise<T>): Promise<T> => {
+  const requested = parsePositiveInteger(process.env.GRIDS_LOAD_RATE_LIMIT_PER_SECOND, 1_000, "GRIDS_LOAD_RATE_LIMIT_PER_SECOND");
+  const [stored] = await sql<Array<{ exists: boolean }>>`
+    SELECT EXISTS (
+      SELECT 1 FROM settings.entries WHERE key = ${RATE_LIMIT_SETTING}
+    ) AS "exists"
+  `;
+  if (stored?.exists) {
+    throw new Error(
+      `The load harness will not overwrite the custom ${RATE_LIMIT_SETTING} setting. ` +
+        `Set it to at least ${requested} requests/s for the benchmark, then retry.`,
+    );
+  }
+
+  const { sessionToken } = await adminLogin();
+  let harnessValue: string | null = null;
+  try {
+    await updateCoreSettings(sessionToken, { updates: { [RATE_LIMIT_SETTING]: requested } });
+    harnessValue = await readStoredSettingValue();
+    if (!harnessValue) throw new Error("The load-test rate limit was not persisted");
+    console.log(`Temporarily raised the per-identity rate limit to ${requested} requests/s`);
+    return await task(sessionToken);
+  } finally {
+    try {
+      const currentValue = await readStoredSettingValue();
+      if (!harnessValue || currentValue !== harnessValue) {
+        console.warn("The rate-limit setting changed during the run; leaving the newer value untouched");
+      } else {
+        await updateCoreSettings(sessionToken, { resets: [RATE_LIMIT_SETTING] });
+        console.log("Restored the default per-identity rate limit");
+      }
+    } finally {
+      await logout(sessionToken);
+    }
+  }
+};
+
 const run = async (profile: LoadProfile): Promise<void> => {
   const manifest = await readManifest();
   if (process.env.GRIDS_LOAD_INCLUDE_PDF === "1" && !manifest.documentTemplateId) {
     throw new Error("GRIDS_LOAD_INCLUDE_PDF=1 requires an enabled document template in the fixture");
   }
-  const reportDir = resolve(process.env.GRIDS_LOAD_REPORT_DIR ?? join(STATE_DIR, "results", `${Date.now()}-${profile}`));
-  await mkdir(reportDir, { recursive: true });
-  const startedAt = new Date().toISOString();
-  const before = await captureHealth(manifest);
-  await Bun.write(join(reportDir, "before.json"), `${JSON.stringify(before, null, 2)}\n`);
+  await prepareFixtureIndexes(manifest);
+  await withLoadRateLimit(async (sessionToken) => {
+    const reportDir = resolve(process.env.GRIDS_LOAD_REPORT_DIR ?? join(STATE_DIR, "results", `${Date.now()}-${profile}`));
+    await mkdir(reportDir, { recursive: true, mode: 0o700 });
+    const runtimeManifestPath = join(reportDir, ".runtime-manifest.json");
+    await writeManifestFile(runtimeManifestPath, { ...manifest, sessionToken });
+    const startedAt = new Date().toISOString();
+    const before = await captureHealth(manifest);
+    await Bun.write(join(reportDir, "before.json"), `${JSON.stringify(before, null, 2)}\n`);
 
-  const scriptPath = resolve(import.meta.dir, "load-test.k6.js");
-  const args = [
-    "docker",
-    "run",
-    "--rm",
-    "--add-host=host.docker.internal:host-gateway",
-    "-v",
-    `${scriptPath}:/scripts/load-test.k6.js:ro`,
-    "-v",
-    `${dirname(MANIFEST_PATH)}:/state:ro`,
-    "-v",
-    `${reportDir}:/results`,
-    "-e",
-    `GRIDS_LOAD_PROFILE=${profile}`,
-    "-e",
-    `GRIDS_LOAD_BASE_URL=${DOCKER_BASE_URL}`,
-    "-e",
-    `GRIDS_LOAD_MANIFEST=/state/${MANIFEST_PATH.split("/").at(-1)}`,
-    "-e",
-    `GRIDS_LOAD_INCLUDE_PDF=${process.env.GRIDS_LOAD_INCLUDE_PDF ?? "0"}`,
-  ];
-  if (process.env.GRIDS_LOAD_DURATION) args.push("-e", `GRIDS_LOAD_DURATION=${process.env.GRIDS_LOAD_DURATION}`);
-  if (process.env.GRIDS_LOAD_SCENARIOS) args.push("-e", `GRIDS_LOAD_SCENARIOS=${process.env.GRIDS_LOAD_SCENARIOS}`);
-  if (process.env.GRIDS_LOAD_READ_RATE) args.push("-e", `GRIDS_LOAD_READ_RATE=${process.env.GRIDS_LOAD_READ_RATE}`);
-  args.push(K6_IMAGE, "run", "/scripts/load-test.k6.js");
-  console.log(`Running ${profile} profile against ${manifest.rows.toLocaleString("en-US")} fixture records`);
-  const k6 = Bun.spawn(args, { stdout: "inherit", stderr: "inherit" });
-  const k6ExitCode = await k6.exited;
+    const scriptPath = resolve(import.meta.dir, "load-test.k6.js");
+    const args = ["docker", "run", "--rm"];
+    const dockerNetwork = process.env.GRIDS_LOAD_DOCKER_NETWORK?.trim();
+    if (dockerNetwork) args.push("--network", dockerNetwork);
+    else args.push("--add-host=host.docker.internal:host-gateway");
+    args.push(
+      "-v",
+      `${scriptPath}:/scripts/load-test.k6.js:ro`,
+      "-v",
+      `${runtimeManifestPath}:/state/manifest.json:ro`,
+      "-v",
+      `${reportDir}:/results`,
+      "-e",
+      `GRIDS_LOAD_PROFILE=${profile}`,
+      "-e",
+      `GRIDS_LOAD_BASE_URL=${DOCKER_BASE_URL}`,
+      "-e",
+      "GRIDS_LOAD_MANIFEST=/state/manifest.json",
+      "-e",
+      `GRIDS_LOAD_INCLUDE_PDF=${process.env.GRIDS_LOAD_INCLUDE_PDF ?? "0"}`,
+    );
+    if (process.env.GRIDS_LOAD_DURATION) args.push("-e", `GRIDS_LOAD_DURATION=${process.env.GRIDS_LOAD_DURATION}`);
+    if (process.env.GRIDS_LOAD_SCENARIOS) args.push("-e", `GRIDS_LOAD_SCENARIOS=${process.env.GRIDS_LOAD_SCENARIOS}`);
+    if (process.env.GRIDS_LOAD_READ_RATE) args.push("-e", `GRIDS_LOAD_READ_RATE=${process.env.GRIDS_LOAD_READ_RATE}`);
+    if (process.env.GRIDS_LOAD_READ_MAX_VUS) args.push("-e", `GRIDS_LOAD_READ_MAX_VUS=${process.env.GRIDS_LOAD_READ_MAX_VUS}`);
+    if (process.env.GRIDS_LOAD_READ_OPERATION) args.push("-e", `GRIDS_LOAD_READ_OPERATION=${process.env.GRIDS_LOAD_READ_OPERATION}`);
+    args.push(K6_IMAGE, "run", "/scripts/load-test.k6.js");
+    console.log(`Running ${profile} profile against ${manifest.rows.toLocaleString("en-US")} fixture records`);
+    const k6 = Bun.spawn(args, { stdout: "inherit", stderr: "inherit" });
+    const k6ExitCode = await k6.exited.finally(() => rm(runtimeManifestPath, { force: true }));
 
-  const settleSeconds = parsePositiveInteger(process.env.GRIDS_LOAD_SETTLE_SECONDS, 60, "GRIDS_LOAD_SETTLE_SECONDS");
-  const after = await waitForFixtureDrain(manifest, settleSeconds);
-  const summary = await readFile(join(reportDir, "k6-summary.json"), "utf8")
-    .then((value) => JSON.parse(value))
-    .catch(() => ({}));
-  const report = buildLoadReport({
-    profile,
-    k6ExitCode,
-    rows: manifest.rows,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-    summary,
-    before,
-    after,
+    const settleSeconds = parsePositiveInteger(process.env.GRIDS_LOAD_SETTLE_SECONDS, 60, "GRIDS_LOAD_SETTLE_SECONDS");
+    const after = await waitForFixtureDrain(manifest, settleSeconds);
+    const summary = await readFile(join(reportDir, "k6-summary.json"), "utf8")
+      .then((value) => JSON.parse(value))
+      .catch(() => ({}));
+    const report = buildLoadReport({
+      profile,
+      k6ExitCode,
+      rows: manifest.rows,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      summary,
+      before,
+      after,
+    });
+    await Bun.write(join(reportDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+    await Bun.write(join(reportDir, "report.md"), renderLoadReport(report));
+    console.log(`Report: ${join(reportDir, "report.md")}`);
+    if (k6ExitCode !== 0 || !report.passed) throw new Error(`Load profile failed (k6=${k6ExitCode}, gates=${report.passed})`);
   });
-  await Bun.write(join(reportDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
-  await Bun.write(join(reportDir, "report.md"), renderLoadReport(report));
-  console.log(`Report: ${join(reportDir, "report.md")}`);
-  if (k6ExitCode !== 0 || !report.passed) throw new Error(`Load profile failed (k6=${k6ExitCode}, gates=${report.passed})`);
 };
 
 const usage = (): never => {
