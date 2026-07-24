@@ -58,7 +58,14 @@ Check these conditions:
 - **Mailbox tools > Mailbox health** shows a usable connection.
 - The draft has recipients and either body content or an attachment.
 - Every attachment upload completed successfully and no file exceeds 100 MiB.
+- The complete encoded message fits the current outgoing limit published by the provider.
 - The provider credential has not expired or been revoked.
+
+An attachment can fit Mail's 100 MiB per-file limit while the complete encoded
+message still exceeds a smaller provider limit. Remove one or more attachments,
+or create a public download link and send that link instead. A mailbox
+administrator can inspect and refresh the observed values under **Mailbox tools
+> Mailbox health > Provider limits**.
 
 If the provider credential changed, use **Settings > Delivery > Connected account > Replace**. The existing secret cannot be displayed or partially edited.
 

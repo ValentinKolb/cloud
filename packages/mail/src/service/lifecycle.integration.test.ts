@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Readable } from "node:stream";
 import { mutex } from "@valentinkolb/sync";
 import { sql } from "bun";
-import type { ConnectorVerification } from "../contracts";
+import { type ConnectorVerification, unavailableProviderLimitSnapshot } from "../contracts";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess, updateMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -83,6 +83,7 @@ const fixtureVerification = (): ConnectorVerification => ({
     quota: false,
     gmailExtensions: false,
   },
+  limits: unavailableProviderLimitSnapshot(),
   accounts: [
     {
       id: "lifecycle@example.com",

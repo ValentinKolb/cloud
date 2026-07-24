@@ -121,5 +121,19 @@ export const buildMimeSource = async (params: {
   return Buffer.concat(chunks);
 };
 
+export const measureMimeStream = async (
+  params: Parameters<typeof buildMimeStream>[0],
+): Promise<number> => {
+  let byteLength = 0;
+  for await (const value of buildMimeStream(params)) {
+    if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+      byteLength += value.byteLength;
+      continue;
+    }
+    byteLength += Buffer.byteLength(String(value));
+  }
+  return byteLength;
+};
+
 export const outboundRecipients = (snapshot: OutboundDraftSnapshot): string[] =>
   [...snapshot.to, ...snapshot.cc, ...snapshot.bcc].map((recipient) => recipient.address.toLowerCase());

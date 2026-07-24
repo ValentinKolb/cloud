@@ -23,4 +23,15 @@ describe("Mail API composition", () => {
       ),
     ).toBe(true);
   });
+
+  test("exposes an explicit mailbox-scoped provider limit refresh", () => {
+    expect(
+      api.routes.some(
+        (route) =>
+          route.method === "POST" &&
+          route.path ===
+            "/mailboxes/:mailboxId/connections/:connectionId/limits/refresh",
+      ),
+    ).toBe(true);
+  });
 });

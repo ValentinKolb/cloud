@@ -3,7 +3,12 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { Mailbox, MailboxOperationalHealth, ProviderBinding } from "../../contracts";
+import type {
+  Mailbox,
+  MailboxOperationalHealth,
+  ProviderBinding,
+  ProviderConnection,
+} from "../../contracts";
 import { readApiError } from "./api-response";
 import MailOperationalSettings from "./MailOperationalSettings";
 
@@ -11,6 +16,7 @@ type MailboxHealthData = {
   mailbox: Mailbox;
   health: MailboxOperationalHealth;
   bindings: ProviderBinding[];
+  connections: ProviderConnection[];
 };
 
 function MailboxHealthDialog(props: { mailboxId: string; dateConfig: DateContext; close: () => void; onWorkspaceChange: () => void }) {
@@ -18,18 +24,21 @@ function MailboxHealthDialog(props: { mailboxId: string; dateConfig: DateContext
   const load = mutation.create<MailboxHealthData, void>({
     mutation: async (_input, context) => {
       const request = { init: { signal: context.abortSignal } };
-      const [mailboxResponse, healthResponse, bindingsResponse] = await Promise.all([
+      const [mailboxResponse, healthResponse, bindingsResponse, connectionsResponse] = await Promise.all([
         apiClient.mailboxes[":mailboxId"].$get({ param: { mailboxId: props.mailboxId } }, request),
         apiClient.mailboxes[":mailboxId"].health.$get({ param: { mailboxId: props.mailboxId } }, request),
         apiClient.mailboxes[":mailboxId"].bindings.$get({ param: { mailboxId: props.mailboxId } }, request),
+        apiClient.mailboxes[":mailboxId"].connections.$get({ param: { mailboxId: props.mailboxId } }, request),
       ]);
       if (!mailboxResponse.ok) throw new Error(await readApiError(mailboxResponse, "Could not load the mailbox"));
       if (!healthResponse.ok) throw new Error(await readApiError(healthResponse, "Could not load mailbox health"));
       if (!bindingsResponse.ok) throw new Error(await readApiError(bindingsResponse, "Could not load the connected account"));
+      if (!connectionsResponse.ok) throw new Error(await readApiError(connectionsResponse, "Could not load provider limits"));
       return {
         mailbox: await mailboxResponse.json(),
         health: await healthResponse.json(),
         bindings: await bindingsResponse.json(),
+        connections: await connectionsResponse.json(),
       };
     },
     onSuccess: setData,
@@ -89,6 +98,7 @@ function MailboxHealthDialog(props: { mailboxId: string; dateConfig: DateContext
                 mailbox={current().mailbox}
                 health={current().health}
                 bindings={current().bindings}
+                connections={current().connections}
                 dateConfig={props.dateConfig}
                 reloading={load.loading()}
                 onReload={reload}

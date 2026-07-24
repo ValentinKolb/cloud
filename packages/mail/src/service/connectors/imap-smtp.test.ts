@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { ListResponse } from "imapflow";
-import { assertUidValidity, parseEnvelopeHeaders, parseReferences, renameImapFolder, selectUidBatch } from "./imap-smtp";
+import {
+  assertUidValidity,
+  normalizeImapQuotaEvidence,
+  parseEnvelopeHeaders,
+  parseReferences,
+  renameImapFolder,
+  selectUidBatch,
+} from "./imap-smtp";
 
 const sparseSearch = (uids: number[], probes: Array<[number, number]>) => async (lowUid: number, highUid: number) => {
   probes.push([lowUid, highUid]);
@@ -104,6 +111,43 @@ describe("IMAP References parsing", () => {
       receipts: { dispositionNotificationTo: "sender@example.com" },
       spam: { flag: "NO" },
     });
+  });
+});
+
+describe("IMAP quota normalization", () => {
+  test("accepts the documented ImapFlow response shape", () => {
+    expect(
+      normalizeImapQuotaEvidence({
+        storage: { used: 1_024, limit: 4_096 },
+        messages: { used: 2, limit: 10 },
+      }),
+    ).toEqual({
+      status: "supported",
+      storage: { used: 1_024, limit: 4_096 },
+      messages: { used: 2, limit: 10 },
+    });
+  });
+
+  test("accepts the current runtime response shape and zero limits", () => {
+    expect(
+      normalizeImapQuotaEvidence({
+        path: "INBOX",
+        storage: { usage: 0, limit: 0 },
+        message: { usage: 3, limit: 20 },
+      }),
+    ).toEqual({
+      status: "supported",
+      storage: { used: 0, limit: 0 },
+      messages: { used: 3, limit: 20 },
+    });
+  });
+
+  test("rejects malformed provider evidence", () => {
+    expect(
+      normalizeImapQuotaEvidence({
+        storage: { limit: 4_096 },
+      }),
+    ).toBeNull();
   });
 });
 

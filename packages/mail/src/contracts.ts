@@ -389,6 +389,74 @@ export const mailOAuthFlowResultSchema = z.object({
 });
 export type MailOAuthFlowResult = z.infer<typeof mailOAuthFlowResultSchema>;
 
+export const providerLimitStatusSchema = z.enum([
+  "supported",
+  "unsupported",
+  "unavailable",
+]);
+export type ProviderLimitStatus = z.infer<typeof providerLimitStatusSchema>;
+
+const providerQuotaUsageSchema = z.object({
+  used: z.number().int().nonnegative(),
+  limit: z.number().int().nonnegative(),
+});
+
+const unavailableProviderQuotaSchema = z.object({
+  status: z.enum(["unsupported", "unavailable"]),
+  storage: z.null(),
+  messages: z.null(),
+});
+
+const availableProviderQuotaSchema = z.object({
+  status: z.literal("supported"),
+  storage: providerQuotaUsageSchema.nullable(),
+  messages: providerQuotaUsageSchema.nullable(),
+});
+
+const unavailableProviderMessageLimitSchema = z.object({
+  status: z.enum(["unsupported", "unavailable"]),
+  maxMessageBytes: z.null(),
+});
+
+const availableProviderMessageLimitSchema = z.object({
+  status: z.literal("supported"),
+  maxMessageBytes: z.number().int().positive().nullable(),
+});
+
+export const providerLimitSnapshotSchema = z.object({
+  checkedAt: z.string().datetime(),
+  imap: z.discriminatedUnion("status", [
+    availableProviderQuotaSchema,
+    unavailableProviderQuotaSchema,
+  ]),
+  smtp: z.discriminatedUnion("status", [
+    availableProviderMessageLimitSchema,
+    unavailableProviderMessageLimitSchema,
+  ]),
+});
+export type ProviderLimitSnapshot = z.infer<
+  typeof providerLimitSnapshotSchema
+>;
+
+export const PROVIDER_LIMIT_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+
+export const unavailableProviderLimitSnapshot = (
+  checkedAt = new Date().toISOString()
+): ProviderLimitSnapshot => ({
+  checkedAt,
+  imap: { status: "unavailable", storage: null, messages: null },
+  smtp: { status: "unavailable", maxMessageBytes: null },
+});
+
+export const parseProviderLimitSnapshot = (
+  value: unknown
+): ProviderLimitSnapshot => {
+  const parsed = providerLimitSnapshotSchema.safeParse(value);
+  return parsed.success
+    ? parsed.data
+    : unavailableProviderLimitSnapshot("1970-01-01T00:00:00.000Z");
+};
+
 export const providerConnectionSchema = z.object({
   id: z.string().uuid(),
   mailboxId: z.string().uuid(),
@@ -411,6 +479,7 @@ export const providerConnectionSchema = z.object({
     .nullable(),
   status: z.enum(["active", "degraded", "revoked"]),
   authenticatedPrincipal: z.string().nullable(),
+  limits: providerLimitSnapshotSchema,
   lastVerifiedAt: z.string().datetime().nullable(),
   lastError: z.string().nullable(),
   createdAt: z.string().datetime(),
@@ -2716,5 +2785,6 @@ export type ConnectorVerification = {
   authenticatedPrincipal: string;
   serverIdentity: Record<string, unknown>;
   capabilities: ConnectorCapabilities;
+  limits: ProviderLimitSnapshot;
   accounts: RemoteAccount[];
 };

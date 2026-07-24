@@ -3626,6 +3626,70 @@ test("provider list reports managed OAuth state without credentials", async () =
   expect(result.stdout).not.toContain("refreshToken");
 });
 
+test("provider limit commands expose cached evidence and explicit refresh", async () => {
+  const methods: string[] = [];
+  const connection = {
+    id: CONNECTION_ID,
+    mailboxId: MAILBOX_ID,
+    name: "Provider",
+    email: "sender@example.com",
+    status: "active",
+    limits: {
+      checkedAt: "2026-07-24T12:00:00.000Z",
+      imap: {
+        status: "supported",
+        storage: { used: 1024, limit: 2048 },
+        messages: null,
+      },
+      smtp: { status: "supported", maxMessageBytes: 25_000_000 },
+    },
+  };
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    if (
+      url.pathname ===
+      `/api/mail/mailboxes/${MAILBOX_ID}/connections/${CONNECTION_ID}/limits/refresh`
+    ) {
+      methods.push(request.method);
+      return api(connection);
+    }
+    if (
+      request.method === "GET" &&
+      url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/connections`
+    ) {
+      methods.push(request.method);
+      return api([connection]);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const listed = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "provider",
+    "limits",
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const refreshed = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "provider",
+    "limits",
+    "refresh",
+    CONNECTION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(listed.exitCode).toBe(0);
+  expect(JSON.parse(listed.stdout)).toEqual([connection]);
+  expect(refreshed.exitCode).toBe(0);
+  expect(JSON.parse(refreshed.stdout)).toEqual(connection);
+  expect(methods).toEqual(["GET", "POST"]);
+});
+
 test("automatic reply commands cover list, create, and revision-checked update", async () => {
   const input = {
     name: "Out of office",

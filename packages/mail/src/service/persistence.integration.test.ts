@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Readable } from "node:stream";
 import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { unavailableProviderLimitSnapshot } from "../contracts";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, listMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -529,7 +530,7 @@ suite("mail PostgreSQL foundation", () => {
         idempotencyKey: `reply-source-send-${suffix}`,
       },
     });
-    expect(replyCommand.ok).toBe(true);
+    expect(replyCommand).toEqual(expect.objectContaining({ ok: true }));
     if (!replyCommand.ok) return;
     const scheduledConversationDrafts = await listConversationDrafts({
       context,
@@ -889,10 +890,24 @@ suite("mail PostgreSQL foundation", () => {
       },
     });
     expect(conflictingCommand.ok).toBe(false);
-    const [outbox] = await sql<{ id: string; draft_snapshot: Record<string, unknown> | string; state: string }[]>`
-      SELECT id, draft_snapshot, state FROM mail.outbox_submissions WHERE command_id = ${command.data.id}::uuid
+    const [outbox] = await sql<
+      {
+        id: string;
+        draft_snapshot: Record<string, unknown> | string;
+        state: string;
+        mime_date: Date;
+        preflight_byte_length: string | number;
+      }[]
+    >`
+      SELECT id, draft_snapshot, state, mime_date, preflight_byte_length
+      FROM mail.outbox_submissions
+      WHERE command_id = ${command.data.id}::uuid
     `;
     expect(outbox?.state).toBe("undo_window");
+    expect(outbox?.mime_date).toBeInstanceOf(Date);
+    expect(Number(outbox?.preflight_byte_length)).toBeGreaterThan(
+      outgoingAttachment.length,
+    );
     const snapshot = typeof outbox?.draft_snapshot === "string" ? JSON.parse(outbox.draft_snapshot) : outbox?.draft_snapshot;
     expect(snapshot?.subject).toBe("Integration subject");
     expect(snapshot?.attachments).toEqual([
@@ -905,6 +920,55 @@ suite("mail PostgreSQL foundation", () => {
     ]);
     const cancelled = await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: command.data.id });
     expect(cancelled.ok).toBe(true);
+    await sql`
+      UPDATE mail.provider_connections
+      SET limit_snapshot = ${{
+        checkedAt: new Date().toISOString(),
+        imap: { status: "unsupported", storage: null, messages: null },
+        smtp: { status: "supported", maxMessageBytes: 1 },
+      }}::jsonb
+      WHERE id = ${connection!.id}::uuid
+    `;
+    const oversizedDraft = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        senderIdentityId: identity!.id,
+        to: [{ name: "Recipient", address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Provider limit",
+        body: "This message cannot fit into one byte.",
+        format: "plain",
+      },
+    });
+    expect(oversizedDraft.ok).toBe(true);
+    if (!oversizedDraft.ok) return;
+    const oversizedSend = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: oversizedDraft.data.id,
+        expectedDraftRevision: oversizedDraft.data.revision,
+        senderIdentityId: identity!.id,
+        undoSeconds: 0,
+        idempotencyKey: `oversized-send-${suffix}`,
+      },
+    });
+    expect(oversizedSend).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({
+          message: expect.stringContaining("mail provider allows at most 1 B"),
+        }),
+      }),
+    );
+    await sql`
+      UPDATE mail.provider_connections
+      SET limit_snapshot = ${unavailableProviderLimitSnapshot()}::jsonb
+      WHERE id = ${connection!.id}::uuid
+    `;
     const discardScheduledDraft = await createDraft({
       context,
       mailboxId: mailbox.data.id,
@@ -2449,6 +2513,7 @@ suite("mail PostgreSQL foundation", () => {
         quota: false,
         gmailExtensions: false,
       },
+      limits: unavailableProviderLimitSnapshot(),
       accounts: [{ id: "sender@example.com", name: "Fixture", locator: {}, namespaces: [] }],
     });
     try {

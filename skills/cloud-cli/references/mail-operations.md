@@ -34,8 +34,22 @@ Discover likely settings and inspect write-only provider records:
 ```bash
 cld --json mail provider discover support@example.com
 cld --json mail provider list
+cld --json mail provider limits
 cld --json mail binding list
 ```
+
+`provider limits` shows the last mailbox quota reported through IMAP and the
+maximum outgoing message size advertised through SMTP. Refresh one connection
+when the cached observation is outdated:
+
+```bash
+cld --json mail provider limits refresh <connection-id>
+```
+
+These limits are optional provider capabilities. `unsupported` means the server
+does not advertise the capability; `unavailable` means Mail could not obtain a
+reliable value. Mail never invents a limit and does not block delivery from an
+unknown or outdated observation.
 
 Replace an existing credential atomically through stdin or a file:
 

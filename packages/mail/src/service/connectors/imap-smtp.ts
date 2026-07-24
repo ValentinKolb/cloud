@@ -11,12 +11,15 @@ import {
 } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
+import SMTPConnection from "nodemailer/lib/smtp-connection";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
+import { z } from "zod";
 import type {
   ConnectorCapabilities,
   ConnectorVerification,
   FolderRole,
   ProviderConnectionInput,
+  ProviderLimitSnapshot,
   ProviderTransportDiagnostic,
   ProviderTransportDiagnostics,
   RemoteFolder,
@@ -149,6 +152,66 @@ const mapCapabilities = (client: ImapFlow): ConnectorCapabilities => ({
   gmailExtensions: capability(client, "X-GM-EXT-1"),
 });
 
+const unavailableImapLimits = (): ProviderLimitSnapshot["imap"] => ({
+  status: "unavailable",
+  storage: null,
+  messages: null,
+});
+
+const imapQuotaResourceSchema = z
+  .object({
+    used: z.number().int().nonnegative().optional(),
+    usage: z.number().int().nonnegative().optional(),
+    limit: z.number().int().nonnegative(),
+  })
+  .refine(
+    (resource) => resource.used !== undefined || resource.usage !== undefined,
+    "Quota usage is required",
+  );
+
+const imapQuotaEvidenceSchema = z
+  .object({
+    storage: imapQuotaResourceSchema.optional(),
+    messages: imapQuotaResourceSchema.optional(),
+    message: imapQuotaResourceSchema.optional(),
+  })
+  .passthrough();
+
+const normalizeQuotaResource = (
+  resource: z.infer<typeof imapQuotaResourceSchema> | undefined,
+): { used: number; limit: number } | null => {
+  if (!resource) return null;
+  const used = resource.used ?? resource.usage;
+  return used === undefined ? null : { used, limit: resource.limit };
+};
+
+export const normalizeImapQuotaEvidence = (
+  value: unknown,
+): ProviderLimitSnapshot["imap"] | null => {
+  const parsed = imapQuotaEvidenceSchema.safeParse(value);
+  if (!parsed.success) return null;
+  return {
+    status: "supported",
+    storage: normalizeQuotaResource(parsed.data.storage),
+    messages: normalizeQuotaResource(
+      parsed.data.messages ?? parsed.data.message,
+    ),
+  };
+};
+
+const readImapLimits = async (client: ImapFlow): Promise<ProviderLimitSnapshot["imap"]> => {
+  if (!capability(client, "QUOTA")) {
+    return { status: "unsupported", storage: null, messages: null };
+  }
+  try {
+    const quota = await client.getQuota("INBOX");
+    if (!quota) return unavailableImapLimits();
+    return normalizeImapQuotaEvidence(quota) ?? unavailableImapLimits();
+  } catch {
+    return unavailableImapLimits();
+  }
+};
+
 const mapNamespaces = (client: ImapFlowWithNamespaces): RemoteNamespace[] => {
   const namespaces = client.namespaces;
   const mapped: RemoteNamespace[] = [];
@@ -160,20 +223,27 @@ const mapNamespaces = (client: ImapFlowWithNamespaces): RemoteNamespace[] => {
 
 const verifyImap = async (
   config: ProviderConnectionInput,
-): Promise<Omit<ConnectorVerification, "accounts"> & { namespaces: RemoteNamespace[] }> =>
-  withImapClient(config, async (client) => ({
-    authenticatedPrincipal: typeof client.authenticated === "string" ? client.authenticated : config.username,
-    serverIdentity: {
-      host: config.imap.host,
-      port: config.imap.port,
-      tlsMode: config.imap.tlsMode,
-      secureConnection: client.secureConnection,
-      serverInfo: client.serverInfo ?? {},
-      advertisedCapabilities: [...client.capabilities.keys()].sort(),
-    },
-    capabilities: mapCapabilities(client),
-    namespaces: mapNamespaces(client),
-  }));
+): Promise<Omit<ConnectorVerification, "accounts" | "limits"> & {
+  namespaces: RemoteNamespace[];
+  limits: ProviderLimitSnapshot["imap"];
+}> =>
+  withImapClient(config, async (client) => {
+    const limits = await readImapLimits(client);
+    return {
+      authenticatedPrincipal: typeof client.authenticated === "string" ? client.authenticated : config.username,
+      serverIdentity: {
+        host: config.imap.host,
+        port: config.imap.port,
+        tlsMode: config.imap.tlsMode,
+        secureConnection: client.secureConnection,
+        serverInfo: client.serverInfo ?? {},
+        advertisedCapabilities: [...client.capabilities.keys()].sort(),
+      },
+      capabilities: mapCapabilities(client),
+      namespaces: mapNamespaces(client),
+      limits,
+    };
+  });
 
 const smtpOptions = (config: ProviderConnectionInput, endpoint: ResolvedEndpoint, address: string): SMTPTransport.Options => ({
   host: address,
@@ -238,6 +308,110 @@ const verifySmtp = async (config: ProviderConnectionInput): Promise<void> =>
     { allowAddressFailover: true },
   );
 
+const smtpCapabilityEvidenceSchema = z.object({
+  extensions: z.array(z.string()),
+  maxAllowedSize: z.number().int().nonnegative(),
+});
+
+type SmtpConnectionCapabilityEvidence = {
+  _supportedExtensions?: unknown;
+  _maxAllowedSize?: unknown;
+};
+
+const readSmtpCapabilityEvidence = (connection: SMTPConnection): z.infer<typeof smtpCapabilityEvidenceSchema> => {
+  // Nodemailer parses RFC 1870 but does not expose the result in its public types.
+  const internal = connection as SMTPConnection & SmtpConnectionCapabilityEvidence;
+  const parsed = smtpCapabilityEvidenceSchema.safeParse({
+    extensions: internal._supportedExtensions,
+    maxAllowedSize: internal._maxAllowedSize,
+  });
+  if (!parsed.success) throw Object.assign(new Error("SMTP capability evidence is unavailable"), { code: "SMTP_LIMIT_UNAVAILABLE" });
+  return parsed.data;
+};
+
+const smtpConnectionOptions = (
+  config: ProviderConnectionInput,
+  endpoint: ResolvedEndpoint,
+  address: string,
+): SMTPConnection.Options => ({
+  host: address,
+  port: endpoint.port,
+  secure: endpoint.tlsMode === "implicit",
+  requireTLS: endpoint.tlsMode === "starttls",
+  ignoreTLS: false,
+  name: "cloud-mail",
+  logger: false,
+  debug: false,
+  connectionTimeout: 15_000,
+  greetingTimeout: 15_000,
+  socketTimeout: 60_000,
+  tls: {
+    rejectUnauthorized: true,
+    minVersion: "TLSv1.2",
+    servername: isIP(endpoint.host) ? undefined : endpoint.host,
+  },
+});
+
+const connectForSmtpCapabilities = async (
+  config: ProviderConnectionInput,
+  endpoint: ResolvedEndpoint,
+  address: string,
+): Promise<ProviderLimitSnapshot["smtp"]> => {
+  const connection = new SMTPConnection(smtpConnectionOptions(config, endpoint, address));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => reject(error);
+      connection.once("error", onError);
+      connection.connect((error) => {
+        connection.off("error", onError);
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+    const evidence = readSmtpCapabilityEvidence(connection);
+    if (!evidence.extensions.includes("SIZE")) {
+      return { status: "unsupported", maxMessageBytes: null };
+    }
+    return {
+      status: "supported",
+      maxMessageBytes: evidence.maxAllowedSize > 0 ? evidence.maxAllowedSize : null,
+    };
+  } finally {
+    connection.close();
+  }
+};
+
+const discoverSmtpLimits = async (config: ProviderConnectionInput): Promise<ProviderLimitSnapshot["smtp"]> => {
+  try {
+    const endpoint = await resolvePublicEndpoint(config.smtp);
+    let lastError: unknown;
+    for (const resolved of endpoint.addresses) {
+      try {
+        return await connectForSmtpCapabilities(config, endpoint, resolved.address);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error("SMTP endpoint did not provide a usable address");
+  } catch {
+    return { status: "unavailable", maxMessageBytes: null };
+  }
+};
+
+const discoverImapLimits = async (config: ProviderConnectionInput): Promise<ProviderLimitSnapshot["imap"]> => {
+  try {
+    return await withImapClient(config, readImapLimits);
+  } catch {
+    return unavailableImapLimits();
+  }
+};
+
+const discoverLimits = async (config: ProviderConnectionInput): Promise<ProviderLimitSnapshot> => {
+  const checkedAt = new Date().toISOString();
+  const [imap, smtp] = await Promise.all([discoverImapLimits(config), discoverSmtpLimits(config)]);
+  return { checkedAt, imap, smtp };
+};
+
 export const transportDiagnostic = (result: PromiseSettledResult<unknown>): ProviderTransportDiagnostic => {
   if (result.status === "fulfilled") return { status: "verified", category: null, message: "Verified" };
   const error = result.reason as { code?: unknown; message?: unknown } | null;
@@ -269,7 +443,11 @@ export const transportDiagnostic = (result: PromiseSettledResult<unknown>): Prov
 export const verifyImapSmtpTransports = async (
   config: ProviderConnectionInput,
 ): Promise<{ verification: ConnectorVerification | null; diagnostics: ProviderTransportDiagnostics }> => {
-  const [imap, smtp] = await Promise.allSettled([verifyImap(config), verifySmtp(config)]);
+  const checkedAt = new Date().toISOString();
+  const [imap, smtp] = await Promise.allSettled([
+    verifyImap(config),
+    Promise.all([verifySmtp(config), discoverSmtpLimits(config)]).then(([, limits]) => limits),
+  ]);
   const diagnostics = { imap: transportDiagnostic(imap), smtp: transportDiagnostic(smtp) } satisfies ProviderTransportDiagnostics;
   if (imap.status === "rejected" || smtp.status === "rejected") return { verification: null, diagnostics };
   const accountId = sha256(`${config.imap.host.toLowerCase()}\n${imap.value.authenticatedPrincipal.toLowerCase()}`);
@@ -279,6 +457,7 @@ export const verifyImapSmtpTransports = async (
       authenticatedPrincipal: imap.value.authenticatedPrincipal,
       serverIdentity: imap.value.serverIdentity,
       capabilities: imap.value.capabilities,
+      limits: { checkedAt, imap: imap.value.limits, smtp: smtp.value },
       accounts: [{ id: accountId, name: config.email, locator: { accountId }, namespaces: imap.value.namespaces }],
     },
   };
@@ -1015,6 +1194,7 @@ const listenForChanges = async (
 
 export const imapSmtpConnector: MailConnector = {
   verify,
+  discoverLimits,
   discoverFolders,
   getFolderStatus,
   fetchEnvelopeBatch,

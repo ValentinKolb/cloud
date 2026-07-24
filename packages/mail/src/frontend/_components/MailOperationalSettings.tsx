@@ -1,20 +1,32 @@
-import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { Placeholder, ProgressBar, prompts, toast } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
+import { PROVIDER_LIMIT_MAX_AGE_MS } from "../../contracts";
 import type {
   Mailbox,
   MailboxOperationalHealth,
   MailboxOperatorOperations,
   OperatorActionEligibility,
   ProviderBinding,
+  ProviderConnection,
   RedactedOperatorCommand,
 } from "../../contracts";
 import { readApiError } from "./api-response";
 
 const healthTone = (health: Mailbox["health"]): string =>
   health === "active" ? "badge-success" : health === "paused" ? "" : "badge-warning";
+
+const providerLimitCheckedLabel = (
+  checkedAt: string,
+  dateConfig: DateContext,
+): string =>
+  Date.parse(checkedAt) <= 0
+    ? "Not checked yet"
+    : Date.now() - Date.parse(checkedAt) > PROVIDER_LIMIT_MAX_AGE_MS
+      ? `Outdated · checked ${dates.formatDateTimeRelative(checkedAt, dateConfig)}`
+      : `Checked ${dates.formatDateTimeRelative(checkedAt, dateConfig)}`;
 
 const actionLabel = (kind: OperatorActionEligibility["kind"]): string =>
   ({
@@ -79,11 +91,14 @@ export default function MailOperationalSettings(props: {
   mailbox: Mailbox;
   health: MailboxOperationalHealth;
   bindings: ProviderBinding[];
+  connections: ProviderConnection[];
   dateConfig: DateContext;
   reloading: boolean;
   onReload: () => Promise<void>;
   onWorkspaceChange: () => void;
 }) {
+  const [refreshingConnectionId, setRefreshingConnectionId] =
+    createSignal<string | null>(null);
   type OperationalCommand =
     | { kind: "sync_mailbox" }
     | { kind: "discover_folders"; bindingId?: string }
@@ -159,6 +174,30 @@ export default function MailOperationalSettings(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  const refreshLimits = mutations.create<ProviderConnection, string>({
+    mutation: async (connectionId) => {
+      const response = await apiClient.mailboxes[":mailboxId"].connections[
+        ":connectionId"
+      ].limits.refresh.$post({
+        param: { mailboxId: props.mailbox.id, connectionId },
+      });
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(response, "Failed to refresh provider limits"),
+        );
+      }
+      return response.json();
+    },
+    onSuccess: async () => {
+      toast.success("Provider limits refreshed");
+      setRefreshingConnectionId(null);
+      await props.onReload();
+    },
+    onError: (error) => {
+      setRefreshingConnectionId(null);
+      prompts.error(error.message);
+    },
+  });
   const operatorCommand = mutations.create<void, OperatorActionEligibility>({
     mutation: async (action) => {
       const key = `${action.kind}:${JSON.stringify(action.target)}`;
@@ -187,7 +226,12 @@ export default function MailOperationalSettings(props: {
     if (confirmed) updateSync.mutate(false);
   };
 
-  const busy = () => props.reloading || updateSync.loading() || command.loading() || operatorCommand.loading();
+  const busy = () =>
+    props.reloading ||
+    updateSync.loading() ||
+    command.loading() ||
+    operatorCommand.loading() ||
+    refreshLimits.loading();
 
   const connectedBinding = () =>
     props.bindings.find((binding) => binding.state === "active") ?? props.bindings.find((binding) => binding.state !== "revoked");
@@ -264,6 +308,115 @@ export default function MailOperationalSettings(props: {
           {props.health.search.bm25Ready ? "Search ready" : "Standard search"}
         </span>
       </div>
+
+      <section class="flex flex-col gap-3">
+        <div>
+          <h3 class="text-sm font-semibold text-primary">Provider limits</h3>
+          <p class="mt-1 text-xs text-dimmed">
+            Mailbox usage reported by IMAP and outgoing message limits advertised by SMTP.
+          </p>
+        </div>
+        <Show
+          when={props.connections.some(
+            (connection) => connection.status !== "revoked",
+          )}
+          fallback={
+            <p class="text-xs text-secondary">
+              Connect a mail provider to inspect its published limits.
+            </p>
+          }
+        >
+          <div class="flex flex-col gap-2">
+            <For each={props.connections.filter((connection) => connection.status !== "revoked")}>
+              {(connection) => {
+                const storage = () => connection.limits.imap.storage;
+                const storagePercent = () => {
+                  const value = storage();
+                  if (!value) return 0;
+                  if (value.limit === 0) return value.used === 0 ? 0 : 100;
+                  return Math.min(100, (value.used / value.limit) * 100);
+                };
+                return (
+                  <div class="flex flex-col gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-3 py-2.5">
+                    <div class="flex min-w-0 items-center gap-3">
+                      <i class="ti ti-server shrink-0 text-secondary" aria-hidden="true" />
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate text-sm font-medium text-primary">{connection.name}</p>
+                        <p class="truncate text-xs text-dimmed">{connection.email}</p>
+                      </div>
+                      <span class="shrink-0 text-xs text-dimmed">
+                        {providerLimitCheckedLabel(connection.limits.checkedAt, props.dateConfig)}
+                      </span>
+                      <button
+                        type="button"
+                        class="btn-ghost btn-icon-sm"
+                        title="Refresh provider limits"
+                        aria-label={`Refresh limits for ${connection.name}`}
+                        disabled={busy()}
+                        onClick={() => {
+                          setRefreshingConnectionId(connection.id);
+                          refreshLimits.mutate(connection.id);
+                        }}
+                      >
+                        <i
+                          class={`ti ${
+                            refreshingConnectionId() === connection.id
+                              ? "ti-loader-2 animate-spin"
+                              : "ti-refresh"
+                          }`}
+                          aria-hidden="true"
+                        />
+                      </button>
+                    </div>
+                    <Show
+                      when={storage()}
+                      fallback={
+                        <p class="text-xs text-secondary">
+                          {connection.limits.imap.status === "unsupported"
+                            ? "This IMAP server does not publish mailbox storage limits."
+                            : connection.limits.imap.status === "supported"
+                              ? "No mailbox storage quota was reported."
+                              : "Mailbox storage usage is currently unavailable."}
+                        </p>
+                      }
+                    >
+                      {(quota) => (
+                        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+                          <ProgressBar
+                            value={storagePercent()}
+                            size="xs"
+                            tone={storagePercent() >= 90 ? "danger" : "primary"}
+                            label={`${connection.name} mailbox storage`}
+                          />
+                          <span class="text-xs tabular-nums text-secondary">
+                            {text.pprintBytes(quota().used)} of {text.pprintBytes(quota().limit)}
+                          </span>
+                        </div>
+                      )}
+                    </Show>
+                    <Show when={connection.limits.imap.messages}>
+                      {(quota) => (
+                        <p class="text-xs tabular-nums text-secondary">
+                          {quota().used} of {quota().limit} messages
+                        </p>
+                      )}
+                    </Show>
+                    <p class="text-xs text-secondary">
+                      {connection.limits.smtp.maxMessageBytes
+                        ? `Maximum outgoing message: ${text.pprintBytes(connection.limits.smtp.maxMessageBytes)} including encoded attachments.`
+                        : connection.limits.smtp.status === "unsupported"
+                          ? "This SMTP server does not publish an outgoing message limit."
+                          : connection.limits.smtp.status === "supported"
+                            ? "SMTP size declarations are supported, but no maximum was published."
+                            : "The outgoing message limit is currently unavailable."}
+                      </p>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
+        </Show>
+      </section>
 
       <Show when={operatorStatus.loading}>
         <Placeholder state="loading" variant="panel" title="Loading mailbox activity" />

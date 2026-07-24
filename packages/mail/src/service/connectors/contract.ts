@@ -1,5 +1,11 @@
 import type { Readable } from "node:stream";
-import type { ConnectorVerification, ProviderConnectionInput, RemoteFolder, RemoteMessageRef } from "../../contracts";
+import type {
+  ConnectorVerification,
+  ProviderConnectionInput,
+  ProviderLimitSnapshot,
+  RemoteFolder,
+  RemoteMessageRef,
+} from "../../contracts";
 import type { MessageProtocolFacts } from "../message-protocol";
 
 export type ConnectorAddress = {
@@ -169,6 +175,7 @@ export type SendSourceRequest = {
 
 export interface MailConnector {
   verify(config: ProviderConnectionInput): Promise<ConnectorVerification>;
+  discoverLimits(config: ProviderConnectionInput): Promise<ProviderLimitSnapshot>;
   discoverFolders(config: ProviderConnectionInput, signal?: AbortSignal): Promise<RemoteFolder[]>;
   getFolderStatus(config: ProviderConnectionInput, folderPath: string, signal?: AbortSignal): Promise<FolderStatusSnapshot>;
   fetchEnvelopeBatch(config: ProviderConnectionInput, request: EnvelopeBatchRequest, signal?: AbortSignal): Promise<EnvelopeBatch>;

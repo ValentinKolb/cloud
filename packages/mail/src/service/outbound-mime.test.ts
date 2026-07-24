@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { simpleParser } from "mailparser";
 import { Readable } from "node:stream";
-import { buildMimeSource, buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
+import {
+  buildMimeSource,
+  buildMimeStream,
+  measureMimeStream,
+  outboundDraftSnapshotSchema,
+  outboundRecipients,
+} from "./outbound-mime";
 
 describe("outbound MIME", () => {
   test("builds a stable threaded multipart message without exposing Bcc", async () => {
@@ -86,6 +92,32 @@ describe("outbound MIME", () => {
     expect(parsed.attachments).toHaveLength(1);
     expect(parsed.attachments[0]?.filename).toBe("payload.bin");
     expect(parsed.attachments[0]?.content.equals(attachment)).toBe(true);
+  });
+
+  test("measures the same encoded bytes that are sent", async () => {
+    const snapshot = outboundDraftSnapshotSchema.parse({
+      revision: 1,
+      from: { name: "Support", address: "support@example.com" },
+      replyTo: null,
+      envelopeFrom: null,
+      to: [{ name: null, address: "alice@example.com" }],
+      cc: [],
+      bcc: [],
+      subject: "Measured message",
+      body: "The encoded payload is authoritative.",
+      format: "plain",
+    });
+    const params = {
+      snapshot,
+      messageId: "<measured@example.com>",
+      date: new Date("2026-07-24T10:00:00.000Z"),
+      openAttachment: () => Readable.from([]),
+    };
+    const [source, measured] = await Promise.all([
+      buildMimeSource(params),
+      measureMimeStream(params),
+    ]);
+    expect(measured).toBe(source.byteLength);
   });
 
   test("marks automatic replies without exposing blind recipients", async () => {

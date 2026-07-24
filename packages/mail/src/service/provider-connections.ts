@@ -1,8 +1,15 @@
 import { audit, decryptSecret, encryptSecret, isUniqueViolation, logger } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { ConnectorVerification, MailOAuthProviderId, ProviderConnection, ProviderConnectionInput, ProviderSecret } from "../contracts";
-import { providerSecretSchema } from "../contracts";
+import type {
+  ConnectorVerification,
+  MailOAuthProviderId,
+  ProviderConnection,
+  ProviderConnectionInput,
+  ProviderLimitSnapshot,
+  ProviderSecret,
+} from "../contracts";
+import { parseProviderLimitSnapshot, providerSecretSchema } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { auditActorFromRequest, type MailRequestContext, permissionFromScopes } from "./auth";
 import { imapSmtpConnector } from "./connectors";
@@ -36,6 +43,7 @@ type DbProviderConnection = {
   oauth_expires_at: Date | string | null;
   status: "active" | "degraded" | "revoked";
   authenticated_principal: string | null;
+  limit_snapshot: unknown;
   last_verified_at: Date | string | null;
   last_error_code: string | null;
   last_error_message: string | null;
@@ -64,6 +72,7 @@ const connectionColumns = sql`
   pc.oauth_expires_at,
   pc.status,
   pc.authenticated_principal,
+  pc.limit_snapshot,
   pc.last_verified_at,
   pc.last_error_code,
   pc.last_error_message,
@@ -98,6 +107,7 @@ const mapConnection = (row: DbProviderConnection): ProviderConnection => ({
     : null,
   status: row.status,
   authenticatedPrincipal: row.authenticated_principal,
+  limits: parseProviderLimitSnapshot(row.limit_snapshot),
   lastVerifiedAt: toNullableIso(row.last_verified_at),
   lastError: row.last_error_message,
   createdAt: toIso(row.created_at),
@@ -218,6 +228,7 @@ export const createProviderConnection = async (params: {
           authenticated_principal,
           capabilities,
           server_identity,
+          limit_snapshot,
           last_verified_at
         )
         VALUES (
@@ -240,6 +251,7 @@ export const createProviderConnection = async (params: {
           ${verification.data.authenticatedPrincipal},
           ${verification.data.capabilities}::jsonb,
           ${verification.data.serverIdentity}::jsonb,
+          ${verification.data.limits}::jsonb,
           now()
         )
         RETURNING ${connectionColumns}
@@ -289,6 +301,112 @@ export const listProviderConnections = async (context: MailRequestContext, mailb
     ORDER BY pc.updated_at DESC, pc.id DESC
   `;
   return ok(rows.map(mapConnection));
+};
+
+export const refreshProviderConnectionLimits = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  connectionId: string;
+}): Promise<Result<ProviderConnection>> => {
+  const access = await authorizeMailbox(params.context, params.mailboxId);
+  if (!access.ok) return access;
+  const current = await loadConnectionRow(params.connectionId);
+  if (!current || current.owner_mailbox_id !== params.mailboxId) {
+    return fail(err.notFound("Provider connection"));
+  }
+  if (current.status === "revoked") {
+    return fail(err.badInput("Revoked provider connections cannot be refreshed"));
+  }
+
+  try {
+    const resourceIds = await listConnectionRemoteResourceIds(params.connectionId);
+    const barrier = await withMailboxProviderOperationBarrier(
+      params.mailboxId,
+      resourceIds,
+      async (assertLeaseActive) => {
+        const runtime = await loadProviderConnectionRuntimeSnapshot(
+          params.connectionId,
+        );
+        await assertLeaseActive();
+        const limits = await imapSmtpConnector.discoverLimits(runtime.runtime);
+        await assertLeaseActive();
+
+        return sql.begin(async (tx) => {
+          const locked = await loadConnectionRow(params.connectionId, tx, true);
+          if (
+            !locked ||
+            locked.owner_mailbox_id !== params.mailboxId ||
+            locked.status === "revoked"
+          ) {
+            return fail(err.notFound("Provider connection"));
+          }
+          const recheck = await authorizeMailbox(
+            params.context,
+            params.mailboxId,
+            tx,
+          );
+          if (!recheck.ok) return recheck;
+          if (
+            locked.secret_revision !== runtime.secretRevision ||
+            Number(locked.oauth_token_revision) !== runtime.oauthTokenRevision
+          ) {
+            return fail(
+              err.conflict(
+                "Provider credentials changed while limits were being refreshed; retry the operation",
+              ),
+            );
+          }
+          const [updated] = await tx<DbProviderConnection[]>`
+            UPDATE mail.provider_connections pc
+            SET limit_snapshot = ${limits}::jsonb, updated_at = now()
+            WHERE pc.id = ${params.connectionId}::uuid
+            RETURNING ${connectionColumns}
+          `;
+          if (!updated) return fail(err.notFound("Provider connection"));
+          await audit.record(
+            {
+              action: "mail.provider_connection.refresh_limits",
+              outcome: "allowed",
+              actor: auditActorFromRequest(params.context),
+              target: {
+                type: "provider_connection",
+                id: updated.id,
+                label: updated.name,
+              },
+              requestId: params.context.requestId,
+              metadata: {
+                mailboxId: params.mailboxId,
+                imapStatus: limits.imap.status,
+                smtpStatus: limits.smtp.status,
+              },
+            },
+            tx,
+          );
+          await assertLeaseActive();
+          return ok(mapConnection(updated));
+        });
+      },
+    );
+    return barrier.acquired
+      ? barrier.value
+      : fail(
+          err.conflict(
+            "Provider work is still running; retry the limit refresh shortly",
+          ),
+        );
+  } catch (error) {
+    if (
+      (error as { code?: unknown } | null)?.code ===
+      "MAIL_PROVIDER_OPERATION_LEASE_LOST"
+    ) {
+      return fail(
+        err.conflict(
+          "Provider state changed during the limit refresh; retry the operation",
+        ),
+      );
+    }
+    return fail(normalizeProviderError(error));
+  }
 };
 
 const loadConnectionRow = async (connectionId: string, db: SqlClient = sql, lock = false): Promise<DbProviderConnection | null> => {
@@ -432,6 +550,7 @@ export const replaceProviderConnection = async (params: {
           authenticated_principal = ${verification.data.authenticatedPrincipal},
           capabilities = ${verification.data.capabilities}::jsonb,
           server_identity = ${verification.data.serverIdentity}::jsonb,
+          limit_snapshot = ${verification.data.limits}::jsonb,
           last_verified_at = now(),
           last_error_code = NULL,
           last_error_message = NULL

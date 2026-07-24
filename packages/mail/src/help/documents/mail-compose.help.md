@@ -54,6 +54,14 @@ Select **Attach files** and choose one or more files. Upload progress and failur
 
 Each outgoing attachment is limited to 100 MiB. A message cannot be sent while an attachment upload is incomplete or failed.
 
+Your mail provider can impose a smaller limit on the complete outgoing message.
+Mail counts the final encoded email, including headers and attachment encoding,
+before it queues delivery. Encoding makes an attached file larger in transit.
+When the provider publishes a current limit, Mail rejects an oversized message
+before SMTP starts and tells you both sizes. Remove attachments or share a large
+file with a public download link instead. An unknown or outdated provider limit
+does not prevent sending.
+
 When forwarding a message with attachments, **Include original attachments** appears before the new draft is created. Turn it off when the forwarded body is enough.
 
 ## Send now, undo, or schedule delivery {icon="send"}

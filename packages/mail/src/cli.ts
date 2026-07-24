@@ -14,6 +14,7 @@ import {
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+import { text } from "@valentinkolb/stdlib";
 import { z } from "zod";
 import {
   type AcquiredDraftLease,
@@ -126,13 +127,6 @@ const parseOffsetDateTime = (value: string, flagName: string): string => {
     throw new Error(`${flagName} must be an ISO date-time with a UTC offset, for example 2026-08-01T12:00:00Z.`);
   }
   return new Date(value).toISOString();
-};
-
-const formatBytes = (value: number): string => {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 };
 
 const attachmentLinkStatus = (link: AttachmentLink): "active" | "expired" | "exhausted" | "revoked" => {
@@ -2040,15 +2034,15 @@ export default defineCliCommands({
         const summary = await readApi<MailStorageSummary>(ctx, "/admin/storage");
         if (printStructured(ctx, summary)) return;
         ctx.print(`Snapshot: ${summary.calculatedAt ?? "not reconciled"}`);
-        ctx.print(`Mail relations: ${formatBytes(summary.physicalDatabaseBytes)}; blobs: ${formatBytes(summary.physicalBlobBytes)}.`);
+        ctx.print(`Mail relations: ${text.pprintBytes(summary.physicalDatabaseBytes)}; blobs: ${text.pprintBytes(summary.physicalBlobBytes)}.`);
         ctx.table(
           summary.mailboxes.map((mailbox) => ({
             mailbox: mailbox.mailboxName,
             messages: mailbox.messageCount,
-            mail: formatBytes(mailbox.messageBytes),
-            drafts: formatBytes(mailbox.draftAttachmentBytes),
-            shared: formatBytes(mailbox.externalLinkBytes),
-            total: formatBytes(mailbox.logicalTotalBytes),
+            mail: text.pprintBytes(mailbox.messageBytes),
+            drafts: text.pprintBytes(mailbox.draftAttachmentBytes),
+            shared: text.pprintBytes(mailbox.externalLinkBytes),
+            total: text.pprintBytes(mailbox.logicalTotalBytes),
             id: mailbox.mailboxId,
           })),
           [
@@ -2522,7 +2516,7 @@ export default defineCliCommands({
         if (printStructured(ctx, inspector)) return;
         ctx.print(`Subject: ${inspector.subject || "(no subject)"}`);
         ctx.print(`Message-ID: ${inspector.messageId ?? "unavailable"}`);
-        ctx.print(`Stored source: ${inspector.source.available ? `${formatBytes(inspector.source.byteLength ?? 0)} exact` : "unavailable"}`);
+        ctx.print(`Stored source: ${inspector.source.available ? `${text.pprintBytes(inspector.source.byteLength ?? 0)} exact` : "unavailable"}`);
         ctx.print(`MIME parts: ${inspector.parts.length}; attachments: ${inspector.attachments.length}`);
         ctx.print(`Provider placements: ${inspector.placements.length}`);
         if (inspector.warnings.length > 0) {
@@ -3898,6 +3892,67 @@ export default defineCliCommands({
             { key: "expires", label: "EXPIRES" },
             { key: "id", label: "ID" },
           ],
+        );
+      },
+    }),
+    command("provider limits", {
+      summary: "Show cached IMAP quota and SMTP message size limits",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const connections = await readApi<ProviderConnection[]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/connections`,
+        );
+        if (printStructured(ctx, connections)) return;
+        printTable(
+          ctx,
+          connections.filter((connection) => connection.status !== "revoked"),
+          connections
+            .filter((connection) => connection.status !== "revoked")
+            .map((connection) => ({
+              name: connection.name,
+              storage: connection.limits.imap.storage
+                ? `${text.pprintBytes(connection.limits.imap.storage.used)}/${text.pprintBytes(connection.limits.imap.storage.limit)}`
+                : connection.limits.imap.status,
+              messages: connection.limits.imap.messages
+                ? `${connection.limits.imap.messages.used}/${connection.limits.imap.messages.limit}`
+                : connection.limits.imap.status,
+              smtp: connection.limits.smtp.maxMessageBytes
+                ? text.pprintBytes(connection.limits.smtp.maxMessageBytes)
+                : connection.limits.smtp.status === "supported"
+                  ? "not published"
+                  : connection.limits.smtp.status,
+              checked: connection.limits.checkedAt,
+              id: connection.id,
+            })),
+          [
+            { key: "name", label: "NAME" },
+            { key: "storage", label: "STORAGE" },
+            { key: "messages", label: "MESSAGES" },
+            { key: "smtp", label: "SMTP MAX" },
+            { key: "checked", label: "CHECKED" },
+            { key: "id", label: "ID" },
+          ],
+        );
+      },
+    }),
+    command("provider limits refresh", {
+      summary: "Refresh IMAP quota and SMTP message size limits",
+      args: {
+        connectionId: arg.required({ description: "Provider connection id" }),
+      },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const connection = await readApi<ProviderConnection>(
+          ctx,
+          `/mailboxes/${mailbox.id}/connections/${args.connectionId}/limits/refresh`,
+          { method: "POST" },
+        );
+        if (printStructured(ctx, connection)) return;
+        ctx.print(
+          `Refreshed limits for ${connection.name} at ${connection.limits.checkedAt}.`,
         );
       },
     }),

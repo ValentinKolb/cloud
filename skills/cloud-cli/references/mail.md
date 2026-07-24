@@ -114,6 +114,18 @@ cld --json mail provider add \
 
 Browser OAuth for configured Google and Microsoft providers starts in **Mail > Settings > Connections** because the callback is bound to an authenticated browser session and an HttpOnly nonce cookie. The CLI keeps manual credentials as the generic fallback. Use `provider discover` to see whether browser OAuth is available and `provider list` to inspect state without exposing tokens.
 
+Inspect the provider limits cached during verification, or refresh them
+explicitly:
+
+```bash
+cld --json mail provider limits
+cld --json mail provider limits refresh <connection-id>
+```
+
+The SMTP value applies to the complete encoded message, not only to its raw
+attachments. Servers that do not advertise limits are reported as
+`unsupported` or `unavailable`; Mail does not substitute a guessed value.
+
 Attach the returned mailbox-owned connection, wait for discovery, and inspect the folders:
 
 ```bash

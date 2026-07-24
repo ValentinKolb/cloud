@@ -606,6 +606,23 @@ const mailOperationsApi = new Hono<AuthContext>()
     if (current.data.mailboxId !== params.mailboxId) return respond(c, fail(err.notFound("Provider connection")));
     return respond(c, providerConnections.revokeProviderConnection(requestContext(c), params.connectionId));
   })
+  .post(
+    "/mailboxes/:mailboxId/connections/:connectionId/limits/refresh",
+    v("param", mailboxAndIdParamSchema("connectionId")),
+    async (c) => {
+      const params = c.req.valid("param") as {
+        mailboxId: string;
+        connectionId: string;
+      };
+      return respond(
+        c,
+        providerConnections.refreshProviderConnectionLimits({
+          context: requestContext(c),
+          ...params,
+        }),
+      );
+    },
+  )
   .get("/mailboxes/:mailboxId/bindings", v("param", uuidParamSchema), async (c) =>
     respond(c, bindings.listProviderBindings(requestContext(c), c.req.valid("param").mailboxId)),
   )

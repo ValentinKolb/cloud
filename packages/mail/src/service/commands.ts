@@ -18,8 +18,14 @@ import { enqueueMailCommand } from "./command-runtime";
 import { renderComposeDraft } from "./compose-templates";
 import { publishMailMailboxEvent } from "./events";
 import { resolveMailExecution } from "./execution";
+import { createBlobReadable } from "./message-blobs";
 import { BASE_MAINTENANCE_KINDS, getOperatorActionEligibility } from "./operator-actions";
-import { outboundDraftSnapshotSchema } from "./outbound-mime";
+import { measureMimeStream, outboundDraftSnapshotSchema } from "./outbound-mime";
+import {
+  activeSmtpMessageLimit,
+  assertProviderMessageSize,
+  loadBindingProviderLimits,
+} from "./provider-limits";
 
 type DbCommand = {
   id: string;
@@ -466,6 +472,28 @@ const createSendOutbox = async (params: {
     const message = snapshot.error.issues[0]?.message ?? "Rendered message is too large";
     throw Object.assign(new Error(message), err.badInput(message));
   }
+  const mimeDate = new Date();
+  const byteLength = await measureMimeStream({
+    snapshot: snapshot.data,
+    messageId: stableMessageId,
+    date: mimeDate,
+    openAttachment: createBlobReadable,
+  });
+  const providerLimits = await loadBindingProviderLimits(
+    params.db,
+    params.selectedBindingId,
+  );
+  const smtpLimitBytes = providerLimits
+    ? activeSmtpMessageLimit(providerLimits)
+    : null;
+  try {
+    assertProviderMessageSize(byteLength, smtpLimitBytes);
+  } catch (error) {
+    const invalid = err.badInput(
+      error instanceof Error ? error.message : "Message exceeds the provider limit",
+    );
+    throw Object.assign(new Error(invalid.message), invalid);
+  }
   await params.db`
     INSERT INTO mail.outbox_submissions (
       mailbox_id,
@@ -478,7 +506,11 @@ const createSendOutbox = async (params: {
       requested_at,
       scheduled_at,
       undo_until,
-      draft_snapshot
+      draft_snapshot,
+      mime_date,
+      preflight_byte_length,
+      preflight_smtp_limit_bytes,
+      preflight_checked_at
     )
     VALUES (
       ${params.mailboxId}::uuid,
@@ -491,7 +523,11 @@ const createSendOutbox = async (params: {
       ${effectiveScheduledAt},
       ${effectiveScheduledAt},
       ${undoUntil},
-      ${snapshot.data}::jsonb
+      ${snapshot.data}::jsonb,
+      ${mimeDate},
+      ${byteLength},
+      ${smtpLimitBytes},
+      ${smtpLimitBytes === null ? null : providerLimits?.checkedAt ?? null}::timestamptz
     )
   `;
   await params.db`

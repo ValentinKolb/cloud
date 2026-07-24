@@ -361,6 +361,62 @@ suite("mail migrations", () => {
     });
   });
 
+  test("installs provider limits and deterministic outbound preflight evidence", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        limit_snapshot_present: boolean;
+        mime_date_required: boolean;
+        preflight_columns_present: boolean;
+        migrations_applied: boolean;
+      }[]
+    >`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'provider_connections'
+            AND column_name = 'limit_snapshot'
+            AND is_nullable = 'NO'
+        ) AS limit_snapshot_present,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'outbox_submissions'
+            AND column_name = 'mime_date'
+            AND is_nullable = 'NO'
+        ) AS mime_date_required,
+        (
+          SELECT count(*) = 3
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'outbox_submissions'
+            AND column_name IN (
+              'preflight_byte_length',
+              'preflight_smtp_limit_bytes',
+              'preflight_checked_at'
+            )
+        ) AS preflight_columns_present,
+        (
+          SELECT count(*) = 2
+          FROM mail.schema_migrations
+          WHERE (version, name) IN (
+            (85, 'provider_limit_snapshots'),
+            (86, 'outbound_message_preflight')
+          )
+        ) AS migrations_applied
+    `;
+    expect(shape).toEqual({
+      limit_snapshot_present: true,
+      mime_date_required: true,
+      preflight_columns_present: true,
+      migrations_applied: true,
+    });
+  });
+
   test("repairs an accidentally unique remote draft observation index in place", async () => {
     await migrate();
     await sql`DELETE FROM mail.schema_migrations WHERE version = 61`;

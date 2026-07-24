@@ -26,6 +26,11 @@ import {
 import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
 import { isOperatorMaintenanceKind } from "./operator-actions";
 import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
+import {
+  activeSmtpMessageLimit,
+  assertProviderMessageSize,
+  loadBindingProviderLimits,
+} from "./provider-limits";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
@@ -1579,6 +1584,7 @@ type DbOutboxExecution = {
   undo_until: Date | string | null;
   draft_snapshot: JsonRecord | string;
   mime_blob_id: string | null;
+  mime_date: Date | string;
   attempt: number;
   created_at: Date | string;
 };
@@ -1627,6 +1633,7 @@ const loadOutbox = async (outboxId: string): Promise<{ outbox: DbOutboxExecution
       o.undo_until,
       o.draft_snapshot,
       o.mime_blob_id,
+      o.mime_date,
       o.attempt,
       o.created_at,
       c.mailbox_id AS command_mailbox_id,
@@ -1669,6 +1676,7 @@ const loadOutbox = async (outboxId: string): Promise<{ outbox: DbOutboxExecution
       undo_until: row.undo_until,
       draft_snapshot: row.draft_snapshot,
       mime_blob_id: row.mime_blob_id,
+      mime_date: row.mime_date,
       attempt: row.attempt,
       created_at: row.created_at,
     },
@@ -2009,7 +2017,7 @@ const ensureMimeBlob = async (
   const source = buildMimeStream({
     snapshot,
     messageId: outbox.stable_message_id,
-    date: new Date(outbox.created_at),
+    date: new Date(outbox.mime_date),
     openAttachment: createBlobReadable,
   });
   const blob = await storeReadableBlob(source);
@@ -2316,6 +2324,11 @@ const prepareFreshOutbox = async (
   const sender = await loadSenderBinding(command, outbox.sender_identity_id);
   const runtime = await loadPinnedRuntime(await loadPinnedBinding(command));
   const mime = await ensureMimeBlob(outbox);
+  const limits = await loadBindingProviderLimits(sql, outbox.selected_binding_id);
+  assertProviderMessageSize(
+    mime.byteLength,
+    limits ? activeSmtpMessageLimit(limits) : null,
+  );
   await assertLeaseActive();
   const beforeSend = await sentMatches({ runtime, sentPath: sender.sent_path, messageId: outbox.stable_message_id, signal });
   return {

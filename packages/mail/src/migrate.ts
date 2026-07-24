@@ -4509,6 +4509,32 @@ const addMailingListSubscriptions = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addProviderLimitSnapshots = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.provider_connections
+    ADD COLUMN limit_snapshot JSONB NOT NULL DEFAULT '{
+      "checkedAt":"1970-01-01T00:00:00.000Z",
+      "imap":{"status":"unavailable","storage":null,"messages":null},
+      "smtp":{"status":"unavailable","maxMessageBytes":null}
+    }'::jsonb
+      CHECK (jsonb_typeof(limit_snapshot) = 'object')
+  `;
+};
+
+const addOutboundMessagePreflight = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.outbox_submissions
+    ADD COLUMN mime_date TIMESTAMPTZ,
+    ADD COLUMN preflight_byte_length BIGINT
+      CHECK (preflight_byte_length IS NULL OR preflight_byte_length >= 0),
+    ADD COLUMN preflight_smtp_limit_bytes BIGINT
+      CHECK (preflight_smtp_limit_bytes IS NULL OR preflight_smtp_limit_bytes > 0),
+    ADD COLUMN preflight_checked_at TIMESTAMPTZ
+  `;
+  await db`UPDATE mail.outbox_submissions SET mime_date = created_at WHERE mime_date IS NULL`;
+  await db`ALTER TABLE mail.outbox_submissions ALTER COLUMN mime_date SET NOT NULL`;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4593,6 +4619,8 @@ const migrations: readonly MailMigration[] = [
   { version: 82, name: "dismissed_folder_projections", run: addDismissedFolderProjections },
   { version: 83, name: "message_protocol_foundations", run: addMessageProtocolFoundations },
   { version: 84, name: "mailing_list_subscriptions", run: addMailingListSubscriptions },
+  { version: 85, name: "provider_limit_snapshots", run: addProviderLimitSnapshots },
+  { version: 86, name: "outbound_message_preflight", run: addOutboundMessagePreflight },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {
