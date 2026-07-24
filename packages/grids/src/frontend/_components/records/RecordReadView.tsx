@@ -217,12 +217,12 @@ export default function RecordReadView(props: RecordReadViewProps) {
 
           <Show when={detailsFields().length > 0}>
             <Section title="Fields">
-              <dl class="grid grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm">
+              <dl class="grid grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2.5 text-sm leading-5">
                 <For each={detailsFields()}>
                   {(field) => (
                     <>
                       <dt
-                        class={`flex min-w-0 items-center gap-1.5 self-start text-xs ${
+                        class={`flex min-w-0 items-baseline gap-1.5 ${
                           isComputedField(field) ? "text-blue-600 dark:text-blue-400" : "text-dimmed"
                         }`}
                       >
@@ -242,9 +242,9 @@ export default function RecordReadView(props: RecordReadViewProps) {
               <div class="flex flex-col gap-3">
                 <For each={relationFields()}>
                   {(field) => (
-                    <div class="grid min-w-0 grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] gap-x-4">
-                      <div class="min-w-0 text-xs text-dimmed">
-                        <p class="flex items-center gap-1.5">
+                    <div class="grid min-w-0 grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] items-baseline gap-x-4 text-sm leading-5">
+                      <div class="min-w-0 text-dimmed">
+                        <p class="flex items-baseline gap-1.5">
                           <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-sm`} />
                           <span class="break-words">{field.name}</span>
                         </p>
@@ -252,7 +252,7 @@ export default function RecordReadView(props: RecordReadViewProps) {
                           {(description) => <p class="mt-1 text-[11px] leading-snug">{description()}</p>}
                         </Show>
                       </div>
-                      <div class="min-w-0 break-words text-sm text-primary">{renderField(field, props.record)}</div>
+                      <div class="min-w-0 break-words text-primary">{renderField(field, props.record)}</div>
                     </div>
                   )}
                 </For>

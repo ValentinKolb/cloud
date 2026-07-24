@@ -279,22 +279,22 @@ export default function RecordDetailPanel(props: Props) {
             {(origin) => (
               <section class="detail-section flex flex-col gap-2">
                 <h3 class="detail-section-label mb-0">Combined source</h3>
-                <dl class="grid grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-                  <dt class="text-xs text-dimmed">Published from</dt>
+                <dl class="grid grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-sm leading-5">
+                  <dt class="text-dimmed">Published from</dt>
                   <dd class="min-w-0 break-words text-primary">
                     {origin().source.baseName} · {origin().source.tableName}
                   </dd>
                   <Show when={origin().deletedAt}>
                     {(deletedAt) => (
                       <>
-                        <dt class="text-xs text-dimmed">Deleted</dt>
+                        <dt class="text-dimmed">Deleted</dt>
                         <dd class="text-primary">
                           <time dateTime={deletedAt()}>{formatDateTime(deletedAt())}</time>
                         </dd>
                       </>
                     )}
                   </Show>
-                  <dt class="text-xs text-dimmed">Access</dt>
+                  <dt class="text-dimmed">Access</dt>
                   <dd class="text-secondary">Read-only publication. Restore or edit this record in its source table.</dd>
                 </dl>
               </section>
