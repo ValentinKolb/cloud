@@ -12,22 +12,47 @@ Create a **Formula field** when the result belongs on every record. Add a **Comp
 ## Where formulas run {icon="math-function"}
 
 - **Formula fields** recalculate when records are read and can appear in views, cards, detail panels, dashboards, and documents.
-- **Computed columns** are temporary query output and do not change the table schema.
+- **Computed columns** are temporary query output and do not add a field to the table.
 - **GQL conditions** use an expression inside `where` or `having`.
 - **GQL output** uses `formula(expression) as alias`.
 
-Formula evaluation and GQL compilation happen on the server. A formula does not depend on the browser having loaded every record.
+Formulas use the complete query result, not only the records currently visible on screen. The same expression behaves consistently in tables, views, computed columns, and GQL.
 
 ## Expression rules {icon="book-2"}
 
 :::reference
-- **Fields:** Reference fields by name. Quote names with spaces or punctuation: `"Unit price"`.
-- **Text values:** Use single quotes for text values: `'Open'`. Double quotes mean a field name.
-- **Empty values:** Empty input stays empty unless the expression handles it. Use IFEMPTY for expected fallbacks.
-- **Errors:** Formula errors render as an error value. Use IFERROR for expected divide-by-zero, missing-value, or conversion cases.
+- **Fields:** Reference a simple field as `Price`. Quote names containing spaces or punctuation as `"Unit price"`. Use `{field-uuid}` when generated configuration must survive a rename.
+- **Literals:** Write text in single quotes, numbers without quotes, and the values `true`, `false`, and `null` directly. Double quotes always mean a field name. In text, use `\\'`, `\\\\`, `\\n`, `\\r`, or `\\t` for a quote, backslash, or control character.
+- **Grouping:** Use parentheses to make a calculation or condition explicit. An optional leading `=` is accepted, but formulas are normally written without it.
+- **Functions:** Function names are case-insensitive. Arguments are comma-separated and must match the function's documented count.
 :::
 
 Build a formula from a representative record and check empty, zero, and boundary values. If a field changes type or is removed, update dependent formulas before relying on their output.
+
+### Operators and precedence
+
+| Priority | Operators | Meaning |
+| --- | --- | --- |
+| 1 | `-value`, `not value`, `!value` | Numeric negation or logical negation |
+| 2 | `*`, `/`, `%` | Multiply, divide, remainder |
+| 3 | `+`, `-` | Add, subtract; two non-numeric text values can be joined with `+` |
+| 4 | `<`, `<=`, `>`, `>=` | Compare numbers, dates, or compatible text |
+| 5 | `=`, `!=` | Equal or not equal |
+| 6 | `and`, `&&` | Both conditions are true |
+| 7 | `or`, `||` | At least one condition is true |
+
+Higher rows bind more tightly. Parentheses override this order. Prefer the word forms `and`, `or`, and `not` in formulas that people maintain directly.
+
+### Empty values, truth, and errors
+
+- Arithmetic and ordered comparisons return empty when either side is empty. Two empty values are equal.
+- `null`, `false`, `0`, and empty text are false in a condition; other non-empty values are true.
+- `and`, `or`, `AND`, and `OR` stop as soon as the result is known. `IF` evaluates only the selected branch.
+- Invalid calculations such as division or remainder by zero, a negative square root, or the wrong number of function arguments produce a visible formula error rather than a misleading value.
+- `IFEMPTY(value, fallback)` handles `null` and empty text. `IFERROR(value, fallback)` handles formula errors. Their fallback is evaluated only when needed.
+- `CONCAT(value, ...)` is the clearest way to combine text. Numeric-looking text participates in numeric arithmetic, so do not rely on `+` for labels.
+
+The functions named Aggregate below combine arguments from the current record, for example `SUM(Subtotal, Tax)`. They do not summarize several records. Use GQL `aggregate` when a report needs totals across rows.
 
 ## Common formulas {icon="math-function"}
 
@@ -116,7 +141,9 @@ IFERROR(total / quantity, 0)
 | Date      | DATEADD(date, count, unit?)        | Add time to a date; the unit defaults to days.                           | date    |
 | Date      | DATEDIFF(from, to, unit?)          | Difference between dates; the unit defaults to days.                     | number  |
 
-`DATEADD` accepts days, hours, minutes, months, and years. `DATEDIFF` accepts days, hours, minutes, and seconds. The result of `DATEDIFF(from, to, unit)` is `to - from`.
+`ROUND` defaults to zero decimal places and accepts negative places for tens, hundreds, and larger positions. `LEFT`, `RIGHT`, and `SUBSTRING` treat negative lengths as zero; `SUBSTRING` starts at position 0. `REPLACE` replaces every match.
+
+`TODAY()` returns the current date and `NOW()` returns the current date and time. Date-time calendar operations use the request's display timezone; when none is supplied, Grids uses the Cloud application timezone. Date-only values remain calendar dates. `DATEADD` accepts day(s), hour(s), minute(s), month(s), and year(s); it defaults to days and keeps month-end dates valid when adding months or years. `DATEDIFF` accepts day(s), hour(s), minute(s), and second(s), defaults to days, and returns `to - from`, rounded down to whole units.
 
 :::note Formula fields do not store a second value
 They are calculated from the current record when read. Change the source fields when the result is wrong rather than editing the displayed formula result.

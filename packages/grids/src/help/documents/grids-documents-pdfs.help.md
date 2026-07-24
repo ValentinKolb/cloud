@@ -13,20 +13,20 @@ Use a document template when output must be formatted for people, printed, share
 
 ## From record to PDF {icon="table"}
 
-The template separates data selection from page layout. **GQL** loads the rows and columns the document may use. **Liquid HTML and CSS** turn those values into wording, tables, conditions, loops, images, barcodes, page breaks, headers, and footers. **Gotenberg** renders the resulting HTML as PDF.
+The template separates data selection from page layout. **GQL** loads the rows and columns the document may use. **Liquid HTML and CSS** turn those values into wording, tables, conditions, loops, images, barcodes, page breaks, headers, and footers. Grids then creates the PDF.
 
 **Pipeline**
 
 ```text
 selected record
-  -> render Liquid in the GQL source
-  -> run GQL in SQL
-  -> render body/header/footer/page CSS with Liquid
-  -> Gotenberg HTML-to-PDF
-  -> store snapshot + document run metadata
+  -> fill record values into the GQL source
+  -> run the GQL query
+  -> fill the body, header, footer, and page CSS
+  -> create the PDF
+  -> save the document details and source snapshot
 ```
 
-Keep filtering, sorting, joins, grouping, and totals in GQL so they run in the database. Keep Liquid focused on presentation.
+Keep filtering, sorting, joins, grouping, and totals in GQL. Keep Liquid focused on wording and page layout.
 
 ## Create your first template {icon="file-description"}
 
@@ -67,8 +67,8 @@ A template has one data part and up to four layout parts. The GQL source is rend
 | ---------- | ------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
 | GQL source | Liquid + GQL  | Selects the rows and columns available to the document. Liquid is rendered before GQL is parsed. | Current record, joined rows, item lists, grouped summaries.               |
 | Body       | Liquid + HTML | The main printable document content. This part is required.                                      | Invoice body, contract clauses, label layout, record detail tables.       |
-| Header     | Liquid + HTML | Optional Gotenberg header rendered on each page.                                                 | Letterhead, sender identity, document class, contact block.               |
-| Footer     | Liquid + HTML | Optional Gotenberg footer rendered on each page.                                                 | Legal footer, bank data, and Gotenberg page placeholders such as `<span class="pageNumber"></span>` and `<span class="totalPages"></span>`. |
+| Header     | Liquid + HTML | Optional header shown on each page.                                                              | Letterhead, sender identity, document class, contact block.               |
+| Footer     | Liquid + HTML | Optional footer shown on each page.                                                              | Legal footer, bank data, and page placeholders such as `<span class="pageNumber"></span>` and `<span class="totalPages"></span>`. |
 | Page CSS   | Liquid + CSS  | Optional CSS injected into the PDF body document.                                                | @page size/margins, table headers, page breaks, print typography.         |
 
 ## Understand the available data {icon="layout-grid"}
@@ -91,7 +91,7 @@ Think of the data in layers: `record` is the selected record, `rows` and `column
 
 ## GQL source patterns {icon="code"}
 
-Keep filtering, sorting, joins, grouping, and limits in GQL so the database does the work. Keep Liquid focused on presentation.
+Keep filtering, sorting, joins, grouping, and limits in GQL. Keep Liquid focused on presentation.
 
 **Current record only**
 
@@ -125,7 +125,7 @@ limit 100
 
 A generated document has a stable `document.number` and a PDF filename. The number pattern is rendered first. The filename pattern can then use `{{ document.number }}`. This keeps business identifiers separate from the downloadable file name.
 
-The default number pattern is non-sequential and collision-resistant: `{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}`. It avoids internal UUIDs and avoids app-wide prefixes. If a business process needs legally consecutive invoice numbers, model that as a dedicated generated-id field or a later sequence-backed numbering mode instead of hand-writing counters in Liquid.
+The default number pattern is non-sequential and designed to stay unique: `{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}`. It avoids record UUIDs and app-wide prefixes. If a business process needs legally consecutive invoice numbers, use a dedicated generated ID field on the source record instead of hand-writing counters in Liquid.
 
 **Default number**
 
@@ -159,7 +159,7 @@ invoice-{{ record.data.Name | default: document.number }}-{{ document.number }}.
 
 ## Liquid reference {icon="book-2"}
 
-Template parts use LiquidJS with Grids restrictions: strict variables, strict filters, escaped output, no layouts, no dynamic partials, and only the tags listed below. Unknown filters, invalid tags, and oversized output fail instead of rendering a partial document.
+Template parts use Liquid with Grids restrictions: strict variables, strict filters, escaped output, no layouts, no dynamic partials, and only the tags listed below. Unknown filters, invalid tags, and oversized output fail instead of creating a partial document.
 
 :::reference
 - **Output:** Use `{{ value }}` to print a value. Output is HTML-escaped by default. Use `| raw` only when a trusted template intentionally prints HTML.
@@ -407,7 +407,7 @@ To share one generated PDF without a Cloud login, create a public link for 1, 7,
 
 ## Snapshots and runs {icon="point"}
 
-Generating a PDF creates a recursive snapshot of the root record and related records reached through relation fields. Snapshot traversal is bounded to depth 4 and 500 records. The run stores the template snapshot, render data, stable document number, and generation timestamp. PDF bytes are regenerated on download from the stored run data.
+Generating a PDF creates a recursive snapshot of the root record and related records reached through relation fields. A snapshot includes at most four relation levels and 500 records. Grids keeps the template, data, stable document number, and generation time used for that document. Redownloading reproduces it from this saved state even after live records or the template change.
 
 :::reference
 - **Document numbers:** Each run receives a stable document number from the template's number pattern. The number is unique across generated documents.

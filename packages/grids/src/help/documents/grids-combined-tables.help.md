@@ -13,11 +13,11 @@ Do not use a Combined table merely to show a subset from one table; use a view f
 
 ## What a Combined table changes {icon="table"}
 
-The Combined table owns its name, canonical fields, views, and permissions. Source admins explicitly authorize selected source tables and field mappings. Readers use only the Combined table and need no access to the source bases. Grids runs union, search, filters, sorting, pagination, grouping, and aggregation in PostgreSQL; the browser never joins result lists itself.
+The Combined table owns its name, canonical fields, views, and permissions. Source admins explicitly authorize selected source tables and field mappings. Readers use only the Combined table and need no access to the source bases. Search, filters, sorting, pagination, grouping, aggregation, dashboards, and exports work across all published sources as they do for a stored table.
 
 :::reference
-- **Canonical schema:** Create the fields readers should see, then map each source field to the matching canonical field. Missing mappings return null for that source.
-- **Independent access:** Target readers receive only canonical data. They do not inherit source navigation, physical schema, or mutation rights.
+- **Canonical fields:** Create the fields readers should see, then map each source field to the matching canonical field. Missing mappings return null for that source.
+- **Independent access:** Target readers receive only canonical data. They do not inherit source navigation, hidden source fields, or editing rights.
 - **Read-only result:** Use the table in GQL, saved views, dashboards, documents, workflows, and exports. Record creation, forms, imports, uploads, edits, and deletes are unavailable.
 - **Fail-closed publication:** A revoked, deleted, or incompatible source makes the complete published revision unavailable. Grids never returns a silently smaller partial result.
 :::
@@ -52,24 +52,24 @@ sort Name asc
 :::reference
 - **Relations:** A canonical relation must point to one common stored target or to another explicitly published Combined target containing the related records.
 - **Files:** Target readers can preview and download mapped files through the Combined permission boundary. Source file metadata and file mutation remain private.
-- **Computed data:** Canonical formulas run in SQL over the combined columns. Source computed fields are eligible only when they have a stable compatible SQL output.
-- **Live data and export:** Source changes invalidate the target through the normal live event stream. CSV and JSON exports page the canonical query with bounded memory.
+- **Computed data:** Canonical formulas can use the combined fields. A computed source field can be mapped only when its result is compatible with the canonical field.
+- **Live data and export:** Source changes appear automatically. CSV and JSON exports can continue across all matching records.
 :::
 
 ## Diagnostics and repair {icon="lifebuoy"}
 
-Draft diagnostics identify the affected source, canonical field, and physical field. A published table shows Action required when its schema or authorization is no longer valid. Repair the source or mappings, validate the draft, and publish a complete new revision. Revoked access is restored only by publishing a newly authorized revision.
+Draft diagnostics identify the affected source, canonical field, and source field. A published table shows Action required when its fields or source access are no longer valid. Repair the source or mappings, validate the draft, and publish a complete new revision. Revoked access is restored only by publishing a newly authorized revision.
 
 :::reference
 - **No automatic matching:** Labels, positions, and similar field types are never guessed. Every exposed mapping is deliberate.
 - **No nested Combined sources:** A Combined table can source stored tables only. Use a canonical relation when related records also need federation.
-- **No source write-through:** Target write permission does not edit physical records. Workflows may read Combined data but cannot mutate the Combined target.
+- **No source write-through:** A Combined table cannot edit its source records. Workflows may read Combined data but cannot change the Combined target.
 - **Explicit limits:** One Combined table supports up to 50 source tables and 200 canonical fields.
 :::
 
 ## Deleted records and history {icon="history"}
 
-Combined tables preserve the lifecycle of published records without granting access to their source bases. Choose **Show deleted** to inspect records that were deleted in a source table. Their detail panel is read-only and identifies the published source by base and table name. Restore or edit the physical record from its source base.
+Combined tables preserve the lifecycle of published records without granting access to their source bases. Choose **Show deleted** to inspect records that were deleted in a source table. Their detail panel is read-only and identifies the published source by base and table name. Restore or edit the original record from its source base.
 
 The record detail shows its published history. Readers with access to the complete Combined table can also choose **Actions → Audit trail** to browse and filter history across all published records. A reader who can access only a saved view sees history only for records returned by that exact view.
 
@@ -77,7 +77,7 @@ The record detail shows its published history. Readers with access to the comple
 - **Current publication:** History is projected through the active canonical mappings. Fields removed from the publication no longer appear, including in older events.
 - **Lifecycle events:** Created, updated, imported, deleted, and restored events remain visible while their source is actively published.
 - **Required explanations:** Answers collected by an audit policy, such as a required deletion reason, remain attached to the event with their question labels.
-- **Private source details:** Physical field IDs, unpublished values, IP addresses, browser details, and source-base navigation are not exposed through the Combined table.
+- **Private source details:** Unpublished fields and values, technical request details, and source-base navigation are not exposed through the Combined table.
 - **Changed select options:** An old source option that no longer has an active canonical mapping is shown as unavailable instead of exposing its source identifier.
 - **Fail closed:** Revoked, degraded, or incompatible publications return no partial history. Repair and republish the Combined table before continuing.
 :::

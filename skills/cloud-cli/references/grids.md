@@ -354,7 +354,7 @@ cld grids tables delete Reporting "All inventory" --yes
 
 ## Query data with GQL
 
-GQL is a line-oriented query language compiled and executed by the Grids backend. Read its live grammar before authoring a query:
+GQL is a line-oriented query language compiled and executed by Grids. The static language contract is documented below. These commands return the same contract in machine-readable form plus the visible schema of one base:
 
 ```bash
 cld grids gql reference
@@ -363,6 +363,66 @@ cld grids gql skill --out SKILL.md
 ```
 
 `gql context` is permission-safe and base-specific. It contains only schema the current user may discover. Use it together with the downloaded skill when another agent must author GQL.
+
+### GQL language reference
+
+Write clauses in this order. Only `from` is required outside a table- or view-scoped editor:
+
+```text
+from table <source> [as alias] | from view <source> [as alias]
+[join table <table> as alias on <relation> = alias.id]
+[left join table <table> as alias on <relation> = alias.id]
+[select <field> [as alias], formula(<expression>) as alias, ...]
+[where <boolean expression>]
+[search '<text>' [in <field>, ...]]
+[group by <field> [by day|week|month|quarter|year], ...]
+[aggregate <function>(<field>|*|formula(<expression>)) as alias, ...]
+[having <boolean expression>]
+[sort <field-or-alias> [asc|desc] [nulls first|nulls last], ...]
+[limit 1..10000]
+[offset 0..10000]
+[include deleted | deleted only]
+```
+
+`from`, `where`, `search`, `having`, `limit`, `offset`, and the deleted mode are singleton clauses. Use comma-separated lists for fields,
+groups, aggregates, and sorts. Multiple joins are allowed. Line breaks are optional; semicolons separate clauses and `--` starts a comment
+when preceded by whitespace.
+
+Names without punctuation may be bare. Double-quote names containing spaces or punctuation and escape an embedded double quote by doubling
+it. Text literals use single quotes. Stable fields and sources use `{uuid}`. Do not use removed `#field` aliases. An `as` alias starts with a
+letter or underscore, continues with letters, digits, or underscores, is at most 64 characters, and cannot be a GQL keyword, logical operator,
+or reserved literal. Aliases are case-insensitive when referenced later. Sort defaults to ascending order with missing values last.
+
+Joins follow Grids relations only: the left side must be a relation field that targets the joined alias's `.id`. `join` removes source rows
+without a target; `left join` keeps them. Arbitrary join predicates, subqueries, common table expressions, window functions, and unrestricted
+expressions are not GQL.
+
+Conditions use `=`, `!=`, `<`, `<=`, `>`, `>=`, `and`, `or`, `not`, and parentheses. Direct predicate compatibility is:
+
+- text, long text, ID: `=`, `!=`, `contains`, `startswith`, `endswith`, `icontains`, `istartswith`, `iendswith`;
+- number, percent, duration, date: all six comparison operators;
+- boolean: equality with `true` or `false`, inequality, or the field by itself;
+- select: `=`, `!=`, `oneof`, `noneof`, `containsall` with option label or id values;
+- relation: `=`, `!=`, `oneof`, `noneof`, `containsall` with record UUID values.
+
+`field = null` means empty and `field != null` means not empty. Other comparisons with `null` are invalid. A true/false formula may compare
+fields and calculated expressions. Use operators in GQL conditions, not function-style `AND(...)`, `OR(...)`, or `NOT(...)`.
+
+Record metadata filters are `record.id`, `record.createdBy`, `record.updatedBy`, and `record.deletedBy`; they accept `=` or `oneof(...)` with
+record or user UUIDs and may be combined only with `and`. Metadata sorts are `record.createdAt`, `record.updatedAt`, and `record.deletedAt`.
+
+Aggregates are:
+
+- `count(*)` for all matching records; `*` is valid only here;
+- `count(field)`, `countEmpty(field)`, and `countUnique(field)` for any readable field or formula;
+- `sum(field)`, `avg(field)`, and `median(field)` for numeric fields or formulas;
+- `min(field)` and `max(field)` for number, date, date-time, or text fields or formulas;
+- `earliest(field)` and `latest(field)` for date or date-time fields or formulas.
+
+Every aggregate and formula output requires `as alias`. Use `aggregate sum(formula(Quantity * Price)) as revenue` for a calculated input.
+With `group by`, every sorted source field must also be grouped; aggregate aliases may be sorted. Without `group by`, aggregates produce one
+summary row and cannot be combined with record-field selections or sorting. `where` filters records before grouping and `having` filters the
+summary rows afterward.
 
 A visible Combined table uses the same `from table ...` syntax as a stored table. Its canonical fields are the complete exposed schema;
 do not infer physical source tables, fields, or permissions from the downloaded context.
@@ -392,6 +452,54 @@ Formula fields, GQL predicates, computed columns, and parts of document and work
 cld grids formulas reference
 cld grids formulas check Authors --expression 'LEN(Name)' --json
 ```
+
+### Formula language reference
+
+Field references are `Name`, `"Birth year"`, or `{field-uuid}`. Literals are single-quoted text, numbers, `true`, `false`, and `null`.
+Inside text, `\\'`, `\\\\`, `\\n`, `\\r`, and `\\t` escape a quote, backslash, or control character. Parentheses group expressions and
+a leading `=` is optional. Function names are case-insensitive.
+
+Operators bind from strongest to weakest: unary `-`, `not`, `!`; then `*`, `/`, `%`; then `+`, `-`; then `<`, `<=`, `>`, `>=`; then
+`=`, `!=`; then `and`/`&&`; then `or`/`||`. Arithmetic and ordered comparisons with an empty operand return empty. Two empty values are
+equal. `null`, `false`, `0`, and empty text are false in conditions. Division and remainder by zero produce a formula error. `IF`, `IFEMPTY`,
+`IFERROR`, `AND`, and `OR` evaluate only the branches or arguments needed for the result.
+
+The complete function catalog is:
+
+```text
+SUM(value, ...)                 AVG(value, ...)                  MEAN(value, ...)
+COUNT(value, ...)               MIN(value, ...)                  MAX(value, ...)
+MEDIAN(value, ...)
+ABS(number)                     ROUND(number, digits?)           FLOOR(number)
+CEIL(number)                    SQRT(number)                     POW(base, exponent)
+MOD(a, b)                       PERCENT(part, total)
+IF(condition, then, else)       IFEMPTY(value, fallback)         IFERROR(value, fallback)
+AND(value, ...)                 OR(value, ...)                   NOT(value)
+ISBLANK(value)
+CONTAINS(text, search)          STARTSWITH(text, prefix)         ENDSWITH(text, suffix)
+ICONTAINS(text, search)         ISTARTSWITH(text, prefix)        IENDSWITH(text, suffix)
+CONCAT(value, ...)              LEN(text)                        LOWER(text)
+UPPER(text)                     TRIM(text)                       LEFT(text, n)
+RIGHT(text, n)                  SUBSTRING(text, start, length)   REPLACE(text, search, replacement)
+TODAY()                         NOW()                            YEAR(date)
+MONTH(date)                     DAY(date)                        DATEADD(date, count, unit?)
+DATEDIFF(from, to, unit?)
+```
+
+`SUM`, `AVG`/`MEAN`, `MIN`, `MAX`, and `MEDIAN` use numeric arguments and return empty when none are numeric. `COUNT` counts values other
+than empty or empty text. `ABS`, `FLOOR`, `CEIL`, `SQRT`, `POW`, `MOD`, and `PERCENT` perform their named numeric operation. Numeric functions
+require numeric values; an invalid operation such as a negative square root or zero divisor produces an error.
+
+`IF` chooses one branch. `IFEMPTY` handles empty or empty text, `IFERROR` handles formula errors, `ISBLANK` tests empty or empty text, and
+`AND`, `OR`, and `NOT` use formula truthiness. `CONTAINS`, `STARTSWITH`, and `ENDSWITH` are case-sensitive; their `I...` forms ignore case.
+`CONCAT` joins values, `LEN` counts text characters, `LOWER`/`UPPER` change case, `TRIM` removes surrounding whitespace, `LEFT`/`RIGHT`
+take characters from an edge, and `REPLACE` replaces every match.
+
+`SUM` through `MEDIAN` combine arguments from the current record; GQL `aggregate` summarizes multiple records. `ROUND` defaults to zero
+decimal places and accepts negative places. `SUBSTRING` uses a zero-based start. Date-time calendar operations use the request's display
+timezone; without one, Grids uses the Cloud application timezone. Date-only values remain calendar dates. `DATEADD` accepts day(s), hour(s),
+minute(s), month(s), and year(s), defaulting to days. `DATEDIFF` accepts day(s), hour(s), minute(s), and second(s), defaults to days, and
+returns `to - from`, rounded down to whole units.
 
 The GQL command set is `gql reference|run|preview|compile-view|autocomplete|skill|context`. Formula commands are `formulas reference|check`.
 
@@ -538,13 +646,132 @@ Choose exactly one principal with `--user`, `--group`, `--service-account`, `--a
 
 ## Build and operate workflows
 
-Workflow YAML stores `inputs`, optional `triggers`, and `steps`; name and description are normal workflow fields outside YAML. Read the live manifest before authoring source because it contains the exact input, trigger, action, control-flow, launcher, limit, and value-expression contracts:
+Workflow YAML stores `inputs`, optional `triggers`, and `steps`; name and description are normal workflow fields outside YAML. The complete static contract is documented below. This command returns the same manifest as JSON for tools and editors:
 
 ```bash
 cld grids workflows reference --json
 ```
 
 The shipped inputs are `record`, `recordList`, `text`, `number`, `boolean`, `date`, `dateTime`, and `select`. Triggers are `schedule` and `recordEvent`. Actions are `updateRecord`, `createRecord`, `generateDocument`, `createDocumentLink`, `sendEmail`, `httpRequest`, `setVariable`, `fail`, and `succeed`. Control flow supports `if/then/else`, `switch/cases/default`, and `forEach/as/do`.
+
+### Workflow YAML language reference
+
+The root accepts only `inputs`, `triggers`, and `steps`. `steps` is required and non-empty; omit optional sections instead of writing an
+empty `triggers: {}`. Unknown keys are errors. Each action step has exactly one action. Input names, `saveAs`, `setVariable.name`, and
+`forEach.as` start with a letter or underscore and continue with letters, digits, or underscores. Names are case-sensitive and cannot reuse
+another value or the reserved roots `inputs`, `trigger`, `bindings`, and `context`.
+
+YAML maps cannot repeat a key. Indentation defines nesting. Quote values that must remain text but look like `true`, `false`, `null`, or a
+number, and quote cron expressions.
+
+Every input may set `label`, `description`, and `required`. Type-specific declarations and invocation values are:
+
+| Type | Declaration | Invocation value |
+| --- | --- | --- |
+| `record` | required `table` name, short id, or UUID | one record UUID |
+| `recordList` | required `table` name, short id, or UUID | ordered record UUID list, at most 10,000 |
+| `text` | none | string |
+| `number` | none | finite number |
+| `boolean` | none | `true` or `false` |
+| `date` | none | `YYYY-MM-DD` |
+| `dateTime` | none | ISO date-time |
+| `select` | `options` with 1–200 strings | one configured option |
+
+`triggers.schedule` accepts `cron`, optional `timezone` defaulting to `UTC`, and `with`. Cron has five numeric fields in the order
+`minute hour day-of-month month day-of-week`; it supports `*`, comma lists, ranges, and `/step`, but not names such as `MON` or `JAN`.
+Ranges are minute 0–59, hour 0–23, day 1–31, month 1–12, and weekday 0–7 with 0 and 7 as Sunday. `timezone` is an IANA name. Schedule
+bindings can read `${{ trigger.occurredAt }}` and `${{ trigger.slot }}`.
+
+`triggers.recordEvent` requires `event: created|updated|deleted`, and may set `table`, `filter`, and `with`. Bindings can read
+`${{ trigger.record }}`, `${{ trigger.event }}`, and `${{ trigger.occurredAt }}`. Every required workflow input must be bound. A filter leaf
+uses `fieldId`, `op`, `value`, and optional `caseInsensitive`; combine leaves with `{ op: AND|OR, filters: [...] }`. Operators are:
+
+- text: `equals`, `notEquals`, `contains`, `notContains`, `startsWith`, `endsWith`, `regex`, `isEmpty`, `isNotEmpty`;
+- number: `=`, `!=`, `<`, `<=`, `>`, `>=`, `between`, `isEmpty`, `isNotEmpty`;
+- date: `=`, `notEquals`, `before`, `after`, `onOrBefore`, `onOrAfter`, `between`, `today`, `thisWeek`, `thisMonth`, `lastNDays`, `isEmpty`, `isNotEmpty`;
+- boolean: `=`, `isEmpty`, `isNotEmpty`;
+- select: `is`, `isNot`, `isAnyOf`, `isNoneOf`, `isEmpty`, `isNotEmpty`;
+- relation: `containsAny`, `notContainsAny`, `isEmpty`, `isNotEmpty`.
+
+Action fields are:
+
+| Action | Required | Optional and defaults | Saved output |
+| --- | --- | --- | --- |
+| `updateRecord` | `record`, non-empty `set` | `audit` answers by question UUID | none |
+| `createRecord` | `table`, non-empty `values` | `saveAs` | created record |
+| `generateDocument` | `template`, `record` | `filename`, up to 20 `tags`, `saveAs` | document |
+| `createDocumentLink` | `document` | `expiresIn: 1d|7d|30d|90d` default `30d`, `comment`, `saveAs` | public link |
+| `sendEmail` | `template`, `to` with 1–50 recipients | `data` with at most 200 keys, `saveAs` | email result |
+| `httpRequest` | absolute HTTP(S) `url` | `method` default `POST`, up to 100 `headers`, `json`, `timeoutMs` default 15,000 and range 1,000–60,000, `saveAs` | response |
+| `setVariable` | `name`, `value` | none | named value |
+| `succeed` | `message` | none | terminates successfully |
+| `fail` | `message` | none | terminates with failure |
+
+`sendEmail.to` entries contain exactly one of `email` or `user`. HTTP methods are `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`; requests
+carry optional JSON only. Field, table, document-template, and email-template references accept an unambiguous name, short id, or UUID.
+
+Control flow uses these exact shapes:
+
+```yaml
+inputs:
+  state:
+    type: select
+    options:
+      - Ready
+      - Pending
+  items:
+    type: recordList
+    table: Items
+steps:
+  - if:
+      equals:
+        - ${{ inputs.state }}
+        - Ready
+    then:
+      - setVariable:
+          name: readiness
+          value: ready
+    else:
+      - setVariable:
+          name: readiness
+          value: pending
+  - switch: ${{ inputs.state }}
+    cases:
+      - when: Ready
+        do:
+          - setVariable:
+              name: queue
+              value: active
+    default:
+      - setVariable:
+          name: queue
+          value: review
+  - forEach: inputs.items
+    as: item
+    do:
+      - updateRecord:
+          record: item
+          set:
+            Status: Checked
+```
+
+Conditions are `equals`, `notEquals`, `contains`, `startsWith`, `endsWith`, `exists`, `all`, `any`, and `not`. Binary conditions take
+exactly two values; `exists` takes one raw reference; `all` and `any` take non-empty condition lists.
+
+Plain strings are literals. A dynamic value must occupy the whole string as `${{ reference }}` or `${{ now() }}`. References include
+`inputs.<name>`, record fields such as `inputs.item.Status`, a prior `saveAs` or variable name, and a loop alias. The expression language has
+no arithmetic, concatenation, or additional functions. Reference-only fields remain raw: `record: inputs.item`, `document: documentResult`,
+`forEach: inputs.items`, and `exists: inputs.item.Status`. Only `succeed.message` and `fail.message` may embed several expressions in text.
+Lists and objects may contain dynamic values recursively.
+
+Saved document outputs expose `id`, `shortId`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`,
+`documentNumber`, `filename`, `tags`, `generatedBy`, and `generatedAt`. Link outputs expose `kind`, `id`, `url`, `expiresAt`, and
+`documentRunId`. Email outputs expose `subject`, `templateId`, and `recipients`, whose entries include `id`, `deliveryId`, `kind`, `recipient`,
+and `status`. HTTP outputs expose `status`, `ok`, and `body`.
+
+Limits are 100 inputs, 1,000 total steps, nesting depth 20, 1,000 conditions, condition depth 20, 10,000 loop or record-list items, and
+200,000 YAML characters. Run modes are `execute` and `dryRun`; statuses are `queued`, `running`, `waiting`, `succeeded`, `failed`,
+`canceled`, and `needs_attention`. Invocation channels are `api`, `dashboard`, `scanner`, `bulk`, `schedule`, and `recordEvent`.
 
 A minimal manually invoked workflow is:
 

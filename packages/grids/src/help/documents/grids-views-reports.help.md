@@ -11,12 +11,12 @@ Create a view when people repeatedly need the same subset, order, columns, card 
 
 ## Shape the records {icon="table"}
 
-The visual controls and GQL describe the same server-side query:
+The visual controls and GQL describe the same result:
 
 - **Search** finds a term across searchable displayed values.
 - **Filter** keeps records that match exact rules.
 - **Sort** defines their order.
-- **Computed** adds a calculated result column without changing the table schema.
+- **Computed** adds a calculated result column without adding a field to the table.
 - **Group** turns records into one summary row per category.
 - **Aggregate** calculates values such as count, unique count, sum, average, median, earliest, latest, minimum, or maximum.
 

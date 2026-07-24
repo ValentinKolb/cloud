@@ -6,6 +6,11 @@ import { GRIDS_WORKFLOW_CHANNELS, GRIDS_WORKFLOW_LAUNCHER_KINDS, GridsWorkflowRu
 import { gridsWorkflowManifest } from "../../../workflows/manifest";
 
 const helpSource = await Bun.file(new URL("../../../help/documents/grids-workflows.help.md", import.meta.url)).text();
+const cliSkillReference = await Bun.file(new URL("../../../../../../skills/cloud-cli/references/grids.md", import.meta.url)).text();
+const workflowReferences = [
+  ["help", helpSource],
+  ["CLI", cliSkillReference],
+] as const;
 const controlFlowHelp =
   helpSource.match(/^## Control flow(?: \{[^}\n]*\})?\n([\s\S]*?)\n## Values and references(?: \{[^}\n]*\})?$/m)?.[1] ?? "";
 
@@ -13,6 +18,7 @@ const workflowSnippets = [...helpSource.matchAll(/\*\*([^*\n]+)\*\*\s*\n+```yaml
   title: title!,
   source: source!.trim(),
 }));
+const cliWorkflowSnippets = [...cliSkillReference.matchAll(/```yaml\n([\s\S]*?)```/g)].map((match) => match[1]!.trim());
 
 const manifestTerms = (schema: unknown): string[] => {
   if (!schema || typeof schema !== "object") return [];
@@ -85,30 +91,33 @@ describe("Grids workflow help", () => {
   test("documents the complete manifest vocabulary and limits", () => {
     expect(gridsWorkflowManifest.triggers.map((trigger) => trigger.kind)).toEqual(["schedule", "recordEvent"]);
 
-    for (const term of [
-      ...gridsWorkflowManifest.inputs.map((input) => input.kind),
-      ...gridsWorkflowManifest.triggers.map((trigger) => trigger.kind),
-      ...gridsWorkflowManifest.actions.map((action) => action.kind),
-      ...GRIDS_WORKFLOW_CHANNELS,
-      ...GRIDS_WORKFLOW_LAUNCHER_KINDS,
-      ...GridsWorkflowRunStatusSchema.options,
-      "execute",
-      "dryRun",
-    ]) {
-      expect(helpSource, `missing workflow help for ${term}`).toMatch(new RegExp(`\\b${term}\\b`));
-    }
-
-    for (const limit of Object.values(gridsWorkflowManifest.limits ?? {})) {
-      expect(helpSource, `missing workflow help for limit ${limit}`).toContain(limit.toLocaleString("en-US"));
-    }
-
     const configTerms = [
       ...gridsWorkflowManifest.inputs.flatMap((input) => manifestTerms(input.config)),
       ...gridsWorkflowManifest.triggers.flatMap((trigger) => manifestTerms(trigger.config)),
       ...gridsWorkflowManifest.actions.flatMap((action) => manifestTerms(action.config)),
     ];
-    for (const term of new Set(configTerms)) {
-      expect(helpSource, `missing workflow property or enum ${term}`).toMatch(new RegExp(`\\b${term}\\b`));
+
+    for (const [label, reference] of workflowReferences) {
+      for (const term of [
+        ...gridsWorkflowManifest.inputs.map((input) => input.kind),
+        ...gridsWorkflowManifest.triggers.map((trigger) => trigger.kind),
+        ...gridsWorkflowManifest.actions.map((action) => action.kind),
+        ...GRIDS_WORKFLOW_CHANNELS,
+        ...GRIDS_WORKFLOW_LAUNCHER_KINDS,
+        ...GridsWorkflowRunStatusSchema.options,
+        "execute",
+        "dryRun",
+      ]) {
+        expect(reference, `${label} reference missing workflow term ${term}`).toMatch(new RegExp(`\\b${term}\\b`));
+      }
+
+      for (const limit of Object.values(gridsWorkflowManifest.limits ?? {})) {
+        expect(reference, `${label} reference missing workflow limit ${limit}`).toContain(limit.toLocaleString("en-US"));
+      }
+
+      for (const term of new Set(configTerms)) {
+        expect(reference, `${label} reference missing workflow property or enum ${term}`).toMatch(new RegExp(`\\b${term}\\b`));
+      }
     }
   });
 
@@ -149,6 +158,14 @@ describe("Grids workflow help", () => {
       expect(compiled.ok, title).toBe(true);
       if (!compiled.ok) continue;
       expect((await bindGridsWorkflow(compiled.ir, catalog)).ok, title).toBe(true);
+    }
+  });
+
+  test("keeps every CLI workflow YAML example accepted by the public compiler", async () => {
+    expect(cliWorkflowSnippets.length).toBeGreaterThan(0);
+    for (const source of cliWorkflowSnippets) {
+      const compiled = await compileWorkflow(source, gridsWorkflowManifest);
+      expect(compiled.ok, source).toBe(true);
     }
   });
 
@@ -204,6 +221,7 @@ describe("Grids workflow help", () => {
   test("documents every recursive workflow condition operator", () => {
     for (const operator of ["equals", "notEquals", "contains", "startsWith", "endsWith", "exists", "all", "any", "not"]) {
       expect(controlFlowHelp, `missing workflow condition help for ${operator}`).toContain(`\`${operator}\``);
+      expect(cliSkillReference, `CLI reference missing workflow condition ${operator}`).toContain(`\`${operator}\``);
     }
     expect(workflowSnippets.map(({ title }) => title)).toContain("Recursive conditions");
   });

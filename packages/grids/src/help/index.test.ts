@@ -1,9 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { AGGREGATE_KINDS } from "../aggregate-catalog";
 import { DOCUMENT_TEMPLATE_STARTERS } from "../document-template-starters";
 import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
-import { GROUP_GRANULARITIES } from "../query-dsl/intelligence-grammar";
+import { parseFormula } from "../formula/parser";
+import {
+  GROUP_GRANULARITIES,
+  PREDICATE_COMPARISON_OPERATORS,
+  PREDICATE_FUNCTIONS,
+  PREDICATE_OPERATORS,
+} from "../query-dsl/intelligence-grammar";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { gridsHelp } from ".";
+
+const cliSkillReference = await Bun.file(new URL("../../../../skills/cloud-cli/references/grids.md", import.meta.url)).text();
 
 const expectedTopics = [
   "grids-overview",
@@ -37,6 +46,24 @@ describe("grids help", () => {
     expect(gridsHelp.getMarkdown("grids-workflows")).toContain("A workflow does not need a YAML trigger");
     expect(gridsHelp.getMarkdown("grids-documents-pdfs")).toContain("Liquid + GQL");
     expect(gridsHelp.getMarkdown("grids-combined-tables")).toContain("Fail-closed publication");
+  });
+
+  test("keeps implementation stack details out of end-user help", () => {
+    const markdown = gridsHelp.manifest.map((document) => gridsHelp.getMarkdown(document.id)).join("\n");
+
+    for (const implementationTerm of [
+      /\bGotenberg\b/i,
+      /\bPostgreSQL\b/i,
+      /\bLiquidJS\b/i,
+      /\bSQL\b/,
+      /server cursors/i,
+      /live event stream/i,
+      /durable intents/i,
+      /socket connection/i,
+      /DNS address/i,
+    ]) {
+      expect(markdown).not.toMatch(implementationTerm);
+    }
   });
 
   test("covers the product areas a new user must be able to discover", () => {
@@ -84,6 +111,7 @@ describe("grids help", () => {
     const formulas = gridsHelp.getMarkdown("grids-formulas")!;
     for (const fn of GRID_FORMULA_FUNCTIONS) {
       expect(formulas, `missing formula function ${fn.name}`).toContain(fn.signature);
+      expect(cliSkillReference, `CLI reference missing formula function ${fn.name}`).toContain(fn.signature);
     }
 
     const permissions = gridsHelp.getMarkdown("grids-permissions")!;
@@ -95,8 +123,22 @@ describe("grids help", () => {
     }
 
     const gql = gridsHelp.getMarkdown("grids-gql")!;
-    for (const granularity of GROUP_GRANULARITIES) {
-      expect(gql, `missing GQL date granularity ${granularity}`).toContain(granularity);
+    for (const term of [
+      ...GROUP_GRANULARITIES,
+      ...AGGREGATE_KINDS,
+      ...PREDICATE_FUNCTIONS.map((item) => item.label),
+      ...PREDICATE_OPERATORS.map((item) => item.label),
+      ...PREDICATE_COMPARISON_OPERATORS.map((item) => item.label),
+      "record.id",
+      "record.createdBy",
+      "record.updatedBy",
+      "record.deletedBy",
+      "record.createdAt",
+      "record.updatedAt",
+      "record.deletedAt",
+    ]) {
+      expect(gql, `missing GQL reference term ${term}`).toContain(term);
+      expect(cliSkillReference, `CLI reference missing GQL term ${term}`).toContain(term);
     }
 
     expect(tables).toContain("browser's timezone");
@@ -110,6 +152,17 @@ describe("grids help", () => {
     expect(examples.length).toBeGreaterThan(0);
     for (const source of examples) {
       const parsed = parseGridsQueryDsl(source);
+      expect(parsed.ok, source).toBe(true);
+    }
+  });
+
+  test("keeps every formula help example accepted by the public parser", () => {
+    const markdown = gridsHelp.getMarkdown("grids-formulas")!;
+    const examples = [...markdown.matchAll(/```text\n([\s\S]*?)```/g)].map((match) => match[1]!.trim());
+
+    expect(examples.length).toBeGreaterThan(0);
+    for (const source of examples) {
+      const parsed = parseFormula(source);
       expect(parsed.ok, source).toBe(true);
     }
   });

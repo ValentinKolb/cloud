@@ -59,6 +59,8 @@ Input names, `saveAs` names, `setVariable.name`, and `forEach.as` aliases are id
 
 Each action step contains exactly one action. Control-flow steps use their documented keys, such as `if` with `then` and optional `else`. Unknown root keys, input properties, trigger properties, action fields, and control-flow keys are errors. The editor reports them with a line and column rather than ignoring them.
 
+YAML maps must not repeat a key. Indentation defines nesting, so use spaces consistently and keep sibling properties aligned. Quote a value when it must remain text but looks like `true`, `false`, `null`, or a number. Quote cron expressions so their spaces and `*` characters remain one clear value.
+
 ## How runs start {icon="square-plus"}
 
 A workflow can start in three ways:
@@ -77,7 +79,7 @@ Scanner, bulk, and dashboard launchers are saved separately and remain outside w
 
 :::reference
 - **Inputs:** Typed values supplied by a direct caller, launcher, or automatic trigger. Record inputs resolve before steps execute.
-- **Start:** Invoke directly, use a persisted launcher, or declare an automatic trigger. A workflow does not need a YAML trigger.
+- **Start:** Invoke directly, use a saved launcher, or declare an automatic trigger. A workflow does not need a YAML trigger.
 - **Steps:** Actions and control flow executed in order. Failed steps stop the run and write diagnostics to the run history.
 - **Observe:** Each run keeps its revision, mode, channel, inputs, status, timing, step outcomes, result or error, and generated documents.
 :::
@@ -127,7 +129,7 @@ inputs:
 
 :::reference
 - **Direct invocation:** Manual UI, API, and CLI callers invoke the same workflow directly with an input object, execute or dryRun mode, and an idempotency key.
-- **Persisted launchers:** Scanner, bulk, and dashboard launchers are saved resources attached to a workflow. They are configured and validated outside workflow YAML.
+- **Saved launchers:** Scanner, bulk, and dashboard launchers are configured separately from workflow YAML.
 - **Automatic triggers:** Only schedule and recordEvent belong under triggers in YAML. The triggers block is optional when a workflow starts only through direct invocation or launchers.
 - **Revision and deduplication:** Callers may require the expected active revision. Idempotency keys reuse the same logical invocation and reject conflicting reuse.
 :::
@@ -135,13 +137,15 @@ inputs:
 ## Automatic trigger reference {icon="route"}
 
 :::reference
-- **schedule:** Runs delivered future slots from a five-field cron expression. timezone is an optional IANA timezone and defaults to UTC. Duplicate slots reuse one logical run; slots missed while the scheduler process is offline are skipped rather than backfilled.
-- **recordEvent:** Runs when a record is created, updated, or deleted. Add an optional table restriction and optional server-side filter.
+- **schedule:** Starts future runs from a five-field cron expression. timezone is an optional IANA timezone and defaults to UTC. The same scheduled time creates at most one run. If a scheduled time passes while Grids is unavailable, that missed run is not created later.
+- **recordEvent:** Runs when a record is created, updated, or deleted. Add an optional table restriction and a filter that must match before the workflow starts.
 - **with bindings:** Map trigger values into declared workflow inputs. Every required input must receive a compatible value before the automatic run can start.
 - **Trigger values:** Schedules expose occurredAt and slot. Record events expose record, event, and occurredAt through the trigger root.
 :::
 
 A workflow may declare both trigger kinds. Trigger bindings can read only `trigger.*` values; they cannot read run inputs or values created by steps. If an automatic trigger cannot bind every required input, validation fails. Keep interactive-only workflows trigger-free and start them directly or through a launcher.
+
+A cron expression has exactly five fields in this order: `minute hour day-of-month month day-of-week`. Values use numbers, `*`, comma lists, ranges, and `/step`; month and weekday names are not accepted. Minute is 0–59, hour 0–23, day-of-month 1–31, month 1–12, and day-of-week 0–7 where both 0 and 7 mean Sunday. For example, `'0 9 * * 1-5'` means 09:00 Monday through Friday in the selected timezone.
 
 **Scheduled workflow**
 
@@ -208,12 +212,12 @@ Direct callers can provide every declared input. Launchers provide their configu
 :::reference
 - **Scanner:** Binds one record input. Resolve scanned text by a generated scan code or by a configured field that enforces unique values. The scanner surface shows the camera and a running log of accepted, failed, and completed scans.
 - **Bulk:** Binds one recordList input from explicit record IDs or a row-shaped table query, with at most 10,000 records per run.
-- **Dashboard:** Exposes the workflow as a dashboard action and may persist input bindings such as a fixed reporting range.
+- **Dashboard:** Exposes the workflow as a dashboard action and may save input bindings such as a fixed reporting range.
 - **Launcher lifecycle:** Each launcher has its own name, enabled state, validated workflow revision, and diagnostics. Review launcher diagnostics when workflow inputs change.
 :::
 
 :::note Outside YAML
-Launcher configuration is persisted with the workflow, not copied into its source. One workflow can therefore support multiple named scanner, bulk, or dashboard surfaces without changing the executable definition.
+Launchers are configured separately from the workflow source. One workflow can therefore support multiple named scanner, bulk, or dashboard actions without changing its YAML.
 :::
 
 ## Step reference {icon="book-2"}
@@ -225,7 +229,7 @@ Launcher configuration is persisted with the workflow, not copied into its sourc
 | `generateDocument` | `template`, `record` | `filename`, up to 20 `tags`, `saveAs` | Validates access and values; does not generate |
 | `createDocumentLink` | `document` output reference | `expiresIn` (`1d`, `7d`, `30d`, `90d`; default `30d`), `comment`, `saveAs` | Validates the document and access; does not create a link |
 | `sendEmail` | `template`, 1–50 `to` recipients | `data` with up to 200 keys, `saveAs` | Validates template, recipients, data, and access; does not send |
-| `httpRequest` | Absolute HTTP or HTTPS `url` | `method` (default `POST`), `headers`, `json`, `timeoutMs` (default 15,000; range 1,000–60,000), `saveAs` | Performs target and policy preflight; does not send |
+| `httpRequest` | Absolute HTTP or HTTPS `url` | `method` (default `POST`), `headers`, `json`, `timeoutMs` (default 15,000; range 1,000–60,000), `saveAs` | Checks the target and request policy; does not send |
 | `setVariable` | `name`, `value` | None | Stores the planned value in the current scope |
 | `succeed` | `message` | None | Stops planning with a successful terminal result |
 | `fail` | `message` | None | Stops planning with the failure that execution would produce |
@@ -466,7 +470,7 @@ steps:
 ## Run modes and observability {icon="route"}
 
 :::reference
-- **execute:** Runs the active revision and performs its record changes, durable intents, and external requests.
+- **execute:** Runs the active revision, changes records, generates documents, starts email delivery, and sends external requests.
 - **dryRun:** Plans the workflow, checks current references and permissions, and records predicted effects without applying changes or sending external requests.
 - **Channels:** Direct UI, API, and CLI calls use api. Saved launchers use dashboard, scanner, or bulk. Automatic triggers use schedule or recordEvent.
 - **Run statuses:** A run is queued, running, waiting, succeeded, failed, canceled, or needs_attention.
@@ -482,11 +486,11 @@ A dry run is a normal observable run with mode `dryRun`. Review its predicted ef
 
 :::reference
 - **Run permission:** Direct calls and standalone launcher runs require workflow write access. Dashboard widget runs use included dashboard authorization; actions still check their target resources.
-- **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and dashboard launchers run as the user or service account that starts them. Direct calls share the api channel; authorization still records the authenticated principal.
+- **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and dashboard launchers run as the user or service account that starts them. Direct calls appear under the api channel.
 - **Automatic run identity:** Schedules and record events run as the workflow owner with the owner's current groups. A record event keeps the user who changed the record in trigger metadata, but does not inherit that user's permissions.
 - **Action permission:** Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow.
 - **Email delivery:** Email template management requires base admin access. Workflow runs can use enabled email templates without exposing template HTML in autocomplete.
-- **HTTP guardrails:** httpRequest pins the validated DNS address for the socket connection, limits request and response bodies to 64 KiB, applies the timeout to DNS and transfer, and blocks private or reserved targets by default. Administrators can restrict requests to an exact or wildcard host allowlist. Private-network requests require both the private-network setting and a matching non-empty host allowlist.
+- **HTTP guardrails:** httpRequest limits request and response bodies to 64 KiB, applies the configured timeout to the complete request, and blocks private or reserved targets by default. Administrators can restrict requests to exact hosts or wildcard subdomains. Private-network requests require both the private-network setting and a matching non-empty host allowlist.
 :::
 
 One workflow may declare at most 100 inputs and 1,000 steps across all branches and loops. Control flow and recursive conditions may each be nested 20 levels deep, with at most 1,000 conditions. A `recordList`, bulk selection, or `forEach` loop can contain at most 10,000 records. Workflow YAML itself is limited to 200,000 characters.

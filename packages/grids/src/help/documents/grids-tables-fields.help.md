@@ -18,7 +18,7 @@ Choose a field type for the meaning of the value, not merely for how it should l
 | Number | Quantities, prices, measurements, and exact decimal arithmetic | May show a unit and decimal precision |
 | Percent | Percentages | Uses 0–100 by default; a field can instead use a 0–1 fraction scale |
 | Boolean | Yes/no facts | Stores true, false, or empty when optional |
-| Date | A day or an exact date-time | Date-time values represent a moment; current-time defaults are evaluated on the server |
+| Date | A day or an exact date-time | Date-time values represent a moment; a current-time default uses the time when a new record is saved |
 | Duration | Elapsed time | Stored as seconds; accepts seconds, `MM:SS`, or `HH:MM:SS` |
 | Select | A value from a controlled list | Options can have labels, colors, and descriptions; a select may allow several values |
 | JSON | Structured data that does not need its own Grids fields | Use sparingly; individual properties are less convenient to filter and explain |
@@ -73,7 +73,7 @@ An index helps fields used often for filtering, sorting, search, joins, or uniqu
 
 Choose one short, readable **record label** for every table. It is the title shown in relation pickers and detail panels. A long description is usually a poor label even when it is unique.
 
-Records use optimistic version checks. If another user or tab changes a record before your edit is saved, Grids rejects the stale write instead of silently overwriting newer data. Reload the record, review the newer values, and apply the change again.
+If another user or tab changes a record before your edit is saved, Grids rejects the older edit instead of silently overwriting newer data. Reload the record, review the newer values, and apply the change again.
 
 Moving a record to trash is reversible. Restoring it creates a new history event; it does not erase the deletion event.
 

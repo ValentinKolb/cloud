@@ -131,6 +131,8 @@ Line breaks are optional. Use semicolons when several clauses share one line, an
 from table Orders; where Status = 'Paid'; sort "Ordered at" desc; limit 10
 ```
 
+Use each of `from`, `where`, `search`, `having`, `limit`, `offset`, and the deleted-record mode at most once. Put several fields, groups, aggregates, or sorts in one comma-separated clause. A query may contain several joins because each join introduces another source.
+
 ## Clause reference {icon="search"}
 
 | Clause | Purpose |
@@ -151,6 +153,8 @@ from table Orders; where Status = 'Paid'; sort "Ordered at" desc; limit 10
 
 The two deleted-record clauses are mutually exclusive. Normal queries return live records only.
 
+`from view` starts with the saved view's query and then applies the new clauses. It is useful when a reviewed data set is already the correct starting point. A view that filters by record metadata cannot itself be used as another view's source; start from its table when you need that combination.
+
 ## Names, aliases, and values {icon="point"}
 
 - Use readable table, view, and field names when they are unambiguous.
@@ -159,6 +163,8 @@ The two deleted-record clauses are mutually exclusive. Normal queries return liv
 - Use source aliases after joins, for example `customer.Name`.
 - Use brace-wrapped UUIDs only when generated configuration or a migration needs an immutable reference.
 - Do not use removed `#field` aliases.
+
+Aliases used after `as` must start with a letter or underscore, may then contain letters, numbers, and underscores, and may be at most 64 characters. An alias cannot be a GQL keyword, logical operator, or reserved literal. Aliases are case-insensitive when referenced later.
 
 When `from` is omitted in a table or view query editor, the current page can provide the source. Write it explicitly when the query should remain understandable outside that page.
 
@@ -172,7 +178,7 @@ where (Status = 'Available' or Status = 'Reserved') and Quantity > 0
 sort Name asc
 ```
 
-Do not write SQL function-style `AND(...)`, `OR(...)`, or `NOT(...)`.
+Use the operators between expressions. Do not write function-style `AND(...)`, `OR(...)`, or `NOT(...)`.
 
 Text helpers are `contains`, `startswith`, `endswith`, and the case-insensitive `icontains`, `istartswith`, and `iendswith`. Membership helpers support controlled and multi-value fields:
 
@@ -180,7 +186,7 @@ Text helpers are `contains`, `startswith`, `endswith`, and the case-insensitive 
 - `noneof(Field, 'a', 'b')`
 - `containsall(Field, 'a', 'b')`
 
-Use `null` for a missing value. Sort missing values explicitly with `nulls first` or `nulls last` when their position matters.
+Use `null` for a missing value. Sort defaults to ascending order with missing values last. Add `desc`, `nulls first`, or `nulls last` when another order is required.
 
 A condition can also be a formula:
 
@@ -192,21 +198,87 @@ select Name, Price, "Purchase price"
 
 Open **Formulas** for expression syntax and the complete function catalog.
 
+### Predicate compatibility
+
+The simple field predicates below are the clearest choice when they fit. A boolean formula can compare fields or calculated expressions when a direct predicate is not enough.
+
+| Field value | Supported direct predicates |
+| --- | --- |
+| Text, long text, ID | `=`, `!=`, `contains`, `startswith`, `endswith`, `icontains`, `istartswith`, `iendswith` |
+| Number, percent, duration | `=`, `!=`, `<`, `<=`, `>`, `>=` |
+| Date | `=`, `!=`, `<`, `<=`, `>`, `>=`; write dates and date-times as single-quoted ISO values |
+| Boolean | `= true`, `= false`, `!= true`, `!= false`, or the field alone |
+| Select | `=`, `!=`, `oneof`, `noneof`, `containsall`; values may be option labels or option ids |
+| Relation | `=`, `!=`, `oneof`, `noneof`, `containsall`; values are related record UUIDs |
+
+Comparing a filterable field with `null` uses `=` for empty and `!=` for not empty. Other comparisons with `null` are invalid. Scalar formula, lookup, and rollup outputs can participate in a supported true/false formula. JSON and file fields cannot be filtered directly.
+
+### Record metadata
+
+Record metadata uses the reserved `record` scope:
+
+| Reference | Use |
+| --- | --- |
+| `record.id` | Match one record UUID with `=` or several with `oneof(...)` |
+| `record.createdBy` | Match one or several creator user UUIDs |
+| `record.updatedBy` | Match one or several last-editor user UUIDs |
+| `record.deletedBy` | Match one or several deleting-user UUIDs |
+| `record.createdAt` | Sort by creation time |
+| `record.updatedAt` | Sort by last update time |
+| `record.deletedAt` | Sort deleted records by deletion time |
+
+Metadata filters may be combined with `and`, but not placed inside an `or` branch. User and record values are UUIDs, not display names.
+
+## Grouping and aggregate reference {icon="chart-bar"}
+
+`group by` returns one row per distinct value. Date fields can additionally use `by day`, `week`, `month`, `quarter`, or `year`. Every non-aggregate field used by a grouped `sort` must also appear in `group by`; aggregate aliases can be sorted directly.
+
+Every aggregate needs an output alias:
+
+```gql
+from table Orders
+where Status = 'Paid'
+group by Customer
+aggregate count(*) as orders, sum(Total) as revenue, latest("Ordered at") as last_order
+having revenue >= 1000
+sort revenue desc nulls last
+```
+
+| Aggregate | Accepted input |
+| --- | --- |
+| `count(*)` | All matching records; `*` is valid only with `count` |
+| `count(field)`, `countEmpty(field)`, `countUnique(field)` | Any readable field or formula |
+| `sum(field)`, `avg(field)`, `median(field)` | Numeric fields and numeric formulas |
+| `min(field)`, `max(field)` | Number, date, date-time, or text fields and formulas |
+| `earliest(field)`, `latest(field)` | Date or date-time fields and formulas |
+
+Aggregate a calculated value with `aggregate sum(formula(Quantity * Price)) as revenue`. The formula is evaluated for each source record before the aggregate combines the results.
+
+Omit `group by` to calculate one summary row for the complete matching set:
+
+```gql
+from table Orders
+where Status = 'Paid'
+aggregate count(*) as orders, sum(Total) as revenue
+```
+
+An aggregate-only query cannot also select record fields or sort its single result row. Add `group by` when you need several sortable summary rows.
+
 ## Paging and result bounds {icon="point"}
 
-Without `limit`, a result view can continue through all matching rows using server cursors. With `limit 100`, the complete logical result stops after 100 rows even if the UI displays it in smaller pages.
+Without `limit`, a result view can continue through all matching rows one page at a time. With `limit 100`, the complete result stops after 100 rows even if the UI displays it in smaller pages.
 
-Cursors are opaque, signed, and tied to the exact query and source. Changing the query starts at the first page. Pages are live reads rather than one frozen database snapshot, so concurrent changes can move records between requests.
+Changing the query starts again at the first page. Pages show live data rather than one frozen result, so records changed between page requests can move between pages.
 
 For automated reads, the CLI can request one bounded page with `--page-size` or continue with `--all --max-rows N`.
 
-## Permissions and execution {icon="shield-lock"}
+## Permissions and supported queries {icon="shield-lock"}
 
-GQL is parsed, resolved against the visible schema, permission-checked, compiled to SQL, and executed on the server. Filtering, sorting, joins, grouping, and aggregation are not performed in the browser.
+Grids checks permissions before running a query and applies filtering, sorting, joins, grouping, and aggregation before returning each result page.
 
-Every table, view, join, and relation target must be readable in the current context. Autocomplete follows the same rule and does not reveal hidden table or field names.
+Every source, join target, and relation target named directly in the query must be readable in the current context. A readable saved view is an included-data boundary, so its output can be queried without separate access to its parent table. Autocomplete follows the same rules and does not reveal hidden table or field names.
 
-GQL deliberately refuses raw SQL features such as arbitrary join predicates, subqueries, common table expressions, window functions, and raw SQL expressions. A query that cannot be represented safely fails with a diagnostic.
+GQL deliberately does not support arbitrary join conditions, subqueries, common table expressions, window functions, or unrestricted expressions. An unsupported query fails with a diagnostic instead of being guessed or partially applied.
 
 ## Views and query results {icon="search"}
 

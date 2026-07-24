@@ -17,14 +17,14 @@ In a custom form you can:
 
 - choose the title, description, title image, submit label, and success message;
 - arrange user inputs and explain what each answer means;
-- apply hidden values on the server, such as a fixed request status;
+- apply hidden values that the person submitting cannot change, such as a fixed request status;
 - allow configured relation fields to create related records inline;
 - redirect after a successful submission;
 - pause submissions without deleting the form.
 
-An internal user can submit with **Write/Use** access to the form or inherited table write access. They do not need permission to browse the table when the form itself grants use.
+A signed-in user can submit with **Write/Use** access to the form or inherited table write access. They do not need permission to browse the table when the form itself grants use.
 
-Turn on **Public form** only when anonymous submissions are intended. The public URL contains a random share token and writes through the form's configured fields and server-managed values. Turning public access off invalidates the existing link; enabling it again creates a new one.
+Turn on **Public form** only when anonymous submissions are intended. The unique public URL accepts only the form's configured fields and always applies its hidden values. Turning public access off invalidates the existing link; enabling it again creates a new one.
 
 Test a form with incomplete and invalid input before sharing it. Confirm that required fields, relation creation, success text, and redirect behavior are understandable without knowledge of the table.
 

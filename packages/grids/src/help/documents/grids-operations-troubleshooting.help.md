@@ -42,11 +42,11 @@ An empty result is different from a failed result. Query diagnostics explain syn
 
 ## A form will not submit {icon="forms"}
 
-Confirm that the form is active. An internal user needs Form **Write/Use** or inherited table write access. A public form must still be enabled for public access and opened with its current token.
+Confirm that the form is active. A signed-in user needs Form **Write/Use** or inherited table write access. A public form must still be enabled for public access and opened through its current public URL.
 
-Check required fields, relation inline-create rules, and server-managed values. Users cannot override hidden values applied by the form.
+Check required fields, relation inline-create rules, and hidden values. People submitting the form cannot override its hidden values.
 
-If an old public URL stopped working after public access was disabled, share the newly generated URL; the old token is intentionally not restored.
+If an old public URL stopped working after public access was disabled, share the newly generated URL. The old link is intentionally not restored.
 
 ## A document preview or download fails {icon="lifebuoy"}
 
@@ -72,7 +72,7 @@ For automatic runs, confirm the workflow is enabled and the schedule or record-e
 
 ## A Combined table needs attention {icon="lifebuoy"}
 
-A Combined table fails closed when a published source, mapping, or authorization is no longer valid. It does not return a smaller partial dataset.
+A Combined table fails closed when a published source, mapping, or source permission is no longer valid. It does not return a smaller partial dataset.
 
 Open **Combined data**, inspect the affected source and field diagnostics, repair the draft, validate it, and publish a complete new revision. A revoked source must be authorized again before republishing.
 
@@ -80,7 +80,7 @@ Open **Combined data**, inspect the affected source and field diagnostics, repai
 
 Files follow their table or Combined-table permission boundary. Store facts people need to search or filter in normal fields rather than only in a filename.
 
-Exports and result pages are server-paged. A query without `limit` can continue through all matching rows; a `limit` intentionally caps the logical result. Use bounded exports and CLI `--max-rows` options when an automated consumer must enforce its own maximum.
+Exports and result pages load in pages. A query without `limit` can continue through all matching rows; a `limit` intentionally caps the complete result. Use bounded exports and CLI `--max-rows` options when an automated process must enforce its own maximum.
 
 :::note Preserve the failing context
 Before editing a query, template, or workflow, keep the diagnostic and the input that produced it. A precise error plus the active source is more useful than a screenshot of an empty result.
