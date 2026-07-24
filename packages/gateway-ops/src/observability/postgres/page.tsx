@@ -1,9 +1,10 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { Chart, DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { gatewayOpsHelp } from "../../help";
 import { getPostgresDiagnostics, type PostgresExtensionDiagnostic, type PostgresTableDiagnostic } from "../data/service";
 import PostgresDataFilters from "./_components/PostgresDataFilters.island";
@@ -231,17 +232,17 @@ export default ssr<AuthContext>(async (c) => {
           <article class="paper p-3">
             <h2 class="text-xs font-semibold text-primary">Size by schema</h2>
             <p class="text-[10px] text-dimmed">Top schemas by total relation size.</p>
-            <Chart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaChartData} yAxis={{ format: formatBytes }} />
+            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaChartData} yFormat="bytes" />
           </article>
           <article class="paper p-3">
             <h2 class="text-xs font-semibold text-primary">Largest tables</h2>
             <p class="text-[10px] text-dimmed">Top 10 by relation size.</p>
-            <Chart kind="donut" class="mt-2 h-64 text-dimmed" data={tableChartData} legend />
+            <ObservabilityChart kind="donut" class="mt-2 h-64 text-dimmed" data={tableChartData} legend />
           </article>
           <article class="paper p-3">
             <h2 class="text-xs font-semibold text-primary">Rows by schema</h2>
             <p class="text-[10px] text-dimmed">Planner row estimates by schema.</p>
-            <Chart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaRowsChartData} yAxis={{ format: formatNumber }} />
+            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaRowsChartData} yFormat="number" />
           </article>
         </section>
 

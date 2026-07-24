@@ -1,9 +1,10 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { Chart, DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { gatewayOpsHelp } from "../../help";
 import { getRedisDiagnostics, type RedisPrefixDiagnostic } from "../data/service";
 import RedisDataFilters from "./_components/RedisDataFilters.island";
@@ -122,7 +123,7 @@ export default ssr<AuthContext>(async (c) => {
               ? `${formatNumber(diagnostics.sampledKeys)} keys scanned.`
               : `${formatNumber(diagnostics.sampledKeys)} of ${formatNumber(diagnostics.dbSize)} keys sampled.`}
           </p>
-          <Chart kind="donut" class="mt-2 h-72 text-dimmed" data={prefixChartData} legend />
+          <ObservabilityChart kind="donut" class="mt-2 h-72 text-dimmed" data={prefixChartData} legend />
         </section>
 
         <section class="paper overflow-hidden">
