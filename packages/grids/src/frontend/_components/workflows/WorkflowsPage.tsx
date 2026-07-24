@@ -434,7 +434,7 @@ export default function WorkflowsPage(props: Props) {
     onCleanup(() => window.removeEventListener("popstate", onPopState));
   });
 
-  const openEditor = async (workflow?: Workflow) => {
+  const openEditor = async (workflow: Workflow) => {
     await dialogCore.open<void>(
       (close) => (
         <WorkflowEditor
@@ -442,7 +442,7 @@ export default function WorkflowsPage(props: Props) {
           baseShortId={props.baseShortId}
           tables={props.tables}
           workflow={workflow}
-          onSaved={props.onWorkflowChanged}
+          onChanged={() => props.onWorkflowChanged()}
           onClose={close}
         />
       ),
@@ -620,13 +620,8 @@ export default function WorkflowsPage(props: Props) {
             surface="paper"
             class="flex-1"
             title="No workflows yet"
-            description={props.editMode ? "Create a workflow to automate work in this base." : "Turn on Edit mode to create a workflow."}
-            action={
-              props.editMode && props.canCreateWorkflows ? (
-                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor()}>
-                  <i class="ti ti-plus" aria-hidden="true" /> Add workflow
-                </button>
-              ) : undefined
+            description={
+              props.editMode ? "Create a workflow from the Workflows section in the sidebar." : "Turn on Edit mode to create a workflow."
             }
           />
         </div>
@@ -682,9 +677,6 @@ export default function WorkflowsPage(props: Props) {
             </div>
             <Show when={props.editMode && props.canCreateWorkflows}>
               <div class="flex flex-wrap items-center gap-2">
-                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor()}>
-                  <i class="ti ti-plus" /> Add workflow
-                </button>
                 <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEmailTemplates()}>
                   <i class="ti ti-mail" /> Email templates
                 </button>

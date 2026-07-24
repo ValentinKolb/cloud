@@ -2,6 +2,7 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import BaseSettingsButton from "../sidebar/BaseSettingsButton.island";
 import CreateDashboardButton from "../sidebar/CreateDashboardButton.island";
 import CreateTableButton from "../sidebar/CreateTableButton.island";
+import CreateWorkflowButton from "../sidebar/CreateWorkflowButton.island";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry.island";
 import SidebarTableMeta from "../sidebar/SidebarTableMeta";
 import type {
@@ -175,15 +176,8 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
               </SidebarLink>
             );
           })}
-          {state.catalog.workflows.length === 0 && state.adminModeRequested && state.canManageBase && (
-            <SidebarLink
-              href={keepEdit(`/app/grids/${state.base.shortId}/workflows`, true)}
-              active={route.kind === "workflows"}
-              class="text-secondary"
-            >
-              <AppWorkspace.SidebarItemIcon icon="ti ti-plus" />
-              <AppWorkspace.SidebarItemLabel>Add workflow</AppWorkspace.SidebarItemLabel>
-            </SidebarLink>
+          {state.adminModeRequested && state.canManageBase && (
+            <CreateWorkflowButton baseId={state.base.id} baseShortId={state.base.shortId} tables={state.catalog.tables} />
           )}
         </AppWorkspace.SidebarSection>
       )}

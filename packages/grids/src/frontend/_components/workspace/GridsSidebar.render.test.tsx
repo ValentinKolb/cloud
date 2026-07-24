@@ -46,4 +46,30 @@ describe("GridsSidebar workflows", () => {
     expect(html).not.toContain(">Overview<");
     expect(html).toContain("/app/grids/BASE1/workflows/FLOW1");
   });
+
+  test("shows workflow creation in the sidebar only for base admins in Edit mode", () => {
+    const editableState = workflowState();
+    editableState.adminModeRequested = true;
+    editableState.canManageBase = true;
+
+    const editableHtml = renderToString(() => createComponent(GridsSidebar, { state: editableState }));
+    const readOnlyHtml = renderToString(() => createComponent(GridsSidebar, { state: workflowState() }));
+
+    expect(editableHtml).toContain("New workflow");
+    expect(readOnlyHtml).not.toContain("New workflow");
+  });
+
+  test("shows workflow creation before the first workflow exists", () => {
+    const state = workflowState();
+    state.adminModeRequested = true;
+    state.canManageBase = true;
+    state.catalog.workflows = [];
+    state.route = { kind: "empty" };
+
+    const html = renderToString(() => createComponent(GridsSidebar, { state }));
+
+    expect(html).toContain("Workflows");
+    expect(html).toContain("New workflow");
+    expect(html).not.toContain("Add workflow");
+  });
 });

@@ -41,7 +41,7 @@ type WorkflowEditorProps = {
   baseShortId: string;
   tables: Table[];
   workflow?: Workflow;
-  onSaved: () => void;
+  onChanged: (workflow?: Workflow) => void;
   onClose: () => void;
 };
 
@@ -219,7 +219,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     if (!response.ok) throw new Error(await errorMessage(response, "Could not reload workflow."));
     const latest = (await response.json()) as Workflow;
     replaceDraft(workflowEditorDraft(latest, defaultSource(props.tables[0])));
-    props.onSaved();
+    props.onChanged(latest);
     toast.success("Loaded the latest workflow version");
   };
 
@@ -265,7 +265,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     },
     onSuccess: (saved) => {
       toast.success(`Saved "${saved.name}"`);
-      props.onSaved();
+      props.onChanged(saved);
       props.onClose();
     },
     onError: (error) => void handleSaveError(error),
@@ -287,7 +287,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     onSuccess: (result) => {
       if (!result.deleted) return;
       toast.success("Workflow deleted");
-      props.onSaved();
+      props.onChanged();
       props.onClose();
     },
     onError: (error) => prompts.error(error.message),
