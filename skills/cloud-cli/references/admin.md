@@ -12,22 +12,49 @@ Use `cld admin` when operating a Cloud instance as an administrator. Commands in
 cld admin status --json
 cld admin apps list --json
 cld admin routes list --json
-cld admin diagnose --since 6h --include health,logs,telemetry,postgres,redis,metrics --json
+cld admin diagnose --since 6h --include health,logs,telemetry,jobs,postgres,redis,metrics --json
 ```
 
-Use `diagnose` for a bounded troubleshooting bundle. Narrow its time window and included sections before requesting more data.
+Use `diagnose` for a bounded troubleshooting bundle. Narrow its time window and included sections before requesting more data. Its `telemetry.failingRoutes` and `jobs` sections name the endpoints and background jobs that are actually failing, which is usually the fastest way into a problem.
 
-## Logs, telemetry, and storage diagnostics
+## Logs and storage diagnostics
 
 ```bash
 cld admin logs errors --since 24h --search "timeout" --json
 cld admin logs list --source gateway --level warn --since 6h --json
-cld admin telemetry summary --hours 24 --json
 cld admin postgres summary --json
 cld admin redis summary --json
 ```
 
-Use `cld admin logs show <id> --json` for the full details of a selected log entry. The `postgres` and `redis` command groups also provide tables, schemas, extensions, and sampled prefix views; read their command help before narrowing a diagnostic.
+Use `cld admin logs show <id> --json` for the full details of a selected log entry, and `cld admin logs explain <id> --json` to get that entry together with nearby context. The `postgres` and `redis` command groups also provide tables, schemas, extensions, and sampled prefix views; read their command help before narrowing a diagnostic.
+
+## Request telemetry
+
+Start with `telemetry routes`, not with individual events. Routes are real route templates such as `/api/mail/mailboxes/:id`, so a failing endpoint is identifiable; an aggregate request count is usually dominated by one busy route and says very little.
+
+```bash
+cld admin telemetry routes --sort errorRate --range 24h --json
+cld admin telemetry routes --sort requests --range 7d --json
+cld admin telemetry overview --range 24h --app mail --json
+cld admin telemetry explain "/api/mail/mailboxes/:id" --json
+```
+
+Ranges are `1h`, `6h`, `24h`, `7d`, and `30d`. Sort by `errorRate` to find what is broken and by `requests` to find what is popular; `errors`, `slow`, and `duration` are also available. `errorRate` ignores routes below 20 requests so a single failure cannot top the list. Narrow to failing routes with `--errors`, to slow ones with `--slow`.
+
+`telemetry overview` counts server errors (5xx), client errors (4xx), and rate limits (429) separately — a rate-limited caller and a broken endpoint need different responses. `telemetry explain <route>` bundles one route's error breakdown, recent requests, and related error logs. `telemetry timeseries` places when a change started.
+
+The older `telemetry summary`, `telemetry events`, and `telemetry apps` remain for raw event access.
+
+## Background jobs
+
+```bash
+cld admin jobs list --json
+cld admin jobs list --health failed --json
+cld admin jobs runs --source gateway:telemetry:cleanup --json
+cld admin jobs show <traceId>:<spanId> --json
+```
+
+`--health failed` means the most recent run of a source failed, i.e. it is unhealthy right now — it does not list every source that has ever failed. Use `jobs runs --source <id>` for run history and `jobs show` for a single run with its recorded events, which is the closest thing a background job has to a log. These commands are read-only; trigger a schedule from the admin UI.
 
 ## Notifications and announcements
 
@@ -70,7 +97,8 @@ Run `cld admin <command> --help` for flags, filters, pagination, and confirmatio
 | App registry | `apps list`, `apps get`, `apps remove` |
 | Routes | `routes list` |
 | Logs | `logs list`, `logs summary`, `logs stats`, `logs errors`, `logs problems`, `logs show`, `logs explain`, `logs tail`, `logs sources`, `logs cleanup` |
-| Telemetry | `telemetry summary`, `telemetry events`, `telemetry apps` |
+| Telemetry | `telemetry routes`, `telemetry overview`, `telemetry timeseries`, `telemetry explain`, `telemetry summary`, `telemetry events`, `telemetry apps` |
+| Background jobs | `jobs list`, `jobs stats`, `jobs runs`, `jobs show` |
 | Postgres diagnostics | `postgres summary`, `postgres tables`, `postgres schemas`, `postgres extensions` |
 | Redis diagnostics | `redis summary`, `redis prefixes` |
 | Notifications | `notifications list`, `notifications summary`, `notifications get`, `notifications resend`, `notifications pending-system`, `notifications send-pending-system` |
