@@ -24,15 +24,10 @@ import type {
   Workflow,
 } from "../../../service";
 import type { WidgetData } from "../../../service/dashboard-widget-data";
-import type {
-  GridsWorkflowEmailDelivery,
-  GridsWorkflowLauncher,
-  GridsWorkflowRun,
-  GridsWorkflowRunStats,
-  GridsWorkflowStepRun,
-} from "../../../workflows/contracts";
+import type { GridsWorkflowLauncher, GridsWorkflowRun, GridsWorkflowRunStats, GridsWorkflowStepRun } from "../../../workflows/contracts";
 import type { RecordsState } from "../records-view/query-url";
 import type { GridsDocumentViewMode } from "../sidebar/GridsSettingsStore";
+import type { WorkflowUrlState } from "../workflows/workflow-url-state";
 
 export type AuthUser = {
   id: string;
@@ -152,9 +147,9 @@ export type WorkspaceWorkflowsRoute = {
 };
 
 export type WorkspaceWorkflowOverview = {
+  filters: WorkflowUrlState;
   stats: GridsWorkflowRunStats;
   runs: { items: GridsWorkflowRun[]; nextCursor: string | null };
-  emailDeliveries: { items: GridsWorkflowEmailDelivery[]; nextCursor: string | null };
   launchers: GridsWorkflowLauncher[];
 };
 
@@ -206,6 +201,7 @@ export type GridsWorkspaceState =
   | { kind: "notFound"; title: string; message: string }
   | { kind: "accessDenied"; title: string; message: string }
   | { kind: "invalidQuery"; title: string; message: string }
+  | { kind: "redirect"; href: string }
   | {
       kind: "ok";
       base: Base;

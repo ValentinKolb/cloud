@@ -34,6 +34,8 @@ export default ssr<AuthContext>(async (c) => {
     dateConfig: await getDateConfig(c),
   });
 
+  if (loadedState.kind === "redirect") return c.redirect(loadedState.href, 302);
+
   if (loadedState.kind !== "ok") {
     return () => (
       <Layout c={c} title={loadedState.title}>

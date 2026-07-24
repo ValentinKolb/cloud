@@ -1,5 +1,6 @@
 import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import type { GridsWorkflowRun } from "../../../workflows/contracts";
 import DashboardLayout from "../dashboard/DashboardLayout";
 import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor";
 import DocumentTemplateWorkspace from "../documents/DocumentTemplateWorkspace";
@@ -39,12 +40,14 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
   const state = props.state;
   const route = state.route;
   const [selectedWorkflowRunId, setSelectedWorkflowRunId] = createSignal(route.kind === "workflows" ? route.selectedRunId : null);
+  const [workflowRunUpdate, setWorkflowRunUpdate] = createSignal<GridsWorkflowRun | null>(null);
 
   const updateWorkflowRun = (runId: string | null) => {
     const url = new URL(window.location.href);
     if (runId) url.searchParams.set("run", runId);
     else url.searchParams.delete("run");
     window.history.pushState(null, "", `${url.pathname}${url.search}`);
+    setWorkflowRunUpdate(null);
     setSelectedWorkflowRunId(runId);
   };
 
@@ -52,7 +55,10 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
 
   onMount(() => {
     if (route.kind === "workflows") {
-      const onPopState = () => setSelectedWorkflowRunId(new URL(window.location.href).searchParams.get("run"));
+      const onPopState = () => {
+        setWorkflowRunUpdate(null);
+        setSelectedWorkflowRunId(new URL(window.location.href).searchParams.get("run"));
+      };
       window.addEventListener("popstate", onPopState);
       onCleanup(() => window.removeEventListener("popstate", onPopState));
     }
@@ -183,9 +189,9 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
                   baseId={state.base.id}
                   baseShortId={state.base.shortId}
                   tables={state.catalog.tables}
-                  workflows={state.catalog.workflows}
                   activeWorkflow={workflows.activeWorkflow}
                   selectedRunId={selectedWorkflowRunId()}
+                  runUpdate={workflowRunUpdate()}
                   canCreateWorkflows={state.canManageBase}
                   canRunActiveWorkflow={workflows.canRunActiveWorkflow}
                   canManageActiveWorkflow={workflows.canManageActiveWorkflow}
@@ -289,6 +295,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
             <WorkflowRunDetailPanel
               runId={runId}
               initialDetail={route.kind === "workflows" && route.initialSelectedRun?.run.id === runId ? route.initialSelectedRun : null}
+              onRunUpdated={setWorkflowRunUpdate}
               onClose={() => updateWorkflowRun(null)}
             />
           )}

@@ -10,11 +10,10 @@ import {
   prompts,
   StatCell,
   StatGrid,
-  TextInput,
 } from "@valentinkolb/cloud/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, lazy, Show, Suspense } from "solid-js";
+import { createEffect, createMemo, createSignal, For, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Table } from "../../../service";
 import type {
@@ -37,8 +36,17 @@ import {
   channelLabels,
   formatWorkflowRunDate as formatDate,
   formatWorkflowRunDuration as formatDuration,
+  isTerminalWorkflowRunStatus,
   workflowRunStatusClass as statusClass,
 } from "./workflow-display";
+import { reconcileWorkflowRunList, type WorkflowRunListFilter } from "./workflow-run-list";
+import {
+  parseWorkflowUrlState,
+  type WorkflowRunChannelFilter,
+  type WorkflowRunStatusFilter,
+  type WorkflowUrlState,
+  workflowUrlStateHref,
+} from "./workflow-url-state";
 
 const WorkflowScannerSurface = lazy(() => import("./WorkflowScannerSurface"));
 
@@ -46,9 +54,9 @@ type Props = {
   baseId: string;
   baseShortId: string;
   tables: Table[];
-  workflows: Workflow[];
   activeWorkflow: Workflow | null;
   selectedRunId: string | null;
+  runUpdate: WorkflowRun | null;
   canCreateWorkflows: boolean;
   canRunActiveWorkflow: boolean;
   canManageActiveWorkflow: boolean;
@@ -71,7 +79,6 @@ type WorkflowEmailDeliveryPage = {
 type WorkflowsPageApi = {
   "by-base": {
     ":baseId": {
-      $get: (input: { param: { baseId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
       "run-stats": {
         $get: (input: { param: { baseId: string }; query: { window: string } }, options?: { init?: RequestInit }) => Promise<Response>;
       };
@@ -138,9 +145,7 @@ const runChannelOptions: FilterChipSection[] = [
   },
 ];
 
-type RunStatusFilter = "all" | WorkflowRun["status"];
-type RunChannelFilter = "all" | GridsWorkflowChannel;
-type WorkflowLoadArea = "workflows" | "stats" | "runs" | "emails" | "launchers";
+type WorkflowLoadArea = "stats" | "runs" | "launchers";
 
 const formatMetricDuration = (ms: number | null): string => {
   if (ms === null) return "-";
@@ -153,157 +158,33 @@ const formatPercent = (value: number): string => `${value.toFixed(value >= 10 ? 
 
 const triggerSummary = (workflow: Workflow): string => {
   const triggers = workflow.plan.triggers.map((trigger) => trigger.kind);
-  if (triggers.length === 0) return "No trigger";
+  if (triggers.length === 0) return "No automatic trigger";
   return triggers.map((trigger) => (trigger === "recordEvent" ? "Record event" : "Schedule")).join(", ");
 };
 
-const workflowTriggers = (workflow: Workflow): string[] => workflow.plan.triggers.map((trigger) => trigger.kind);
-
-const workflowSearch = (workflow: Workflow): string =>
-  [workflow.name, workflow.description ?? "", workflow.source, triggerSummary(workflow)].join(" ").toLowerCase();
-
-function WorkflowCard(props: {
-  baseShortId: string;
-  workflow: Workflow;
-  active?: boolean;
-  stats?: WorkflowRunStats["byWorkflow"][number];
-}) {
-  const href = () => `/app/grids/${props.baseShortId}/workflows/${props.workflow.shortId}`;
-  const stats = () => props.stats;
-  return (
-    <a
-      href={href()}
-      aria-current={props.active ? "page" : undefined}
-      class={`flex min-w-0 items-start gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-left transition-colors ${
-        props.active ? "list-item-active" : "hover:bg-[var(--ui-hover)]"
-      }`}
-    >
-      <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
-        <i class="ti ti-route" />
-      </span>
-      <span class="min-w-0 flex-1">
-        <span class="flex min-w-0 items-center gap-2">
-          <span class="truncate text-sm font-semibold text-primary">{props.workflow.name}</span>
-          <span class={`badge ${props.workflow.enabled ? "badge-success" : "badge-neutral"}`}>
-            {props.workflow.enabled ? "enabled" : "disabled"}
-          </span>
-        </span>
-        <Show when={props.workflow.description}>
-          {(description) => <span class="mt-0.5 block truncate text-xs text-dimmed">{description()}</span>}
-        </Show>
-        <Show when={stats()}>
-          {(row) => (
-            <span class="mt-1 block truncate text-[11px] text-dimmed">
-              {row().total} runs · {formatPercent(row().errorRate)} errors · p99 {formatMetricDuration(row().p99DurationMs)}
-            </span>
-          )}
-        </Show>
-        <span class="mt-2 flex flex-wrap gap-1">
-          <For each={workflowTriggers(props.workflow)}>
-            {(trigger) => <span class="tag">{trigger === "recordEvent" ? "Record event" : "Schedule"}</span>}
-          </For>
-        </span>
-      </span>
-    </a>
-  );
-}
-
-function RunTimeline(props: {
-  runs: WorkflowRun[];
-  workflows: Workflow[];
-  selectedRunId: string | null;
-  showWorkflow?: boolean;
-  loading?: boolean;
-  nextCursor?: string | null;
-  onSelect: (runId: string) => void;
-  onLoadMore?: () => void;
-}) {
-  const workflowById = createMemo(() => new Map(props.workflows.map((workflow) => [workflow.id, workflow])));
-  return (
-    <div class="flex min-h-0 flex-col gap-1 p-1">
-      <For
-        each={props.runs}
-        fallback={
-          <Placeholder align="left" class="py-8">
-            {props.loading ? "Loading runs..." : "No workflow runs yet."}
-          </Placeholder>
-        }
-      >
-        {(run) => {
-          const workflow = () => (run.workflowId ? workflowById().get(run.workflowId) : null);
-          return (
-            <button
-              type="button"
-              aria-pressed={props.selectedRunId === run.id}
-              class={`grid w-full grid-cols-[auto_1fr_auto] items-start gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-left text-xs transition-colors ${
-                props.selectedRunId === run.id ? "list-item-active" : "hover:bg-[var(--ui-hover)]"
-              }`}
-              onClick={() => props.onSelect(run.id)}
-            >
-              <span class={`badge ${statusClass(run.status)}`}>{run.status}</span>
-              <span class="min-w-0">
-                <span class="block truncate font-medium text-primary">
-                  {props.showWorkflow ? (workflow()?.name ?? "Deleted workflow") : (channelLabels[run.channel] ?? run.channel)}
-                </span>
-                <span class="mt-0.5 block truncate text-dimmed">
-                  {props.showWorkflow ? `${channelLabels[run.channel] ?? run.channel} · ` : ""}
-                  {formatDate(run.createdAt)}
-                </span>
-                <Show when={run.error}>
-                  {(error) => <span class="mt-1 block truncate text-red-600 dark:text-red-400">{error().message}</span>}
-                </Show>
-              </span>
-              <span class="whitespace-nowrap text-dimmed">{formatDuration(run)}</span>
-            </button>
-          );
-        }}
-      </For>
-      <Show when={props.nextCursor}>
-        <div class="px-3 py-2 text-center">
-          <button type="button" class="btn-simple btn-sm" onClick={props.onLoadMore} disabled={props.loading}>
-            <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-chevrons-down"} /> Load more
-          </button>
-        </div>
-      </Show>
-    </div>
-  );
-}
-
 function EmailDeliveryTable(props: {
   deliveries: WorkflowEmailDelivery[];
-  workflows: Workflow[];
   loading?: boolean;
   nextCursor?: string | null;
-  showWorkflow?: boolean;
   onLoadMore?: () => void;
 }) {
-  const workflowById = createMemo(() => new Map(props.workflows.map((workflow) => [workflow.id, workflow])));
   const recipients = (delivery: WorkflowEmailDelivery) =>
     delivery.recipients.map((recipient) => `${recipient.kind}:${recipient.recipient}`).join(", ") || "-";
   const columns = createMemo<DataTableColumn<WorkflowEmailDelivery>[]>(() => [
     { id: "status", header: "Status", value: (delivery) => delivery.status },
-    ...(props.showWorkflow
-      ? [{ id: "workflow", header: "Workflow", value: (delivery: WorkflowEmailDelivery) => delivery.workflowId }]
-      : []),
     { id: "subject", header: "Subject", value: (delivery) => delivery.subject, cellClass: "max-w-72" },
     { id: "recipients", header: "Recipients", value: recipients, cellClass: "max-w-72" },
     { id: "sent", header: "Sent", value: (delivery) => delivery.createdAt, cellClass: "whitespace-nowrap" },
   ]);
   return (
-    <section class="paper min-h-0 overflow-hidden">
-      <div class="flex items-center justify-between gap-2 px-3 py-2">
-        <div class="min-w-0">
-          <h2 class="truncate text-sm font-semibold text-primary">Email deliveries</h2>
-          <p class="text-xs text-dimmed">Workflow sendEmail audit trail.</p>
-        </div>
-      </div>
+    <section class="flex min-h-0 flex-1 flex-col">
       <DataTable
         rows={props.deliveries}
         columns={columns()}
         getRowId={(delivery) => delivery.id}
         density="compact"
         highlightColumns={false}
-        class="max-h-[34rem] min-h-0 overflow-auto"
+        class="paper min-h-[20rem] flex-1 overflow-auto"
         hasMore={!!props.nextCursor}
         loadingMore={props.loading}
         onLoadMore={props.onLoadMore}
@@ -319,9 +200,6 @@ function EmailDeliveryTable(props: {
               </span>
             );
           }
-          if (col.id === "workflow") {
-            return delivery.workflowId ? (workflowById().get(delivery.workflowId)?.name ?? "Deleted workflow") : "-";
-          }
           if (col.id === "sent") return <span class="text-dimmed">{formatDate(delivery.createdAt)}</span>;
           if (col.id === "recipients") return <span class="text-dimmed">{recipients(delivery)}</span>;
           return render(value);
@@ -332,29 +210,23 @@ function EmailDeliveryTable(props: {
 }
 
 export default function WorkflowsPage(props: Props) {
-  const [search, setSearch] = createSignal("");
-  const [statsWindow, setStatsWindow] = createSignal<WorkflowRunStatsWindow>("24h");
-  const [runStatus, setRunStatus] = createSignal<RunStatusFilter>("all");
-  const [runChannel, setRunChannel] = createSignal<RunChannelFilter>("all");
-  const [items, setItems] = createSignal<Workflow[]>(props.workflows);
+  const [statsWindow, setStatsWindow] = createSignal<WorkflowRunStatsWindow>(props.initialOverview.filters.window);
+  const [runStatus, setRunStatus] = createSignal<WorkflowRunStatusFilter>(props.initialOverview.filters.status);
+  const [runChannel, setRunChannel] = createSignal<WorkflowRunChannelFilter>(props.initialOverview.filters.channel);
   const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>(props.initialOverview.launchers);
   const [stats, setStats] = createSignal<WorkflowRunStats | null>(props.initialOverview.stats);
   const [runs, setRuns] = createSignal<WorkflowRun[]>(props.initialOverview.runs.items);
   const [nextCursor, setNextCursor] = createSignal<string | null>(props.initialOverview.runs.nextCursor);
-  const [emailDeliveries, setEmailDeliveries] = createSignal<WorkflowEmailDelivery[]>(props.initialOverview.emailDeliveries.items);
-  const [nextEmailCursor, setNextEmailCursor] = createSignal<string | null>(props.initialOverview.emailDeliveries.nextCursor);
+  const [emailDeliveries, setEmailDeliveries] = createSignal<WorkflowEmailDelivery[]>([]);
+  const [nextEmailCursor, setNextEmailCursor] = createSignal<string | null>(null);
+  const [emailLoadError, setEmailLoadError] = createSignal<string | null>(null);
+  const [emailActivityOpen, setEmailActivityOpen] = createSignal(false);
   const [loadErrors, setLoadErrors] = createSignal<Partial<Record<WorkflowLoadArea, string>>>({});
 
-  createEffect(() => setItems(props.workflows));
-
-  const rows = createMemo(() => {
-    const query = search().trim().toLowerCase();
-    const workflows = [...items()].sort(
-      (a, b) => a.position - b.position || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
-    );
-    return query ? workflows.filter((workflow) => workflowSearch(workflow).includes(query)) : workflows;
+  const activeStats = createMemo(() => {
+    const workflow = props.activeWorkflow;
+    return workflow ? (stats()?.byWorkflow.find((row) => row.workflowId === workflow.id) ?? null) : null;
   });
-  const statsByWorkflow = createMemo(() => new Map((stats()?.byWorkflow ?? []).map((row) => [row.workflowId, row])));
   const loadError = createMemo(() => Object.values(loadErrors())[0] ?? null);
   const setLoadFailure = (area: WorkflowLoadArea, message?: string) => {
     setLoadErrors((current) => {
@@ -364,16 +236,15 @@ export default function WorkflowsPage(props: Props) {
       return next;
     });
   };
-
-  const refreshWorkflowsMut = mutations.create<void, void>({
-    mutation: async (_, { abortSignal }) => {
-      const res = await workflowsPageApi["by-base"][":baseId"].$get({ param: { baseId: props.baseId } }, { init: { signal: abortSignal } });
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflows."));
-      setItems((await res.json()) as Workflow[]);
-    },
-    onSuccess: () => setLoadFailure("workflows"),
-    onError: (error) => setLoadFailure("workflows", error.message),
-  });
+  const currentRunFilter = (): WorkflowRunListFilter => {
+    const status = runStatus();
+    const channel = runChannel();
+    return {
+      workflowId: props.activeWorkflow?.id ?? null,
+      status: status === "all" ? null : status,
+      channel: channel === "all" ? null : channel,
+    };
+  };
 
   const statsMut = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
@@ -406,25 +277,29 @@ export default function WorkflowsPage(props: Props) {
     return (await res.json()) as WorkflowRunPage;
   };
 
-  const runsMut = mutations.create<void, void>({
+  const runsMut = mutations.create<WorkflowRunPage, void>({
     mutation: async (_, { abortSignal }) => {
-      const page = await fetchRuns(null, abortSignal);
-      setRuns(page.items);
-      setNextCursor(page.nextCursor ?? null);
+      return fetchRuns(null, abortSignal);
     },
-    onSuccess: () => setLoadFailure("runs"),
+    onSuccess: (page) => {
+      setRuns(reconcileWorkflowRunList(page.items, props.runUpdate, currentRunFilter(), true));
+      setNextCursor(page.nextCursor ?? null);
+      setLoadFailure("runs");
+    },
     onError: (error) => setLoadFailure("runs", error.message),
   });
 
-  const loadMoreRunsMut = mutations.create<void, void>({
+  const loadMoreRunsMut = mutations.create<WorkflowRunPage | null, void>({
     mutation: async (_, { abortSignal }) => {
       const cursor = nextCursor();
-      if (!cursor) return;
-      const page = await fetchRuns(cursor, abortSignal);
-      setRuns((current) => [...current, ...page.items]);
-      setNextCursor(page.nextCursor ?? null);
+      return cursor ? fetchRuns(cursor, abortSignal) : null;
     },
-    onSuccess: () => setLoadFailure("runs"),
+    onSuccess: (page) => {
+      if (!page) return;
+      setRuns((current) => reconcileWorkflowRunList([...current, ...page.items], props.runUpdate, currentRunFilter(), true));
+      setNextCursor(page.nextCursor ?? null);
+      setLoadFailure("runs");
+    },
     onError: (error) => setLoadFailure("runs", error.message),
   });
 
@@ -450,8 +325,24 @@ export default function WorkflowsPage(props: Props) {
       setEmailDeliveries(page.items);
       setNextEmailCursor(page.nextCursor ?? null);
     },
-    onSuccess: () => setLoadFailure("emails"),
-    onError: (error) => setLoadFailure("emails", error.message),
+    onSuccess: () => setEmailLoadError(null),
+    onError: (error) => setEmailLoadError(error.message),
+  });
+
+  let appliedRunUpdate = "";
+  createEffect(() => {
+    const update = props.runUpdate;
+    if (!update) return;
+    const signature = `${update.id}:${update.status}:${update.finishedAt ?? ""}:${update.error?.message ?? ""}`;
+    if (signature === appliedRunUpdate) return;
+    appliedRunUpdate = signature;
+
+    setRuns((current) => reconcileWorkflowRunList(current, update, currentRunFilter(), true));
+
+    if (isTerminalWorkflowRunStatus(update.status)) {
+      statsMut.mutate();
+      if (emailActivityOpen()) emailDeliveriesMut.mutate();
+    }
   });
 
   const loadMoreEmailDeliveriesMut = mutations.create<void, void>({
@@ -462,7 +353,8 @@ export default function WorkflowsPage(props: Props) {
       setEmailDeliveries((current) => [...current, ...page.items]);
       setNextEmailCursor(page.nextCursor ?? null);
     },
-    onError: (error) => prompts.error(error.message),
+    onSuccess: () => setEmailLoadError(null),
+    onError: (error) => setEmailLoadError(error.message),
   });
 
   const launchersMut = mutations.create<void, void>({
@@ -485,27 +377,62 @@ export default function WorkflowsPage(props: Props) {
 
   const reloadAll = () => {
     setLoadErrors({});
-    refreshWorkflowsMut.mutate();
     statsMut.mutate();
     runsMut.mutate();
-    emailDeliveriesMut.mutate();
     launchersMut.mutate();
   };
 
+  const currentUrlState = (): WorkflowUrlState => ({
+    window: statsWindow(),
+    status: runStatus(),
+    channel: runChannel(),
+  });
+
+  const pushUrlState = (state: WorkflowUrlState) => {
+    const href = workflowUrlStateHref(new URL(window.location.href), state);
+    window.history.pushState(window.history.state, "", href);
+  };
+
   const changeStatsWindow = (value: string[]) => {
-    setStatsWindow((value[0] as WorkflowRunStatsWindow | undefined) ?? "24h");
+    const next = (value[0] as WorkflowRunStatsWindow | undefined) ?? "24h";
+    if (next === statsWindow()) return;
+    setStatsWindow(next);
+    pushUrlState(currentUrlState());
     statsMut.mutate();
   };
 
   const changeRunStatus = (value: string[]) => {
-    setRunStatus((value[0] as RunStatusFilter | undefined) ?? "all");
+    const next = (value[0] as WorkflowRunStatusFilter | undefined) ?? "all";
+    if (next === runStatus()) return;
+    setRunStatus(next);
+    pushUrlState(currentUrlState());
     runsMut.mutate();
   };
 
   const changeRunChannel = (value: string[]) => {
-    setRunChannel((value[0] as RunChannelFilter | undefined) ?? "all");
+    const next = (value[0] as WorkflowRunChannelFilter | undefined) ?? "all";
+    if (next === runChannel()) return;
+    setRunChannel(next);
+    pushUrlState(currentUrlState());
     runsMut.mutate();
   };
+
+  onMount(() => {
+    const onPopState = () => {
+      const next = parseWorkflowUrlState(new URL(window.location.href).searchParams);
+      const refreshStats = next.window !== statsWindow();
+      const refreshRuns = next.status !== runStatus() || next.channel !== runChannel();
+
+      setStatsWindow(next.window);
+      setRunStatus(next.status);
+      setRunChannel(next.channel);
+      if (refreshStats) statsMut.mutate();
+      if (refreshRuns) runsMut.mutate();
+    };
+
+    window.addEventListener("popstate", onPopState);
+    onCleanup(() => window.removeEventListener("popstate", onPopState));
+  });
 
   const openEditor = async (workflow?: Workflow) => {
     await dialogCore.open<void>(
@@ -515,10 +442,7 @@ export default function WorkflowsPage(props: Props) {
           baseShortId={props.baseShortId}
           tables={props.tables}
           workflow={workflow}
-          onSaved={() => {
-            props.onWorkflowChanged();
-            reloadAll();
-          }}
+          onSaved={props.onWorkflowChanged}
           onClose={close}
         />
       ),
@@ -543,17 +467,7 @@ export default function WorkflowsPage(props: Props) {
 
   const openLaunchers = async (workflow: Workflow) => {
     await dialogCore.open<void>(
-      (close) => (
-        <WorkflowLauncherManager
-          workflow={workflow}
-          tables={props.tables}
-          onChanged={() => {
-            props.onWorkflowChanged();
-            reloadAll();
-          }}
-          onClose={close}
-        />
-      ),
+      (close) => <WorkflowLauncherManager workflow={workflow} tables={props.tables} onChanged={props.onWorkflowChanged} onClose={close} />,
       panelDialogWorkspaceOptions,
     );
   };
@@ -621,8 +535,9 @@ export default function WorkflowsPage(props: Props) {
       return (await res.json()) as { runId: string; status: WorkflowRun["status"] };
     },
     onSuccess: (receipt) => {
-      reloadAll();
       props.onSelectRun(receipt.runId);
+      runsMut.mutate();
+      statsMut.mutate();
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -637,28 +552,105 @@ export default function WorkflowsPage(props: Props) {
     runMut.mutate({ input, mode });
   };
 
+  const runColumns = createMemo<DataTableColumn<WorkflowRun>[]>(() => [
+    { id: "status", header: "Status", value: (run) => run.status, cellClass: "whitespace-nowrap" },
+    { id: "started", header: "Started", value: (run) => run.createdAt, cellClass: "whitespace-nowrap" },
+    { id: "channel", header: "Channel", value: (run) => run.channel, cellClass: "whitespace-nowrap" },
+    { id: "mode", header: "Mode", value: (run) => run.mode, cellClass: "whitespace-nowrap" },
+    { id: "result", header: "Result", value: (run) => run.error?.message ?? run.resultMessage, cellClass: "max-w-[32rem]" },
+    { id: "duration", header: "Duration", value: (run) => formatDuration(run), cellClass: "whitespace-nowrap" },
+    { id: "revision", header: "Revision", value: (run) => run.workflowRevision, align: "right" },
+  ]);
+
+  const openEmailActivity = async () => {
+    const workflow = activeWorkflow();
+    if (!workflow) return;
+    setEmailDeliveries([]);
+    setNextEmailCursor(null);
+    setEmailLoadError(null);
+    setEmailActivityOpen(true);
+    emailDeliveriesMut.mutate();
+    try {
+      await dialogCore.open<void>(
+        (close) => (
+          <PanelDialog surface="floating">
+            <PanelDialog.Header
+              title="Email activity"
+              subtitle={`Messages sent by ${workflow.name}`}
+              icon="ti ti-mail"
+              close={() => close()}
+            />
+            <PanelDialog.Body>
+              <div class="flex min-h-[24rem] flex-1 flex-col gap-2">
+                <Show when={emailLoadError()}>
+                  {(message) => (
+                    <div class="info-block-danger flex items-center justify-between gap-3 text-sm" role="alert">
+                      <span>{message()}</span>
+                      <button type="button" class="btn-simple btn-sm shrink-0" onClick={() => emailDeliveriesMut.mutate()}>
+                        <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                      </button>
+                    </div>
+                  )}
+                </Show>
+                <EmailDeliveryTable
+                  deliveries={emailDeliveries()}
+                  loading={emailDeliveriesMut.loading() || loadMoreEmailDeliveriesMut.loading()}
+                  nextCursor={nextEmailCursor()}
+                  onLoadMore={() => loadMoreEmailDeliveriesMut.mutate()}
+                />
+              </div>
+            </PanelDialog.Body>
+          </PanelDialog>
+        ),
+        panelDialogWorkspaceOptions,
+      );
+    } finally {
+      setEmailActivityOpen(false);
+      emailDeliveriesMut.abort();
+      loadMoreEmailDeliveriesMut.abort();
+    }
+  };
+
   return (
-    <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable" data-scroll-preserve="grids-workflows-main">
-      <div class="flex flex-col gap-2">
-        <div class="flex min-w-0 flex-col gap-2" style="view-transition-name: grids-workflows-title">
-          <div class="flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <Show
+      when={activeWorkflow()}
+      fallback={
+        <div class="flex min-h-0 flex-1">
+          <Placeholder
+            surface="paper"
+            class="flex-1"
+            title="No workflows yet"
+            description={props.editMode ? "Create a workflow to automate work in this base." : "Turn on Edit mode to create a workflow."}
+            action={
+              props.editMode && props.canCreateWorkflows ? (
+                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor()}>
+                  <i class="ti ti-plus" aria-hidden="true" /> Add workflow
+                </button>
+              ) : undefined
+            }
+          />
+        </div>
+      }
+    >
+      {(workflow) => (
+        <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden" data-scroll-preserve="grids-workflow-runs">
+          <header class="flex min-w-0 flex-col gap-2" style="view-transition-name: grids-workflows-title">
             <div class="min-w-0">
-              <h1 class="min-w-0 text-base font-semibold text-primary">{activeWorkflow()?.name ?? "Workflows"}</h1>
-              <p class="mt-0.5 text-xs text-dimmed">
-                {activeWorkflow()?.description ??
-                  "Monitor and run workflows directly or through scanners, selections, dashboards, schedules, and record events."}
-              </p>
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <h1 class="min-w-0 truncate text-base font-semibold text-primary">{workflow().name}</h1>
+                <span class={`badge ${workflow().enabled ? "badge-success" : "badge-neutral"}`}>
+                  {workflow().enabled ? "enabled" : "disabled"}
+                </span>
+                <span class="tag">{triggerSummary(workflow())}</span>
+              </div>
+              <Show when={workflow().description}>{(description) => <p class="mt-0.5 text-xs text-dimmed">{description()}</p>}</Show>
             </div>
-            <div
-              class="flex min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:max-w-[min(60vw,52rem)] sm:justify-end"
-              role="toolbar"
-              aria-label="Workflow actions"
-            >
-              <Show when={activeWorkflow() && props.canRunActiveWorkflow}>
+            <div class="flex min-w-0 flex-wrap items-center gap-2" role="toolbar" aria-label="Workflow actions">
+              <Show when={props.canRunActiveWorkflow}>
                 <button
                   type="button"
                   class="btn-primary btn-sm shrink-0"
-                  disabled={runMut.loading() || activeWorkflow()?.enabled !== true}
+                  disabled={runMut.loading() || !workflow().enabled}
                   onClick={() => void runWorkflow()}
                 >
                   <i class={runMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} /> Run workflow
@@ -671,51 +663,50 @@ export default function WorkflowsPage(props: Props) {
                 >
                   <i class="ti ti-flask" /> Dry run
                 </button>
-              </Show>
-              <Show when={activeWorkflow() && props.canRunActiveWorkflow}>
                 <For each={scannerLaunchers()}>
                   {(launcher) => (
-                    <button type="button" class="btn-input btn-sm shrink-0" onClick={() => void openScanner(activeWorkflow()!, launcher)}>
+                    <button type="button" class="btn-input btn-sm shrink-0" onClick={() => void openScanner(workflow(), launcher)}>
                       <i class="ti ti-barcode" /> {launcher.name}
                     </button>
                   )}
                 </For>
               </Show>
-              <Show when={props.editMode && activeWorkflow() && props.canManageActiveWorkflow}>
-                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openLaunchers(activeWorkflow()!)}>
+              <Show when={props.editMode && props.canManageActiveWorkflow}>
+                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openLaunchers(workflow())}>
                   <i class="ti ti-rocket" /> Launchers
                 </button>
-                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openEditor(activeWorkflow()!)}>
+                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openEditor(workflow())}>
                   <i class="ti ti-settings" /> Manage
                 </button>
               </Show>
             </div>
-          </div>
-          <Show when={props.editMode && props.canCreateWorkflows}>
-            <div class="flex items-center gap-2">
-              <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor()}>
-                <i class="ti ti-plus" /> Add workflow
-              </button>
-              <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEmailTemplates()}>
-                <i class="ti ti-mail" /> Email templates
-              </button>
-            </div>
-          </Show>
-        </div>
-
-        <div class="flex flex-col gap-2">
-          <TextInput type="search" value={search} onInput={setSearch} icon="ti ti-search" placeholder="Search workflows..." clearable />
-          <div class="flex flex-wrap items-center gap-2 text-xs text-dimmed">
-            <span>{rows().length} workflows</span>
-            <Show when={stats()} fallback={<span>{statsMut.loading() ? "Loading run stats..." : "Run stats unavailable"}</span>}>
-              {(current) => (
-                <span>
-                  {current().total} runs · {statsWindowLabels[current().window]}
-                </span>
-              )}
+            <Show when={props.editMode && props.canCreateWorkflows}>
+              <div class="flex flex-wrap items-center gap-2">
+                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor()}>
+                  <i class="ti ti-plus" /> Add workflow
+                </button>
+                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEmailTemplates()}>
+                  <i class="ti ti-mail" /> Email templates
+                </button>
+              </div>
             </Show>
+          </header>
+
+          <Show when={loadError()}>
+            {(message) => (
+              <div class="info-block-danger flex items-center justify-between gap-3 text-sm" role="alert">
+                <span>{message()}</span>
+                <button type="button" class="btn-simple btn-sm shrink-0" onClick={reloadAll}>
+                  <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                </button>
+              </div>
+            )}
+          </Show>
+
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs text-dimmed">Health over {statsWindowLabels[statsWindow()]}</span>
             <FilterChip
-              label="Window"
+              label="Metrics window"
               icon="ti ti-clock"
               options={statsWindowOptions}
               value={[statsWindow()]}
@@ -723,142 +714,115 @@ export default function WorkflowsPage(props: Props) {
               defaultValue={["24h"]}
               isActive={statsWindow() !== "24h"}
             />
-            <FilterChip
-              label="Status"
-              icon="ti ti-filter"
-              options={runStatusOptions}
-              value={[runStatus()]}
-              onChange={changeRunStatus}
-              defaultValue={["all"]}
-              isActive={runStatus() !== "all"}
-            />
-            <FilterChip
-              label="Channel"
-              icon="ti ti-route"
-              options={runChannelOptions}
-              value={[runChannel()]}
-              onChange={changeRunChannel}
-              defaultValue={["all"]}
-              isActive={runChannel() !== "all"}
-            />
-            <button type="button" class="btn-simple btn-sm ml-auto" onClick={reloadAll}>
-              <i class={runsMut.loading() || statsMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} /> Refresh
-            </button>
           </div>
-        </div>
 
-        <Show when={loadError()}>
-          {(message) => (
-            <div class="info-block-danger flex items-center justify-between gap-3 text-sm" role="alert">
-              <span>{message()}</span>
-              <button type="button" class="btn-simple btn-sm shrink-0" onClick={reloadAll}>
-                <i class="ti ti-refresh" aria-hidden="true" /> Retry
-              </button>
-            </div>
-          )}
-        </Show>
-
-        <Show
-          when={stats()}
-          fallback={
-            <Placeholder
-              surface="paper"
-              state={statsMut.loading() ? "loading" : "error"}
-              title={statsMut.loading() ? "Loading workflow statistics" : "Workflow statistics unavailable"}
-            />
-          }
-        >
-          {(current) => (
-            <StatGrid columns={4} size="sm">
-              <StatCell label="Running" value={current().running + current().queued} accent={{ tone: "blue", icon: "ti ti-player-play" }} />
-              <StatCell label="Succeeded" value={current().succeeded} accent={{ tone: "emerald", icon: "ti ti-circle-check" }} />
+          <Show
+            when={stats()}
+            fallback={
+              <Placeholder
+                surface="paper"
+                state={statsMut.loading() ? "loading" : "error"}
+                title={statsMut.loading() ? "Loading workflow statistics" : "Workflow statistics unavailable"}
+              />
+            }
+          >
+            <StatGrid columns={5} size="sm">
+              <StatCell
+                label="Last run"
+                value={activeStats()?.latestStatus?.replaceAll("_", " ") ?? "No runs"}
+                sub={activeStats()?.lastRunAt ? formatDate(activeStats()?.lastRunAt ?? "") : statsWindowLabels[statsWindow()]}
+                valueClass={
+                  activeStats()?.latestStatus === "failed" || activeStats()?.latestStatus === "needs_attention"
+                    ? "text-red-600 dark:text-red-400"
+                    : undefined
+                }
+              />
+              <StatCell label="Runs" value={activeStats()?.total ?? 0} accent={{ tone: "zinc", icon: "ti ti-list" }} />
+              <StatCell
+                label="Running"
+                value={(activeStats()?.running ?? 0) + (activeStats()?.queued ?? 0)}
+                accent={{ tone: "blue", icon: "ti ti-player-play" }}
+              />
               <StatCell
                 label="Error rate"
-                value={formatPercent(current().errorRate)}
-                valueClass={current().failed > 0 ? "text-red-600 dark:text-red-400" : undefined}
-                accent={current().failed > 0 ? { tone: "red", icon: "ti ti-alert-triangle" } : undefined}
+                value={formatPercent(activeStats()?.errorRate ?? 0)}
+                valueClass={(activeStats()?.failed ?? 0) > 0 ? "text-red-600 dark:text-red-400" : undefined}
+                accent={(activeStats()?.failed ?? 0) > 0 ? { tone: "red", icon: "ti ti-alert-triangle" } : undefined}
               />
               <StatCell
                 label="P99 runtime"
-                value={formatMetricDuration(current().p99DurationMs)}
+                value={formatMetricDuration(activeStats()?.p99DurationMs ?? null)}
                 accent={{ tone: "zinc", icon: "ti ti-hourglass" }}
               />
             </StatGrid>
-          )}
-        </Show>
+          </Show>
 
-        <div class="grid min-h-0 gap-2 xl:grid-cols-[minmax(18rem,0.72fr)_minmax(0,1.28fr)]">
-          <section class="paper min-h-0 overflow-hidden">
-            <div class="px-3 py-2">
-              <h2 class="text-sm font-semibold text-primary">{activeWorkflow() ? "Workflows" : "Workflow catalog"}</h2>
-              <p class="text-xs text-dimmed">Definitions and automatic triggers in this base.</p>
-            </div>
-            <div class="flex max-h-[34rem] min-h-0 flex-col gap-1 overflow-y-auto p-1">
-              <For
-                each={rows()}
-                fallback={
-                  <Placeholder
-                    align="left"
-                    class="py-8"
-                    title={search().trim() ? "No workflows match this search" : "No workflows yet"}
-                    description={
-                      search().trim()
-                        ? "Try a different workflow name, trigger, or source term."
-                        : "Create a workflow to automate work in this base."
-                    }
-                    action={
-                      !search().trim() && props.editMode && props.canCreateWorkflows ? (
-                        <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEditor()}>
-                          <i class="ti ti-plus" aria-hidden="true" /> Add workflow
-                        </button>
-                      ) : undefined
-                    }
-                  />
-                }
-              >
-                {(workflow) => (
-                  <WorkflowCard
-                    baseShortId={props.baseShortId}
-                    workflow={workflow}
-                    active={activeWorkflow()?.id === workflow.id}
-                    stats={statsByWorkflow().get(workflow.id)}
-                  />
-                )}
-              </For>
-            </div>
-          </section>
-
-          <section class="paper min-h-0 overflow-hidden">
-            <div class="flex items-center justify-between gap-2 px-3 py-2">
+          <section class="flex min-h-0 flex-1 flex-col gap-2">
+            <div class="flex flex-wrap items-end justify-between gap-2">
               <div class="min-w-0">
-                <h2 class="truncate text-sm font-semibold text-primary">{activeWorkflow() ? "Workflow runs" : "Recent activity"}</h2>
-                <p class="text-xs text-dimmed">
-                  {activeWorkflow() ? "Executions for this workflow." : "Latest executions across visible workflows."}
-                </p>
+                <h2 class="text-sm font-semibold text-primary">Runs</h2>
+                <p class="text-xs text-dimmed">Select a run to inspect its steps, outputs, and generated documents.</p>
               </div>
+              <button type="button" class="btn-input btn-sm shrink-0" onClick={() => void openEmailActivity()}>
+                <i class="ti ti-mail" /> Email activity
+              </button>
             </div>
-            <RunTimeline
-              runs={runs()}
-              workflows={items()}
-              selectedRunId={props.selectedRunId}
-              showWorkflow={!activeWorkflow()}
-              loading={runsMut.loading() || loadMoreRunsMut.loading()}
-              nextCursor={nextCursor()}
-              onSelect={props.onSelectRun}
+            <div class="flex flex-wrap items-center gap-2">
+              <FilterChip
+                label="Status"
+                icon="ti ti-filter"
+                options={runStatusOptions}
+                value={[runStatus()]}
+                onChange={changeRunStatus}
+                defaultValue={["all"]}
+                isActive={runStatus() !== "all"}
+              />
+              <FilterChip
+                label="Channel"
+                icon="ti ti-route"
+                options={runChannelOptions}
+                value={[runChannel()]}
+                onChange={changeRunChannel}
+                defaultValue={["all"]}
+                isActive={runChannel() !== "all"}
+              />
+              <button type="button" class="btn-simple btn-sm ml-auto" onClick={reloadAll}>
+                <i class={runsMut.loading() || statsMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} /> Refresh
+              </button>
+            </div>
+            <DataTable
+              rows={runs()}
+              columns={runColumns()}
+              getRowId={(run) => run.id}
+              selectedRowId={props.selectedRunId}
+              density="compact"
+              highlightColumns={false}
+              fillHeight
+              class="paper min-h-[18rem] flex-1 overflow-auto"
+              scrollPreserveKey={`grids-workflow-runs-${workflow().id}`}
+              hasMore={!!nextCursor()}
+              loadingMore={runsMut.loading() || loadMoreRunsMut.loading()}
               onLoadMore={() => loadMoreRunsMut.mutate()}
+              onRowClick={(run) => props.onSelectRun(run.id)}
+              empty={runsMut.loading() ? "Loading workflow runs..." : "No runs match these filters."}
+              renderCell={({ row: run, col, render, value }) => {
+                if (col.id === "status") return <span class={`badge ${statusClass(run.status)}`}>{run.status.replaceAll("_", " ")}</span>;
+                if (col.id === "started") return <span class="text-dimmed">{formatDate(run.createdAt)}</span>;
+                if (col.id === "channel") return channelLabels[run.channel] ?? run.channel;
+                if (col.id === "mode") return run.mode === "dryRun" ? "Dry run" : "Execute";
+                if (col.id === "result") {
+                  return (
+                    <span class={run.error ? "text-red-600 dark:text-red-400" : "text-dimmed"}>
+                      {run.error?.message ?? run.resultMessage ?? "—"}
+                    </span>
+                  );
+                }
+                return render(value);
+              }}
             />
           </section>
         </div>
-
-        <EmailDeliveryTable
-          deliveries={emailDeliveries()}
-          workflows={items()}
-          showWorkflow={!activeWorkflow()}
-          loading={emailDeliveriesMut.loading() || loadMoreEmailDeliveriesMut.loading()}
-          nextCursor={nextEmailCursor()}
-          onLoadMore={() => loadMoreEmailDeliveriesMut.mutate()}
-        />
-      </div>
-    </div>
+      )}
+    </Show>
   );
 }

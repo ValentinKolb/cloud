@@ -12,7 +12,9 @@ import {
   channelLabels,
   formatWorkflowRunDate as formatDate,
   formatWorkflowRunDuration as formatDuration,
+  isTerminalWorkflowRunStatus,
   workflowRunStatusClass as statusClass,
+  workflowStepErrorMessage,
 } from "./workflow-display";
 import { mergeRefreshedWorkflowRunDocuments, type WorkflowRunDocumentsState } from "./workflow-run-documents";
 import { createWorkflowRunEventsProvider, isTerminalWorkflowRunLiveErrorCode } from "./workflow-run-events-provider";
@@ -34,10 +36,12 @@ const workflowRunDocumentsApi = apiClient.workflows.runs as unknown as {
 
 const RUN_DOCUMENT_PAGE_SIZE = 100;
 
-const isTerminalRun = (run: GridsWorkflowRun): boolean =>
-  run.status === "succeeded" || run.status === "failed" || run.status === "canceled" || run.status === "needs_attention";
-
-export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: WorkspaceWorkflowRunDetail | null; onClose: () => void }) {
+export function WorkflowRunDetailPanel(props: {
+  runId: string;
+  initialDetail: WorkspaceWorkflowRunDetail | null;
+  onRunUpdated: (run: GridsWorkflowRun) => void;
+  onClose: () => void;
+}) {
   const [run, setRun] = createSignal<GridsWorkflowRun | null>(props.initialDetail?.run ?? null);
   const [steps, setSteps] = createSignal<GridsWorkflowStepRun[]>(props.initialDetail?.steps ?? []);
   const [documents, setDocuments] = createSignal<WorkflowRunDocumentsState>({
@@ -82,19 +86,24 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
     },
   });
 
-  const loadMut = mutations.create<WorkspaceWorkflowRunDetail, string, string>({
-    onBefore: (runId) => runId,
+  const loadMut = mutations.create<WorkspaceWorkflowRunDetail, string, { runId: string }>({
+    onBefore: (runId) => ({ runId }),
     mutation: async (runId, { abortSignal }) => {
       const response = await workflowRunDetailApi.$get({ query: { runId } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await errorMessage(response, "Could not load workflow run."));
       return response.json() as Promise<WorkspaceWorkflowRunDetail>;
     },
-    onSuccess: (detail, requestedRunId) => {
-      if (requestedRunId !== props.runId || detail.run.id !== requestedRunId) return;
+    onSuccess: (detail, context) => {
+      if (context?.runId !== props.runId || detail.run.id !== context.runId) return;
       setRun(detail.run);
       setSteps(detail.steps);
       setDocuments((current) => mergeRefreshedWorkflowRunDocuments(current, detail.documents));
     },
+  });
+
+  onCleanup(() => {
+    loadMut.abort();
+    loadMoreDocumentsMut.abort();
   });
 
   const refresh = (runId = props.runId) => {
@@ -106,6 +115,11 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
     if (!runId || loadMut.loading()) return;
     setPendingLiveRefreshRunId(null);
     if (runId === props.runId) refresh(runId);
+  });
+
+  createEffect(() => {
+    const current = run();
+    if (current) props.onRunUpdated(current);
   });
 
   let loadedRunId = props.initialDetail?.run.id ?? null;
@@ -122,11 +136,11 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
 
   const liveRunId = createMemo(() => {
     const current = run();
-    return current && !isTerminalRun(current) ? current.id : null;
+    return current && !isTerminalWorkflowRunStatus(current.status) ? current.id : null;
   });
   const liveWorkflowId = createMemo(() => {
     const current = run();
-    return current && !isTerminalRun(current) ? current.workflowId : null;
+    return current && !isTerminalWorkflowRunStatus(current.status) ? current.workflowId : null;
   });
 
   createEffect(() => {
@@ -169,7 +183,10 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
             refreshSelectedRun();
           },
           onEvent: (event) => {
-            if (event.run.id === runId) refreshSelectedRun();
+            if (event.run.id !== runId) return;
+            setRun((current) => (current?.id === runId ? { ...current, ...event.run } : current));
+            setSteps(event.steps);
+            if (isTerminalWorkflowRunStatus(event.run.status)) refreshSelectedRun();
           },
           onError: () => {
             streamReady = false;
@@ -319,24 +336,23 @@ export function WorkflowRunDetailPanel(props: { runId: string; initialDetail: Wo
                 </Placeholder>
               }
             >
-              {(step) => (
-                <div class="grid grid-cols-[auto_1fr_auto] items-start gap-2 py-1 text-xs">
-                  <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
-                  <span class="min-w-0 truncate text-primary">
-                    {step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key} · {step.action ?? step.kind}
-                  </span>
-                  <span class="text-dimmed tabular-nums">
-                    {step.startedAt && step.finishedAt
-                      ? `${Math.max(0, new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime())}ms`
-                      : "-"}
-                  </span>
-                  <Show when={step.outcome && typeof step.outcome === "object" && "error" in step.outcome}>
-                    <p class="col-span-3 text-red-600 dark:text-red-400">
-                      {String((step.outcome as { error?: unknown }).error ?? "Step failed")}
-                    </p>
-                  </Show>
-                </div>
-              )}
+              {(step) => {
+                const stepError = () => workflowStepErrorMessage(step.outcome);
+                return (
+                  <div class="grid grid-cols-[auto_1fr_auto] items-start gap-2 py-1 text-xs">
+                    <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
+                    <span class="min-w-0 truncate text-primary">
+                      {step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key} · {step.action ?? step.kind}
+                    </span>
+                    <span class="text-dimmed tabular-nums">
+                      {step.startedAt && step.finishedAt
+                        ? `${Math.max(0, new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime())}ms`
+                        : "-"}
+                    </span>
+                    <Show when={stepError()}>{(message) => <p class="col-span-3 text-red-600 dark:text-red-400">{message()}</p>}</Show>
+                  </div>
+                );
+              }}
             </For>
           </div>
         </section>

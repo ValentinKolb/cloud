@@ -43,7 +43,6 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
       break;
     case "workflows":
       catalog.tables = state.catalog.tables;
-      catalog.workflows = state.catalog.workflows;
       break;
     case "query":
       catalog.tables = state.catalog.tables;

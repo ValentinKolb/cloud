@@ -154,16 +154,8 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
         </AppWorkspace.SidebarSection>
       )}
 
-      {(state.catalog.workflows.length > 0 || state.canManageBase) && (
+      {(state.catalog.workflows.length > 0 || (state.adminModeRequested && state.canManageBase)) && (
         <AppWorkspace.SidebarSection title="Workflows">
-          <SidebarLink
-            href={keepEdit(`/app/grids/${state.base.shortId}/workflows`, state.adminModeRequested)}
-            active={route.kind === "workflows" && !workflowsRoute?.activeWorkflow}
-            class={itemClass(route.kind === "workflows" && !workflowsRoute?.activeWorkflow, state.adminModeRequested)}
-          >
-            <AppWorkspace.SidebarItemIcon icon="ti ti-route" />
-            <AppWorkspace.SidebarItemLabel>Overview</AppWorkspace.SidebarItemLabel>
-          </SidebarLink>
           {state.catalog.workflows.map((workflow) => {
             const active = workflowsRoute?.activeWorkflow?.id === workflow.id;
             return (
@@ -183,6 +175,16 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
               </SidebarLink>
             );
           })}
+          {state.catalog.workflows.length === 0 && state.adminModeRequested && state.canManageBase && (
+            <SidebarLink
+              href={keepEdit(`/app/grids/${state.base.shortId}/workflows`, true)}
+              active={route.kind === "workflows"}
+              class="text-secondary"
+            >
+              <AppWorkspace.SidebarItemIcon icon="ti ti-plus" />
+              <AppWorkspace.SidebarItemLabel>Add workflow</AppWorkspace.SidebarItemLabel>
+            </SidebarLink>
+          )}
         </AppWorkspace.SidebarSection>
       )}
     </>
