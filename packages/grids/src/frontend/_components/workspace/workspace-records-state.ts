@@ -35,7 +35,7 @@ const bulkSelectionLaunchersForTable = async (user: AuthUser, baseId: string, ta
     for (const launcher of await gridsService.workflow.launcher.list(workflow.id, true)) {
       if (launcher.config.kind !== "bulk") continue;
       if (workflow.plan.bindings[`inputs.${launcher.config.input}.table`] !== tableId) continue;
-      matches.push({ ...launcher, workflowRevision: workflow.revision });
+      matches.push({ ...launcher, workflowRevision: workflow.revision, workflowShortId: workflow.shortId });
     }
   }
   return matches.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));

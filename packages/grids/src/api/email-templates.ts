@@ -2,7 +2,13 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { CreateEmailTemplateSchema, EmailTemplateListSchema, EmailTemplateSchema, UpdateEmailTemplateSchema } from "../contracts";
+import {
+  CreateEmailTemplateSchema,
+  EmailTemplateDependencyMapSchema,
+  EmailTemplateListSchema,
+  EmailTemplateSchema,
+  UpdateEmailTemplateSchema,
+} from "../contracts";
 import { gridsService } from "../service";
 import { currentActorUserId, gateAt } from "./permissions";
 
@@ -24,6 +30,24 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(await gridsService.emailTemplate.listForBase(baseId));
+    },
+  )
+
+  .get(
+    "/by-base/:baseId/dependencies",
+    describeRoute({
+      tags: ["Grids:EmailTemplates"],
+      summary: "List workflow dependencies for email templates",
+      responses: {
+        200: jsonResponse(EmailTemplateDependencyMapSchema, "Email template dependencies"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    async (c) => {
+      const baseId = c.req.param("baseId")!;
+      const gate = await gateAt(c, { baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return c.json(await gridsService.emailTemplate.listDependenciesForBase(baseId));
     },
   )
 
@@ -96,6 +120,7 @@ const app = new Hono<AuthContext>()
       summary: "Delete an email template",
       responses: {
         204: { description: "Deleted" },
+        409: jsonResponse(ErrorResponseSchema, "Email template is in use"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },

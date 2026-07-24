@@ -454,6 +454,61 @@ export const getWorkflowRunAuthorization = async (runId: string): Promise<GridsW
   return row ? parseJsonbRow<GridsWorkflowAuthorization>(row.authorization, { kind: "workflow" }) : null;
 };
 
+export const cancelWorkflowRun = async (runId: string, actorUserId: string | null): Promise<GridsWorkflowRun | null> => {
+  const canceled = await sql.begin(async (tx) => {
+    const [row] = await tx<DbRow[]>`
+      UPDATE grids.workflow_runs
+      SET status = 'canceled',
+          result = NULL,
+          error = NULL,
+          result_message = 'Canceled by a user.',
+          heartbeat_at = now(),
+          lease_expires_at = NULL,
+          finished_at = now()
+      WHERE id = ${runId}::uuid
+        AND status IN ('queued', 'running', 'waiting')
+      RETURNING id, workflow_id, launcher_id, base_id, workflow_revision, mode, channel, actor_user_id,
+                service_account_id, actor_service_account_id, credential_id, credential_kind,
+                credential_permission_cap, credential_resource_app_id, credential_resource_type, credential_resource_id,
+                inputs, status, result, error, result_message, created_at, started_at, finished_at
+    `;
+    if (!row) return null;
+    await tx`
+      UPDATE grids.workflow_step_runs
+      SET status = 'canceled',
+          outcome = ${{ state: "terminal", status: "canceled", message: "Canceled by a user." }}::jsonb,
+          finished_at = now()
+      WHERE run_id = ${runId}::uuid
+        AND status IN ('running', 'waiting')
+    `;
+    await logAudit(
+      {
+        baseId: row.base_id as string,
+        userId: actorUserId,
+        action: "workflow.run.canceled",
+        diff: {
+          workflowRun: {
+            old: null,
+            new: {
+              id: row.id,
+              workflowId: row.workflow_id,
+              mode: row.mode,
+              channel: row.channel,
+              status: "canceled",
+              requestedByUserId: actorUserId,
+              principal: auditPrincipal(row),
+            },
+          },
+        },
+      },
+      tx,
+    );
+    return mapRun(row);
+  });
+  if (canceled) await notifyPersistedWorkflowRun(runId, "canceled:user");
+  return canceled;
+};
+
 const eventScope = (authorization: GridsWorkflowAuthorization | null): WorkflowRunEventScope =>
   authorization?.kind === "dashboard-widget"
     ? { kind: "dashboard-widget", dashboardId: authorization.dashboardId, dashboardWidgetId: authorization.dashboardWidgetId }

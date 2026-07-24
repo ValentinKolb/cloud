@@ -1,5 +1,5 @@
 import { AutocompleteEditor, CheckboxCard, confirmDiscardIfDirty, PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
-import type { WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
+import type { WorkflowBoundPlan, WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
 import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -8,6 +8,7 @@ import type { Table, Workflow } from "../../../service";
 import { WORKFLOW_REVISION_HEADER, type WorkflowAutocompleteResponse } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { buildBackendWorkflowCompletions } from "./workflow-autocomplete";
+import { automaticTriggerSummary, shouldConfirmAutomaticTriggers } from "./workflow-editor-activation";
 import {
   type WorkflowEditorDraft,
   workflowEditorDraft,
@@ -23,6 +24,9 @@ type WorkflowEditorApi = {
           input: { param: { baseId: string }; json: { source: string; caret: number } },
           options?: { init?: RequestInit },
         ) => Promise<Response>;
+      };
+      validate: {
+        $post: (input: { param: { baseId: string }; json: { source: string } }, options?: { init?: RequestInit }) => Promise<Response>;
       };
       $post: (input: { param: { baseId: string }; json: unknown }, options?: { init?: RequestInit }) => Promise<Response>;
     };
@@ -140,6 +144,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   const [revision, setRevision] = createSignal(initialDraft.revision);
   const [diagnostics, setDiagnostics] = createSignal<WorkflowDiagnostic[]>([]);
   const [validating, setValidating] = createSignal(false);
+  const [confirmingTriggers, setConfirmingTriggers] = createSignal(false);
   let validationTimer: ReturnType<typeof setTimeout> | undefined;
   let validationAbort: AbortController | undefined;
 
@@ -299,7 +304,52 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     source().trim().length > 0 &&
     diagnostics().length === 0 &&
     !validating() &&
+    !confirmingTriggers() &&
     !saveMut.loading();
+
+  const saveWorkflow = async () => {
+    if (confirmingTriggers()) return;
+    const sourceToSave = source();
+    const enabledToSave = enabled();
+    setConfirmingTriggers(true);
+    try {
+      const automaticTriggersMayChange = enabledToSave && (!props.workflow?.enabled || sourceToSave !== cleanDraft.source);
+      if (automaticTriggersMayChange) {
+        const response = await workflowEditorApi["by-base"][":baseId"].validate.$post({
+          param: { baseId: props.baseId },
+          json: { source: sourceToSave },
+        });
+        if (!response.ok) {
+          await prompts.error(await errorMessage(response, "Could not validate workflow triggers."));
+          return;
+        }
+        const validation = (await response.json()) as { ok: boolean; plan?: WorkflowBoundPlan; diagnostics?: WorkflowDiagnostic[] };
+        if (!validation.ok || !validation.plan) {
+          setDiagnostics(validation.diagnostics ?? [editorDiagnostic("Workflow source is invalid.")]);
+          return;
+        }
+        const summary = automaticTriggerSummary(validation.plan);
+        if (summary && shouldConfirmAutomaticTriggers(props.workflow, validation.plan, enabledToSave)) {
+          const confirmed = await prompts.confirm(
+            `Saving this workflow activates these automatic triggers:\n\n${summary}\n\nFuture matching events or schedule slots can start runs.`,
+            {
+              title: "Activate automatic triggers?",
+              icon: "ti ti-bolt",
+              confirmText: "Activate triggers",
+            },
+          );
+          if (!confirmed) return;
+        }
+      }
+      if (source() !== sourceToSave || enabled() !== enabledToSave) {
+        await prompts.error("The workflow changed during validation. Review it and save again.");
+        return;
+      }
+      saveMut.mutate();
+    } finally {
+      setConfirmingTriggers(false);
+    }
+  };
 
   return (
     <PanelDialog>
@@ -366,8 +416,8 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
           <button type="button" class="btn-input btn-sm" onClick={() => void closeIfClean()}>
             Cancel
           </button>
-          <button type="button" class="btn-primary btn-sm" disabled={!canSave()} onClick={() => saveMut.mutate()}>
-            <i class={saveMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} /> Save workflow
+          <button type="button" class="btn-primary btn-sm" disabled={!canSave()} onClick={() => void saveWorkflow()}>
+            <i class={saveMut.loading() || confirmingTriggers() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} /> Save workflow
           </button>
         </div>
       </PanelDialog.Footer>

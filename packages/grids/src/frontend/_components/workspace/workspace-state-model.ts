@@ -24,7 +24,13 @@ import type {
   Workflow,
 } from "../../../service";
 import type { WidgetData } from "../../../service/dashboard-widget-data";
-import type { GridsWorkflowLauncher, GridsWorkflowRun, GridsWorkflowRunStats, GridsWorkflowStepRun } from "../../../workflows/contracts";
+import type {
+  GridsWorkflowLauncher,
+  GridsWorkflowRun,
+  GridsWorkflowRunStats,
+  GridsWorkflowStepRun,
+  WorkflowTriggerRuntimeState,
+} from "../../../workflows/contracts";
 import type { RecordsState } from "../records-view/query-url";
 import type { GridsDocumentViewMode } from "../sidebar/GridsSettingsStore";
 import type { WorkflowUrlState } from "../workflows/workflow-url-state";
@@ -60,7 +66,7 @@ export type RuntimeView = View & {
   displayConfig: RecordDisplayConfig;
 };
 
-export type WorkspaceBulkLauncher = GridsWorkflowLauncher & { workflowRevision: number };
+export type WorkspaceBulkLauncher = GridsWorkflowLauncher & { workflowRevision: number; workflowShortId: string };
 
 export type WorkspaceRecordsRoute = {
   kind: "records";
@@ -151,10 +157,18 @@ export type WorkspaceWorkflowOverview = {
   stats: GridsWorkflowRunStats;
   runs: { items: GridsWorkflowRun[]; nextCursor: string | null };
   launchers: GridsWorkflowLauncher[];
+  triggerState: WorkflowTriggerRuntimeState | null;
 };
 
 export type WorkspaceWorkflowRunDetail = {
   run: GridsWorkflowRun;
+  inputLabels: Record<string, string>;
+  provenance: {
+    workflowName: string | null;
+    actorLabel: string | null;
+    serviceAccountLabel: string | null;
+    launcherName: string | null;
+  };
   steps: GridsWorkflowStepRun[];
   documents: {
     items: DocumentRunSummary[];

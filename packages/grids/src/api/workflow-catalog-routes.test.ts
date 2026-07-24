@@ -5,7 +5,12 @@ import { fail, ok } from "@valentinkolb/stdlib";
 import { Hono, type MiddlewareHandler } from "hono";
 import { generateSpecs } from "hono-openapi";
 import { gridsService } from "../service";
-import { type GridsWorkflow, WORKFLOW_REVISION_HEADER } from "../workflows/contracts";
+import {
+  type GridsWorkflow,
+  type GridsWorkflowRevision,
+  WORKFLOW_REVISION_HEADER,
+  type WorkflowTriggerRuntimeState,
+} from "../workflows/contracts";
 import { createWorkflowCatalogRoutes } from "./workflow-catalog-routes";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
@@ -53,9 +58,37 @@ const workflow: GridsWorkflow = {
 let permissionLevel: PermissionLevel = "admin";
 let updateRevision: number | null = null;
 let getWorkflowCalls = 0;
+let includeDeletedWorkflowReads: boolean[] = [];
+let restoredRevision: number | null = null;
+let restoreExpectedRevision: number | null = null;
 
-const getWorkflow = async () => {
+const revision: GridsWorkflowRevision = {
+  workflowId,
+  revision: 1,
+  name: "Original",
+  description: null,
+  source: workflow.source,
+  plan: workflow.plan,
+  diagnostics: [],
+  enabled: false,
+  position: 0,
+  actorUserId: userId,
+  createdAt: workflow.createdAt,
+};
+const triggerState: WorkflowTriggerRuntimeState = {
+  schedule: {
+    cron: "0 8 * * *",
+    timezone: "Europe/Berlin",
+    state: "reconciled",
+    nextRunAt: "2026-07-26T06:00:00.000Z",
+    problem: null,
+  },
+  recordEvents: [],
+};
+
+const getWorkflow = async (_id: string, includeDeleted = false) => {
   getWorkflowCalls += 1;
+  includeDeletedWorkflowReads.push(includeDeleted);
   return workflow;
 };
 
@@ -71,6 +104,12 @@ const updateWorkflow = async (_id: string, input: { name?: string }, _actorId: s
   return ok({ ...workflow, ...input, revision: workflow.revision + 1 });
 };
 
+const restoreWorkflowRevision = async (_id: string, restoreRevision: number, _actorId: string | null, expectedRevision: number) => {
+  restoredRevision = restoreRevision;
+  restoreExpectedRevision = expectedRevision;
+  return ok({ ...workflow, revision: workflow.revision + 1, name: revision.name });
+};
+
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
   c.set("accessSubject", { type: "user", userId: user.id });
@@ -79,7 +118,17 @@ const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
 };
 
 const app = () =>
-  new Hono<AuthContext>().use("*", authenticated).route("/workflows", createWorkflowCatalogRoutes({ getWorkflow, updateWorkflow }));
+  new Hono<AuthContext>().use("*", authenticated).route(
+    "/workflows",
+    createWorkflowCatalogRoutes({
+      getWorkflow,
+      getWorkflowRevision: async (_id, itemRevision) => (itemRevision === revision.revision ? revision : null),
+      getWorkflowTriggerRuntimeState: async () => triggerState,
+      listWorkflowRevisions: async () => ({ items: [revision], nextRevision: null }),
+      restoreWorkflowRevision,
+      updateWorkflow,
+    }),
+  );
 
 const patchWorkflow = (revision?: number) =>
   app().request(`/workflows/${workflowId}`, {
@@ -96,6 +145,9 @@ describe("workflow catalog update route", () => {
     permissionLevel = "admin";
     updateRevision = null;
     getWorkflowCalls = 0;
+    includeDeletedWorkflowReads = [];
+    restoredRevision = null;
+    restoreExpectedRevision = null;
     spyOn(gridsService.workflow, "get").mockImplementation(async () => workflow);
     spyOn(gridsService.permission, "loadGrants").mockImplementation(async () => []);
     spyOn(gridsService.permission, "resolve").mockImplementation(() => permissionLevel);
@@ -156,5 +208,50 @@ describe("workflow catalog update route", () => {
     expect(response.status).toBe(200);
     expect((await response.json()).revision).toBe(workflow.revision + 1);
     expect(updateRevision).toBe(workflow.revision);
+  });
+
+  test("allows readers to inspect immutable workflow revisions", async () => {
+    permissionLevel = "read";
+
+    const listResponse = await app().request(`/workflows/${workflowId}/revisions`);
+    const itemResponse = await app().request(`/workflows/${workflowId}/revisions/${revision.revision}`);
+
+    expect(listResponse.status).toBe(200);
+    expect(await listResponse.json()).toEqual({ items: [revision], nextRevision: null });
+    expect(itemResponse.status).toBe(200);
+    expect(await itemResponse.json()).toEqual(revision);
+    expect(includeDeletedWorkflowReads).toEqual([true, true]);
+  });
+
+  test("allows readers to inspect automatic trigger runtime state", async () => {
+    permissionLevel = "read";
+
+    const response = await app().request(`/workflows/${workflowId}/trigger-state`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(triggerState);
+  });
+
+  test("requires admin access and the current revision to restore history", async () => {
+    permissionLevel = "read";
+    const forbidden = await app().request(`/workflows/${workflowId}/revisions/${revision.revision}/restore`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevision: workflow.revision }),
+    });
+    expect(forbidden.status).toBe(403);
+    expect(restoredRevision).toBeNull();
+
+    permissionLevel = "admin";
+    const response = await app().request(`/workflows/${workflowId}/revisions/${revision.revision}/restore`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevision: workflow.revision }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).revision).toBe(workflow.revision + 1);
+    expect(restoredRevision).toBe(revision.revision);
+    expect(restoreExpectedRevision).toBe(workflow.revision);
   });
 });

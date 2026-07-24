@@ -1,11 +1,18 @@
 import { isUniqueViolation } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { CreateEmailTemplateInput, EmailTemplate, UpdateEmailTemplateInput } from "../contracts";
-import { logAudit } from "./audit";
+import type {
+  CreateEmailTemplateInput,
+  EmailTemplate,
+  EmailTemplateDependency,
+  EmailTemplateDependencyMap,
+  UpdateEmailTemplateInput,
+} from "../contracts";
+import { logAudit, type SqlClient } from "./audit";
 import { renderLiquidPlainText, renderLiquidText, validateLiquidRoots, validateLiquidTemplate } from "./documents";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
+import { lockWorkflowCatalogMutation } from "./workflow-catalog-mutation";
 
 type DbRow = Record<string, unknown>;
 
@@ -66,6 +73,45 @@ export const listForBase = async (baseId: string): Promise<EmailTemplate[]> => {
     ORDER BY position, created_at, id
   `;
   return rows.map(mapEmailTemplate);
+};
+
+export const listDependenciesForBase = async (baseId: string, client: SqlClient = sql): Promise<EmailTemplateDependencyMap> => {
+  const rows = await client<
+    Array<{
+      template_id: string;
+      workflow_id: string;
+      workflow_short_id: string;
+      workflow_name: string;
+    }>
+  >`
+    SELECT DISTINCT
+      binding.value AS template_id,
+      workflow.id::text AS workflow_id,
+      workflow.short_id AS workflow_short_id,
+      workflow.name AS workflow_name
+    FROM grids.workflows workflow
+    CROSS JOIN LATERAL jsonb_each_text(COALESCE(workflow.plan -> 'bindings', '{}'::jsonb)) binding
+    JOIN grids.email_templates template
+      ON template.id::text = binding.value
+     AND template.base_id = workflow.base_id
+     AND template.deleted_at IS NULL
+    WHERE workflow.base_id = ${baseId}::uuid
+      AND workflow.deleted_at IS NULL
+      AND binding.key LIKE '%.sendEmail.template'
+    ORDER BY workflow_name, workflow_id
+  `;
+  const dependencies: EmailTemplateDependencyMap = {};
+  for (const row of rows) {
+    const dependency: EmailTemplateDependency = {
+      workflowId: row.workflow_id,
+      workflowShortId: row.workflow_short_id,
+      workflowName: row.workflow_name,
+    };
+    const templateDependencies = dependencies[row.template_id] ?? [];
+    templateDependencies.push(dependency);
+    dependencies[row.template_id] = templateDependencies;
+  }
+  return dependencies;
 };
 
 export const get = async (templateId: string, opts: { includeDeleted?: boolean } = {}): Promise<EmailTemplate | null> => {
@@ -202,17 +248,31 @@ export const update = async (
 export const remove = async (templateId: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(templateId);
   if (!existing) return fail(err.notFound("Email template"));
-  const updated = await sql`
-    UPDATE grids.email_templates
-    SET deleted_at = now(), enabled = FALSE, updated_by = ${actorId}::uuid, updated_at = now()
-    WHERE id = ${templateId}::uuid AND deleted_at IS NULL
-  `;
-  if (updated.count === 0) return fail(err.notFound("Email template"));
-  await logAudit({
-    baseId: existing.baseId,
-    userId: actorId,
-    action: "email_template.deleted",
-    diff: { emailTemplate: { old: { id: existing.id, name: existing.name }, new: null } },
+  return sql.begin(async (tx) => {
+    await lockWorkflowCatalogMutation(existing.baseId, tx);
+    const dependencies = (await listDependenciesForBase(existing.baseId, tx))[templateId] ?? [];
+    if (dependencies.length > 0) {
+      return fail(
+        err.conflict(
+          `Email template is used by ${dependencies.length === 1 ? `workflow "${dependencies[0]!.workflowName}"` : `${dependencies.length} workflows`}.`,
+        ),
+      );
+    }
+    const updated = await tx`
+      UPDATE grids.email_templates
+      SET deleted_at = now(), enabled = FALSE, updated_by = ${actorId}::uuid, updated_at = now()
+      WHERE id = ${templateId}::uuid AND deleted_at IS NULL
+    `;
+    if (updated.count === 0) return fail(err.notFound("Email template"));
+    await logAudit(
+      {
+        baseId: existing.baseId,
+        userId: actorId,
+        action: "email_template.deleted",
+        diff: { emailTemplate: { old: { id: existing.id, name: existing.name }, new: null } },
+      },
+      tx,
+    );
+    return ok();
   });
-  return ok();
 };

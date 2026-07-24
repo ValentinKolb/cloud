@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
-import { createWorkflow, updateWorkflow } from "./workflow-kernel-store";
+import { createWorkflow, listWorkflowRevisions, restoreWorkflowRevision, updateWorkflow } from "./workflow-kernel-store";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -125,6 +125,47 @@ steps:
         validated_revision: sourceUpdate.data.revision,
         diagnostics: [{ code: "launcher.revalidate", severity: "warning" }],
       });
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
+  postgresTest("keeps immutable revisions and restores an old revision as a new revision", async () => {
+    await migrate();
+    const baseId = Bun.randomUUIDv7();
+
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR001', 'Workflow revision test')`;
+      const created = await createWorkflow(
+        baseId,
+        { name: "Original", source: "steps:\n  - succeed:\n      message: Original", enabled: false },
+        null,
+      );
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+
+      const updated = await updateWorkflow(
+        created.data.id,
+        { name: "Updated", source: "steps:\n  - succeed:\n      message: Updated", enabled: true },
+        null,
+        created.data.revision,
+      );
+      expect(updated.ok).toBe(true);
+      if (!updated.ok) return;
+
+      const history = await listWorkflowRevisions(created.data.id);
+      expect(history.items.map((revision) => revision.revision)).toEqual([2, 1]);
+      expect(history.items[1]).toMatchObject({ name: "Original", enabled: false });
+
+      const restored = await restoreWorkflowRevision(created.data.id, 1, null, updated.data.revision);
+      expect(restored.ok).toBe(true);
+      if (!restored.ok) return;
+      expect(restored.data).toMatchObject({ revision: 3, name: "Original", enabled: false });
+      expect(restored.data.source).toContain("message: Original");
+
+      const afterRestore = await listWorkflowRevisions(created.data.id);
+      expect(afterRestore.items.map((revision) => revision.revision)).toEqual([3, 2, 1]);
+      expect(afterRestore.items[0]?.source).toBe(afterRestore.items[2]?.source);
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }

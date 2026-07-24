@@ -3,17 +3,25 @@ import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/w
 import { createMemo, createSignal } from "solid-js";
 import type { Table } from "../../../service";
 import { WorkflowInputFields } from "./WorkflowInputFields";
-import { buildWorkflowRunInput, type WorkflowRunInputDraft, type WorkflowRunInputDraftValue } from "./workflow-trigger-actions";
+import {
+  buildWorkflowRunInput,
+  type WorkflowRunInputDraft,
+  type WorkflowRunInputDraftValue,
+  workflowInputDraftFromValues,
+} from "./workflow-trigger-actions";
 
 type Props = {
   workflow: { name: string; plan: Pick<WorkflowBoundPlan, "inputs" | "bindings"> };
   tables: Array<Pick<Table, "id" | "shortId" | "name">>;
   mode: "execute" | "dryRun";
+  initialValues?: Record<string, WorkflowJsonValue>;
   close: (input?: Record<string, WorkflowJsonValue>) => void;
 };
 
 function WorkflowRunInputDialog(props: Props) {
-  const [draft, setDraft] = createSignal<WorkflowRunInputDraft>({});
+  const [draft, setDraft] = createSignal<WorkflowRunInputDraft>(
+    workflowInputDraftFromValues(props.workflow.plan.inputs, props.initialValues),
+  );
   const inputs = () => props.workflow.plan.inputs;
   const validation = createMemo(() => buildWorkflowRunInput(inputs(), draft()));
   const setValue = (name: string, next: WorkflowRunInputDraftValue) => setDraft((current) => ({ ...current, [name]: next }));
@@ -57,8 +65,9 @@ export const requestWorkflowRunInput = async (args: {
   workflow: { name: string; plan: Pick<WorkflowBoundPlan, "inputs" | "bindings"> };
   tables: Array<Pick<Table, "id" | "shortId" | "name">>;
   mode: "execute" | "dryRun";
+  initialValues?: Record<string, WorkflowJsonValue>;
 }): Promise<Record<string, WorkflowJsonValue> | undefined> => {
-  if (args.workflow.plan.inputs.length === 0) return {};
+  if (args.workflow.plan.inputs.length === 0) return args.initialValues ?? {};
   return dialogCore.open<Record<string, WorkflowJsonValue>>(
     (close) => <WorkflowRunInputDialog {...args} close={close} />,
     panelDialogOptions,

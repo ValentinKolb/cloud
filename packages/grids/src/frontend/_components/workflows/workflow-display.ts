@@ -39,3 +39,81 @@ export const workflowStepErrorMessage = (outcome: unknown): string | null => {
   }
   return "Step failed";
 };
+
+type JsonRecord = Record<string, unknown>;
+
+const objectValue = (value: unknown): JsonRecord | null =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
+
+export const workflowStepOutcomeSummary = (outcome: unknown): string | null => {
+  const value = objectValue(outcome);
+  if (!value || typeof value.state !== "string") return null;
+  const stateSummary = workflowStateSummary(value);
+  if (stateSummary) return stateSummary;
+  const control = objectValue(value.control);
+  if (control && typeof control.kind === "string" && Array.isArray(control.branches)) {
+    return `${control.kind}: ${control.branches.map(String).join(", ")}`;
+  }
+  return null;
+};
+
+const workflowStateSummary = (value: JsonRecord): string | null => {
+  if (value.state === "unsupported" || value.state === "indeterminate") {
+    return typeof value.reason === "string" ? value.reason : String(value.state).replaceAll("_", " ");
+  }
+  if (value.state !== "waiting") return null;
+  const dependency = objectValue(value.dependency);
+  return dependency && typeof dependency.kind === "string" ? `Waiting for ${dependency.kind}` : "Waiting";
+};
+
+type WorkflowPlannedEffect = { title: string; detail: string | null };
+
+const shortId = (value: unknown): string | null => (typeof value === "string" && value ? value.slice(0, 8) : null);
+
+const fieldCount = (item: JsonRecord): string => {
+  const count = Array.isArray(item.fieldIds) ? item.fieldIds.length : 0;
+  return `${count} field${count === 1 ? "" : "s"}`;
+};
+
+const plannedEffectDetails: Record<string, (item: JsonRecord) => string> = {
+  updateRecord: (item) => {
+    const count = Array.isArray(item.fieldIds) ? item.fieldIds.length : 0;
+    return `Record ${shortId(item.recordId) ?? "selected"} · ${count} field${count === 1 ? "" : "s"}`;
+  },
+  createRecord: fieldCount,
+  generateDocument: (item) =>
+    [typeof item.templateName === "string" ? item.templateName : "Document", typeof item.filename === "string" ? item.filename : null]
+      .filter(Boolean)
+      .join(" · "),
+  createDocumentLink: (item) => `${String(item.expiresIn ?? "30d")} expiry${item.hasComment ? " · with comment" : ""}`,
+  sendEmail: (item) => {
+    const count = typeof item.recipientCount === "number" ? item.recipientCount : 0;
+    return `${typeof item.templateName === "string" ? item.templateName : "Email"} · ${count} recipient${count === 1 ? "" : "s"}`;
+  },
+  httpRequest: (item) => `${String(item.method ?? "POST")} ${String(item.host ?? "")}`.trim(),
+};
+
+const plannedEffectDetail = (action: string, item: JsonRecord): string | null => {
+  const format = plannedEffectDetails[action];
+  return format ? format(item) : typeof item.effect === "string" ? item.effect.replaceAll("-", " ") : null;
+};
+
+export const workflowStepPlannedEffects = (outcome: unknown): WorkflowPlannedEffect[] => {
+  const value = objectValue(outcome);
+  if (!value || !Array.isArray(value.effects)) return [];
+  return value.effects.map((effect) => {
+    const item = objectValue(effect);
+    if (!item) {
+      return {
+        title: typeof effect === "string" && effect.trim() ? effect : "Planned effect",
+        detail: null,
+      };
+    }
+    const action = typeof item.action === "string" ? item.action : "Workflow effect";
+    const words = action === "httpRequest" ? "HTTP request" : action.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+    return {
+      title: action === "httpRequest" ? words : `${words.charAt(0).toUpperCase()}${words.slice(1)}`,
+      detail: plannedEffectDetail(action, item),
+    };
+  });
+};

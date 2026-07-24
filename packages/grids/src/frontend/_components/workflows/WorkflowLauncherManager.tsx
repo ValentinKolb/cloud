@@ -56,6 +56,14 @@ const launcherKindOptions = [
 
 const launcherKindLabel = (kind: GridsWorkflowLauncherKind) => launcherKindOptions.find((option) => option.id === kind)?.label ?? kind;
 
+const launcherConfigurationSummary = (launcher: GridsWorkflowLauncher): string => {
+  if (launcher.config.kind === "scanner") {
+    return `${launcher.config.input} · ${launcher.config.resolve.by === "field" ? `field ${launcher.config.resolve.field}` : "generated scan code"}`;
+  }
+  if (launcher.config.kind === "bulk") return `Supplies ${launcher.config.input}`;
+  return launcher.config.inputMode === "prompt" ? "Asks for input when run" : "Uses fixed input values";
+};
+
 const defaultDraft = (workflow: GridsWorkflow): LauncherDraft => {
   const recordInput = workflow.plan.inputs.find((input) => input.type === "record")?.name ?? "";
   return { name: "", enabled: true, config: { kind: "scanner", input: recordInput, resolve: { by: "scanCode" } } };
@@ -133,7 +141,7 @@ function LauncherEditor(props: {
   return (
     <PanelDialog>
       <PanelDialog.Header
-        title={props.launcher ? "Edit launcher" : "Add launcher"}
+        title={props.launcher ? "Edit run option" : "Add run option"}
         subtitle={props.workflow.name}
         icon="ti ti-rocket"
         close={() => props.close()}
@@ -225,7 +233,7 @@ function LauncherEditor(props: {
           </Show>
           <CheckboxCard
             label="Enabled"
-            description="Enabled launchers are available on their scanner, table, or dashboard surface."
+            description="Enabled run options are available on their scanner, table, or dashboard surface."
             value={enabled}
             onChange={setEnabled}
           />
@@ -238,7 +246,7 @@ function LauncherEditor(props: {
             Cancel
           </button>
           <button type="button" class="btn-primary btn-sm" disabled={!valid()} onClick={submit}>
-            <i class="ti ti-check" /> {props.launcher ? "Save launcher" : "Add launcher"}
+            <i class="ti ti-check" /> {props.launcher ? "Save run option" : "Add run option"}
           </button>
         </div>
       </PanelDialog.Footer>
@@ -263,7 +271,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
         { param: { workflowId: props.workflow.id } },
         { init: { signal: abortSignal } },
       );
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow launchers."));
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not load run options."));
       setLaunchers(((await res.json()) as { items: GridsWorkflowLauncher[] }).items);
     },
     onSuccess: () => setLoaded(true),
@@ -280,7 +288,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
             { param: { workflowId: props.workflow.id }, json: draft },
             { init: { signal: abortSignal } },
           );
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not save workflow launcher."));
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not save run option."));
       return (await res.json()) as GridsWorkflowLauncher;
     },
     onSuccess: () => {
@@ -292,8 +300,8 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
 
   const removeMut = mutations.create<void, GridsWorkflowLauncher>({
     mutation: async (launcher, { abortSignal }) => {
-      const confirmed = await prompts.confirm(`Delete launcher "${launcher.name}"?`, {
-        title: "Delete launcher?",
+      const confirmed = await prompts.confirm(`Delete run option "${launcher.name}"?`, {
+        title: "Delete run option?",
         variant: "danger",
         confirmText: "Delete",
       });
@@ -302,7 +310,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
         { param: { launcherId: launcher.id } },
         { init: { signal: abortSignal } },
       );
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not delete workflow launcher."));
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not delete run option."));
     },
     onSuccess: () => {
       loadMut.mutate();
@@ -323,13 +331,13 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
 
   return (
     <PanelDialog>
-      <PanelDialog.Header title="Workflow launchers" subtitle={props.workflow.name} icon="ti ti-rocket" close={props.onClose} />
+      <PanelDialog.Header title="Run options" subtitle={props.workflow.name} icon="ti ti-rocket" close={props.onClose} />
       <PanelDialog.Body>
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-2">
-            <p class="text-sm text-dimmed">Expose this workflow as a scanner, bulk action, or dashboard button.</p>
+            <p class="text-sm text-dimmed">Make this workflow available as a scanner, bulk action, or dashboard button.</p>
             <button type="button" class="btn-primary btn-sm" disabled={mutationsBlocked()} onClick={() => void edit()}>
-              <i class="ti ti-plus" /> Add launcher
+              <i class="ti ti-plus" /> Add run option
             </button>
           </div>
           <Show
@@ -339,7 +347,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
                 state="error"
                 surface="paper"
                 align="left"
-                title="Could not load workflow launchers"
+                title="Could not load run options"
                 description={loadMut.error()?.message}
                 action={
                   <button type="button" class="btn-input btn-input-sm" disabled={loadMut.loading()} onClick={() => loadMut.retry()}>
@@ -349,45 +357,62 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
               />
             }
           >
-            <Show when={loaded()} fallback={<Placeholder state="loading" align="left" description="Loading launchers..." />}>
-              <For each={launchers()} fallback={<Placeholder align="left">No launchers configured.</Placeholder>}>
-                {(launcher) => (
-                  <div class="paper flex items-center gap-3 px-3 py-2">
-                    <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
-                      <i
-                        class={`ti ${launcher.config.kind === "scanner" ? "ti-barcode" : launcher.config.kind === "bulk" ? "ti-list-check" : "ti-layout-dashboard"}`}
-                      />
-                    </span>
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate text-sm font-medium text-primary">{launcher.name}</span>
-                      <span class="block text-xs text-dimmed">
-                        {launcherKindLabel(launcher.config.kind)} · {launcher.enabled ? "Enabled" : "Disabled"}
+            <Show when={loaded()} fallback={<Placeholder state="loading" align="left" description="Loading run options..." />}>
+              <For each={launchers()} fallback={<Placeholder align="left">No run options configured.</Placeholder>}>
+                {(launcher) => {
+                  const stale = () => launcher.validatedRevision !== props.workflow.revision;
+                  const invalid = () => launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+                  return (
+                    <div class="paper flex items-start gap-3 px-3 py-2">
+                      <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-secondary">
+                        <i
+                          class={`ti ${launcher.config.kind === "scanner" ? "ti-barcode" : launcher.config.kind === "bulk" ? "ti-list-check" : "ti-layout-dashboard"}`}
+                        />
                       </span>
-                    </span>
-                    <Tooltip content="Edit launcher">
-                      <button
-                        type="button"
-                        class="icon-btn"
-                        disabled={mutationsBlocked()}
-                        aria-label={`Edit ${launcher.name}`}
-                        onClick={() => void edit(launcher)}
-                      >
-                        <i class="ti ti-pencil" />
-                      </button>
-                    </Tooltip>
-                    <Tooltip content="Delete launcher">
-                      <button
-                        type="button"
-                        class="icon-btn text-red-600 dark:text-red-400"
-                        disabled={mutationsBlocked()}
-                        aria-label={`Delete ${launcher.name}`}
-                        onClick={() => removeMut.mutate(launcher)}
-                      >
-                        <i class="ti ti-trash" />
-                      </button>
-                    </Tooltip>
-                  </div>
-                )}
+                      <span class="min-w-0 flex-1">
+                        <span class="flex min-w-0 items-center gap-2">
+                          <span class="truncate text-sm font-medium text-primary">{launcher.name}</span>
+                          <span class={`badge ${launcher.enabled && !stale() && !invalid() ? "badge-success" : "badge-neutral"}`}>
+                            {launcher.enabled && !stale() && !invalid() ? "available" : "unavailable"}
+                          </span>
+                        </span>
+                        <span class="mt-0.5 block text-xs text-dimmed">
+                          {launcherKindLabel(launcher.config.kind)} · {launcherConfigurationSummary(launcher)}
+                        </span>
+                        <Show when={stale()}>
+                          <span class="mt-1 block text-xs text-amber-700 dark:text-amber-300">
+                            Workflow changed. Review and save this run option before enabling it.
+                          </span>
+                        </Show>
+                        <For each={launcher.diagnostics}>
+                          {(diagnostic) => <span class="mt-1 block text-xs text-red-600 dark:text-red-400">{diagnostic.message}</span>}
+                        </For>
+                      </span>
+                      <Tooltip content="Edit run option">
+                        <button
+                          type="button"
+                          class="icon-btn"
+                          disabled={mutationsBlocked()}
+                          aria-label={`Edit ${launcher.name}`}
+                          onClick={() => void edit(launcher)}
+                        >
+                          <i class="ti ti-pencil" />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Delete run option">
+                        <button
+                          type="button"
+                          class="icon-btn text-red-600 dark:text-red-400"
+                          disabled={mutationsBlocked()}
+                          aria-label={`Delete ${launcher.name}`}
+                          onClick={() => removeMut.mutate(launcher)}
+                        >
+                          <i class="ti ti-trash" />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  );
+                }}
               </For>
             </Show>
           </Show>

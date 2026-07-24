@@ -21,7 +21,7 @@ import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { EmailTemplate } from "../../../contracts";
+import type { EmailTemplate, EmailTemplateDependencyMap } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
 import {
   createEmailTemplateSystemSampleData,
@@ -32,6 +32,17 @@ import {
   parseEmailTemplateSampleData,
 } from "./email-template-preview-data";
 import { workflowEmailTemplateDraft, workflowEmailTemplateDraftDirty } from "./workflow-email-template-draft";
+
+const emailTemplateManagerApi = apiClient["email-templates"] as unknown as {
+  "by-base": {
+    ":baseId": {
+      $get: (input: { param: { baseId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
+      dependencies: {
+        $get: (input: { param: { baseId: string } }, options?: { init?: RequestInit }) => Promise<Response>;
+      };
+    };
+  };
+};
 
 const DEFAULT_EMAIL_SUBJECT = "{{ workflow.name }}";
 const DEFAULT_EMAIL_HTML = `<p>Hello,</p>
@@ -263,24 +274,36 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
 
 export function EmailTemplateManager(props: { baseId: string; onChanged: () => void; onClose: () => void }) {
   const [templates, setTemplates] = createSignal<EmailTemplate[]>([]);
+  const [dependencies, setDependencies] = createSignal<EmailTemplateDependencyMap>({});
   const sortedTemplates = createMemo(() =>
     [...templates()].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
   );
 
   const loadMut = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
-      const res: Response = await apiClient["email-templates"]["by-base"][":baseId"].$get(
-        { param: { baseId: props.baseId } },
-        { init: { signal: abortSignal } },
-      );
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not load email templates."));
-      setTemplates((await res.json()) as EmailTemplate[]);
+      const [templatesRes, dependenciesRes] = await Promise.all([
+        emailTemplateManagerApi["by-base"][":baseId"].$get({ param: { baseId: props.baseId } }, { init: { signal: abortSignal } }),
+        emailTemplateManagerApi["by-base"][":baseId"].dependencies.$get(
+          { param: { baseId: props.baseId } },
+          { init: { signal: abortSignal } },
+        ),
+      ]);
+      if (!templatesRes.ok) throw new Error(await errorMessage(templatesRes, "Could not load email templates."));
+      if (!dependenciesRes.ok) throw new Error(await errorMessage(dependenciesRes, "Could not load email template usage."));
+      setTemplates((await templatesRes.json()) as EmailTemplate[]);
+      setDependencies((await dependenciesRes.json()) as EmailTemplateDependencyMap);
     },
     onError: (error) => prompts.error(error.message),
   });
 
   const deleteMut = mutations.create<{ deleted: boolean }, EmailTemplate>({
     mutation: async (template, { abortSignal }) => {
+      const usedBy = dependencies()[template.id] ?? [];
+      if (usedBy.length > 0) {
+        throw new Error(
+          `This template is used by ${usedBy.length === 1 ? `workflow "${usedBy[0]!.workflowName}"` : `${usedBy.length} workflows`}. Edit those workflows before deleting it.`,
+        );
+      }
       const confirmed = await prompts.confirm(`Delete "${template.name}"?`, {
         title: "Delete email template",
         icon: "ti ti-trash",
@@ -362,6 +385,11 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                   <Show when={template.description}>
                     {(description) => <span class="mt-1 block truncate text-xs text-dimmed">{description()}</span>}
                   </Show>
+                  <Show when={(dependencies()[template.id] ?? []).length > 0}>
+                    <span class="mt-1 block truncate text-xs text-secondary">
+                      Used by {(dependencies()[template.id] ?? []).map((dependency) => dependency.workflowName).join(", ")}
+                    </span>
+                  </Show>
                 </button>
                 <div class="flex items-center gap-1">
                   <Tooltip content="Edit email template">
@@ -374,7 +402,7 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
                       type="button"
                       class="icon-btn text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                       aria-label="Delete email template"
-                      disabled={deleteMut.loading()}
+                      disabled={deleteMut.loading() || (dependencies()[template.id] ?? []).length > 0}
                       onClick={() => deleteMut.mutate(template)}
                     >
                       <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />

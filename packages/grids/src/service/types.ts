@@ -60,6 +60,7 @@ export type AuditAction =
   | "workflow.run.recovered"
   | "workflow.run.succeeded"
   | "workflow.run.failed"
+  | "workflow.run.canceled"
   | "workflow.record.updated"
   | "workflow.record.created"
   | "workflow.document.generated"

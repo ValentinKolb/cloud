@@ -7,6 +7,7 @@ import { migrate } from "../migrate";
 import type { GridsWorkflowChannel, GridsWorkflowPrincipal } from "../workflows/contracts";
 import { SqlGridsWorkflowEffectIntents } from "./workflow-kernel-actions";
 import {
+  cancelWorkflowRun,
   claimWorkflowRun,
   finishWorkflowRun,
   GridsWorkflowRuntimeRepository,
@@ -19,6 +20,63 @@ import { finishDryRun } from "./workflow-kernel-runtime";
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("workflow run materialization", () => {
+  postgresTest("cancels active runs and fences late worker completion", async () => {
+    await migrate();
+    const baseId = Bun.randomUUIDv7();
+    const workflowId = Bun.randomUUIDv7();
+    const runId = Bun.randomUUIDv7();
+
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Workflow cancel test')`;
+      await sql`
+        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
+        VALUES (${workflowId}::uuid, ${testShortId("W")}, ${baseId}::uuid, 'Cancelable workflow', 'steps: []', '{}'::jsonb, TRUE)
+      `;
+      await sql`
+        INSERT INTO grids.workflow_runs (
+          id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+          workflow_plan, status, occurred_at, execution_generation, heartbeat_at, lease_expires_at
+        ) VALUES (
+          ${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'cancel-run', 'cancel-run',
+          '{}'::jsonb, 'running', now(), 7, now(), now() + interval '2 minutes'
+        )
+      `;
+      await sql`
+        INSERT INTO grids.workflow_step_runs (
+          run_id, step_key, source_path, iteration_path, kind, action, mode, status, execution_generation
+        ) VALUES (${runId}::uuid, 'steps.0', '["steps",0]'::jsonb, '{}'::int[], 'action', 'wait', 'execute', 'running', 7)
+      `;
+
+      const canceled = await cancelWorkflowRun(runId, null);
+      expect(canceled?.status).toBe("canceled");
+      expect(
+        await finishWorkflowRun(
+          {
+            runId,
+            executionGeneration: 7,
+            mode: "execute",
+            workflowId,
+            sourceHash: "source",
+            idempotencyKey: "cancel-run",
+          },
+          { status: "succeeded" },
+        ),
+      ).toBe(false);
+      expect(await cancelWorkflowRun(runId, null)).toBeNull();
+
+      const [storedRun] = await sql<Array<{ status: string; lease_expires_at: Date | null }>>`
+        SELECT status, lease_expires_at FROM grids.workflow_runs WHERE id = ${runId}::uuid
+      `;
+      const [storedStep] = await sql<Array<{ status: string; outcome: unknown }>>`
+        SELECT status, outcome FROM grids.workflow_step_runs WHERE run_id = ${runId}::uuid
+      `;
+      expect(storedRun).toEqual({ status: "canceled", lease_expires_at: null });
+      expect(storedStep).toMatchObject({ status: "canceled", outcome: { state: "terminal", status: "canceled" } });
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
   postgresTest("finishes runs with scalar JSON results", async () => {
     await migrate();
     const baseId = Bun.randomUUIDv7();

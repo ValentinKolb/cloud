@@ -92,6 +92,36 @@ export type CreateGridsWorkflowInput = {
 
 export type UpdateGridsWorkflowInput = Partial<CreateGridsWorkflowInput>;
 
+export type GridsWorkflowRevision = {
+  workflowId: string;
+  revision: number;
+  name: string;
+  description: string | null;
+  source: string;
+  plan: WorkflowBoundPlan;
+  diagnostics: WorkflowDiagnostic[];
+  enabled: boolean;
+  position: number;
+  actorUserId: string | null;
+  createdAt: string;
+};
+
+export type WorkflowTriggerRuntimeState = {
+  schedule: {
+    cron: string;
+    timezone: string;
+    state: "paused" | "pending" | "reconciled" | "degraded";
+    nextRunAt: string | null;
+    problem: string | null;
+  } | null;
+  recordEvents: Array<{
+    tableId: string | null;
+    event: string;
+    hasFilter: boolean;
+    state: "paused" | "active";
+  }>;
+};
+
 export type GridsWorkflowLauncherConfig =
   | {
       kind: "scanner";
@@ -232,6 +262,51 @@ export const CreateGridsWorkflowSchema = z.object({
 });
 
 export const UpdateGridsWorkflowSchema = CreateGridsWorkflowSchema.partial();
+
+export const GridsWorkflowRevisionSchema = z.object({
+  workflowId: z.string().uuid(),
+  revision: z.number().int().positive(),
+  name: z.string(),
+  description: z.string().nullable(),
+  source: z.string(),
+  plan: WorkflowPlanSchema,
+  diagnostics: z.array(WorkflowDiagnosticSchema),
+  enabled: z.boolean(),
+  position: z.number().int().nonnegative(),
+  actorUserId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const GridsWorkflowRevisionListSchema = z.object({
+  items: z.array(GridsWorkflowRevisionSchema),
+  nextRevision: z.number().int().positive().nullable(),
+});
+
+export const RestoreGridsWorkflowRevisionSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+  })
+  .strict();
+
+export const WorkflowTriggerRuntimeStateSchema = z.object({
+  schedule: z
+    .object({
+      cron: z.string(),
+      timezone: z.string(),
+      state: z.enum(["paused", "pending", "reconciled", "degraded"]),
+      nextRunAt: z.string().datetime().nullable(),
+      problem: z.string().nullable(),
+    })
+    .nullable(),
+  recordEvents: z.array(
+    z.object({
+      tableId: z.string().uuid().nullable(),
+      event: z.string(),
+      hasFilter: z.boolean(),
+      state: z.enum(["paused", "active"]),
+    }),
+  ),
+});
 
 const ScannerLauncherConfigSchema = z
   .object({

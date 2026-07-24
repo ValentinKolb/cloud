@@ -10,7 +10,7 @@ import {
   listWorkflowRunsPage,
   listWorkflowStepRuns,
 } from "../service/workflow-kernel-observability";
-import { getWorkflowRun } from "../service/workflow-kernel-runs";
+import { cancelWorkflowRun, getWorkflowRun } from "../service/workflow-kernel-runs";
 import { getWorkflow } from "../service/workflow-kernel-store";
 import {
   GridsWorkflowEmailDeliveryListSchema,
@@ -20,7 +20,7 @@ import {
   GridsWorkflowStepRunListSchema,
 } from "../workflows/contracts";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
-import { gateAt } from "./permissions";
+import { currentActorUserId, gateAt } from "./permissions";
 import { uuidParam } from "./route-params";
 import {
   baseExists,
@@ -202,6 +202,32 @@ export const createWorkflowRunRoutes = () =>
         if (!loaded) return c.json({ message: "Workflow run not found" }, 404);
         if (!("run" in loaded)) return respond(c, () => Promise.resolve(loaded));
         return c.json(loaded.run);
+      },
+    )
+    .post(
+      "/runs/:runId/cancel",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "Cancel an active workflow run",
+        responses: {
+          200: jsonResponse(GridsWorkflowRunSchema, "Canceled workflow run"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid workflow run id or run is already terminal"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+        },
+      }),
+      async (c) => {
+        const runId = uuidParam(c, "runId");
+        if (!runId) return c.json({ message: "Invalid workflow run id" }, 400);
+        const run = await getWorkflowRun(runId);
+        if (!run?.workflowId) return c.json({ message: "Workflow run not found" }, 404);
+        const workflow = await getWorkflow(run.workflowId, true);
+        if (!workflow) return c.json({ message: "Workflow run not found" }, 404);
+        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "write");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const canceled = await cancelWorkflowRun(runId, currentActorUserId(c));
+        if (!canceled) return c.json({ message: "Only queued, running, or waiting runs can be canceled." }, 400);
+        return c.json(canceled);
       },
     )
     .get(

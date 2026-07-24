@@ -15,6 +15,7 @@ type BulkWorkflowRunInput = {
 };
 
 type RecordsBulkControllerOptions = {
+  baseShortId: string;
   enabled: Accessor<boolean>;
   items: Accessor<GridRecord[]>;
   query: Accessor<RecordQuery>;
@@ -47,7 +48,10 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
     });
   };
 
-  const runWorkflow = mutation.create<{ runId: string; status: string; launcherName: string; targetLabel: string }, BulkWorkflowRunInput>({
+  const runWorkflow = mutation.create<
+    { runId: string; status: string; launcherName: string; workflowShortId: string; targetLabel: string },
+    BulkWorkflowRunInput
+  >({
     mutation: async ({ launcher, selectedRecordIds, query }, { abortSignal }) => {
       const response = await apiClient.workflows.launchers[":launcherId"].invoke.bulk.$post(
         {
@@ -67,6 +71,7 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
       return {
         ...run,
         launcherName: launcher.name,
+        workflowShortId: launcher.workflowShortId,
         targetLabel: bulkWorkflowTargetLabel(selectedRecordIds.length),
       };
     },
@@ -74,13 +79,32 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
       clear();
       toast.success(`${run.launcherName} queued for ${run.targetLabel}.`, {
         title: "Workflow queued",
+        action: {
+          label: "Open run",
+          href: `/app/grids/${encodeURIComponent(options.baseShortId)}/workflows/${encodeURIComponent(
+            run.workflowShortId,
+          )}?run=${encodeURIComponent(run.runId)}`,
+        },
       });
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const queueWorkflow = (launcher: WorkspaceBulkLauncher) =>
-    runWorkflow.mutate({ launcher, selectedRecordIds: [...selectedIds()], query: options.query() });
+  const queueWorkflow = async (launcher: WorkspaceBulkLauncher) => {
+    const selectedRecordIds = [...selectedIds()];
+    if (selectedRecordIds.length === 0) {
+      const confirmed = await prompts.confirm(
+        `Run "${launcher.name}" for every record matching the current query? Up to 10,000 records may be included.`,
+        {
+          title: "Run for current query",
+          icon: "ti ti-list-check",
+          confirmText: "Run workflow",
+        },
+      );
+      if (!confirmed) return;
+    }
+    runWorkflow.mutate({ launcher, selectedRecordIds, query: options.query() });
+  };
 
   let previousScopeKey = "";
   createEffect(() => {

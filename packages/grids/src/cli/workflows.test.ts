@@ -58,6 +58,18 @@ const receipt = {
   status: "queued",
 };
 
+const revision = (number: number) => ({
+  workflowId,
+  revision: number,
+  name: `Check in revision ${number}`,
+  description: null,
+  source: `steps:\n  - succeed:\n      message: "revision ${number}"`,
+  enabled: number === 3,
+  position: 0,
+  actorUserId: null,
+  createdAt: `2026-07-${String(10 + number).padStart(2, "0")}T00:00:00.000Z`,
+});
+
 const jsonResponse = (value: unknown, status = 200) => Response.json(value, { status });
 
 const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Response[] = []) => {
@@ -245,6 +257,63 @@ describe("Grids workflow CLI", () => {
       expect(calls.at(-1)?.path).toBe(`/api/grids/workflows/launchers/${launcherId}/invoke/${kind}`);
       expect(JSON.parse(String(calls.at(-1)?.init?.body))).toEqual(bodies[kind]);
     }
+  });
+
+  test("lists immutable workflow revisions and restores one as a new revision", async () => {
+    const history = createContext(["workflows", "history", baseId, workflowId], { limit: "2" }, [
+      ...resolutionResponses(),
+      jsonResponse({ items: [revision(3), revision(2)], nextRevision: 2 }),
+    ]);
+    await cli.run(history.ctx);
+    expect(history.calls.at(-1)?.path).toBe(`/api/grids/workflows/${workflowId}/revisions?limit=2`);
+    expect(history.tables[0]).toEqual([
+      expect.objectContaining({ revision: 3, enabled: "yes", name: "Check in revision 3" }),
+      expect.objectContaining({ revision: 2, enabled: "no", name: "Check in revision 2" }),
+    ]);
+    expect(history.lines).toContain("next revision: 2");
+
+    const missingConfirmation = createContext(["workflows", "restore", baseId, workflowId], { revision: "1" });
+    await expect(cli.run(missingConfirmation.ctx)).rejects.toThrow("Pass --yes to restore.");
+    expect(missingConfirmation.calls).toHaveLength(0);
+
+    const restore = createContext(["workflows", "restore", baseId, workflowId], { revision: "1", yes: true }, [
+      ...resolutionResponses(),
+      jsonResponse({ ...workflow, revision: 4, name: "Check in revision 1" }),
+    ]);
+    await cli.run(restore.ctx);
+    expect(restore.calls.at(-1)?.path).toBe(`/api/grids/workflows/${workflowId}/revisions/1/restore`);
+    expect(restore.calls.at(-1)?.init?.method).toBe("POST");
+    expect(JSON.parse(String(restore.calls.at(-1)?.init?.body))).toEqual({ expectedRevision: 3 });
+  });
+
+  test("requires confirmation before canceling an active run", async () => {
+    const missingConfirmation = createContext(["workflow-runs", "cancel", runId]);
+    await expect(cli.run(missingConfirmation.ctx)).rejects.toThrow("Pass --yes to cancel.");
+    expect(missingConfirmation.calls).toHaveLength(0);
+
+    const cancel = createContext(["workflow-runs", "cancel", runId], { yes: true }, [
+      jsonResponse({
+        ...receipt,
+        id: runId,
+        baseId,
+        launcherId: null,
+        workflowRevision: 3,
+        actorUserId: null,
+        serviceAccountId: null,
+        inputs: {},
+        result: null,
+        error: null,
+        resultMessage: null,
+        status: "canceled",
+        createdAt: "2026-07-15T00:00:00.000Z",
+        startedAt: "2026-07-15T00:00:00.100Z",
+        finishedAt: "2026-07-15T00:00:00.200Z",
+      }),
+    ]);
+    await cli.run(cancel.ctx);
+    expect(cancel.calls.at(-1)?.path).toBe(`/api/grids/workflows/runs/${runId}/cancel`);
+    expect(cancel.calls.at(-1)?.init?.method).toBe("POST");
+    expect(cancel.lines).toEqual([`Canceled workflow run ${runId}.`]);
   });
 
   test("projects kernel run and step fields for table output", () => {

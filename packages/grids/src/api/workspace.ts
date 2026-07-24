@@ -57,6 +57,7 @@ export const createWorkspaceApi = (
     hasExplicitViewGrant?: typeof hasExplicitGrant;
     viewer?: typeof currentActorViewer;
     getWorkflowRun?: typeof gridsService.workflow.getRun;
+    getWorkflow?: typeof gridsService.workflow.get;
     loadWorkflowDetail?: typeof loadWorkflowRunDetail;
   } = {},
 ) => {
@@ -159,7 +160,8 @@ export const createWorkspaceApi = (
       const access = await gate(c, { baseId: run.baseId, workflowId: run.workflowId }, "read");
       if (!access.ok) return c.json({ message: "Workflow run not found" }, 404);
       const loadWorkflowDetail = deps.loadWorkflowDetail ?? loadWorkflowRunDetail;
-      return c.json(await loadWorkflowDetail(run));
+      const workflow = await (deps.getWorkflow ?? gridsService.workflow.get)(run.workflowId, true);
+      return c.json(await loadWorkflowDetail(run, { workflow, viewer: (deps.viewer ?? currentActorViewer)(c) }));
     });
 };
 

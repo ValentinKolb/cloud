@@ -128,6 +128,42 @@ export const listWorkflowStepRuns = async (runId: string): Promise<GridsWorkflow
   }));
 };
 
+export type WorkflowRunProvenance = {
+  workflowName: string | null;
+  actorLabel: string | null;
+  serviceAccountLabel: string | null;
+  launcherName: string | null;
+};
+
+export const getWorkflowRunProvenance = async (runId: string): Promise<WorkflowRunProvenance> => {
+  const [row] = await sql<
+    Array<{
+      workflow_name: string | null;
+      actor_label: string | null;
+      service_account_label: string | null;
+      launcher_name: string | null;
+    }>
+  >`
+    SELECT
+      workflow.name AS workflow_name,
+      COALESCE(NULLIF(actor.display_name, ''), NULLIF(actor.uid, ''), actor.mail) AS actor_label,
+      service_account.name AS service_account_label,
+      launcher.name AS launcher_name
+    FROM grids.workflow_runs run
+    LEFT JOIN grids.workflows workflow ON workflow.id = run.workflow_id
+    LEFT JOIN auth.users actor ON actor.id = run.actor_user_id
+    LEFT JOIN auth.service_accounts service_account ON service_account.id = run.service_account_id
+    LEFT JOIN grids.workflow_launchers launcher ON launcher.id = run.launcher_id
+    WHERE run.id = ${runId}::uuid
+  `;
+  return {
+    workflowName: row?.workflow_name ?? null,
+    actorLabel: row?.actor_label ?? null,
+    serviceAccountLabel: row?.service_account_label ?? null,
+    launcherName: row?.launcher_name ?? null,
+  };
+};
+
 type DeliveryRow = {
   id: string;
   workflow_id: string | null;
@@ -283,6 +319,7 @@ export const getWorkflowRunStats = async (
       FROM grids.workflow_runs
       WHERE base_id = ${baseId}::uuid
         AND workflow_id = ANY(${ids}::uuid[])
+        AND mode = 'execute'
         AND created_at >= now() - (${windowSeconds} * interval '1 second')
     ),
     failed_24h AS (
@@ -290,6 +327,7 @@ export const getWorkflowRunStats = async (
       FROM grids.workflow_runs
       WHERE base_id = ${baseId}::uuid
         AND workflow_id = ANY(${ids}::uuid[])
+        AND mode = 'execute'
         AND status IN ('failed', 'needs_attention')
         AND created_at >= now() - interval '24 hours'
     ),

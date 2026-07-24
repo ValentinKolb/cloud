@@ -38,14 +38,16 @@ describe("workflow route contracts", () => {
         }),
       }),
       app().request("/workflows/runs/not-a-uuid"),
+      app().request("/workflows/runs/not-a-uuid/cancel", { method: "POST" }),
     ];
 
     const responses = await Promise.all(requests);
-    expect(responses.map((response) => response.status)).toEqual([400, 400, 400, 400]);
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400, 400, 400]);
     expect(await Promise.all(responses.map((response) => response.json()))).toEqual([
       { message: "Invalid base id" },
       { message: "Invalid workflow id" },
       { message: "Invalid workflow launcher id" },
+      { message: "Invalid workflow run id" },
       { message: "Invalid workflow run id" },
     ]);
   });
@@ -55,6 +57,7 @@ describe("workflow route contracts", () => {
 
     expect(Object.keys(spec.paths?.["/workflows/by-base/{baseId}/runs"]?.get?.responses ?? {})).toEqual(["200", "400", "403", "404"]);
     expect(Object.keys(spec.paths?.["/workflows/runs/{runId}/steps"]?.get?.responses ?? {})).toEqual(["200", "400", "403", "404"]);
+    expect(Object.keys(spec.paths?.["/workflows/runs/{runId}/cancel"]?.post?.responses ?? {})).toEqual(["200", "400", "403", "404"]);
   });
 
   test("publishes infrastructure failures for workflow invocation routes", async () => {

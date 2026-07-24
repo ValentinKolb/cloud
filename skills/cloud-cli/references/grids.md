@@ -801,6 +801,15 @@ cld grids workflows create \
 
 `workflows autocomplete` returns permission-safe YAML completions for a UTF-16 caret offset. Workflow CRUD commands are `workflows list|get|create|update|delete`; deletion requires `--yes`.
 
+Every workflow save creates an immutable revision. Inspect or restore revisions without deleting history:
+
+```bash
+cld grids workflows history "Check in"
+cld grids workflows restore "Check in" --revision 2 --yes --json
+```
+
+Restore copies the selected definition into a new current revision. It uses the current revision as an optimistic concurrency guard and fails if somebody saves the workflow first.
+
 ### Invoke and inspect runs
 
 Direct CLI invocation requires a stable idempotency key. Reuse a key only for the same logical invocation.
@@ -831,18 +840,24 @@ cld grids workflow-runs documents <run-uuid> --json
 cld grids workflow-emails list --workflow "Check in" --json
 ```
 
-Run commands are `workflow-runs list|get|steps|documents|download-documents`. Email delivery history uses `workflow-emails list`.
+Cancel a queued, running, or waiting run explicitly:
 
-### Launchers and email templates
+```bash
+cld grids workflow-runs cancel <run-uuid> --yes --json
+```
 
-Launchers expose a workflow as a scanner, bulk, or dashboard interaction. A dashboard launcher uses `inputMode: "fixed"` with complete `inputBindings` for a one-click action, or `inputMode: "prompt"` to request the workflow's declared inputs when it runs. Fixed launchers reject runtime inputs; prompt launchers do not store fixed bindings. Their complete JSON shapes and invocation bodies are part of `workflows reference`.
+Cancellation prevents later steps and late worker completion from replacing the canceled state. It does not undo effects that already completed. Run commands are `workflow-runs list|get|cancel|steps|documents|download-documents`. Email delivery history uses `workflow-emails list`.
+
+### Run options and email templates
+
+Run options expose a workflow as a scanner, bulk, or dashboard interaction. The API and CLI call these resources launchers. A dashboard option uses `inputMode: "fixed"` with complete `inputBindings` for a one-click action, or `inputMode: "prompt"` to request the workflow's declared inputs when it runs. Fixed options reject runtime inputs; prompt options do not store fixed bindings. Their complete JSON shapes and invocation bodies are part of `workflows reference`.
 
 ```bash
 cld grids workflow-launchers create "Check in" --body-file scanner-launcher.json --json
 cld grids workflow-launchers invoke "Check in" Scanner --body-file scan.json --json
 ```
 
-Commands are `workflow-launchers list|create|update|delete|invoke`. Launcher deletion requires `--yes`.
+Commands are `workflow-launchers list|create|update|delete|invoke`. Deletion requires `--yes`. Source changes can invalidate an option; list it and review its diagnostics before enabling it again.
 
 Workflow emails render a Liquid subject and HTML body. There is no plain-text template field.
 The optional `sampleData` JSON object is stored with the template and available as `data` in editor previews. It does not change runtime email data supplied by `sendEmail`.
@@ -854,7 +869,7 @@ cld grids email-templates create \
   --json
 ```
 
-Email-template commands are `email-templates reference|list|get|create|update|delete`.
+Email-template commands are `email-templates reference|list|get|create|update|delete`. A referenced template cannot be deleted; update the dependent workflows first.
 
 ## Command index
 
@@ -882,8 +897,8 @@ document-templates preview-data|preview-pdf|preview-draft-data|preview-draft-pdf
 documents list|browse|by-record|generate|update|download
 documents links list|create|revoke
 email-templates reference|list|get|create|update|delete
-workflows reference|list|get|create|update|delete|validate|autocomplete|invoke
+workflows reference|list|get|create|update|history|restore|delete|validate|autocomplete|invoke
 workflow-launchers list|create|update|delete|invoke
-workflow-runs list|get|steps|documents|download-documents
+workflow-runs list|get|cancel|steps|documents|download-documents
 workflow-emails list
 ```

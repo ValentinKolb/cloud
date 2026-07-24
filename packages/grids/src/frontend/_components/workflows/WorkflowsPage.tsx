@@ -24,12 +24,14 @@ import type {
   GridsWorkflowRun as WorkflowRun,
   GridsWorkflowRunStats as WorkflowRunStats,
   GridsWorkflowRunStatsWindow as WorkflowRunStatsWindow,
+  WorkflowTriggerRuntimeState,
 } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceWorkflowOverview } from "../workspace/workspace-state-model";
+import { WorkflowAutomaticTriggerState } from "./WorkflowAutomaticTriggerState";
 import { WorkflowEditor } from "./WorkflowEditor";
-import { EmailTemplateManager } from "./WorkflowEmailTemplates";
 import { WorkflowLauncherManager } from "./WorkflowLauncherManager";
+import { WorkflowRevisionHistory } from "./WorkflowRevisionHistory";
 import { requestWorkflowRunInput } from "./WorkflowRunInputDialog";
 import type { WorkflowScannerState } from "./WorkflowScannerSurface";
 import {
@@ -92,6 +94,7 @@ type WorkflowsPageApi = {
   };
   ":workflowId": {
     launchers: { $get: (input: { param: { workflowId: string } }, options?: { init?: RequestInit }) => Promise<Response> };
+    "trigger-state": { $get: (input: { param: { workflowId: string } }, options?: { init?: RequestInit }) => Promise<Response> };
     invoke: {
       manual: {
         $post: (input: { param: { workflowId: string }; json: unknown }, options?: { init?: RequestInit }) => Promise<Response>;
@@ -145,7 +148,7 @@ const runChannelOptions: FilterChipSection[] = [
   },
 ];
 
-type WorkflowLoadArea = "stats" | "runs" | "launchers";
+type WorkflowLoadArea = "stats" | "runs" | "launchers" | "triggers";
 
 const formatMetricDuration = (ms: number | null): string => {
   if (ms === null) return "-";
@@ -214,6 +217,7 @@ export default function WorkflowsPage(props: Props) {
   const [runStatus, setRunStatus] = createSignal<WorkflowRunStatusFilter>(props.initialOverview.filters.status);
   const [runChannel, setRunChannel] = createSignal<WorkflowRunChannelFilter>(props.initialOverview.filters.channel);
   const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>(props.initialOverview.launchers);
+  const [triggerState, setTriggerState] = createSignal<WorkflowTriggerRuntimeState | null>(props.initialOverview.triggerState);
   const [stats, setStats] = createSignal<WorkflowRunStats | null>(props.initialOverview.stats);
   const [runs, setRuns] = createSignal<WorkflowRun[]>(props.initialOverview.runs.items);
   const [nextCursor, setNextCursor] = createSignal<string | null>(props.initialOverview.runs.nextCursor);
@@ -375,11 +379,30 @@ export default function WorkflowsPage(props: Props) {
     onError: (error) => setLoadFailure("launchers", error.message),
   });
 
+  const triggerStateMut = mutations.create<void, void>({
+    mutation: async (_, { abortSignal }) => {
+      const workflow = props.activeWorkflow;
+      if (!workflow) {
+        setTriggerState(null);
+        return;
+      }
+      const response = await workflowsPageApi[":workflowId"]["trigger-state"].$get(
+        { param: { workflowId: workflow.id } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not load automatic trigger state."));
+      setTriggerState((await response.json()) as WorkflowTriggerRuntimeState);
+    },
+    onSuccess: () => setLoadFailure("triggers"),
+    onError: (error) => setLoadFailure("triggers", error.message),
+  });
+
   const reloadAll = () => {
     setLoadErrors({});
     statsMut.mutate();
     runsMut.mutate();
     launchersMut.mutate();
+    triggerStateMut.mutate();
   };
 
   const currentUrlState = (): WorkflowUrlState => ({
@@ -450,24 +473,23 @@ export default function WorkflowsPage(props: Props) {
     );
   };
 
-  const openEmailTemplates = async () => {
+  const openLaunchers = async (workflow: Workflow) => {
     await dialogCore.open<void>(
-      (close) => (
-        <EmailTemplateManager
-          baseId={props.baseId}
-          onChanged={() => {
-            props.onWorkflowChanged();
-          }}
-          onClose={close}
-        />
-      ),
+      (close) => <WorkflowLauncherManager workflow={workflow} tables={props.tables} onChanged={props.onWorkflowChanged} onClose={close} />,
       panelDialogWorkspaceOptions,
     );
   };
 
-  const openLaunchers = async (workflow: Workflow) => {
+  const openHistory = async (workflow: Workflow) => {
     await dialogCore.open<void>(
-      (close) => <WorkflowLauncherManager workflow={workflow} tables={props.tables} onChanged={props.onWorkflowChanged} onClose={close} />,
+      (close) => (
+        <WorkflowRevisionHistory
+          workflow={workflow}
+          canRestore={props.canManageActiveWorkflow}
+          onChanged={props.onWorkflowChanged}
+          onClose={close}
+        />
+      ),
       panelDialogWorkspaceOptions,
     );
   };
@@ -668,21 +690,21 @@ export default function WorkflowsPage(props: Props) {
               </Show>
               <Show when={props.editMode && props.canManageActiveWorkflow}>
                 <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openLaunchers(workflow())}>
-                  <i class="ti ti-rocket" /> Launchers
+                  <i class="ti ti-rocket" /> Run options
+                </button>
+                <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openHistory(workflow())}>
+                  <i class="ti ti-history" /> History
                 </button>
                 <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openEditor(workflow())}>
                   <i class="ti ti-settings" /> Manage
                 </button>
               </Show>
             </div>
-            <Show when={props.editMode && props.canCreateWorkflows}>
-              <div class="flex flex-wrap items-center gap-2">
-                <button type="button" class="btn-input-success btn-input-sm" onClick={() => void openEmailTemplates()}>
-                  <i class="ti ti-mail" /> Email templates
-                </button>
-              </div>
-            </Show>
           </header>
+
+          <Show when={triggerState() && (triggerState()!.schedule || triggerState()!.recordEvents.length > 0) ? triggerState() : null}>
+            {(state) => <WorkflowAutomaticTriggerState state={state()} tables={props.tables} />}
+          </Show>
 
           <Show when={loadError()}>
             {(message) => (
@@ -731,15 +753,21 @@ export default function WorkflowsPage(props: Props) {
               />
               <StatCell label="Runs" value={activeStats()?.total ?? 0} accent={{ tone: "zinc", icon: "ti ti-list" }} />
               <StatCell
-                label="Running"
-                value={(activeStats()?.running ?? 0) + (activeStats()?.queued ?? 0)}
+                label="Active"
+                value={(activeStats()?.running ?? 0) + (activeStats()?.queued ?? 0) + (activeStats()?.waiting ?? 0)}
                 accent={{ tone: "blue", icon: "ti ti-player-play" }}
               />
               <StatCell
                 label="Error rate"
                 value={formatPercent(activeStats()?.errorRate ?? 0)}
-                valueClass={(activeStats()?.failed ?? 0) > 0 ? "text-red-600 dark:text-red-400" : undefined}
-                accent={(activeStats()?.failed ?? 0) > 0 ? { tone: "red", icon: "ti ti-alert-triangle" } : undefined}
+                valueClass={
+                  (activeStats()?.failed ?? 0) + (activeStats()?.needsAttention ?? 0) > 0 ? "text-red-600 dark:text-red-400" : undefined
+                }
+                accent={
+                  (activeStats()?.failed ?? 0) + (activeStats()?.needsAttention ?? 0) > 0
+                    ? { tone: "red", icon: "ti ti-alert-triangle" }
+                    : undefined
+                }
               />
               <StatCell
                 label="P99 runtime"
@@ -779,7 +807,12 @@ export default function WorkflowsPage(props: Props) {
                 isActive={runChannel() !== "all"}
               />
               <button type="button" class="btn-simple btn-sm ml-auto" onClick={reloadAll}>
-                <i class={runsMut.loading() || statsMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} /> Refresh
+                <i
+                  class={
+                    runsMut.loading() || statsMut.loading() || triggerStateMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"
+                  }
+                />{" "}
+                Refresh
               </button>
             </div>
             <DataTable

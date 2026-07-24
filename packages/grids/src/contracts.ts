@@ -1304,6 +1304,17 @@ export type EmailTemplate = z.infer<typeof EmailTemplateSchema>;
 
 export const EmailTemplateListSchema = z.array(EmailTemplateSchema);
 
+export const EmailTemplateDependencySchema = z.object({
+  workflowId: z.string().uuid(),
+  workflowShortId: z.string().length(5),
+  workflowName: z.string().min(1),
+});
+
+export const EmailTemplateDependencyMapSchema = z.record(z.string().uuid(), z.array(EmailTemplateDependencySchema));
+
+export type EmailTemplateDependency = z.infer<typeof EmailTemplateDependencySchema>;
+export type EmailTemplateDependencyMap = z.infer<typeof EmailTemplateDependencyMapSchema>;
+
 export const CreateEmailTemplateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2_000).nullable().optional(),

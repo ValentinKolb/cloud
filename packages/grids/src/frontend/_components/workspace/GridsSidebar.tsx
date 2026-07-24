@@ -3,6 +3,7 @@ import BaseSettingsButton from "../sidebar/BaseSettingsButton.island";
 import CreateDashboardButton from "../sidebar/CreateDashboardButton.island";
 import CreateTableButton from "../sidebar/CreateTableButton.island";
 import CreateWorkflowButton from "../sidebar/CreateWorkflowButton.island";
+import EmailTemplatesButton from "../sidebar/EmailTemplatesButton.island";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry.island";
 import SidebarTableMeta from "../sidebar/SidebarTableMeta";
 import type {
@@ -177,7 +178,10 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
             );
           })}
           {state.adminModeRequested && state.canManageBase && (
-            <CreateWorkflowButton baseId={state.base.id} baseShortId={state.base.shortId} tables={state.catalog.tables} />
+            <>
+              <CreateWorkflowButton baseId={state.base.id} baseShortId={state.base.shortId} tables={state.catalog.tables} />
+              <EmailTemplatesButton baseId={state.base.id} />
+            </>
           )}
         </AppWorkspace.SidebarSection>
       )}

@@ -767,11 +767,16 @@ const planKnown = async (run: () => Promise<WorkflowPlanningOutcome>): Promise<W
   }
 };
 
-const effectDescription = (context: WorkflowDryRunActionContext, action: string): Record<string, WorkflowJsonValue> => ({
+const effectDescription = (
+  context: WorkflowDryRunActionContext,
+  action: string,
+  details: Record<string, WorkflowJsonValue> = {},
+): Record<string, WorkflowJsonValue> => ({
   kind: "grids.workflow.action",
   action,
   effect: gridsWorkflowActionEffect(action) ?? "pure",
   stepKey: context.step.key,
+  ...details,
 });
 
 const saveAs = (
@@ -1079,9 +1084,19 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         await requireWorkflowPermission(services, options, context);
         const record = await recordReference(context, step, "record");
         await currentRecord(services, options, context, record, "write");
-        await evaluatedFieldPayload(context, step, "set");
+        const values = await evaluatedFieldPayload(context, step, "set");
         await evaluatedAuditAnswers(context, step);
-        return { state: "planned", output: record, effects: [effectDescription(context, step.action)] };
+        return {
+          state: "planned",
+          output: record,
+          effects: [
+            effectDescription(context, step.action, {
+              tableId: record.tableId,
+              recordId: record.recordId,
+              fieldIds: Object.keys(values),
+            }),
+          ],
+        };
       }),
     null,
   );
@@ -1139,7 +1154,11 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         const data = await evaluatedFieldPayload(context, step, "values");
         const output = toJsonValue({ kind: "record", tableId, recordId: `dry-run:${context.step.key}`, data, planned: true });
         saveAs(context, step, output);
-        return { state: "planned", output, effects: [effectDescription(context, step.action)] };
+        return {
+          state: "planned",
+          output,
+          effects: [effectDescription(context, step.action, { tableId, fieldIds: Object.keys(data) })],
+        };
       }),
   );
 
@@ -1239,11 +1258,29 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           throw actionError("WORKFLOW_VALUE_INVALID", "Document record does not belong to the template table");
         await currentRecord(services, options, context, record, "read");
         await requirePermission(services, options, context, { tableId: template.tableId, documentTemplateId: template.id }, "write");
-        if (step.config.filename !== undefined) await context.evaluate(step.config.filename, [...actionPath(step), "filename"]);
+        const filenameValue =
+          step.config.filename === undefined ? null : await context.evaluate(step.config.filename, [...actionPath(step), "filename"]);
+        const filename = typeof filenameValue === "string" ? filenameValue : null;
+        const tags: string[] = [];
         if (Array.isArray(step.config.tags)) {
-          await Promise.all(step.config.tags.map((tag, index) => context.evaluate(tag, [...actionPath(step), "tags", index])));
+          for (const [index, tag] of step.config.tags.entries()) {
+            const value = await context.evaluate(tag, [...actionPath(step), "tags", index]);
+            if (typeof value === "string" && value.trim()) tags.push(value.trim());
+          }
         }
-        return { state: "planned", effects: [effectDescription(context, step.action)] };
+        return {
+          state: "planned",
+          effects: [
+            effectDescription(context, step.action, {
+              templateId: template.id,
+              templateName: template.name,
+              tableId: template.tableId,
+              recordId: record.recordId,
+              filename,
+              tags,
+            }),
+          ],
+        };
       }),
   );
 
@@ -1342,8 +1379,25 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         if (!run || run.baseId !== options.workflow.baseId) throw actionError("NOT_FOUND", "Generated document is no longer available");
         await currentTable(services, options, run.tableId);
         await requirePermission(services, options, context, { tableId: run.tableId }, "write");
-        if (step.config.comment !== undefined) await context.evaluate(step.config.comment, [...actionPath(step), "comment"]);
-        return { state: "planned", effects: [effectDescription(context, step.action)] };
+        const commentValue =
+          step.config.comment === undefined ? null : await context.evaluate(step.config.comment, [...actionPath(step), "comment"]);
+        const expiresIn =
+          step.config.expiresIn === "1d" ||
+          step.config.expiresIn === "7d" ||
+          step.config.expiresIn === "30d" ||
+          step.config.expiresIn === "90d"
+            ? step.config.expiresIn
+            : "30d";
+        return {
+          state: "planned",
+          effects: [
+            effectDescription(context, step.action, {
+              documentRunId: run.id,
+              expiresIn,
+              hasComment: typeof commentValue === "string" && commentValue.trim().length > 0,
+            }),
+          ],
+        };
       }),
   );
 
@@ -1425,8 +1479,18 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
     (context, step) =>
       planKnown(async () => {
         await requireWorkflowPermission(services, options, context);
-        await emailInput(context, step);
-        return { state: "planned", effects: [effectDescription(context, step.action)] };
+        const input = await emailInput(context, step);
+        return {
+          state: "planned",
+          effects: [
+            effectDescription(context, step.action, {
+              templateId: input.template.id,
+              templateName: input.template.name,
+              recipientCount: input.recipients.length,
+              recipientKinds: input.recipients.map(({ kind }) => kind),
+            }),
+          ],
+        };
       }),
   );
 
@@ -1515,7 +1579,17 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
             ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
           }),
         );
-        return { state: "planned", effects: [effectDescription(context, step.action)] };
+        return {
+          state: "planned",
+          effects: [
+            effectDescription(context, step.action, {
+              method: input.method,
+              host: new URL(input.url).host,
+              hasPayload: input.payload !== undefined,
+              timeoutMs: input.timeoutMs ?? null,
+            }),
+          ],
+        };
       }),
   );
 

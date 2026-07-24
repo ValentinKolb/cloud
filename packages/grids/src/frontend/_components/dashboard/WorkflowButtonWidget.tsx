@@ -1,11 +1,14 @@
 import { dialogCore, PanelDialog, panelDialogWorkspaceOptions, toast } from "@valentinkolb/cloud/ui";
 import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { createSignal, lazy, Show, Suspense } from "solid-js";
+import { createEffect, createSignal, lazy, onCleanup, Show, Suspense } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { WorkflowButtonWidget as WorkflowButtonWidgetConfig } from "../../../service";
+import type { GridsWorkflowRun } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { requestWorkflowRunInput } from "../workflows/WorkflowRunInputDialog";
 import type { WorkflowScannerState } from "../workflows/WorkflowScannerSurface";
+import { isTerminalWorkflowRunStatus, workflowRunStatusClass } from "../workflows/workflow-display";
+import { createWorkflowRunEventsProvider } from "../workflows/workflow-run-events-provider";
 import DashboardWidgetState from "./DashboardWidgetState";
 import type { WidgetData } from "./widget-data";
 
@@ -27,8 +30,27 @@ type DashboardWorkflowInputContract = {
   tables: Array<{ id: string; shortId: string; name: string }>;
 };
 
+type DashboardWorkflowRunsApi = {
+  [":dashboardId"]: {
+    widgets: {
+      [":widgetId"]: {
+        runs: {
+          [":runId"]: {
+            $get: (input: { param: { dashboardId: string; widgetId: string; runId: string } }) => Promise<Response>;
+          };
+        };
+      };
+    };
+  };
+};
+
+const dashboardWorkflowRunsApi = apiClient.dashboards as unknown as DashboardWorkflowRunsApi;
+const RUN_STATUS_POLL_MS = 2_000;
+
 export default function WorkflowButtonWidget(props: Props) {
   const [running, setRunning] = createSignal(false);
+  const [launchedRunId, setLaunchedRunId] = createSignal<string | null>(null);
+  const [launchedRunStatus, setLaunchedRunStatus] = createSignal<GridsWorkflowRun["status"] | null>(null);
   const isWorkflowButton = (d: WidgetData): d is Extract<WidgetData, { kind: "workflow-button" }> => d.kind === "workflow-button";
   const data = () => (isWorkflowButton(props.data) ? props.data : null);
   const title = () => data()?.title || props.widget.title || "Run workflow";
@@ -36,6 +58,65 @@ export default function WorkflowButtonWidget(props: Props) {
   const buttonLabel = () => data()?.buttonLabel || props.widget.buttonLabel || "Run";
   const disabledReason = () => data()?.disabledReason ?? null;
   const canRun = () => Boolean(data()?.canRun) && !running();
+  const runHref = () => {
+    const d = data();
+    const runId = launchedRunId();
+    if (!d?.canInspectRun || !runId) return null;
+    return `/app/grids/${encodeURIComponent(props.baseShortId)}/workflows/${encodeURIComponent(
+      d.workflowShortId,
+    )}?run=${encodeURIComponent(runId)}`;
+  };
+
+  createEffect(() => {
+    const runId = launchedRunId();
+    const d = data();
+    if (!runId || !d) return;
+    let stopped = false;
+    let refreshInFlight = false;
+    let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+    let events: ReturnType<typeof createWorkflowRunEventsProvider> | null = null;
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      if (fallbackTimer) clearInterval(fallbackTimer);
+      fallbackTimer = null;
+      events?.dispose();
+      events = null;
+    };
+    const applyStatus = (status: GridsWorkflowRun["status"]) => {
+      setLaunchedRunStatus(status);
+      if (isTerminalWorkflowRunStatus(status)) stop();
+    };
+    const refresh = async () => {
+      if (stopped || refreshInFlight) return;
+      refreshInFlight = true;
+      try {
+        const response = await dashboardWorkflowRunsApi[":dashboardId"].widgets[":widgetId"].runs[":runId"].$get({
+          param: { dashboardId: props.dashboardId, widgetId: props.widget.id, runId },
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { run: Pick<GridsWorkflowRun, "id" | "status"> };
+        if (payload.run.id === runId) applyStatus(payload.run.status);
+      } catch {
+        // Live events or the next poll can recover a transient status request.
+      } finally {
+        refreshInFlight = false;
+      }
+    };
+    events = createWorkflowRunEventsProvider({
+      workflowId: d.workflowId,
+      dashboardId: props.dashboardId,
+      dashboardWidgetId: props.widget.id,
+      onEvent: (event) => {
+        if (event.run.id !== runId) return;
+        applyStatus(event.run.status);
+      },
+    });
+    events.connect();
+    fallbackTimer = setInterval(() => void refresh(), RUN_STATUS_POLL_MS);
+    void refresh();
+    onCleanup(stop);
+  });
 
   const openScanner = () => {
     const d = data();
@@ -102,7 +183,12 @@ export default function WorkflowButtonWidget(props: Props) {
         json: { inputs },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Workflow could not be started"));
-      toast.success("Workflow started");
+      const receipt = (await res.json()) as Pick<GridsWorkflowRun, "id" | "status">;
+      setLaunchedRunId(receipt.id);
+      setLaunchedRunStatus(receipt.status);
+      toast.success("Workflow started", {
+        action: runHref() ? { label: "Open run", href: runHref()! } : undefined,
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Workflow could not be started");
     } finally {
@@ -145,6 +231,16 @@ export default function WorkflowButtonWidget(props: Props) {
             </Show>
             <Show when={disabledReason()}>
               <span class="text-xs text-dimmed">{disabledReason()}</span>
+            </Show>
+            <Show when={launchedRunStatus()}>
+              {(status) => <span class={`badge ${workflowRunStatusClass(status())}`}>{status().replaceAll("_", " ")}</span>}
+            </Show>
+            <Show when={runHref()}>
+              {(href) => (
+                <a class="btn-simple btn-sm" href={href()}>
+                  Open run <i class="ti ti-arrow-right" />
+                </a>
+              )}
             </Show>
           </div>
         </div>

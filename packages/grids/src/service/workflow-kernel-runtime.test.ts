@@ -8,6 +8,7 @@ import {
   registerWorkflowSchedules,
   submitAcceptedWorkflowRun,
   WORKFLOW_JOB_LEASE_MS,
+  WORKFLOW_LEASE_HEARTBEAT_MS,
   workflowScheduleId,
   workflowScheduleMatches,
   workflowScheduleMetadata,
@@ -126,6 +127,7 @@ describe("workflow kernel runtime boundaries", () => {
 
   test("aligns the distributed job lease with the PostgreSQL run lease", () => {
     expect(WORKFLOW_JOB_LEASE_MS).toBe(WORKFLOW_RUN_LEASE_MS);
+    expect(WORKFLOW_LEASE_HEARTBEAT_MS).toBeLessThan(WORKFLOW_RUN_LEASE_MS / 2);
   });
 });
 

@@ -379,6 +379,7 @@ export default function RecordsView(props: Props) {
   const bulkSelectionEnabled = () =>
     props.bulkSelectionLaunchers.length > 0 && !props.trashMode && !isGrouped() && renderMode() === "table";
   const bulkSelection = createRecordsBulkController({
+    baseShortId: props.baseShortId,
     enabled: bulkSelectionEnabled,
     items: () => items() as GridRecord[],
     query: queryWithSearch,

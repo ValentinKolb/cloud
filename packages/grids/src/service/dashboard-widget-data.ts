@@ -114,6 +114,7 @@ export type WidgetData =
       launcherId: string;
       expectedRevision: number;
       workflowId: string;
+      workflowShortId: string;
       workflowName: string;
       title: string;
       description: string | null;
@@ -121,6 +122,7 @@ export type WidgetData =
       action: "run" | "scanner";
       inputMode: "fixed" | "prompt" | null;
       canRun: boolean;
+      canInspectRun: boolean;
       disabledReason: string | null;
     }
   | { kind: "error"; reason: string };
@@ -265,7 +267,7 @@ export const resolveWidgetData = async (widget: Widget, viewer: ViewerContext, o
       case "link":
         return await resolveLink(widget, viewer);
       case "workflow-button":
-        return await resolveWorkflowButton(widget);
+        return await resolveWorkflowButton(widget, viewer);
     }
   } catch (e) {
     return { kind: "error", reason: e instanceof Error ? e.message : "unknown error" };
@@ -429,6 +431,21 @@ const canReadDashboardTarget = async (dashboard: SavedDashboard, viewer: ViewerC
   return canReadDashboardIncludedData(dashboard, viewer);
 };
 
+const canReadWorkflowTarget = async (
+  workflow: NonNullable<Awaited<ReturnType<typeof getWorkflow>>>,
+  viewer: ViewerContext,
+): Promise<boolean> => {
+  if (viewer.isAdmin) return true;
+  const grants = await loadGrantsForUser({
+    userId: viewer.userId,
+    userGroups: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
+    baseId: workflow.baseId,
+    workflowId: workflow.id,
+  });
+  return hasAtLeast(resolveEffectivePermission(grants, { baseId: workflow.baseId, workflowId: workflow.id }), "read");
+};
+
 const iconForLinkTarget = (kind: Extract<Widget, { kind: "link" }>["target"]["kind"]) => {
   if (kind === "dashboard") return "ti ti-layout-dashboard";
   if (kind === "table") return "ti ti-table";
@@ -442,7 +459,7 @@ const renderableFormFields = (form: Form, formFields: Field[]): Field[] => {
   return formFields.filter((field) => userInputIds.has(field.id));
 };
 
-const resolveWorkflowButton = async (widget: WorkflowButtonWidget): Promise<WidgetData> => {
+const resolveWorkflowButton = async (widget: WorkflowButtonWidget, viewer: ViewerContext): Promise<WidgetData> => {
   const launcher = await getLauncher(widget.launcherId);
   if (!launcher || (launcher.config.kind !== "dashboard" && launcher.config.kind !== "scanner")) {
     return { kind: "error", reason: "workflow launcher not found" };
@@ -460,6 +477,7 @@ const resolveWorkflowButton = async (widget: WorkflowButtonWidget): Promise<Widg
     launcherId: launcher.id,
     expectedRevision: launcher.validatedRevision,
     workflowId: workflow.id,
+    workflowShortId: workflow.shortId,
     workflowName: workflow.name,
     title,
     description,
@@ -467,6 +485,7 @@ const resolveWorkflowButton = async (widget: WorkflowButtonWidget): Promise<Widg
     action,
     inputMode: launcher.config.kind === "dashboard" ? launcher.config.inputMode : null,
     canRun: valid && enabled,
+    canInspectRun: await canReadWorkflowTarget(workflow, viewer),
     disabledReason: !valid ? "Workflow launcher must be revalidated" : !enabled ? "Workflow launcher is disabled" : null,
   };
 };

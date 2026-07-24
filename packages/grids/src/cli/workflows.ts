@@ -3,6 +3,7 @@ import type { WorkflowInvocationReceipt } from "@valentinkolb/cloud/workflows";
 import type { DocumentRunSummaryList, EmailTemplate } from "../contracts";
 import {
   type GridsWorkflowLauncher,
+  type GridsWorkflowRevision,
   WORKFLOW_REVISION_HEADER,
   type GridsWorkflow as Workflow,
   type WorkflowAutocompleteResponse,
@@ -384,6 +385,69 @@ export const workflowCommands = [
       printJsonOrMessage(ctx, updated, `Updated workflow ${updated.name} (${updated.shortId}).`);
     },
   }),
+  command("workflows history", {
+    summary: "List immutable revisions of a workflow",
+    args: baseArgs,
+    flags: {
+      ...baseFlag,
+      ...workflowFlag,
+      beforeRevision: flag.int({ name: "before-revision", min: 1, description: "List revisions older than this revision" }),
+      limit: flag.int({ min: 1, max: 100, description: "Maximum revisions" }),
+    },
+    async run({ ctx, args, flags }) {
+      const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
+      const payload = await readApi<{ items: GridsWorkflowRevision[]; nextRevision: number | null }>(
+        ctx,
+        `/workflows/${encodeURIComponent(workflow.id)}/revisions${queryString({
+          beforeRevision: flags.beforeRevision,
+          limit: flags.limit,
+        })}`,
+      );
+      printJsonOrTable(
+        ctx,
+        payload,
+        payload.items.map((revision) => ({
+          revision: revision.revision,
+          enabled: revision.enabled ? "yes" : "no",
+          name: revision.name,
+          actor: revision.actorUserId ?? "-",
+          createdAt: revision.createdAt,
+        })),
+        [
+          { key: "revision", label: "REVISION" },
+          { key: "enabled", label: "ENABLED" },
+          { key: "name", label: "NAME" },
+          { key: "actor", label: "ACTOR" },
+          { key: "createdAt", label: "CREATED" },
+        ],
+      );
+      if (ctx.options.output !== "json" && payload.nextRevision) ctx.print(`next revision: ${payload.nextRevision}`);
+    },
+  }),
+  command("workflows restore", {
+    summary: "Restore an earlier workflow revision as a new revision",
+    args: baseArgs,
+    flags: {
+      ...baseFlag,
+      ...workflowFlag,
+      revision: flag.int({ min: 1, required: true, description: "Revision to restore" }),
+      yes: confirmFlag("Restore this workflow revision"),
+    },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to restore.");
+      const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
+      const restored = await readApi<Workflow>(
+        ctx,
+        `/workflows/${encodeURIComponent(workflow.id)}/revisions/${flags.revision}/restore`,
+        jsonRequest("POST", { expectedRevision: workflow.revision }),
+      );
+      printJsonOrMessage(
+        ctx,
+        restored,
+        `Restored workflow ${restored.name} from revision ${flags.revision} as revision ${restored.revision}.`,
+      );
+    },
+  }),
   command("workflows delete", {
     summary: "Delete a workflow",
     args: baseArgs,
@@ -638,6 +702,16 @@ export const workflowRunCommands = [
           if (run.error.details) ctx.print(`details: ${JSON.stringify(run.error.details)}`);
         }
       }
+    },
+  }),
+  command("workflow-runs cancel", {
+    summary: "Cancel an active workflow run",
+    args: { run: arg.required({ description: "Workflow run UUID" }) },
+    flags: { yes: confirmFlag("Cancel this workflow run") },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to cancel.");
+      const run = await readApi<WorkflowRun>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}/cancel`, jsonRequest("POST", {}));
+      printJsonOrMessage(ctx, run, `Canceled workflow run ${run.id}.`);
     },
   }),
   command("workflow-runs steps", {

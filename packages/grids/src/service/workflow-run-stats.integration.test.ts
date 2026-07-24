@@ -38,7 +38,8 @@ describe("workflow run statistics integration", () => {
           (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'stats-a-1', 'a1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'succeeded', now() - interval '5 minutes', now() - interval '5 minutes', now() - interval '5 minutes', now() - interval '5 minutes' + interval '1 second'),
           (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'stats-a-2', 'a2', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '4 minutes', now() - interval '4 minutes', now() - interval '4 minutes', now() - interval '4 minutes' + interval '3 seconds'),
           (${uuid()}::uuid, ${workflowBId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'stats-b-1', 'b1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'running', now() - interval '3 minutes', now() - interval '3 minutes', now() - interval '3 minutes', NULL),
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'schedule', 'stats-a-3', 'a3', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours' + interval '2 seconds')
+          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'schedule', 'stats-a-3', 'a3', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours' + interval '2 seconds'),
+          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'dryRun', 'api', 'stats-preview', 'preview', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '2 minutes', now() - interval '2 minutes', now() - interval '2 minutes', now() - interval '2 minutes' + interval '10 seconds')
       `;
 
       const stats = await getWorkflowRunStats(baseId, [workflowAId, workflowBId], { window: "1h" });

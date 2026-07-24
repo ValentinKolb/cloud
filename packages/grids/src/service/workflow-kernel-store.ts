@@ -3,13 +3,14 @@ import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { bindGridsWorkflow } from "../workflows/binder";
-import type { CreateGridsWorkflowInput, GridsWorkflow, UpdateGridsWorkflowInput } from "../workflows/contracts";
-import { GridsWorkflowSchema } from "../workflows/contracts";
+import type { CreateGridsWorkflowInput, GridsWorkflow, GridsWorkflowRevision, UpdateGridsWorkflowInput } from "../workflows/contracts";
+import { GridsWorkflowRevisionSchema, GridsWorkflowSchema } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
-import { logAudit } from "./audit";
+import { logAudit, type SqlClient } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import { loadWorkflowCatalog } from "./workflow-catalog";
+import { assertWorkflowEmailTemplatesAvailable, lockWorkflowCatalogMutation } from "./workflow-catalog-mutation";
 import { emitWorkflowRuntimeEvent } from "./workflow-runtime-events";
 
 type DbRow = Record<string, unknown>;
@@ -46,6 +47,39 @@ const selectColumns = sql`
   id, short_id, base_id, name, description, source, plan, diagnostics, enabled, position, revision,
   owner_user_id, deleted_at, created_at, updated_at
 `;
+
+const revisionColumns = sql`
+  workflow_id, revision, name, description, source, plan, diagnostics, enabled, position, actor_user_id, created_at
+`;
+
+const mapWorkflowRevision = (row: DbRow): GridsWorkflowRevision => {
+  const parsed = GridsWorkflowRevisionSchema.safeParse({
+    workflowId: row.workflow_id,
+    revision: row.revision,
+    name: row.name,
+    description: row.description ?? null,
+    source: row.source,
+    plan: row.plan,
+    diagnostics: row.diagnostics,
+    enabled: row.enabled,
+    position: row.position,
+    actorUserId: row.actor_user_id ?? null,
+    createdAt: (row.created_at as Date).toISOString(),
+  });
+  if (!parsed.success) throw err.internal("stored workflow revision is invalid");
+  return parsed.data;
+};
+
+const insertWorkflowRevision = async (workflow: GridsWorkflow, actorId: string | null, tx: SqlClient): Promise<void> => {
+  await tx`
+    INSERT INTO grids.workflow_revisions (
+      workflow_id, revision, name, description, source, plan, diagnostics, enabled, position, actor_user_id
+    ) VALUES (
+      ${workflow.id}::uuid, ${workflow.revision}, ${workflow.name}, ${workflow.description}, ${workflow.source},
+      ${workflow.plan}::jsonb, ${workflow.diagnostics}::jsonb, ${workflow.enabled}, ${workflow.position}, ${actorId}::uuid
+    )
+  `;
+};
 
 const compileAndBind = async (baseId: string, source: string): Promise<Result<WorkflowBoundPlan>> => {
   const compiled = await compileWorkflow(source, gridsWorkflowManifest);
@@ -170,6 +204,8 @@ export const createWorkflow = async (
   const plan = await compileAndBind(baseId, input.source);
   if (!plan.ok) return plan;
   const workflow = await sql.begin(async (tx) => {
+    await lockWorkflowCatalogMutation(baseId, tx);
+    await assertWorkflowEmailTemplatesAvailable(baseId, plan.data, tx);
     const row = await insertWithShortId(async (shortId) => {
       const [inserted] = await tx<DbRow[]>`
         INSERT INTO grids.workflows (
@@ -194,6 +230,7 @@ export const createWorkflow = async (
       return inserted;
     }, "idx_grids_workflows_short_id");
     const created = mapWorkflow(row);
+    await insertWorkflowRevision(created, actorId, tx);
     await logAudit(
       {
         baseId,
@@ -228,6 +265,8 @@ export const updateWorkflow = async (
     !existing.enabled || JSON.stringify(recordEventTriggers(existing.plan)) !== JSON.stringify(recordEventTriggers(plan.data));
 
   const updated = await sql.begin(async (tx): Promise<GridsWorkflow | null> => {
+    await lockWorkflowCatalogMutation(existing.baseId, tx);
+    await assertWorkflowEmailTemplatesAvailable(existing.baseId, plan.data, tx);
     const [row] = await tx<DbRow[]>`
       UPDATE grids.workflows
       SET name = ${input.name?.trim() ?? existing.name},
@@ -247,6 +286,7 @@ export const updateWorkflow = async (
     `;
     if (!row) return null;
     const workflow = mapWorkflow(row);
+    await insertWorkflowRevision(workflow, actorId, tx);
     if (input.source === undefined) {
       await tx`
         UPDATE grids.workflow_launchers
@@ -289,6 +329,65 @@ export const updateWorkflow = async (
   if (!updated) return fail(revisionConflict());
   await metadataEvent("workflow.updated", updated, actorId);
   return ok(updated);
+};
+
+export const listWorkflowRevisions = async (
+  workflowId: string,
+  beforeRevision: number | null = null,
+  limit = 50,
+): Promise<{ items: GridsWorkflowRevision[]; nextRevision: number | null }> => {
+  const pageSize = Math.min(Math.max(limit, 1), 100);
+  const rows = await sql<DbRow[]>`
+    SELECT ${revisionColumns}
+    FROM grids.workflow_revisions
+    WHERE workflow_id = ${workflowId}::uuid
+      AND (${beforeRevision}::int IS NULL OR revision < ${beforeRevision}::int)
+    ORDER BY revision DESC
+    LIMIT ${pageSize + 1}
+  `;
+  const items = rows.slice(0, pageSize).map(mapWorkflowRevision);
+  return {
+    items,
+    nextRevision: rows.length > pageSize && items.length > 0 ? items[items.length - 1]!.revision : null,
+  };
+};
+
+export const getWorkflowRevision = async (workflowId: string, revision: number): Promise<GridsWorkflowRevision | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT ${revisionColumns}
+    FROM grids.workflow_revisions
+    WHERE workflow_id = ${workflowId}::uuid AND revision = ${revision}
+  `;
+  return row ? mapWorkflowRevision(row) : null;
+};
+
+export const restoreWorkflowRevision = async (
+  id: string,
+  revision: number,
+  actorId: string | null,
+  expectedRevision: number,
+): Promise<Result<GridsWorkflow>> => {
+  const existing = await getWorkflow(id);
+  if (!existing) return fail(err.notFound("workflow"));
+  if (existing.revision !== expectedRevision) return fail(revisionConflict());
+  const [snapshot] = await sql<DbRow[]>`
+    SELECT ${revisionColumns}
+    FROM grids.workflow_revisions
+    WHERE workflow_id = ${id}::uuid AND revision = ${revision}
+  `;
+  if (!snapshot) return fail(err.notFound("workflow revision"));
+  return updateWorkflow(
+    id,
+    {
+      name: snapshot.name as string,
+      description: (snapshot.description as string | null) ?? null,
+      source: snapshot.source as string,
+      enabled: Boolean(snapshot.enabled),
+      position: Number(snapshot.position),
+    },
+    actorId,
+    expectedRevision,
+  );
 };
 
 export const removeWorkflow = async (id: string, actorId: string | null): Promise<Result<void>> => {

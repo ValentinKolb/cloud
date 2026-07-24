@@ -295,7 +295,11 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
             <WorkflowRunDetailPanel
               runId={runId}
               initialDetail={route.kind === "workflows" && route.initialSelectedRun?.run.id === runId ? route.initialSelectedRun : null}
+              workflows={state.catalog.workflows}
+              workflowLevels={state.catalog.workflowLevels}
+              tables={state.catalog.tables}
               onRunUpdated={setWorkflowRunUpdate}
+              onSelectRun={updateWorkflowRun}
               onClose={() => updateWorkflowRun(null)}
             />
           )}

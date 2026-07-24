@@ -42,7 +42,7 @@ steps:
 4. Save until the YAML and Grids references validate.
 5. Run a **dryRun** with a representative input and inspect every predicted effect.
 6. Run **execute**, then inspect the completed run and changed record.
-7. Add an automatic trigger or saved launcher only after direct execution is correct.
+7. Add an automatic trigger or run option only after direct execution is correct.
 :::
 
 ## Understand the YAML contract {icon="code"}
@@ -67,24 +67,34 @@ A workflow can start in three ways:
 
 :::reference
 - **Direct invocation:** The Grids UI, authenticated API, or CLI supplies its inputs.
-- **Saved launcher:** A scanner, bulk action, or dashboard button supplies a surface-specific input.
+- **Run option:** A scanner, bulk action, or dashboard button supplies a surface-specific input.
 - **Automatic trigger:** A schedule or record event declared in YAML supplies trigger values.
 :::
 
 All three create the same kind of run from typed inputs and the active workflow revision. A workflow does not need a YAML trigger.
 
-Scanner, bulk, and dashboard launchers are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard launcher either keeps fixed values for one-click use or asks for the declared inputs when it runs.
+Scanner, bulk, and dashboard run options are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard option either keeps fixed values for one-click use or asks for the declared inputs when it runs.
 
 ## Understand a run {icon="layout-grid"}
 
 :::reference
-- **Inputs:** Typed values supplied by a direct caller, launcher, or automatic trigger. Record inputs resolve before steps execute.
-- **Start:** Invoke directly, use a saved launcher, or declare an automatic trigger. A workflow does not need a YAML trigger.
+- **Inputs:** Typed values supplied by a direct caller, run option, or automatic trigger. Record inputs resolve before steps execute.
+- **Start:** Invoke directly, use a run option, or declare an automatic trigger. A workflow does not need a YAML trigger.
 - **Steps:** Actions and control flow executed in order. Failed steps stop the run and write diagnostics to the run history.
 - **Observe:** Each run keeps its revision, mode, channel, inputs, status, timing, step outcomes, result or error, and generated documents.
 :::
 
 An idempotency key identifies one logical invocation. Retrying with the same key reuses it; reusing the key for different input is rejected. This prevents an uncertain client retry from quietly creating a second logical run.
+
+### Follow the run lifecycle
+
+Starting a workflow creates a run immediately. Open that run to follow its current status, progress message, inputs, starter, run option, and individual steps. A run can wait for external work without appearing failed. Its detail explains what it is waiting for.
+
+You can cancel a queued, running, or waiting run. Cancellation stops later steps and prevents a worker from replacing the canceled result, but it does not undo record changes, documents, emails, or HTTP requests that already finished. Resolve those effects explicitly when needed.
+
+**Run again** starts the workflow's current revision with a fresh run and pre-fills compatible inputs from the selected run. Review them before starting because the workflow may have changed. To inspect exactly what an older run executed, open its linked revision.
+
+Every save creates an immutable revision. Restoring an older revision never deletes history; it copies that definition into a new current revision. Enabling a workflow with a schedule or record-event trigger requires confirmation because it can start work without another click.
 
 ## Inputs reference {icon="book-2"}
 
@@ -129,8 +139,8 @@ inputs:
 
 :::reference
 - **Direct invocation:** Manual UI, API, and CLI callers invoke the same workflow directly with an input object, execute or dryRun mode, and an idempotency key.
-- **Saved launchers:** Scanner, bulk, and dashboard launchers are configured separately from workflow YAML.
-- **Automatic triggers:** Only schedule and recordEvent belong under triggers in YAML. The triggers block is optional when a workflow starts only through direct invocation or launchers.
+- **Run options:** Scanner, bulk, and dashboard options are configured separately from workflow YAML.
+- **Automatic triggers:** Only schedule and recordEvent belong under triggers in YAML. The triggers block is optional when a workflow starts only through direct invocation or run options.
 - **Revision and deduplication:** Callers may require the expected active revision. Idempotency keys reuse the same logical invocation and reject conflicting reuse.
 :::
 
@@ -143,7 +153,7 @@ inputs:
 - **Trigger values:** Schedules expose occurredAt and slot. Record events expose record, event, and occurredAt through the trigger root.
 :::
 
-A workflow may declare both trigger kinds. Trigger bindings can read only `trigger.*` values; they cannot read run inputs or values created by steps. If an automatic trigger cannot bind every required input, validation fails. Keep interactive-only workflows trigger-free and start them directly or through a launcher.
+A workflow may declare both trigger kinds. Trigger bindings can read only `trigger.*` values; they cannot read run inputs or values created by steps. If an automatic trigger cannot bind every required input, validation fails. Keep interactive-only workflows trigger-free and start them directly or through a run option.
 
 A cron expression has exactly five fields in this order: `minute hour day-of-month month day-of-week`. Values use numbers, `*`, comma lists, ranges, and `/step`; month and weekday names are not accepted. Minute is 0–59, hour 0–23, day-of-month 1–31, month 1–12, and day-of-week 0–7 where both 0 and 7 mean Sunday. For example, `'0 9 * * 1-5'` means 09:00 Monday through Friday in the selected timezone.
 
@@ -204,20 +214,20 @@ steps:
 :::
 
 :::note Required inputs
-Direct callers can provide every declared input. Launchers provide their configured binding plus any invocation inputs. Each automatic trigger must use `with` to provide all required inputs from compatible trigger values.
+Direct callers can provide every declared input. Run options provide their configured binding plus any invocation inputs. Each automatic trigger must use `with` to provide all required inputs from compatible trigger values.
 :::
 
-## Launcher reference {icon="book-2"}
+## Run option reference {icon="book-2"}
 
 :::reference
 - **Scanner:** Binds one record input. Resolve scanned text by a generated scan code or by a configured field that enforces unique values. The scanner surface shows the camera and a running log of accepted, failed, and completed scans.
 - **Bulk:** Binds one recordList input from explicit record IDs or a row-shaped table query, with at most 10,000 records per run.
 - **Dashboard:** Exposes the workflow as a dashboard action and may save input bindings such as a fixed reporting range.
-- **Launcher lifecycle:** Each launcher has its own name, enabled state, validated workflow revision, and diagnostics. Review launcher diagnostics when workflow inputs change.
+- **Lifecycle:** Each option has its own name, enabled state, validated workflow revision, and diagnostics. Source changes can make an option unavailable until it is reviewed and saved again.
 :::
 
 :::note Outside YAML
-Launchers are configured separately from the workflow source. One workflow can therefore support multiple named scanner, bulk, or dashboard actions without changing its YAML.
+Run options are configured separately from the workflow source. One workflow can therefore support multiple named scanner, bulk, or dashboard actions without changing its YAML.
 :::
 
 ## Step reference {icon="book-2"}
@@ -473,24 +483,27 @@ steps:
 :::reference
 - **execute:** Runs the active revision, changes records, generates documents, starts email delivery, and sends external requests.
 - **dryRun:** Plans the workflow, checks current references and permissions, and records predicted effects without applying changes or sending external requests.
-- **Channels:** Direct UI, API, and CLI calls use api. Saved launchers use dashboard, scanner, or bulk. Automatic triggers use schedule or recordEvent.
+- **Channels:** Direct UI, API, and CLI calls use api. Run options use dashboard, scanner, or bulk. Automatic triggers use schedule or recordEvent.
 - **Run statuses:** A run is queued, running, waiting, succeeded, failed, canceled, or needs_attention.
 - **Step statuses:** Step history uses the run states where applicable and can also show skipped, indeterminate, or unsupported planning outcomes.
 - **Run detail:** Inspect revision, channel, mode, input, start and finish times, duration, result message or structured error, each step outcome, and generated documents.
+- **Automatic triggers:** The workflow page shows whether a schedule is reconciled and its next run, or which record event and table are active. A degraded schedule includes a persistent problem description.
+- **Production health:** Health and error-rate summaries count execute runs. Dry-run failures remain visible in run history without making production execution appear unhealthy.
 :::
 
 :::note Dry runs are recorded
-A dry run is a normal observable run with mode `dryRun`. Review its predicted effects and step outcomes; it does not prove that a later execute run will see unchanged records, permissions, or external systems.
+A dry run is a normal observable run with mode `dryRun`. Its step report describes the records, templates, recipient counts, and HTTP hosts that execution would affect without exposing request payloads. Review every predicted effect; a dry run does not prove that a later execute run will see unchanged records, permissions, or external systems.
 :::
 
 ## Permissions and limits {icon="shield-lock"}
 
 :::reference
-- **Run permission:** Direct calls and standalone launcher runs require workflow write access. Dashboard widget runs use included dashboard authorization; actions still check their target resources.
-- **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and dashboard launchers run as the user or service account that starts them. Direct calls appear under the api channel.
+- **Run permission:** Direct calls and standalone run options require workflow write access. Dashboard widget runs use included dashboard authorization; actions still check their target resources.
+- **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and dashboard run options run as the user or service account that starts them. Direct calls appear under the api channel.
 - **Automatic run identity:** Schedules and record events run as the workflow owner with the owner's current groups. A record event keeps the user who changed the record in trigger metadata, but does not inherit that user's permissions.
 - **Action permission:** Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow.
 - **Email delivery:** Email template management requires base admin access. Workflow runs can use enabled email templates without exposing template HTML in autocomplete.
+- **Email-template dependencies:** Grids shows which workflows use an email template and refuses to delete a referenced template. Change those workflows first.
 - **HTTP guardrails:** httpRequest limits request and response bodies to 64 KiB, applies the configured timeout to the complete request, and blocks private or reserved targets by default. Administrators can restrict requests to exact hosts or wildcard subdomains. Private-network requests require both the private-network setting and a matching non-empty host allowlist.
 :::
 
@@ -526,8 +539,8 @@ steps:
           message: "${{ inputs.item.Name }} is not currently loaned out."
 ```
 
-:::note Saved launcher
-Add a scanner launcher for the `item` record input. Choose generated scan-code resolution or configure a unique field such as `Label code`. The launcher remains outside this YAML.
+:::note Scanner run option
+Add a scanner run option for the `item` record input. Choose generated scan-code resolution or configure a unique field such as `Label code`. The option remains outside this YAML.
 :::
 
 ## Bulk document example {icon="file-description"}
@@ -549,6 +562,6 @@ steps:
           record: item
 ```
 
-:::note Saved launcher
-Add a bulk launcher for the `items` record-list input. The launcher can supply an explicit selection or the current row-shaped query without adding a trigger to YAML.
+:::note Bulk run option
+Add a bulk run option for the `items` record-list input. The option can supply an explicit selection or the current row-shaped query without adding a trigger to YAML.
 :::

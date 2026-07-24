@@ -1,14 +1,23 @@
 import { z } from "zod";
 import type { Workflow } from "../../../service";
 import { gridsService } from "../../../service";
-import { getWorkflowRunStats, listWorkflowRunsPage, listWorkflowStepRuns } from "../../../service/workflow-kernel-observability";
+import type { ExpansionViewer } from "../../../service/relation-access";
+import { buildRelationLabelCacheForIds } from "../../../service/relation-labels";
+import {
+  getWorkflowRunProvenance,
+  getWorkflowRunStats,
+  listWorkflowRunsPage,
+  listWorkflowStepRuns,
+} from "../../../service/workflow-kernel-observability";
+import { getWorkflowTriggerRuntimeState } from "../../../service/workflow-kernel-runtime";
 import type { GridsWorkflowRun } from "../../../workflows/contracts";
 import { parseWorkflowUrlState } from "../workflows/workflow-url-state";
-import { okState } from "./workspace-state-helpers";
+import { buildViewer, okState } from "./workspace-state-helpers";
 import type { GridsWorkspaceState, WorkspaceCommon, WorkspaceWorkflowRunDetail } from "./workspace-state-model";
 
 const WORKFLOW_PAGE_SIZE = 50;
 const RUN_DOCUMENT_LIMIT = 100;
+const uuidSchema = z.string().uuid();
 
 export const workflowOverviewRedirectHref = (currentUrl: URL, baseShortId: string, workflowShortId: string): string => {
   const url = new URL(currentUrl);
@@ -17,13 +26,48 @@ export const workflowOverviewRedirectHref = (currentUrl: URL, baseShortId: strin
   return `${url.pathname}${url.search}`;
 };
 
-export const loadWorkflowRunDetail = async (run: GridsWorkflowRun): Promise<WorkspaceWorkflowRunDetail> => {
-  const [steps, documents] = await Promise.all([
+export const collectWorkflowRunInputRecordIds = (
+  run: Pick<GridsWorkflowRun, "inputs">,
+  workflow: Pick<Workflow, "plan">,
+): Map<string, Set<string>> => {
+  const idsByTable = new Map<string, Set<string>>();
+  for (const input of workflow.plan.inputs) {
+    if (input.type !== "record" && input.type !== "recordList") continue;
+    const tableId = workflow.plan.bindings[`inputs.${input.name}.table`];
+    if (typeof tableId !== "string" || !uuidSchema.safeParse(tableId).success) continue;
+    const rawValue = run.inputs[input.name];
+    const ids = idsByTable.get(tableId) ?? new Set<string>();
+    for (const value of Array.isArray(rawValue) ? rawValue : [rawValue]) {
+      if (typeof value === "string" && uuidSchema.safeParse(value).success) ids.add(value);
+    }
+    if (ids.size > 0) idsByTable.set(tableId, ids);
+  }
+  return idsByTable;
+};
+
+const workflowRunInputLabels = async (
+  run: GridsWorkflowRun,
+  workflow: Workflow | null,
+  viewer: ExpansionViewer | undefined,
+): Promise<Record<string, string>> => {
+  if (!workflow || !viewer) return {};
+  return buildRelationLabelCacheForIds(collectWorkflowRunInputRecordIds(run, workflow), viewer);
+};
+
+export const loadWorkflowRunDetail = async (
+  run: GridsWorkflowRun,
+  options: { workflow?: Workflow | null; viewer?: ExpansionViewer } = {},
+): Promise<WorkspaceWorkflowRunDetail> => {
+  const [steps, documents, provenance, inputLabels] = await Promise.all([
     listWorkflowStepRuns(run.id),
     gridsService.document.listRunsForWorkflowRun(run.id, { limit: RUN_DOCUMENT_LIMIT }),
+    getWorkflowRunProvenance(run.id),
+    workflowRunInputLabels(run, options.workflow ?? null, options.viewer),
   ]);
   return {
     run,
+    inputLabels,
+    provenance,
     steps,
     documents: {
       items: documents.items,
@@ -34,11 +78,17 @@ export const loadWorkflowRunDetail = async (run: GridsWorkflowRun): Promise<Work
   };
 };
 
-const loadSelectedRun = async (selectedRunId: string | null, visibleWorkflowIds: string[]): Promise<WorkspaceWorkflowRunDetail | null> => {
+const loadSelectedRun = async (
+  selectedRunId: string | null,
+  workflows: Workflow[],
+  viewer: ExpansionViewer,
+): Promise<WorkspaceWorkflowRunDetail | null> => {
   if (!selectedRunId || !z.string().uuid().safeParse(selectedRunId).success) return null;
   const run = await gridsService.workflow.getRun(selectedRunId);
-  if (!run?.workflowId || !visibleWorkflowIds.includes(run.workflowId)) return null;
-  return loadWorkflowRunDetail(run);
+  if (!run?.workflowId) return null;
+  const workflow = workflows.find((item) => item.id === run.workflowId);
+  if (!workflow) return null;
+  return loadWorkflowRunDetail(run, { workflow, viewer });
 };
 
 export const loadWorkflowState = async (
@@ -69,7 +119,7 @@ export const loadWorkflowState = async (
   const selectedRunId = common.chrome.url.searchParams.get("run");
   const visibleWorkflowIds = common.catalog.workflows.map((workflow) => workflow.id);
   const filters = parseWorkflowUrlState(common.chrome.url.searchParams);
-  const [stats, runs, launchers, initialSelectedRun] = await Promise.all([
+  const [stats, runs, launchers, triggerState, initialSelectedRun] = await Promise.all([
     getWorkflowRunStats(common.base.id, visibleWorkflowIds, { window: filters.window }),
     listWorkflowRunsPage({
       baseId: common.base.id,
@@ -80,7 +130,8 @@ export const loadWorkflowState = async (
       limit: WORKFLOW_PAGE_SIZE,
     }),
     activeWorkflow ? gridsService.workflow.launcher.list(activeWorkflow.id) : Promise.resolve([]),
-    loadSelectedRun(selectedRunId, visibleWorkflowIds),
+    activeWorkflow ? getWorkflowTriggerRuntimeState(activeWorkflow) : Promise.resolve(null),
+    loadSelectedRun(selectedRunId, common.catalog.workflows, buildViewer(common.params.user)),
   ]);
   return okState(
     common,
@@ -90,7 +141,7 @@ export const loadWorkflowState = async (
       canRunActiveWorkflow: gridsService.permission.hasAtLeast(level, "write"),
       canManageActiveWorkflow: gridsService.permission.hasAtLeast(level, "admin"),
       selectedRunId: initialSelectedRun?.run.id ?? null,
-      initialOverview: { filters, stats, runs, launchers },
+      initialOverview: { filters, stats, runs, launchers, triggerState },
       initialSelectedRun,
     },
     [...common.chrome.titleBase, { title: "Workflows" }, ...(activeWorkflow ? [{ title: activeWorkflow.name }] : [])],

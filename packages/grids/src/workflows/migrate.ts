@@ -75,6 +75,37 @@ const migrateDefinitions = async (sql: SQL): Promise<void> => {
   `.simple();
 
   await sql`
+    CREATE TABLE IF NOT EXISTS grids.workflow_revisions (
+      workflow_id UUID NOT NULL REFERENCES grids.workflows(id) ON DELETE CASCADE,
+      revision INT NOT NULL CHECK (revision >= 1),
+      name TEXT NOT NULL,
+      description TEXT,
+      source TEXT NOT NULL,
+      plan JSONB NOT NULL,
+      diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb,
+      enabled BOOLEAN NOT NULL,
+      position INT NOT NULL DEFAULT 0,
+      actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (workflow_id, revision),
+      CONSTRAINT workflow_revisions_source_length_chk CHECK (length(source) BETWEEN 1 AND 200000),
+      CONSTRAINT workflow_revisions_diagnostics_array_chk CHECK (jsonb_typeof(diagnostics) = 'array')
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_revisions_history
+    ON grids.workflow_revisions(workflow_id, revision DESC)
+  `.simple();
+  await sql`
+    INSERT INTO grids.workflow_revisions (
+      workflow_id, revision, name, description, source, plan, diagnostics, enabled, position, actor_user_id, created_at
+    )
+    SELECT id, revision, name, description, source, plan, diagnostics, enabled, position, owner_user_id, updated_at
+    FROM grids.workflows
+    ON CONFLICT (workflow_id, revision) DO NOTHING
+  `.simple();
+
+  await sql`
     CREATE OR REPLACE FUNCTION grids.bump_workflow_revision()
     RETURNS TRIGGER AS $$
     BEGIN

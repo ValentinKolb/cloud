@@ -33,6 +33,7 @@ import {
   type GridsWorkflowPrincipal,
   type GridsWorkflowRun,
   toWorkflowRevision,
+  type WorkflowTriggerRuntimeState,
 } from "../workflows/contracts";
 import type { SqlClient } from "./audit";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
@@ -76,7 +77,7 @@ import { latestWorkflowRuntimeEventCursor, liveWorkflowRuntimeEvents } from "./w
 const log = logger("grids:workflow-kernel");
 const workflowScheduler = scheduler({ id: "grids:workflows" });
 export const WORKFLOW_JOB_LEASE_MS = WORKFLOW_RUN_LEASE_MS;
-export const WORKFLOW_LEASE_HEARTBEAT_MS = Math.floor(WORKFLOW_RUN_LEASE_MS / 3);
+export const WORKFLOW_LEASE_HEARTBEAT_MS = 10_000;
 const WORKFLOW_JOB_MAX_RETRIES = 3;
 const WORKFLOW_SCHEDULE_MAX_RETRIES = 3;
 const RECONCILE_INTERVAL_MS = 60_000;
@@ -505,6 +506,69 @@ export const workflowScheduleConfig = (workflow: Pick<GridsWorkflow, "plan">): W
   return {
     cron: String(trigger.config.cron ?? ""),
     timezone: typeof trigger.config.timezone === "string" ? trigger.config.timezone : "UTC",
+  };
+};
+
+type RegisteredWorkflowSchedule = Awaited<ReturnType<typeof workflowScheduler.get>>;
+type WorkflowScheduleRuntimeState = NonNullable<WorkflowTriggerRuntimeState["schedule"]>;
+
+const scheduleRegistrationMatches = (registered: RegisteredWorkflowSchedule, schedule: WorkflowScheduleConfig, revision: number): boolean =>
+  registered !== null &&
+  registered.cron === schedule.cron &&
+  registered.tz === schedule.timezone &&
+  Number(registered.meta?.revision) === revision;
+
+const scheduleRuntimeState = (
+  workflow: Pick<GridsWorkflow, "revision" | "enabled">,
+  schedule: WorkflowScheduleConfig,
+  registered: RegisteredWorkflowSchedule,
+): WorkflowScheduleRuntimeState => {
+  if (!workflow.enabled) {
+    return { ...schedule, state: "paused", nextRunAt: null, problem: null };
+  }
+  if (!registered || !scheduleRegistrationMatches(registered, schedule, workflow.revision)) {
+    return {
+      ...schedule,
+      state: "pending",
+      nextRunAt: null,
+      problem: "The schedule is waiting for runtime reconciliation.",
+    };
+  }
+  if (registered.lastError) {
+    return {
+      ...schedule,
+      state: "degraded",
+      nextRunAt: null,
+      problem: registered.lastError,
+    };
+  }
+  return {
+    ...schedule,
+    state: "reconciled",
+    nextRunAt: Number.isFinite(registered.nextRunAt) ? new Date(registered.nextRunAt).toISOString() : null,
+    problem: null,
+  };
+};
+
+const recordEventRuntimeStates = (workflow: Pick<GridsWorkflow, "enabled" | "plan">): WorkflowTriggerRuntimeState["recordEvents"] =>
+  workflow.plan.triggers
+    .filter((trigger) => trigger.kind === "recordEvent")
+    .map((trigger) => ({
+      tableId: typeof trigger.config.table === "string" ? trigger.config.table : null,
+      event: typeof trigger.config.event === "string" ? trigger.config.event : "updated",
+      hasFilter: trigger.config.filter !== undefined && trigger.config.filter !== null,
+      state: workflow.enabled ? "active" : "paused",
+    }));
+
+export const getWorkflowTriggerRuntimeState = async (
+  workflow: Pick<GridsWorkflow, "id" | "revision" | "enabled" | "plan">,
+): Promise<WorkflowTriggerRuntimeState> => {
+  const schedule = workflowScheduleConfig(workflow);
+  const registered = schedule ? await workflowScheduler.get({ id: workflowScheduleId(workflow) }) : null;
+
+  return {
+    schedule: schedule ? scheduleRuntimeState(workflow, schedule, registered) : null,
+    recordEvents: recordEventRuntimeStates(workflow),
   };
 };
 

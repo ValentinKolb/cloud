@@ -233,6 +233,7 @@ export const gridsService = {
   },
   emailTemplate: {
     listForBase: emailTemplates.listForBase,
+    listDependenciesForBase: emailTemplates.listDependenciesForBase,
     get: emailTemplates.get,
     getByShortId: emailTemplates.getByShortId,
     getByIdOrShortId: emailTemplates.getByIdOrShortId,

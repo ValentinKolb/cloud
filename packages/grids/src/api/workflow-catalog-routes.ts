@@ -2,7 +2,17 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { createWorkflow, getWorkflow, removeWorkflow, updateWorkflow } from "../service/workflow-kernel-store";
+import { z } from "zod";
+import { getWorkflowTriggerRuntimeState } from "../service/workflow-kernel-runtime";
+import {
+  createWorkflow,
+  getWorkflow,
+  getWorkflowRevision,
+  listWorkflowRevisions,
+  removeWorkflow,
+  restoreWorkflowRevision,
+  updateWorkflow,
+} from "../service/workflow-kernel-store";
 import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "../service/workflow-launchers";
 import {
   CreateGridsWorkflowLauncherSchema,
@@ -10,12 +20,16 @@ import {
   GridsWorkflowLauncherListSchema,
   GridsWorkflowLauncherSchema,
   GridsWorkflowListSchema,
+  GridsWorkflowRevisionListSchema,
+  GridsWorkflowRevisionSchema,
   GridsWorkflowSchema,
+  RestoreGridsWorkflowRevisionSchema,
   UpdateGridsWorkflowLauncherSchema,
   UpdateGridsWorkflowSchema,
   WORKFLOW_REVISION_HEADER,
   WorkflowAutocompleteBodySchema,
   WorkflowAutocompleteResponseSchema,
+  WorkflowTriggerRuntimeStateSchema,
 } from "../workflows/contracts";
 import { currentActorUserId, gateAt } from "./permissions";
 import { uuidParam } from "./route-params";
@@ -32,6 +46,10 @@ import {
 
 type WorkflowCatalogRouteDependencies = {
   getWorkflow: typeof getWorkflow;
+  getWorkflowRevision: typeof getWorkflowRevision;
+  getWorkflowTriggerRuntimeState: typeof getWorkflowTriggerRuntimeState;
+  listWorkflowRevisions: typeof listWorkflowRevisions;
+  restoreWorkflowRevision: typeof restoreWorkflowRevision;
   updateWorkflow: typeof updateWorkflow;
 };
 
@@ -44,7 +62,15 @@ const loadReadableLauncher = async (c: Parameters<typeof canReadWorkflow>[0], la
 };
 
 export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRouteDependencies> = {}) => {
-  const dependencies: WorkflowCatalogRouteDependencies = { getWorkflow, updateWorkflow, ...overrides };
+  const dependencies: WorkflowCatalogRouteDependencies = {
+    getWorkflow,
+    getWorkflowRevision,
+    getWorkflowTriggerRuntimeState,
+    listWorkflowRevisions,
+    restoreWorkflowRevision,
+    updateWorkflow,
+    ...overrides,
+  };
   return new Hono<AuthContext>()
     .post(
       "/by-base/:baseId/validate",
@@ -163,6 +189,28 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         return c.json(workflow);
       },
     )
+    .get(
+      "/:workflowId/trigger-state",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "Get automatic workflow trigger runtime state",
+        responses: {
+          200: jsonResponse(WorkflowTriggerRuntimeStateSchema, "Automatic trigger runtime state"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid workflow id"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+        },
+      }),
+      async (c) => {
+        const workflowId = uuidParam(c, "workflowId");
+        if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
+        const workflow = await dependencies.getWorkflow(workflowId);
+        if (!workflow) return c.json({ message: "Workflow not found" }, 404);
+        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return c.json(await dependencies.getWorkflowTriggerRuntimeState(workflow));
+      },
+    )
     .patch(
       "/:workflowId",
       describeRoute({
@@ -198,6 +246,90 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
           return c.json({ message: `${WORKFLOW_REVISION_HEADER} must contain the workflow revision.` }, 400);
         }
         return respond(c, () => dependencies.updateWorkflow(workflowId, c.req.valid("json"), currentActorUserId(c), expectedRevision));
+      },
+    )
+    .get(
+      "/:workflowId/revisions",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "List immutable workflow revisions",
+        responses: {
+          200: jsonResponse(GridsWorkflowRevisionListSchema, "Workflow revisions"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid workflow id or query"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+        },
+      }),
+      v(
+        "query",
+        z.object({
+          beforeRevision: z.coerce.number().int().positive().optional(),
+          limit: z.coerce.number().int().min(1).max(100).default(50),
+        }),
+      ),
+      async (c) => {
+        const workflowId = uuidParam(c, "workflowId");
+        if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
+        const workflow = await dependencies.getWorkflow(workflowId, true);
+        if (!workflow) return c.json({ message: "Workflow not found" }, 404);
+        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const query = c.req.valid("query");
+        return c.json(await dependencies.listWorkflowRevisions(workflowId, query.beforeRevision ?? null, query.limit));
+      },
+    )
+    .post(
+      "/:workflowId/revisions/:revision/restore",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "Restore a workflow revision as a new revision",
+        responses: {
+          200: jsonResponse(GridsWorkflowSchema, "Restored workflow"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid workflow or revision"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+          409: jsonResponse(ErrorResponseSchema, "Revision conflict"),
+        },
+      }),
+      v("json", RestoreGridsWorkflowRevisionSchema),
+      async (c) => {
+        const workflowId = uuidParam(c, "workflowId");
+        const revision = Number(c.req.param("revision"));
+        if (!workflowId || !Number.isSafeInteger(revision) || revision < 1) {
+          return c.json({ message: "Invalid workflow revision" }, 400);
+        }
+        const workflow = await dependencies.getWorkflow(workflowId);
+        if (!workflow) return c.json({ message: "Workflow not found" }, 404);
+        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const input = c.req.valid("json");
+        return respond(c, () => dependencies.restoreWorkflowRevision(workflowId, revision, currentActorUserId(c), input.expectedRevision));
+      },
+    )
+    .get(
+      "/:workflowId/revisions/:revision",
+      describeRoute({
+        tags: ["Grids:Workflow"],
+        summary: "Get an immutable workflow revision",
+        responses: {
+          200: jsonResponse(GridsWorkflowRevisionSchema, "Workflow revision"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid workflow or revision"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+        },
+      }),
+      async (c) => {
+        const workflowId = uuidParam(c, "workflowId");
+        const revision = Number(c.req.param("revision"));
+        if (!workflowId || !Number.isSafeInteger(revision) || revision < 1) {
+          return c.json({ message: "Invalid workflow revision" }, 400);
+        }
+        const workflow = await dependencies.getWorkflow(workflowId, true);
+        if (!workflow) return c.json({ message: "Workflow not found" }, 404);
+        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const snapshot = await dependencies.getWorkflowRevision(workflowId, revision);
+        return snapshot ? c.json(snapshot) : c.json({ message: "Workflow revision not found" }, 404);
       },
     )
     .delete(

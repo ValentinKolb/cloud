@@ -412,7 +412,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(138);
+    expect(commands).toHaveLength(141);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {

@@ -1,20 +1,28 @@
-import { CodeDisplay, Placeholder, prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { dialogCore, Placeholder, panelDialogWorkspaceOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DocumentRunSummary, DocumentRunSummaryList } from "../../../contracts";
+import type { Table, Workflow } from "../../../service";
 import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
 import { downloadPdfResponse } from "../documents/document-download";
 import { requestDocumentRunDownload, requestWorkflowDocumentsDownload } from "../documents/document-transfer-client";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceWorkflowRunDetail } from "../workspace/workspace-state-model";
+import { WorkflowRevisionHistory } from "./WorkflowRevisionHistory";
 import {
-  channelLabels,
+  WorkflowRunDocumentsSection,
+  WorkflowRunExecutionSection,
+  WorkflowRunInputsSection,
+  WorkflowRunStepsSection,
+} from "./WorkflowRunDetailSections";
+import { requestWorkflowRunInput } from "./WorkflowRunInputDialog";
+import {
   formatWorkflowRunDate as formatDate,
-  formatWorkflowRunDuration as formatDuration,
   isTerminalWorkflowRunStatus,
   workflowRunStatusClass as statusClass,
-  workflowStepErrorMessage,
+  workflowStepOutcomeSummary,
 } from "./workflow-display";
 import { mergeRefreshedWorkflowRunDocuments, type WorkflowRunDocumentsState } from "./workflow-run-documents";
 import { createWorkflowRunEventsProvider, isTerminalWorkflowRunLiveErrorCode } from "./workflow-run-events-provider";
@@ -34,15 +42,46 @@ const workflowRunDocumentsApi = apiClient.workflows.runs as unknown as {
   };
 };
 
+const workflowRunLifecycleApi = apiClient.workflows as unknown as {
+  runs: {
+    [":runId"]: {
+      cancel: { $post: (input: { param: { runId: string } }, options?: { init?: RequestInit }) => Promise<Response> };
+    };
+  };
+  [":workflowId"]: {
+    invoke: {
+      manual: {
+        $post: (
+          input: {
+            param: { workflowId: string };
+            json: {
+              mode: "execute" | "dryRun";
+              inputs: Record<string, WorkflowJsonValue>;
+              idempotencyKey: string;
+              expectedRevision: number;
+            };
+          },
+          options?: { init?: RequestInit },
+        ) => Promise<Response>;
+      };
+    };
+  };
+};
+
 const RUN_DOCUMENT_PAGE_SIZE = 100;
 
 export function WorkflowRunDetailPanel(props: {
   runId: string;
   initialDetail: WorkspaceWorkflowRunDetail | null;
+  workflows: Workflow[];
+  workflowLevels: Record<string, "none" | "read" | "write" | "admin">;
+  tables: Table[];
   onRunUpdated: (run: GridsWorkflowRun) => void;
+  onSelectRun: (runId: string) => void;
   onClose: () => void;
 }) {
   const [run, setRun] = createSignal<GridsWorkflowRun | null>(props.initialDetail?.run ?? null);
+  const [inputLabels, setInputLabels] = createSignal(props.initialDetail?.inputLabels ?? {});
   const [steps, setSteps] = createSignal<GridsWorkflowStepRun[]>(props.initialDetail?.steps ?? []);
   const [documents, setDocuments] = createSignal<WorkflowRunDocumentsState>({
     items: props.initialDetail?.documents.items ?? [],
@@ -53,6 +92,67 @@ export function WorkflowRunDetailPanel(props: {
   const [downloadingDocumentId, setDownloadingDocumentId] = createSignal<string | null>(null);
   const [downloadingAll, setDownloadingAll] = createSignal(false);
   const [pendingLiveRefreshRunId, setPendingLiveRefreshRunId] = createSignal<string | null>(null);
+  const [provenance, setProvenance] = createSignal(props.initialDetail?.provenance ?? null);
+  const activeWorkflow = createMemo(() => props.workflows.find((workflow) => workflow.id === run()?.workflowId) ?? null);
+  const revisionWorkflow = createMemo(() => {
+    const active = activeWorkflow();
+    if (active) return active;
+    const current = run();
+    if (!current?.workflowId) return null;
+    return {
+      id: current.workflowId,
+      name: provenance()?.workflowName ?? "Deleted workflow",
+      revision: current.workflowRevision,
+    };
+  });
+  const latestProgressAt = createMemo(() => {
+    const values = [
+      run()?.createdAt,
+      run()?.startedAt,
+      run()?.finishedAt,
+      ...steps().flatMap((step) => [step.startedAt, step.finishedAt]),
+    ].filter((value): value is string => Boolean(value));
+    return values.sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
+  });
+  const waitingFor = createMemo(() => {
+    if (run()?.status !== "waiting") return null;
+    return (
+      steps()
+        .map((step) => workflowStepOutcomeSummary(step.outcome))
+        .find((summary) => summary?.startsWith("Waiting")) ?? "Waiting"
+    );
+  });
+  const inputRows = createMemo(() => {
+    const workflow = activeWorkflow();
+    return Object.entries(run()?.inputs ?? {}).map(([name, value]) => {
+      const definition = workflow?.plan.inputs.find((input) => input.name === name);
+      const label = typeof definition?.config.label === "string" ? definition.config.label : name;
+      const tableId = workflow?.plan.bindings[`inputs.${name}.table`];
+      const table = typeof tableId === "string" ? props.tables.find((candidate) => candidate.id === tableId) : null;
+      const formatValue = (value: unknown) => JSON.stringify(value) ?? String(value);
+      const formatRecordId = (recordId: unknown) =>
+        typeof recordId === "string" ? `${table?.name ?? "Record"} ${recordId.slice(0, 8)}` : formatValue(recordId);
+      const display =
+        definition?.type === "record"
+          ? typeof value === "string"
+            ? (inputLabels()[value] ?? formatRecordId(value))
+            : formatRecordId(value)
+          : definition?.type === "recordList" && Array.isArray(value)
+            ? value
+                .map((recordId) =>
+                  typeof recordId === "string" ? (inputLabels()[recordId] ?? formatRecordId(recordId)) : formatRecordId(recordId),
+                )
+                .join(", ")
+            : typeof value === "string"
+              ? value
+              : formatValue(value);
+      return { name, label, display };
+    });
+  });
+  const canWrite = createMemo(() => {
+    const workflowId = run()?.workflowId;
+    return workflowId ? ["write", "admin"].includes(props.workflowLevels[workflowId] ?? "none") : false;
+  });
 
   const loadMoreDocumentsMut = mutations.create<
     DocumentRunSummaryList,
@@ -96,6 +196,8 @@ export function WorkflowRunDetailPanel(props: {
     onSuccess: (detail, context) => {
       if (context?.runId !== props.runId || detail.run.id !== context.runId) return;
       setRun(detail.run);
+      setInputLabels(detail.inputLabels);
+      setProvenance(detail.provenance);
       setSteps(detail.steps);
       setDocuments((current) => mergeRefreshedWorkflowRunDocuments(current, detail.documents));
     },
@@ -129,6 +231,8 @@ export function WorkflowRunDetailPanel(props: {
     loadedRunId = runId;
     setPendingLiveRefreshRunId(null);
     setRun(null);
+    setInputLabels({});
+    setProvenance(null);
     setSteps([]);
     setDocuments({ items: [], total: 0, hasMore: false, nextOffset: null });
     loadMut.mutate(runId);
@@ -223,6 +327,90 @@ export function WorkflowRunDetailPanel(props: {
     }
   };
 
+  const cancelMut = mutations.create<GridsWorkflowRun, void>({
+    mutation: async (_, { abortSignal }) => {
+      const response = await workflowRunLifecycleApi.runs[":runId"].cancel.$post(
+        { param: { runId: props.runId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not cancel workflow run."));
+      return response.json();
+    },
+    onSuccess: (canceled) => {
+      setRun(canceled);
+      toast.success("Workflow run canceled");
+      refresh(canceled.id);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const rerunMut = mutations.create<{ runId: string }, { inputs: Record<string, WorkflowJsonValue>; mode: "execute" | "dryRun" }>({
+    mutation: async ({ inputs, mode }, { abortSignal }) => {
+      const workflow = activeWorkflow();
+      if (!workflow) throw new Error("The workflow definition is no longer available.");
+      const response = await workflowRunLifecycleApi[":workflowId"].invoke.manual.$post(
+        {
+          param: { workflowId: workflow.id },
+          json: {
+            mode,
+            inputs,
+            idempotencyKey: crypto.randomUUID(),
+            expectedRevision: workflow.revision,
+          },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not start another workflow run."));
+      return response.json();
+    },
+    onSuccess: (receipt) => {
+      toast.success("New workflow run started");
+      props.onSelectRun(receipt.runId);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const cancelRun = async () => {
+    const confirmed = await prompts.confirm("Cancel this workflow run? Completed external effects cannot be undone.", {
+      title: "Cancel workflow run",
+      icon: "ti ti-player-stop",
+      confirmText: "Cancel run",
+      variant: "danger",
+    });
+    if (confirmed) cancelMut.mutate();
+  };
+
+  const runAgain = async () => {
+    const workflow = activeWorkflow();
+    const current = run();
+    if (!workflow || !current) return;
+    const inputs = await requestWorkflowRunInput({
+      workflow,
+      tables: props.tables,
+      mode: current.mode,
+      initialValues: current.inputs,
+    });
+    if (inputs !== undefined) rerunMut.mutate({ inputs, mode: current.mode });
+  };
+
+  const inspectRevision = async () => {
+    const workflow = revisionWorkflow();
+    const current = run();
+    if (!workflow || !current) return;
+    await dialogCore.open<void>(
+      (close) => (
+        <WorkflowRevisionHistory
+          workflow={workflow}
+          initialRevision={current.workflowRevision}
+          canRestore={false}
+          onChanged={() => undefined}
+          onClose={close}
+        />
+      ),
+      panelDialogWorkspaceOptions,
+    );
+  };
+
   const downloadAllDocuments = async () => {
     setDownloadingAll(true);
     try {
@@ -256,6 +444,26 @@ export function WorkflowRunDetailPanel(props: {
               <i class={loadMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
             </button>
           </Tooltip>
+          <Show when={run() && canWrite()}>
+            <Tooltip content="Run again with these inputs">
+              <button type="button" class="icon-btn" onClick={() => void runAgain()} disabled={rerunMut.loading()} aria-label="Run again">
+                <i class={rerunMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-repeat"} />
+              </button>
+            </Tooltip>
+          </Show>
+          <Show when={run() && !isTerminalWorkflowRunStatus(run()!.status) && canWrite()}>
+            <Tooltip content="Cancel workflow run">
+              <button
+                type="button"
+                class="icon-btn text-red-600 dark:text-red-400"
+                onClick={() => void cancelRun()}
+                disabled={cancelMut.loading()}
+                aria-label="Cancel workflow run"
+              >
+                <i class={cancelMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-player-stop"} />
+              </button>
+            </Tooltip>
+          </Show>
           <Tooltip content="Close run details">
             <button type="button" class="icon-btn" onClick={props.onClose} aria-label="Close run details">
               <i class="ti ti-x" />
@@ -300,121 +508,32 @@ export function WorkflowRunDetailPanel(props: {
           )}
         </Show>
 
-        <section class="detail-section" classList={{ hidden: !run() }}>
-          <h3 class="detail-section-label">Execution</h3>
-          <dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-xs">
-            <dt class="text-dimmed">Channel</dt>
-            <dd class="text-primary">{run() ? (channelLabels[run()!.channel] ?? run()!.channel) : "-"}</dd>
-            <dt class="text-dimmed">Mode</dt>
-            <dd class="text-primary">{run()?.mode === "dryRun" ? "Dry run" : "Execute"}</dd>
-            <dt class="text-dimmed">Revision</dt>
-            <dd class="text-primary tabular-nums">{run()?.workflowRevision ?? "-"}</dd>
-            <dt class="text-dimmed">Started</dt>
-            <dd class="text-primary">{run() ? formatDate(run()!.startedAt) : "-"}</dd>
-            <dt class="text-dimmed">Finished</dt>
-            <dd class="text-primary">{run() ? formatDate(run()!.finishedAt) : "-"}</dd>
-            <dt class="text-dimmed">Duration</dt>
-            <dd class="text-primary tabular-nums">{run() ? formatDuration(run()!) : "-"}</dd>
-          </dl>
-          <Show when={run()?.error}>{(error) => <p class="info-block-danger mt-3 text-xs">{error().message}</p>}</Show>
-          <Show when={run()?.resultMessage}>{(message) => <p class="info-block-success mt-3 text-xs">{message()}</p>}</Show>
-        </section>
-
-        <section class="detail-section" classList={{ hidden: !run() }}>
-          <h3 class="detail-section-label">Input</h3>
-          <CodeDisplay language="text" code={JSON.stringify(run()?.inputs ?? {}, null, 2)} copy />
-        </section>
-
-        <section class="detail-section" classList={{ hidden: !run() }}>
-          <h3 class="detail-section-label">Steps</h3>
-          <div class="flex flex-col gap-2">
-            <For
-              each={steps()}
-              fallback={
-                <Placeholder align="left" class="py-3">
-                  {loadMut.loading() ? "Loading steps..." : "No step details."}
-                </Placeholder>
-              }
-            >
-              {(step) => {
-                const stepError = () => workflowStepErrorMessage(step.outcome);
-                return (
-                  <div class="grid grid-cols-[auto_1fr_auto] items-start gap-2 py-1 text-xs">
-                    <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
-                    <span class="min-w-0 truncate text-primary">
-                      {step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key} · {step.action ?? step.kind}
-                    </span>
-                    <span class="text-dimmed tabular-nums">
-                      {step.startedAt && step.finishedAt
-                        ? `${Math.max(0, new Date(step.finishedAt).getTime() - new Date(step.startedAt).getTime())}ms`
-                        : "-"}
-                    </span>
-                    <Show when={stepError()}>{(message) => <p class="col-span-3 text-red-600 dark:text-red-400">{message()}</p>}</Show>
-                  </div>
-                );
-              }}
-            </For>
-          </div>
-        </section>
-
-        <section class="detail-section" classList={{ hidden: !run() }}>
-          <div class="flex items-center justify-between gap-2">
-            <h3 class="detail-section-label mb-0">Generated documents</h3>
-            <Show when={documents().total > 0}>
-              <button type="button" class="btn-simple btn-sm" onClick={() => void downloadAllDocuments()} disabled={downloadingAll()}>
-                <i class={downloadingAll() ? "ti ti-loader-2 animate-spin" : "ti ti-download"} /> All
-              </button>
-            </Show>
-          </div>
-          <div class="mt-3 flex flex-col gap-2">
-            <For
-              each={documents().items}
-              fallback={
-                <Placeholder align="left" class="py-3">
-                  No documents generated by this run.
-                </Placeholder>
-              }
-            >
-              {(document) => (
-                <div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 py-1 text-xs">
-                  <i class="ti ti-file-type-pdf text-dimmed" />
-                  <span class="min-w-0">
-                    <span class="block truncate text-primary">{document.filename}</span>
-                    <span class="block truncate text-dimmed">{document.documentNumber}</span>
-                  </span>
-                  <Tooltip content="Download document">
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      aria-label={`Download ${document.filename}`}
-                      onClick={() => void downloadDocument(document)}
-                      disabled={downloadingDocumentId() === document.id}
-                    >
-                      {downloadingDocumentId() === document.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-                    </button>
-                  </Tooltip>
-                </div>
-              )}
-            </For>
-            <Show when={documents().hasMore && documents().nextOffset !== null}>
-              <button
-                type="button"
-                class="btn-input btn-input-sm self-center"
-                disabled={loadMoreDocumentsMut.loading()}
-                onClick={() => {
-                  const offset = documents().nextOffset;
-                  if (offset !== null) loadMoreDocumentsMut.mutate({ runId: props.runId, offset });
-                }}
-              >
-                <i class={loadMoreDocumentsMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-chevron-down"} />
-                Load more documents
-              </button>
-            </Show>
-            <Show when={loadMoreDocumentsMut.error()}>
-              {(error) => <p class="text-xs text-red-600 dark:text-red-400">{error().message}</p>}
-            </Show>
-          </div>
-        </section>
+        <Show when={run()}>
+          {(current) => (
+            <>
+              <WorkflowRunExecutionSection
+                run={current()}
+                provenance={provenance()}
+                latestProgressAt={latestProgressAt()}
+                waitingFor={waitingFor()}
+                canInspectRevision={revisionWorkflow() !== null}
+                onInspectRevision={() => void inspectRevision()}
+              />
+              <WorkflowRunInputsSection inputs={inputRows()} />
+              <WorkflowRunStepsSection steps={steps()} loading={loadMut.loading()} />
+              <WorkflowRunDocumentsSection
+                documents={documents()}
+                downloadingDocumentId={downloadingDocumentId()}
+                downloadingAll={downloadingAll()}
+                loadingMore={loadMoreDocumentsMut.loading()}
+                loadMoreError={loadMoreDocumentsMut.error()?.message}
+                onDownload={(document) => void downloadDocument(document)}
+                onDownloadAll={() => void downloadAllDocuments()}
+                onLoadMore={(offset) => loadMoreDocumentsMut.mutate({ runId: props.runId, offset })}
+              />
+            </>
+          )}
+        </Show>
       </div>
     </div>
   );

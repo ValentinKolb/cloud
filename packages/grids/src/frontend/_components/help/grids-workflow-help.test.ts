@@ -143,7 +143,7 @@ describe("Grids workflow help", () => {
       expect(helpSource, `legacy YAML trigger ${legacyTrigger}`).not.toContain(`  ${legacyTrigger}:`);
     }
 
-    expect(helpSource).toMatch(/launchers\s+are saved separately/);
+    expect(helpSource).toMatch(/run options\s+are saved separately/);
     expect(helpSource).toContain("outside workflow YAML");
     expect(helpSource).toContain("A workflow does not need a YAML trigger");
   });
