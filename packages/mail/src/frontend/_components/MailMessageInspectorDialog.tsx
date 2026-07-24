@@ -2,8 +2,8 @@ import {
   dialogCore,
   formatFileViewSize,
   PanelDialog,
-  panelDialogWorkspaceOptions,
   Placeholder,
+  panelDialogWorkspaceOptions,
   Select,
   Tooltip,
 } from "@valentinkolb/cloud/ui";
@@ -11,10 +11,10 @@ import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import {
-  messageInspectorSchema,
-  messageSourcePreviewSchema,
   type MessageInspector,
   type MessageSourcePreview,
+  messageInspectorSchema,
+  messageSourcePreviewSchema,
 } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
@@ -32,6 +32,9 @@ const messageOptionLabel = (message: MessageDetail, index: number): string =>
 
 const sourceHref = (mailboxId: string, messageId: string): string =>
   `/api/mail/mailboxes/${mailboxId}/messages/${messageId}/source`;
+
+const subscriptionsHref = (mailboxId: string, listKey: string): string =>
+  `/app/mail/${mailboxId}/subscriptions?list=${encodeURIComponent(listKey)}`;
 
 function MailMessageInspectorDialog(props: {
   mailboxId: string;
@@ -107,6 +110,7 @@ function MailMessageInspectorDialog(props: {
                 aria-label="Download original message"
               >
                 <i class="ti ti-download" aria-hidden="true" />
+                <span class="sr-only">Download original message</span>
               </a>
             </Tooltip>
           </Show>
@@ -215,6 +219,46 @@ function MailMessageInspectorDialog(props: {
                       </Show>
                     </section>
                   </div>
+
+                  <Show when={current().mailingList}>
+                    {(list) => (
+                      <section class="detail-section">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                          <div class="min-w-0">
+                            <p class="detail-section-label">Mailing list</p>
+                            <p class="truncate text-sm font-medium text-primary">{list().name}</p>
+                            <Show when={list().name.toLowerCase() !== list().address.toLowerCase()}>
+                              <p class="truncate text-xs text-dimmed">{list().address}</p>
+                            </Show>
+                          </div>
+                          <a class="btn-secondary btn-sm" href={subscriptionsHref(props.mailboxId, list().listKey)}>
+                            <i class="ti ti-settings" aria-hidden="true" />
+                            Manage subscription
+                          </a>
+                        </div>
+                        <div class="mt-3 flex flex-wrap items-center gap-2">
+                          <Show when={list().postHref}>
+                            <a class="btn-simple btn-sm" href={list().postHref!}>
+                              <i class="ti ti-send" aria-hidden="true" />
+                              Write to list
+                            </a>
+                          </Show>
+                          <Show when={list().helpHref}>
+                            <a class="btn-simple btn-sm" href={list().helpHref!} target="_blank" rel="noopener noreferrer">
+                              <i class="ti ti-help" aria-hidden="true" />
+                              List help
+                            </a>
+                          </Show>
+                          <Show when={list().archiveHref}>
+                            <a class="btn-simple btn-sm" href={list().archiveHref!} target="_blank" rel="noopener noreferrer">
+                              <i class="ti ti-world" aria-hidden="true" />
+                              List archive
+                            </a>
+                          </Show>
+                        </div>
+                      </section>
+                    )}
+                  </Show>
 
                   <Show when={current().placements.length > 0}>
                     <section class="detail-section">

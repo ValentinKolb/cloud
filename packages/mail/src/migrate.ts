@@ -4465,6 +4465,50 @@ const addMessageProtocolFoundations = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addMailingListSubscriptions = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE IF NOT EXISTS mail.list_subscriptions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      list_key TEXT NOT NULL CHECK (char_length(list_key) BETWEEN 1 AND 4096),
+      state TEXT NOT NULL CHECK (state IN ('requesting', 'unsubscribe_requested', 'failed')),
+      method TEXT NOT NULL CHECK (method IN ('one_click')),
+      endpoint TEXT NOT NULL CHECK (char_length(endpoint) BETWEEN 1 AND 2048),
+      actor_kind TEXT NOT NULL CHECK (actor_kind IN ('user', 'service_account')),
+      actor_id UUID NOT NULL,
+      requested_at TIMESTAMPTZ,
+      last_error_code TEXT CHECK (last_error_code IS NULL OR char_length(last_error_code) <= 200),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, list_key)
+    )
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS list_subscriptions_mailbox_requested_idx
+    ON mail.list_subscriptions (mailbox_id, requested_at DESC, id DESC)
+  `;
+  await db`DROP INDEX IF EXISTS mail.message_contents_mailbox_list_id_idx`;
+  await db`
+    CREATE INDEX IF NOT EXISTS message_contents_mailbox_list_hash_idx
+    ON mail.message_contents (
+      mailbox_id,
+      md5(
+        lower(
+          btrim(
+            CASE
+              WHEN protocol_facts #>> '{list,id}' ~ '<[^<>]+>\\s*$'
+                THEN regexp_replace(protocol_facts #>> '{list,id}', '^.*<([^<>]+)>\\s*$', '\\1')
+              ELSE protocol_facts #>> '{list,id}'
+            END
+          )
+        )
+      ),
+      internal_date DESC,
+      id DESC
+    )
+    WHERE NULLIF(btrim(protocol_facts #>> '{list,id}'), '') IS NOT NULL
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4548,6 +4592,7 @@ const migrations: readonly MailMigration[] = [
   { version: 81, name: "complete_sender_identities", run: completeSenderIdentities },
   { version: 82, name: "dismissed_folder_projections", run: addDismissedFolderProjections },
   { version: 83, name: "message_protocol_foundations", run: addMessageProtocolFoundations },
+  { version: 84, name: "mailing_list_subscriptions", run: addMailingListSubscriptions },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

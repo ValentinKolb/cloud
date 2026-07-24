@@ -34,10 +34,11 @@ import {
   mailCommandInputSchema,
   mailConversationContextQuerySchema,
   mailConversationContextSchema,
+  mailingListDispositionInputSchema,
   maintenanceCommandInputSchema,
   mergeConversationsInputSchema,
-  reassignConversationMessageInputSchema,
   providerConnectionInputSchema,
+  reassignConversationMessageInputSchema,
   relatedMailPageSchema,
   relatedMailQuerySchema,
   renderComposeSnippetInputSchema,
@@ -46,6 +47,7 @@ import {
   setComposeSignatureDefaultInputSchema,
   setConversationReminderSchema,
   splitConversationInputSchema,
+  unsubscribeMailingListInputSchema,
   updateComposeTemplateInputSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
@@ -67,6 +69,7 @@ import {
   draftUploads,
   folders,
   health,
+  listSubscriptions,
   type MailRequestContext,
   mailboxAccess,
   mailboxes,
@@ -110,6 +113,9 @@ const conversationDraftsQuerySchema = z.object({
 const cursorQuerySchema = z.object({
   cursor: z.string().max(2_000).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+const subscriptionQuerySchema = cursorQuerySchema.extend({
+  listKey: z.string().trim().toLowerCase().min(1).max(4096).optional(),
 });
 const platformOperationsQuerySchema = z.object({
   cursor: z.string().max(2_000).optional(),
@@ -446,6 +452,48 @@ const mailOperationsApi = new Hono<AuthContext>()
   )
   .get("/mailboxes/:mailboxId/health", v("param", uuidParamSchema), async (c) =>
     respond(c, health.getMailboxOperationalHealth(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .get("/mailboxes/:mailboxId/subscriptions", v("param", uuidParamSchema), v("query", subscriptionQuerySchema), async (c) => {
+    const params = c.req.valid("param");
+    const query = c.req.valid("query");
+    return respond(
+      c,
+      listSubscriptions.listSubscriptions({
+        context: requestContext(c),
+        mailboxId: params.mailboxId,
+        cursor: query.cursor,
+        limit: query.limit,
+        focusedListKey: query.listKey,
+      }),
+    );
+  })
+  .post(
+    "/mailboxes/:mailboxId/subscriptions/unsubscribe",
+    v("param", uuidParamSchema),
+    v("json", unsubscribeMailingListInputSchema),
+    async (c) =>
+      respond(
+        c,
+        listSubscriptions.requestUnsubscribe({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/subscriptions/disposition",
+    v("param", uuidParamSchema),
+    v("json", mailingListDispositionInputSchema),
+    async (c) =>
+      respond(
+        c,
+        listSubscriptions.applyMailingListDisposition({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
   )
   .get("/mailboxes/:mailboxId/operations", v("param", uuidParamSchema), v("query", mailboxOperationsQuerySchema), async (c) =>
     respond(c, operations.getMailboxOperations(requestContext(c), c.req.valid("param").mailboxId, c.req.valid("query"))),

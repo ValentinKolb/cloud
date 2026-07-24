@@ -55,6 +55,17 @@ export const messageInspectorAttachmentSchema = z
   })
   .strict();
 
+export const messageInspectorMailingListSchema = z
+  .object({
+    listKey: z.string().min(1).max(4096),
+    name: z.string().min(1).max(4096),
+    address: z.string().min(1).max(4096),
+    postHref: z.string().max(2048).nullable(),
+    helpHref: z.string().max(2048).nullable(),
+    archiveHref: z.string().max(2048).nullable(),
+  })
+  .strict();
+
 export const messageInspectorSchema = z
   .object({
     id: z.uuid(),
@@ -84,6 +95,7 @@ export const messageInspectorSchema = z
     placements: z.array(messageInspectorPlacementSchema).max(1000),
     parts: z.array(messageInspectorPartSchema).max(10_000),
     attachments: z.array(messageInspectorAttachmentSchema).max(10_000),
+    mailingList: messageInspectorMailingListSchema.nullable(),
     warnings: z.array(z.string().max(4096)).max(100),
   })
   .strict();
@@ -100,6 +112,83 @@ export const messageSourcePreviewSchema = z
   })
   .strict();
 export type MessageSourcePreview = z.infer<typeof messageSourcePreviewSchema>;
+
+export const mailingListKeySchema = z.string().trim().toLowerCase().min(1).max(4096);
+
+export const mailSubscriptionLinkSchema = z
+  .object({
+    kind: z.enum(["one_click", "web", "email"]),
+    href: z.string().min(1).max(2048),
+  })
+  .strict();
+
+export const mailSubscriptionSummarySchema = z
+  .object({
+    listKey: mailingListKeySchema,
+    name: z.string().min(1).max(4096),
+    address: z.string().min(1).max(4096),
+    status: z.enum(["active", "requesting", "unsubscribe_requested", "failed"]),
+    unsubscribe: mailSubscriptionLinkSchema.nullable(),
+    postHref: z.string().min(1).max(2048).nullable(),
+    helpHref: z.string().min(1).max(2048).nullable(),
+    archiveHref: z.string().min(1).max(2048).nullable(),
+    messageCount: z.number().int().nonnegative(),
+    recentMessageCount: z.number().int().nonnegative(),
+    conversationCount: z.number().int().nonnegative(),
+    lastMessageAt: z.string().datetime(),
+    lastSubject: z.string().max(32_768),
+    lastSender: z.string().max(4096).nullable(),
+    lastMessageId: z.uuid(),
+    lastConversationId: z.uuid().nullable(),
+    unsubscribeRequestedAt: z.string().datetime().nullable(),
+    unsubscribeErrorCode: z.string().max(200).nullable(),
+  })
+  .strict();
+export type MailSubscriptionSummary = z.infer<typeof mailSubscriptionSummarySchema>;
+
+export const mailSubscriptionPageSchema = z
+  .object({
+    // A focused item may be prepended to a full cursor page so direct links
+    // remain stable while the canonical page cursor still advances normally.
+    items: z.array(mailSubscriptionSummarySchema).max(101),
+    nextCursor: z.string().max(2048).nullable(),
+  })
+  .strict();
+export type MailSubscriptionPage = z.infer<typeof mailSubscriptionPageSchema>;
+
+export const unsubscribeMailingListInputSchema = z
+  .object({
+    listKey: mailingListKeySchema,
+    href: z.string().trim().min(1).max(2048),
+  })
+  .strict();
+export type UnsubscribeMailingListInput = z.infer<typeof unsubscribeMailingListInputSchema>;
+
+export const unsubscribeMailingListResultSchema = z
+  .object({
+    listKey: z.string().min(1).max(4096),
+    status: z.literal("unsubscribe_requested"),
+    requestedAt: z.string().datetime(),
+  })
+  .strict();
+export type UnsubscribeMailingListResult = z.infer<typeof unsubscribeMailingListResultSchema>;
+
+export const mailingListDispositionInputSchema = z
+  .object({
+    listKey: mailingListKeySchema,
+    disposition: z.enum(["archive", "trash"]),
+    idempotencyKey: z.string().trim().min(1).max(200),
+  })
+  .strict();
+export type MailingListDispositionInput = z.infer<typeof mailingListDispositionInputSchema>;
+
+export const mailingListDispositionResultSchema = z
+  .object({
+    commandCount: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+export type MailingListDispositionResult = z.infer<typeof mailingListDispositionResultSchema>;
 
 export const mailConversationContextQuerySchema = z
   .object({

@@ -190,6 +190,97 @@ test("mailbox configure maps automatic reply access to the mailbox policy", asyn
   expect(requestBody).toEqual({ automaticReplyManagementPermission: "write" });
 });
 
+test("subscription commands expose safe list actions and durable disposition", async () => {
+  const listKey = "news.example.org";
+  const subscription = {
+    listKey,
+    name: "Example News",
+    address: listKey,
+    status: "active",
+    unsubscribe: {
+      kind: "one_click",
+      href: "https://news.example.org/unsubscribe/opaque",
+    },
+    postHref: "mailto:news@example.org",
+    helpHref: "https://news.example.org/help",
+    archiveHref: "https://news.example.org/archive",
+    messageCount: 12,
+    recentMessageCount: 3,
+    conversationCount: 4,
+    lastMessageAt: "2026-07-24T08:00:00.000Z",
+    lastSubject: "July update",
+    lastSender: "Example News",
+    lastMessageId: MESSAGE_ID,
+    lastConversationId: CONVERSATION_ID,
+    unsubscribeRequestedAt: null,
+    unsubscribeErrorCode: null,
+  };
+  const writes: Array<{ path: string; body: unknown }> = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/subscriptions`;
+    if (request.method === "GET" && url.pathname === base) {
+      return api({ items: [subscription], nextCursor: null });
+    }
+    if (request.method === "POST" && url.pathname === `${base}/unsubscribe`) {
+      writes.push({ path: url.pathname, body: await request.json() });
+      return api({
+        listKey,
+        status: "unsubscribe_requested",
+        requestedAt: "2026-07-24T08:30:00.000Z",
+      });
+    }
+    if (request.method === "POST" && url.pathname === `${base}/disposition`) {
+      writes.push({ path: url.pathname, body: await request.json() });
+      return api({ commandCount: 12, truncated: false });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const listed = await runCli(origin, ["--json", "mail", "subscription", "list", "--mailbox", MAILBOX_ID]);
+  const inspected = await runCli(origin, ["--json", "mail", "subscription", "get", listKey, "--mailbox", MAILBOX_ID]);
+  const unsubscribed = await runCli(origin, [
+    "--json",
+    "mail",
+    "subscription",
+    "unsubscribe",
+    listKey,
+    "--mailbox",
+    MAILBOX_ID,
+    "--yes",
+  ]);
+  const disposed = await runCli(origin, [
+    "--json",
+    "mail",
+    "subscription",
+    "dispose",
+    listKey,
+    "--mailbox",
+    MAILBOX_ID,
+    "--destination",
+    "archive",
+    "--yes",
+  ]);
+
+  expect([listed.exitCode, inspected.exitCode, unsubscribed.exitCode, disposed.exitCode]).toEqual([0, 0, 0, 0]);
+  expect(JSON.parse(listed.stdout).items).toEqual([subscription]);
+  expect(JSON.parse(inspected.stdout)).toEqual(subscription);
+  expect(JSON.parse(unsubscribed.stdout)).toMatchObject({ listKey, status: "unsubscribe_requested" });
+  expect(JSON.parse(disposed.stdout)).toEqual({ commandCount: 12, truncated: false });
+  expect(writes[0]).toEqual({
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/subscriptions/unsubscribe`,
+    body: { listKey, href: subscription.unsubscribe.href },
+  });
+  expect(writes[1]?.path).toBe(`/api/mail/mailboxes/${MAILBOX_ID}/subscriptions/disposition`);
+  expect(writes[1]?.body).toMatchObject({
+    listKey,
+    disposition: "archive",
+  });
+  expect((writes[1]?.body as { idempotencyKey?: string }).idempotencyKey).toBeString();
+});
+
 test("search forwards nested expressions and cursors", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
@@ -1940,6 +2031,7 @@ test("message inspect and source expose metadata and exact RFC bytes", async () 
     placements: [],
     parts: [],
     attachments: [],
+    mailingList: null,
     warnings: [],
   };
   const server = withMailbox((request) => {

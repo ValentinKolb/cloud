@@ -4,6 +4,7 @@ import automationsPage from "./[mailboxId]/automations/page";
 import draftComposePage from "./[mailboxId]/compose/[draftId]/page";
 import composePage from "./[mailboxId]/compose/page";
 import mailboxPage from "./[mailboxId]/page";
+import subscriptionsPage from "./[mailboxId]/subscriptions/page";
 import helpPage from "./help/page";
 import page from "./page";
 
@@ -14,4 +15,5 @@ export default new Hono<AuthContext>()
   .get("/:mailboxId/compose/:draftId", auth.requireRole("user", auth.redirectToLogin), ...draftComposePage)
   .get("/:mailboxId/compose", auth.requireRole("user", auth.redirectToLogin), ...composePage)
   .get("/:mailboxId/automations", auth.requireRole("user", auth.redirectToLogin), ...automationsPage)
+  .get("/:mailboxId/subscriptions", auth.requireRole("user", auth.redirectToLogin), ...subscriptionsPage)
   .get("/:mailboxId", auth.requireRole("user", auth.redirectToLogin), ...mailboxPage);

@@ -182,6 +182,7 @@ export default function MailSidebar(props: {
       }
       elements={[
         { label: "Mailbox health", icon: "ti ti-heartbeat", action: props.onOpenHealth },
+        { label: "Subscriptions", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` },
         { label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks },
       ]}
       position="top-right"

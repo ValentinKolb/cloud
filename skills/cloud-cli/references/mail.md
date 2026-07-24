@@ -206,6 +206,34 @@ cld --json mail message get <message-id>
 
 `search`, `conversation list`, activities, saved views, scheduled sends, workflow runs, and deleted-mailbox listings are cursor-paginated. Preserve and pass the returned cursor rather than reconstructing it.
 
+## Manage mailing lists
+
+List mailing lists detected from standard message headers, then inspect one canonical List-ID:
+
+```bash
+cld --json mail subscription list --mailbox <mailbox-id>
+cld --json mail subscription get news.example.org --mailbox <mailbox-id>
+```
+
+`subscription unsubscribe` sends a request only when the list advertises RFC 8058 one-click unsubscribe. Web and email unsubscribe methods are returned for a person or agent to open explicitly; the CLI does not visit them automatically.
+
+```bash
+cld --json mail subscription unsubscribe news.example.org \
+  --mailbox <mailbox-id> \
+  --yes
+```
+
+After an unsubscribe request, archive or trash up to 500 synchronized messages from the same List-ID through the normal durable provider command pipeline:
+
+```bash
+cld --json mail subscription dispose news.example.org \
+  --mailbox <mailbox-id> \
+  --destination archive \
+  --yes
+```
+
+If `truncated` is true, wait for the queued commands to finish and repeat the command. Unsubscribing does not delete existing mail, and moving existing messages does not unsubscribe.
+
 ## Collaborate on conversations
 
 Inspect assignable users and update durable collaboration state with optimistic revisions:

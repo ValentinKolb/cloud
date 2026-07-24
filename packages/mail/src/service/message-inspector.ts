@@ -1,14 +1,16 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import {
-  messageInspectorSchema,
-  messageSourcePreviewSchema,
   type MessageInspector,
   type MessageSourcePreview,
+  messageInspectorSchema,
+  messageSourcePreviewSchema,
 } from "../contracts";
 import type { MailRequestContext } from "./auth";
 import { resolveMailExecution } from "./execution";
+import { mailingListMetadata } from "./list-subscriptions";
 import { getStoredBlob, readStoredBlobPrefix } from "./message-blobs";
+import { parseMessageProtocolFacts } from "./message-protocol";
 import type { AttachmentDownload } from "./messages";
 
 export const MESSAGE_HEADER_LIMIT_BYTES = 2 * 1024 * 1024;
@@ -331,6 +333,7 @@ export const inspectMessage = async (params: {
   if (!currentAccess.ok) return currentAccess;
 
   const protocolFacts = parseJsonObject(message.protocol_facts);
+  const mailingList = mailingListMetadata(parseMessageProtocolFacts(protocolFacts));
   const value = {
     id: message.id,
     messageId: message.message_id,
@@ -389,6 +392,16 @@ export const inspectMessage = async (params: {
       contentId: attachment.content_id,
       sizeBytes: toSafeNonNegativeInteger(attachment.size_bytes, "Attachment size"),
     })),
+    mailingList: mailingList
+      ? {
+          listKey: mailingList.listKey,
+          name: mailingList.name,
+          address: mailingList.address,
+          postHref: mailingList.postHref,
+          helpHref: mailingList.helpHref,
+          archiveHref: mailingList.archiveHref,
+        }
+      : null,
     warnings,
   };
   const parsed = messageInspectorSchema.safeParse(value);
@@ -404,7 +417,7 @@ export const previewMessageSource = async (params: {
   if (!loaded.ok) return loaded;
   if (!loaded.data.source_blob_id) return fail(err.notFound("Exact message source"));
 
-  let prefix;
+  let prefix: Awaited<ReturnType<typeof readStoredBlobPrefix>>;
   try {
     prefix = await readStoredBlobPrefix(loaded.data.source_blob_id, MESSAGE_SOURCE_PREVIEW_LIMIT_BYTES);
   } catch {

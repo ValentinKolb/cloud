@@ -19,6 +19,7 @@ import * as execution from "./execution";
 import * as folders from "./folders";
 import * as health from "./health";
 import { imapPushRuntime } from "./imap-push-runtime";
+import * as listSubscriptions from "./list-subscriptions";
 import * as localTags from "./local-tags";
 import * as mailboxes from "./mailboxes";
 import * as hydration from "./message-hydration";
@@ -38,6 +39,7 @@ import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
 import * as settingsContext from "./settings-context";
 import * as storageObservability from "./storage-observability";
+import * as subscriptionWorkspace from "./subscription-workspace";
 import { enqueueMailboxSync, mailRuntime as scheduledMailRuntime } from "./sync-runtime";
 import * as triage from "./triage";
 import { createMailWorkflowMaterializationRuntime } from "./workflow-materialization-service";
@@ -79,6 +81,7 @@ export {
   events,
   folders,
   health,
+  listSubscriptions,
   localTags,
   mailboxAccess,
   mailboxes,
@@ -96,6 +99,7 @@ export {
   senderIdentities,
   settingsContext,
   storageObservability,
+  subscriptionWorkspace,
   triage,
   workflowMaterializationRuntime,
   workflowRuntime,
@@ -120,6 +124,8 @@ export const mailService = {
   events,
   health,
   localTags,
+  listSubscriptions,
+  subscriptionWorkspace,
   folders,
   hydration,
   mailboxes,

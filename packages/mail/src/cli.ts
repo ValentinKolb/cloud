@@ -42,9 +42,11 @@ import {
   type MailCommand,
   type MailConversationContext,
   type MailDraft,
-  type MessageInspector,
+  type MailingListDispositionResult,
   type MailSearchExpression,
   type MailStorageSummary,
+  type MailSubscriptionPage,
+  type MailSubscriptionSummary,
   type MailWorkflow,
   type MailWorkflowDetail,
   type MailWorkflowPreflight,
@@ -53,6 +55,7 @@ import {
   type MailWorkflowRunTarget,
   type MailWorkflowVersion,
   mailSearchExpressionSchema,
+  type MessageInspector,
   type PlatformMailOperations,
   type ProviderBinding,
   type ProviderConnection,
@@ -62,6 +65,7 @@ import {
   type ScheduledSendPage,
   type SenderIdentity,
   savedConversationViewFilterSchema,
+  type UnsubscribeMailingListResult,
   type WorkflowEffectBudget,
   type WorkflowTargetQuery,
   type WorkflowValidation,
@@ -315,6 +319,19 @@ const resolveMailbox = async (ctx: CloudCliContext, ref?: string): Promise<Resol
   if (exact.length === 1) return exact[0]!;
   if (exact.length > 1) throw new Error(`Mailbox "${effectiveRef}" is ambiguous; use its id.`);
   throw new Error(`Mailbox "${effectiveRef}" was not found.`);
+};
+
+const findSubscription = async (
+  ctx: CloudCliContext,
+  mailboxId: string,
+  requestedListKey: string,
+): Promise<MailSubscriptionSummary> => {
+  const listKey = requestedListKey.trim().toLowerCase();
+  const query = new URLSearchParams({ limit: "1", listKey });
+  const page = await readApi<MailSubscriptionPage>(ctx, `/mailboxes/${mailboxId}/subscriptions?${query}`);
+  const match = page.items.find((item) => item.listKey === listKey);
+  if (match) return match;
+  throw new Error(`Mailing list "${requestedListKey}" was not found in this mailbox.`);
 };
 
 const mailboxFlag = {
@@ -1379,6 +1396,119 @@ export default defineCliCommands({
         }
         if (printStructured(ctx, mailbox)) return;
         ctx.print(`${mailbox.name}: ${mailbox.health}.`);
+      },
+    }),
+    command("subscription list", {
+      summary: "List mailing lists detected from message headers",
+      flags: {
+        ...mailboxFlag,
+        limit: flag.int({ min: 1, max: 100, default: 50 }),
+        cursor: flag.string({ description: "Opaque cursor returned by a previous page" }),
+      },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
+        if (flags.cursor) query.set("cursor", flags.cursor);
+        const page = await readApi<MailSubscriptionPage>(ctx, `/mailboxes/${mailbox.id}/subscriptions?${query}`);
+        printTable(
+          ctx,
+          page,
+          page.items.map((item) => ({
+            name: item.name,
+            status: item.status,
+            recent: item.recentMessageCount,
+            messages: item.messageCount,
+            unsubscribe: item.unsubscribe?.kind ?? "unavailable",
+            lastMessage: item.lastMessageAt,
+            listKey: item.listKey,
+          })),
+          [
+            { key: "name", label: "LIST" },
+            { key: "status", label: "STATUS" },
+            { key: "recent", label: "30 DAYS" },
+            { key: "messages", label: "MESSAGES" },
+            { key: "unsubscribe", label: "UNSUBSCRIBE" },
+            { key: "lastMessage", label: "LAST MESSAGE" },
+            { key: "listKey", label: "LIST ID" },
+          ],
+        );
+        if (ctx.options.output === "text" && page.nextCursor) ctx.print(`Next cursor: ${page.nextCursor}`);
+      },
+    }),
+    command("subscription get", {
+      summary: "Show mailing-list actions and recent activity",
+      args: { listKey: arg.required({ description: "Canonical List-ID shown by subscription list" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const item = await findSubscription(ctx, mailbox.id, args.listKey);
+        if (printStructured(ctx, item)) return;
+        ctx.print(`${item.name} (${item.listKey})`);
+        ctx.print(`Status: ${item.status}; ${item.recentMessageCount} messages in the last 30 days, ${item.messageCount} total.`);
+        ctx.print(`Last message: ${item.lastSubject} at ${item.lastMessageAt}`);
+        ctx.print(`Unsubscribe: ${item.unsubscribe?.href ?? "not advertised"}`);
+        if (item.postHref) ctx.print(`Post: ${item.postHref}`);
+        if (item.helpHref) ctx.print(`Help: ${item.helpHref}`);
+        if (item.archiveHref) ctx.print(`Archive: ${item.archiveHref}`);
+      },
+    }),
+    command("subscription unsubscribe", {
+      summary: "Request RFC 8058 one-click unsubscribe when advertised",
+      args: { listKey: arg.required({ description: "Canonical List-ID shown by subscription list" }) },
+      flags: {
+        ...mailboxFlag,
+        yes: confirmFlag("Confirm mailing-list unsubscribe"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const item = await findSubscription(ctx, mailbox.id, args.listKey);
+        if (!item.unsubscribe) throw new Error("This list does not advertise an unsubscribe method.");
+        if (item.unsubscribe.kind !== "one_click") {
+          if (printStructured(ctx, { listKey: item.listKey, actionRequired: item.unsubscribe })) return;
+          ctx.print(
+            item.unsubscribe.kind === "email"
+              ? `Send the advertised unsubscribe email: ${item.unsubscribe.href}`
+              : `Open the list's unsubscribe page: ${item.unsubscribe.href}`,
+          );
+          return;
+        }
+        if (!flags.yes) throw new Error("Pass --yes to send the one-click unsubscribe request.");
+        const result = await readApi<UnsubscribeMailingListResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/subscriptions/unsubscribe`,
+          jsonRequest("POST", { listKey: item.listKey, href: item.unsubscribe.href }),
+        );
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Unsubscribe requested for ${item.name} at ${result.requestedAt}.`);
+      },
+    }),
+    command("subscription dispose", {
+      summary: "Archive or trash locally mirrored messages from one mailing list",
+      args: { listKey: arg.required({ description: "Canonical List-ID shown by subscription list" }) },
+      flags: {
+        ...mailboxFlag,
+        destination: flag.enum(["archive", "trash"] as const, {
+          required: true,
+          description: "Destination for matching messages",
+        }),
+        yes: confirmFlag("Confirm bulk mailing-list disposition"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to move matching messages.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const item = await findSubscription(ctx, mailbox.id, args.listKey);
+        const result = await readApi<MailingListDispositionResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/subscriptions/disposition`,
+          jsonRequest("POST", {
+            listKey: item.listKey,
+            disposition: flags.destination,
+            idempotencyKey: crypto.randomUUID(),
+          }),
+        );
+        if (printStructured(ctx, result)) return;
+        ctx.print(`Queued ${result.commandCount} ${flags.destination} command(s) for ${item.name}.`);
+        if (result.truncated) ctx.print("More than 500 placements matched. Run the command again after these commands complete.");
       },
     }),
     command("configure", {

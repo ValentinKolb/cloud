@@ -84,6 +84,21 @@ An `.eml` file is useful when transferring one message to another mail client, r
 
 Raw headers and `.eml` files can contain private addresses, server names, routing details, authentication results, and the complete message body. Review them before sharing. For older or partially synchronized messages, Mail may have the readable content without the exact original source; in that case the inspector explains that source and `.eml` download are unavailable.
 
+## Manage mailing lists {icon="news"}
+
+Mail recognizes mailing lists from the standard list information included in received messages. Open **Mailbox tools > Subscriptions** to see each detected list, its recent volume, its latest message, and the actions advertised by the list.
+
+The available actions depend on the information supplied by the sender:
+
+- **Unsubscribe** asks the list to stop sending mail. Mail uses a protected one-click request when the list supports it. Otherwise Mail opens the list's unsubscribe page or prepares the advertised unsubscribe email.
+- **Write to list** opens the address supplied for new list messages.
+- **List help** and **List archive** open the pages advertised by the list.
+- After a one-click unsubscribe request, **Archive existing** or **Move existing to Trash** can move up to 500 already synchronized messages at a time. Repeat the action if Mail reports that more messages remain.
+
+Confirm the list name before unsubscribing. The request affects future delivery for this mailbox and may be difficult to reverse. It does not delete existing messages, and Mail cannot guarantee when an external list provider will stop delivery.
+
+Mail never opens an unsubscribe link merely because you preview or read a message. Lists without standard list information do not appear in **Subscriptions**.
+
 ## Open attachments and reply to a message {icon="paperclip"}
 
 Received attachments stay with the message that carried them. Select an attachment chip to open or download it in a new browser tab.
