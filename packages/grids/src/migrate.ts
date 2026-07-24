@@ -778,6 +778,7 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
       description TEXT,
       subject TEXT NOT NULL,
       html TEXT NOT NULL,
+      sample_data JSONB NOT NULL DEFAULT '{}'::jsonb,
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       position INT NOT NULL DEFAULT 0,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
@@ -787,8 +788,43 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT email_templates_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
       CONSTRAINT email_templates_subject_length_chk CHECK (length(subject) BETWEEN 1 AND 1000),
-      CONSTRAINT email_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000)
+      CONSTRAINT email_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000),
+      CONSTRAINT email_templates_sample_data_object_chk CHECK (jsonb_typeof(sample_data) = 'object')
     )
+  `.simple();
+  await sql`ALTER TABLE grids.email_templates ADD COLUMN IF NOT EXISTS sample_data JSONB`.simple();
+  await sql`
+    UPDATE grids.email_templates
+    SET sample_data = CASE
+      WHEN html LIKE '%data.requesterName%' AND html LIKE '%data.agreement.url%' THEN
+        '{"requesterName":"Alex Morgan","loanNumber":"LOAN-2026-0001","dueDate":"31 July 2026","agreement":{"url":"https://cloud.example.org/share/grids/documents/example"}}'::jsonb
+      WHEN html LIKE '%data.customerName%' AND html LIKE '%data.invoice.url%' THEN
+        '{"customerName":"Ada Lovelace","orderNumber":"ORD-2026-0042","invoice":{"url":"https://cloud.example.org/share/grids/documents/example"}}'::jsonb
+      WHEN html LIKE '%data.reference%' AND html LIKE '%data.receipt.url%' THEN
+        '{"reference":"TX-2026-0042","merchant":"Office Supply GmbH","receipt":{"url":"https://cloud.example.org/share/grids/documents/example"}}'::jsonb
+      ELSE '{}'::jsonb
+    END
+    WHERE sample_data IS NULL
+  `.simple();
+  await sql`
+    ALTER TABLE grids.email_templates
+    ALTER COLUMN sample_data SET DEFAULT '{}'::jsonb,
+    ALTER COLUMN sample_data SET NOT NULL
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'email_templates_sample_data_object_chk'
+          AND conrelid = 'grids.email_templates'::regclass
+      ) THEN
+        ALTER TABLE grids.email_templates
+        ADD CONSTRAINT email_templates_sample_data_object_chk CHECK (jsonb_typeof(sample_data) = 'object');
+      END IF;
+    END
+    $$
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_email_templates_base_live

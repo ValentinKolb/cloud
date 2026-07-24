@@ -1275,6 +1275,14 @@ export const CreateDocumentLinkResponseSchema = z.object({
 });
 export type CreateDocumentLinkResponse = z.infer<typeof CreateDocumentLinkResponseSchema>;
 
+const EMAIL_TEMPLATE_SAMPLE_DATA_MAX_BYTES = 50_000;
+
+export const EmailTemplateSampleDataSchema = z.record(z.string().min(1).max(200), z.json()).superRefine((value, ctx) => {
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > EMAIL_TEMPLATE_SAMPLE_DATA_MAX_BYTES) {
+    ctx.addIssue({ code: "custom", message: "sample data must not exceed 50000 bytes" });
+  }
+});
+
 export const EmailTemplateSchema = z.object({
   id: z.string().uuid(),
   shortId: ShortIdSchema,
@@ -1283,6 +1291,7 @@ export const EmailTemplateSchema = z.object({
   description: z.string().nullable(),
   subject: z.string(),
   html: z.string(),
+  sampleData: EmailTemplateSampleDataSchema,
   enabled: z.boolean(),
   position: z.number().int(),
   createdBy: z.string().uuid().nullable(),
@@ -1300,6 +1309,7 @@ export const CreateEmailTemplateSchema = z.object({
   description: z.string().trim().max(2_000).nullable().optional(),
   subject: z.string().trim().min(1).max(1_000),
   html: z.string().trim().min(1).max(200_000),
+  sampleData: EmailTemplateSampleDataSchema.optional(),
   enabled: z.boolean().optional(),
   position: z.number().int().optional(),
 });
@@ -1310,6 +1320,7 @@ export const UpdateEmailTemplateSchema = z.object({
   description: z.string().trim().max(2_000).nullable().optional(),
   subject: z.string().trim().min(1).max(1_000).optional(),
   html: z.string().trim().min(1).max(200_000).optional(),
+  sampleData: EmailTemplateSampleDataSchema.optional(),
   enabled: z.boolean().optional(),
   position: z.number().int().optional(),
 });

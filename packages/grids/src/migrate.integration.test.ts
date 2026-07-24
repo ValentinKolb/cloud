@@ -167,6 +167,57 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
+    "backfills legacy email preview data once without replacing later edits",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrate(database);
+        const baseId = uuid();
+        const templateId = uuid();
+        await database`
+          INSERT INTO grids.bases (id, short_id, name)
+          VALUES (${baseId}::uuid, ${shortId("B")}, 'Email preview data migration')
+        `;
+        await database`
+          INSERT INTO grids.email_templates (id, short_id, base_id, name, subject, html)
+          VALUES (
+            ${templateId}::uuid,
+            ${shortId("E")},
+            ${baseId}::uuid,
+            'Loan agreement ready',
+            'Agreement ready',
+            '<p>{{ data.requesterName }}</p><a href="{{ data.agreement.url }}">Download</a>'
+          )
+        `;
+        await database`ALTER TABLE grids.email_templates ALTER COLUMN sample_data DROP NOT NULL`.simple();
+        await database`UPDATE grids.email_templates SET sample_data = NULL WHERE id = ${templateId}::uuid`;
+
+        await migrate(database);
+        const [backfilled] = await database<Array<{ sampleData: Record<string, unknown> }>>`
+          SELECT sample_data AS "sampleData"
+          FROM grids.email_templates
+          WHERE id = ${templateId}::uuid
+        `;
+        expect(backfilled?.sampleData).toEqual({
+          requesterName: "Alex Morgan",
+          loanNumber: "LOAN-2026-0001",
+          dueDate: "31 July 2026",
+          agreement: { url: "https://cloud.example.org/share/grids/documents/example" },
+        });
+
+        await database`UPDATE grids.email_templates SET sample_data = '{}'::jsonb WHERE id = ${templateId}::uuid`;
+        await migrate(database);
+        const [preserved] = await database<Array<{ sampleData: Record<string, unknown> }>>`
+          SELECT sample_data AS "sampleData"
+          FROM grids.email_templates
+          WHERE id = ${templateId}::uuid
+        `;
+        expect(preserved?.sampleData).toEqual({});
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
     "enforces combined table revision, source, mapping, and read-only invariants",
     async () => {
       await withIsolatedDatabase(async (database) => {

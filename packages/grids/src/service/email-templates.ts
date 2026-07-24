@@ -4,6 +4,7 @@ import { sql } from "bun";
 import type { CreateEmailTemplateInput, EmailTemplate, UpdateEmailTemplateInput } from "../contracts";
 import { logAudit } from "./audit";
 import { renderLiquidPlainText, renderLiquidText, validateLiquidRoots, validateLiquidTemplate } from "./documents";
+import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 
 type DbRow = Record<string, unknown>;
@@ -18,6 +19,7 @@ const mapEmailTemplate = (row: DbRow): EmailTemplate => ({
   description: (row.description as string | null) ?? null,
   subject: row.subject as string,
   html: row.html as string,
+  sampleData: parseJsonbRow<EmailTemplate["sampleData"]>(row.sample_data, {}),
   enabled: row.enabled as boolean,
   position: row.position as number,
   createdBy: (row.created_by as string | null) ?? null,
@@ -119,7 +121,7 @@ export const create = async (baseId: string, input: CreateEmailTemplateInput, ac
       const row = await insertWithShortId(async (shortId) => {
         const [inserted] = await tx<DbRow[]>`
           INSERT INTO grids.email_templates (
-            short_id, base_id, name, description, subject, html, enabled, position, created_by, updated_by
+            short_id, base_id, name, description, subject, html, sample_data, enabled, position, created_by, updated_by
           )
           VALUES (
             ${shortId},
@@ -128,6 +130,7 @@ export const create = async (baseId: string, input: CreateEmailTemplateInput, ac
             ${input.description?.trim() || null},
             ${input.subject.trim()},
             ${input.html},
+            ${input.sampleData ?? {}}::jsonb,
             ${input.enabled ?? true},
             ${input.position ?? 0},
             ${actorId}::uuid,
@@ -172,6 +175,7 @@ export const update = async (
         description = ${input.description === undefined ? existing.description : input.description?.trim() || null},
         subject = ${input.subject === undefined ? existing.subject : input.subject.trim()},
         html = ${input.html === undefined ? existing.html : input.html},
+        sample_data = ${input.sampleData ?? existing.sampleData}::jsonb,
         enabled = ${input.enabled ?? existing.enabled},
         position = ${input.position ?? existing.position},
         updated_by = ${actorId}::uuid,

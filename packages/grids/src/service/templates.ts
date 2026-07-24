@@ -420,6 +420,7 @@ const createEmailTemplates = async (template: GridTemplate, baseId: string, acto
           description: definition.description,
           subject: definition.subject,
           html: definition.html,
+          sampleData: definition.sampleData,
           enabled: definition.enabled,
         },
         actorId,

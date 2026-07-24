@@ -1,3 +1,4 @@
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import type { GridsWorkflowLauncherConfig } from "../workflows/contracts";
 
 type TemplateRefKind = "table" | "field" | "record" | "view" | "form" | "dashboard" | "launcher";
@@ -94,6 +95,7 @@ type TemplateEmailTemplate = {
   description?: string | null;
   subject: string;
   html: string;
+  sampleData?: Record<string, WorkflowJsonValue>;
   enabled?: boolean;
 };
 

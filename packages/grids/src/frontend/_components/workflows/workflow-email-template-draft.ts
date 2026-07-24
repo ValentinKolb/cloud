@@ -1,3 +1,4 @@
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import type { EmailTemplate } from "../../../contracts";
 
 type WorkflowEmailTemplateDraft = {
@@ -5,6 +6,7 @@ type WorkflowEmailTemplateDraft = {
   description: string;
   subject: string;
   html: string;
+  sampleData: Record<string, WorkflowJsonValue>;
   enabled: boolean;
 };
 
@@ -12,11 +14,13 @@ export const workflowEmailTemplateDraft = (
   template: EmailTemplate | undefined,
   defaultSubject: string,
   defaultHtml: string,
+  defaultSampleData: Record<string, WorkflowJsonValue>,
 ): WorkflowEmailTemplateDraft => ({
   name: template?.name ?? "",
   description: template?.description ?? "",
   subject: template?.subject ?? defaultSubject,
   html: template?.html ?? defaultHtml,
+  sampleData: template?.sampleData ?? defaultSampleData,
   enabled: template?.enabled ?? true,
 });
 
@@ -25,4 +29,5 @@ export const workflowEmailTemplateDraftDirty = (current: WorkflowEmailTemplateDr
   current.description !== clean.description ||
   current.subject !== clean.subject ||
   current.html !== clean.html ||
+  JSON.stringify(current.sampleData) !== JSON.stringify(clean.sampleData) ||
   current.enabled !== clean.enabled;

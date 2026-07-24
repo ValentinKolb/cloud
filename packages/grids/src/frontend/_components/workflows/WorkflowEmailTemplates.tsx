@@ -17,26 +17,21 @@ import {
   Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { EmailTemplate } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
+import {
+  createEmailTemplateSystemSampleData,
+  DEFAULT_EMAIL_TEMPLATE_SAMPLE_DATA,
+  EMAIL_TEMPLATE_SYSTEM_VARIABLES,
+  emailTemplatePreviewContext,
+  emailTemplateVariables,
+  parseEmailTemplateSampleData,
+} from "./email-template-preview-data";
 import { workflowEmailTemplateDraft, workflowEmailTemplateDraftDirty } from "./workflow-email-template-draft";
-
-const EMAIL_TEMPLATE_VARIABLES: TemplateVariable[] = [
-  { name: "data", kind: "object" },
-  { name: "data.link.url", kind: "url" },
-  { name: "data.link.expiresAt", kind: "string" },
-  { name: "data.document.filename", kind: "string" },
-  { name: "app.name", kind: "string" },
-  { name: "app.logoSvgDataUrl", kind: "url" },
-  { name: "business.legalName", kind: "string" },
-  { name: "business.senderLine", kind: "string" },
-  { name: "workflow.name", kind: "string" },
-  { name: "run.id", kind: "string" },
-  { name: "date.iso", kind: "string" },
-];
 
 const DEFAULT_EMAIL_SUBJECT = "{{ workflow.name }}";
 const DEFAULT_EMAIL_HTML = `<p>Hello,</p>
@@ -45,50 +40,6 @@ const DEFAULT_EMAIL_HTML = `<p>Hello,</p>
   <p><a href="{{ data.link.url }}">Open document</a></p>
 {% endif %}
 <p>{{ business.legalName | default: app.name }}</p>`;
-
-const EMAIL_TEMPLATE_SAMPLE_VARIABLES = EMAIL_TEMPLATE_VARIABLES.filter((variable) => variable.kind !== "object");
-
-const EMAIL_TEMPLATE_SAMPLE_VALUES: Record<string, string> = {
-  "data.link.url": "https://cloud.example.org/documents/download/example",
-  "data.link.expiresAt": "31 Dec 2026",
-  "data.document.filename": "invoice-2026-001.pdf",
-  "app.name": "Cloud",
-  "app.logoSvgDataUrl": "https://cloud.example.org/logo.svg",
-  "business.legalName": "ACME Operations GmbH",
-  "business.senderLine": "ACME Operations GmbH · Friedrichstrasse 120 · 10117 Berlin",
-  "workflow.name": "Send signed document",
-  "run.id": "run_01J2EXAMPLE",
-  "date.iso": "2026-07-07",
-};
-
-const emailTemplateSampleValue = (name: string): string => EMAIL_TEMPLATE_SAMPLE_VALUES[name] ?? name;
-
-const createEmailTemplateSampleData = (): Record<string, string> =>
-  Object.fromEntries(EMAIL_TEMPLATE_SAMPLE_VARIABLES.map((variable) => [variable.name, emailTemplateSampleValue(variable.name)]));
-
-const setNestedTemplateValue = (target: Record<string, unknown>, path: string[], value: string) => {
-  let cursor: Record<string, unknown> = target;
-  for (let index = 0; index < path.length - 1; index += 1) {
-    const key = path[index]!;
-    const next = cursor[key];
-    if (!next || typeof next !== "object" || Array.isArray(next)) {
-      const child: Record<string, unknown> = {};
-      cursor[key] = child;
-      cursor = child;
-    } else {
-      cursor = next as Record<string, unknown>;
-    }
-  }
-  cursor[path[path.length - 1]!] = value;
-};
-
-const emailTemplateContext = (sampleData: Record<string, string>): Record<string, unknown> => {
-  const context: Record<string, unknown> = {};
-  for (const variable of EMAIL_TEMPLATE_SAMPLE_VARIABLES) {
-    setNestedTemplateValue(context, variable.name.split("."), sampleData[variable.name] ?? emailTemplateSampleValue(variable.name));
-  }
-  return context;
-};
 
 const escapePreviewText = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -120,29 +71,59 @@ const buildEmailPreviewHtml = (content: string, appName: string) => `
 </html>
 `;
 
-const renderEmailTemplatePreview = (template: string, sampleData: Record<string, string>): string => {
+const renderEmailTemplatePreview = (
+  template: string,
+  sampleData: Record<string, WorkflowJsonValue>,
+  systemSampleData: Record<string, string>,
+): string => {
   try {
-    return buildEmailPreviewHtml(renderLiquidTemplate(template, emailTemplateContext(sampleData)), sampleData["app.name"] ?? "Cloud");
+    return buildEmailPreviewHtml(
+      renderLiquidTemplate(template, emailTemplatePreviewContext(sampleData, systemSampleData)),
+      systemSampleData["app.name"] ?? "Cloud",
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Template preview failed";
-    return buildEmailPreviewHtml(`<p style="color:#b91c1c;">${escapePreviewText(message)}</p>`, sampleData["app.name"] ?? "Cloud");
+    return buildEmailPreviewHtml(`<p style="color:#b91c1c;">${escapePreviewText(message)}</p>`, systemSampleData["app.name"] ?? "Cloud");
   }
 };
 
 function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; onSaved: () => void; onClose: () => void }) {
-  const cleanDraft = workflowEmailTemplateDraft(props.template, DEFAULT_EMAIL_SUBJECT, DEFAULT_EMAIL_HTML);
+  const cleanDraft = workflowEmailTemplateDraft(
+    props.template,
+    DEFAULT_EMAIL_SUBJECT,
+    DEFAULT_EMAIL_HTML,
+    DEFAULT_EMAIL_TEMPLATE_SAMPLE_DATA,
+  );
   const [name, setName] = createSignal(cleanDraft.name);
   const [description, setDescription] = createSignal(cleanDraft.description);
   const [subject, setSubject] = createSignal(cleanDraft.subject);
   const [html, setHtml] = createSignal(cleanDraft.html);
   const [enabled, setEnabled] = createSignal(cleanDraft.enabled);
   const [panes, setPanes] = createSignal(createTemplateEditorPanesValue());
-  const [sampleData, setSampleData] = createSignal<Record<string, string>>(createEmailTemplateSampleData());
-  const renderedPreview = createMemo(() => renderEmailTemplatePreview(html(), sampleData()));
-  const setSampleValue = (name: string, value: string) => setSampleData((current) => ({ ...current, [name]: value }));
+  const cleanSampleDataSource = JSON.stringify(cleanDraft.sampleData, null, 2);
+  const [sampleDataSource, setSampleDataSource] = createSignal(cleanSampleDataSource);
+  const [systemSampleData, setSystemSampleData] = createSignal<Record<string, string>>(createEmailTemplateSystemSampleData());
+  const parsedSampleData = createMemo(() => parseEmailTemplateSampleData(sampleDataSource()));
+  const sampleData = createMemo(() => {
+    const parsed = parsedSampleData();
+    return parsed.ok ? parsed.data : cleanDraft.sampleData;
+  });
+  const variables = createMemo<TemplateVariable[]>(() => emailTemplateVariables(sampleData()));
+  const renderedPreview = createMemo(() => {
+    const parsed = parsedSampleData();
+    if (!parsed.ok) {
+      return buildEmailPreviewHtml(
+        `<p style="color:#b91c1c;">${escapePreviewText(parsed.error)}</p>`,
+        systemSampleData()["app.name"] ?? "Cloud",
+      );
+    }
+    return renderEmailTemplatePreview(html(), parsed.data, systemSampleData());
+  });
+  const setSystemSampleValue = (name: string, value: string) => setSystemSampleData((current) => ({ ...current, [name]: value }));
   const dirty = () =>
+    sampleDataSource() !== cleanSampleDataSource ||
     workflowEmailTemplateDraftDirty(
-      { name: name(), description: description(), subject: subject(), html: html(), enabled: enabled() },
+      { name: name(), description: description(), subject: subject(), html: html(), sampleData: sampleData(), enabled: enabled() },
       cleanDraft,
     );
   const closeIfClean = async () => {
@@ -156,6 +137,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
         description: description().trim() || null,
         subject: subject().trim(),
         html: html().trim(),
+        sampleData: sampleData(),
         enabled: enabled(),
       };
       if (!payload.name) throw new Error("Name is required.");
@@ -181,7 +163,8 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
     onError: (error) => prompts.error(error.message),
   });
 
-  const canSave = () => name().trim().length > 0 && subject().trim().length > 0 && html().trim().length > 0 && !saveMut.loading();
+  const canSave = () =>
+    name().trim().length > 0 && subject().trim().length > 0 && html().trim().length > 0 && parsedSampleData().ok && !saveMut.loading();
 
   return (
     <PanelDialog>
@@ -225,7 +208,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
                   <TemplateEditor
                     value={html}
                     onInput={setHtml}
-                    variables={EMAIL_TEMPLATE_VARIABLES}
+                    variables={variables()}
                     fill
                     placeholder="<p>Hello {{ business.legalName | default: app.name }}</p>"
                   />
@@ -235,7 +218,29 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
                 <TemplatePreview html={renderedPreview} />
               </Panes.Element>
               <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
-                <TemplateSampleData variables={EMAIL_TEMPLATE_SAMPLE_VARIABLES} values={sampleData} onChange={setSampleValue} />
+                <div class="flex h-full min-h-0 flex-col gap-2 overflow-auto">
+                  <TextInput
+                    label="Workflow data"
+                    description="JSON available under data in the subject and HTML preview."
+                    value={sampleDataSource}
+                    onInput={setSampleDataSource}
+                    error={() => {
+                      const parsed = parsedSampleData();
+                      return parsed.ok ? undefined : parsed.error;
+                    }}
+                    icon="ti ti-braces"
+                    multiline
+                    monospace
+                    lines={14}
+                    spellcheck={false}
+                    autocapitalize="off"
+                  />
+                  <TemplateSampleData
+                    variables={EMAIL_TEMPLATE_SYSTEM_VARIABLES}
+                    values={systemSampleData}
+                    onChange={setSystemSampleValue}
+                  />
+                </div>
               </Panes.Element>
             </Panes.Root>
           </div>
@@ -264,12 +269,12 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
 
   const loadMut = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
-      const res = await apiClient["email-templates"]["by-base"][":baseId"].$get(
+      const res: Response = await apiClient["email-templates"]["by-base"][":baseId"].$get(
         { param: { baseId: props.baseId } },
         { init: { signal: abortSignal } },
       );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load email templates."));
-      setTemplates(await res.json());
+      setTemplates((await res.json()) as EmailTemplate[]);
     },
     onError: (error) => prompts.error(error.message),
   });
