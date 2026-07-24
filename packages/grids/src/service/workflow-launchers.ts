@@ -64,9 +64,14 @@ export const validateLauncherConfig = (workflow: GridsWorkflow, config: GridsWor
       if (!inputByName(workflow, name))
         add("launcher.input.unknown", `Unknown workflow input "${name}"`, ["config", "inputBindings", name]);
     }
-    for (const input of workflow.plan.inputs) {
-      const message = workflowInputShapeError(input, config.inputBindings?.[input.name]);
-      if (message) add("launcher.input.invalid", `Workflow input "${input.name}" ${message}`, ["config", "inputBindings", input.name]);
+    if (config.inputMode === "prompt" && Object.keys(config.inputBindings ?? {}).length > 0) {
+      add("launcher.input.mode", "Prompt dashboard launchers do not accept fixed input bindings", ["config", "inputBindings"]);
+    }
+    if (config.inputMode === "fixed") {
+      for (const input of workflow.plan.inputs) {
+        const message = workflowInputShapeError(input, config.inputBindings?.[input.name]);
+        if (message) add("launcher.input.invalid", `Workflow input "${input.name}" ${message}`, ["config", "inputBindings", input.name]);
+      }
     }
   }
   return diagnostics;

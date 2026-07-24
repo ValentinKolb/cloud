@@ -110,9 +110,19 @@ const DashboardLauncherConfigSchema = z
   .object({
     kind: z.literal("dashboard"),
     label: z.string().trim().min(1).max(80).optional(),
+    inputMode: z.enum(["fixed", "prompt"]).default("fixed"),
     inputBindings: jsonInputsSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    if (config.inputMode === "prompt" && Object.keys(config.inputBindings ?? {}).length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["inputBindings"],
+        message: "prompt dashboard launchers do not accept fixed input bindings",
+      });
+    }
+  });
 
 const StrictLauncherConfigSchema = z.discriminatedUnion("kind", [
   ScannerLauncherConfigSchema,
@@ -450,6 +460,10 @@ export const invokeDashboardLauncher = async (
     authorization: input.data.authorization,
   });
   if (!authorized.ok) return authorized;
-  const inputs = mergeInputs(ctx.config.inputBindings ?? {}, input.data.inputs);
-  return inputs.ok ? invoke(ctx, { ...input.data, inputs: inputs.data }, deps) : inputs;
+  const suppliedInputs = input.data.inputs;
+  if (ctx.config.inputMode === "fixed" && Object.keys(suppliedInputs).length > 0) {
+    return fail(err.badInput("fixed dashboard launchers do not accept runtime inputs"));
+  }
+  const inputs = ctx.config.inputMode === "fixed" ? (ctx.config.inputBindings ?? {}) : suppliedInputs;
+  return invoke(ctx, { ...input.data, inputs }, deps);
 };

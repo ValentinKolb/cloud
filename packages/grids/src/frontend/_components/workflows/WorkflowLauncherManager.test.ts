@@ -6,25 +6,39 @@ import { dashboardLauncherConfigForSave, missingLauncherRequiredInputs } from ".
 describe("workflow launcher editor", () => {
   test("preserves dashboard labels and fixed input bindings while editing metadata", () => {
     const launcher = {
-      config: { kind: "dashboard", label: "Refresh", inputBindings: { range: "30d" } },
+      config: { kind: "dashboard", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
     } as unknown as GridsWorkflowLauncher;
 
     expect(dashboardLauncherConfigForSave(launcher)).toEqual({
       kind: "dashboard",
       label: "Refresh",
+      inputMode: "fixed",
       inputBindings: { range: "30d" },
     });
   });
 
   test("replaces dashboard fixed input bindings when edited", () => {
     const launcher = {
-      config: { kind: "dashboard", label: "Refresh", inputBindings: { range: "30d" } },
+      config: { kind: "dashboard", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
     } as unknown as GridsWorkflowLauncher;
 
-    expect(dashboardLauncherConfigForSave(launcher, { range: "7d", notify: false })).toEqual({
+    expect(dashboardLauncherConfigForSave(launcher, "fixed", { range: "7d", notify: false })).toEqual({
       kind: "dashboard",
       label: "Refresh",
+      inputMode: "fixed",
       inputBindings: { range: "7d", notify: false },
+    });
+  });
+
+  test("stores prompt mode without fixed values", () => {
+    const launcher = {
+      config: { kind: "dashboard", label: "Run", inputMode: "fixed", inputBindings: { range: "30d" } },
+    } as unknown as GridsWorkflowLauncher;
+
+    expect(dashboardLauncherConfigForSave(launcher, "prompt", { range: "7d" })).toEqual({
+      kind: "dashboard",
+      label: "Run",
+      inputMode: "prompt",
     });
   });
 

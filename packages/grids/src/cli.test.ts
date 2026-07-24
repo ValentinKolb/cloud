@@ -1368,6 +1368,7 @@ describe("grids CLI", () => {
       `/api/grids/dashboards/${dashboardId}/widgets/widget-1/run`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ inputs: {} });
     expect(lines).toEqual([`Queued workflow run ${runId} (succeeded).`]);
   });
 

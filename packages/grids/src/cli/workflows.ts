@@ -113,6 +113,8 @@ export const emailTemplateCommands = [
         ctx.print(`subject: ${template.subject}`);
         ctx.print(`enabled: ${template.enabled ? "yes" : "no"}`);
         ctx.print(`id: ${template.id}`);
+        ctx.print("sample data:");
+        ctx.print(prettyJson(template.sampleData));
         ctx.print("");
         ctx.print(template.html);
       }
@@ -257,8 +259,10 @@ export const workflowCommands = [
           `  ${prettyJson(WORKFLOW_REFERENCE.launchers.scannerByField).replace(/\n/g, "\n  ")}`,
           "  bulk: maps explicit recordIds or a Grids record query to one recordList input",
           `  ${prettyJson(WORKFLOW_REFERENCE.launchers.bulk).replace(/\n/g, "\n  ")}`,
-          "  dashboard: applies optional fixed inputBindings and accepts non-overlapping invocation inputs",
+          "  dashboard fixed: runs with saved inputBindings and rejects runtime inputs",
           `  ${prettyJson(WORKFLOW_REFERENCE.launchers.dashboard).replace(/\n/g, "\n  ")}`,
+          "  dashboard prompt: asks for and accepts runtime inputs",
+          `  ${prettyJson(WORKFLOW_REFERENCE.launchers.dashboardPrompt).replace(/\n/g, "\n  ")}`,
           "",
           "Launcher invocation JSON:",
           "  scanner:",
@@ -269,6 +273,8 @@ export const workflowCommands = [
           `  ${prettyJson(WORKFLOW_REFERENCE.invocation.bulkQuery).replace(/\n/g, "\n  ")}`,
           "  dashboard:",
           `  ${prettyJson(WORKFLOW_REFERENCE.invocation.dashboard).replace(/\n/g, "\n  ")}`,
+          "  dashboard prompt:",
+          `  ${prettyJson(WORKFLOW_REFERENCE.invocation.dashboardPrompt).replace(/\n/g, "\n  ")}`,
           "",
           "Workflow YAML example:",
           `  ${WORKFLOW_REFERENCE.example.replace(/\n/g, "\n  ")}`,
@@ -495,7 +501,7 @@ export const workflowCommands = [
   command("workflow-launchers create", {
     summary: "Create and validate a workflow launcher",
     description:
-      'Pass one JSON object: scanner {"name":"Scan","config":{"kind":"scanner","input":"item","resolve":{"by":"scanCode"}},"enabled":true}; bulk {"name":"Bulk","config":{"kind":"bulk","input":"items"}}; dashboard {"name":"Run","config":{"kind":"dashboard","label":"Refresh","inputBindings":{"range":"30d"}}}. Run `cld grids workflows reference` for all shapes.',
+      'Pass one JSON object: scanner {"name":"Scan","config":{"kind":"scanner","input":"item","resolve":{"by":"scanCode"}},"enabled":true}; bulk {"name":"Bulk","config":{"kind":"bulk","input":"items"}}; fixed dashboard {"name":"Refresh","config":{"kind":"dashboard","inputMode":"fixed","inputBindings":{"range":"30d"}}}; prompt dashboard {"name":"Run","config":{"kind":"dashboard","inputMode":"prompt"}}. Run `cld grids workflows reference` for all shapes.',
     args: baseArgs,
     flags: { ...baseFlag, ...workflowFlag, body: WORKFLOW_LAUNCHER_BODY_INPUT },
     examples: ["cld grids workflow-launchers create Bookshop 'Check in' --body-file launcher.json"],

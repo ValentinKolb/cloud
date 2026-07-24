@@ -119,6 +119,7 @@ export type WidgetData =
       description: string | null;
       buttonLabel: string;
       action: "run" | "scanner";
+      inputMode: "fixed" | "prompt" | null;
       canRun: boolean;
       disabledReason: string | null;
     }
@@ -464,6 +465,7 @@ const resolveWorkflowButton = async (widget: WorkflowButtonWidget): Promise<Widg
     description,
     buttonLabel: widget.buttonLabel?.trim() || (action === "scanner" ? "Scan" : "Run"),
     action,
+    inputMode: launcher.config.kind === "dashboard" ? launcher.config.inputMode : null,
     canRun: valid && enabled,
     disabledReason: !valid ? "Workflow launcher must be revalidated" : !enabled ? "Workflow launcher is disabled" : null,
   };

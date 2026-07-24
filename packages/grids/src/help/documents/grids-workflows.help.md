@@ -73,7 +73,7 @@ A workflow can start in three ways:
 
 All three create the same kind of run from typed inputs and the active workflow revision. A workflow does not need a YAML trigger.
 
-Scanner, bulk, and dashboard launchers are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard launcher may keep fixed input values.
+Scanner, bulk, and dashboard launchers are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard launcher either keeps fixed values for one-click use or asks for the declared inputs when it runs.
 
 ## Understand a run {icon="layout-grid"}
 
@@ -421,12 +421,13 @@ Saved outputs expose structured paths. Documents provide `id`, `shortId`, `templ
 
 ## Email templates {icon="file-description"}
 
-Email templates are managed from the workflow page in Edit mode. They are base-level Liquid templates with a subject, HTML, CSS, sample data, and preview. A workflow step chooses one template and passes only the `data` that email needs.
+Email templates are managed from the workflow page in Edit mode. They are base-level Liquid templates with a subject, HTML, stored sample data, and preview. A workflow step chooses one template and passes only the `data` that email needs. Sample data is used only by the editor preview; changing it does not affect sent messages.
 
 :::reference
 - **Template lookup:** `sendEmail.template` accepts an enabled email template name, short id, or uuid. Ambiguous names are rejected.
 - **Recipients:** Use `email` for an email address value or `user` for a Cloud user id. Each entry must pick one recipient type.
 - **Liquid roots:** Templates can read `data`, `app`, `business`, `workflow`, `run`, and `date`.
+- **Preview data:** The template's sample-data JSON appears under `data`. Its nested keys also drive editor suggestions. App, business, workflow, run, and date examples are preview-only system values.
 :::
 
 **Send a generated document link**

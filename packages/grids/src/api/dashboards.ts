@@ -9,6 +9,7 @@ import {
   type Dashboard,
   DashboardListSchema,
   DashboardSchema,
+  TableSchema,
   UpdateDashboardSchema,
   WidgetSchema,
 } from "../contracts";
@@ -26,7 +27,12 @@ import { invokeDashboardLauncher, invokeScannerLauncher } from "../service/workf
 import { listWorkflowStepRuns } from "../service/workflow-kernel-observability";
 import { getWorkflowRun } from "../service/workflow-kernel-runs";
 import { getLauncher as getWorkflowLauncher } from "../service/workflow-launchers";
-import { GridsWorkflowRunSchema, GridsWorkflowRunStatusSchema, GridsWorkflowStepRunSchema } from "../workflows/contracts";
+import {
+  type GridsWorkflow,
+  GridsWorkflowRunSchema,
+  GridsWorkflowRunStatusSchema,
+  GridsWorkflowStepRunSchema,
+} from "../workflows/contracts";
 import {
   currentActorUser,
   currentActorUserId,
@@ -53,6 +59,24 @@ const DashboardWorkflowInvocationResponseSchema = z.object({
   status: GridsWorkflowRunStatusSchema,
 });
 
+const DashboardWorkflowRunSchema = z
+  .object({
+    inputs: z.record(z.string(), z.json()).default({}),
+  })
+  .strict();
+
+const DashboardWorkflowInputContractSchema = z.object({
+  workflow: z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    plan: z.object({
+      inputs: z.array(z.unknown()),
+      bindings: z.record(z.string(), z.unknown()),
+    }),
+  }),
+  tables: z.array(TableSchema.pick({ id: true, shortId: true, name: true })),
+});
+
 const DashboardWidgetAuthorizationSchema = z
   .object({
     kind: z.literal("dashboard-widget"),
@@ -72,6 +96,17 @@ const getWorkflowRunAuthorization = async (runId: string): Promise<DashboardWidg
   const parsed = DashboardWidgetAuthorizationSchema.safeParse(row?.authorization);
   return parsed.success ? parsed.data : null;
 };
+
+const dashboardPromptPlan = (workflow: GridsWorkflow) => ({
+  inputs: workflow.plan.inputs,
+  bindings: Object.fromEntries(
+    workflow.plan.inputs.flatMap((input) => {
+      const key = `inputs.${input.name}.table`;
+      const value = workflow.plan.bindings[key];
+      return typeof value === "string" ? [[key, value]] : [];
+    }),
+  ),
+});
 
 const DashboardWorkflowRunStatusSchema = z.object({
   run: GridsWorkflowRunSchema.pick({
@@ -138,6 +173,8 @@ export const createDashboardsApi = (
     requireAuthenticated?: MiddlewareHandler<AuthContext>;
     getDashboard?: typeof getDashboardById;
     getLauncher?: typeof getWorkflowLauncher;
+    getWorkflow?: typeof gridsService.workflow.get;
+    getTable?: typeof gridsService.table.get;
     invokeDashboardLauncher?: typeof invokeDashboardLauncher;
     invokeScannerLauncher?: typeof invokeScannerLauncher;
     getWorkflowRun?: typeof getWorkflowRun;
@@ -149,6 +186,8 @@ export const createDashboardsApi = (
   const requireAuthenticated = deps.requireAuthenticated ?? auth.requireRole("authenticated");
   const getDashboard = deps.getDashboard ?? getDashboardById;
   const getLauncher = deps.getLauncher ?? getWorkflowLauncher;
+  const getWorkflow = deps.getWorkflow ?? gridsService.workflow.get;
+  const getTable = deps.getTable ?? gridsService.table.get;
   const invokeDashboard = deps.invokeDashboardLauncher ?? invokeDashboardLauncher;
   const invokeScanner = deps.invokeScannerLauncher ?? invokeScannerLauncher;
   const getWorkflowRunImpl = deps.getWorkflowRun ?? getWorkflowRun;
@@ -281,6 +320,68 @@ export const createDashboardsApi = (
       },
     )
 
+    .get(
+      "/:dashboardId/widgets/:widgetId/input-contract",
+      describeRoute({
+        tags: ["Grids:Dashboard"],
+        summary: "Get declared inputs for a prompt dashboard workflow button",
+        responses: {
+          200: jsonResponse(DashboardWorkflowInputContractSchema, "Workflow inputs"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid launcher"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+        },
+      }),
+      async (c) => {
+        const dashboardId = uuidParam(c, "dashboardId");
+        if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
+        const widgetId = c.req.param("widgetId")!;
+        const dashboard = await getDashboard(dashboardId);
+        if (!dashboard || !(await canReadDashboard(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
+
+        const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
+        if (!widget || widget.kind !== "workflow-button") return c.json({ message: "Widget not found" }, 404);
+        const launcher = await getLauncher(widget.launcherId);
+        if (!launcher || launcher.baseId !== dashboard.baseId) return c.json({ message: "Workflow launcher not found" }, 404);
+        if (launcher.config.kind !== "dashboard" || launcher.config.inputMode !== "prompt") {
+          return c.json({ message: "Workflow launcher does not ask for inputs" }, 400);
+        }
+        const workflow = await getWorkflow(launcher.workflowId);
+        if (!workflow || workflow.baseId !== dashboard.baseId) return c.json({ message: "Workflow not found" }, 404);
+        if (
+          !launcher.enabled ||
+          !workflow.enabled ||
+          launcher.validatedRevision !== workflow.revision ||
+          launcher.diagnostics.some((item) => item.severity === "error") ||
+          workflow.diagnostics.some((item) => item.severity === "error")
+        ) {
+          return c.json({ message: "Workflow launcher is not ready" }, 400);
+        }
+
+        const tableIds = new Set<string>();
+        for (const input of workflow.plan.inputs) {
+          if (input.type !== "record" && input.type !== "recordList") continue;
+          const tableId = workflow.plan.bindings[`inputs.${input.name}.table`];
+          if (typeof tableId !== "string") return c.json({ message: "Workflow input table is unavailable" }, 400);
+          tableIds.add(tableId);
+        }
+        const tables: Array<{ id: string; shortId: string; name: string }> = [];
+        for (const tableId of tableIds) {
+          const gate = await gateAt(c, { baseId: dashboard.baseId, tableId }, "read");
+          if (!gate.ok) return c.json({ message: "You cannot read a workflow input table" }, 403);
+          const table = await getTable(tableId);
+          if (!table || table.baseId !== dashboard.baseId || table.deletedAt !== null) {
+            return c.json({ message: "Workflow input table is unavailable" }, 400);
+          }
+          tables.push({ id: table.id, shortId: table.shortId, name: table.name });
+        }
+        return c.json({
+          workflow: { id: workflow.id, name: workflow.name, plan: dashboardPromptPlan(workflow) },
+          tables,
+        });
+      },
+    )
+
     .post(
       "/:dashboardId/widgets/:widgetId/run",
       describeRoute({
@@ -294,6 +395,7 @@ export const createDashboardsApi = (
           500: jsonResponse(ErrorResponseSchema, "Workflow invocation failed"),
         },
       }),
+      v("json", DashboardWorkflowRunSchema),
       async (c) => {
         const dashboardId = uuidParam(c, "dashboardId");
         if (!dashboardId) return c.json({ message: "Invalid dashboard id" }, 400);
@@ -314,7 +416,7 @@ export const createDashboardsApi = (
           mode: "execute",
           expectedRevision: launcher.validatedRevision,
           principal: currentWorkflowPrincipal(c),
-          inputs: {},
+          inputs: c.req.valid("json").inputs,
           authorization: { kind: "dashboard-widget", dashboardId: dashboard.id, dashboardWidgetId: widget.id },
         });
         if (!result.ok) return respond(c, () => Promise.resolve(result));

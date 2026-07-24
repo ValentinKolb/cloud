@@ -99,7 +99,12 @@ export type GridsWorkflowLauncherConfig =
       resolve: { by: "scanCode" | "field"; field?: string };
     }
   | { kind: "bulk"; input: string }
-  | { kind: "dashboard"; label?: string; inputBindings?: Record<string, WorkflowJsonValue> };
+  | {
+      kind: "dashboard";
+      label?: string;
+      inputMode: "fixed" | "prompt";
+      inputBindings?: Record<string, WorkflowJsonValue>;
+    };
 
 export type GridsWorkflowLauncher = {
   id: string;
@@ -260,9 +265,19 @@ const DashboardLauncherConfigSchema = z
   .object({
     kind: z.literal("dashboard"),
     label: z.string().trim().min(1).max(80).optional(),
+    inputMode: z.enum(["fixed", "prompt"]).default("fixed"),
     inputBindings: z.record(z.string(), z.json()).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    if (config.inputMode === "prompt" && Object.keys(config.inputBindings ?? {}).length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["inputBindings"],
+        message: "prompt dashboard launchers do not accept fixed input bindings",
+      });
+    }
+  });
 
 export const GridsWorkflowLauncherConfigSchema = z.discriminatedUnion("kind", [
   ScannerLauncherConfigSchema,

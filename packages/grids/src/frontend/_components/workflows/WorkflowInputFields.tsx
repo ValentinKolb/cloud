@@ -1,7 +1,7 @@
 import { DatePicker, DateTimePicker, MultiSelectInput, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
-import type { WorkflowIrInput } from "@valentinkolb/cloud/workflows";
+import type { WorkflowBoundPlan, WorkflowIrInput } from "@valentinkolb/cloud/workflows";
 import { For, Match, Show, Switch } from "solid-js";
-import type { Table, Workflow } from "../../../service";
+import type { Table } from "../../../service";
 import RecordPicker from "../records/RecordPicker";
 import { fetchRecordLookup } from "../records/record-lookup";
 import {
@@ -14,15 +14,19 @@ import {
 } from "./workflow-trigger-actions";
 
 type Props = {
-  workflow: Workflow;
-  tables: Table[];
+  workflow: { plan: Pick<WorkflowBoundPlan, "inputs" | "bindings"> };
+  tables: Array<Pick<Table, "id" | "shortId" | "name">>;
   draft: () => WorkflowRunInputDraft;
   onValueChange: (name: string, value: WorkflowRunInputDraftValue) => void;
   errors?: () => Record<string, string>;
   emptyText?: string;
 };
 
-const resolveInputTable = (workflow: Workflow, input: WorkflowIrInput, tables: Table[]): Table | null => {
+const resolveInputTable = (
+  workflow: { plan: Pick<WorkflowBoundPlan, "bindings"> },
+  input: WorkflowIrInput,
+  tables: Array<Pick<Table, "id" | "shortId" | "name">>,
+): Pick<Table, "id" | "shortId" | "name"> | null => {
   const bound = workflow.plan.bindings[`inputs.${input.name}.table`];
   const reference = (typeof bound === "string" ? bound : input.config.table)?.toString().trim().toLowerCase();
   if (!reference) return null;

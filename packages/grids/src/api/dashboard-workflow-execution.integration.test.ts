@@ -311,7 +311,7 @@ describe("dashboard-scoped workflow execution", () => {
           baseId,
           workflowId,
           name: "Dashboard launcher",
-          config: { kind: "dashboard" as const },
+          config: { kind: "dashboard" as const, inputMode: "fixed" as const },
           enabled: true,
           validatedRevision: 4,
           diagnostics: [],
@@ -324,7 +324,7 @@ describe("dashboard-scoped workflow execution", () => {
       }),
     );
 
-    const response = await app.request(`/api/dashboards/${dashboardId}/widgets/${widgetId}/run`, { method: "POST" });
+    const response = await app.request(`/api/dashboards/${dashboardId}/widgets/${widgetId}/run`, jsonPost({ inputs: {} }));
 
     expect(response.status).toBe(200);
     expect(invokeDashboardLauncher).toHaveBeenCalledTimes(1);
@@ -349,6 +349,91 @@ describe("dashboard-scoped workflow execution", () => {
       },
       authorization: { kind: "dashboard-widget", dashboardId, dashboardWidgetId: widgetId },
     });
+  });
+
+  test("returns only the declared prompt input contract and forwards submitted values", async () => {
+    const user = testUser(uuid());
+    const baseId = uuid();
+    const dashboardId = uuid();
+    const workflowId = uuid();
+    const launcherId = uuid();
+    const widgetId = "widget-prompt";
+    const plan = dashboardWorkflowPlan();
+    plan.inputs = [{ name: "message", type: "text", config: { label: "Message", required: true } }];
+    const workflow = {
+      id: workflowId,
+      shortId: "W1234",
+      baseId,
+      name: "Prompt workflow",
+      description: null,
+      source: "private workflow source",
+      plan,
+      diagnostics: [],
+      enabled: true,
+      position: 0,
+      revision: 2,
+      ownerUserId: null,
+      deletedAt: null,
+      createdAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:00.000Z",
+    };
+    const invokeDashboardLauncher = mock<typeof invokeDashboardLauncherService>(async () =>
+      ok({
+        runId: uuid(),
+        workflowId,
+        revision: "2",
+        mode: "execute" as const,
+        channel: "dashboard" as const,
+        created: true,
+        status: "queued" as const,
+      }),
+    );
+    const app = new Hono<AuthContext>().route(
+      "/api/dashboards",
+      createDashboardsApi({
+        requireAuthenticated: authenticateAs(user),
+        getDashboard: mock(async () => dashboardWithLauncher(baseId, dashboardId, widgetId, launcherId)),
+        getLauncher: mock(async () => ({
+          id: launcherId,
+          shortId: "L1234",
+          baseId,
+          workflowId,
+          name: "Prompt launcher",
+          config: { kind: "dashboard" as const, inputMode: "prompt" as const },
+          enabled: true,
+          validatedRevision: 2,
+          diagnostics: [],
+          deletedAt: null,
+          createdAt: "2026-07-15T00:00:00.000Z",
+          updatedAt: "2026-07-15T00:00:00.000Z",
+        })),
+        getWorkflow: mock(async () => workflow),
+        invokeDashboardLauncher,
+        canReadDashboard: mock(async () => true),
+      }),
+    );
+
+    const contractResponse = await app.request(`/api/dashboards/${dashboardId}/widgets/${widgetId}/input-contract`);
+    expect(contractResponse.status).toBe(200);
+    expect(await contractResponse.json()).toEqual({
+      workflow: {
+        id: workflowId,
+        name: "Prompt workflow",
+        plan: { inputs: plan.inputs, bindings: {} },
+      },
+      tables: [],
+    });
+
+    const runResponse = await app.request(
+      `/api/dashboards/${dashboardId}/widgets/${widgetId}/run`,
+      jsonPost({ inputs: { message: "Run report" } }),
+    );
+    expect(runResponse.status).toBe(200);
+    expect(invokeDashboardLauncher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputs: { message: "Run report" },
+      }),
+    );
   });
 
   test("invokes the saved scanner launcher without accepting arbitrary workflow inputs", async () => {
@@ -458,9 +543,10 @@ describe("dashboard-scoped workflow execution", () => {
       );
       expect(direct.status).toBe(403);
 
-      const dashboardRun = await app.request(`/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/run`, {
-        method: "POST",
-      });
+      const dashboardRun = await app.request(
+        `/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/run`,
+        jsonPost({ inputs: {} }),
+      );
       expect(dashboardRun.status).toBe(200);
       const body = (await dashboardRun.json()) as {
         id: string;

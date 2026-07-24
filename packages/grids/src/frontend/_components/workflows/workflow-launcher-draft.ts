@@ -4,11 +4,25 @@ import { workflowInputLabel, workflowInputRequired } from "./workflow-trigger-ac
 
 export const dashboardLauncherConfigForSave = (
   launcher?: GridsWorkflowLauncher,
+  inputMode: "fixed" | "prompt" = "fixed",
   inputBindings?: Record<string, WorkflowJsonValue>,
 ): Extract<GridsWorkflowLauncherConfig, { kind: "dashboard" }> =>
-  launcher?.config.kind === "dashboard"
-    ? { ...launcher.config, ...(inputBindings === undefined ? {} : { inputBindings }) }
-    : { kind: "dashboard", ...(inputBindings === undefined ? {} : { inputBindings }) };
+  inputMode === "prompt"
+    ? {
+        kind: "dashboard",
+        ...(launcher?.config.kind === "dashboard" && launcher.config.label ? { label: launcher.config.label } : {}),
+        inputMode,
+      }
+    : {
+        kind: "dashboard",
+        ...(launcher?.config.kind === "dashboard" && launcher.config.label ? { label: launcher.config.label } : {}),
+        inputMode,
+        ...(inputBindings === undefined
+          ? launcher?.config.kind === "dashboard" && launcher.config.inputBindings
+            ? { inputBindings: launcher.config.inputBindings }
+            : {}
+          : { inputBindings }),
+      };
 
 export const missingLauncherRequiredInputs = (
   inputs: WorkflowIrInput[],

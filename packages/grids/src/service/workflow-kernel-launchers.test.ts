@@ -291,12 +291,15 @@ describe("workflow kernel bulk launchers", () => {
 });
 
 describe("workflow kernel dashboard launchers", () => {
-  test("combines non-overlapping bindings for shared invocation validation", async () => {
+  test("uses only stored bindings for fixed launchers", async () => {
     const configuredWorkflow = workflow("message", "text");
     configuredWorkflow.plan.inputs.push({ name: "count", type: "number", config: {} });
-    const item = setup(launcher({ kind: "dashboard", inputBindings: { message: "Run report" } }), configuredWorkflow);
+    const item = setup(
+      launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { message: "Run report", count: 2 } }),
+      configuredWorkflow,
+    );
 
-    const result = await invokeDashboardLauncher(dashboardInput({ inputs: { count: 2 } }), item.deps);
+    const result = await invokeDashboardLauncher(dashboardInput(), item.deps);
 
     expect(result.ok).toBe(true);
     expect(item.invokeWorkflow).toHaveBeenCalledWith(
@@ -308,8 +311,21 @@ describe("workflow kernel dashboard launchers", () => {
     );
   });
 
+  test("uses only runtime inputs for prompt launchers", async () => {
+    const item = setup(launcher({ kind: "dashboard", inputMode: "prompt" }), workflow("message", "text"));
+
+    const result = await invokeDashboardLauncher(dashboardInput({ inputs: { message: "Run report" } }), item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.invokeWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputs: { message: "Run report" },
+      }),
+    );
+  });
+
   test("passes server-trusted dashboard widget authorization to the runtime", async () => {
-    const item = setup(launcher({ kind: "dashboard" }), workflow());
+    const item = setup(launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { record: recordId } }), workflow());
     const authorization = {
       kind: "dashboard-widget" as const,
       dashboardId: "90000000-0000-4000-8000-000000000009",
@@ -323,18 +339,24 @@ describe("workflow kernel dashboard launchers", () => {
     expect(item.invokeWorkflow).toHaveBeenCalledWith(expect.objectContaining({ launcherId, authorization }));
   });
 
-  test("rejects unknown and overridden launcher bindings", async () => {
-    const unknown = setup(launcher({ kind: "dashboard", inputBindings: { missing: true } }), workflow("message", "text"));
-    const duplicate = setup(launcher({ kind: "dashboard", inputBindings: { message: "configured" } }), workflow("message", "text"));
+  test("rejects unknown bindings and runtime inputs for fixed launchers", async () => {
+    const unknown = setup(
+      launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { missing: true } }),
+      workflow("message", "text"),
+    );
+    const fixed = setup(
+      launcher({ kind: "dashboard", inputMode: "fixed", inputBindings: { message: "configured" } }),
+      workflow("message", "text"),
+    );
 
     const unknownResult = await invokeDashboardLauncher(dashboardInput(), unknown.deps);
-    const duplicateResult = await invokeDashboardLauncher(dashboardInput({ inputs: { message: "override" } }), duplicate.deps);
+    const fixedResult = await invokeDashboardLauncher(dashboardInput({ inputs: { message: "override" } }), fixed.deps);
 
     expect(unknownResult.ok).toBe(false);
     if (!unknownResult.ok) expect(unknownResult.error.message).toContain("unknown workflow input");
-    expect(duplicateResult.ok).toBe(false);
-    if (!duplicateResult.ok) expect(duplicateResult.error.message).toContain("cannot be overridden");
+    expect(fixedResult.ok).toBe(false);
+    if (!fixedResult.ok) expect(fixedResult.error.message).toContain("do not accept runtime inputs");
     expect(unknown.invokeWorkflow).not.toHaveBeenCalled();
-    expect(duplicate.invokeWorkflow).not.toHaveBeenCalled();
+    expect(fixed.invokeWorkflow).not.toHaveBeenCalled();
   });
 });

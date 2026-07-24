@@ -26,6 +26,7 @@ import {
   readJsonInput,
   requireRestArg,
 } from "./runtime";
+import { WORKFLOW_INPUTS_INPUT } from "./workflows-support";
 
 type DashboardWorkflowRun = {
   id: string;
@@ -337,15 +338,25 @@ export const dashboardCommands = [
     args: {
       args: arg.rest({ valueLabel: "base-dashboard-widget", description: "Optional base, then dashboard and widget id." }),
     },
-    flags: { ...baseFlag, ...dashboardFlag, widget: flag.string({ description: "Dashboard widget id" }) },
+    flags: {
+      ...baseFlag,
+      ...dashboardFlag,
+      widget: flag.string({ description: "Dashboard widget id" }),
+      inputs: WORKFLOW_INPUTS_INPUT,
+    },
+    examples: [
+      "cld grids dashboards widgets run Inventory Overview widget-1",
+      'cld grids dashboards widgets run Inventory Overview widget-1 --inputs \'{"loan":"00000000-0000-4000-8000-000000000001"}\'',
+    ],
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.dashboard && flags.widget ? 0 : 2);
       const dashboard = await resolveDashboard(ctx, base.id, flags.dashboard ?? requireRestArg(rest, 0, "dashboard"));
       const widgetId = flags.widget ?? requireRestArg(flags.dashboard ? rest : rest.slice(1), 0, "widget");
+      const inputs = (await readJsonInput<Record<string, unknown>>(flags.inputs, "workflow inputs JSON", false)) ?? {};
       const run = await readApi<DashboardWorkflowRun>(
         ctx,
         `/dashboards/${encodeURIComponent(dashboard.id)}/widgets/${encodeURIComponent(widgetId)}/run`,
-        jsonRequest("POST"),
+        jsonRequest("POST", { inputs }),
       );
       printJsonOrMessage(ctx, run, `Queued workflow run ${run.id} (${run.status}).`);
     },

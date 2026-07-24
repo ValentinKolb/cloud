@@ -1,14 +1,15 @@
 import { dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
+import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createMemo, createSignal } from "solid-js";
-import type { Table, Workflow } from "../../../service";
+import type { Table } from "../../../service";
 import { WorkflowInputFields } from "./WorkflowInputFields";
 import { buildWorkflowRunInput, type WorkflowRunInputDraft, type WorkflowRunInputDraftValue } from "./workflow-trigger-actions";
 
 type Props = {
-  workflow: Workflow;
-  tables: Table[];
+  workflow: { name: string; plan: Pick<WorkflowBoundPlan, "inputs" | "bindings"> };
+  tables: Array<Pick<Table, "id" | "shortId" | "name">>;
   mode: "execute" | "dryRun";
-  close: (input?: Record<string, unknown>) => void;
+  close: (input?: Record<string, WorkflowJsonValue>) => void;
 };
 
 function WorkflowRunInputDialog(props: Props) {
@@ -53,10 +54,13 @@ function WorkflowRunInputDialog(props: Props) {
 }
 
 export const requestWorkflowRunInput = async (args: {
-  workflow: Workflow;
-  tables: Table[];
+  workflow: { name: string; plan: Pick<WorkflowBoundPlan, "inputs" | "bindings"> };
+  tables: Array<Pick<Table, "id" | "shortId" | "name">>;
   mode: "execute" | "dryRun";
-}): Promise<Record<string, unknown> | undefined> => {
+}): Promise<Record<string, WorkflowJsonValue> | undefined> => {
   if (args.workflow.plan.inputs.length === 0) return {};
-  return dialogCore.open<Record<string, unknown>>((close) => <WorkflowRunInputDialog {...args} close={close} />, panelDialogOptions);
+  return dialogCore.open<Record<string, WorkflowJsonValue>>(
+    (close) => <WorkflowRunInputDialog {...args} close={close} />,
+    panelDialogOptions,
+  );
 };

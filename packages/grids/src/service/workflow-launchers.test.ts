@@ -13,10 +13,20 @@ const workflow = {
 
 describe("workflow launcher validation", () => {
   test("requires complete type-safe dashboard input bindings", () => {
-    expect(validateLauncherConfig(workflow, { kind: "dashboard", inputBindings: { count: "many" } })).toEqual([
+    expect(validateLauncherConfig(workflow, { kind: "dashboard", inputMode: "fixed", inputBindings: { count: "many" } })).toEqual([
       expect.objectContaining({ code: "launcher.input.invalid", message: 'Workflow input "message" is required' }),
       expect.objectContaining({ code: "launcher.input.invalid", message: 'Workflow input "count" must be a finite number' }),
     ]);
-    expect(validateLauncherConfig(workflow, { kind: "dashboard", inputBindings: { message: "Run", count: 2 } })).toEqual([]);
+    expect(
+      validateLauncherConfig(workflow, {
+        kind: "dashboard",
+        inputMode: "fixed",
+        inputBindings: { message: "Run", count: 2 },
+      }),
+    ).toEqual([]);
+  });
+
+  test("accepts runtime input launchers without fixed values", () => {
+    expect(validateLauncherConfig(workflow, { kind: "dashboard", inputMode: "prompt" })).toEqual([]);
   });
 });

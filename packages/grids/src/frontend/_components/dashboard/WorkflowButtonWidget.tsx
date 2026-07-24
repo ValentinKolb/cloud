@@ -1,8 +1,10 @@
 import { dialogCore, PanelDialog, panelDialogWorkspaceOptions, toast } from "@valentinkolb/cloud/ui";
+import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createSignal, lazy, Show, Suspense } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { WorkflowButtonWidget as WorkflowButtonWidgetConfig } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
+import { requestWorkflowRunInput } from "../workflows/WorkflowRunInputDialog";
 import type { WorkflowScannerState } from "../workflows/WorkflowScannerSurface";
 import DashboardWidgetState from "./DashboardWidgetState";
 import type { WidgetData } from "./widget-data";
@@ -14,6 +16,15 @@ type Props = {
   baseShortId: string;
   widget: WorkflowButtonWidgetConfig;
   data: WidgetData;
+};
+
+type DashboardWorkflowInputContract = {
+  workflow: {
+    id: string;
+    name: string;
+    plan: Pick<WorkflowBoundPlan, "inputs" | "bindings">;
+  };
+  tables: Array<{ id: string; shortId: string; name: string }>;
 };
 
 export default function WorkflowButtonWidget(props: Props) {
@@ -73,8 +84,22 @@ export default function WorkflowButtonWidget(props: Props) {
     }
     setRunning(true);
     try {
+      let inputs: Record<string, WorkflowJsonValue> = {};
+      if (data()?.inputMode === "prompt") {
+        const contractResponse: Response = await apiClient.dashboards[":dashboardId"].widgets[":widgetId"]["input-contract"].$get({
+          param: { dashboardId: props.dashboardId, widgetId: props.widget.id },
+        });
+        if (!contractResponse.ok) {
+          throw new Error(await errorMessage(contractResponse, "Workflow inputs could not be loaded"));
+        }
+        const contract = (await contractResponse.json()) as DashboardWorkflowInputContract;
+        const prompted = await requestWorkflowRunInput({ workflow: contract.workflow, tables: contract.tables, mode: "execute" });
+        if (prompted === undefined) return;
+        inputs = prompted;
+      }
       const res = await apiClient.dashboards[":dashboardId"].widgets[":widgetId"].run.$post({
         param: { dashboardId: props.dashboardId, widgetId: props.widget.id },
+        json: { inputs },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Workflow could not be started"));
       toast.success("Workflow started");

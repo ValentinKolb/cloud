@@ -78,6 +78,9 @@ function LauncherEditor(props: {
   const [field, setField] = createSignal(
     initial.config.kind === "scanner" && initial.config.resolve.by === "field" ? (initial.config.resolve.field ?? "") : "",
   );
+  const [dashboardInputMode, setDashboardInputMode] = createSignal<"fixed" | "prompt">(
+    initial.config.kind === "dashboard" ? initial.config.inputMode : "fixed",
+  );
   const [dashboardBindings, setDashboardBindings] = createSignal<WorkflowRunInputDraft>(
     workflowInputDraftFromValues(
       props.workflow.plan.inputs,
@@ -95,7 +98,7 @@ function LauncherEditor(props: {
     () =>
       name().trim().length > 0 &&
       (kind() === "dashboard"
-        ? dashboardValidation().ok
+        ? dashboardInputMode() === "prompt" || dashboardValidation().ok
         : input().length > 0 &&
           missingRequiredInputs().length === 0 &&
           (kind() !== "scanner" || resolveBy() !== "field" || field().trim().length > 0)),
@@ -112,7 +115,11 @@ function LauncherEditor(props: {
     const bindings = dashboardValidation();
     const config: LauncherDraft["config"] =
       kind() === "dashboard"
-        ? dashboardLauncherConfigForSave(props.launcher, bindings.ok ? bindings.input : {})
+        ? dashboardLauncherConfigForSave(
+            props.launcher,
+            dashboardInputMode(),
+            dashboardInputMode() === "fixed" && bindings.ok ? bindings.input : undefined,
+          )
         : kind() === "bulk"
           ? { kind: "bulk", input: input() }
           : {
@@ -167,19 +174,31 @@ function LauncherEditor(props: {
             </Show>
           </Show>
           <Show when={kind() === "dashboard"}>
-            <div class="info-block-info text-sm">Dashboard launchers use these fixed values every time the button runs.</div>
-            <WorkflowInputFields
-              workflow={props.workflow}
-              tables={props.tables}
-              draft={dashboardBindings}
-              onValueChange={setDashboardBinding}
-              errors={dashboardErrors}
-              emptyText="This workflow does not need fixed inputs."
+            <SelectInput
+              label="Inputs"
+              description="Use fixed values for a one-click action, or ask the user when the button runs."
+              required
+              options={[
+                { id: "fixed", label: "Fixed values" },
+                { id: "prompt", label: "Ask when run" },
+              ]}
+              value={dashboardInputMode}
+              onChange={(value) => setDashboardInputMode(value as "fixed" | "prompt")}
             />
-            <Show when={!dashboardValidation().ok}>
-              <div class="info-block-danger text-sm" role="alert">
-                Provide valid fixed values for every required workflow input.
-              </div>
+            <Show when={dashboardInputMode() === "fixed"}>
+              <WorkflowInputFields
+                workflow={props.workflow}
+                tables={props.tables}
+                draft={dashboardBindings}
+                onValueChange={setDashboardBinding}
+                errors={dashboardErrors}
+                emptyText="This workflow does not need input."
+              />
+              <Show when={!dashboardValidation().ok}>
+                <div class="info-block-danger text-sm" role="alert">
+                  Provide valid fixed values for every required workflow input.
+                </div>
+              </Show>
             </Show>
           </Show>
           <Show when={kind() === "scanner"}>

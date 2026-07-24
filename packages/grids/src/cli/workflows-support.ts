@@ -70,6 +70,7 @@ export const EMAIL_TEMPLATE_REFERENCE = {
     name: "Template label shown in workflow email actions.",
     subject: "Liquid subject template.",
     html: "Liquid HTML email body. There is no plain-text fallback field.",
+    sampleData: "JSON object stored with the template and exposed under data in the editor preview.",
     enabled: "Disabled templates cannot be selected in normal workflow flows.",
   },
   liquidData: ["workflow.name", "run.id", "data.<key>", "app.name", "business.legalName", "date.iso"],
@@ -77,6 +78,10 @@ export const EMAIL_TEMPLATE_REFERENCE = {
   example: {
     subject: "Loan reminder for {{ data.itemName }}",
     html: "<p>Hello {{ data.customerName }},</p><p>Please return {{ data.itemName }}.</p>",
+    sampleData: {
+      customerName: "Alex Morgan",
+      itemName: "Camera kit",
+    },
     step: "sendEmail:\n  template: Reminder\n  to:\n    - email: ${{ inputs.email }}\n  data:\n    itemName: ${{ inputs.item.Name }}",
   },
 };
@@ -124,6 +129,12 @@ export const WORKFLOW_REFERENCE = {
       operationId: "dashboard-42",
       mode: "execute",
       expectedRevision: 3,
+      inputs: {},
+    },
+    dashboardPrompt: {
+      operationId: "dashboard-43",
+      mode: "execute",
+      expectedRevision: 3,
       inputs: { range: "30d" },
     },
   },
@@ -141,7 +152,12 @@ export const WORKFLOW_REFERENCE = {
     bulk: { name: "Process selection", config: { kind: "bulk", input: "items" }, enabled: true },
     dashboard: {
       name: "Run report",
-      config: { kind: "dashboard", label: "Refresh", inputBindings: { range: "30d" } },
+      config: { kind: "dashboard", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
+      enabled: true,
+    },
+    dashboardPrompt: {
+      name: "Run report",
+      config: { kind: "dashboard", label: "Run", inputMode: "prompt" },
       enabled: true,
     },
   },
@@ -193,7 +209,7 @@ export const resolveWorkflow = async (ctx: CloudCliContext, baseId: string, ref:
 export const listWorkflowLaunchers = (ctx: CloudCliContext, workflowId: string): Promise<{ items: GridsWorkflowLauncher[] }> =>
   readApi<{ items: GridsWorkflowLauncher[] }>(ctx, `/workflows/${encodeURIComponent(workflowId)}/launchers`);
 
-export const resolveWorkflowLauncher = async (ctx: CloudCliContext, workflow: Workflow, ref: string): Promise<GridsWorkflowLauncher> => {
+const resolveWorkflowLauncher = async (ctx: CloudCliContext, workflow: Workflow, ref: string): Promise<GridsWorkflowLauncher> => {
   const launcher = UUID_RE.test(ref)
     ? await readApi<GridsWorkflowLauncher>(ctx, `/workflows/launchers/${encodeURIComponent(ref)}`)
     : exactMatch(

@@ -127,6 +127,13 @@ const migrateDefinitions = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_launchers_workflow
     ON grids.workflow_launchers(workflow_id, kind, created_at, id) WHERE deleted_at IS NULL
   `.simple();
+  await sql`
+    UPDATE grids.workflow_launchers
+    SET config = jsonb_set(config, '{inputMode}', '"fixed"'::jsonb, TRUE),
+        updated_at = now()
+    WHERE kind = 'dashboard'
+      AND NOT (config ? 'inputMode')
+  `.simple();
 };
 
 const migrateRuns = async (sql: SQL): Promise<void> => {

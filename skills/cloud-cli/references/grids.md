@@ -835,7 +835,7 @@ Run commands are `workflow-runs list|get|steps|documents|download-documents`. Em
 
 ### Launchers and email templates
 
-Launchers expose a workflow as a scanner, bulk, or dashboard interaction. Their JSON shapes and invocation bodies are part of `workflows reference`.
+Launchers expose a workflow as a scanner, bulk, or dashboard interaction. A dashboard launcher uses `inputMode: "fixed"` with complete `inputBindings` for a one-click action, or `inputMode: "prompt"` to request the workflow's declared inputs when it runs. Fixed launchers reject runtime inputs; prompt launchers do not store fixed bindings. Their complete JSON shapes and invocation bodies are part of `workflows reference`.
 
 ```bash
 cld grids workflow-launchers create "Check in" --body-file scanner-launcher.json --json
@@ -845,14 +845,12 @@ cld grids workflow-launchers invoke "Check in" Scanner --body-file scan.json --j
 Commands are `workflow-launchers list|create|update|delete|invoke`. Launcher deletion requires `--yes`.
 
 Workflow emails render a Liquid subject and HTML body. There is no plain-text template field.
+The optional `sampleData` JSON object is stored with the template and available as `data` in editor previews. It does not change runtime email data supplied by `sendEmail`.
 
 ```bash
 cld grids email-templates reference
 cld grids email-templates create \
-  --name Reminder \
-  --subject 'Reminder: {{ data.itemName }}' \
-  --html '<p>{{ data.itemName }}</p>' \
-  --enabled \
+  --body '{"name":"Reminder","subject":"Reminder: {{ data.itemName }}","html":"<p>{{ data.itemName }}</p>","sampleData":{"itemName":"Camera kit"},"enabled":true}' \
   --json
 ```
 
