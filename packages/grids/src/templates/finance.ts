@@ -18,11 +18,11 @@ const monthlySpendSource = () =>
 export const financeTemplate: GridTemplate = {
   id: "finance",
   name: "Personal finance",
-  description: "Track spending with budgets, direct GQL reporting, receipts, email, and a transaction workflow.",
+  description: "Track accounts, purchases, budgets, and receipt processing in one place.",
   highlights: [
     "Transactions, budgets, and a purchase form",
-    "Joined spending reports powered by direct GQL",
-    "Receipt email workflow with transaction scanning",
+    "Spending, budget, and merchant overview",
+    "Guided receipt processing and email delivery",
   ],
   icon: "ti ti-wallet",
   baseName: "Personal Finance",
@@ -126,7 +126,7 @@ export const financeTemplate: GridTemplate = {
         {
           key: "website",
           name: "Website",
-          description: "Merchant website used for references and QR previews.",
+          description: "Merchant website kept as a transaction reference.",
           type: "text",
           config: { regex: "^https?://.+" },
           icon: "ti ti-world",
@@ -576,10 +576,10 @@ export const financeTemplate: GridTemplate = {
       ),
       ui: {
         columns: [
-          { fieldId: field("transactions.transaction_ref"), format: { kind: "barcode", bcid: "code128", showText: true } },
+          { fieldId: field("transactions.transaction_ref") },
           { fieldId: field("transactions.date") },
           { fieldId: field("transactions.merchant") },
-          { fieldId: field("transactions.merchant_website"), label: "Merchant QR", format: { kind: "barcode", bcid: "qrcode" } },
+          { fieldId: field("transactions.merchant_website"), label: "Merchant website" },
           { fieldId: field("transactions.category") },
           { fieldId: field("transactions.type") },
           { fieldId: field("transactions.amount") },
@@ -737,6 +737,11 @@ export const financeTemplate: GridTemplate = {
   <p style="margin:24px 0;"><a href="{{ data.receipt.url }}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;">Download receipt</a></p>
   <p style="color:#6b7280;font-size:14px;">This private link expires automatically.</p>
 </main>`,
+      sampleData: {
+        reference: "TX-2026-0042",
+        merchant: "Office Supply GmbH",
+        receipt: { url: "https://cloud.example.org/share/grids/documents/example" },
+      },
       enabled: true,
     },
   ],
@@ -807,10 +812,10 @@ steps:
   ],
   workflowLaunchers: [
     {
-      key: "clear_and_send_receipt_scanner",
+      key: "clear_and_send_receipt_dashboard",
       workflow: "clear_and_send_receipt",
-      name: "Scan transaction to send receipt",
-      config: { kind: "scanner", input: "transaction", resolve: { by: "field", field: "Transaction reference" } },
+      name: "Choose transaction to process receipt",
+      config: { kind: "dashboard", inputMode: "prompt" },
       enabled: true,
     },
   ],
@@ -1021,9 +1026,9 @@ steps:
                 id: "w_send_receipt",
                 kind: "workflow-button",
                 title: "Process a receipt",
-                description: "Scan a transaction reference to send its receipt and mark it cleared.",
-                buttonLabel: "Open transaction scanner",
-                launcherId: launcher("clear_and_send_receipt_scanner"),
+                description: "Choose an expense to send its receipt and mark it cleared.",
+                buttonLabel: "Choose transaction",
+                launcherId: launcher("clear_and_send_receipt_dashboard"),
                 span: 12,
               },
             ],

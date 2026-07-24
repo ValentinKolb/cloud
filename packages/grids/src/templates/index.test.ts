@@ -19,7 +19,7 @@ import { fieldTypeRegistry, getRecordWritableFieldType } from "../field-types";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { type DslResolverContext, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { renderDocumentHtml, renderDocumentSource, validateTemplateWrite } from "../service/documents";
-import { validateEmailTemplateWrite } from "../service/email-templates";
+import { renderEmailTemplate, validateEmailTemplateWrite } from "../service/email-templates";
 import type { Field } from "../service/types";
 import { buildWorkflowCatalog } from "../service/workflow-catalog";
 import { validateLauncherConfig } from "../service/workflow-launchers";
@@ -307,7 +307,7 @@ describe("built-in grid templates", () => {
     expect(bookshop?.name).toBe("Bookshop");
   });
 
-  test("finance merchant QR column targets merchant websites", () => {
+  test("finance merchant website lookup targets usable URLs", () => {
     const finance = templates.find((template) => template.id === "finance");
     expect(finance, "finance template").toBeDefined();
     if (!finance) return;
@@ -322,11 +322,13 @@ describe("built-in grid templates", () => {
 
     const recentTransactions = finance.views?.find((view) => view.key === "recent_transactions");
     const columns = (recentTransactions?.ui as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [];
-    const qrColumn = columns.find(
+    const websiteColumn = columns.find(
       (column) => column.fieldId && isRef(column.fieldId) && column.fieldId.key === "transactions.merchant_website",
     );
-    expect(qrColumn?.label).toBe("Merchant QR");
-    expect(qrColumn?.format).toEqual({ kind: "barcode", bcid: "qrcode" });
+    expect(websiteColumn).toEqual({
+      fieldId: field("transactions.merchant_website"),
+      label: "Merchant website",
+    });
 
     const merchantRecords = (finance.records ?? []).filter((record) => record.table === "merchants");
     expect(merchantRecords.length).toBeGreaterThan(0);
@@ -451,6 +453,13 @@ describe("built-in grid templates", () => {
     expect(workflow).toContain("Invoice sent");
     expect(workflow).toContain("Replace the sample customer email");
     expect(workflow).toContain("Invoice sent: true");
+
+    const launcher = template.workflowLaunchers?.find((item) => item.key === "send_order_invoice_dashboard");
+    expect(launcher?.config).toEqual({ kind: "dashboard", inputMode: "prompt" });
+    const orderNumberColumn = template.views
+      ?.flatMap((item) => (item.ui as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [])
+      .find((column) => isRef(column.fieldId) && column.fieldId.key === "orders.order_no");
+    expect(orderNumberColumn).toEqual({ fieldId: field("orders.order_no") });
   });
 
   test("inventory agreement delivery requires explicit approval and is safe to replay", () => {
@@ -481,6 +490,25 @@ describe("built-in grid templates", () => {
     expect(workflow).not.toContain("Status: [approved]");
     expect(workflow).toContain("Replace the sample requester email");
 
+    const agreementLauncher = template.workflowLaunchers?.find((item) => item.key === "send_loan_agreement_dashboard");
+    expect(agreementLauncher?.config).toEqual({ kind: "dashboard", inputMode: "prompt" });
+    const defectWorkflow = template.workflows?.find((item) => item.key === "report_item_defect")?.source ?? "";
+    expect(defectWorkflow).toContain("is already in maintenance");
+    expect(defectWorkflow).toContain("Status: [maintenance]");
+    expect(defectWorkflow).toContain("Condition: [repair]");
+    const defectLauncher = template.workflowLaunchers?.find((item) => item.key === "report_item_defect_scanner");
+    expect(defectLauncher?.config).toEqual({
+      kind: "scanner",
+      input: "item",
+      resolve: { by: "field", field: "Asset ID" },
+    });
+    expect(template.documentTemplates?.find((item) => item.key === "asset_label")).toMatchObject({
+      table: "items",
+      starterId: "label",
+      name: "Asset label",
+      enabled: true,
+    });
+
     const valueWidget = dashboardCells(template).find((cell) => cell.id === "w_value");
     expect(valueWidget).toMatchObject({
       kind: "stat",
@@ -488,9 +516,8 @@ describe("built-in grid templates", () => {
       valueFormat: { style: "number", decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
     });
     const openLoans = template.views?.find((item) => item.key === "open_loans");
-    expect((openLoans?.ui as { columns?: Array<Record<string, unknown>> })?.columns?.[0]).toMatchObject({
+    expect((openLoans?.ui as { columns?: Array<Record<string, unknown>> })?.columns?.[0]).toEqual({
       fieldId: field("loans.loan_no"),
-      format: { kind: "barcode", bcid: "code128", showText: true },
     });
   });
 
@@ -519,6 +546,8 @@ describe("built-in grid templates", () => {
     expect(workflow).toContain("Receipts can only be sent for expense transactions");
     expect(workflow).toContain("Receipt sent: true");
     expect(workflow).toContain("Replace the sample receipt email");
+    const launcher = template.workflowLaunchers?.find((item) => item.key === "clear_and_send_receipt_dashboard");
+    expect(launcher?.config).toEqual({ kind: "dashboard", inputMode: "prompt" });
 
     const budgetWidget = dashboardCells(template).find((cell) => cell.id === "w_budget");
     const budgetSource = resolveTemplateGqlValue(
@@ -530,10 +559,25 @@ describe("built-in grid templates", () => {
     expect((template.records ?? []).some((item) => item.key === "budgets.previous_groceries")).toBe(true);
 
     const recentTransactions = template.views?.find((item) => item.key === "recent_transactions");
-    expect((recentTransactions?.ui as { columns?: Array<Record<string, unknown>> })?.columns?.[0]).toMatchObject({
+    expect((recentTransactions?.ui as { columns?: Array<Record<string, unknown>> })?.columns?.[0]).toEqual({
       fieldId: field("transactions.transaction_ref"),
-      format: { kind: "barcode", bcid: "code128", showText: true },
     });
+  });
+
+  test("scanner examples use durable physical identifiers", () => {
+    const scanners = templates.flatMap((template) =>
+      (template.workflowLaunchers ?? [])
+        .filter((launcher) => launcher.config.kind === "scanner")
+        .map((launcher) => ({ template: template.id, key: launcher.key, config: launcher.config })),
+    );
+
+    expect(scanners).toEqual([
+      {
+        template: "inventory",
+        key: "report_item_defect_scanner",
+        config: { kind: "scanner", input: "item", resolve: { by: "field", field: "Asset ID" } },
+      },
+    ]);
   });
 
   test("form input entries include help text", () => {
@@ -884,15 +928,28 @@ describe("built-in grid templates", () => {
         });
       }
 
-      const emailTemplateEntries = (template.emailTemplates ?? []).map((emailTemplate, index) => {
+      const emailTemplateEntries: Array<{ id: string; shortId: string; name: string }> = [];
+      for (const [index, emailTemplate] of (template.emailTemplates ?? []).entries()) {
         expect(CreateEmailTemplateSchema.safeParse(emailTemplate).success, `${template.id}.${emailTemplate.key} email payload`).toBe(true);
         expect(validateEmailTemplateWrite(emailTemplate).ok, `${template.id}.${emailTemplate.key} email Liquid`).toBe(true);
-        return {
+        const rendered = await renderEmailTemplate(emailTemplate, {
+          data: emailTemplate.sampleData ?? {},
+          app: { name: "Cloud", logoSvgDataUrl: "https://cloud.example.org/logo.svg" },
+          business: { legalName: "ACME Operations GmbH", senderLine: "ACME Operations GmbH · Berlin" },
+          workflow: { name: "Example workflow" },
+          run: { id: testUuid(21_000 + index) },
+          date: { iso: "2026-07-24" },
+        });
+        expect(
+          rendered.ok,
+          `${template.id}.${emailTemplate.key} renders with its stored sample data: ${rendered.ok ? "" : rendered.error.message}`,
+        ).toBe(true);
+        emailTemplateEntries.push({
           id: testUuid(20_000 + index),
           shortId: emailTemplate.key,
           name: emailTemplate.name,
-        };
-      });
+        });
+      }
 
       const workflowCatalog = buildWorkflowCatalog({
         tables: template.tables.map((table) => ({ id: ctx.tables.get(table.key) ?? "", shortId: table.key, name: table.name })),

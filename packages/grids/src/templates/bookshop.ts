@@ -4,12 +4,8 @@ import { currentMonthDate, field, form, formula, type GridTemplate, launcher, re
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
   name: "Bookshop",
-  description: "Run a bookshop with catalog data, orders, dashboards, documents, email, and an assisted fulfillment workflow.",
-  highlights: [
-    "Relational catalog and order tracking",
-    "Sales dashboard powered by direct GQL",
-    "Invoice email workflow with order scanning",
-  ],
+  description: "Manage a book catalog, customers, orders, fulfillment, and invoice delivery.",
+  highlights: ["Relational catalog and order tracking", "Sales and fulfillment overview", "Guided invoice generation and email delivery"],
   icon: "ti ti-books",
   baseName: "Bookshop",
   baseDescription: "Inventory and order tracking for a small bookshop.",
@@ -754,7 +750,7 @@ export const bookshopTemplate: GridTemplate = {
       ),
       ui: {
         columns: [
-          { fieldId: field("orders.order_no"), format: { kind: "barcode", bcid: "code128", showText: true } },
+          { fieldId: field("orders.order_no") },
           { fieldId: field("orders.ordered_at") },
           { fieldId: field("orders.customer") },
           { fieldId: field("orders.status") },
@@ -1045,6 +1041,11 @@ export const bookshopTemplate: GridTemplate = {
   <p style="margin:24px 0;"><a href="{{ data.invoice.url }}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;">Download invoice</a></p>
   <p style="color:#6b7280;font-size:14px;">This private link expires automatically.</p>
 </main>`,
+      sampleData: {
+        customerName: "Ada Lovelace",
+        orderNumber: "ORD-2026-0042",
+        invoice: { url: "https://cloud.example.org/share/grids/documents/example" },
+      },
       enabled: true,
     },
   ],
@@ -1115,10 +1116,10 @@ steps:
   ],
   workflowLaunchers: [
     {
-      key: "send_order_invoice_scanner",
+      key: "send_order_invoice_dashboard",
       workflow: "send_order_invoice",
-      name: "Scan order to send invoice",
-      config: { kind: "scanner", input: "order", resolve: { by: "field", field: "Order number" } },
+      name: "Choose order to send invoice",
+      config: { kind: "dashboard", inputMode: "prompt" },
       enabled: true,
     },
   ],
@@ -1318,9 +1319,9 @@ steps:
                 id: "w_send_invoice",
                 kind: "workflow-button",
                 title: "Send an invoice",
-                description: "Scan an order number to generate and email its invoice.",
-                buttonLabel: "Open order scanner",
-                launcherId: launcher("send_order_invoice_scanner"),
+                description: "Choose a ready order to generate and email its invoice.",
+                buttonLabel: "Choose order",
+                launcherId: launcher("send_order_invoice_dashboard"),
                 span: 5,
               },
             ],

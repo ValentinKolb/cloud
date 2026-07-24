@@ -4,11 +4,11 @@ import { currentMonthDate, field, form, formula, type GridTemplate, launcher, re
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
   name: "Inventory",
-  description: "Manage inventory, loans, forms, direct GQL reporting, documents, email, and scanner-assisted agreement delivery.",
+  description: "Track assets, storage locations, equipment loans, agreements, and repairs.",
   highlights: [
     "Assets, kits, locations, and loan requests",
-    "Availability dashboard powered by direct GQL",
-    "Approved-loan agreement delivery with number scanning",
+    "Availability and loan workload overview",
+    "Guided agreement delivery and asset-label defect reporting",
   ],
   icon: "ti ti-packages",
   baseName: "Inventory",
@@ -675,7 +675,7 @@ export const inventoryTemplate: GridTemplate = {
       ),
       ui: {
         columns: [
-          { fieldId: field("loans.loan_no"), format: { kind: "barcode", bcid: "code128", showText: true } },
+          { fieldId: field("loans.loan_no") },
           { fieldId: field("loans.requester_name") },
           { fieldId: field("loans.organization") },
           { fieldId: field("loans.kits") },
@@ -1005,15 +1005,31 @@ export const inventoryTemplate: GridTemplate = {
                 kind: "view",
                 title: "Open loans",
                 source: { kind: "view", viewId: view("open_loans") },
-                span: 6,
+                span: 12,
               },
+            ],
+          },
+          {
+            id: "r_workflows",
+            kind: "row",
+            height: "sm",
+            cells: [
               {
                 id: "w_send_agreement",
                 kind: "workflow-button",
                 title: "Send an agreement",
-                description: "Scan an approved loan number to generate and email its agreement.",
-                buttonLabel: "Open loan scanner",
-                launcherId: launcher("send_loan_agreement_scanner"),
+                description: "Choose an approved loan to generate and email its agreement.",
+                buttonLabel: "Choose loan",
+                launcherId: launcher("send_loan_agreement_dashboard"),
+                span: 6,
+              },
+              {
+                id: "w_report_defect",
+                kind: "workflow-button",
+                title: "Report a damaged item",
+                description: "Scan the barcode on an inventory label to move the item into maintenance.",
+                buttonLabel: "Open asset scanner",
+                launcherId: launcher("report_item_defect_scanner"),
                 span: 6,
               },
             ],
@@ -1023,6 +1039,25 @@ export const inventoryTemplate: GridTemplate = {
     },
   ],
   documentTemplates: [
+    {
+      key: "asset_label",
+      table: "items",
+      starterId: "label",
+      name: "Asset label",
+      description: "Printable inventory label used to identify and scan one item.",
+      source: formula(
+        "from table ",
+        table("items"),
+        "\nselect ",
+        field("items.asset_id"),
+        ", ",
+        field("items.name"),
+        ", ",
+        field("items.location"),
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
+      ),
+      enabled: true,
+    },
     {
       key: "loan_agreement",
       table: "loans",
@@ -1072,6 +1107,12 @@ export const inventoryTemplate: GridTemplate = {
   <p style="margin:24px 0;"><a href="{{ data.agreement.url }}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;">Download agreement</a></p>
   <p style="color:#6b7280;font-size:14px;">This private link expires automatically.</p>
 </main>`,
+      sampleData: {
+        requesterName: "Alex Morgan",
+        loanNumber: "LOAN-2026-0001",
+        dueDate: "31 July 2026",
+        agreement: { url: "https://cloud.example.org/share/grids/documents/example" },
+      },
       enabled: true,
     },
   ],
@@ -1153,13 +1194,47 @@ steps:
       message: "Agreement for loan \${{ inputs.loan.Loan number }} sent."`,
       enabled: true,
     },
+    {
+      key: "report_item_defect",
+      name: "Report damaged item",
+      description: "Moves a scanned inventory item into maintenance and marks it as needing repair.",
+      source: `inputs:
+  item:
+    type: record
+    table: Items
+    label: Inventory item
+    required: true
+steps:
+  - if:
+      equals:
+        - \${{ inputs.item.Status }}
+        - [maintenance]
+    then:
+      - fail:
+          message: "Item \${{ inputs.item.Asset ID }} is already in maintenance."
+  - updateRecord:
+      record: inputs.item
+      set:
+        Status: [maintenance]
+        Condition: [repair]
+  - succeed:
+      message: "Item \${{ inputs.item.Asset ID }} · \${{ inputs.item.Name }} moved to maintenance."`,
+      enabled: true,
+    },
   ],
   workflowLaunchers: [
     {
-      key: "send_loan_agreement_scanner",
+      key: "send_loan_agreement_dashboard",
       workflow: "send_loan_agreement",
-      name: "Scan loan to send agreement",
-      config: { kind: "scanner", input: "loan", resolve: { by: "field", field: "Loan number" } },
+      name: "Choose loan to send agreement",
+      config: { kind: "dashboard", inputMode: "prompt" },
+      enabled: true,
+    },
+    {
+      key: "report_item_defect_scanner",
+      workflow: "report_item_defect",
+      name: "Scan damaged inventory item",
+      config: { kind: "scanner", input: "item", resolve: { by: "field", field: "Asset ID" } },
       enabled: true,
     },
   ],

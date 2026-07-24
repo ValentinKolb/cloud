@@ -109,27 +109,27 @@ describe("built-in template instantiation", () => {
       const expectations = [
         {
           templateId: "bookshop",
-          documentName: "Order invoice",
+          documentNames: ["Order invoice"],
           emailName: "Order invoice ready",
-          workflowName: "Send order invoice",
-          launcherName: "Scan order to send invoice",
-          workflowSteps: 9,
+          workflows: [{ name: "Send order invoice", steps: 9 }],
+          launchers: ["Choose order to send invoice"],
         },
         {
           templateId: "finance",
-          documentName: "Transaction receipt",
+          documentNames: ["Transaction receipt"],
           emailName: "Transaction receipt ready",
-          workflowName: "Clear and send receipt",
-          launcherName: "Scan transaction to send receipt",
-          workflowSteps: 9,
+          workflows: [{ name: "Clear and send receipt", steps: 9 }],
+          launchers: ["Choose transaction to process receipt"],
         },
         {
           templateId: "inventory",
-          documentName: "Loan agreement",
+          documentNames: ["Asset label", "Loan agreement"],
           emailName: "Loan agreement ready",
-          workflowName: "Send approved loan agreement",
-          launcherName: "Scan loan to send agreement",
-          workflowSteps: 11,
+          workflows: [
+            { name: "Send approved loan agreement", steps: 11 },
+            { name: "Report damaged item", steps: 3 },
+          ],
+          launchers: ["Choose loan to send agreement", "Scan damaged inventory item"],
         },
       ];
 
@@ -143,7 +143,7 @@ describe("built-in template instantiation", () => {
         if (!created.ok) throw new Error(created.error.message);
 
         try {
-          const [documentTemplate] = await sql<Array<{ name: string; source: string }>>`
+          const documentTemplates = await sql<Array<{ name: string; source: string }>>`
             SELECT dt.name, dt.source
             FROM grids.document_templates dt
             JOIN grids.tables t ON t.id = dt.table_id
@@ -154,12 +154,12 @@ describe("built-in template instantiation", () => {
             FROM grids.email_templates
             WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
           `;
-          const [workflow] = await sql<Array<{ name: string; enabled: boolean; plan: { steps?: unknown[] } }>>`
+          const workflows = await sql<Array<{ name: string; enabled: boolean; plan: { steps?: unknown[] } }>>`
             SELECT name, enabled, plan
             FROM grids.workflows
             WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
           `;
-          const [launcher] = await sql<Array<{ name: string; enabled: boolean; diagnostics: unknown[] }>>`
+          const launchers = await sql<Array<{ name: string; enabled: boolean; diagnostics: unknown[] }>>`
             SELECT name, enabled, diagnostics
             FROM grids.workflow_launchers
             WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
@@ -185,14 +185,27 @@ describe("built-in template instantiation", () => {
 
           const widgets = dashboard?.config.rows?.flatMap((row) => row.cells ?? []) ?? [];
           expect(sampleData?.record_count).toBeGreaterThan(0);
-          expect(documentTemplate?.name).toBe(expected.documentName);
-          expect(documentTemplate?.source).toContain("from table ");
-          expect(documentTemplate?.source).not.toMatch(/\{[0-9a-f-]{36}\}/i);
+          expect(documentTemplates.map((item) => item.name).sort()).toEqual([...expected.documentNames].sort());
+          for (const documentTemplate of documentTemplates) {
+            expect(documentTemplate.source).toContain("from table ");
+            expect(documentTemplate.source).not.toMatch(/\{[0-9a-f-]{36}\}/i);
+          }
           expect(emailTemplate?.name).toBe(expected.emailName);
           expect(emailTemplate?.subject).toContain("{{");
-          expect(workflow).toMatchObject({ name: expected.workflowName, enabled: true });
-          expect(workflow?.plan.steps).toHaveLength(expected.workflowSteps);
-          expect(launcher).toMatchObject({ name: expected.launcherName, enabled: true, diagnostics: [] });
+          expect(workflows).toHaveLength(expected.workflows.length);
+          for (const expectedWorkflow of expected.workflows) {
+            const workflow = workflows.find((item) => item.name === expectedWorkflow.name);
+            expect(workflow).toMatchObject({ name: expectedWorkflow.name, enabled: true });
+            expect(workflow?.plan.steps).toHaveLength(expectedWorkflow.steps);
+          }
+          expect(launchers).toHaveLength(expected.launchers.length);
+          for (const launcherName of expected.launchers) {
+            expect(launchers.find((item) => item.name === launcherName)).toMatchObject({
+              name: launcherName,
+              enabled: true,
+              diagnostics: [],
+            });
+          }
           expect(
             widgets.some((widget) => widget.source?.kind === "gql"),
             `${expected.templateId} direct GQL widget`,
