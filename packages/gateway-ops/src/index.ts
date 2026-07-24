@@ -10,6 +10,7 @@ import { gatewayOpsHelp } from "./help";
 import { gatewayOpsLifecycle } from "./lifecycle";
 import alertsPage from "./observability/alerts/page";
 import { runScheduleNowAction } from "./observability/jobs/actions";
+import jobsApiRoutes from "./observability/jobs/api";
 import jobsPage from "./observability/jobs/page";
 import loggingApiRoutes from "./observability/logs/api";
 import logsPage from "./observability/logs/page";
@@ -20,6 +21,7 @@ import notificationsApiRoutes from "./observability/notifications/api";
 import notificationsPage from "./observability/notifications/page";
 import postgresPage from "./observability/postgres/page";
 import redisPage from "./observability/redis/page";
+import telemetryApiRoutes from "./observability/telemetry/api";
 import telemetryPage from "./observability/telemetry/page";
 import { widgetRoutes } from "./widgets";
 
@@ -57,6 +59,10 @@ const router = new Hono<AuthContext>()
   .route("/api/logging/widget", loggingWidgetRoutes)
   .route("/api/logging", loggingApiRoutes)
   .route("/api/notifications", notificationsApiRoutes)
+  // Mounted ahead of the general gateway router, which still owns the older
+  // telemetry summary/apps/events routes.
+  .route("/api/gateway/telemetry", telemetryApiRoutes)
+  .route("/api/gateway/jobs", jobsApiRoutes)
   .route("/api/gateway", apiRoutes);
 
 export default await app.start({
