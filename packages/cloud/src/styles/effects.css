@@ -317,16 +317,24 @@
   padding: 0;
 }
 
-/* A bold-only Markdown line is the explicit section eyebrow used by app help
-   documents. It groups the following heading without drawing a divider. */
-.help-document > p:has(> strong:only-child) {
+/* A bold-only Markdown line is rendered as an explicit section eyebrow by the
+   help renderer. Keep it quiet and readable instead of treating it as body copy. */
+.help-document > .help-eyebrow {
   margin: 2.25rem 0 0.45rem;
-  color: var(--ui-app-accent-text);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  line-height: 1.3;
-  text-transform: uppercase;
+  color: var(--color-zinc-600);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.45;
+}
+
+.dark .help-document > .help-eyebrow {
+  color: var(--color-zinc-300);
+}
+
+.help-document > .help-eyebrow > strong {
+  color: inherit;
+  font-weight: inherit;
 }
 
 .help-document ul,

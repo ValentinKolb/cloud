@@ -594,6 +594,20 @@ const HelpShell = (props: {
                   class="icon-btn"
                   aria-label="Open help in a new browser window"
                   title="Open full-page help"
+                  onClick={(event) => {
+                    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+                    const popup = window.open(
+                      event.currentTarget.href,
+                      "cloud-layout-help",
+                      "popup,width=1120,height=820,resizable=yes,scrollbars=yes",
+                    );
+                    if (!popup) return;
+
+                    event.preventDefault();
+                    popup.opener = null;
+                    popup.focus();
+                  }}
                 >
                   <i class="ti ti-app-window" />
                 </a>

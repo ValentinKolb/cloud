@@ -35,6 +35,14 @@ describe("renderHelpMarkdown", () => {
     expect(html).not.toContain("{icon=");
   });
 
+  test("distinguishes standalone labels from emphasized terms in body copy", () => {
+    const html = renderHelpMarkdown(["**Find exact records**", "", "A **base** contains tables and resources."].join("\n"));
+
+    expect(html).toContain('<p class="help-eyebrow"><strong>Find exact records</strong></p>');
+    expect(html).toContain("<p>A <strong>base</strong> contains tables and resources.</p>");
+    expect(html.match(/class="help-eyebrow"/g)).toHaveLength(1);
+  });
+
   test("renders explicit guided blocks without changing ordinary lists", () => {
     const html = renderHelpMarkdown(
       [

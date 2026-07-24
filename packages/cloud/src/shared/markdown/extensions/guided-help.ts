@@ -46,6 +46,10 @@ export function guidedHelpExtension(): MarkedExtension {
       },
     },
     renderer: {
+      paragraph(token: Tokens.Paragraph) {
+        if (token.tokens.length !== 1 || token.tokens[0]?.type !== "strong") return false;
+        return `<p class="help-eyebrow">${this.parser.parseInline(token.tokens)}</p>`;
+      },
       heading(token: Tokens.Heading) {
         const metadata = token.text.match(headingMetaPattern);
         const title = metadata ? token.text.slice(0, metadata.index).trim() : token.text;
