@@ -1,4 +1,5 @@
-import { publishRequestTelemetry } from "@valentinkolb/cloud/services";
+import { publishRequestTelemetry, ROUTE_TEMPLATE_HEADER } from "@valentinkolb/cloud/services";
+import { boundTemplateCardinality, derivePathTemplate } from "./path-template";
 import type { RouteTable } from "./trie";
 import { matchRoute } from "./trie";
 
@@ -77,6 +78,15 @@ export const redactSensitivePath = (pathname: string): string =>
     .replace(/(\/api\/mail\/public-attachments\/)[^/]+/g, `$1${REDACTED_PATH_SEGMENT}`)
     .replace(/(\/app\/mail\/a\/)[^/]+/g, `$1${REDACTED_PATH_SEGMENT}`);
 
+/**
+ * Route template for a request the app never answered — unmatched routes
+ * and upstream failures. Collapse ids first so opaque values are gone
+ * regardless of path shape, then run the denylist as a backstop for the
+ * few known-sensitive segments short enough to survive collapsing.
+ */
+const fallbackPathTemplate = (appId: string, pathname: string): string =>
+  boundTemplateCardinality(appId, redactSensitivePath(derivePathTemplate(pathname)));
+
 // ─── Request proxying ────────────────────────────────────────────────────────
 
 export const proxyRequest = async (
@@ -97,6 +107,8 @@ export const proxyRequest = async (
     publishRequestTelemetry({
       appId: "gateway",
       routePrefix: "(unmatched)",
+      // The only record of what was actually requested — no app saw it.
+      pathTemplate: fallbackPathTemplate("gateway", url.pathname),
       method: req.method,
       status: 502,
       durationMs: performance.now() - start,
@@ -145,9 +157,13 @@ export const proxyRequest = async (
 
     const ms = performance.now() - start;
     appStats.totalMs += ms;
+    // The app reports the route it matched; fall back to deriving one for
+    // apps that don't run the platform middleware (or don't run Hono).
+    const reportedTemplate = proxyRes.headers.get(ROUTE_TEMPLATE_HEADER);
     publishRequestTelemetry({
       appId: match.appId,
       routePrefix: match.matchedPrefix,
+      pathTemplate: reportedTemplate ?? fallbackPathTemplate(match.appId, url.pathname),
       method: req.method,
       status: proxyRes.status,
       durationMs: ms,
@@ -156,6 +172,8 @@ export const proxyRequest = async (
 
     // Copy response headers, add gateway headers
     const headers = new Headers(proxyRes.headers);
+    // Internal telemetry channel — never surface it to the client.
+    headers.delete(ROUTE_TEMPLATE_HEADER);
     headers.set("X-Gateway-App", match.appId);
     headers.set("X-Gateway-Ms", ms.toFixed(1));
 
@@ -172,6 +190,8 @@ export const proxyRequest = async (
     publishRequestTelemetry({
       appId: match.appId,
       routePrefix: match.matchedPrefix,
+      // No response to read a template off — the request died in flight.
+      pathTemplate: fallbackPathTemplate(match.appId, url.pathname),
       method: req.method,
       status: 502,
       durationMs: ms,

@@ -25,6 +25,7 @@ import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
 import { auth } from "../server/middleware/auth";
+import { routeTemplate } from "../server/middleware/route-template";
 import { logger } from "../services/logging";
 import { startNotificationDefinitionRegistration } from "../services/notifications/catalog";
 import { get, loadCache as loadSettingsCache, set } from "../services/settings";
@@ -396,7 +397,10 @@ export const defineApp = <
     //                            and startOpts.openapi are set
     const ssrMountPath = config.basePath ? `${config.basePath}/_ssr` : "/_ssr";
 
-    const server = new Hono().route(ssrMountPath, routes(config)).all("/public/*", servePublicAsset(isDevelopment));
+    // Framework-owned mounts answer before the app's router ever runs, so the
+    // app middleware cannot report their template. Without this, every hashed
+    // island chunk would land in telemetry as its own route.
+    const server = new Hono().use("*", routeTemplate).route(ssrMountPath, routes(config)).all("/public/*", servePublicAsset(isDevelopment));
 
     if (startOpts.capabilities?.search) {
       const searchRun = startOpts.capabilities.search.run;

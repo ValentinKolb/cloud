@@ -87,6 +87,12 @@ export const migrate = async (): Promise<void> => {
       occurred_at TIMESTAMPTZ NOT NULL
     )
   `.simple();
+  // Added after the table shipped — rows predating it keep NULL and render
+  // as a fallback to route_prefix rather than breaking the telemetry page.
+  await sql`
+    ALTER TABLE gateway.telemetry_events
+    ADD COLUMN IF NOT EXISTS path_template TEXT
+  `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_gateway_telemetry_events_occurred
     ON gateway.telemetry_events(occurred_at DESC)
@@ -102,6 +108,7 @@ export const migrate = async (): Promise<void> => {
       bucket TIMESTAMPTZ NOT NULL,
       app_id TEXT NOT NULL,
       route_prefix TEXT NOT NULL,
+      path_template TEXT NOT NULL DEFAULT '',
       method TEXT NOT NULL,
       status_code INTEGER NOT NULL,
       request_count INTEGER NOT NULL DEFAULT 0,
@@ -109,8 +116,35 @@ export const migrate = async (): Promise<void> => {
       slow_count INTEGER NOT NULL DEFAULT 0,
       total_duration_ms BIGINT NOT NULL DEFAULT 0,
       max_duration_ms INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (bucket, app_id, route_prefix, method, status_code)
+      PRIMARY KEY (bucket, app_id, route_prefix, path_template, method, status_code)
     )
+  `.simple();
+  // Per-template rollups are what let the telemetry page rank endpoints and
+  // draw per-row sparklines over 30 days without scanning raw events. Rows
+  // only exist for buckets that saw traffic, and the gateway caps distinct
+  // templates per app, so this refines the grain without unbounding it.
+  // Empty string, not NULL: the column is part of the primary key.
+  await sql`
+    ALTER TABLE gateway.telemetry_rollups_minute
+    ADD COLUMN IF NOT EXISTS path_template TEXT NOT NULL DEFAULT ''
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.key_column_usage
+        WHERE table_schema = 'gateway'
+          AND table_name = 'telemetry_rollups_minute'
+          AND column_name = 'path_template'
+      ) THEN
+        ALTER TABLE gateway.telemetry_rollups_minute
+          DROP CONSTRAINT telemetry_rollups_minute_pkey;
+        ALTER TABLE gateway.telemetry_rollups_minute
+          ADD PRIMARY KEY (bucket, app_id, route_prefix, path_template, method, status_code);
+      END IF;
+    END
+    $$
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_gateway_telemetry_rollups_minute_bucket

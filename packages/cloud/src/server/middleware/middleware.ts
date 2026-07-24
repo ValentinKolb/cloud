@@ -25,15 +25,35 @@
 import { describeRoute } from "hono-openapi";
 import { rateLimit } from "./rate-limit";
 import { requestLogger } from "./request-logger";
+import { routeTemplate } from "./route-template";
 import { runtime } from "./runtime";
 import { settings } from "./settings";
 import { validator } from "./validator";
 
 export const middleware = {
-  /** Live cluster registry on `c.get("runtime")`. Required for Layout/Sidebar. */
+  /**
+   * Live cluster registry on `c.get("runtime")`. Required for Layout/Sidebar.
+   * Also reports the matched route template to gateway telemetry — you do not
+   * need `observability()` on top of this.
+   */
   runtime,
   /** Frozen per-request settings snapshot on `c.get("settings")`. */
   settings,
+  /**
+   * Reports the matched Hono route template to gateway telemetry, so the
+   * admin telemetry page can break an app down per endpoint instead of
+   * lumping every request under one registry prefix.
+   *
+   * **Only use this if you do NOT already use `middleware.runtime()`** —
+   * `runtime()` does the same thing, and installing both just runs it twice.
+   * Practically every app renders `<Layout>` and therefore needs `runtime()`
+   * anyway; this exists for the rare app that serves an API surface only.
+   *
+   * ```ts
+   * new Hono().use("*", middleware.observability())   // no runtime() here
+   * ```
+   */
+  observability: () => routeTemplate,
   /** HTTP request logger (logs 5xx as error, 429 as warn, 401/403 as info). */
   logger: () => requestLogger,
   /** Sliding-window rate limiter, keyed by user id (auto fallback to IP). */

@@ -6,7 +6,8 @@ const log = logger("gateway:telemetry");
 
 const WORKER_GROUP = "postgres-writer";
 const BATCH_SIZE = 100;
-const SLOW_REQUEST_MS = 800;
+/** Duration at which a request is counted as slow, in ingest and in the UI. */
+export const SLOW_REQUEST_MS = 800;
 
 export type TelemetrySummary = {
   requests: number;
@@ -14,16 +15,6 @@ export type TelemetrySummary = {
   slowRequests: number;
   avgDurationMs: number | null;
   p95DurationMs: number | null;
-};
-
-export type TelemetryRouteSummary = {
-  appId: string;
-  routePrefix: string;
-  requests: number;
-  errors: number;
-  slowRequests: number;
-  avgDurationMs: number | null;
-  maxDurationMs: number | null;
 };
 
 export type TelemetryEventFilter = {
@@ -60,11 +51,14 @@ const persistDelivery = async (delivery: TopicDelivery<GatewayTelemetryEvent>): 
   const statusClass = Math.floor(event.status / 100) * 100;
   const isError = event.status >= 500 || event.errorKind !== null;
   const isSlow = event.durationMs >= SLOW_REQUEST_MS;
+  // The rollup key cannot hold NULL; events keep it nullable so pre-existing
+  // rows and future non-reporting sources stay distinguishable from "unknown".
+  const rollupTemplate = event.pathTemplate ?? "";
 
   await sql`
     WITH inserted AS (
       INSERT INTO gateway.telemetry_events (
-        event_id, cursor, kind, app_id, route_prefix, method, status_code,
+        event_id, cursor, kind, app_id, route_prefix, path_template, method, status_code,
         status_class, duration_ms, error_kind, occurred_at
       )
       VALUES (
@@ -73,6 +67,7 @@ const persistDelivery = async (delivery: TopicDelivery<GatewayTelemetryEvent>): 
         ${event.kind},
         ${event.appId},
         ${event.routePrefix},
+        ${event.pathTemplate},
         ${event.method},
         ${event.status},
         ${statusClass},
@@ -84,13 +79,14 @@ const persistDelivery = async (delivery: TopicDelivery<GatewayTelemetryEvent>): 
       RETURNING 1
     )
     INSERT INTO gateway.telemetry_rollups_minute (
-      bucket, app_id, route_prefix, method, status_code, request_count,
+      bucket, app_id, route_prefix, path_template, method, status_code, request_count,
       error_count, slow_count, total_duration_ms, max_duration_ms
     )
     SELECT
       date_trunc('minute', ${event.occurredAt}::timestamptz),
       ${event.appId},
       ${event.routePrefix},
+      ${rollupTemplate},
       ${event.method},
       ${event.status},
       1,
@@ -99,7 +95,7 @@ const persistDelivery = async (delivery: TopicDelivery<GatewayTelemetryEvent>): 
       ${event.durationMs},
       ${event.durationMs}
     WHERE EXISTS (SELECT 1 FROM inserted)
-    ON CONFLICT (bucket, app_id, route_prefix, method, status_code) DO UPDATE SET
+    ON CONFLICT (bucket, app_id, route_prefix, path_template, method, status_code) DO UPDATE SET
       request_count = gateway.telemetry_rollups_minute.request_count + EXCLUDED.request_count,
       error_count = gateway.telemetry_rollups_minute.error_count + EXCLUDED.error_count,
       slow_count = gateway.telemetry_rollups_minute.slow_count + EXCLUDED.slow_count,
@@ -185,43 +181,6 @@ export const getTelemetrySummary = async (hours = 24): Promise<TelemetrySummary>
     avgDurationMs: row?.avg_duration_ms ?? null,
     p95DurationMs: row?.p95_duration_ms ?? null,
   };
-};
-
-export const listSlowTelemetryRoutes = async (hours = 24, limit = 8): Promise<TelemetryRouteSummary[]> => {
-  const rows = await sql<
-    {
-      app_id: string;
-      route_prefix: string;
-      requests: number;
-      errors: number;
-      slow_requests: number;
-      avg_duration_ms: number | null;
-      max_duration_ms: number | null;
-    }[]
-  >`
-    SELECT
-      app_id,
-      route_prefix,
-      COUNT(*)::int AS requests,
-      COUNT(*) FILTER (WHERE status_code >= 500 OR error_kind IS NOT NULL)::int AS errors,
-      COUNT(*) FILTER (WHERE duration_ms >= ${SLOW_REQUEST_MS})::int AS slow_requests,
-      AVG(duration_ms)::float AS avg_duration_ms,
-      MAX(duration_ms)::float AS max_duration_ms
-    FROM gateway.telemetry_events
-    WHERE occurred_at >= now() - (${hours}::int * INTERVAL '1 hour')
-    GROUP BY app_id, route_prefix
-    ORDER BY slow_requests DESC, avg_duration_ms DESC NULLS LAST, requests DESC
-    LIMIT ${limit}
-  `;
-  return rows.map((row) => ({
-    appId: row.app_id,
-    routePrefix: row.route_prefix,
-    requests: row.requests,
-    errors: row.errors,
-    slowRequests: row.slow_requests,
-    avgDurationMs: row.avg_duration_ms,
-    maxDurationMs: row.max_duration_ms,
-  }));
 };
 
 export const listTelemetryApps = async (hours = 24): Promise<string[]> => {

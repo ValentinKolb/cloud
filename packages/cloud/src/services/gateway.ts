@@ -56,11 +56,24 @@ export type GatewayRouteSnapshot = {
   };
 };
 
+/**
+ * Response header an app uses to tell the gateway which route template it
+ * matched (`/api/mail/mailboxes/:mailboxId`). Set by `middleware.runtime()`
+ * / `middleware.observability()`, consumed and stripped by the gateway proxy.
+ */
+export const ROUTE_TEMPLATE_HEADER = "X-Route-Template";
+
 export type GatewayTelemetryEvent = {
   v: 1;
   kind: "request";
   appId: string;
   routePrefix: string;
+  /**
+   * Matched route template, id segments collapsed and query string dropped.
+   * `null` when neither the app nor the gateway fallback could derive one —
+   * older rows predating this field read the same way.
+   */
+  pathTemplate: string | null;
   method: string;
   status: number;
   durationMs: number;
@@ -134,6 +147,7 @@ export const publishRequestTelemetry = (event: Omit<GatewayTelemetryEvent, "v" |
     kind: "request",
     appId: normalizeText(event.appId, "unknown"),
     routePrefix: normalizeText(event.routePrefix, "(unknown)"),
+    pathTemplate: event.pathTemplate ? normalizeText(event.pathTemplate, "(unknown)") : null,
     method: normalizeMethod(event.method),
     status: normalizeStatus(event.status),
     durationMs: normalizeDuration(event.durationMs),

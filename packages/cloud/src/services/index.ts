@@ -31,6 +31,7 @@ export type { AuditActionGroup, AuditActor, AuditEvent, AuditListFilter, AuditOu
 
 export {
   GATEWAY_TELEMETRY_TENANT,
+  ROUTE_TEMPLATE_HEADER,
   buildGatewayRouteSnapshot,
   gatewayTelemetryTopic,
   latestGatewayRouteSnapshot,
