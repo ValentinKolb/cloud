@@ -5,7 +5,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
 import { RecordAuditContextSchema } from "../contracts";
-import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
+import { assertFederatedPublication, buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
 import { getActive, type LoadedFederatedRevision, verifyRevisionScope } from "./federated-tables";
 import { listByTables } from "./field-read";
 import { listByTable as listFields } from "./fields";
@@ -334,6 +334,7 @@ const resolveOrigin = async (projection: Projection, recordId: string): Promise<
     { includeDeleted: true },
   );
   if (!recordSource) return fail(err.notFound("Combined record"));
+  await assertFederatedPublication(recordSource);
   const rows = await sql<Array<{ source_table_id: string; deleted_at: Date | null }>>`
     SELECT source_table_id::text, deleted_at
     FROM ${recordSource.relation} combined_record

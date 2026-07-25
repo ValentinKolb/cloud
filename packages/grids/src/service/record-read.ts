@@ -1,7 +1,7 @@
 import type { DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type LookupTargetMeta, lookupTargetMeta } from "../lookup-display";
-import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
+import { assertFederatedPublication, buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
 import {
   applyComputedProjections,
   buildComputedProjections,
@@ -183,6 +183,8 @@ const createFederatedReader = async (tableId: string, fields: Field[], opts: Rec
 
   const getMany = async (recordIds: string[]): Promise<GridRecord[]> => {
     if (recordIds.length === 0) return [];
+    // Per read, not per reader: the reader outlives the publication it captured.
+    await assertFederatedPublication(recordSource);
     const rows = await sql<DbRow[]>`
       SELECT r.*${projectionFragments}
       FROM ${recordSource.relation} r

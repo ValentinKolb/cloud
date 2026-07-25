@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import type { FilterTree } from "../contracts";
+import type { SqlClient } from "../service/audit";
 import { buildComputedFieldSqlMap, buildFormulaSqlProjections } from "../service/computed-projections";
 import { getActive } from "../service/federated-tables";
 import { listByTables } from "../service/field-read";
@@ -235,6 +236,33 @@ const branchForSource = async (params: {
   };
 };
 
+/**
+ * Runs the publication guard as its own statement, immediately before reading a
+ * combined relation.
+ *
+ * The relation embeds the same `grids.assert_federated_revision` call, but that
+ * copy only fires when the query returns rows: Postgres prunes a subplan whose
+ * output cannot contribute, and a raising function is no barrier to that. So a
+ * revoked publication over an empty result set produced no rows and no error,
+ * which callers cannot tell apart from "this table is empty". Placement inside
+ * the SELECT cannot fix it — a materialized CTE, a plain subquery, a scalar
+ * subquery, a sentinel row, a lateral dependency and an `OFFSET 0` barrier were
+ * all measured, and every one of them stays silent on an empty result.
+ *
+ * Call this before every read of `source.relation`. It raises P0001, which the
+ * DSL consumers already translate into a "publication changed; reload" conflict.
+ */
+export const assertFederatedPublication = async (source: DslSqlRecordSource, client: SqlClient = sql): Promise<void> => {
+  await client`
+    SELECT grids.assert_federated_revision(
+      ${source.tableId}::uuid,
+      ${source.revisionId}::uuid,
+      ${source.revisionToken}::text,
+      ${source.sourceTableIds.length}::int
+    )
+  `;
+};
+
 export const buildDslSqlRecordSource = async (
   tableId: string,
   fieldsByTableId: Record<string, Field[]>,
@@ -278,6 +306,7 @@ export const buildDslSqlRecordSource = async (
 
   return {
     kind: "federated",
+    tableId,
     revision: revision.revision,
     revisionId: revision.id,
     revisionToken: revision.revisionToken,

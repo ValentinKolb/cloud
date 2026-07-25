@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
+import { assertFederatedPublication, buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql } from "./parent-checks";
@@ -115,6 +115,7 @@ export const lookupRecords = async (params: {
     conditions.push(sql`r.id <> ALL(${sql.array(params.excludeIds, "UUID")})`);
   }
   const where = conditions.reduce((left, right) => sql`${left} AND ${right}`);
+  if (recordSource) await assertFederatedPublication(recordSource);
   const rows = recordSource
     ? await sql<DbRow[]>`
         SELECT r.id, r.data

@@ -6,7 +6,7 @@ import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
 import type { DslTableSource } from "../query-dsl/resolver";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
-import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
+import { assertFederatedPublication, buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
 import { remove as removeBase, restore as restoreBase } from "./bases";
 import * as combinedAudit from "./combined-audit";
 import { exportRecords } from "./export";
@@ -814,8 +814,13 @@ describe("combined table integration", () => {
         SET revoked_at = now()
         WHERE revision_id = ${fixture.revisionId}::uuid
       `;
+      // With no source rows the guard embedded in the relation never runs:
+      // Postgres prunes a subplan whose output cannot contribute rows. Every
+      // reader therefore asserts the publication as its own statement, which is
+      // what this covers.
       let queryError: unknown = null;
       try {
+        await assertFederatedPublication(source!);
         await sql`SELECT * FROM ${source!.relation} combined_record`;
       } catch (error) {
         queryError = error;
@@ -1270,8 +1275,11 @@ describe("combined table integration", () => {
       expect(degraded?.status).toBe("degraded");
       expect(degraded?.diagnostics.some((diagnostic) => diagnostic.code === "source_missing")).toBe(true);
 
+      // A deleted source base filters every union branch down to zero rows, so
+      // the in-relation guard is pruned away. The assertion carries it instead.
       let deletedSourceError: unknown = null;
       try {
+        await assertFederatedPublication(source!);
         await sql`SELECT * FROM ${source!.relation} combined_record`;
       } catch (error) {
         deletedSourceError = error;

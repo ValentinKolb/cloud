@@ -39,6 +39,7 @@ export type DslSqlCompileOptions = {
 export type DslSqlRecordSource = {
   kind: "federated";
   relation: unknown;
+  tableId: string;
   revision: number;
   revisionId: string;
   revisionToken: string;

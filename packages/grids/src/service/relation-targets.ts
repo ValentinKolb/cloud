@@ -1,6 +1,6 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
+import { assertFederatedPublication, buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
 import { mapFieldRow } from "./field-read";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql } from "./parent-checks";
@@ -134,6 +134,7 @@ export const loadRelationTargetsBatch = async (
     const allFields = fieldsByTable.get(targetTableId) ?? [];
     const recordSource = await buildDslSqlRecordSource(targetTableId, { [targetTableId]: allFields });
     if (!recordSource) continue;
+    await assertFederatedPublication(recordSource);
     const ids = idsByTargetTable.get(targetTableId)!;
     const rows = await sql<Array<{ id: string; data: unknown }>>`
       SELECT r.id, r.data
