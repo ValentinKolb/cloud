@@ -45,6 +45,15 @@ const resolveConfig = async (ctx: WorkflowExecuteActionContext, step: WorkflowAc
   return (resolved && typeof resolved === "object" && !Array.isArray(resolved) ? resolved : {}) as Record<string, WorkflowJsonValue>;
 };
 
+/** The context an action implementation receives, built once per invocation. */
+const actionContext = (ctx: WorkflowExecuteActionContext, effectKey: string) => ({
+  runId: ctx.run.runId,
+  effectKey,
+  heartbeat: async (): Promise<void> => {
+    await ctx.heartbeat();
+  },
+});
+
 export type WorkflowActionPortOptions = {
   /** Charged against the root of a fan-out, so children share one allowance. */
   budget?: boolean;
@@ -70,10 +79,7 @@ const runDeclaredAction = async (
   const effectKey = workflowEffectKey(ctx.run.runId, ctx.step.key);
 
   if (action.effect !== "pure" && action.plan) {
-    const planned = await action.plan(
-      { runId: ctx.run.runId, effectKey, appId: "", heartbeat: async () => void (await ctx.heartbeat()) },
-      config as never,
-    );
+    const planned = await action.plan(actionContext(ctx, effectKey), config as never);
     if (options.budget !== false && planned.consumes && Object.keys(planned.consumes).length > 0) {
       const root = await budgetRootRunId(ctx.run.runId, { db: options.db });
       const charge = await chargeWorkflowEffectBudget(root, planned.consumes, { db: options.db });
@@ -85,10 +91,7 @@ const runDeclaredAction = async (
   // either safe to repeat or undone by the crash that interrupted them.
   if (action.effect === "ambiguous") await beginWorkflowEffect(journalStep, effectKey, { db: options.db });
 
-  const result = await action.run(
-    { runId: ctx.run.runId, effectKey, appId: "", heartbeat: async () => void (await ctx.heartbeat()) },
-    config as never,
-  );
+  const result = await action.run(actionContext(ctx, effectKey), config as never);
 
   if (action.effect === "ambiguous") {
     await settleWorkflowEffect(

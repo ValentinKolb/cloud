@@ -138,8 +138,6 @@ export type WorkflowActionContext = {
   runId: string;
   /** Stable across replays of the same step — the key an idempotent effect uses. */
   effectKey: string;
-  /** The app that owns this run. */
-  appId: string;
   /** Keeps a long-running action's lease alive. */
   heartbeat(): Promise<void>;
 };
