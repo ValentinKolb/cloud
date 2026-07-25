@@ -16,7 +16,7 @@ import { settingsDeleteLegacyKeys, settingsListLegacyKeys } from "../services";
 import { sendEmail } from "../services/notifications/email";
 import { GotenbergRenderError, testGotenberg } from "../services/pdf";
 import * as settings from "../services/settings";
-import { SETTINGS_MAP } from "../services/settings/defaults";
+import { SETTINGS_MAP, validateSettingValue } from "../services/settings/defaults";
 
 const BulkSaveSchema = z.union([
   z
@@ -49,13 +49,10 @@ const AI_PROFILES_KEY = "ai.model_profiles_json";
  * Doing this in the route rather than the settings service keeps the generic
  * store free of AI knowledge, and keeps the admin page at a single save request.
  */
-const storeAiCredentials = async (rawValue: unknown): Promise<unknown> => {
-  const split = splitAiProfileCredentials(rawValue);
-  if (!split) return rawValue;
+const storeAiCredentials = async (split: NonNullable<ReturnType<typeof splitAiProfileCredentials>>): Promise<void> => {
   for (const { profileId, secret } of split.credentials) await setAiCredential(profileId, secret);
   // A profile deleted in this save must not leave its key behind.
   await pruneAiCredentials(split.profileIds);
-  return split.profilesJson;
 };
 const liveSettingKeys = async () => (await listApps()).flatMap((app) => [...(app.settingKeys ?? [])]);
 
@@ -128,12 +125,36 @@ const app = new Hono<AuthContext>()
       return c.json({ message: "Invalid keys", errors: ownership }, 400);
     }
 
+    // Strip AI provider keys before anything is validated or written, so the
+    // value that gets checked is the value that gets stored.
+    const aiSplit = AI_PROFILES_KEY in updates ? splitAiProfileCredentials(updates[AI_PROFILES_KEY]) : null;
+    if (AI_PROFILES_KEY in updates && !aiSplit) {
+      // Unsplittable means the keys could not be separated out, and storing the
+      // value as posted would put them back in a setting the browser reads.
+      return c.json({ message: "Invalid values", errors: { [AI_PROFILES_KEY]: "Model profiles must be a JSON array" } }, 400);
+    }
+    const finalValues: Record<string, unknown> = aiSplit ? { ...updates, [AI_PROFILES_KEY]: aiSplit.profilesJson } : updates;
+
+    // Validate everything up front. settings.set validates as it writes, so a
+    // single bad field used to leave the earlier keys already saved — with the
+    // AI profiles among them, whose save also prunes credentials.
+    const invalid: FieldErrors = {};
+    for (const [key, value] of Object.entries(finalValues)) {
+      const def = SETTINGS_MAP.get(key);
+      if (!def) continue;
+      const validated = validateSettingValue(def, value);
+      if (!validated.ok) invalid[key] = validated.error;
+    }
+    if (Object.keys(invalid).length > 0) {
+      return c.json({ message: "Invalid values", errors: invalid }, 400);
+    }
+
     const fieldErrors: FieldErrors = {};
     try {
       await sql.begin(async () => {
-        for (const [key, value] of Object.entries(updates)) {
+        for (const [key, value] of Object.entries(finalValues)) {
           try {
-            await settings.set(key, key === AI_PROFILES_KEY ? await storeAiCredentials(value) : value);
+            await settings.set(key, value);
           } catch (error) {
             fieldErrors[key] = error instanceof Error ? error.message : `Failed to update ${key}`;
             throw error;
@@ -148,6 +169,7 @@ const app = new Hono<AuthContext>()
           }
         }
       });
+      if (aiSplit) await storeAiCredentials(aiSplit);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Save failed";
       return c.json(
