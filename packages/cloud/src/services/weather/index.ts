@@ -1,5 +1,5 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { registerGroupLabel, registerSettings } from "../settings/defaults";
+import { registerSettings } from "../settings/defaults";
 import { getCurrentWeather, getWeatherData } from "./forecast";
 import { WEATHER_COUNTRY_CODE } from "./geo";
 import { weatherLocationService } from "./location";
@@ -7,7 +7,6 @@ import { weatherLocationsService } from "./locations";
 import type { WeatherData } from "./types";
 import { weatherUiService } from "./ui";
 
-registerGroupLabel("weather", "Weather");
 registerSettings([
   {
     key: "weather.default_lat",

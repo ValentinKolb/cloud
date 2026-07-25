@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import type { PaginationParams } from "../../contracts/shared";
 import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "../postgres";
-import { registerGroupLabel, registerSettings } from "../settings/defaults";
+import { registerSettings } from "../settings/defaults";
 import { redactMetadata } from "./redaction";
 import { trace } from "./trace";
 
@@ -25,7 +25,6 @@ export { trace };
 
 // ── Settings Registration ──────────────────────────────────────────────
 
-registerGroupLabel("logs", "Logging");
 registerSettings([
   {
     key: "logs.retention_days",

@@ -89,7 +89,7 @@ export { lifecycleJobs } from "./account-lifecycle/scheduler";
 export { settings } from "./settings/namespace";
 export { loadCache, get, set, remove, getAll } from "./settings";
 export type { SettingEntry } from "./settings";
-export { SETTINGS, SETTINGS_MAP, SETTING_GROUPS, GROUP_LABELS, registerSettings, registerGroupLabel } from "./settings/defaults";
+export { SETTINGS, SETTINGS_MAP, registerSettings } from "./settings/defaults";
 export { validateSettingValue, normalizeSettingValue, getSettingLabel } from "./settings/defaults";
 export type { SettingDef, SettingKind, SettingOption } from "./settings/defaults";
 export { renderTemplate } from "./settings/templates";

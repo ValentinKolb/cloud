@@ -278,30 +278,6 @@ export const validateSettingValue = (def: SettingDef, raw: unknown): SettingVali
 /** Lookup map for quick access by key */
 export const SETTINGS_MAP = new Map(SETTINGS.map((setting) => [setting.key, setting] as const));
 
-/** All group names (ordered by first occurrence) */
-export const SETTING_GROUPS: string[] = [];
-
-const ensureGroup = (group: string): void => {
-  if (!SETTING_GROUPS.includes(group)) SETTING_GROUPS.push(group);
-};
-
-for (const setting of SETTINGS) {
-  ensureGroup(setting.group);
-}
-
-/** Group display labels */
-export const GROUP_LABELS: Record<string, string> = {
-  app: "Application",
-  ai: "AI",
-  freeipa: "FreeIPA",
-  user: "User Management",
-  mail: "Mail",
-  notifications: "Notifications",
-  gotenberg: "PDF Rendering",
-  security: "Security",
-  legal: "Legal",
-};
-
 /** Fields whose divergence changes behaviour rather than just wording. */
 const CONFLICT_FIELDS = ["kind", "default", "min", "max"] as const;
 
@@ -328,11 +304,5 @@ export function registerSettings(defs: SettingDef[]): void {
       SETTINGS.push(def);
     }
     SETTINGS_MAP.set(def.key, def);
-    ensureGroup(def.group);
   }
-}
-
-/** Register a group display label (used by apps alongside registerSettings). */
-export function registerGroupLabel(group: string, label: string): void {
-  GROUP_LABELS[group] = label;
 }
