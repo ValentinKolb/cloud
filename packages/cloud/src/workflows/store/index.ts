@@ -65,6 +65,7 @@ export {
   listClaimableWorkflowRunIds,
   type NewWorkflowRun,
   readWorkflowEffect,
+  recordWorkflowEffect,
   releaseWorkflowRun,
   renewWorkflowRunLease,
   requestWorkflowRunCancel,

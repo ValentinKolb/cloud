@@ -14,6 +14,7 @@
  * Mirrors the notifications pattern deliberately — declaration file at the app
  * root, bound by `defineApp`, types inferred rather than restated.
  */
+import type { SQL } from "bun";
 import type { WorkflowActionEffect, WorkflowFieldSchema, WorkflowJsonValue } from "./contracts";
 
 // ─── Config type inference ───────────────────────────────────────────────────
@@ -136,6 +137,14 @@ export type WorkflowReconcileResult<Output> =
 export type WorkflowActionContext = {
   /** Identifies the run this step belongs to, for logging and correlation. */
   runId: string;
+  /**
+   * The transaction a transactional action runs in.
+   *
+   * Present only for that class, and it is the whole meaning of the class: the
+   * work and the record that it happened commit together, so a crash leaves
+   * neither. Do the work on this handle, not on the ambient connection.
+   */
+  tx?: SQL;
   /** Stable across replays of the same step — the key an idempotent effect uses. */
   effectKey: string;
   /** Keeps a long-running action's lease alive. */
@@ -145,6 +154,14 @@ export type WorkflowActionContext = {
 // ─── Action definition ───────────────────────────────────────────────────────
 
 type RunHook<Config, Output> = (ctx: WorkflowActionContext, config: Config) => Promise<WorkflowActionResult<Output>>;
+/**
+ * Re-checks permission at the moment of the effect.
+ *
+ * Access can be revoked between the run being queued and the step running, and
+ * for a transactional action the check has to happen on the same handle as the
+ * work or it is checking a world the write will not see.
+ */
+type AuthorizeHook<Config> = (ctx: WorkflowActionContext, config: Config) => Promise<boolean>;
 type PlanHook<Config> = (ctx: WorkflowActionContext, config: Config) => Promise<WorkflowPlannedEffect>;
 
 /**
@@ -168,6 +185,8 @@ export type WorkflowActionDefinition<Effect extends WorkflowEffectClass, Schema 
   plan?: PlanHook<FromFieldSchema<Schema>>;
   /** Asks afterwards whether an ambiguous effect landed. */
   reconcile?: ReconcileHook<Output>;
+  /** Re-checks permission at the moment of the effect, on the effect's own handle. */
+  authorize?: AuthorizeHook<FromFieldSchema<Schema>>;
 };
 
 /** The fields every action declares, whatever its effect class. */
@@ -206,6 +225,7 @@ export const workflowAction = {
     definition: ActionBase<Schema> & {
       run: RunHook<FromFieldSchema<Schema>, Output>;
       plan: PlanHook<FromFieldSchema<Schema>>;
+      authorize?: AuthorizeHook<FromFieldSchema<Schema>>;
     },
   ): WorkflowActionDefinition<"transactional", Schema, Output> => ({ ...definition, effect: "transactional" }),
 
@@ -214,6 +234,7 @@ export const workflowAction = {
     definition: ActionBase<Schema> & {
       run: RunHook<FromFieldSchema<Schema>, Output>;
       plan: PlanHook<FromFieldSchema<Schema>>;
+      authorize?: AuthorizeHook<FromFieldSchema<Schema>>;
     },
   ): WorkflowActionDefinition<"idempotent", Schema, Output> => ({ ...definition, effect: "idempotent" }),
 
@@ -223,6 +244,7 @@ export const workflowAction = {
       run: RunHook<FromFieldSchema<Schema>, Output>;
       plan: PlanHook<FromFieldSchema<Schema>>;
       reconcile: ReconcileHook<Output>;
+      authorize?: AuthorizeHook<FromFieldSchema<Schema>>;
     },
   ): WorkflowActionDefinition<"ambiguous", Schema, Output> => ({ ...definition, effect: "ambiguous" }),
 };
@@ -269,6 +291,7 @@ export type ErasedWorkflowAction = {
   run: RunHook<never, unknown>;
   plan?: PlanHook<never>;
   reconcile?: ReconcileHook<unknown>;
+  authorize?: AuthorizeHook<never>;
 };
 
 export type WorkflowActionMap = Record<string, ErasedWorkflowAction>;

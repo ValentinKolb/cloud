@@ -652,6 +652,37 @@ export const beginWorkflowEffect = async (
   if (rows.length === 0) throw new WorkflowLeaseLostError();
 };
 
+/**
+ * Records a completed effect and what it produced, on a caller-supplied handle.
+ *
+ * Called with the transaction that performed the work, so the evidence commits
+ * with it: that is what lets a transactional action promise that a crash means
+ * it did not happen.
+ */
+export const recordWorkflowEffect = async (
+  db: SQL,
+  step: { runId: string; key: string; executionGeneration: number },
+  effectKey: string,
+  output: WorkflowJsonValue,
+): Promise<void> => {
+  const rows = await db<{ run_id: string }[]>`
+    UPDATE workflows.step_outcome AS s
+    SET effect_key = ${effectKey},
+        effect_state = 'succeeded',
+        effect_output = ${output},
+        effect_started_at = COALESCE(s.effect_started_at, now()),
+        updated_at = now()
+    FROM workflows.run AS r
+    WHERE s.run_id = ${step.runId}::uuid
+      AND s.step_key = ${step.key}
+      AND r.id = s.run_id
+      AND r.state = 'running'
+      AND r.execution_generation = ${step.executionGeneration}
+    RETURNING s.run_id
+  `;
+  if (rows.length === 0) throw new WorkflowLeaseLostError();
+};
+
 /** Settles an effect once its fate is known. `ambiguous` is a real answer, not a failure. */
 export const settleWorkflowEffect = async (
   step: { runId: string; key: string },
@@ -670,12 +701,13 @@ export const settleWorkflowEffect = async (
 export const readWorkflowEffect = async (
   step: { runId: string; key: string },
   options: { db?: SQL } = {},
-): Promise<{ key: string; state: string } | null> => {
+): Promise<{ key: string; state: string; output: WorkflowJsonValue } | null> => {
   const db = options.db ?? sql;
-  const [row] = await db<{ effect_key: string | null; effect_state: string | null }[]>`
-    SELECT effect_key, effect_state FROM workflows.step_outcome WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key}
+  const [row] = await db<{ effect_key: string | null; effect_state: string | null; effect_output: WorkflowJsonValue }[]>`
+    SELECT effect_key, effect_state, effect_output FROM workflows.step_outcome
+    WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key}
   `;
-  return row?.effect_key && row.effect_state ? { key: row.effect_key, state: row.effect_state } : null;
+  return row?.effect_key && row.effect_state ? { key: row.effect_key, state: row.effect_state, output: row.effect_output } : null;
 };
 
 /**

@@ -350,6 +350,10 @@ export const migrate = async (): Promise<void> => {
       effect_key TEXT CHECK (effect_key IS NULL OR char_length(effect_key) BETWEEN 1 AND 500),
       effect_state TEXT CHECK (effect_state IS NULL OR effect_state IN ('executing', 'succeeded', 'ambiguous', 'failed')),
       effect_started_at TIMESTAMPTZ,
+      -- What the effect produced, recorded in the same transaction that
+      -- performed it. A transactional action can only keep its promise -- a
+      -- crash means it did not happen -- if the evidence commits with the work.
+      effect_output JSONB,
       started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       finished_at TIMESTAMPTZ,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

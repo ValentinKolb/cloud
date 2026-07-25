@@ -289,6 +289,86 @@ describe("declared actions", () => {
     expect(JSON.stringify(detail?.error)).toContain("effect budget for emails");
   });
 
+  test("a transactional action commits its work and its evidence together", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.tx");
+
+    const actions = {
+      "probe.tx": workflowAction.transactional({
+        label: "Write",
+        description: "Writes.",
+        config: CONFIG,
+        run: async (ctx) => {
+          // The handle is the whole point of the class.
+          expect(ctx.tx).toBeDefined();
+          return { state: "succeeded", output: { written: true } };
+        },
+        plan: async () => ({ summary: "write" }),
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
+    expect(await effectRow(runId)).toMatchObject({ effect_state: "succeeded" });
+  });
+
+  test("a transactional replay returns the recorded output instead of working twice", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.tx-replay");
+
+    let runs = 0;
+    const actions = {
+      "probe.tx-replay": workflowAction.transactional({
+        label: "Write",
+        description: "Writes.",
+        config: CONFIG,
+        run: async () => {
+          runs += 1;
+          return { state: "succeeded", output: { attempt: runs } };
+        },
+        plan: async () => ({ summary: "write" }),
+      }),
+    };
+    const port = createWorkflowActionPort(actions);
+
+    await runOneWorkflow({ worker: "w1", runId, actions: port });
+    // Re-open the finished run and drive the same step again: the recorded
+    // effect is what a crash-resumed attempt finds.
+    await sql`
+      UPDATE workflows.run SET state = 'queued', finished_at = NULL, lease_owner = NULL, lease_expires_at = NULL WHERE id = ${runId}::uuid
+    `;
+    await sql`UPDATE workflows.step_outcome SET state = 'running', outcome = NULL WHERE run_id = ${runId}::uuid`;
+    await runOneWorkflow({ worker: "w2", runId, actions: port });
+
+    expect(runs).toBe(1);
+    expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
+  });
+
+  test("a refused authorize fails the step without performing the work", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.denied");
+
+    let ran = false;
+    const actions = {
+      "probe.denied": workflowAction.transactional({
+        label: "Write",
+        description: "Writes.",
+        config: CONFIG,
+        run: async () => {
+          ran = true;
+          return { state: "succeeded", output: null };
+        },
+        plan: async () => ({ summary: "write" }),
+        // Access can be revoked between queueing and running.
+        authorize: async () => false,
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    expect(ran).toBe(false);
+    expect((await getWorkflowRun(runId))?.state).toBe("failed");
+  });
+
   test("an action the app never declared is a missing handler, not a crash", async () => {
     if (!(await ready())) return;
     const { runId } = await queued("probe.unknown");

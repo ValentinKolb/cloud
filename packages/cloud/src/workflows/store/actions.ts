@@ -13,12 +13,12 @@
  * defect was exactly that divergence, and here it is not a bug to fix but a
  * shape that cannot occur.
  */
-import type { SQL } from "bun";
+import { type SQL, sql } from "bun";
 import type { WorkflowJsonValue, WorkflowStepOutcome } from "../contracts";
 import { type ErasedWorkflowAction, LANGUAGE_EFFECT, type WorkflowActionMap } from "../definition";
 import type { WorkflowActionStep, WorkflowExecuteActionContext, WorkflowExecuteActionPort } from "../runtime/ports";
 import { budgetError, budgetRootRunId, chargeWorkflowEffectBudget } from "./budget";
-import { beginWorkflowEffect, readWorkflowEffect, settleWorkflowEffect } from "./runs";
+import { beginWorkflowEffect, readWorkflowEffect, recordWorkflowEffect, settleWorkflowEffect } from "./runs";
 
 /**
  * The key an idempotent effect deduplicates on.
@@ -28,6 +28,9 @@ import { beginWorkflowEffect, readWorkflowEffect, settleWorkflowEffect } from ".
  * instead of performing the work twice.
  */
 export const workflowEffectKey = (runId: string, stepKey: string): string => `workflow:${runId}:step:${stepKey}`;
+
+/** Unwinds a transactional action's transaction while keeping its message. */
+class WorkflowTransactionalFailure extends Error {}
 
 const asError = (message: string, retryable = false): Extract<WorkflowStepOutcome, { state: "failed" }>["error"] =>
   ({ code: "WORKFLOW_ACTION_ERROR", message, retryable }) as Extract<WorkflowStepOutcome, { state: "failed" }>["error"];
@@ -46,13 +49,17 @@ const resolveConfig = async (ctx: WorkflowExecuteActionContext, step: WorkflowAc
 };
 
 /** The context an action implementation receives, built once per invocation. */
-const actionContext = (ctx: WorkflowExecuteActionContext, effectKey: string) => ({
+const actionContext = (ctx: WorkflowExecuteActionContext, effectKey: string, tx?: SQL) => ({
   runId: ctx.run.runId,
   effectKey,
+  ...(tx ? { tx } : {}),
   heartbeat: async (): Promise<void> => {
     await ctx.heartbeat();
   },
 });
+
+/** Refused access is a failure of this step, not of the whole run. */
+const denied = (): WorkflowStepOutcome => ({ state: "failed", error: asError("not authorized to perform this action") });
 
 export type WorkflowActionPortOptions = {
   /** Charged against the root of a fan-out, so children share one allowance. */
@@ -106,6 +113,47 @@ const runDeclaredAction = async (
     }
   }
 
+  /*
+   * A transactional action performs its work and records that it happened in
+   * one transaction, so a crash leaves neither. A replay therefore finds the
+   * recorded outcome and returns it instead of doing the work a second time.
+   */
+  if (action.effect === "transactional") {
+    const prior = await readWorkflowEffect(journalStep, { db: options.db });
+    if (prior?.state === "succeeded") return { state: "completed", output: prior.output };
+
+    if (action.plan && options.budget !== false) {
+      const planned = await action.plan(actionContext(ctx, effectKey), config as never);
+      if (planned.consumes && Object.keys(planned.consumes).length > 0) {
+        const root = await budgetRootRunId(ctx.run.runId, { db: options.db });
+        const charge = await chargeWorkflowEffectBudget(root, planned.consumes, { db: options.db });
+        if (charge.state === "exceeded") return { state: "failed", error: asError(budgetError(charge).message) };
+      }
+    }
+
+    return (options.db ?? sql)
+      .begin(async (tx) => {
+        const txCtx = actionContext(ctx, effectKey, tx);
+        // Checked on the transaction's own handle: access can be revoked between
+        // queueing and running, and a check on another connection is checking a
+        // world this write will not see.
+        if (action.authorize && !(await action.authorize(txCtx, config as never))) return denied();
+
+        const result = await action.run(txCtx, config as never);
+        if (result.state !== "succeeded") {
+          // Let the transaction unwind: the effect did not happen.
+          throw new WorkflowTransactionalFailure(result.state === "failed" ? result.message : result.message);
+        }
+        await recordWorkflowEffect(tx, journalStep, effectKey, (result.output ?? null) as WorkflowJsonValue);
+        return { state: "completed", output: (result.output ?? null) as WorkflowJsonValue } satisfies WorkflowStepOutcome;
+      })
+      .catch((error) => {
+        if (error instanceof WorkflowTransactionalFailure)
+          return { state: "failed", error: asError(error.message) } satisfies WorkflowStepOutcome;
+        throw error;
+      });
+  }
+
   if (action.effect !== "pure" && action.plan) {
     const planned = await action.plan(actionContext(ctx, effectKey), config as never);
     // Charged per attempt. A replayed in-flight step charges twice, which is
@@ -116,6 +164,8 @@ const runDeclaredAction = async (
       if (charge.state === "exceeded") return { state: "failed", error: asError(budgetError(charge).message) };
     }
   }
+
+  if (action.authorize && !(await action.authorize(actionContext(ctx, effectKey), config as never))) return denied();
 
   // Only an ambiguous effect needs evidence that it started: the others are
   // either safe to repeat or undone by the crash that interrupted them.
