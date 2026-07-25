@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { isPermissionInvalidation, type NotebookWorkspaceEvent } from "./workspace-events";
+import type { NotebookWorkspaceEvent, NotebookWorkspaceInvalidationScope } from "./workspace-events";
+import { isPermissionInvalidation } from "./workspace-events";
 
-const invalidated = (scopes: NotebookWorkspaceEvent extends { scopes: infer S } ? S : never): NotebookWorkspaceEvent => ({
+const invalidated = (scopes: NotebookWorkspaceInvalidationScope[]): NotebookWorkspaceEvent => ({
   v: 1,
   type: "workspace.invalidated",
   notebookId: "nb-1",
