@@ -50,6 +50,8 @@ auth.requireRole("admin", "group-manager")      // OR logic
 auth.requireRole("*")                           // load user if present, do not require
 auth.requireRole("anonymous")                   // only non-logged-in
 
+auth.requireUser()                              // any logged-in actor that has a user behind it
+
 auth.requireRole("admin", auth.redirect("/"))            // rejection handler last
 auth.requireRole("authenticated", auth.redirectToLogin)  // adds ?redirectTo
 
@@ -58,6 +60,8 @@ auth.requireAccount({ provider: "local", profile: "user" })
 ```
 
 `requireRole("authenticated")` accepts any resolved actor. A concrete role check such as `requireRole("admin")` requires a **user-backed** actor, so a resource-bound service account is rejected unless the route does its own explicit resource permission check.
+
+That makes `"authenticated"` the one role branch that does not imply a user, which is deliberate — it is what lets an API key reach an ordinary app route. It is also a trap: a handler gated with it that then reads roles, ownership or a display name is reading something that may not be there. Add `auth.requireUser()` alongside it whenever the handler needs the user itself, and the caller gets a 403 naming the reason instead of a crash further down. Do not reach for `expectUserBackedActor` as the guard — it throws by design, as a programming-error check for routes that are *already* gated.
 
 ## RequestActor and AccessSubject
 

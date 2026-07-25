@@ -18,7 +18,7 @@ import {
   parsePagination,
   SearchQuerySchema,
 } from "@/contracts";
-import { expectUserBackedActor, getUserBackedActor, toAccountsActor } from "@/shared/actor";
+import { expectUserBackedActor, toAccountsActor } from "@/shared/actor";
 import { app as accountsApp } from "@/config";
 import { createAccountsNotificationSender } from "@/notifications";
 
@@ -114,6 +114,7 @@ const app = new Hono<AuthContext>()
   .get(
     "/:id/avatar",
     auth.requireRole("authenticated"),
+    auth.requireUser(),
     describeRoute({
       tags: ["Users"],
       summary: "Get user avatar",
@@ -128,9 +129,6 @@ const app = new Hono<AuthContext>()
     }),
     v("param", UserIdParamSchema),
     async (c) => {
-      if (!getUserBackedActor(c)) {
-        return c.json({ message: "Avatar access requires a user-backed actor", code: "FORBIDDEN" }, 403);
-      }
       const { id } = c.req.valid("param");
       const avatar = await accountsService.user.getAvatar({ id });
       if (!avatar) return c.json({ message: "Avatar not found" }, 404);

@@ -225,6 +225,27 @@ const requireRole = (...args: (RoleOrSpecial | RoleOptions)[]) => {
   });
 };
 
+/**
+ * Require a request that has a user behind it.
+ *
+ * `requireRole("authenticated")` deliberately admits any authenticated
+ * principal, including a resource-bound service account that has no user at
+ * all — that is what lets an API key reach an ordinary app route. It is the one
+ * role branch that does not imply a user, so a route gated with it that then
+ * reaches for roles, ownership or a display name is reaching for something that
+ * may not be there.
+ *
+ * Use this alongside it wherever the handler needs the user itself, so the
+ * caller gets a 403 stating the reason instead of whatever the missing user
+ * turns into further down.
+ */
+const requireUser = (options: RoleOptions = {}) =>
+  createMiddleware<AuthContext>(async (c, next) => {
+    const { user } = await loadAuthenticatedActor(c);
+    if (!user) return handleReject(c, options, user === null ? "forbidden" : "unauthenticated");
+    return next();
+  });
+
 /** Preset: Redirect to a fixed URL on rejection */
 const redirect = (url: string): RoleOptions => ({
   onReject: () => url,
@@ -261,6 +282,7 @@ const requireAccount = (options: AccountOptions) =>
 export const auth = {
   session,
   requireRole,
+  requireUser,
   requireAccount,
   redirect,
   redirectToLogin,

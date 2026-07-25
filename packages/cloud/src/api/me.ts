@@ -35,7 +35,7 @@ import {
   UserSchema,
   WebAuthnPasskeySchema,
 } from "../contracts";
-import { type AuthContext, auth, getUserBackedActor, isDirectUserActor, jsonResponse, rateLimit, requiresAuth, respond, v } from "../server";
+import { type AuthContext, auth, isDirectUserActor, jsonResponse, rateLimit, requiresAuth, respond, v } from "../server";
 import {
   accountLifecycle,
   accountsAppService as accountsService,
@@ -53,18 +53,11 @@ const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
   provider: user.provider,
 });
 
-const requireUserBackedActor = createMiddleware<AuthContext>(async (c, next) => {
-  if (!getUserBackedActor(c)) {
-    return c.json({ message: "Self-service endpoints require a user-backed actor", code: "FORBIDDEN" }, 403);
-  }
-  return next();
-});
-
 /**
  * Guards the endpoints that manage how the account is authenticated: passkeys,
  * API keys, the password, and account deletion.
  *
- * `requireUserBackedActor` is not enough for these. A personal API key acts as
+ * `auth.requireUser()` is not enough for these. A personal API key acts as
  * its user, so it passes that check — and could then enrol a passkey, which is
  * a full account takeover, or mint further keys that outlive the revocation of
  * the one that was leaked. No scope in the vocabulary means "may add an
@@ -120,7 +113,7 @@ const NotificationHistoryQuerySchema = z.object({
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
-  .use(requireUserBackedActor)
+  .use(auth.requireUser())
 
   .get(
     "/activity",
