@@ -1,6 +1,11 @@
 import { listApps } from "@valentinkolb/cloud";
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
-import { latestGatewayRouteSnapshot, settingsDeleteLegacyKeys, settingsListLegacyKeys, settingsService } from "@valentinkolb/cloud/services";
+import {
+  latestGatewayRouteSnapshot,
+  settingsDeleteLegacyKeys,
+  settingsListLegacyKeys,
+  settingsService,
+} from "@valentinkolb/cloud/services";
 import { err, fail, ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -17,6 +22,8 @@ import {
 import { updateHealthSchedule } from "./lifecycle";
 import { getDataDiagnostics, getPostgresDiagnostics, getRedisDiagnostics } from "./observability/data/service";
 import { metricsApiRoutes } from "./observability/metrics/api";
+import { TELEMETRY_RANGES, type TelemetryRange } from "./observability/telemetry/contracts";
+import { getTelemetryPrefixTotals } from "./observability/telemetry/service";
 import { removeOfflineRegisteredApp } from "./registered-apps";
 import { getTelemetrySummary, listTelemetryApps, listTelemetryEvents } from "./telemetry";
 
@@ -57,6 +64,7 @@ const GatewayRoutesQuerySchema = z.object({
   app: z.string().optional(),
   errors: QueryBooleanSchema,
   sort: z.enum(["count", "prefix", "errors"]).optional(),
+  range: z.enum(Object.keys(TELEMETRY_RANGES) as [string, ...string[]]).default("24h"),
 });
 const HealthWebhookInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -104,17 +112,21 @@ export const apiRoutes = new Hono<AuthContext>()
     const snapshot = await latestGatewayRouteSnapshot();
     if (!snapshot) return respond(c, ok({ generatedAt: null, instanceId: null, total: 0, routeCount: 0, items: [] }));
 
-    const statsByPrefix = new Map(snapshot.stats.byRoute.map((route) => [route.prefix, route]));
+    // The router's own counters are cumulative since it booted, so they read
+    // healthy on a long-lived process that is failing right now. Traffic comes
+    // from windowed rollups; the snapshot still owns the route table.
+    const totals = await getTelemetryPrefixTotals(query.range as TelemetryRange);
     const search = query.search?.trim().toLowerCase();
     const app = query.app?.trim().toLowerCase();
     const allRows = snapshot.routes.map((route) => {
-      const stats = statsByPrefix.get(route.prefix);
+      const stats = totals.get(route.prefix);
       return {
         prefix: route.prefix,
         appId: route.appId,
-        count: stats?.count ?? 0,
+        count: stats?.requests ?? 0,
         errors: stats?.errors ?? 0,
-        lastSeen: stats?.lastSeen ? new Date(stats.lastSeen).toISOString() : null,
+        slow: stats?.slowRequests ?? 0,
+        avgDurationMs: stats?.avgDurationMs ?? null,
       };
     });
     const items = allRows
@@ -131,6 +143,7 @@ export const apiRoutes = new Hono<AuthContext>()
       c,
       ok({
         generatedAt: new Date(snapshot.updatedAt).toISOString(),
+        range: query.range,
         instanceId: snapshot.instanceId,
         total: allRows.length,
         routeCount: items.length,

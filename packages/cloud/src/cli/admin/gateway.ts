@@ -2,7 +2,7 @@
  * Gateway surface: the registry of running apps and the route table.
  */
 import { arg, type CloudCliContext, command, confirmFlag, flag } from "../index";
-import { apiGet, apiJson, printJsonOrTable, queryString } from "./shared";
+import { apiGet, apiJson, formatMs, printJsonOrTable, queryString } from "./shared";
 
 export type GatewayHealth = {
   status: "ok" | "warn" | "error";
@@ -24,7 +24,8 @@ export type GatewayRoute = {
   appId: string;
   count: number;
   errors: number;
-  lastSeen: string | null;
+  slow: number;
+  avgDurationMs: number | null;
 };
 
 export type GatewayRoutesResponse = {
@@ -116,6 +117,10 @@ export const gatewayCommands = [
       search: flag.string({ aliases: ["q"], description: "Search route prefix or app id" }),
       app: flag.string({ description: "Filter by app id" }),
       errors: flag.boolean({ description: "Only routes with errors" }),
+      range: flag.enum(["1h", "6h", "24h", "7d", "30d"] as const, {
+        default: "24h",
+        description: "Traffic window for hit and error counts",
+      }),
       sort: flag.enum(["count", "prefix", "errors"], { default: "count", description: "Sort by count, prefix, or errors" }),
     },
     run: async ({ ctx, flags }) => {
@@ -126,6 +131,7 @@ export const gatewayCommands = [
           app: flags.app,
           errors: flags.errors,
           sort: flags.sort,
+          range: flags.range,
         })}`,
       );
       const rows = result.items.map((route) => ({
@@ -133,9 +139,17 @@ export const gatewayCommands = [
         app: route.appId,
         requests: route.count,
         errors: route.errors,
-        lastSeen: route.lastSeen ?? "",
+        slow: route.slow,
+        avgMs: formatMs(route.avgDurationMs),
       }));
-      printJsonOrTable(ctx, result, rows, [{ key: "prefix" }, { key: "app" }, { key: "requests" }, { key: "errors" }, { key: "lastSeen" }]);
+      printJsonOrTable(ctx, result, rows, [
+        { key: "prefix" },
+        { key: "app" },
+        { key: "requests" },
+        { key: "errors" },
+        { key: "slow" },
+        { key: "avgMs", label: "Avg" },
+      ]);
     },
   }),
 ];

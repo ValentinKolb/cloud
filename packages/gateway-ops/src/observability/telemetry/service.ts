@@ -288,3 +288,48 @@ export {
   type TelemetryRouteSort,
 } from "./contracts";
 export { SLOW_REQUEST_MS };
+
+export type TelemetryTotals = {
+  requests: number;
+  errors: number;
+  slowRequests: number;
+  avgDurationMs: number | null;
+};
+
+const emptyTotals = (): TelemetryTotals => ({ requests: 0, errors: 0, slowRequests: 0, avgDurationMs: null });
+
+/**
+ * Per-app and per-prefix traffic for a window.
+ *
+ * The gateway overview used to read the router's in-memory counters, which are
+ * cumulative since the router process started. A router up for two weeks
+ * reports a healthy lifetime average while it is failing every request right
+ * now, so those numbers are replaced with windowed rollups.
+ */
+const totalsBy = async (column: "app_id" | "route_prefix", range: TelemetryRange): Promise<Map<string, TelemetryTotals>> => {
+  const groupBy = column === "app_id" ? sql`app_id` : sql`route_prefix`;
+  const rows = await sql<{ key: string; requests: number; errors: number; slow_requests: number; avg_duration_ms: number | null }[]>`
+    SELECT
+      ${groupBy}::text AS key,
+      COALESCE(SUM(request_count), 0)::int AS requests,
+      COALESCE(SUM(error_count), 0)::int AS errors,
+      COALESCE(SUM(slow_count), 0)::int AS slow_requests,
+      (SUM(total_duration_ms)::float / NULLIF(SUM(request_count), 0)) AS avg_duration_ms
+    FROM gateway.telemetry_rollups_minute
+    WHERE ${rangeFilter(range)}
+    GROUP BY ${groupBy}
+  `;
+  return new Map(
+    rows.map((row) => [
+      row.key,
+      { requests: row.requests, errors: row.errors, slowRequests: row.slow_requests, avgDurationMs: row.avg_duration_ms },
+    ]),
+  );
+};
+
+export const getTelemetryAppTotals = (range: TelemetryRange): Promise<Map<string, TelemetryTotals>> => totalsBy("app_id", range);
+
+export const getTelemetryPrefixTotals = (range: TelemetryRange): Promise<Map<string, TelemetryTotals>> => totalsBy("route_prefix", range);
+
+export const telemetryTotalsOrEmpty = (totals: Map<string, TelemetryTotals>, key: string): TelemetryTotals =>
+  totals.get(key) ?? emptyTotals();

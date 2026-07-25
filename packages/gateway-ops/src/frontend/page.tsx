@@ -2,10 +2,24 @@ import { listAppsDetailed } from "@valentinkolb/cloud";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { latestGatewayRouteSnapshot } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import { DEFAULT_TELEMETRY_RANGE, isTelemetryRange, TELEMETRY_RANGES, type TelemetryRange } from "../observability/telemetry/contracts";
+
+const TELEMETRY_RANGE_KEYS = Object.keys(TELEMETRY_RANGES) as TelemetryRange[];
+
+/** Keeps the current path and any search filter while swapping the window. */
+const rangeUrl = (url: URL, range: TelemetryRange): string => {
+  const params = new URLSearchParams(url.searchParams);
+  if (range === DEFAULT_TELEMETRY_RANGE) params.delete("range");
+  else params.set("range", range);
+  const query = params.toString();
+  return query ? `${url.pathname}?${query}` : url.pathname;
+};
+
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { gatewayOpsHelp } from "../help";
+import { getTelemetryAppTotals, getTelemetryPrefixTotals } from "../observability/telemetry/service";
 import { listRegisteredAppStatus, type RegisteredAppStatus } from "../registered-apps";
 import GatewayOpsLayoutHelp from "./GatewayOpsLayoutHelp.island";
 import RemoveRegisteredAppButton from "./RemoveRegisteredAppButton.island";
@@ -57,9 +71,30 @@ type GatewayRouteRow = {
 export default ssr<AuthContext>(async (c) => {
   const url = new URL(c.req.url);
   const isRoutesPage = url.pathname.endsWith("/routes");
-  const [liveApps, routerSnapshot] = await Promise.all([listAppsDetailed(), latestGatewayRouteSnapshot()]);
-  const appTraffic = new Map((routerSnapshot?.stats.byApp ?? []).map((traffic) => [traffic.appId, traffic]));
-  const routeHits = new Map((routerSnapshot?.stats.byRoute ?? []).map((route) => [route.prefix, route]));
+  const range = isTelemetryRange(url.searchParams.get("range"))
+    ? (url.searchParams.get("range") as TelemetryRange)
+    : DEFAULT_TELEMETRY_RANGE;
+  const [liveApps, routerSnapshot, appTotals, prefixTotals] = await Promise.all([
+    listAppsDetailed(),
+    latestGatewayRouteSnapshot(),
+    // Router counters are cumulative since the process started, so a long-lived
+    // router reports a healthy lifetime average while it is failing right now.
+    // Traffic numbers come from windowed telemetry rollups instead; the router
+    // snapshot still owns the route table itself.
+    getTelemetryAppTotals(range),
+    getTelemetryPrefixTotals(range),
+  ]);
+  const appTraffic = new Map(
+    [...appTotals].map(([appId, totals]) => [
+      appId,
+      { appId, count: totals.requests, errors: totals.errors, totalMs: (totals.avgDurationMs ?? 0) * totals.requests },
+    ]),
+  );
+  const routeHits = new Map(
+    [...prefixTotals].map(([prefix, totals]) => [prefix, { prefix, count: totals.requests, errors: totals.errors, lastSeen: 0 }]),
+  );
+  const windowRequests = [...appTotals.values()].reduce((sum, totals) => sum + totals.requests, 0);
+  const unmatchedRequests = appTotals.get("gateway")?.requests ?? 0;
   const registeredApps = await listRegisteredAppStatus(liveApps);
   const visibleApps = registeredApps.filter((a) => a.id !== "gateway" && a.id !== "gateway-router");
 
@@ -128,6 +163,7 @@ export default ssr<AuthContext>(async (c) => {
     {
       id: "errors",
       header: "Errors",
+      subtitle: range,
       value: (app) => app.traffic?.errors,
       headerClass: "text-right",
       cellClass: "text-right tabular-nums",
@@ -142,7 +178,14 @@ export default ssr<AuthContext>(async (c) => {
   const routeColumns: DataTableColumn<GatewayRouteRow>[] = [
     { id: "prefix", header: "Prefix", value: (route) => route.prefix },
     { id: "app", header: "App", value: (route) => route.appId },
-    { id: "hits", header: "Hits", value: (route) => route.count, headerClass: "text-right", cellClass: "text-right tabular-nums" },
+    {
+      id: "hits",
+      header: "Hits",
+      subtitle: range,
+      value: (route) => route.count,
+      headerClass: "text-right",
+      cellClass: "text-right tabular-nums",
+    },
     { id: "errors", header: "Errors", value: (route) => route.errors, headerClass: "text-right", cellClass: "text-right tabular-nums" },
   ];
   return () => (
@@ -156,6 +199,19 @@ export default ssr<AuthContext>(async (c) => {
           </p>
         </div>
 
+        <nav class="flex flex-wrap items-center gap-1" aria-label="Traffic window">
+          <span class="mr-1 text-[10px] text-dimmed">Traffic window</span>
+          {TELEMETRY_RANGE_KEYS.map((option) => (
+            <a
+              href={rangeUrl(url, option)}
+              class={`btn-input btn-input-sm ${option === range ? "btn-input-active" : ""}`}
+              aria-current={option === range ? "true" : undefined}
+            >
+              {option}
+            </a>
+          ))}
+        </nav>
+
         {/* ── Stats — see skills/cloud-app/references/frontend.md § Stats ── */}
         <StatGrid columns={6}>
           <StatCell value={appCount} label="Apps" sub={`${withNav.length} nav · ${withAdmin.length} admin`} />
@@ -165,10 +221,11 @@ export default ssr<AuthContext>(async (c) => {
             sub={routerSnapshot ? `v${routerSnapshot.tableVersion}` : "no router"}
           />
           <StatCell
-            value={fmtCount(routerSnapshot?.stats.totalRequests ?? 0)}
+            value={fmtCount(windowRequests)}
             label="Requests"
-            sub={`${routerSnapshot?.stats.noRouteCount ?? 0} unmatched`}
-            accent={(routerSnapshot?.stats.noRouteCount ?? 0) > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
+            sub={unmatchedRequests > 0 ? `${fmtCount(unmatchedRequests)} unmatched · ${range}` : range}
+            href={`/admin/observability/telemetry?range=${range}`}
+            accent={unmatchedRequests > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
           />
           <StatCell value={withSearch.length} label="Search" sub="providers" />
           <StatCell
