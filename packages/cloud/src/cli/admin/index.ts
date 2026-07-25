@@ -10,6 +10,7 @@ import { dataCommands } from "./data";
 import { gatewayCommands } from "./gateway";
 import { instanceCommands } from "./instance";
 import { jobCommands } from "./jobs";
+import { workflowCommands } from "./workflows";
 import { logCommands } from "./logs";
 import { metricsCommands } from "./metrics";
 import { notificationCommands } from "./notifications";
@@ -25,6 +26,7 @@ export default defineCliCommands({
     ...logCommands,
     ...telemetryCommands,
     ...jobCommands,
+    ...workflowCommands,
     ...dataCommands,
     ...notificationCommands,
     ...webhookCommands,

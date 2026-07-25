@@ -30,6 +30,7 @@ export const app = defineApp({
         { href: "/admin/observability", icon: "ti-stethoscope", label: "Overview" },
         { href: "/admin/observability/logs", icon: "ti-list-details", label: "Logs" },
         { href: "/admin/observability/jobs", icon: "ti-activity", label: "Jobs" },
+        { href: "/admin/observability/workflows", icon: "ti-route", label: "Workflows" },
         { href: "/admin/observability/telemetry", icon: "ti-chart-line", label: "Telemetry" },
         { href: "/admin/observability/metrics", icon: "ti-plug", label: "Metrics" },
         { href: "/admin/observability/postgres", icon: "ti-database", label: "Postgres" },

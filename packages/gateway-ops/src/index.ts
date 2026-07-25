@@ -23,7 +23,9 @@ import observabilityOverviewPage from "./observability/page";
 import postgresPage from "./observability/postgres/page";
 import redisPage from "./observability/redis/page";
 import telemetryApiRoutes from "./observability/telemetry/api";
+import workflowsApiRoutes from "./observability/workflows/api";
 import telemetryPage from "./observability/telemetry/page";
+import workflowsPage from "./observability/workflows/page";
 import { widgetRoutes } from "./widgets";
 
 const router = new Hono<AuthContext>()
@@ -50,6 +52,7 @@ const router = new Hono<AuthContext>()
   .get("/admin/observability/jobs", auth.requireRole("admin", auth.redirectToLogin), ...jobsPage)
   .post("/admin/observability/jobs/run-now", auth.requireRole("admin", auth.redirectToLogin), runScheduleNowAction)
   .get("/admin/observability/telemetry", auth.requireRole("admin", auth.redirectToLogin), ...telemetryPage)
+  .get("/admin/observability/workflows", auth.requireRole("admin", auth.redirectToLogin), ...workflowsPage)
   .get("/admin/observability/metrics", auth.requireRole("admin", auth.redirectToLogin), ...metricsPage)
   .get("/admin/observability/data", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/admin/observability/postgres"))
   .get("/admin/observability/postgres", auth.requireRole("admin", auth.redirectToLogin), ...postgresPage)
@@ -65,6 +68,7 @@ const router = new Hono<AuthContext>()
   // telemetry summary/apps/events routes.
   .route("/api/gateway/telemetry", telemetryApiRoutes)
   .route("/api/gateway/jobs", jobsApiRoutes)
+  .route("/api/gateway/workflows", workflowsApiRoutes)
   .route("/api/gateway", apiRoutes);
 
 export default await app.start({
