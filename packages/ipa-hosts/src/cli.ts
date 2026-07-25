@@ -1,4 +1,13 @@
-import { arg, type CloudCliContext, command, confirmFlag, defineCliCommands, flag, paginationFlags } from "@valentinkolb/cloud/cli";
+import {
+  arg,
+  type CloudCliContext,
+  command,
+  confirmFlag,
+  defineCliCommands,
+  flag,
+  paginationFlags,
+  printRows as printJsonOrTable,
+} from "@valentinkolb/cloud/cli";
 import type { IpaHost, IpaHostgroup, PaginationResponse, SyncCronResponse } from "./contracts";
 
 type HostsResponse = {
@@ -27,16 +36,6 @@ const apiJson = async <T>(ctx: CloudCliContext, method: string, path: string, bo
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );
-
-const printJsonOrTable = <TRow extends Record<string, unknown>>(
-  ctx: CloudCliContext,
-  raw: unknown,
-  rows: TRow[],
-  columns: Parameters<CloudCliContext["table"]>[1],
-) => {
-  if (ctx.options.output === "json") ctx.json(raw);
-  else ctx.table(rows, columns);
-};
 
 const compact = <T extends Record<string, unknown>>(value: T): Partial<T> =>
   Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;

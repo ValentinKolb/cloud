@@ -1,5 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { arg, type CloudCliContext, command, confirmFlag, defineCliCommands, flag, paginationFlags } from "@valentinkolb/cloud/cli";
+import {
+  arg,
+  type CloudCliContext,
+  command,
+  confirmFlag,
+  defineCliCommands,
+  flag,
+  paginationFlags,
+  printRows as printJsonOrTable,
+} from "@valentinkolb/cloud/cli";
 
 type UserProvider = "local" | "ipa";
 type UserProfile = "user" | "guest";
@@ -212,16 +221,6 @@ const readErrorResponse = async (ctx: CloudCliContext, response: Response): Prom
   throw new Error(`${response.status} ${response.statusText}`);
 };
 
-const printJsonOrTable = <TRow extends Record<string, unknown>>(
-  ctx: CloudCliContext,
-  raw: unknown,
-  rows: TRow[],
-  columns: Parameters<CloudCliContext["table"]>[1],
-) => {
-  if (ctx.options.output === "json") ctx.json(raw);
-  else ctx.table(rows, columns);
-};
-
 const printMessage = (ctx: CloudCliContext, result: MessageResponse | { message?: string }, fallback: string) => {
   if (ctx.options.output === "json") ctx.json(result);
   else ctx.print(result.message ?? fallback);
@@ -402,7 +401,10 @@ const listUsers = (ctx: CloudCliContext, query?: { search?: string; provider?: U
     })}`,
   );
 
-const listGroups = (ctx: CloudCliContext, query?: { search?: string; provider?: UserProvider; scope?: "all" | "member" | "managed"; page?: number }) =>
+const listGroups = (
+  ctx: CloudCliContext,
+  query?: { search?: string; provider?: UserProvider; scope?: "all" | "member" | "managed"; page?: number },
+) =>
   apiGet<GroupsResponse>(
     ctx,
     `/groups${queryString({
@@ -446,7 +448,11 @@ const resolveUserRef = async (ctx: CloudCliContext, ref: string): Promise<BaseUs
   if (exactMatches.length > 1) throw new Error(`User "${ref}" is ambiguous. Use one of: ${userCandidates(exactMatches)}`);
 
   const candidates = userCandidates(seen);
-  throw new Error(candidates ? `User "${ref}" was not found by id or exact uid/email/name. Similar matches: ${candidates}` : `User "${ref}" was not found.`);
+  throw new Error(
+    candidates
+      ? `User "${ref}" was not found by id or exact uid/email/name. Similar matches: ${candidates}`
+      : `User "${ref}" was not found.`,
+  );
 };
 
 const resolveUserIdForGroupRelation = async (ctx: CloudCliContext, ref: string): Promise<string> => {
@@ -468,7 +474,9 @@ const resolveUserIdForGroupRelation = async (ctx: CloudCliContext, ref: string):
   if (exactMatches.length > 1) throw new Error(`User "${ref}" is ambiguous. Use one of: ${userCandidates(exactMatches)}`);
 
   const candidates = userCandidates(seen);
-  throw new Error(candidates ? `User "${ref}" was not found by exact uid/email/name. Similar matches: ${candidates}` : `User "${ref}" was not found.`);
+  throw new Error(
+    candidates ? `User "${ref}" was not found by exact uid/email/name. Similar matches: ${candidates}` : `User "${ref}" was not found.`,
+  );
 };
 
 const resolveGroupRef = async (ctx: CloudCliContext, ref: string): Promise<BaseGroup> => {
@@ -488,7 +496,9 @@ const resolveGroupRef = async (ctx: CloudCliContext, ref: string): Promise<BaseG
   if (exactMatches.length > 1) throw new Error(`Group "${ref}" is ambiguous. Use one of: ${groupCandidates(exactMatches)}`);
 
   const candidates = groupCandidates(seen);
-  throw new Error(candidates ? `Group "${ref}" was not found by id or exact name. Similar matches: ${candidates}` : `Group "${ref}" was not found.`);
+  throw new Error(
+    candidates ? `Group "${ref}" was not found by id or exact name. Similar matches: ${candidates}` : `Group "${ref}" was not found.`,
+  );
 };
 
 const resolvePrincipal = async (
@@ -498,7 +508,11 @@ const resolvePrincipal = async (
 ): Promise<{ type: GroupMemberType; id: string }> => {
   if (flags.user && flags.group) throw new Error("Pass only one of --user or --group.");
   if (!flags.user && !flags.group) throw new Error("Pass one of --user or --group.");
-  if (flags.user) return { type: "user", id: options.userViaEntities ? await resolveUserIdForGroupRelation(ctx, flags.user) : (await resolveUserRef(ctx, flags.user)).id };
+  if (flags.user)
+    return {
+      type: "user",
+      id: options.userViaEntities ? await resolveUserIdForGroupRelation(ctx, flags.user) : (await resolveUserRef(ctx, flags.user)).id,
+    };
   return { type: "group", id: (await resolveGroupRef(ctx, flags.group!)).id };
 };
 
@@ -573,8 +587,10 @@ export default defineCliCommands({
       async run({ ctx, flags }) {
         if (!flags.provider) throw new Error("Missing required flag --provider.");
         if (!flags.email || !flags.givenName || !flags.sn) throw new Error("Missing required account profile flags.");
-        if (flags.provider === "ipa" && flags.profile) throw new Error("FreeIPA account profiles are derived from group membership; omit --profile.");
-        if (flags.provider === "ipa" && flags.admin) throw new Error("FreeIPA admin access is managed through group membership; omit --admin.");
+        if (flags.provider === "ipa" && flags.profile)
+          throw new Error("FreeIPA account profiles are derived from group membership; omit --profile.");
+        if (flags.provider === "ipa" && flags.admin)
+          throw new Error("FreeIPA admin access is managed through group membership; omit --admin.");
         const body =
           flags.provider === "local"
             ? {
@@ -596,12 +612,12 @@ export default defineCliCommands({
                 autoSendNotification: flags.sendNotification,
               };
         const result = await apiJson<CreateUserResponse>(ctx, "POST", "/users", body);
-        printJsonOrTable(ctx, result, [{ uid: result.uid, id: result.id, expires: result.accountExpires ?? "", notified: result.notificationSent }], [
-          { key: "uid" },
-          { key: "id" },
-          { key: "expires" },
-          { key: "notified" },
-        ]);
+        printJsonOrTable(
+          ctx,
+          result,
+          [{ uid: result.uid, id: result.id, expires: result.accountExpires ?? "", notified: result.notificationSent }],
+          [{ key: "uid" }, { key: "id" }, { key: "expires" }, { key: "notified" }],
+        );
       },
     }),
     command("users update", {
@@ -742,7 +758,9 @@ export default defineCliCommands({
       async run({ ctx, args, flags }) {
         if (!flags.yes) throw new Error("Refusing to change account expiry without --yes.");
         const user = await resolveUserRef(ctx, args.user);
-        const result = await apiJson<MessageResponse>(ctx, "PUT", `/users/${encode(user.id)}/expiry`, { expiryDate: parseExpiry(args.expiry) });
+        const result = await apiJson<MessageResponse>(ctx, "PUT", `/users/${encode(user.id)}/expiry`, {
+          expiryDate: parseExpiry(args.expiry),
+        });
         printMessage(ctx, result, "Account expiry updated.");
       },
     }),
@@ -1008,7 +1026,10 @@ export default defineCliCommands({
         scope: flag.enum(REQUEST_SCOPES, { default: "open" }),
       },
       async run({ ctx, flags }) {
-        const response = await apiGet<RequestsResponse>(ctx, `/account-requests${queryString({ ...pageQuery(flags), status: flags.status, scope: flags.scope })}`);
+        const response = await apiGet<RequestsResponse>(
+          ctx,
+          `/account-requests${queryString({ ...pageQuery(flags), status: flags.status, scope: flags.scope })}`,
+        );
         printJsonOrTable(ctx, response, requestRows(response.requests), [
           { key: "status" },
           { key: "email" },
@@ -1043,7 +1064,9 @@ export default defineCliCommands({
       },
       async run({ ctx, args, flags }) {
         if (!flags.yes) throw new Error("Refusing to deny an account request without --yes.");
-        const result = await apiJson<MessageResponse>(ctx, "POST", `/account-requests/${encode(args.request)}/deny`, { reason: flags.reason });
+        const result = await apiJson<MessageResponse>(ctx, "POST", `/account-requests/${encode(args.request)}/deny`, {
+          reason: flags.reason,
+        });
         printMessage(ctx, result, "Request denied.");
       },
     }),

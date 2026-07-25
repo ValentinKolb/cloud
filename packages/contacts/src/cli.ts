@@ -7,6 +7,7 @@ import {
   createAccessCommands,
   defineCliCommands,
   flag,
+  printRows as printJsonOrTable,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type {
@@ -124,16 +125,6 @@ const paginationQuery = (ctx: CloudCliContext): Record<string, string> => ({
   page: String(parsePositiveInt(stringFlag(ctx.flags, "page"), 1, "--page")),
   per_page: String(parsePositiveInt(stringFlag(ctx.flags, "per-page", "per_page"), 50, "--per-page")),
 });
-
-const printJsonOrTable = <TRow extends Record<string, unknown>>(
-  ctx: CloudCliContext,
-  value: unknown,
-  rows: TRow[],
-  columns: Parameters<CloudCliContext["table"]>[1],
-) => {
-  if (ctx.options.output === "json") ctx.json(value);
-  else ctx.table(rows, columns);
-};
 
 const readInputContent = async (ctx: CloudCliContext, required = true): Promise<string | undefined> => {
   const literal = stringFlag(ctx.flags, "content");

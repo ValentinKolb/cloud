@@ -1,4 +1,12 @@
-import { arg, type CloudCliContext, command, confirmFlag, defineCliCommands, flag } from "@valentinkolb/cloud/cli";
+import {
+  arg,
+  type CloudCliContext,
+  command,
+  confirmFlag,
+  defineCliCommands,
+  flag,
+  printRows as printJsonOrTable,
+} from "@valentinkolb/cloud/cli";
 import type { OAuthAccessMode, OAuthAllowedProfile, OAuthClient, OAuthScope, UpdateOAuthClient } from "./contracts";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -18,16 +26,6 @@ const apiJson = async <T>(ctx: CloudCliContext, method: string, path: string, bo
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );
-
-const printJsonOrTable = <TRow extends Record<string, unknown>>(
-  ctx: CloudCliContext,
-  raw: unknown,
-  rows: TRow[],
-  columns: Parameters<CloudCliContext["table"]>[1],
-) => {
-  if (ctx.options.output === "json") ctx.json(raw);
-  else ctx.table(rows, columns);
-};
 
 const compact = <T extends Record<string, unknown>>(value: T): Partial<T> =>
   Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
@@ -214,7 +212,8 @@ export default defineCliCommands({
           scope: flags.scope.filter((item): item is OAuthScope => SCOPES.includes(item as OAuthScope)),
           profile: flags.profile.filter((item): item is OAuthAllowedProfile => PROFILES.includes(item as OAuthAllowedProfile)),
         });
-        if (flags.scope.length !== input.scopes?.length && flags.scope.length > 0) throw new Error(`--scope must be one of: ${SCOPES.join(", ")}.`);
+        if (flags.scope.length !== input.scopes?.length && flags.scope.length > 0)
+          throw new Error(`--scope must be one of: ${SCOPES.join(", ")}.`);
         if (flags.profile.length !== input.allowedProfiles?.length && flags.profile.length > 0)
           throw new Error(`--profile must be one of: ${PROFILES.join(", ")}.`);
         await apiJson(ctx, "PUT", `/${encodeURIComponent(client.id)}`, input);

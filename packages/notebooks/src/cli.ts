@@ -10,6 +10,7 @@ import {
   createAccessCommands,
   defineCliCommands,
   flag,
+  printRows as printJsonOrTable,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type { ApiType } from "./api";
@@ -185,19 +186,6 @@ const paginationQuery = (flags: CloudCliFlags, extra: Record<string, string | un
     if (value) query[key] = value;
   }
   return query;
-};
-
-const printJsonOrTable = <TRow extends Record<string, unknown>>(
-  ctx: CloudCliContext,
-  value: unknown,
-  rows: TRow[],
-  columns: Parameters<CloudCliContext["table"]>[1],
-) => {
-  if (ctx.options.output === "json") {
-    ctx.json(value);
-    return;
-  }
-  ctx.table(rows, columns);
 };
 
 const notebookRows = (items: Notebook[]) =>
@@ -960,15 +948,10 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       query: paginationQuery(ctx.flags),
     });
     const payload = await ctx.readJson<Page<NoteVersion>>(response);
-    printJsonOrTable(
-      ctx,
-      payload,
-      payload.data,
-      [
-        { key: "createdAt", label: "CREATED" },
-        { key: "id", label: "ID" },
-      ],
-    );
+    printJsonOrTable(ctx, payload, payload.data, [
+      { key: "createdAt", label: "CREATED" },
+      { key: "id", label: "ID" },
+    ]);
     return 0;
   }
 

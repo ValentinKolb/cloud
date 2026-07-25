@@ -7,6 +7,7 @@ import {
   createAccessCommands,
   defineCliCommands,
   flag,
+  printRows as printJsonOrTable,
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
@@ -51,16 +52,6 @@ const apiJson = async <T>(ctx: CloudCliContext, method: string, path: string, bo
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );
-
-const printJsonOrTable = <TRow extends Record<string, unknown>>(
-  ctx: CloudCliContext,
-  raw: unknown,
-  rows: TRow[],
-  columns: Parameters<CloudCliContext["table"]>[1],
-) => {
-  if (ctx.options.output === "json") ctx.json(raw);
-  else ctx.table(rows, columns);
-};
 
 const slugify = (value: string): string =>
   value

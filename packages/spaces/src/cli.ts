@@ -7,6 +7,7 @@ import {
   createAccessCommands,
   defineCliCommands,
   flag,
+  printRows as printJsonOrTable,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type {
@@ -68,16 +69,6 @@ const readInputContent = async (ctx: CloudCliContext, flagName = "content", requ
   if (stdin) return Bun.stdin.text();
   if (required) throw new Error(`Missing content. Pass --${flagName}, --file, or --stdin.`);
   return undefined;
-};
-
-const printJsonOrTable = <TRow extends Record<string, unknown>>(
-  ctx: CloudCliContext,
-  value: unknown,
-  rows: TRow[],
-  columns: Parameters<CloudCliContext["table"]>[1],
-) => {
-  if (ctx.options.output === "json") ctx.json(value);
-  else ctx.table(rows, columns);
 };
 
 const apiPath = (path = "") => `/api/spaces${path === "/" ? "" : path}`;
