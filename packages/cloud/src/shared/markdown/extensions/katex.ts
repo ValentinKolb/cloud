@@ -6,8 +6,8 @@
  * - Block: $$...$$ or \[..\] or ```math
  */
 
-import type { MarkedExtension, Tokens } from "marked";
 import katex from "katex";
+import type { MarkedExtension, Tokens } from "marked";
 
 /**
  * Token shape produced by the math tokenizers below. The marked extension API

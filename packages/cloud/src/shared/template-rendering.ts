@@ -82,7 +82,8 @@ const createEngine = (options: LiquidTemplateOptions = {}) => {
 };
 
 const defaultEngine = createEngine();
-const engineFor = (options: LiquidTemplateOptions = {}) => (options.filters || options.escapeOutput === false ? createEngine(options) : defaultEngine);
+const engineFor = (options: LiquidTemplateOptions = {}) =>
+  options.filters || options.escapeOutput === false ? createEngine(options) : defaultEngine;
 
 export const migrateLegacyMustacheTemplate = (template: string): string =>
   template
@@ -106,11 +107,7 @@ export const validateLiquidTemplate = (
   }
 };
 
-export const renderLiquidTemplate = (
-  template: string,
-  data: Record<string, unknown>,
-  options: LiquidTemplateOptions = {},
-): string => {
+export const renderLiquidTemplate = (template: string, data: Record<string, unknown>, options: LiquidTemplateOptions = {}): string => {
   const valid = validateLiquidTemplate(template, options);
   if (!valid.ok) throw new Error(valid.error);
   const rendered = engineFor(options).parseAndRenderSync(template, data);

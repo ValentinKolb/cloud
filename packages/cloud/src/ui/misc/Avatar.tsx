@@ -26,7 +26,9 @@ export default function Avatar(props: AvatarProps) {
 
   if (props.userId && props.avatarHash) {
     const src = `/api/accounts/users/${encodeURIComponent(props.userId)}/avatar?rev=${encodeURIComponent(props.avatarHash)}`;
-    return <img src={src} alt={`${label} avatar`} class={`${className} object-cover`} style={props.style} loading="lazy" decoding="async" />;
+    return (
+      <img src={src} alt={`${label} avatar`} class={`${className} object-cover`} style={props.style} loading="lazy" decoding="async" />
+    );
   }
 
   return (

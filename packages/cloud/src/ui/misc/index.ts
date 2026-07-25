@@ -54,12 +54,15 @@ export type { CodeDisplayLanguage, CodeDisplayProps } from "./CodeDisplay";
 export { default as CodeDisplay } from "./CodeDisplay";
 export { default as ContextMenu } from "./ContextMenu";
 export { default as CopyButton } from "./CopyButton";
+export type { DataPanelProps } from "./DataPanel";
+export { default as DataPanel } from "./DataPanel";
 export type {
   DataTableColumn,
   DataTableFooter,
   DataTableProps,
   DataTableRenderCell,
   DataTableRenderHeader,
+  DataTableSort,
 } from "./DataTable";
 export { default as DataTable } from "./DataTable";
 export type {
@@ -109,6 +112,8 @@ export { default as LinkCard } from "./LinkCard";
 export type { LogTableEntry } from "./LogEntriesTable";
 export { default as LogEntriesTable } from "./LogEntriesTable";
 export { default as MarkdownView } from "./MarkdownView";
+export type { NoticeCardProps, NoticeTone } from "./NoticeCard";
+export { default as NoticeCard } from "./NoticeCard";
 export { Pagination, type PaginationProps } from "./Pagination";
 export type {
   PanelDialogBodyProps,
@@ -130,6 +135,8 @@ export {
   panelDialogWorkspaceOptions,
   panelDialogWorkspacePanelClass,
 } from "./PanelDialog";
+export type { PanelHeaderProps } from "./PanelHeader";
+export { default as PanelHeader } from "./PanelHeader";
 export type {
   PanesElementProps,
   PanesLeafNode,
@@ -147,6 +154,8 @@ export type { PlaceholderAlign, PlaceholderProps, PlaceholderState, PlaceholderS
 export { default as Placeholder } from "./Placeholder";
 export type { ProgressBarProps } from "./ProgressBar";
 export { default as ProgressBar } from "./ProgressBar";
+export type { RangeOption, RangePickerProps } from "./RangePicker";
+export { default as RangePicker } from "./RangePicker";
 export { default as RemoveBtn } from "./RemoveBtn";
 export type { ResourceApiKey, ResourceApiKeyPermissionOption, ResourceApiKeysProps } from "./ResourceApiKeys";
 export { default as ResourceApiKeys } from "./ResourceApiKeys";
@@ -164,6 +173,8 @@ export {
 export type { StatCellAccent, StatCellProps } from "./StatCell";
 export { default as StatCell } from "./StatCell";
 export { default as StatGrid } from "./StatGrid";
+export type { StatusBadgeProps, StatusTone } from "./StatusBadge";
+export { default as StatusBadge } from "./StatusBadge";
 export type { StructuredDataPreviewMode, StructuredDataPreviewProps } from "./StructuredDataPreview";
 export { default as StructuredDataPreview } from "./StructuredDataPreview";
 export type { TooltipPlacement, TooltipProps } from "./Tooltip";

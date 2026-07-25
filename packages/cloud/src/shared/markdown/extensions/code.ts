@@ -7,7 +7,7 @@
  * change source text or require a browser-side parser.
  */
 
-import { highlight, type Highlighter } from "@valentinkolb/stdlib";
+import { type Highlighter, highlight } from "@valentinkolb/stdlib";
 import type { MarkedExtension, Tokens } from "marked";
 import { escapeHtml } from "../shared";
 

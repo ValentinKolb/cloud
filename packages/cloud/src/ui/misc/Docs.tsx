@@ -1,7 +1,7 @@
-import { For, Show, type JSX } from "solid-js";
+import { For, type JSX, Show } from "solid-js";
+import type { CodeDisplayLanguage } from "./CodeDisplay";
 import CopyButton from "./CopyButton";
 import { highlightCodeDisplayLines } from "./code-highlight";
-import type { CodeDisplayLanguage } from "./CodeDisplay";
 
 export type DocCodeHighlighter = (code: string) => string;
 

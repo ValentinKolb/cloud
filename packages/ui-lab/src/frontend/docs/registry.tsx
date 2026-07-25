@@ -126,6 +126,14 @@ import {
   SettingsModalDemo,
 } from "../lab/navigation";
 import {
+  DataPanelDemo,
+  NoticeCardDemo,
+  ObservabilityStatsDemo,
+  PanelHeaderDemo,
+  RangePickerDemo,
+  StatusBadgeDemo,
+} from "../lab/observability";
+import {
   AvatarDemo,
   CoreUtilityPatternsDemo,
   LinkCardDemo,
@@ -701,6 +709,24 @@ export const uiLabDocs: UiLabDocSection[] = [
             <StatCellDemo />
             <StatGridDemo />
             <StatHeroGridDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "surfaces",
+        "observability",
+        "Observability",
+        "ti ti-stethoscope",
+        "Primitives for admin and operations surfaces: panel shells, status vocabulary, diagnostics and time windows.",
+        ["panelheader", "datapanel", "statusbadge", "noticecard", "rangepicker", "observability-stats"],
+        () => (
+          <DemoGrid columns="one">
+            <PanelHeaderDemo />
+            <DataPanelDemo />
+            <StatusBadgeDemo />
+            <NoticeCardDemo />
+            <RangePickerDemo />
+            <ObservabilityStatsDemo />
           </DemoGrid>
         ),
       ),

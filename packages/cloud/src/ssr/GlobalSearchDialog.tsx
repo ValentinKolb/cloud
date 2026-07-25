@@ -1,7 +1,7 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import { dialogCore } from "../ui";
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
-import { openGlobalSearchHelpDialog, type GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { dialogCore } from "../ui";
+import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 
 type SearchMetadata = {
   label: string;

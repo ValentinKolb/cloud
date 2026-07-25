@@ -331,7 +331,14 @@ const EntitySearch = (props: EntitySearchProps) => {
   );
 };
 
-const ResultRow = (props: { icon: string; title: string; subtitle?: string; avatar?: JSX.Element; disabled?: boolean; onSelect: () => void }) => (
+const ResultRow = (props: {
+  icon: string;
+  title: string;
+  subtitle?: string;
+  avatar?: JSX.Element;
+  disabled?: boolean;
+  onSelect: () => void;
+}) => (
   <button
     type="button"
     onClick={props.onSelect}

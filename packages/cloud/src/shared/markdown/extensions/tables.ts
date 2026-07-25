@@ -21,7 +21,7 @@
  * those, you're rendering data not prose; use the Grids app.
  */
 import type { MarkedExtension, Tokens } from "marked";
-import { evaluateFormula, formatValue, isFormula, isTotalRow, parseProgressValue, type EvalContext, type ProgressValue } from "../formula";
+import { type EvalContext, evaluateFormula, formatValue, isFormula, isTotalRow, type ProgressValue, parseProgressValue } from "../formula";
 import { escapeHtml } from "../shared";
 
 type Align = "left" | "right" | "center" | null;

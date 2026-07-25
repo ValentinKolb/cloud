@@ -8,7 +8,7 @@
  * Also styles regular bullet lists consistently.
  */
 
-import type { MarkedExtension, Tokens, RendererObject, RendererThis } from "marked";
+import type { MarkedExtension, RendererObject, RendererThis, Tokens } from "marked";
 
 export function taskListExtension(): MarkedExtension {
   const renderer: RendererObject = {

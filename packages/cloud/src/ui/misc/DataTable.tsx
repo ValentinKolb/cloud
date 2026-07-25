@@ -11,7 +11,15 @@ export type DataTableColumn<T> = {
   cellClass?: string;
   /** Defaults to right for numeric values and left for everything else. */
   align?: "left" | "center" | "right";
+  /**
+   * Marks the column sortable. Pass a string when the server's sort key
+   * differs from the column id — they often do, because one column can show a
+   * rate while another sorts by the absolute count behind it.
+   */
+  sortable?: boolean | string;
 };
+
+export type DataTableSort = { key: string; direction: "asc" | "desc" };
 
 export type DataTableRenderCell<T> = (ctx: {
   row: T;
@@ -31,6 +39,13 @@ export type DataTableProps<T> = {
   rows: readonly T[];
   columns: readonly DataTableColumn<T>[];
   getRowId?: (row: T) => string;
+  /** Current server-side ordering, or null when the default applies. */
+  sort?: DataTableSort | null;
+  /**
+   * Link target for a sortable header. Link-based because every admin table is
+   * server-rendered: sorting is a query change, not client state.
+   */
+  sortHref?: (next: DataTableSort) => string;
   selectedRowId?: string | null;
   rowClass?: string | ((row: T) => string | undefined);
   hoverRows?: boolean;
@@ -131,14 +146,51 @@ export default function DataTable<T>(props: DataTableProps<T>) {
     return align === "right" ? "items-end text-right" : align === "center" ? "items-center text-center" : "items-start text-left";
   };
 
-  const renderHeaderDefault = (col: DataTableColumn<T>): JSX.Element => (
-    <div class={`flex flex-col gap-0.5 leading-tight ${headerAlignmentClass(col)}`}>
-      <span class="text-primary font-semibold">{renderColumnPart(col.header, col)}</span>
-      <Show when={col.subtitle !== undefined}>
-        <span class="text-[11px] text-dimmed font-normal">{renderColumnPart(col.subtitle, col)}</span>
-      </Show>
-    </div>
-  );
+  const sortKeyOf = (col: DataTableColumn<T>): string | null =>
+    col.sortable === true ? col.id : typeof col.sortable === "string" ? col.sortable : null;
+
+  /**
+   * Sorting is a link, not a handler: these tables are server-rendered, so the
+   * order belongs in the URL. Clicking the active column flips its direction.
+   */
+  const sortLinkFor = (col: DataTableColumn<T>): { href: string; active: boolean; direction: "asc" | "desc" } | null => {
+    const key = sortKeyOf(col);
+    if (!key || !props.sortHref) return null;
+    const active = props.sort?.key === key;
+    const direction: "asc" | "desc" = active && props.sort?.direction === "desc" ? "asc" : "desc";
+    return { href: props.sortHref({ key, direction }), active, direction };
+  };
+
+  const renderHeaderDefault = (col: DataTableColumn<T>): JSX.Element => {
+    const sort = sortLinkFor(col);
+    const title = (
+      <>
+        <span class="text-primary font-semibold">{renderColumnPart(col.header, col)}</span>
+        <Show when={col.subtitle !== undefined}>
+          <span class="text-[11px] text-dimmed font-normal">{renderColumnPart(col.subtitle, col)}</span>
+        </Show>
+      </>
+    );
+
+    if (!sort) return <div class={`flex flex-col gap-0.5 leading-tight ${headerAlignmentClass(col)}`}>{title}</div>;
+
+    return (
+      <a
+        href={sort.href}
+        class={`flex flex-col gap-0.5 leading-tight hover:text-primary ${headerAlignmentClass(col)}`}
+        aria-sort={sort.active ? (props.sort?.direction === "asc" ? "ascending" : "descending") : "none"}
+      >
+        <span class="inline-flex items-center gap-1">
+          {title}
+          {/* Inactive columns keep a dimmed marker so the row reads as sortable. */}
+          <i
+            class={`ti text-[9px] ${props.sort?.direction === "asc" && sort.active ? "ti-arrow-up" : "ti-arrow-down"} ${sort.active ? "" : "opacity-30"}`}
+            aria-hidden="true"
+          />
+        </span>
+      </a>
+    );
+  };
 
   const renderCellDefault = (row: T, col: DataTableColumn<T>) => defaultRender(valueOf(row, col));
 

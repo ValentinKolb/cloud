@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 export type LightboxImage = {
   src: string;

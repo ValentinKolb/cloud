@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { getCurrentThemePreference, setThemePreference, type CloudTheme } from "../shared/theme";
+import { type CloudTheme, getCurrentThemePreference, setThemePreference } from "../shared/theme";
 
 /** Theme toggle button for the desktop rail navigation. */
 export default function ThemeToggleRail() {

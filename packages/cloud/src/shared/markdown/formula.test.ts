@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type ErrorCode,
+  type EvalContext,
+  type EvalResult,
   evaluateFormula,
   formatValue,
   isFormula,
   isTotalRow,
   parseProgressValue,
-  type EvalContext,
-  type EvalResult,
-  type ErrorCode,
 } from "./formula";
 
 // =============================================================================
