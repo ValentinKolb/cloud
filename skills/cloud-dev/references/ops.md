@@ -130,7 +130,14 @@ bun run format
 
 `typecheck` runs eight steps in sequence: `check:skills`, `check:boundaries`, `check:cycles`, `check:service-api-contracts`, `check:ui-lab`, `check:css`, `check:biome`, then per-package `tsc`.
 
-Of these, only `check:boundaries` encodes rules an app author should care about — the allowed `@valentinkolb/cloud/<subpath>` set and the ban on reaching into framework source. The rest is framework-maintainer hygiene and hardcodes monorepo paths; a standalone app runs its own `tsc` and tests instead.
+Of these, `check:boundaries` is the one encoding rules an app author should care about. It enforces four:
+
+- imports resolve against the real `@valentinkolb/cloud` exports map, not just a first path segment — so an import that works in the monorepo cannot still break for an npm consumer;
+- no reaching into framework source, and no cross-app imports;
+- a CLI command that branches on `output === "json"` must also handle `"jsonl"`;
+- no app reads `c.get("user")`.
+
+The rest is framework-maintainer hygiene and hardcodes monorepo paths; a standalone app runs its own `tsc` and tests instead.
 
 > **There is no CI on pull requests.** No workflow has a `pull_request` trigger, so `typecheck` and the test suites do not gate merges. Run them locally before you push.
 
@@ -146,7 +153,7 @@ Three workflows, three separate tag namespaces.
 | tag `cloud-<image>-v<X.Y.Z>` | that one image, validated against the allowlist (exits 1 on a miss) | `v<X.Y.Z>`, `latest` |
 | `workflow_dispatch` | the whole allowlist | `sha-<short>` |
 
-The allowlist in the workflow is the single source of truth for what ships. `ui-lab` is excluded as dev-only and `pulse` as not release-ready; `assistant` and `mail` are also absent, and are likewise missing from `compose.prod.yml`.
+The allowlist in the workflow is the single source of truth for what ships. Everything in the workspace is on it except `ui-lab`, which is dev-only, and `pulse`, which is not release-ready.
 
 > **Bulk tag push gotcha:** GitHub silently drops events past the first three tags in one `git push --tags`. Push release tags one at a time with a small delay.
 
@@ -180,7 +187,7 @@ Very few, because almost all configuration is runtime settings instead.
 | `ADMIN_LOGIN_TOKEN` | Enables `/auth/login?method=admin`. Development only |
 | `APP_URL`, `FREEIPA_*`, `GROUPS_*`, `FILEGATE_*`, `MAIL_OAUTH_*` | **Bootstrap fallbacks only** for the corresponding runtime settings |
 
-> `APP_SECRET` defaults to an empty string and boots fine, but the settings decrypt path throws on first use. Always set it explicitly.
+> `APP_SECRET` has no default. `app.start()` refuses to boot without it, so a misconfigured container fails immediately and says so, rather than starting and dying later on its first settings read.
 
 ## Runtime settings
 
@@ -194,7 +201,7 @@ That delete is what gives cross-container coherence without polling or pub/sub: 
 
 Within a single request the picture is deliberately different: `c.get("settings")` is a snapshot taken once and frozen. It will not change mid-request, and it is not supposed to.
 
-**Do not rely on a written-down table of defaults.** The registry is large and moves; read the current values from the admin UI, or from the declarations in `packages/core/src/_settings.ts`, `packages/cloud/src/services/settings/defaults.ts`, and each app's `config.ts`.
+**Do not rely on a written-down table of defaults.** The registry is large and moves; read the current values from the admin UI, or from the declarations. Platform settings are declared once in `packages/cloud/src/services/settings/core-settings.ts` — in the framework, because every container has to register them, not just the one that renders their admin UI. App-scoped settings live in that app's `defineApp({ settings })`.
 
 The keys an app author touches most: `app.url` (email links, OAuth redirects, WebAuthn RP origin — must be HTTPS outside localhost), `app.name`, `app.timezone` (the wall-clock zone for jobs and schedulers), `app.home_path` (where `/` redirects), `user.session.expiry_hours`, `logs.retention_days`, and `security.rate_limit_per_second`.
 
@@ -233,6 +240,8 @@ The FreeIPA privilege and role names needed to grant these are deployment-specif
 | `freeipa.groups.admin` | Groups granting the `admin` role |
 | `freeipa.groups.excluded` | Hidden from the display graph **only** — still counted for scope, profile, and admin, and traversal through them still works |
 
-> Set `freeipa.groups.base_ipa_realm` explicitly. Leaving it empty does not fall back to the settings default — a separate code-level fallback applies a different group name, which will silently produce the wrong profile for every user.
+> `base_sync` and `base_ipa_realm` are **required** and have no default. There is no safe guess: one decides who gets a Cloud account at all, the other who is a full user rather than a guest, and both depend on how the directory is organised. Leaving either empty makes the FreeIPA config incomplete, so sync and lifecycle refuse to run and name the missing key — rather than syncing nobody and silently demoting every account to guest, which is what an empty list would otherwise mean.
+
+`groups.admin` defaults to `["admins"]` and `groups.excluded` to the standard FreeIPA system groups; those are genuine directory-wide defaults.
 
 The auth-model consequences of these settings — profile derivation, admin resolution, the effective-group projection, and the fail-closed self-service extension — are in `auth.md`.

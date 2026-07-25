@@ -478,7 +478,9 @@ Each app owns `/api/<app>/ws`. The gateway already proxies upgrades and forwards
 - Abort `topic.live()` and permission timers on socket close.
 - Treat a failed `socket.send()` as backpressure and close with `1013`. Use `1012` for a recoverable restart — the browser helper reconnects.
 
-**Never put session tokens in WebSocket URLs.** Same-origin browser sockets send the session cookie and the gateway forwards it.
+**Read the session from the upgrade request, never from the client.** Take the context parameter — `upgradeWebSocket((c) => …)` — and call `auth.session.getToken(c)`. Same-origin browser sockets send the session cookie and the gateway forwards it on upgrade.
+
+A route that skips the context parameter has no way to reach the session, and the tempting fix — having the client send the token in its first message — means handing the browser an `httpOnly` credential. Serialise that into an island prop and the full session token lands in the page HTML. That is account takeover, and it has happened here once.
 
 Wire it up in `index.ts`:
 

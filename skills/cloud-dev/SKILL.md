@@ -23,7 +23,7 @@ Only three things fork:
 
 | | Built-in (monorepo) | Standalone (npm) |
 |---|---|---|
-| Where the app lives | `packages/<id>/`, depending on `"@valentinkolb/cloud": "workspace:*"` | your own repo root, depending on `"@valentinkolb/cloud": "^0.5"` |
+| Where the app lives | `packages/<id>/`, depending on `"@valentinkolb/cloud": "workspace:*"` | your own repo root, depending on `"@valentinkolb/cloud": "^0.5"` plus its peers — `solid-js`, `hono` and `zod` |
 | How it registers with the stack | service block in `compose.dev.yml` + a `COPY` line in `Dockerfile.dev` | your own compose file, pulling prebuilt platform images from ghcr |
 | Dev command | `bun run dev:start <id>` | `docker compose up` |
 
