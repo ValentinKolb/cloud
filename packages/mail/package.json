@@ -9,7 +9,7 @@
     "./cli": "./src/cli.ts"
   },
   "scripts": {
-    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')",
     "test": "bun test",
     "test:integration": "MAIL_INTEGRATION_TESTS=1 bun --cwd=../.. test --parallel=1 packages/mail/src",
     "test:connector": "bun --cwd=../.. test packages/mail/src/service/connectors/connector-conformance.integration.test.ts",

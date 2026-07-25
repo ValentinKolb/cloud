@@ -60,7 +60,7 @@
   },
   "scripts": {
     "test": "bun test",
-    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.2.7",
