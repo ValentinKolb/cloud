@@ -11,9 +11,11 @@ Use `cld admin` when operating a Cloud instance as an administrator. Commands in
 ```bash
 cld admin status --json
 cld admin apps list --json
-cld admin routes list --json
+cld admin routes list --range 24h --json
 cld admin diagnose --since 6h --include health,logs,telemetry,jobs,postgres,redis,metrics --json
 ```
+
+Route hit and error counts are scoped to `--range` (1h, 6h, 24h, 7d, 30d). They used to be cumulative since the gateway router last restarted, which made a long-lived router look healthy while it was failing every request.
 
 Use `diagnose` for a bounded troubleshooting bundle. Narrow its time window and included sections before requesting more data. Its `telemetry.failingRoutes` and `jobs` sections name the endpoints and background jobs that are actually failing, which is usually the fastest way into a problem.
 
@@ -25,6 +27,8 @@ cld admin logs list --source gateway --level warn --since 6h --json
 cld admin postgres summary --json
 cld admin redis summary --json
 ```
+
+`redis summary` reports memory against `maxmemory`, evicted keys with the active eviction policy, cache hit rate and connected clients alongside the keyspace counts. A rising eviction count or a falling hit rate is the signal that Redis is under pressure; key counts alone will not show it.
 
 Use `cld admin logs show <id> --json` for the full details of a selected log entry, and `cld admin logs explain <id> --json` to get that entry together with nearby context. The `postgres` and `redis` command groups also provide tables, schemas, extensions, and sampled prefix views; read their command help before narrowing a diagnostic.
 
@@ -49,12 +53,21 @@ The older `telemetry summary`, `telemetry events`, and `telemetry apps` remain f
 
 ```bash
 cld admin jobs list --json
-cld admin jobs list --health failed --json
+cld admin jobs list --health stuck --json
+cld admin jobs list --health failed --window 7d --json
 cld admin jobs runs --source gateway:telemetry:cleanup --json
 cld admin jobs show <traceId>:<spanId> --json
 ```
 
-`--health failed` means the most recent run of a source failed, i.e. it is unhealthy right now — it does not list every source that has ever failed. Use `jobs runs --source <id>` for run history and `jobs show` for a single run with its recorded events, which is the closest thing a background job has to a log. These commands are read-only; trigger a schedule from the admin UI.
+Run statistics are scoped to `--window` (10m, 1h, 12h, 24h, 7d, 30d) and exclude schedule-definition spans, which are registration records rather than runs.
+
+Three states are deliberately distinct:
+
+- **running** — open and started recently, genuinely in flight.
+- **stuck** — open past the abandonment threshold. Nothing is working on these; a process died mid-run and left the span open. Stuck is counted across all retained spans rather than within the window, because an abandonment is old by definition and a windowed count would hide it.
+- **anomalous** — finished, but took longer than that threshold. These come from sweeps closing orphaned spans long after the fact and are excluded from the duration percentiles so those describe real runs.
+
+`--health failed` means the most recent run of a source failed, i.e. it is unhealthy right now — it does not list every source that has ever failed. `--health stuck` lists sources with abandoned spans. Use `jobs runs --source <id>` for run history and `jobs show` for a single run with its recorded events, which is the closest thing a background job has to a log. These commands are read-only; trigger a schedule from the admin UI.
 
 ## Notifications and announcements
 
@@ -95,7 +108,7 @@ Run `cld admin <command> --help` for flags, filters, pagination, and confirmatio
 | --- | --- |
 | Instance | `status`, `diagnose` |
 | App registry | `apps list`, `apps get`, `apps remove` |
-| Routes | `routes list` |
+| Routes | `routes list` (windowed via `--range`) |
 | Logs | `logs list`, `logs summary`, `logs stats`, `logs errors`, `logs problems`, `logs show`, `logs explain`, `logs tail`, `logs sources`, `logs cleanup` |
 | Telemetry | `telemetry routes`, `telemetry overview`, `telemetry timeseries`, `telemetry explain`, `telemetry summary`, `telemetry events`, `telemetry apps` |
 | Background jobs | `jobs list`, `jobs stats`, `jobs runs`, `jobs show` |
