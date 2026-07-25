@@ -20,6 +20,7 @@ import type {
   CloudContext,
   WidgetEndpoint,
 } from "../contracts/app";
+import { env } from "../config/env";
 import { type BoundNotificationMap, bindNotificationDefinitions, type NotificationDefinitionMap } from "../contracts/notification-types";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
@@ -306,6 +307,16 @@ export const defineApp = <
     const port = startOpts.port ?? 3000;
     const baseUrl = opts.baseUrl;
     const log = logger("app");
+
+    // Settings are encrypted at rest, so every container needs the secret. It
+    // is only read on the first decrypt, which meant a container without it
+    // booted cleanly and failed much later with an unrelated-looking error.
+    if (!env.APP_SECRET.trim()) {
+      throw new Error(
+        `APP_SECRET is not set (app "${meta.id}"). Settings are encrypted at rest and every app in the ` +
+          "deployment must share the same value; without it the first settings read fails.",
+      );
+    }
 
     // OpenAPI advertised in the registry only when there's a router to
     // derive the spec from. The mount block lower down uses the same
