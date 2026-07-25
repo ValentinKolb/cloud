@@ -166,6 +166,12 @@ export const migrate = async (): Promise<void> => {
       dedupe_key TEXT CHECK (dedupe_key IS NULL OR char_length(dedupe_key) BETWEEN 1 AND 500),
       occurred_at TIMESTAMPTZ NOT NULL,
       dispatched_at TIMESTAMPTZ,
+      -- Dispatch can fail on its own — a version deleted mid-flight, a
+      -- constraint the activation violates. Recording why keeps an event that
+      -- matched nothing from disappearing silently, which is how Grids'
+      -- schedules stopped firing with no error anywhere.
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+      last_error TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();

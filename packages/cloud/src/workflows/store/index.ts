@@ -3,6 +3,31 @@
  * import for its contracts — pulling this in would drag Bun's `sql` into a
  * browser bundle.
  */
+
+export {
+  createWorkflow,
+  deleteWorkflowScope,
+  getWorkflow,
+  listWorkflowActivations,
+  listWorkflows,
+  listWorkflowVersions,
+  type PublishWorkflowVersion,
+  publishWorkflowVersion,
+  renameWorkflow,
+  setWorkflowEnabled,
+  type WorkflowActivationInput,
+  type WorkflowActivationRecord,
+  type WorkflowAuthor,
+  type WorkflowRecord,
+  type WorkflowVersionRecord,
+} from "./definitions";
+export {
+  dispatchPendingWorkflowEvents,
+  emitWorkflowEvent,
+  listUndispatchedWorkflowEvents,
+  type WorkflowEmission,
+  type WorkflowEventInput,
+} from "./events";
 export {
   beginWorkflowEffect,
   claimWorkflowRun,
