@@ -2,6 +2,8 @@
  * Primitives shared by every admin command group: HTTP access against the
  * Cloud API, output shaping, and the flag conventions the CLI standardises on.
  */
+
+import { formatDurationMs, formatBytes as sharedBytes } from "@valentinkolb/cloud/shared";
 import { type CliInputFlagValue, type CloudCliContext, type CloudCliTableColumn, readCliInput } from "../index";
 
 export type Pagination = {
@@ -50,24 +52,6 @@ export const pageQuery = (flags: { page?: number; perPage?: number }) => ({
 export const truncate = (value: string | null | undefined, max = 90): string => {
   if (!value) return "";
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
-};
-
-export const formatBytes = (bytes: number): string => {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
-};
-
-export const formatMs = (ms: number | null | undefined): string => {
-  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "-";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
 };
 
 export const readJsonInput = async <T>(input: CliInputFlagValue, label: string): Promise<T> => {
@@ -122,3 +106,8 @@ export const skippedCollect = (label: string): { ok: false; label: string; skipp
 });
 
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** CLI output stays ASCII, so absent values use a plain dash. */
+export const formatBytes = (bytes: number | null | undefined): string => sharedBytes(bytes, { fallback: "-" });
+
+export const formatMs = (ms: number | null | undefined): string => formatDurationMs(ms, { fallback: "-" });

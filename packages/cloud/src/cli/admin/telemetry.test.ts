@@ -61,7 +61,7 @@ describe("routeRows", () => {
       errorRate: "10.0%",
       slow: 3,
       avgMs: "12ms",
-      maxMs: "2.50s",
+      maxMs: "2.5s",
     });
   });
 
