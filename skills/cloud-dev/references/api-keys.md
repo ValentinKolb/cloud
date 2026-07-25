@@ -11,7 +11,7 @@ The general principal model is in `auth.md`. This page is only the end-to-end fl
 | Created in | Core self-service (`/me`) | The app's own resource settings |
 | Authenticates as | The linked user | A `service_account` principal |
 | Permissions | The user's effective permissions | Only what the app granted that service account |
-| Global Search | **Rejected** — sessions only | **Rejected** |
+| Global Search | Allowed — same as a session | **Rejected** |
 
 OAuth `client_credentials` tokens for resource-bound service accounts use the same principal and access model. The only difference is issuance: short-lived JWTs from the OAuth app, versus long-lived hashed `cld_<prefix>_<secret>` credentials in core.
 

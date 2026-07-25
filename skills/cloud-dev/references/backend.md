@@ -347,7 +347,7 @@ Three rules the framework will not enforce for you:
 - **Respect `limit`.** Results from all apps are merged; an app that ignores it crowds out every other app.
 - **Honour `tags`** if you declared any, so a tag-filtered search does not silently return unfiltered results.
 
-Global Search runs for **browser sessions only**. Core rejects every service-account actor before provider fanout — including user-delegated ones — because a provider sees `user` but not the acting credential, and so cannot cap by credential scope. `ctx.get("user")` is safe to assume here, and this is the one place that assumption holds. Do not add service-account handling to a search provider.
+Global Search is **user-backed only**. Core rejects resource-bound service accounts before provider fanout, so `ctx.get("user")` is safe to assume here — and this is the one place that assumption is correct. A user-bound key reaches search exactly like a session does, because it is the same user. Do not add resource-service-account handling to a search provider.
 
 ## Settings
 

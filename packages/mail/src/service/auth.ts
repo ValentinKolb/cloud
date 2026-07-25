@@ -46,7 +46,11 @@ export const isResourceBoundToMailbox = (context: MailRequestContext, mailboxId:
 };
 
 export const capByCredentialScopes = (context: MailRequestContext, permission: PermissionLevel): PermissionLevel => {
-  if (context.actor.kind !== "service_account") return permission;
+  // Only resource-bound credentials are scope-capped, matching contacts,
+  // notebooks and spaces. A user-delegated credential acts as its user: it is
+  // minted without scopes, so capping it would resolve every personal API key
+  // to "none" and deny it every route.
+  if (context.actor.kind !== "service_account" || context.actor.serviceAccount.kind !== "resource_bound") return permission;
   return minPermission(permission, permissionFromScopes(context.actor.scopes));
 };
 

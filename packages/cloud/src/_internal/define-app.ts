@@ -394,11 +394,11 @@ export const defineApp = <
     if (startOpts.capabilities?.search) {
       const searchRun = startOpts.capabilities.search.run;
       server.post("/api/_internal/search", auth.requireRole("authenticated"), async (c) => {
-        // A search provider only receives `user`, never the acting
-        // credential, so it cannot cap by credential scope. Restrict search to
-        // real sessions rather than letting a scoped API key read through it.
-        if (c.get("actor")?.kind !== "user") {
-          return c.json({ message: "Search providers require a user session", code: "FORBIDDEN" }, 403);
+        // User-backed only: a browser session or a user-delegated credential,
+        // both of which resolve to a real user whose permissions the provider
+        // applies. Resource-bound service accounts have no user and are out.
+        if (!c.get("user")) {
+          return c.json({ message: "Search providers require a user-backed actor", code: "FORBIDDEN" }, 403);
         }
         const body = await c.req.json<{ query: string; tags: string[]; limit: number }>();
         const ctx: AppSearchContext = { get: (key) => c.get(key) as never };
