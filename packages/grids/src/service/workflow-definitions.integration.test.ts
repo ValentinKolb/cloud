@@ -69,8 +69,14 @@ describe("workflow definitions on the kernel", () => {
     expect(created.data.shortId).toMatch(/^[A-Za-z0-9]{5}$/);
 
     // The plan's triggers become activations, so the kernel's dispatcher can
-    // match an arriving event without Grids telling it who is listening.
-    expect(await activations(created.data.id)).toEqual([{ event_type: "grids.scheduleTick", enabled: true }]);
+    // match an arriving event without Grids telling it who is listening. The two
+    // invocation ones are there whatever the source says — being runnable
+    // directly and from a launcher is not a trigger anybody declared.
+    expect(await activations(created.data.id)).toEqual([
+      { event_type: "grids.invoked", enabled: true },
+      { event_type: "grids.launcherPressed", enabled: true },
+      { event_type: "grids.scheduleTick", enabled: true },
+    ]);
 
     // Readable by both routes the UI uses.
     expect((await getWorkflow(created.data.id))?.name).toBe("Nightly");
@@ -97,8 +103,11 @@ describe("workflow definitions on the kernel", () => {
     const baseId = await base();
     const created = await createWorkflow(baseId, { name: "Editable", source: PLAIN, enabled: true }, null);
     if (!created.ok) return;
-    // A plain workflow has no triggers, so nothing is listening for it yet.
-    expect(await activations(created.data.id)).toEqual([]);
+    // A plain workflow has no triggers, so only the two it always has.
+    expect(await activations(created.data.id)).toEqual([
+      { event_type: "grids.invoked", enabled: true },
+      { event_type: "grids.launcherPressed", enabled: true },
+    ]);
 
     const published = await updateWorkflow(created.data.id, { source: SCHEDULED }, null, created.data.revision);
     expect(published.ok).toBe(true);
@@ -107,7 +116,11 @@ describe("workflow definitions on the kernel", () => {
     expect(published.data.revision).toBe(2);
     expect(published.data.source).toBe(SCHEDULED);
     // The trigger set changed with the plan, so the activations follow it.
-    expect(await activations(created.data.id)).toEqual([{ event_type: "grids.scheduleTick", enabled: true }]);
+    expect(await activations(created.data.id)).toEqual([
+      { event_type: "grids.invoked", enabled: true },
+      { event_type: "grids.launcherPressed", enabled: true },
+      { event_type: "grids.scheduleTick", enabled: true },
+    ]);
 
     // Parking the run options is asserted with the cutover commit: launchers
     // still reference the table this module replaces.
@@ -137,8 +150,13 @@ describe("workflow definitions on the kernel", () => {
     expect(disabled.data.enabled).toBe(false);
 
     // Grids owns the policy, but the kernel's dispatcher has to agree or the
-    // schedule would keep firing for a workflow the user switched off.
-    expect(await activations(created.data.id)).toEqual([{ event_type: "grids.scheduleTick", enabled: false }]);
+    // schedule would keep firing — and the button would keep working — for a
+    // workflow the user switched off.
+    expect(await activations(created.data.id)).toEqual([
+      { event_type: "grids.invoked", enabled: false },
+      { event_type: "grids.launcherPressed", enabled: false },
+      { event_type: "grids.scheduleTick", enabled: false },
+    ]);
     expect(await listScheduledWorkflows()).not.toContainEqual(expect.objectContaining({ id: created.data.id }));
   });
 
@@ -188,6 +206,10 @@ describe("workflow definitions on the kernel", () => {
     expect(await listWorkflows(baseId)).toEqual([]);
     // Kept, but not matching: a deleted workflow's run history stays readable.
     expect((await getWorkflow(created.data.id, true))?.name).toBe("Doomed");
-    expect(await activations(created.data.id)).toEqual([{ event_type: "grids.scheduleTick", enabled: false }]);
+    expect(await activations(created.data.id)).toEqual([
+      { event_type: "grids.invoked", enabled: false },
+      { event_type: "grids.launcherPressed", enabled: false },
+      { event_type: "grids.scheduleTick", enabled: false },
+    ]);
   });
 });

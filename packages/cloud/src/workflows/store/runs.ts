@@ -72,7 +72,7 @@ export type WorkflowRunClaim = {
 
 /** The outcome a run settles into. `waiting` means it parked and will be woken. */
 export type WorkflowRunResult =
-  | { state: "succeeded"; result?: WorkflowJsonValue }
+  | { state: "succeeded"; result?: WorkflowJsonValue; message?: string }
   | { state: "failed"; error: WorkflowJsonValue }
   | { state: "needs_attention"; error: WorkflowJsonValue }
   | { state: "canceled"; message?: string }
@@ -341,13 +341,8 @@ export const finishWorkflowRun = async (
   const rows = await db<{ id: string }[]>`
     UPDATE workflows.run
     SET state = ${result.state},
-        result = ${
-          result.state === "succeeded"
-            ? (result.result ?? null)
-            : result.state === "canceled" && result.message
-              ? { message: result.message }
-              : null
-        },
+        result = ${result.state === "succeeded" ? (result.result ?? null) : null},
+        result_message = ${(result.state === "succeeded" || result.state === "canceled" ? result.message : null) ?? null},
         error = ${result.state === "failed" || result.state === "needs_attention" ? result.error : null},
         lease_owner = NULL,
         lease_expires_at = NULL,

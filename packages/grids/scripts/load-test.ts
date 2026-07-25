@@ -412,10 +412,12 @@ const captureHealth = async (manifest: LoadManifest): Promise<LoadHealthSnapshot
     }>
   >`
     SELECT
-      (SELECT count(*)::int FROM grids.workflow_runs
-        WHERE workflow_id = ${manifest.workflowId}::uuid AND status IN ('queued', 'running', 'waiting')) AS workflow_active,
-      (SELECT count(*)::int FROM grids.workflow_runs
-        WHERE workflow_id = ${manifest.workflowId}::uuid AND status IN ('failed', 'needs_attention')) AS workflow_failed,
+      (SELECT count(*)::int FROM workflows.run
+        WHERE app_id = 'grids' AND workflow_id = ${manifest.workflowId}::uuid
+          AND state IN ('queued', 'running', 'waiting')) AS workflow_active,
+      (SELECT count(*)::int FROM workflows.run
+        WHERE app_id = 'grids' AND workflow_id = ${manifest.workflowId}::uuid
+          AND state IN ('failed', 'needs_attention')) AS workflow_failed,
       (SELECT count(*)::int FROM grids.record_event_outbox
         WHERE base_id = ${manifest.baseId}::uuid AND status = 'pending') AS record_events_pending,
       (SELECT count(*)::int FROM grids.record_event_outbox

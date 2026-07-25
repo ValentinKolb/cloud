@@ -45,7 +45,6 @@ import {
 } from "./service/workflow-action-scope";
 import { sendWorkflowEmail, type WorkflowEmailRecipient } from "./service/workflow-email-send";
 import { preflightWorkflowHttp, requestWorkflowHttp } from "./service/workflow-http-client";
-import { getActiveWorkflowStepRunId } from "./service/workflow-kernel-runs";
 
 // ─── Shared config fragments ─────────────────────────────────────────────────
 
@@ -699,9 +698,9 @@ export const GRIDS_WORKFLOW_ACTIONS = {
           data: config.data ?? {},
           occurredAt: ctx.invocation.occurredAt,
           effectKey: ctx.effectKey,
-          // Per-recipient delivery hangs off the step run, so a replay finds
-          // the recipients already served and does not serve them again.
-          workflowStepRunId: await getActiveWorkflowStepRunId(ctx.runId, ctx.stepKey),
+          // Per-recipient delivery hangs off the run and the step, so a replay
+          // finds the recipients already served and does not serve them again.
+          workflowStepKey: ctx.stepKey,
         });
         return { state: "succeeded", output };
       }),

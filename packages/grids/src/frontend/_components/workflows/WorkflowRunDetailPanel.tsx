@@ -301,7 +301,7 @@ export function WorkflowRunDetailPanel(props: {
                 const next = new Map(current.map((step) => [step.key, step]));
                 for (const step of event.steps) next.set(step.key, step);
                 return [...next.values()].sort(
-                  (left, right) => Date.parse(left.startedAt ?? "") - Date.parse(right.startedAt ?? "") || left.id.localeCompare(right.id),
+                  (left, right) => Date.parse(left.startedAt ?? "") - Date.parse(right.startedAt ?? "") || left.key.localeCompare(right.key),
                 );
               });
             }

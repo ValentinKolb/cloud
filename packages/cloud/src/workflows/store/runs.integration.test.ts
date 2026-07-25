@@ -341,10 +341,11 @@ describe("workflow run store", () => {
     const claim = await claimWorkflowRun({ worker: "w1", runId });
 
     await finishWorkflowRun(claim!, { state: "canceled", message: "base was deleted" });
-    const [row] = await sql<{ result: { message?: string } | null }[]>`SELECT result FROM workflows.run WHERE id = ${runId}::uuid`;
+    const [row] = await sql<{ result_message: string | null }[]>`SELECT result_message FROM workflows.run WHERE id = ${runId}::uuid`;
     // "Why did this stop" has to survive, or a cancelled run is indistinguishable
-    // from one nobody can explain.
-    expect(row?.result?.message).toBe("base was deleted");
+    // from one nobody can explain. On its own column, not folded into the output
+    // that later steps and callers read as data.
+    expect(row?.result_message).toBe("base was deleted");
   });
 
   test("a version cannot be edited under a run that pinned it", async () => {

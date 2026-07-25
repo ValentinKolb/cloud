@@ -2,8 +2,9 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { createWorkflow, listWorkflows } from "./workflow-definitions";
-import { getWorkflowRunStats, listWorkflowEmailDeliveriesPage, listWorkflowRunsPage } from "./workflow-kernel-observability";
-import { deleteTestWorkflow, insertTestWorkflow } from "./workflow-test-fixture";
+import { listWorkflowEmailDeliveriesPage } from "./workflow-email-deliveries";
+import { getWorkflowRunStats, listWorkflowRunsPage } from "./workflow-runs";
+import { deleteTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const uuid = () => Bun.randomUUIDv7();
@@ -30,23 +31,15 @@ describe("workflow history integration", () => {
       );
       if (!created.ok) throw created.error;
       const workflowId = created.data.id;
-      await sql`
-        INSERT INTO grids.workflow_runs (
-          id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
-          inputs, context, workflow_plan, status, occurred_at, created_at, started_at, finished_at
-        )
-        VALUES (
-          ${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api',
-          ${`history-${runId}`}, 'history', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'succeeded', now(), now(), now(), now()
-        )
-      `;
+      const finishedAt = new Date();
+      await insertTestWorkflowRun({ id: runId, workflowId, baseId, state: "succeeded", startedAt: finishedAt, finishedAt });
       await sql`
         INSERT INTO grids.workflow_email_deliveries (
-          base_id, workflow_id, workflow_run_id, recipient_index, recipient_kind, recipient_value,
+          base_id, workflow_id, workflow_run_id, workflow_step_key, recipient_index, recipient_kind, recipient_value,
           recipient_summary, idempotency_key, status, subject
         )
         VALUES (
-          ${baseId}::uuid, ${workflowId}::uuid, ${runId}::uuid, 1, 'email', 'reader@example.test',
+          ${baseId}::uuid, ${workflowId}::uuid, ${runId}::uuid, 'steps.0', 1, 'email', 'reader@example.test',
           'reader@example.test', ${`history-email-${runId}`}, 'sent', 'Retained delivery'
         )
       `;

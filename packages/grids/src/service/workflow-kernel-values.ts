@@ -269,6 +269,25 @@ export const createGridsWorkflowValueResolver = (
   });
 };
 
+/**
+ * A value resolver for a run whose scope has not been read yet.
+ *
+ * A worker builds one of these per run it claims, before it knows whose grants
+ * the run acts under — that lives on the run row. So the real resolver is built
+ * the first time a step asks for a value, and kept for the rest of the run: its
+ * caches (which tables the actor may read, which records it already read) are
+ * worth exactly one run and no longer.
+ */
+export const createGridsWorkflowValueResolverPort = (load: () => Promise<GridsWorkflowValueResolver>): WorkflowValueResolverPort => {
+  let resolver: Promise<GridsWorkflowValueResolver> | null = null;
+  return {
+    resolve: async (input) => {
+      resolver ??= load();
+      return (await resolver).resolve(input);
+    },
+  };
+};
+
 export const workflowPrincipalFromInvocation = (invocation: WorkflowInvocation<GridsWorkflowChannel>): GridsWorkflowPrincipal => ({
   userId: invocation.actor.userId ?? null,
   groupIds: invocation.actor.groupIds ?? [],

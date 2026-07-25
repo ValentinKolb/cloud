@@ -1,3 +1,4 @@
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { GridsWorkflowEmailDelivery as WorkflowEmailDelivery } from "../workflows/contracts";
@@ -10,7 +11,7 @@ type DeliveryIntentInput = {
   baseId: string;
   workflowId: string;
   workflowRunId: string;
-  workflowStepRunId: string;
+  workflowStepKey: string;
   templateId: string;
   recipientIndex: number;
   recipientKind: "email" | "user";
@@ -90,14 +91,16 @@ const intentColumns = sql`
 `;
 
 export const getWorkflowEmailDeliveryIntent = async (
-  workflowStepRunId: string,
+  workflowRunId: string,
+  workflowStepKey: string,
   recipientIndex: number,
   client: SqlClient = sql,
 ): Promise<WorkflowEmailDeliveryIntent | null> => {
   const [row] = await client<DeliveryIntentRow[]>`
     SELECT ${intentColumns}
     FROM grids.workflow_email_deliveries
-    WHERE workflow_step_run_id = ${workflowStepRunId}::uuid
+    WHERE workflow_run_id = ${workflowRunId}::uuid
+      AND workflow_step_key = ${workflowStepKey}
       AND recipient_index = ${recipientIndex}
   `;
   return row ? mapIntent(row) : null;
@@ -109,12 +112,12 @@ export const getOrCreateWorkflowEmailDeliveryIntent = async (
 ): Promise<WorkflowEmailDeliveryIntent> => {
   const rows = await client<DeliveryIntentRow[]>`
     INSERT INTO grids.workflow_email_deliveries (
-      base_id, workflow_id, workflow_run_id, workflow_step_run_id, template_id, recipient_index,
+      base_id, workflow_id, workflow_run_id, workflow_step_key, template_id, recipient_index,
       recipient_kind, recipient_value, recipient_summary, idempotency_key, status, subject, rendered_html
     )
     VALUES (
       ${input.baseId}::uuid, ${input.workflowId}::uuid, ${input.workflowRunId}::uuid,
-      ${input.workflowStepRunId}::uuid, ${input.templateId}::uuid, ${input.recipientIndex},
+      ${input.workflowStepKey}, ${input.templateId}::uuid, ${input.recipientIndex},
       ${input.recipientKind}, ${input.recipientValue}, ${input.recipientSummary}, ${input.idempotencyKey},
       'pending', ${input.subject}, ${input.renderedHtml}
     )
@@ -168,4 +171,84 @@ export const finishWorkflowEmailDeliveryIntent = async (
   `;
   if (!existing) throw err.notFound("workflow email delivery intent");
   return { delivery: mapIntent(existing), transitioned: false };
+};
+
+// ─── Reading the delivery history ────────────────────────────────────────────
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
+
+type DeliveryCursor = { createdAt: string; id: string };
+
+const parseCursor = (cursor: string | null | undefined): DeliveryCursor | null => {
+  if (!cursor) return null;
+  const [createdAt, id, ...rest] = cursor.split("|");
+  if (!createdAt || !id || rest.length > 0 || !Number.isFinite(Date.parse(createdAt))) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return null;
+  return { createdAt, id };
+};
+
+const pageSize = (limit: number | null | undefined): number => Math.min(Math.max(limit ?? DEFAULT_PAGE_SIZE, 1), MAX_PAGE_SIZE);
+
+/**
+ * What a workflow sent, with the provider's verdict folded in.
+ *
+ * The intent row records that a step asked for a mail; whether it arrived is
+ * the notification service's answer, and it changes after the step finished.
+ * So a delivery still marked pending here is reported by what its notification
+ * became — otherwise the run view would claim "pending" forever for mail that
+ * bounced hours ago.
+ */
+export const listWorkflowEmailDeliveriesPage = async (params: {
+  baseId: string;
+  workflowIds: string[];
+  workflowId?: string | null;
+  cursor?: string | null;
+  limit?: number | null;
+}): Promise<{ items: WorkflowEmailDelivery[]; nextCursor: string | null }> => {
+  if (params.workflowIds.length === 0) return { items: [], nextCursor: null };
+  const cap = pageSize(params.limit);
+  const workflowIds = toPgUuidArray(params.workflowIds);
+  const cursor = parseCursor(params.cursor);
+  const workflowClause = params.workflowId ? sql`AND delivery.workflow_id = ${params.workflowId}::uuid` : sql``;
+  const cursorClause = cursor
+    ? sql`AND (delivery.created_at, delivery.id) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`
+    : sql``;
+  const rows = await sql<DeliveryRow[]>`
+    SELECT delivery.id, delivery.workflow_id, delivery.workflow_run_id, delivery.template_id,
+           delivery.recipient_kind, delivery.recipient_summary, delivery.notification_id,
+           COALESCE(notification_state.provider_status, delivery.provider_status) AS provider_status,
+           CASE
+             WHEN delivery.status = 'failed' THEN 'failed'
+             WHEN notification_state.current_status IS NOT NULL THEN notification_state.current_status
+             ELSE delivery.status
+           END AS status,
+           delivery.subject,
+           COALESCE(delivery.error, notification_state.error) AS error,
+           delivery.created_at,
+           (delivery.created_at::text || '|' || delivery.id::text) AS cursor_token
+    FROM grids.workflow_email_deliveries delivery
+    LEFT JOIN LATERAL (
+      SELECT
+        CASE
+          WHEN bool_or(required AND status IN ('failed', 'suppressed')) THEN 'failed'
+          WHEN bool_or(required AND status IN ('deferred', 'pending', 'sending')) THEN 'pending'
+          ELSE 'sent'
+        END AS current_status,
+        string_agg(DISTINCT status, ', ' ORDER BY status) AS provider_status,
+        max(CASE WHEN required AND status IN ('failed', 'suppressed') THEN COALESCE(error_message, error_code) END) AS error
+      FROM notifications.deliveries
+      WHERE event_id = delivery.notification_id
+    ) notification_state ON delivery.notification_id IS NOT NULL
+    WHERE delivery.base_id = ${params.baseId}::uuid
+      AND delivery.workflow_id = ANY(${workflowIds}::uuid[])
+      ${workflowClause}
+      ${cursorClause}
+    ORDER BY delivery.created_at DESC, delivery.id DESC
+    LIMIT ${cap + 1}
+  `;
+  return {
+    items: rows.slice(0, cap).map(mapDelivery),
+    nextCursor: rows.length > cap ? (rows[cap - 1]?.cursor_token ?? null) : null,
+  };
 };

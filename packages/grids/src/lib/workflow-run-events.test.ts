@@ -57,7 +57,6 @@ describe("workflow run event visibility", () => {
     source.run.resultMessage = "private result";
     source.steps = [
       {
-        id: "44444444-4444-4444-8444-444444444444",
         runId: source.run.id,
         key: "steps.0",
         sourcePath: ["steps", 0],

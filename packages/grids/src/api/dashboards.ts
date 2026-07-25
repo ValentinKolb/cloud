@@ -1,6 +1,5 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
-import { sql } from "bun";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -24,9 +23,8 @@ import { resolveWidgetData } from "../service/dashboard-widget-data";
 import { get as getDashboardById } from "../service/dashboards";
 import { hasAtLeast, hasGrantsForResource } from "../service/permission-resolver";
 import { invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-kernel-launchers";
-import { listWorkflowStepRuns } from "../service/workflow-kernel-observability";
-import { getWorkflowRun } from "../service/workflow-kernel-runs";
 import { getLauncher as getWorkflowLauncher } from "../service/workflow-launchers";
+import { getWorkflowRun, getWorkflowRunScope, listWorkflowStepRuns } from "../service/workflow-runs";
 import {
   type GridsWorkflow,
   GridsWorkflowRunSchema,
@@ -89,12 +87,8 @@ const DashboardWidgetAuthorizationSchema = z
 type DashboardWidgetAuthorization = z.infer<typeof DashboardWidgetAuthorizationSchema>;
 
 const getWorkflowRunAuthorization = async (runId: string): Promise<DashboardWidgetAuthorization | null> => {
-  const [row] = await sql<Array<{ authorization: unknown }>>`
-    SELECT authorization_snapshot AS authorization
-    FROM grids.workflow_runs
-    WHERE id = ${runId}::uuid
-  `;
-  const parsed = DashboardWidgetAuthorizationSchema.safeParse(row?.authorization);
+  const scope = await getWorkflowRunScope(runId);
+  const parsed = DashboardWidgetAuthorizationSchema.safeParse(scope?.authorization);
   return parsed.success ? parsed.data : null;
 };
 
@@ -125,7 +119,6 @@ const DashboardWorkflowRunStatusSchema = z.object({
   }),
   steps: z.array(
     GridsWorkflowStepRunSchema.pick({
-      id: true,
       runId: true,
       key: true,
       kind: true,

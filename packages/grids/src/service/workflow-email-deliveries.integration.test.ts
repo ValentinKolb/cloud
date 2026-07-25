@@ -13,7 +13,7 @@ type Fixture = {
   baseId: string;
   workflowId: string;
   runId: string;
-  stepRunId: string;
+  stepKey: string;
   templateId: string;
 };
 
@@ -25,37 +25,23 @@ const insertFixture = async (): Promise<Fixture> => {
   const baseId = testUuid();
   const workflowId = testUuid();
   const runId = testUuid();
-  const stepRunId = testUuid();
+  const stepKey = "steps.0";
   const templateId = testUuid();
 
   await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Email delivery')`;
   await insertTestWorkflow({ id: workflowId, shortId: testShortId("W"), baseId: baseId, name: "Notify", source: "steps: []" });
   await sql`
-    INSERT INTO grids.workflow_runs (
-      id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key,
-      request_fingerprint, workflow_plan, status, occurred_at
-    ) VALUES (
-      ${runId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', ${`run-${runId}`},
-      'fingerprint', '{}'::jsonb, 'running', now()
-    )
-  `;
-  await sql`
-    INSERT INTO grids.workflow_step_runs (
-      id, run_id, step_key, source_path, kind, action, mode, status, execution_generation
-    ) VALUES (${stepRunId}::uuid, ${runId}::uuid, 'notify', '[]'::jsonb, 'action', 'sendEmail', 'execute', 'running', 0)
-  `;
-  await sql`
     INSERT INTO grids.email_templates (id, short_id, base_id, name, subject, html)
     VALUES (${templateId}::uuid, ${testShortId("E")}, ${baseId}::uuid, 'Notice', 'Subject', '<p>Private</p>')
   `;
-  return { baseId, workflowId, runId, stepRunId, templateId };
+  return { baseId, workflowId, runId, stepKey, templateId };
 };
 
 const intentInput = (fixture: Fixture, overrides: Partial<{ recipientIndex: number; idempotencyKey: string; subject: string }> = {}) => ({
   baseId: fixture.baseId,
   workflowId: fixture.workflowId,
   workflowRunId: fixture.runId,
-  workflowStepRunId: fixture.stepRunId,
+  workflowStepKey: fixture.stepKey,
   templateId: fixture.templateId,
   recipientIndex: overrides.recipientIndex ?? 1,
   recipientKind: "email" as const,
@@ -75,8 +61,8 @@ describe("workflow email delivery intents integration", () => {
       const replayed = await getOrCreateWorkflowEmailDeliveryIntent(input);
       expect(replayed).toEqual(created);
       expect(created).toMatchObject({ status: "pending", recipientValue: "private@example.test", renderedHtml: "<p>Private body</p>" });
-      expect(await getWorkflowEmailDeliveryIntent(fixture.stepRunId, 1)).toEqual(created);
-      expect(await getWorkflowEmailDeliveryIntent(fixture.stepRunId, 2)).toBeNull();
+      expect(await getWorkflowEmailDeliveryIntent(fixture.runId, fixture.stepKey, 1)).toEqual(created);
+      expect(await getWorkflowEmailDeliveryIntent(fixture.runId, fixture.stepKey, 2)).toBeNull();
 
       await expect(getOrCreateWorkflowEmailDeliveryIntent(intentInput(fixture, { subject: "Changed subject" }))).rejects.toThrow(
         "does not match the interrupted step",

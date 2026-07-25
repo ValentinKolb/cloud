@@ -272,6 +272,11 @@ export const migrate = async (db: SQL = sql): Promise<void> => {
       wake_at TIMESTAMPTZ,
       cancel_requested_at TIMESTAMPTZ,
       result JSONB,
+      -- What the run said about itself, distinct from what it produced. A plan
+      -- that ends with an explicit succeed or fail carries a sentence for a
+      -- person; folding it into the result column would put it in the output
+      -- that later steps and callers read as data.
+      result_message TEXT,
       error JSONB CHECK (error IS NULL OR jsonb_typeof(error) = 'object'),
       started_at TIMESTAMPTZ,
       finished_at TIMESTAMPTZ,
@@ -317,6 +322,8 @@ export const migrate = async (db: SQL = sql): Promise<void> => {
     ON workflows.run(app_id, scope_id, created_at DESC, id DESC)
     WHERE parent_run_id IS NULL
   `.simple();
+  // Added after the table: alpha, so this is a column and not a migration ledger.
+  await db`ALTER TABLE workflows.run ADD COLUMN IF NOT EXISTS result_message TEXT`.simple();
   console.log("  ✓ workflows.run table");
 
   /**

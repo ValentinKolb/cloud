@@ -344,7 +344,6 @@ describe("Grids workflow CLI", () => {
     expect(
       workflowStepRows([
         {
-          id: "00000000-0000-4000-8000-000000000005",
           runId,
           key: "steps.0@0",
           sourcePath: ["steps", 0],

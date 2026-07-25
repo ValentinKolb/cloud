@@ -1,14 +1,14 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
-import type { WorkflowInvocation, WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import type { WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
 import type { Result } from "@valentinkolb/stdlib";
 import { type Lock, mutex, type QueueReceived } from "@valentinkolb/sync";
 import { sql } from "bun";
 import type { FilterTree } from "../contracts";
-import { type GridsWorkflow, type GridsWorkflowChannel, toWorkflowRevision } from "../workflows/contracts";
+import type { GridsWorkflow } from "../workflows/contracts";
 import { listByTable as listFields } from "./fields";
 import { compileFilter, renderClause } from "./filter-compiler";
 import {
@@ -26,7 +26,6 @@ import {
   recordEventWorkReader,
 } from "./record-events";
 import { listRecordEventWorkflows } from "./workflow-definitions";
-import { failQueuedWorkflowRun, materializeWorkflowInvocation } from "./workflow-kernel-runs";
 import { type GridsWorkflowPrincipal, loadWorkflowUserGroupIds } from "./workflow-kernel-values";
 
 const log = logger("grids:workflow-kernel-record-events");
@@ -289,31 +288,6 @@ const ownerPrincipal = async (workflow: GridsWorkflow): Promise<GridsWorkflowPri
   serviceAccountId: null,
 });
 
-const failedInvocation = async (
-  workflow: GridsWorkflow,
-  event: GridsRecordEvent,
-  principal: GridsWorkflowPrincipal,
-  message: string,
-): Promise<void> => {
-  const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
-    workflowId: workflow.id,
-    expectedRevision: toWorkflowRevision(workflow.revision),
-    mode: "execute",
-    channel: "recordEvent",
-    actor: principal,
-    inputs: {},
-    idempotencyKey: eventKey(workflow.id, event),
-    occurredAt: event.occurredAt,
-    context: { workflow: { id: workflow.id, shortId: workflow.shortId, name: workflow.name }, recordEvent: event },
-  };
-  const receipt = await materializeWorkflowInvocation({
-    baseId: workflow.baseId,
-    invocation,
-  });
-  if (!receipt.ok) throw new Error(receipt.error.message);
-  await failQueuedWorkflowRun(receipt.data.runId, message);
-};
-
 export const createWorkflowRecordEventRuntime = (invoke: InvokeWorkflow) => {
   const readers = new Map<number, { controller: AbortController; task: Promise<void> }>();
 
@@ -348,11 +322,24 @@ export const createWorkflowRecordEventRuntime = (invoke: InvokeWorkflow) => {
           },
           trustedRecordIds: new Map([[event.tableId, new Set([event.recordId])]]),
         });
-        if (!result.ok) await failedInvocation(workflow, event, principal, result.error.message);
+        /*
+         * A refusal is not a run. It used to be materialised as a failed one so
+         * that somebody would see it; the event row now carries that — an
+         * occurrence that matched a workflow and produced nothing is visible as
+         * an undispatched `workflows.event`, without inventing a run that never
+         * executed a step.
+         */
+        if (!result.ok) {
+          log.warn("Workflow record event invocation was rejected", {
+            workflowId: workflow.id,
+            recordId: event.recordId,
+            status: result.error.status,
+            error: result.error.message,
+          });
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         log.warn("Workflow record event dispatch failed", { workflowId: workflow.id, recordId: event.recordId, error: message });
-        await failedInvocation(workflow, event, principal, message);
       }
     }
   };

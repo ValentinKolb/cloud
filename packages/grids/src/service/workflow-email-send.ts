@@ -3,8 +3,8 @@
  *
  * The step is idempotent as a whole, but its recipients are not one effect —
  * a run that dies after the second of five sends must not repeat those two.
- * So each recipient gets its own delivery intent keyed off the step's effect
- * key, and a replay finds the ones already settled and skips them.
+ * So each recipient gets its own delivery intent, keyed by the run, the step
+ * and the position; a replay finds the ones already settled and skips them.
  */
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { sql } from "bun";
@@ -46,7 +46,7 @@ export type SendWorkflowEmailInput = {
   data: Record<string, WorkflowJsonValue>;
   occurredAt: string;
   effectKey: string;
-  workflowStepRunId: string;
+  workflowStepKey: string;
 };
 
 export const sendWorkflowEmail = async (input: SendWorkflowEmailInput): Promise<WorkflowJsonValue> => {
@@ -66,14 +66,14 @@ export const sendWorkflowEmail = async (input: SendWorkflowEmailInput): Promise<
   const intents: WorkflowEmailDeliveryIntent[] = [];
   for (const [recipientIndex, recipient] of input.recipients.entries()) {
     const index = recipientIndex + 1;
-    const existing = await getWorkflowEmailDeliveryIntent(input.workflowStepRunId, index);
+    const existing = await getWorkflowEmailDeliveryIntent(scope.runId, input.workflowStepKey, index);
     intents.push(
       existing ??
         (await getOrCreateWorkflowEmailDeliveryIntent({
           baseId: scope.baseId,
           workflowId: scope.workflow.id,
           workflowRunId: scope.runId,
-          workflowStepRunId: input.workflowStepRunId,
+          workflowStepKey: input.workflowStepKey,
           templateId: template.id,
           recipientIndex: index,
           recipientKind: recipient.kind,

@@ -11,7 +11,7 @@ import {
   getTemplate,
   updateRunMetadata,
 } from "./documents";
-import { insertTestWorkflow } from "./workflow-test-fixture";
+import { insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 type Fixture = {
   actorId: string;
@@ -208,17 +208,13 @@ describe("document audit integration", () => {
         position: 0,
         ownerUserId: fixture.actorId,
       });
-      await sql`
-        INSERT INTO grids.workflow_runs (
-          id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
-          actor_user_id, authorization_snapshot, inputs, context, workflow_plan, status, occurred_at
-        )
-        VALUES (
-          ${workflowRunId}::uuid, ${workflowId}::uuid, ${fixture.baseId}::uuid, 1, 'execute', 'api',
-          'documents-audit-test', 'documents-audit-test', ${fixture.actorId}::uuid, '{"kind":"workflow"}'::jsonb,
-          '{}'::jsonb, '{}'::jsonb, ${workflowPlan}::jsonb, 'running', now()
-        )
-      `;
+      await insertTestWorkflowRun({
+        id: workflowRunId,
+        workflowId,
+        baseId: fixture.baseId,
+        state: "running",
+        actorUserId: fixture.actorId,
+      });
 
       const template = await getTemplate(fixture.templateId);
       if (!template) throw new Error("Fixture template missing");

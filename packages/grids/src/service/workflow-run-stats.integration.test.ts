@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
-import { getWorkflowRunStats } from "./workflow-kernel-observability";
-import { insertTestWorkflow } from "./workflow-test-fixture";
+import { getWorkflowRunStats } from "./workflow-runs";
+import { insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -26,19 +26,56 @@ describe("workflow run statistics integration", () => {
       `;
       await insertTestWorkflow({ id: workflowAId, baseId, name: "Workflow A", shortId: shortId("W"), enabled: true });
       await insertTestWorkflow({ id: workflowBId, baseId, name: "Workflow B", shortId: shortId("W"), enabled: true });
-      await sql`
-        INSERT INTO grids.workflow_runs (
-          id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
-          inputs, context, workflow_plan, status, occurred_at, created_at, started_at, finished_at
-        )
-        VALUES
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'stats-a-1', 'a1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'succeeded', now() - interval '5 minutes', now() - interval '5 minutes', now() - interval '5 minutes', now() - interval '5 minutes' + interval '1 second'),
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'stats-a-2', 'a2', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '4 minutes', now() - interval '4 minutes', now() - interval '4 minutes', now() - interval '4 minutes' + interval '3 seconds'),
-          (${uuid()}::uuid, ${workflowBId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'stats-b-1', 'b1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'running', now() - interval '3 minutes', now() - interval '3 minutes', now() - interval '3 minutes', NULL),
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'schedule', 'stats-a-3', 'a3', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours' + interval '2 seconds'),
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'schedule', 'stats-a-4', 'a4', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'waiting', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours', NULL),
-          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'dryRun', 'api', 'stats-preview', 'preview', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '2 minutes', now() - interval '2 minutes', now() - interval '2 minutes', now() - interval '2 minutes' + interval '10 seconds')
-      `;
+      const now = Date.now();
+      const at = (millisAgo: number) => new Date(now - millisAgo);
+      const after = (start: Date, seconds: number) => new Date(start.getTime() + seconds * 1_000);
+      const inWindow = [at(5 * 60_000), at(4 * 60_000), at(3 * 60_000)] as const;
+      const outOfWindow = at(2 * 60 * 60_000);
+      const preview = at(2 * 60_000);
+      await insertTestWorkflowRun({
+        workflowId: workflowAId,
+        baseId,
+        state: "succeeded",
+        createdAt: inWindow[0],
+        startedAt: inWindow[0],
+        finishedAt: after(inWindow[0], 1),
+      });
+      await insertTestWorkflowRun({
+        workflowId: workflowAId,
+        baseId,
+        state: "failed",
+        createdAt: inWindow[1],
+        startedAt: inWindow[1],
+        finishedAt: after(inWindow[1], 3),
+      });
+      await insertTestWorkflowRun({ workflowId: workflowBId, baseId, state: "running", createdAt: inWindow[2], startedAt: inWindow[2] });
+      await insertTestWorkflowRun({
+        workflowId: workflowAId,
+        baseId,
+        channel: "schedule",
+        state: "failed",
+        createdAt: outOfWindow,
+        startedAt: outOfWindow,
+        finishedAt: after(outOfWindow, 2),
+      });
+      await insertTestWorkflowRun({
+        workflowId: workflowAId,
+        baseId,
+        channel: "schedule",
+        state: "waiting",
+        createdAt: outOfWindow,
+        startedAt: outOfWindow,
+      });
+      // A preview is not history: it is excluded by mode, not by age.
+      await insertTestWorkflowRun({
+        workflowId: workflowAId,
+        baseId,
+        mode: "dryRun",
+        state: "failed",
+        createdAt: preview,
+        startedAt: preview,
+        finishedAt: after(preview, 10),
+      });
 
       const stats = await getWorkflowRunStats(baseId, [workflowAId, workflowBId], { window: "1h" });
 

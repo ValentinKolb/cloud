@@ -192,7 +192,6 @@ export type GridsWorkflowRun = {
 };
 
 export type GridsWorkflowStepRun = {
-  id: string;
   runId: string;
   key: string;
   sourcePath: Array<string | number>;
@@ -455,7 +454,6 @@ export const GridsWorkflowRunListSchema = z.object({
 });
 
 export const GridsWorkflowStepRunSchema = z.object({
-  id: z.string().uuid(),
   runId: z.string().uuid(),
   key: z.string(),
   sourcePath: z.array(z.union([z.string(), z.number()])),

@@ -1332,31 +1332,34 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
         COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE status IN ('pending', 'failed')))), 0)::float AS oldest_active_age_seconds
       FROM grids.record_event_outbox
     ), workflow_runs AS (
+      -- Runs live in the kernel, which serves every app, so everything below is
+      -- narrowed to the Grids ones: this view reports on Grids alone.
       SELECT
-        count(*) FILTER (WHERE status = 'queued')::int AS queued,
-        count(*) FILTER (WHERE status = 'running')::int AS running,
-        count(*) FILTER (WHERE status = 'waiting')::int AS waiting,
-        count(*) FILTER (WHERE status = 'needs_attention')::int AS needs_attention,
-        count(*) FILTER (WHERE status = 'needs_attention' AND finished_at >= now() - interval '24 hours')::int AS needs_attention_recent,
-        count(*) FILTER (WHERE status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < now()))::int AS stale_running,
-        COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE status = 'queued'))), 0)::float AS oldest_queued_age_seconds
-      FROM grids.workflow_runs
-      WHERE mode = 'execute'
+        count(*) FILTER (WHERE state = 'queued')::int AS queued,
+        count(*) FILTER (WHERE state = 'running')::int AS running,
+        count(*) FILTER (WHERE state = 'waiting')::int AS waiting,
+        count(*) FILTER (WHERE state = 'needs_attention')::int AS needs_attention,
+        count(*) FILTER (WHERE state = 'needs_attention' AND finished_at >= now() - interval '24 hours')::int AS needs_attention_recent,
+        count(*) FILTER (WHERE state = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < now()))::int AS stale_running,
+        COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE state = 'queued'))), 0)::float AS oldest_queued_age_seconds
+      FROM workflows.run
+      WHERE app_id = 'grids' AND mode = 'execute'
     ), effects AS (
       -- An effect is journaled on its own step row, and only from the moment it
       -- starts: there is no queue of intended effects to count, only ones in
       -- flight and ones that escaped without saying whether they landed.
       SELECT
-        count(*) FILTER (WHERE effect_state = 'executing')::int AS executing,
-        count(*) FILTER (WHERE effect_state = 'ambiguous')::int AS needs_attention,
+        count(*) FILTER (WHERE s.effect_state = 'executing')::int AS executing,
+        count(*) FILTER (WHERE s.effect_state = 'ambiguous')::int AS needs_attention,
         count(*) FILTER (
-          WHERE effect_state = 'ambiguous' AND COALESCE(finished_at, effect_started_at) >= now() - interval '24 hours'
+          WHERE s.effect_state = 'ambiguous' AND COALESCE(s.finished_at, s.effect_started_at) >= now() - interval '24 hours'
         )::int AS needs_attention_recent,
         COALESCE(
-          EXTRACT(EPOCH FROM (now() - min(effect_started_at) FILTER (WHERE effect_state IN ('executing', 'ambiguous')))),
+          EXTRACT(EPOCH FROM (now() - min(s.effect_started_at) FILTER (WHERE s.effect_state IN ('executing', 'ambiguous')))),
           0
         )::float AS oldest_active_age_seconds
-      FROM grids.workflow_step_runs
+      FROM workflows.step_outcome AS s
+      JOIN workflows.run AS r ON r.id = s.run_id AND r.app_id = 'grids'
     ), federation AS (
       SELECT count(*) FILTER (WHERE status = 'degraded')::int AS degraded
       FROM grids.federated_table_revisions

@@ -90,7 +90,6 @@ describe("workflow run events", () => {
       finishedAt: "2026-07-11T00:00:00.200Z",
     };
     const step: GridsWorkflowStepRun = {
-      id: Bun.randomUUIDv7(),
       runId: run.id,
       key: "steps.0",
       sourcePath: ["steps", 0],
@@ -118,7 +117,6 @@ describe("workflow run events", () => {
       expect(event.value?.data.scope).toEqual({ kind: "workflow" });
       expect(event.value?.data.steps).toEqual([
         {
-          id: step.id,
           runId: step.runId,
           key: "steps.0",
           sourcePath: ["steps", 0],

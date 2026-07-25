@@ -1,84 +1,69 @@
+/**
+ * What Grids still owns now that the kernel owns runs.
+ *
+ * Three things: turning a request to run a workflow into an event, keeping the
+ * cron registrations and the record-event readers in step with the workflows
+ * that want them, and a worker that drains whatever the kernel has made
+ * claimable for this app. The lease protocol, the journal, recovery and the
+ * generation fence are all the kernel's — there is no second copy here.
+ */
+import { createRuntimeLifecycle, createRuntimeTaskTracker, logger, stopRuntimeResources, trace } from "@valentinkolb/cloud/services";
+import type { WorkflowInvocationMode, WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import { hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
+import { evaluateWorkflowTriggerInputs, type WorkflowTraceEvent, type WorkflowTracePort } from "@valentinkolb/cloud/workflows/runtime";
 import {
-  createRuntimeLifecycle,
-  createRuntimeTaskTracker,
-  logger,
-  stopRuntimeJobs,
-  stopRuntimeResources,
-  trace,
-} from "@valentinkolb/cloud/services";
-import type {
-  WorkflowExecutionError,
-  WorkflowInvocation,
-  WorkflowInvocationMode,
-  WorkflowInvocationReceipt,
-  WorkflowJsonValue,
-} from "@valentinkolb/cloud/workflows";
-import {
-  coordinateWorkflowExecution,
-  dryRunWorkflowPlan,
-  evaluateWorkflowTriggerInputs,
-  executeWorkflowPlan,
-  type WorkflowCoordinatorExecution,
-  type WorkflowDryRunIssue,
-  type WorkflowHeartbeatOutcome,
-  type WorkflowRuntimeRunIdentity,
-  type WorkflowTraceEvent,
-  type WorkflowTracePort,
-} from "@valentinkolb/cloud/workflows/runtime";
-import { createWorkflowActionPort, createWorkflowDryRunPort } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { job, scheduler } from "@valentinkolb/sync";
+  createWorkflowActionPort,
+  createWorkflowDryRunPort,
+  dryRunOneWorkflow,
+  runOneWorkflow,
+  tickWorkflows,
+  type WorkflowRunClaim,
+  wakeExpiredWorkflowRuns,
+} from "@valentinkolb/cloud/workflows/store";
+import { err, fail, type Result } from "@valentinkolb/stdlib";
+import { scheduler } from "@valentinkolb/sync";
+import type { WorkflowRunEventScope } from "../lib/workflow-run-events";
 import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
-import {
-  type GridsWorkflow,
-  type GridsWorkflowChannel,
-  type GridsWorkflowPrincipal,
-  type GridsWorkflowRun,
-  toWorkflowRevision,
-  type WorkflowTriggerRuntimeState,
+import type {
+  GridsWorkflow,
+  GridsWorkflowChannel,
+  GridsWorkflowLauncherKind,
+  GridsWorkflowPrincipal,
+  WorkflowTriggerRuntimeState,
 } from "../workflows/contracts";
-import type { SqlClient } from "./audit";
-import { canReadDashboardIncludedData } from "./dashboard-included-access";
-import { get as getDashboard } from "./dashboards";
+import { GRIDS_EVENT } from "../workflows/events";
 import { canExecuteWorkflow } from "./workflow-action-scope";
 import { authorizeWorkflowTarget } from "./workflow-authorization";
 import { getWorkflow, listScheduledWorkflows } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
 import { createWorkflowRecordEventRuntime } from "./workflow-kernel-record-events";
 import {
-  type ClaimedWorkflowRun,
-  createGridsWorkflowCoordinatorPort,
-  failQueuedWorkflowRun,
-  findMaterializedWorkflowInvocation,
-  finishWorkflowRun,
-  type GridsWorkflowAuthorization,
-  type GridsWorkflowRunCompletion,
-  GridsWorkflowRuntimeRepository,
-  getWorkflowRun,
-  gridsWorkflowEffectJournal,
-  listExpiredWaitingWorkflowRuns,
-  listRecoverableWorkflowRunIds,
-  materializeWorkflowInvocation,
-  resumeWaitingWorkflowRun,
-  WORKFLOW_RUN_LEASE_MS,
-  workflowInvocationFingerprint,
-} from "./workflow-kernel-runs";
-import {
   createGridsWorkflowValueResolver,
+  createGridsWorkflowValueResolverPort,
   createWorkflowInputPreparationDeps,
   loadWorkflowUserGroupIds,
   prepareWorkflowInputs,
   WorkflowInputPreparationError,
 } from "./workflow-kernel-values";
+import { notifyWorkflowRunEvent } from "./workflow-run-events";
+import {
+  GRIDS_APP_ID,
+  type GridsWorkflowAuthorization,
+  getWorkflowRun,
+  getWorkflowRunScope,
+  getWorkflowStepRun,
+  startWorkflowRun,
+} from "./workflow-runs";
 import { latestWorkflowRuntimeEventCursor, liveWorkflowRuntimeEvents } from "./workflow-runtime-events";
 
 const log = logger("grids:workflow-kernel");
 const workflowScheduler = scheduler({ id: "grids:workflows" });
-export const WORKFLOW_JOB_LEASE_MS = WORKFLOW_RUN_LEASE_MS;
-export const WORKFLOW_LEASE_HEARTBEAT_MS = 10_000;
-const WORKFLOW_JOB_MAX_RETRIES = 3;
 const WORKFLOW_SCHEDULE_MAX_RETRIES = 3;
 const RECONCILE_INTERVAL_MS = 60_000;
+/** Short, because a button press waits for it. Dispatch is cheap when there is nothing to do. */
+const WORKER_INTERVAL_MS = 1_000;
+/** Bounds one tick: a worker that never returns cannot be stopped. */
+const MAX_DRY_RUNS_PER_TICK = 25;
 const SCHEDULE_PREFIX = "grids:workflow:";
 
 export const workflowScheduleId = (workflow: Pick<GridsWorkflow, "id" | "revision">): string => `${SCHEDULE_PREFIX}${workflow.id}`;
@@ -104,8 +89,7 @@ export const workflowScheduleMetadata = (workflow: Pick<GridsWorkflow, "id" | "n
   revision: workflow.revision,
 });
 
-type WorkflowJobInput = { runId: string };
-type WorkflowJobResult = { runId: string; status: string };
+type WorkflowScheduleResult = { runId: string; status: string };
 
 export type InvokeGridsWorkflowInput = {
   workflowId: string;
@@ -124,15 +108,123 @@ export type InvokeGridsWorkflowInput = {
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-const workflowStepTrace = (jobId: string, runId: string): WorkflowTracePort => ({
+/**
+ * Which occurrence a channel is.
+ *
+ * The channel is what a caller says about itself; the event type is what the
+ * kernel matches activations on. Three of the six are the same press of the
+ * same kind of button, so they share one.
+ */
+const EVENT_TYPE_BY_CHANNEL: Record<GridsWorkflowChannel, string> = {
+  api: GRIDS_EVENT.invoked,
+  dashboard: GRIDS_EVENT.launcherPressed,
+  scanner: GRIDS_EVENT.launcherPressed,
+  bulk: GRIDS_EVENT.launcherPressed,
+  schedule: GRIDS_EVENT.scheduleTick,
+  recordEvent: GRIDS_EVENT.recordChanged,
+};
+
+const LAUNCHER_KIND_BY_CHANNEL: Partial<Record<GridsWorkflowChannel, GridsWorkflowLauncherKind>> = {
+  dashboard: "dashboard",
+  scanner: "scanner",
+  bulk: "bulk",
+};
+
+/**
+ * What makes two requests under one idempotency key the same request.
+ *
+ * The kernel answers a repeated key with the run it already started, which is
+ * right for a redelivery and wrong for a changed payload wearing the same key.
+ * `context.workflow` is excluded because Grids adds it after the caller's
+ * request — including it would make the hash depend on the workflow's name.
+ */
+const workflowInvocationFingerprint = (input: {
+  workflowId: string;
+  mode: WorkflowInvocationMode;
+  channel: GridsWorkflowChannel;
+  principal: GridsWorkflowPrincipal;
+  inputs: Record<string, WorkflowJsonValue>;
+  context: Record<string, WorkflowJsonValue>;
+}): Promise<string> =>
+  hashWorkflowJson({
+    workflowId: input.workflowId,
+    mode: input.mode,
+    channel: input.channel,
+    actor: {
+      userId: input.principal.userId,
+      serviceAccountId: input.principal.serviceAccountId,
+      actorServiceAccountId: input.principal.actorServiceAccountId ?? null,
+      credential: input.principal.credential ?? null,
+    },
+    inputs: input.inputs,
+    context: Object.fromEntries(Object.entries(input.context).filter(([key]) => key !== "workflow")),
+  });
+
+// ─── Announcing a run to whoever is watching it ──────────────────────────────
+
+const eventScope = (authorization: GridsWorkflowAuthorization | undefined): WorkflowRunEventScope =>
+  authorization?.kind === "dashboard-widget"
+    ? { kind: "dashboard-widget", dashboardId: authorization.dashboardId, dashboardWidgetId: authorization.dashboardWidgetId }
+    : { kind: "workflow" };
+
+/**
+ * Publishes a run transition to the browsers watching it.
+ *
+ * Re-read rather than assembled from the event: the trace event says only that
+ * something happened and to which run, and the row is what the run page has to
+ * agree with. `transitionId` becomes the topic's idempotency key, so two
+ * publishes of the same transition collapse into one.
+ */
+const publishRunEvent = async (runId: string, transitionId: string, stepKey?: string): Promise<void> => {
+  const [run, scope] = await Promise.all([getWorkflowRun(runId), getWorkflowRunScope(runId)]);
+  if (!run) return;
+  const step = stepKey ? await getWorkflowStepRun(runId, stepKey) : null;
+  await notifyWorkflowRunEvent(run, step ? [step] : [], eventScope(scope?.authorization), transitionId);
+};
+
+/**
+ * Maps a trace event onto the transition the run stream names it by.
+ *
+ * The ids are the ones the pre-kernel runtime published, because they are the
+ * topic's idempotency key: changing them would let a redelivered transition
+ * appear twice in a browser that is already mid-stream.
+ */
+const publishRunTraceEvent = async (event: WorkflowTraceEvent): Promise<void> => {
+  if (event.type === "run.started") {
+    await publishRunEvent(event.run.runId, `running:${event.run.executionGeneration}`);
+    return;
+  }
+  if (event.type === "run.canceled" || event.type === "run.finished") {
+    const state = event.type === "run.canceled" ? "canceled" : event.state;
+    await publishRunEvent(event.run.runId, `run:${event.run.executionGeneration}:${state}`);
+    return;
+  }
+  if (event.type === "step.started" || event.type === "step.finished" || event.type === "step.waiting") {
+    const step = event.step;
+    // The persisted status, not one derived from the outcome a second time —
+    // the executor writes the step before it announces it.
+    const persisted = await getWorkflowStepRun(step.runId, step.key);
+    const status = event.type === "step.started" ? "running" : (persisted?.status ?? "waiting");
+    await publishRunEvent(step.runId, `step:${step.key}:${step.executionGeneration}:${status}`, step.key);
+  }
+};
+
+/**
+ * The observability span and the live run stream, from the one event stream.
+ *
+ * Both are best-effort by contract — the kernel swallows what this throws — so
+ * a browser nobody is listening on cannot fail a run that did its work.
+ */
+const workflowTrace: WorkflowTracePort = {
   emit: async (event: WorkflowTraceEvent) => {
-    const step = "step" in event ? event.step : null;
+    const step = "run" in event ? null : event.step;
+    const runId = "run" in event ? event.run.runId : event.step.runId;
     const outcome = event.type === "step.finished" ? event.result.outcome.state : undefined;
     await trace.record({
-      spanKey: `sync:job:grids:workflow-runs:v1:${jobId}`,
+      spanKey: `grids:workflow-run:${runId}`,
       name: "Grid workflow run",
       source: "grids:workflow-runs:v1",
-      appId: "grids",
+      appId: GRIDS_APP_ID,
       category: "job",
       kind: "consumer",
       event: `workflow.${event.type}`,
@@ -145,234 +237,11 @@ const workflowStepTrace = (jobId: string, runId: string): WorkflowTracePort => (
         "workflow.step.outcome": outcome,
       },
     });
+    await publishRunTraceEvent(event);
   },
-});
-
-const finishExecution = async (result: Awaited<ReturnType<typeof executeWorkflowPlan>>): Promise<GridsWorkflowRunCompletion> => {
-  if (result.state === "succeeded") {
-    return { status: "succeeded", result: result.output ?? null, resultMessage: result.message ?? null };
-  }
-  if (result.state === "waiting") return { status: "waiting" };
-  if (result.state === "canceled") {
-    return { status: "canceled", resultMessage: result.message ?? null };
-  }
-  return { status: result.state, error: result.error };
 };
 
-const dryRunError = (code: string, message: string): WorkflowExecutionError => ({ code, message, retryable: false });
-
-const persistedDryRunIssues = (issues: readonly WorkflowDryRunIssue[] | undefined) =>
-  issues?.map((issue) => ({
-    state: issue.state,
-    reason: issue.reason,
-    step: {
-      key: issue.step.key,
-      sourcePath: issue.step.sourcePath,
-      action: issue.step.action ?? null,
-    },
-  })) ?? [];
-
-const dryRunCompletion = (result: Awaited<ReturnType<typeof dryRunWorkflowPlan>>): GridsWorkflowRunCompletion => {
-  if (result.state === "planned") {
-    return {
-      status: "succeeded",
-      result: { effects: result.effects, ...(result.output === undefined ? {} : { output: result.output }) },
-    };
-  }
-  if (result.state === "terminal") {
-    const issues = persistedDryRunIssues(result.issues);
-    if (issues.length > 0) {
-      const primary = issues.find((issue) => issue.state === "indeterminate") ?? issues[0]!;
-      return {
-        status: "failed",
-        result: { effects: result.effects, issues, terminal: { status: result.status, message: result.message ?? null } },
-        error: dryRunError(
-          primary.state === "indeterminate" ? "WORKFLOW_DRY_RUN_INDETERMINATE" : "WORKFLOW_DRY_RUN_UNSUPPORTED",
-          primary.reason,
-        ),
-      };
-    }
-    const status = result.status === "succeeded" ? "succeeded" : "failed";
-    return {
-      status,
-      result: { effects: result.effects },
-      resultMessage: result.message ?? null,
-      ...(status === "failed" ? { error: dryRunError("WORKFLOW_DRY_RUN_TERMINAL", result.message ?? "Workflow would fail.") } : {}),
-    };
-  }
-  if (result.state === "canceled") {
-    return {
-      status: "canceled",
-      result: { effects: result.effects, issues: persistedDryRunIssues(result.issues) },
-      resultMessage: result.message ?? null,
-    };
-  }
-  return {
-    status: "failed",
-    result: { effects: result.effects, issues: persistedDryRunIssues(result.issues) },
-    error: dryRunError(result.state === "unsupported" ? "WORKFLOW_DRY_RUN_UNSUPPORTED" : "WORKFLOW_DRY_RUN_INDETERMINATE", result.reason),
-  };
-};
-
-export const finishDryRun = async (
-  identity: WorkflowRuntimeRunIdentity,
-  result: Awaited<ReturnType<typeof dryRunWorkflowPlan>>,
-): Promise<GridsWorkflowRun["status"]> => {
-  const completion = dryRunCompletion(result);
-  if (!(await finishWorkflowRun(identity, completion))) throw workflowConflict("Workflow run lost its execution lease.");
-  return completion.status;
-};
-
-const leaseCancellation = (signal: AbortSignal, message?: string): WorkflowHeartbeatOutcome => ({
-  state: "canceled",
-  message: message ?? (signal.reason instanceof Error ? signal.reason.message : "workflow run lease is no longer active"),
-});
-
-const executeClaimedWorkflowRun = async (
-  claimed: ClaimedWorkflowRun,
-  execution: WorkflowCoordinatorExecution<ClaimedWorkflowRun>,
-  workflowTrace?: WorkflowTracePort,
-): Promise<GridsWorkflowRunCompletion> => {
-  const runId = claimed.runId;
-  const repository = new GridsWorkflowRuntimeRepository(async () => {
-    if (execution.signal.aborted) return leaseCancellation(execution.signal);
-    const outcome = await execution.heartbeat();
-    return outcome.state === "active" && !execution.signal.aborted
-      ? { state: "active" }
-      : leaseCancellation(execution.signal, outcome.state === "canceled" ? outcome.message : undefined);
-  });
-  const workflowId = claimed.run.workflowId ?? "";
-  const actor = {
-    ...claimed.principal,
-    groupIds: await loadWorkflowUserGroupIds(claimed.run.actorUserId),
-  } satisfies GridsWorkflowPrincipal;
-  const claim = {
-    baseId: claimed.run.baseId,
-    workflowId,
-    principal: actor,
-    authorization: claimed.authorization,
-    launcherId: claimed.run.launcherId,
-  };
-  if (!(await canExecuteWorkflow(claim))) throw err.forbidden("Workflow execution access was revoked.");
-  const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
-    workflowId,
-    mode: claimed.run.mode,
-    channel: claimed.run.channel,
-    actor,
-    inputs: claimed.run.inputs,
-    context: claimed.context,
-    idempotencyKey: claimed.idempotencyKey,
-    occurredAt: claimed.occurredAt,
-  };
-  /*
-   * The declared actions, not a per-run port. Each one re-reads the run to
-   * find out who it acts as, so nothing here has to be closed over -- which is
-   * what lets `src/workflows.ts` be a plain vocabulary rather than a factory.
-   *
-   * `budget: false` while runs still live in grids.workflow_runs: the kernel
-   * charges against workflows.run, which has no row for this one. The budgets
-   * arrive with the runs.
-   */
-  const actions = createWorkflowActionPort(GRIDS_WORKFLOW_ACTIONS, { budget: false, journal: gridsWorkflowEffectJournal });
-  const dryRun = createWorkflowDryRunPort(GRIDS_WORKFLOW_ACTIONS);
-  const values = createGridsWorkflowValueResolver(claimed.run.baseId, actor, {
-    authorizeTable: (tableId) => authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, tableId }, "read"),
-  });
-  const clock = { now: () => claimed.executionClockAt };
-  if (claimed.run.mode === "execute") {
-    return finishExecution(
-      await executeWorkflowPlan({
-        runId,
-        executionGeneration: claimed.executionGeneration,
-        plan: claimed.plan,
-        invocation: { ...invocation, mode: "execute" },
-        repository,
-        clock,
-        actions,
-        values,
-        ...(workflowTrace ? { trace: workflowTrace } : {}),
-      }),
-    );
-  }
-  return dryRunCompletion(
-    await dryRunWorkflowPlan({
-      runId,
-      executionGeneration: claimed.executionGeneration,
-      plan: claimed.plan,
-      invocation: { ...invocation, mode: "dryRun" },
-      repository,
-      clock,
-      actions: dryRun,
-      values,
-      ...(workflowTrace ? { trace: workflowTrace } : {}),
-    }),
-  );
-};
-
-export const processWorkflowRun = async (
-  runId: string,
-  heartbeat?: () => Promise<void>,
-  workflowTrace?: WorkflowTracePort,
-): Promise<WorkflowJobResult> => {
-  const result = await coordinateWorkflowExecution({
-    input: runId,
-    heartbeatMs: WORKFLOW_LEASE_HEARTBEAT_MS,
-    port: createGridsWorkflowCoordinatorPort(heartbeat),
-    execute: (execution) => executeClaimedWorkflowRun(execution.claim, execution, workflowTrace),
-  });
-  if (result.state === "idle") return { runId, status: (await getWorkflowRun(runId))?.status ?? "missing" };
-  if (result.state === "finished") return { runId, status: result.result.status };
-  if (result.state === "released" || result.state === "retry") throw result.error;
-  const persisted = await getWorkflowRun(runId);
-  if (persisted?.status === "waiting") return { runId, status: "waiting" };
-  if (result.state === "canceled") return { runId, status: "canceled" };
-  throw workflowConflict("Workflow run lost its execution lease.");
-};
-
-const workflowJob = job<WorkflowJobInput, WorkflowJobResult>({
-  id: "grids:workflow-runs:v1",
-  defaults: { leaseMs: WORKFLOW_JOB_LEASE_MS, keyTtlMs: 24 * 60 * 60 * 1_000 },
-  trace: trace.fromSyncJob<WorkflowJobInput, WorkflowJobResult>({
-    name: "Grid workflow run",
-    source: "grids:workflow-runs:v1",
-    appId: "grids",
-    attributes: (event) => ("input" in event && event.input ? { "cloud.grids.workflow_run_id": event.input.runId } : {}),
-    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
-  }),
-  process: ({ ctx }) =>
-    processWorkflowRun(
-      ctx.input.runId,
-      () => ctx.heartbeat({ leaseMs: WORKFLOW_JOB_LEASE_MS }),
-      workflowStepTrace(ctx.jobId, ctx.input.runId),
-    ),
-  after: async ({ ctx }) => {
-    if (!ctx.error) return;
-    if (ctx.failureCount < WORKFLOW_JOB_MAX_RETRIES) {
-      ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 60_000 }) });
-      return;
-    }
-    await failQueuedWorkflowRun(ctx.input.runId, errorMessage(ctx.error));
-  },
-});
-
-export const submitWorkflowRun = async (runId: string): Promise<void> => {
-  await workflowJob.submit({ key: `run:${runId}`, input: { runId }, leaseMs: WORKFLOW_JOB_LEASE_MS });
-};
-
-export const submitAcceptedWorkflowRun = async (
-  receipt: WorkflowInvocationReceipt,
-  submit: (runId: string) => Promise<void> = submitWorkflowRun,
-): Promise<void> => {
-  if (receipt.status !== "queued") return;
-  try {
-    await submit(receipt.runId);
-  } catch (error) {
-    log.warn("Workflow run was accepted but could not be submitted immediately", {
-      runId: receipt.runId,
-      error: errorMessage(error),
-    });
-  }
-};
+// ─── Requesting a run ────────────────────────────────────────────────────────
 
 export const invokeGridsWorkflow = async (input: InvokeGridsWorkflowInput): Promise<Result<WorkflowInvocationReceipt>> => {
   const workflow = await getWorkflow(input.workflowId);
@@ -387,37 +256,21 @@ export const invokeGridsWorkflow = async (input: InvokeGridsWorkflowInput): Prom
   };
   if (!(await canExecuteWorkflow(claim))) return fail(err.forbidden("Workflow actor cannot run this workflow."));
   if (!input.idempotencyKey.trim() || input.idempotencyKey.length > 200) return fail(err.badInput("invalid idempotency key"));
-  const occurredAt = input.occurredAt ?? new Date().toISOString();
-  const rawInvocation: WorkflowInvocation<GridsWorkflowChannel> = {
-    workflowId: workflow.id,
-    expectedRevision: input.expectedRevision === undefined ? undefined : toWorkflowRevision(input.expectedRevision),
-    mode: input.mode,
-    channel: input.channel,
-    actor: {
-      userId: input.principal.userId,
-      groupIds: input.principal.groupIds,
-      serviceAccountId: input.principal.serviceAccountId,
-    },
-    inputs: input.inputs,
-    idempotencyKey: input.idempotencyKey,
-    occurredAt,
-    context: input.context ?? {},
-  };
-  const requestFingerprint = await workflowInvocationFingerprint({ invocation: rawInvocation, principal: input.principal });
-  const existing = await findMaterializedWorkflowInvocation({
-    baseId: workflow.baseId,
-    invocation: rawInvocation,
-    principal: input.principal,
-    requestFingerprint,
-  });
-  if (existing) {
-    if (existing.ok) await submitAcceptedWorkflowRun(existing.data);
-    return existing;
-  }
   if (input.expectedRevision !== undefined && input.expectedRevision !== workflow.revision) {
     return fail(workflowConflict("Workflow changed since the caller loaded it."));
   }
   if (input.mode === "execute" && !workflow.enabled) return fail(err.badInput("workflow is disabled"));
+
+  const context = input.context ?? {};
+  const requestFingerprint = await workflowInvocationFingerprint({
+    workflowId: workflow.id,
+    mode: input.mode,
+    channel: input.channel,
+    principal: input.principal,
+    inputs: input.inputs,
+    context,
+  });
+
   let preparedInputs: Record<string, WorkflowJsonValue>;
   try {
     preparedInputs = await prepareWorkflowInputs(
@@ -431,29 +284,85 @@ export const invokeGridsWorkflow = async (input: InvokeGridsWorkflowInput): Prom
     }
     throw error;
   }
-  const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
-    ...rawInvocation,
+
+  const receipt = await startWorkflowRun({
+    workflow: { id: workflow.id, baseId: workflow.baseId, revision: workflow.revision },
+    mode: input.mode,
+    channel: input.channel,
+    eventType: EVENT_TYPE_BY_CHANNEL[input.channel],
     inputs: preparedInputs,
-    context: {
-      ...(input.context ?? {}),
-      workflow: { id: workflow.id, shortId: workflow.shortId, name: workflow.name },
-    },
-  };
-  const receipt = await materializeWorkflowInvocation({
-    baseId: workflow.baseId,
-    invocation,
-    preparedRevision: workflow.revision,
+    context: { ...context, workflow: { id: workflow.id, shortId: workflow.shortId, name: workflow.name } },
+    idempotencyKey: input.idempotencyKey,
     requestFingerprint,
-    launcherId: input.launcherId,
+    occurredAt: input.occurredAt ?? new Date().toISOString(),
     principal: input.principal,
-    authorization: input.authorization,
+    authorization,
+    launcherId: input.launcherId ?? null,
+    launcherKind: LAUNCHER_KIND_BY_CHANNEL[input.channel] ?? null,
   });
-  if (!receipt.ok) return receipt;
-  await submitAcceptedWorkflowRun(receipt.data);
-  return ok(receipt.data);
+  // A run appears in the list the moment it is accepted, not when a worker
+  // reaches it — a button that queues work has to show something immediately.
+  if (receipt.ok && receipt.data.created) await publishRunEvent(receipt.data.runId, "accepted");
+  return receipt;
 };
 
 const workflowRecordEvents = createWorkflowRecordEventRuntime(invokeGridsWorkflow);
+
+// ─── Draining what the kernel made claimable ─────────────────────────────────
+
+/** Names this process in a run's lease. Only ever read by a human. */
+const workerId = `grids:${Bun.env.HOSTNAME ?? "local"}:${process.pid}`;
+
+/**
+ * The declared actions, not a per-run port.
+ *
+ * Each one re-reads its run to find out who it acts as, which is what lets
+ * `src/workflows.ts` be a plain vocabulary rather than a factory — and what
+ * lets one port serve every run this worker claims.
+ */
+const workflowActions = createWorkflowActionPort(GRIDS_WORKFLOW_ACTIONS);
+const workflowDryRunActions = createWorkflowDryRunPort(GRIDS_WORKFLOW_ACTIONS);
+
+const workflowValues = (claim: WorkflowRunClaim) =>
+  createGridsWorkflowValueResolverPort(async () => {
+    const scope = await getWorkflowRunScope(claim.runId);
+    if (!scope) throw workflowConflict("Workflow run is no longer available.");
+    return createGridsWorkflowValueResolver(scope.baseId, scope.principal, {
+      authorizeTable: (tableId) => authorizeWorkflowTarget(scope.principal, { baseId: scope.baseId, tableId }, "read"),
+    });
+  });
+
+const workerPorts = { worker: workerId, appId: GRIDS_APP_ID, values: workflowValues, trace: workflowTrace } as const;
+
+/**
+ * Carries one named run, with the wiring the worker uses.
+ *
+ * The worker itself never names a run — it takes whatever the kernel has made
+ * claimable — so these exist for the caller that already has one in hand and
+ * wants it carried now rather than within a poll interval.
+ */
+export const runGridsWorkflowRun = (runId: string) => runOneWorkflow({ ...workerPorts, actions: workflowActions, runId });
+
+export const dryRunGridsWorkflowRun = (runId?: string) =>
+  dryRunOneWorkflow({ ...workerPorts, actions: workflowDryRunActions, ...(runId === undefined ? {} : { runId }) });
+
+/**
+ * One pass over this app's runs.
+ *
+ * `tickWorkflows` dispatches events, wakes parked runs and executes what is
+ * ready. Dry runs are claimed by mode, so that loop never sees one and they are
+ * drained separately — which is exactly what keeps a question from being
+ * answered by doing the work.
+ */
+const drainWorkflowRuns = async (): Promise<void> => {
+  await tickWorkflows({ ...workerPorts, actions: workflowActions });
+  for (let index = 0; index < MAX_DRY_RUNS_PER_TICK; index += 1) {
+    const outcome = await dryRunGridsWorkflowRun();
+    if (outcome.state === "idle") break;
+  }
+};
+
+// ─── Schedules and record events ─────────────────────────────────────────────
 
 export type WorkflowScheduleConfig = { cron: string; timezone: string };
 
@@ -556,7 +465,7 @@ const registerSchedule = async (workflowId: string): Promise<void> => {
     cron: schedule.cron,
     tz: schedule.timezone,
     meta: workflowScheduleMetadata(workflow),
-    trace: trace.fromSyncSchedule<WorkflowJobResult>({
+    trace: trace.fromSyncSchedule<WorkflowScheduleResult>({
       name: `Grid workflow schedule: ${workflow.name}`,
       source: scheduleId,
       appId: "grids",
@@ -621,22 +530,9 @@ export const registerWorkflowSchedules = async (
 };
 
 export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
-  const expiredWaiting = await listExpiredWaitingWorkflowRuns();
-  for (const { runId, dependency } of expiredWaiting) {
-    if (await resumeWaitingWorkflowRun(runId, dependency)) {
-      await submitWorkflowRun(runId).catch((error) =>
-        log.warn("Could not submit resumed workflow run", { runId, error: errorMessage(error) }),
-      );
-    }
-  }
-  const recoverable = await listRecoverableWorkflowRunIds();
-  await Promise.all(
-    recoverable.map((runId) =>
-      submitWorkflowRun(runId).catch((error) =>
-        log.warn("Could not submit recoverable workflow run", { runId, error: errorMessage(error) }),
-      ),
-    ),
-  );
+  // Only the deadline needs a nudge; whatever this re-queues the worker claims
+  // on its next pass, the same as a run that was never parked.
+  await wakeExpiredWorkflowRuns(100, { appId: GRIDS_APP_ID });
   const workflows = await listScheduledWorkflows();
   await registerWorkflowSchedules(workflows);
   // Snapshot the registrations BEFORE deriving the active set. A workflow another
@@ -651,7 +547,11 @@ export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
   await workflowRecordEvents.reconcile();
 };
 
+// ─── Lifecycle ───────────────────────────────────────────────────────────────
+
 let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+let workerTimer: ReturnType<typeof setInterval> | null = null;
+let draining = false;
 let runtimeEventController: AbortController | null = null;
 let runtimeEventTask: Promise<void> | null = null;
 const workflowRuntimeTasks = createRuntimeTaskTracker();
@@ -697,6 +597,17 @@ const workflowRuntimeLifecycle = createRuntimeLifecycle({
     await reconcileWorkflowKernelRuntime();
     workflowScheduler.start();
     startRuntimeEventReader(eventCursor);
+    workerTimer = setInterval(() => {
+      // A tick that outlives the interval must not start a second one: two
+      // overlapping drains would claim each other's runs and fight the lease.
+      if (draining) return;
+      draining = true;
+      const task = workflowRuntimeTasks.run(async () => {
+        await drainWorkflowRuns().catch((error) => log.warn("Workflow worker tick failed", { error: errorMessage(error) }));
+      });
+      if (task) void task.finally(() => (draining = false));
+      else draining = false;
+    }, WORKER_INTERVAL_MS);
     reconcileTimer = setInterval(() => {
       workflowRuntimeTasks.run(async () => {
         await reconcileWorkflowKernelRuntime().catch((error) =>
@@ -706,14 +617,20 @@ const workflowRuntimeLifecycle = createRuntimeLifecycle({
     }, RECONCILE_INTERVAL_MS);
   },
   stop: async () => {
+    if (workerTimer) clearInterval(workerTimer);
+    workerTimer = null;
     if (reconcileTimer) clearInterval(reconcileTimer);
     reconcileTimer = null;
     runtimeEventController?.abort();
     await stopRuntimeResources([
-      () => stopRuntimeJobs(workflowRuntimeTasks, [workflowJob]),
+      async () => {
+        workflowRuntimeTasks.close();
+        await workflowRuntimeTasks.drain();
+      },
       () => workflowRecordEvents.stop(),
       () => workflowScheduler.stop(),
     ]);
+    draining = false;
     runtimeEventController = null;
     runtimeEventTask = null;
   },

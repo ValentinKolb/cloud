@@ -5,13 +5,14 @@ import { describeRoute } from "hono-openapi";
 import { DocumentRunSummaryListSchema } from "../contracts";
 import { listRunsForWorkflowRun, renderWorkflowRunPdf } from "../service/documents";
 import { getWorkflow } from "../service/workflow-definitions";
+import { listWorkflowEmailDeliveriesPage } from "../service/workflow-email-deliveries";
 import {
+  cancelWorkflowRun,
+  getWorkflowRun,
   getWorkflowRunStats,
-  listWorkflowEmailDeliveriesPage,
   listWorkflowRunsPage,
   listWorkflowStepRunsPage,
-} from "../service/workflow-kernel-observability";
-import { cancelWorkflowRun, getWorkflowRun } from "../service/workflow-kernel-runs";
+} from "../service/workflow-runs";
 import {
   GridsWorkflowEmailDeliveryListSchema,
   GridsWorkflowRunListSchema,

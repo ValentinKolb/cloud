@@ -47,10 +47,10 @@ describe("grids schema migration", () => {
           WHERE table_schema = 'grids'
             AND table_type = 'BASE TABLE'
         `;
-        // workflow_profile and workflow_run_profile arrived; grids.workflows and
-        // workflow_revisions moved into the kernel, and workflow_effect_intents
-        // folded into the step row that already describes the step.
-        expect(row?.tableCount).toBe(36);
+        // workflow_profile and workflow_run_profile arrived; grids.workflows,
+        // workflow_revisions, workflow_runs and workflow_step_runs moved into
+        // the kernel, taking workflow_effect_intents with them.
+        expect(row?.tableCount).toBe(34);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -294,15 +294,6 @@ describe("grids schema migration", () => {
           VALUES (${baseId}::uuid, ${shortId("B")}, 'Workflow reset artifacts')
         `;
         await insertTestWorkflow({ db: database, id: workflowId, baseId, name: "Old workflow", shortId: shortId("W") });
-        await database`
-          INSERT INTO grids.workflow_runs (
-            id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
-            inputs, context, workflow_plan, status, occurred_at
-          ) VALUES (
-            ${workflowRunId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'old-run', 'old',
-            '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'succeeded', now()
-          )
-        `;
         await database`
           INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
           VALUES (${snapshotId}::uuid, ${baseId}::uuid, ${uuid()}::uuid, ${uuid()}::uuid, '{}'::jsonb, '{}'::jsonb)

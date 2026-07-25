@@ -133,12 +133,23 @@ export const validateWorkflowSource = async (
  * unchanged trigger updates its activation rather than deleting and recreating
  * it — which is what stops an event arriving mid-publish from matching nothing.
  */
-const activationsFor = (plan: WorkflowBoundPlan, enabled: boolean): WorkflowActivationInput[] =>
-  plan.triggers.flatMap((trigger, index) => {
+const activationsFor = (plan: WorkflowBoundPlan, enabled: boolean): WorkflowActivationInput[] => [
+  /*
+   * The two nobody writes. Being runnable from the API and from a launcher is
+   * not a trigger an author declared, it is what every workflow is — so a plan
+   * with no triggers at all still has to have somewhere for its invocation to
+   * land, or `emitWorkflowEvent` matches nothing and the run silently never
+   * happens. `enabled` still gates them, because disabling a workflow has to
+   * refuse a direct invocation too.
+   */
+  { key: "invoked", eventType: GRIDS_EVENT.invoked, enabled },
+  { key: "launcher", eventType: GRIDS_EVENT.launcherPressed, enabled },
+  ...plan.triggers.flatMap((trigger, index) => {
     const eventType =
       trigger.kind === "schedule" ? GRIDS_EVENT.scheduleTick : trigger.kind === "recordEvent" ? GRIDS_EVENT.recordChanged : null;
     return eventType ? [{ key: `${trigger.kind}:${index}`, eventType, config: trigger.config, enabled }] : [];
-  });
+  }),
+];
 
 const hasRecordEventTrigger = (plan: WorkflowBoundPlan): boolean => plan.triggers.some((trigger) => trigger.kind === "recordEvent");
 

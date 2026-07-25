@@ -3,20 +3,22 @@
  *
  * Nothing here is checkable by the type system. An action names a field with
  * `ctx.binding`, writes through a service that speaks SQL, and leaves its
- * evidence in `grids.workflow_step_runs` — three couplings that live in string
+ * evidence in `workflows.step_outcome` — three couplings that live in string
  * keys and SQL template literals, and every one of them fails silently. So the
- * plan, the run row and the grants are real, `processWorkflowRun` is the same
- * entry point the job uses, and the assertions are about rows.
+ * plan, the run and the grants are real, the run is carried by the worker's own
+ * ports, and the assertions are about rows.
  */
 import { beforeAll, describe, expect } from "bun:test";
 import type { WorkflowBoundPlan, WorkflowIrStep, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { workflowActionDescriptors } from "@valentinkolb/cloud/workflows/store";
+import { createWorkflowRun, workflowActionDescriptors } from "@valentinkolb/cloud/workflows/store";
 import { redis, sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
-import { processWorkflowRun } from "./workflow-kernel-runtime";
-import { insertTestWorkflow } from "./workflow-test-fixture";
+import type { GridsWorkflowPrincipal } from "../workflows/contracts";
+import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-kernel-runtime";
+import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
+import { insertTestWorkflow, publishTestWorkflowVersion } from "./workflow-test-fixture";
 
 type Fixture = {
   actorId: string;
@@ -152,20 +154,53 @@ type QueuedRun = {
   inputs?: Record<string, WorkflowJsonValue>;
 };
 
-/** A run row exactly as `materializeWorkflowInvocation` leaves one, ready to claim. */
+/**
+ * A run exactly as `startWorkflowRun` leaves one, ready to claim.
+ *
+ * Two rows, because that is what a Grids run is now: the kernel's, pinned to a
+ * published version so the plan cannot drift under it, and the profile that
+ * says which base and which button it belongs to. The authorization snapshot is
+ * built by the same helper the service uses — every declared action reads its
+ * actor back out of it.
+ */
 const queueRun = async (fixture: Fixture, input: QueuedRun): Promise<string> => {
-  const runId = uuid();
+  const revision = await publishTestWorkflowVersion(fixture.workflowId, `steps: [] # ${uuid()}`, input.plan);
+  const [version] = await sql<Array<{ id: string }>>`
+    SELECT id::text AS id FROM workflows.version
+    WHERE workflow_id = ${fixture.workflowId}::uuid AND revision = ${revision}
+  `;
+  if (!version) throw new Error("Workflow action fixture could not publish a version");
+
+  const principal: GridsWorkflowPrincipal = { userId: fixture.actorId, groupIds: [], serviceAccountId: null };
+  const runId = await createWorkflowRun({
+    appId: GRIDS_APP_ID,
+    scopeId: fixture.baseId,
+    workflowId: fixture.workflowId,
+    workflowVersionId: version.id,
+    mode: input.mode ?? "execute",
+    inputs: input.inputs ?? {},
+    context: {},
+    authorization: gridsAuthorizationSnapshot(principal, { kind: "workflow" }, null) as unknown as WorkflowJsonValue,
+    idempotencyKey: uuid(),
+    occurredAt: new Date(),
+  });
   await sql`
-    INSERT INTO grids.workflow_runs (
-      id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
-      actor_user_id, authorization_snapshot, inputs, context, workflow_plan, status, occurred_at
-    ) VALUES (
-      ${runId}::uuid, ${fixture.workflowId}::uuid, ${fixture.baseId}::uuid, 1, ${input.mode ?? "execute"}, 'api',
-      ${runId}, ${runId}, ${fixture.actorId}::uuid, '{"kind":"workflow"}'::jsonb,
-      ${input.inputs ?? {}}::jsonb, '{}'::jsonb, ${input.plan}::jsonb, 'queued', now()
-    )
+    INSERT INTO grids.workflow_run_profile (run_id, base_id, workflow_id, channel, actor_user_id, request_fingerprint)
+    VALUES (${runId}::uuid, ${fixture.baseId}::uuid, ${fixture.workflowId}::uuid, 'api', ${fixture.actorId}::uuid, ${runId})
   `;
   return runId;
+};
+
+/**
+ * Carries one run to its outcome and answers with the state it settled in.
+ *
+ * The same two entry points the worker drives, so an action that only works
+ * under a port this test invented would fail here rather than in production.
+ */
+const drive = async (runId: string, mode: "execute" | "dryRun" = "execute"): Promise<string> => {
+  const outcome = mode === "execute" ? await runGridsWorkflowRun(runId) : await dryRunGridsWorkflowRun(runId);
+  if (outcome.state !== "finished") throw new Error(`Workflow run ${runId} did not finish: ${outcome.state}`);
+  return (await runRow(runId)).state;
 };
 
 const recordData = async (recordId: string): Promise<Record<string, unknown>> => {
@@ -178,22 +213,25 @@ const recordData = async (recordId: string): Promise<Record<string, unknown>> =>
 
 type StepRow = {
   step_key: string;
-  status: string;
+  state: string;
   outcome: { state?: string; output?: WorkflowJsonValue; error?: { code?: string } } | null;
   effect_state: string | null;
   effect_output: WorkflowJsonValue;
 };
 
+// The journal stores the pair the executor hands it, so that a restored step
+// knows which of the two outcome shapes it has. Every assertion below is about
+// the outcome itself, which is also what a run view is given.
 const stepRuns = (runId: string): Promise<StepRow[]> => sql<StepRow[]>`
-  SELECT step_key, status, outcome, effect_state, effect_output
-  FROM grids.workflow_step_runs
+  SELECT step_key, state, outcome -> 'outcome' AS outcome, effect_state, effect_output
+  FROM workflows.step_outcome
   WHERE run_id = ${runId}::uuid
   ORDER BY step_key
 `;
 
-const runRow = async (runId: string): Promise<{ status: string; result: WorkflowJsonValue; error: { code?: string } | null }> => {
-  const [row] = await sql<Array<{ status: string; result: WorkflowJsonValue; error: { code?: string } | null }>>`
-    SELECT status, result, error FROM grids.workflow_runs WHERE id = ${runId}::uuid
+const runRow = async (runId: string): Promise<{ state: string; result: WorkflowJsonValue; error: { code?: string } | null }> => {
+  const [row] = await sql<Array<{ state: string; result: WorkflowJsonValue; error: { code?: string } | null }>>`
+    SELECT state, result, error FROM workflows.run WHERE id = ${runId}::uuid
   `;
   if (!row) throw new Error(`Workflow run ${runId} is missing`);
   return row;
@@ -202,15 +240,16 @@ const runRow = async (runId: string): Promise<{ status: string; result: Workflow
 /** Re-opens a finished run and its steps the way a crash-resumed attempt finds them. */
 const reopenForReplay = async (runId: string): Promise<void> => {
   await sql`
-    UPDATE grids.workflow_runs
-    SET status = 'queued', result = NULL, error = NULL, result_message = NULL, finished_at = NULL, lease_expires_at = NULL
+    UPDATE workflows.run
+    SET state = 'queued', result = NULL, error = NULL, result_message = NULL, finished_at = NULL,
+        lease_owner = NULL, lease_expires_at = NULL, retry_after = NULL
     WHERE id = ${runId}::uuid
   `;
   // The effect columns stay: the journal's record of what already happened is
   // precisely what the replay has to consult instead of acting again.
   await sql`
-    UPDATE grids.workflow_step_runs
-    SET status = 'running', outcome = NULL, finished_at = NULL
+    UPDATE workflows.step_outcome
+    SET state = 'running', outcome = NULL, finished_at = NULL
     WHERE run_id = ${runId}::uuid
   `;
 };
@@ -258,7 +297,7 @@ describe("declared Grids workflow actions", () => {
         inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
       });
 
-      expect(await processWorkflowRun(runId)).toEqual({ runId, status: "succeeded" });
+      expect(await drive(runId)).toBe("succeeded");
 
       const data = await recordData(fixture.recordId);
       expect(data[fixture.statusFieldId]).toBe("Approved");
@@ -268,7 +307,7 @@ describe("declared Grids workflow actions", () => {
       expect(data[fixture.nameFieldId]).toBe("Draft task");
 
       const [step] = await stepRuns(runId);
-      expect(step).toMatchObject({ step_key: "steps.0", status: "succeeded", effect_state: "succeeded" });
+      expect(step).toMatchObject({ step_key: "steps.0", state: "completed", effect_state: "succeeded" });
       expect(step?.effect_output).toEqual({ kind: "record", tableId: fixture.tableId, recordId: fixture.recordId });
     } finally {
       await cleanupFixture(fixture);
@@ -285,7 +324,7 @@ describe("declared Grids workflow actions", () => {
         }),
         inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
       });
-      expect(await processWorkflowRun(runId)).toEqual({ runId, status: "succeeded" });
+      expect(await drive(runId)).toBe("succeeded");
 
       await reopenForReplay(runId);
       // Somebody moved the record on after the first attempt committed. A second
@@ -296,7 +335,7 @@ describe("declared Grids workflow actions", () => {
         WHERE id = ${fixture.recordId}::uuid
       `;
 
-      expect(await processWorkflowRun(runId)).toEqual({ runId, status: "succeeded" });
+      expect(await drive(runId)).toBe("succeeded");
       expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Reopened by a person");
 
       const [step] = await stepRuns(runId);
@@ -320,7 +359,7 @@ describe("declared Grids workflow actions", () => {
         }),
       });
 
-      expect(await processWorkflowRun(runId)).toEqual({ runId, status: "succeeded" });
+      expect(await drive(runId)).toBe("succeeded");
 
       const created = await sql<Array<{ id: string; data: Record<string, unknown> }>>`
         SELECT id::text AS id, data
@@ -368,12 +407,12 @@ describe("declared Grids workflow actions", () => {
       if (!denial) throw new Error("Workflow action fixture could not revoke table access");
       await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${fixture.tableId}::uuid, ${denial.id}::uuid)`;
 
-      expect(await processWorkflowRun(runId)).toEqual({ runId, status: "failed" });
+      expect(await drive(runId)).toBe("failed");
       expect((await runRow(runId)).error).toMatchObject({ code: "FORBIDDEN" });
       expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Open");
 
       const [step] = await stepRuns(runId);
-      expect(step).toMatchObject({ status: "failed", effect_state: null });
+      expect(step).toMatchObject({ state: "failed", effect_state: null });
     } finally {
       await cleanupFixture(fixture);
     }
@@ -392,20 +431,20 @@ describe("declared Grids workflow actions", () => {
         const accepted = await queueRun(fixture, {
           plan: boundPlan([actionStep(0, "httpRequest", { url: `http://127.0.0.1:${server.port}/ok`, json: { ping: true } })], {}),
         });
-        expect(await processWorkflowRun(accepted)).toEqual({ runId: accepted, status: "succeeded" });
+        expect(await drive(accepted)).toBe("succeeded");
         const [acceptedStep] = await stepRuns(accepted);
         // An ambiguous effect is marked before it acts and settled after; the
         // settled state is the only thing that keeps a replay from re-sending.
-        expect(acceptedStep).toMatchObject({ status: "succeeded", effect_state: "succeeded" });
+        expect(acceptedStep).toMatchObject({ state: "completed", effect_state: "succeeded" });
         expect(acceptedStep?.outcome?.output).toMatchObject({ status: 200, ok: true });
 
         const refused = await queueRun(fixture, {
           plan: boundPlan([actionStep(0, "httpRequest", { url: `http://127.0.0.1:${server.port}/boom`, json: { ping: true } })], {}),
         });
-        expect(await processWorkflowRun(refused)).toEqual({ runId: refused, status: "failed" });
+        expect(await drive(refused)).toBe("failed");
         expect((await runRow(refused)).error).toMatchObject({ code: "WORKFLOW_HTTP_FAILED" });
         const [refusedStep] = await stepRuns(refused);
-        expect(refusedStep).toMatchObject({ status: "failed", effect_state: "failed" });
+        expect(refusedStep).toMatchObject({ state: "failed", effect_state: "failed" });
       });
     } finally {
       server.stop(true);
@@ -432,7 +471,7 @@ describe("declared Grids workflow actions", () => {
         ),
       });
 
-      expect(await processWorkflowRun(runId)).toEqual({ runId, status: "succeeded" });
+      expect(await drive(runId, "dryRun")).toBe("succeeded");
 
       const [{ records = 0 } = {}] = await sql<Array<{ records: number }>>`
         SELECT count(*)::int AS records FROM grids.records WHERE table_id = ${fixture.tableId}::uuid
@@ -444,7 +483,7 @@ describe("declared Grids workflow actions", () => {
       expect(deliveries).toBe(0);
 
       const steps = await stepRuns(runId);
-      expect(steps.map((step) => step.status)).toEqual(["succeeded", "succeeded"]);
+      expect(steps.map((step) => step.state)).toEqual(["planned", "planned"]);
       // Marked planned so a later step can tell this from a real record. Without
       // the flag the next action would act on a row id that has no row.
       expect(steps[0]?.outcome).toMatchObject({
@@ -475,7 +514,7 @@ describe("declared Grids workflow actions", () => {
         inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
       });
 
-      expect(await processWorkflowRun(runId)).toEqual({ runId, status: "succeeded" });
+      expect(await drive(runId, "dryRun")).toBe("succeeded");
 
       const [{ runs = 0 } = {}] = await sql<Array<{ runs: number }>>`
         SELECT count(*)::int AS runs FROM grids.document_runs WHERE base_id = ${fixture.baseId}::uuid

@@ -4,13 +4,13 @@ import { gridsService } from "../../../service";
 import type { DocumentRunReadAuthorizer } from "../../../service/document-browse";
 import type { ExpansionViewer } from "../../../service/relation-access";
 import { buildRelationLabelCacheForIds } from "../../../service/relation-labels";
+import { getWorkflowTriggerRuntimeState } from "../../../service/workflow-kernel-runtime";
 import {
   getWorkflowRunProvenance,
   getWorkflowRunStats,
   listWorkflowRunsPage,
   listWorkflowStepRunsPage,
-} from "../../../service/workflow-kernel-observability";
-import { getWorkflowTriggerRuntimeState } from "../../../service/workflow-kernel-runtime";
+} from "../../../service/workflow-runs";
 import type { GridsWorkflowRun } from "../../../workflows/contracts";
 import { parseWorkflowUrlState } from "../workflows/workflow-url-state";
 import { documentTemplateLevelForUser, tableLevelForUser } from "./workspace-state-access";

@@ -11,6 +11,7 @@
  * source compiling.
  */
 import { type SQL, sql } from "bun";
+import { GRIDS_EVENT } from "../workflows/events";
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
 
@@ -53,6 +54,26 @@ const EMPTY_PLAN = {
   bindings: {},
 };
 
+/**
+ * The activations every Grids workflow has, whatever its source declares.
+ *
+ * `activationsFor` adds these unconditionally because being runnable directly
+ * and from a launcher is not a trigger anyone wrote. Without them an
+ * invocation matches nothing and the run a test waits for is never created,
+ * which is a silent pass rather than a failure — so the fixture writes them
+ * too, and re-points them at each new version the way a publish does.
+ */
+const repointInvocationActivations = async (db: SQL, workflowId: string, versionId: string): Promise<void> => {
+  await db`
+    INSERT INTO workflows.activation (workflow_id, workflow_version_id, key, event_type, authorization_snapshot, enabled)
+    SELECT ${workflowId}::uuid, ${versionId}::uuid, activation.key, activation.event_type, '{}'::jsonb, profile.enabled
+    FROM (VALUES ('invoked', ${GRIDS_EVENT.invoked}), ('launcher', ${GRIDS_EVENT.launcherPressed})) AS activation(key, event_type)
+    JOIN grids.workflow_profile AS profile ON profile.id = ${workflowId}::uuid
+    ON CONFLICT (workflow_id, key) DO UPDATE
+    SET workflow_version_id = EXCLUDED.workflow_version_id, enabled = EXCLUDED.enabled, updated_at = now()
+  `;
+};
+
 /** Returns the workflow id, which is the kernel's and the profile's alike. */
 export const insertTestWorkflow = async (input: TestWorkflowInput): Promise<string> => {
   const db = input.db ?? sql;
@@ -65,14 +86,16 @@ export const insertTestWorkflow = async (input: TestWorkflowInput): Promise<stri
     VALUES (${id}::uuid, 'grids', ${input.baseId}, ${id}, ${input.name ?? "Test workflow"}, 'system')
     ON CONFLICT (id) DO NOTHING
   `;
-  await db`
+  const [version] = await db<Array<{ id: string }>>`
     INSERT INTO workflows.version (
       workflow_id, revision, source, source_hash, plan, diagnostics, language_id, language_version, manifest_hash, created_by_kind
     )
     SELECT ${id}::uuid, COALESCE(max(revision), 0) + 1, ${source}, ${hex(source)}, ${plan}, ${input.diagnostics ?? []},
            'grids', 1, ${hex("fixture-manifest")}, 'system'
     FROM workflows.version WHERE workflow_id = ${id}::uuid
+    RETURNING id::text AS id
   `;
+  if (!version) throw new Error("test workflow version insert returned no row");
   await db`
     INSERT INTO grids.workflow_profile (id, base_id, short_id, position, owner_user_id, enabled, record_event_active_since)
     VALUES (
@@ -81,21 +104,24 @@ export const insertTestWorkflow = async (input: TestWorkflowInput): Promise<stri
     )
     ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, position = EXCLUDED.position
   `;
+  await repointInvocationActivations(db, id, version.id);
   return id;
 };
 
 /** Publishes another version, the way saving a changed source does. */
 export const publishTestWorkflowVersion = async (id: string, source: string, plan?: Record<string, unknown>): Promise<number> => {
-  const [row] = await sql<Array<{ revision: number }>>`
+  const [row] = await sql<Array<{ id: string; revision: number }>>`
     INSERT INTO workflows.version (
       workflow_id, revision, source, source_hash, plan, diagnostics, language_id, language_version, manifest_hash, created_by_kind
     )
     SELECT ${id}::uuid, COALESCE(max(revision), 0) + 1, ${source}, ${hex(source)}, ${plan ?? EMPTY_PLAN}, '[]'::jsonb,
            'grids', 1, ${hex("fixture-manifest")}, 'system'
     FROM workflows.version WHERE workflow_id = ${id}::uuid
-    RETURNING revision
+    RETURNING id::text AS id, revision
   `;
-  return row?.revision ?? 1;
+  if (!row) throw new Error("test workflow version insert returned no row");
+  await repointInvocationActivations(sql, id, row.id);
+  return row.revision;
 };
 
 /** Soft-deletes it the way removeWorkflow does. */
@@ -108,4 +134,62 @@ export const deleteTestWorkflow = async (id: string): Promise<void> => {
 /** Renames it. The name lives on the kernel row, not on the profile. */
 export const renameTestWorkflow = async (id: string, name: string): Promise<void> => {
   await sql`UPDATE workflows.workflow SET name = ${name}, updated_at = now() WHERE id = ${id}::uuid`;
+};
+
+export type TestWorkflowRunInput = {
+  workflowId: string;
+  baseId: string;
+  db?: SQL;
+  id?: string;
+  mode?: "execute" | "dryRun";
+  /** Grids' own label for how the run was started. */
+  channel?: "api" | "dashboard" | "scanner" | "bulk" | "schedule" | "recordEvent";
+  state?: "queued" | "running" | "waiting" | "succeeded" | "failed" | "canceled" | "needs_attention";
+  launcherId?: string | null;
+  actorUserId?: string | null;
+  serviceAccountId?: string | null;
+  authorization?: Record<string, unknown>;
+  idempotencyKey?: string;
+  occurredAt?: Date;
+  createdAt?: Date;
+  startedAt?: Date | null;
+  finishedAt?: Date | null;
+};
+
+/**
+ * A run as the kernel and Grids together record one.
+ *
+ * Two rows: the kernel's, pinned to the workflow's newest version, and the
+ * profile the run list filters and labels by. Written directly rather than
+ * through the service, because a test about reading runs should not have to
+ * execute one — and every one of these would otherwise restate the join
+ * between the two tables.
+ */
+export const insertTestWorkflowRun = async (input: TestWorkflowRunInput): Promise<string> => {
+  const db = input.db ?? sql;
+  const id = input.id ?? Bun.randomUUIDv7();
+  const createdAt = input.createdAt ?? new Date();
+  await db`
+    INSERT INTO workflows.run (
+      id, app_id, scope_id, workflow_id, workflow_version_id, mode, state, inputs, context,
+      authorization_snapshot, idempotency_key, occurred_at, created_at, started_at, finished_at
+    )
+    SELECT ${id}::uuid, 'grids', ${input.baseId}, ${input.workflowId}::uuid, version.id,
+           ${input.mode ?? "execute"}, ${input.state ?? "queued"}, '{}'::jsonb, '{}'::jsonb,
+           ${input.authorization ?? { kind: "workflow" }}, ${input.idempotencyKey ?? id},
+           ${input.occurredAt ?? createdAt}, ${createdAt}, ${input.startedAt ?? null}, ${input.finishedAt ?? null}
+    FROM workflows.version AS version
+    WHERE version.workflow_id = ${input.workflowId}::uuid
+    ORDER BY version.revision DESC
+    LIMIT 1
+  `;
+  await db`
+    INSERT INTO grids.workflow_run_profile (
+      run_id, base_id, workflow_id, launcher_id, channel, actor_user_id, service_account_id, request_fingerprint
+    ) VALUES (
+      ${id}::uuid, ${input.baseId}::uuid, ${input.workflowId}::uuid, ${input.launcherId ?? null}::uuid,
+      ${input.channel ?? "api"}, ${input.actorUserId ?? null}::uuid, ${input.serviceAccountId ?? null}::uuid, ${id}
+    )
+  `;
+  return id;
 };

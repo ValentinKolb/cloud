@@ -45,7 +45,15 @@ export type WorkflowWorkerOptions = {
   /** Restricts the worker to one app's runs. Omit to drain everything. */
   appId?: string;
   trace?: WorkflowTracePort;
-  values?: WorkflowValueResolverPort;
+  /**
+   * Builds the value resolver for one claimed run.
+   *
+   * A function of the claim rather than a port, because a worker serves every
+   * run in the app while a resolver answers under one run's scope and actor.
+   * One shared instance would resolve a reference through whichever run
+   * happened to warm its caches.
+   */
+  values?: (claim: WorkflowRunClaim) => WorkflowValueResolverPort;
   maxLoopItems?: number;
   db?: SQL;
 };
@@ -59,15 +67,21 @@ export type WorkflowWorkerOutcome =
 /**
  * The actor a run executes as.
  *
- * Reconstructed from the authorization snapshot the activation froze, so an
+ * Read from the authorization snapshot frozen when the run was accepted, so an
  * edit to a group membership cannot silently widen what an already-queued run
  * is allowed to do.
+ *
+ * An app's snapshot holds more than the actor — what it was accepted under,
+ * which credential — so the actor is a named key inside it rather than the
+ * snapshot itself. Nobody named means nobody: an unrecognised snapshot yields
+ * an empty actor, and every permission check an action makes then refuses.
+ * Inventing a system identity here is how a run acts with more authority than
+ * whoever asked for it had.
  */
 const actorFromSnapshot = (snapshot: WorkflowJsonValue): WorkflowActor => {
-  if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) && "kind" in snapshot) {
-    return snapshot as unknown as WorkflowActor;
-  }
-  return { kind: "system" } as unknown as WorkflowActor;
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return {};
+  const actor = snapshot.actor;
+  return actor && typeof actor === "object" && !Array.isArray(actor) ? (actor as unknown as WorkflowActor) : {};
 };
 
 /**
@@ -79,7 +93,7 @@ const actorFromSnapshot = (snapshot: WorkflowJsonValue): WorkflowActor => {
 const settle = (result: Awaited<ReturnType<typeof executeWorkflowPlan>>): WorkflowRunResult => {
   switch (result.state) {
     case "succeeded":
-      return { state: "succeeded", result: result.output ?? null };
+      return { state: "succeeded", result: result.output ?? null, ...(result.message ? { message: result.message } : {}) };
     case "waiting":
       return { state: "waiting" };
     case "failed":
@@ -159,7 +173,7 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
         clock: { now: () => claim.occurredAt.toISOString() },
         actions: options.actions,
         ...(options.trace ? { trace: options.trace } : {}),
-        ...(options.values ? { values: options.values } : {}),
+        ...(options.values ? { values: options.values(claim) } : {}),
         ...(options.maxLoopItems === undefined ? {} : { maxLoopItems: options.maxLoopItems }),
       });
       // Keep the lease honest for a plan whose last step ran long.
@@ -213,7 +227,7 @@ const settleDryRun = (result: WorkflowDryRunResult): WorkflowRunResult => {
   if (result.state === "planned") return { state: "succeeded", result: { effects: result.effects, output: result.output ?? null } };
   if (result.state === "canceled") return { state: "canceled", ...(result.message ? { message: result.message } : {}) };
   if (result.state === "terminal" && result.status === "succeeded") {
-    return { state: "succeeded", result: { effects: result.effects, ...(result.message ? { message: result.message } : {}) } };
+    return { state: "succeeded", result: { effects: result.effects }, ...(result.message ? { message: result.message } : {}) };
   }
   const reason = result.state === "terminal" ? (result.message ?? "the plan would fail") : result.reason;
   return {
@@ -261,7 +275,7 @@ export const dryRunOneWorkflow = async (options: WorkflowDryRunWorkerOptions & {
         clock: { now: () => claim.occurredAt.toISOString() },
         actions: options.actions,
         ...(options.trace ? { trace: options.trace } : {}),
-        ...(options.values ? { values: options.values } : {}),
+        ...(options.values ? { values: options.values(claim) } : {}),
         ...(options.maxLoopItems === undefined ? {} : { maxLoopItems: options.maxLoopItems }),
       });
       await heartbeat();

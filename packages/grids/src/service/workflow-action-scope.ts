@@ -24,7 +24,7 @@ import {
   revalidateWorkflowPrincipalInTransaction,
   workflowPermissionAllows,
 } from "./workflow-authorization";
-import { type GridsWorkflowAuthorization, getWorkflowRunScope } from "./workflow-kernel-runs";
+import { type GridsWorkflowAuthorization, getWorkflowRunScope } from "./workflow-runs";
 
 export type PermissionLevel = "read" | "write" | "admin";
 

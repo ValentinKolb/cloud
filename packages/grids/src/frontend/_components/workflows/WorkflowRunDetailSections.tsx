@@ -1,7 +1,7 @@
 import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import { For, Show } from "solid-js";
 import type { DocumentRunSummary } from "../../../contracts";
-import type { WorkflowRunProvenance } from "../../../service/workflow-kernel-observability";
+import type { WorkflowRunProvenance } from "../../../service/workflow-runs";
 import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
 import {
   channelLabels,

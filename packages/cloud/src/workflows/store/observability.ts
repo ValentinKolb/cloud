@@ -35,6 +35,8 @@ export type WorkflowRunSummary = {
   startLagMs: number | null;
   durationMs: number | null;
   error: WorkflowJsonValue | null;
+  /** What the run said about itself, distinct from what it produced. */
+  resultMessage: string | null;
 };
 
 export type WorkflowRunFilter = {
@@ -67,6 +69,7 @@ type RunRow = {
   started_at: Date | null;
   finished_at: Date | null;
   error: WorkflowJsonValue | null;
+  result_message: string | null;
 };
 
 const millisBetween = (from: Date | null, to: Date | null): number | null =>
@@ -91,12 +94,13 @@ const toSummary = (row: RunRow): WorkflowRunSummary => ({
   startLagMs: millisBetween(row.occurred_at, row.started_at),
   durationMs: millisBetween(row.started_at, row.finished_at),
   error: row.error,
+  resultMessage: row.result_message,
 });
 
 const RUN_SELECT = `
   r.id, r.app_id, r.scope_id, r.workflow_id, w.name AS workflow_name, v.revision,
   r.mode, r.state, r.attempt, e.type AS event_type, r.parent_run_id,
-  r.occurred_at, r.created_at, r.started_at, r.finished_at, r.error
+  r.occurred_at, r.created_at, r.started_at, r.finished_at, r.error, r.result_message
 `;
 
 const RUN_FROM = `

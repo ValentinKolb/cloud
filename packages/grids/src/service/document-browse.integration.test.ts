@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { browseRunsForTemplate, listRunsForRecord, listRunsForTemplate, listRunsForWorkflowRun } from "./document-browse";
-import { insertTestWorkflow } from "./workflow-test-fixture";
+import { insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 type Fixture = {
   baseId: string;
@@ -51,15 +51,7 @@ const insertFixture = async (): Promise<Fixture> => {
     source: "steps: []",
     enabled: true,
   });
-  await sql`
-    INSERT INTO grids.workflow_runs (
-      id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
-      workflow_plan, status, occurred_at
-    ) VALUES (
-      ${workflowRunId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api',
-      'document-browse-workflow', 'document-browse-workflow', '{}'::jsonb, 'succeeded', now()
-    )
-  `;
+  await insertTestWorkflowRun({ id: workflowRunId, workflowId, baseId, state: "succeeded" });
 
   const rows = [
     { id: runIds[0]!, number: "INV-100", filename: "100%_done\\final.pdf", tags: ["customer", "paid"], at: "2025-12-31T23:30:00.000Z" },

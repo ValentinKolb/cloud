@@ -14,7 +14,8 @@ import type {
   invokeDashboardLauncher as invokeDashboardLauncherService,
   invokeScannerLauncher as invokeScannerLauncherService,
 } from "../service/workflow-kernel-launchers";
-import { insertTestWorkflow } from "../service/workflow-test-fixture";
+import { runGridsWorkflowRun } from "../service/workflow-kernel-runtime";
+import { insertTestWorkflow, insertTestWorkflowRun } from "../service/workflow-test-fixture";
 import { canReadDashboardForRequest, createDashboardsApi } from "./dashboards";
 import { createWorkflowsApi } from "./workflows";
 
@@ -253,15 +254,19 @@ const cleanupFixture = async (fixture: DashboardWorkflowFixture): Promise<void> 
   }
 };
 
-const waitForRunCompletion = async (runId: string): Promise<string> => {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const [run] = await sql<{ status: string }[]>`
-      SELECT status FROM grids.workflow_runs WHERE id = ${runId}::uuid
-    `;
-    if (run && run.status !== "queued" && run.status !== "running") return run.status;
-    await Bun.sleep(20);
-  }
-  throw new Error(`Workflow run ${runId} did not complete`);
+/**
+ * Carries the queued run, rather than waiting for a worker to notice it.
+ *
+ * The runtime is not started here: this test is about what the dashboard route
+ * accepts and what it lets a reader see afterwards, and a run that only
+ * finishes when a poll interval elapses would make both flaky.
+ */
+const completeRun = async (runId: string): Promise<string> => {
+  const outcome = await runGridsWorkflowRun(runId);
+  if (outcome.state !== "finished") throw new Error(`Workflow run ${runId} did not complete: ${outcome.state}`);
+  const [run] = await sql<{ state: string }[]>`SELECT state FROM workflows.run WHERE id = ${runId}::uuid`;
+  if (!run) throw new Error(`Workflow run ${runId} is missing`);
+  return run.state;
 };
 
 beforeAll(async () => {
@@ -565,24 +570,23 @@ describe("dashboard-scoped workflow execution", () => {
       expect((await retry.json()).id).toBe(body.id);
       const [countRow] = await sql<Array<{ count: number }>>`
         SELECT count(*)::int AS count
-        FROM grids.workflow_runs
+        FROM grids.workflow_run_profile
         WHERE launcher_id = ${fixture.launcherId}::uuid
-          AND idempotency_key = ${`launcher:${fixture.launcherId}:dashboard-reader-run`}
       `;
       expect(countRow?.count).toBe(1);
 
-      expect(await waitForRunCompletion(body.id)).toBe("succeeded");
+      expect(await completeRun(body.id)).toBe("succeeded");
       await sql`
-        UPDATE grids.workflow_runs
+        UPDATE workflows.run
         SET error = '{"code":"INTERNAL","message":"private detail","retryable":false}'::jsonb,
             result_message = 'private result'
         WHERE id = ${body.id}::uuid
       `;
       await sql`
-        INSERT INTO grids.workflow_step_runs (
-          run_id, step_key, source_path, iteration_path, kind, action, mode, status, outcome, execution_generation, finished_at
+        INSERT INTO workflows.step_outcome (
+          run_id, step_key, source_path, iteration_path, kind, action, mode, state, outcome, execution_generation, finished_at
         ) VALUES (
-          ${body.id}::uuid, 'steps.redaction', '["steps",0]'::jsonb, '{2}'::int[], 'action', 'httpRequest',
+          ${body.id}::uuid, 'steps.redaction', '["steps",0]'::jsonb, '[2]'::jsonb, 'action', 'httpRequest',
           'execute', 'failed', '{"secret":"response body"}'::jsonb, 1, now()
         )
       `;
@@ -606,20 +610,17 @@ describe("dashboard-scoped workflow execution", () => {
       expect(statusBody.steps[0]?.sourcePath).toBeUndefined();
       expect(statusBody.steps[0]?.iterationPath).toBeUndefined();
 
-      const [unscoped] = await sql<Array<{ id: string }>>`
-        INSERT INTO grids.workflow_runs (
-          workflow_id, launcher_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
-          authorization_snapshot, inputs, context, workflow_plan, status, occurred_at, finished_at
-        )
-        VALUES (
-          ${fixture.workflowId}::uuid, ${fixture.launcherId}::uuid, ${fixture.baseId}::uuid, 1, 'execute', 'dashboard',
-          'unscoped-dashboard-test', 'unscoped-dashboard-test', '{"kind":"workflow"}'::jsonb, '{}'::jsonb, '{}'::jsonb,
-          ${dashboardWorkflowPlan()}::jsonb, 'succeeded', now(), now()
-        )
-        RETURNING id::text AS id
-      `;
-      if (!unscoped) throw new Error("Expected unscoped run");
-      const hidden = await app.request(`/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/runs/${unscoped.id}`);
+      // Same launcher, but accepted on the workflow's own grant rather than by
+      // the widget — the widget's run view must not answer for it.
+      const unscopedId = await insertTestWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        launcherId: fixture.launcherId,
+        channel: "dashboard",
+        state: "succeeded",
+        finishedAt: new Date(),
+      });
+      const hidden = await app.request(`/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/runs/${unscopedId}`);
       expect(hidden.status).toBe(404);
     } finally {
       await cleanupFixture(fixture);

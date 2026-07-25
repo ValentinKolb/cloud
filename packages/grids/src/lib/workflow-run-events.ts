@@ -2,7 +2,6 @@ import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../workflows/contra
 
 export type WorkflowRunStepSummary = Pick<
   GridsWorkflowStepRun,
-  | "id"
   | "runId"
   | "key"
   | "sourcePath"
@@ -74,7 +73,6 @@ export const toWorkflowRunEventSummary = (run: GridsWorkflowRun): WorkflowRunEve
 });
 
 export const toWorkflowRunStepSummary = ({
-  id,
   runId,
   key,
   sourcePath,
@@ -87,7 +85,6 @@ export const toWorkflowRunStepSummary = ({
   startedAt,
   finishedAt,
 }: GridsWorkflowStepRun): WorkflowRunStepSummary => ({
-  id,
   runId,
   key,
   sourcePath,
