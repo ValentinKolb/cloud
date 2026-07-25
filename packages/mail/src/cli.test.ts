@@ -1742,6 +1742,14 @@ test("send carries reply context and can wait for delivery", async () => {
       bodies.push(await request.json());
       return api(mailCommand("queued"));
     }
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/safety-review`) {
+      return api({
+        draftId: DRAFT_ID,
+        revision: 1,
+        fingerprint: "a".repeat(64),
+        warnings: [],
+      });
+    }
     if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands/${COMMAND_ID}`) {
       return api(mailCommand("confirmed"));
     }
@@ -1780,6 +1788,115 @@ test("send carries reply context and can wait for delivery", async () => {
   expect(bodies[0]).toMatchObject({ conversationId: CONVERSATION_ID, body: "Reply body" });
   expect(bodies[1]).toMatchObject({ kind: "send", expectedDraftRevision: 1, undoSeconds: 0 });
   expect(JSON.parse(result.stdout).command.state).toBe("confirmed");
+});
+
+test("send requires explicit approval for the exact safety review", async () => {
+  const commandBodies: unknown[] = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/drafts`) {
+      return api({
+        id: DRAFT_ID,
+        mailboxId: MAILBOX_ID,
+        conversationId: null,
+        senderIdentityId: IDENTITY_ID,
+        to: [{ name: null, address: "external@example.net" }],
+        cc: [],
+        bcc: [],
+        subject: "Attachment",
+        body: "Please see the attached file.",
+        format: "plain",
+        revision: 3,
+        state: "draft",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      });
+    }
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/drafts/${DRAFT_ID}/safety-review`) {
+      return api({
+        draftId: DRAFT_ID,
+        revision: 3,
+        fingerprint: "b".repeat(64),
+        warnings: [{ id: "missing_attachment", title: "Attachment may be missing", description: "No attachment is included." }],
+      });
+    }
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands`) {
+      commandBodies.push(await request.json());
+      return api(mailCommand("queued"));
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+  const base = [
+    "--json",
+    "mail",
+    "send",
+    "--mailbox",
+    MAILBOX_ID,
+    "--identity",
+    IDENTITY_ID,
+    "--to",
+    "external@example.net",
+    "--subject",
+    "Attachment",
+    "--body-stdin",
+  ];
+  const rejected = await runCli(origin, base, "Please see the attached file.");
+  expect(rejected.exitCode).toBe(1);
+  expect(rejected.stderr).toContain("Pass --approve-safety");
+  expect(commandBodies).toHaveLength(0);
+
+  const approved = await runCli(origin, [...base, "--approve-safety"], "Please see the attached file.");
+  expect(approved.exitCode).toBe(0);
+  expect(commandBodies[0]).toMatchObject({
+    safetyApproval: {
+      revision: 3,
+      fingerprint: "b".repeat(64),
+      warningIds: ["missing_attachment"],
+    },
+  });
+});
+
+test("message reuse commands create independent idempotent drafts", async () => {
+  const requests: unknown[] = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/messages/${MESSAGE_ID}/derive-draft`) {
+      requests.push(await request.json());
+      return api({
+        id: DRAFT_ID,
+        mailboxId: MAILBOX_ID,
+        conversationId: null,
+        senderIdentityId: IDENTITY_ID,
+        to: [{ name: null, address: "recipient@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Reusable message",
+        body: "Body",
+        format: "plain",
+        revision: 1,
+        state: "draft",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+  const commands = [
+    ["mail", "message", "edit-as-new", MESSAGE_ID, "--mailbox", MAILBOX_ID, "--identity", IDENTITY_ID, "--idempotency-key", "edit-1"],
+    ["mail", "message", "resend", MESSAGE_ID, "--mailbox", MAILBOX_ID, "--identity", IDENTITY_ID, "--idempotency-key", "resend-1"],
+  ];
+  for (const args of commands) {
+    const result = await runCli(origin, args);
+    expect(result.exitCode).toBe(0);
+  }
+  expect(requests).toEqual([
+    { kind: "edit_as_new", senderIdentityId: IDENTITY_ID, includeAttachments: true, idempotencyKey: "edit-1" },
+    { kind: "resend", senderIdentityId: IDENTITY_ID, includeAttachments: true, idempotencyKey: "resend-1" },
+  ]);
 });
 
 test("draft create can include source attachments for a forward", async () => {

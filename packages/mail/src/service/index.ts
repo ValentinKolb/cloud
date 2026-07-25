@@ -6,6 +6,7 @@ import * as bindings from "./bindings";
 import * as collaboration from "./collaboration";
 import { commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
+import * as composeSafety from "./compose-safety";
 import * as composeTemplates from "./compose-templates";
 import * as conversationContext from "./conversation-context";
 import * as conversationReferences from "./conversation-reference";
@@ -71,6 +72,7 @@ export {
   collaboration,
   commandRuntime,
   commands,
+  composeSafety,
   composeTemplates,
   conversationContext,
   conversationReferences,
@@ -117,6 +119,7 @@ export const mailService = {
   bindings,
   commands,
   collaboration,
+  composeSafety,
   composeTemplates,
   conversations,
   conversationReferences,

@@ -7,6 +7,64 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("installs composer safety and idempotent message reuse once", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        safety_migration_count: string | number;
+        idempotency_migration_count: string | number;
+        mailbox_config_present: boolean;
+        outbox_review_present: boolean;
+        derivation_columns_present: boolean;
+        derivation_index_present: boolean;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT count(*) FROM mail.schema_migrations
+          WHERE version = 89 AND name = 'composer_safety_message_reuse'
+        ) AS safety_migration_count,
+        (
+          SELECT count(*) FROM mail.schema_migrations
+          WHERE version = 90 AND name = 'draft_derivation_idempotency'
+        ) AS idempotency_migration_count,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'mail' AND table_name = 'mailboxes' AND column_name = 'compose_safety'
+        ) AS mailbox_config_present,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'mail' AND table_name = 'outbox_submissions' AND column_name = 'safety_review'
+        ) AS outbox_review_present,
+        (
+          SELECT count(*) = 4
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'drafts'
+            AND column_name IN (
+              'derived_from_message_id',
+              'derivation_kind',
+              'derivation_key',
+              'derivation_request_hash'
+            )
+        ) AS derivation_columns_present,
+        to_regclass('mail.drafts_derivation_idempotency_idx') IS NOT NULL AS derivation_index_present
+    `;
+    expect({
+      ...shape,
+      safety_migration_count: Number(shape?.safety_migration_count),
+      idempotency_migration_count: Number(shape?.idempotency_migration_count),
+    }).toEqual({
+      safety_migration_count: 1,
+      idempotency_migration_count: 1,
+      mailbox_config_present: true,
+      outbox_review_present: true,
+      derivation_columns_present: true,
+      derivation_index_present: true,
+    });
+  });
+
   test("installs identity delivery options and custom transport fencing once", async () => {
     await migrate();
     await migrate();

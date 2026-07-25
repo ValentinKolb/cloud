@@ -44,7 +44,7 @@ Type `/` in the body to search available signatures and snippets. The selected t
 - **Private** templates are visible only to their owner.
 - **Mailbox** templates are shared with collaborators.
 
-When a verified sender has a default signature, new drafts insert it automatically. A personal default overrides the mailbox default for that sender. The inserted source remains editable; signatures are not mandatory or locked.
+When a verified sender has a default signature, new messages, replies, and forwards insert it automatically. In a reply or forward, Mail places the signature before quoted message history. A personal default overrides the mailbox default for that sender. The inserted source remains editable; signatures are not mandatory or locked.
 
 Administrators manage templates and defaults under **Settings > Writing**. Choose **Edit design** there to open the mailbox CSS editor. Its preview updates from the current unsaved CSS, while the composer Preview uses the same rendering path as delivery.
 
@@ -63,6 +63,18 @@ file with a public download link instead. An unknown or outdated provider limit
 does not prevent sending.
 
 When forwarding a message with attachments, **Include original attachments** appears before the new draft is created. Turn it off when the forwarded body is enough.
+
+## Review sending warnings {icon="shield-check"}
+
+Before an immediate, delayed, or scheduled send, Mail checks the exact saved draft for common mistakes. It may ask you to review a missing attachment, an unusually large recipient list, external recipients, Reply all, or a suspicious link. The dialog explains each warning and lets you return to the draft. Choose **Send anyway** only after reviewing the current recipients, links, and attachments.
+
+An approval applies only to that saved draft revision. Editing the draft after approval runs the checks again. Mail records the approved warning types for delivery auditing, but not a second copy of the message content.
+
+## Reuse a message safely {icon="copy"}
+
+Open a message's actions menu and choose **Edit as new** to create an independent draft from its recipients, subject, and content. You can choose the sending identity and whether to copy attachments. The original message and conversation are never changed.
+
+For a message previously sent by this mailbox, **Resend as a new draft** creates the same kind of independent, reviewable draft. Nothing is sent immediately: review the identity, recipients, content, and attachments, then send through the normal delivery flow. Retries of the same create request return the same draft instead of creating duplicates.
 
 ## Send now, undo, or schedule delivery {icon="send"}
 

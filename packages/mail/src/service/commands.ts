@@ -4,6 +4,7 @@ import { sql } from "bun";
 import {
   type ActorCommandInput,
   type ActorRef,
+  type ComposeSafetyApproval,
   actorCommandInputSchema,
   draftEditableContentInputSchema,
   type MailCommand,
@@ -17,6 +18,7 @@ import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, 
 import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
 import { renderComposeDraft } from "./compose-templates";
+import { validateDraftComposeSafety } from "./compose-safety";
 import { publishMailMailboxEvent } from "./events";
 import { resolveMailExecution } from "./execution";
 import { createBlobReadable } from "./message-blobs";
@@ -118,6 +120,7 @@ type PreparedActorCommand = {
   sourceFolderId: string | null;
   draftId: string | null;
   expectedDraftRevision: number | null;
+  safetyApproval: ComposeSafetyApproval | null;
   scheduledAt: string | null;
   undoSeconds: number;
   requiredPermission: "write" | "admin";
@@ -176,6 +179,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
     sourceFolderId: null,
     draftId: null,
     expectedDraftRevision: null,
+    safetyApproval: null,
     scheduledAt: null,
     undoSeconds: 0,
     requiredPermission: "write" as const,
@@ -277,11 +281,16 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
       expectedDraftRevision: input.expectedDraftRevision,
       senderIdentityId: input.senderIdentityId,
     },
-    payload: { scheduledAt: input.scheduledAt ?? null, undoSeconds },
+    payload: {
+      scheduledAt: input.scheduledAt ?? null,
+      undoSeconds,
+      safetyApproval: input.safetyApproval ?? null,
+    },
     folderRequirements: [],
     senderIdentityId: input.senderIdentityId,
     draftId: input.draftId,
     expectedDraftRevision: input.expectedDraftRevision,
+    safetyApproval: input.safetyApproval ?? null,
     scheduledAt: input.scheduledAt ?? null,
     undoSeconds,
   });
@@ -432,6 +441,14 @@ const createSendOutbox = async (params: {
     const unavailable = err.badInput("Draft is no longer available");
     throw Object.assign(new Error(unavailable.message), unavailable);
   }
+  const safety = await validateDraftComposeSafety({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    draftId: prepared.draftId,
+    expectedRevision: prepared.expectedDraftRevision!,
+    approval: prepared.safetyApproval ?? undefined,
+  });
+  if (!safety.ok) throw Object.assign(new Error(safety.error.message), safety.error);
   const content = draftEditableContentInputSchema.safeParse({
     senderIdentityId: prepared.senderIdentityId,
     to: draft.to_addresses,
@@ -557,6 +574,7 @@ const createSendOutbox = async (params: {
       preflight_byte_length,
       preflight_smtp_limit_bytes,
       preflight_checked_at,
+      safety_review,
       selected_identity_transport_revision
     )
     VALUES (
@@ -581,6 +599,11 @@ const createSendOutbox = async (params: {
             : providerLimits?.checkedAt ?? null
           : draft.identity_transport_verified_at
       }::timestamptz,
+      ${{
+        fingerprint: safety.data.fingerprint,
+        warningIds: safety.data.warnings.map((warning) => warning.id),
+        approved: safety.data.warnings.length === 0 || prepared.safetyApproval !== null,
+      }}::jsonb,
       ${draft.identity_transport_revision}
     )
   `;

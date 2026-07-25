@@ -4660,6 +4660,79 @@ const addIdentityDeliveryOptions = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addComposerSafetyAndMessageReuse = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.mailboxes
+    ADD COLUMN compose_safety JSONB NOT NULL DEFAULT '{
+      "internalDomains":[],
+      "largeRecipientThreshold":20
+    }'::jsonb
+      CHECK (jsonb_typeof(compose_safety) = 'object')
+  `;
+  await db`
+    ALTER TABLE mail.drafts
+    ADD COLUMN derived_from_message_id UUID REFERENCES mail.message_contents(id) ON DELETE RESTRICT,
+    ADD COLUMN derivation_kind TEXT CHECK (derivation_kind IN ('edit_as_new', 'resend')),
+    ADD CONSTRAINT drafts_derivation_shape_chk CHECK (
+      (derived_from_message_id IS NULL AND derivation_kind IS NULL)
+      OR (
+        derived_from_message_id IS NOT NULL
+        AND derivation_kind IS NOT NULL
+        AND intent = 'new'
+        AND conversation_id IS NULL
+        AND source_message_id IS NULL
+      )
+    )
+  `;
+  await db`
+    CREATE INDEX drafts_derived_message_idx
+    ON mail.drafts (mailbox_id, derived_from_message_id, created_at DESC)
+    WHERE derived_from_message_id IS NOT NULL
+  `;
+  await db`
+    ALTER TABLE mail.outbox_submissions
+    ADD COLUMN safety_review JSONB NOT NULL DEFAULT '{
+      "fingerprint":null,
+      "warningIds":[],
+      "approved":false
+    }'::jsonb
+      CHECK (jsonb_typeof(safety_review) = 'object')
+  `;
+};
+
+const addDraftDerivationIdempotency = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.drafts
+    DROP CONSTRAINT drafts_derivation_shape_chk,
+    ADD COLUMN derivation_key TEXT,
+    ADD COLUMN derivation_request_hash TEXT CHECK (
+      derivation_request_hash IS NULL OR derivation_request_hash ~ '^[a-f0-9]{64}$'
+    ),
+    ADD CONSTRAINT drafts_derivation_shape_chk CHECK (
+      (
+        derived_from_message_id IS NULL
+        AND derivation_kind IS NULL
+        AND derivation_key IS NULL
+        AND derivation_request_hash IS NULL
+      )
+      OR (
+        derived_from_message_id IS NOT NULL
+        AND derivation_kind IS NOT NULL
+        AND derivation_key IS NOT NULL
+        AND derivation_request_hash IS NOT NULL
+        AND intent = 'new'
+        AND conversation_id IS NULL
+        AND source_message_id IS NULL
+      )
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX drafts_derivation_idempotency_idx
+    ON mail.drafts (mailbox_id, author_kind, author_id, derivation_key)
+    WHERE derivation_key IS NOT NULL
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4748,6 +4821,8 @@ const migrations: readonly MailMigration[] = [
   { version: 86, name: "outbound_message_preflight", run: addOutboundMessagePreflight },
   { version: 87, name: "privacy_safe_remote_content", run: addPrivacySafeRemoteContent },
   { version: 88, name: "identity_delivery_options", run: addIdentityDeliveryOptions },
+  { version: 89, name: "composer_safety_message_reuse", run: addComposerSafetyAndMessageReuse },
+  { version: 90, name: "draft_derivation_idempotency", run: addDraftDerivationIdempotency },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

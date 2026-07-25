@@ -22,6 +22,7 @@ import {
 } from "./draft-uploads";
 import {
   createDraft,
+  deriveDraftFromMessage,
   discardDraft,
   getDraft,
   listConversationDrafts,
@@ -31,6 +32,7 @@ import {
   updateDraft,
 } from "./drafts";
 import { resolveMailExecution } from "./execution";
+import { reviewDraftComposeSafety } from "./compose-safety";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
@@ -397,6 +399,161 @@ suite("mail PostgreSQL foundation", () => {
       message: newerOutboundEnvelope,
     });
     await hydrateOrderingMessage(newerOutboundId, newerOutboundEnvelope);
+    const derivedRequest = {
+      context,
+      mailboxId: mailbox.data.id,
+      messageId: newerOutboundId,
+      input: {
+        kind: "resend" as const,
+        senderIdentityId: identity!.id,
+        includeAttachments: true,
+        idempotencyKey: `resend-${suffix}`,
+      },
+    };
+    const resendDraft = await deriveDraftFromMessage(derivedRequest);
+    expect(resendDraft.ok).toBe(true);
+    if (!resendDraft.ok) return;
+    expect(resendDraft.data).toMatchObject({
+      conversationId: null,
+      intent: "new",
+      sourceMessageId: null,
+      derivedFromMessageId: newerOutboundId,
+      derivationKind: "resend",
+      subject: newerOutboundEnvelope.subject,
+      format: "plain",
+    });
+    const replayedResendDraft = await deriveDraftFromMessage(derivedRequest);
+    expect(replayedResendDraft.ok && replayedResendDraft.data.id).toBe(resendDraft.data.id);
+    const conflictingResend = await deriveDraftFromMessage({
+      ...derivedRequest,
+      input: { ...derivedRequest.input, includeAttachments: false },
+    });
+    expect(conflictingResend).toMatchObject({
+      ok: false,
+      error: { status: 409 },
+    });
+    const inboundResend = await deriveDraftFromMessage({
+      context,
+      mailboxId: mailbox.data.id,
+      messageId: latestInboundId,
+      input: {
+        kind: "resend",
+        senderIdentityId: identity!.id,
+        includeAttachments: true,
+        idempotencyKey: `inbound-resend-${suffix}`,
+      },
+    });
+    expect(inboundResend).toMatchObject({
+      ok: false,
+      error: { status: 400 },
+    });
+    const safetyDraft = await createDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        senderIdentityId: identity!.id,
+        to: [{ name: "Customer", address: "customer@example.com" }],
+        cc: [],
+        bcc: [],
+        subject: "Requested document",
+        body: "Please see the attached document.",
+        format: "plain",
+      },
+    });
+    expect(safetyDraft.ok).toBe(true);
+    if (!safetyDraft.ok) return;
+    const unapprovedSafetySend = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: safetyDraft.data.id,
+        expectedDraftRevision: safetyDraft.data.revision,
+        senderIdentityId: identity!.id,
+        undoSeconds: 60,
+        idempotencyKey: `safety-unapproved-${suffix}`,
+      },
+    });
+    expect(unapprovedSafetySend).toMatchObject({
+      ok: false,
+      error: { status: 409 },
+    });
+    const safetyReview = await reviewDraftComposeSafety({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: safetyDraft.data.id,
+      expectedRevision: safetyDraft.data.revision,
+    });
+    expect(safetyReview.ok).toBe(true);
+    if (!safetyReview.ok) return;
+    expect(safetyReview.data.warnings.map((warning) => warning.id)).toContain("missing_attachment");
+    const revisedSafetyDraft = await updateDraft({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: safetyDraft.data.id,
+      expectedRevision: safetyDraft.data.revision,
+      input: {
+        senderIdentityId: safetyDraft.data.senderIdentityId,
+        to: safetyDraft.data.to,
+        cc: safetyDraft.data.cc,
+        bcc: safetyDraft.data.bcc,
+        subject: safetyDraft.data.subject,
+        body: `${safetyDraft.data.body}\n\nThank you.`,
+        format: safetyDraft.data.format,
+        priority: safetyDraft.data.priority,
+        requestDeliveryReceipt: safetyDraft.data.requestDeliveryReceipt,
+        requestReadReceipt: safetyDraft.data.requestReadReceipt,
+      },
+    });
+    expect(revisedSafetyDraft.ok).toBe(true);
+    if (!revisedSafetyDraft.ok) return;
+    const staleSafetyApproval = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: revisedSafetyDraft.data.id,
+        expectedDraftRevision: revisedSafetyDraft.data.revision,
+        senderIdentityId: identity!.id,
+        undoSeconds: 60,
+        idempotencyKey: `safety-stale-${suffix}`,
+        safetyApproval: {
+          revision: safetyReview.data.revision,
+          fingerprint: safetyReview.data.fingerprint,
+          warningIds: safetyReview.data.warnings.map((warning) => warning.id),
+        },
+      },
+    });
+    expect(staleSafetyApproval).toMatchObject({
+      ok: false,
+      error: { status: 409 },
+    });
+    const revisedSafetyReview = await reviewDraftComposeSafety({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: revisedSafetyDraft.data.id,
+      expectedRevision: revisedSafetyDraft.data.revision,
+    });
+    expect(revisedSafetyReview.ok).toBe(true);
+    if (!revisedSafetyReview.ok) return;
+    const approvedSafetySend = await createActorCommand({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        kind: "send",
+        draftId: revisedSafetyDraft.data.id,
+        expectedDraftRevision: revisedSafetyDraft.data.revision,
+        senderIdentityId: identity!.id,
+        undoSeconds: 60,
+        idempotencyKey: `safety-approved-${suffix}`,
+        safetyApproval: {
+          revision: revisedSafetyReview.data.revision,
+          fingerprint: revisedSafetyReview.data.fingerprint,
+          warningIds: revisedSafetyReview.data.warnings.map((warning) => warning.id),
+        },
+      },
+    });
+    expect(approvedSafetySend.ok).toBe(true);
     const [answeredConversation] = await sql<{ work_status: string; message_count: number }[]>`
       SELECT c.work_status, COUNT(cm.message_id)::int AS message_count
       FROM mail.conversations c

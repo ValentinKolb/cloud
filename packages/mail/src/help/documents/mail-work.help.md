@@ -124,6 +124,8 @@ Under an expanded message, choose:
 - **Reply** to answer the sender.
 - **Reply all** to include the original recipients.
 - **Forward** to start a forwarded message. You can decide whether to include the original attachments before the draft is created.
+- **Edit as new** to copy one message into an independent draft without changing its conversation.
+- **Resend as a new draft** for a message previously sent by this mailbox. Review the resulting draft before sending.
 - **Quote selection** after selecting text in the message body. Mail inserts the selected lines as a quoted reply so you can answer directly below them.
 
 For composing, drafts, attachments, signatures, and delivery options, see [Write and send messages](/app/mail/help/mail-compose).

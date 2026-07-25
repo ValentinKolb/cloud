@@ -59,6 +59,10 @@ export default function MailboxSettings(props: {
   const [undoSeconds, setUndoSeconds] = createSignal(initialPreferences.undoSeconds);
   const [name, setName] = createSignal(props.context.mailbox.name);
   const [description, setDescription] = createSignal(props.context.mailbox.description ?? "");
+  const [internalDomains, setInternalDomains] = createSignal(props.context.mailbox.composeSafety.internalDomains.join(", "));
+  const [largeRecipientThreshold, setLargeRecipientThreshold] = createSignal(
+    props.context.mailbox.composeSafety.largeRecipientThreshold,
+  );
   const [automaticReplyManagementPermission, setAutomaticReplyManagementPermission] = createSignal<
     Mailbox["automaticReplyManagementPermission"]
   >(props.context.mailbox.automaticReplyManagementPermission);
@@ -71,7 +75,12 @@ export default function MailboxSettings(props: {
       return composeFormat() !== savedComposeFormat() || undoSeconds() !== savedUndoSeconds();
     }
     if (activeTab() === "mailbox") {
-      return name().trim() !== props.context.mailbox.name || description().trim() !== (props.context.mailbox.description ?? "");
+      return (
+        name().trim() !== props.context.mailbox.name ||
+        description().trim() !== (props.context.mailbox.description ?? "") ||
+        internalDomains() !== props.context.mailbox.composeSafety.internalDomains.join(", ") ||
+        largeRecipientThreshold() !== props.context.mailbox.composeSafety.largeRecipientThreshold
+      );
     }
     if (activeTab() === "access") {
       return automaticReplyManagementPermission() !== props.context.mailbox.automaticReplyManagementPermission;
@@ -89,6 +98,8 @@ export default function MailboxSettings(props: {
     } else if (activeTab() === "mailbox") {
       setName(props.context.mailbox.name);
       setDescription(props.context.mailbox.description ?? "");
+      setInternalDomains(props.context.mailbox.composeSafety.internalDomains.join(", "));
+      setLargeRecipientThreshold(props.context.mailbox.composeSafety.largeRecipientThreshold);
     } else if (activeTab() === "access") {
       setAutomaticReplyManagementPermission(props.context.mailbox.automaticReplyManagementPermission);
     }
@@ -133,7 +144,21 @@ export default function MailboxSettings(props: {
     mutation: async () => {
       const response = await apiClient.mailboxes[":mailboxId"].$patch({
         param: { mailboxId: props.context.mailbox.id },
-        json: { name: name().trim(), description: description().trim() || null },
+        json: {
+          name: name().trim(),
+          description: description().trim() || null,
+          composeSafety: {
+            internalDomains: [
+              ...new Set(
+                internalDomains()
+                  .split(/[,\s]+/u)
+                  .map((domain) => domain.trim().toLowerCase())
+                  .filter(Boolean),
+              ),
+            ],
+            largeRecipientThreshold: largeRecipientThreshold(),
+          },
+        },
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update mailbox"));
       return response.json();
@@ -141,6 +166,8 @@ export default function MailboxSettings(props: {
     onSuccess: (mailbox) => {
       setName(mailbox.name);
       setDescription(mailbox.description ?? "");
+      setInternalDomains(mailbox.composeSafety.internalDomains.join(", "));
+      setLargeRecipientThreshold(mailbox.composeSafety.largeRecipientThreshold);
       props.onContextChange((context) => ({ ...context, mailbox }));
       toast.success("Mailbox details saved");
       props.onWorkspaceChange();
@@ -250,6 +277,27 @@ export default function MailboxSettings(props: {
               onInput={setDescription}
               multiline
               lines={3}
+            />
+            <div class="mt-4">
+              <h3 class="text-sm font-semibold text-primary">Sending safeguards</h3>
+              <p class="text-xs text-dimmed">Warn collaborators before messages leave expected boundaries or reach many people.</p>
+            </div>
+            <TextInput
+              label="Internal email domains"
+              description="Comma-separated domains. Recipients outside these domains trigger a review."
+              value={internalDomains}
+              onInput={setInternalDomains}
+              placeholder="example.org, subsidiary.example"
+            />
+            <NumberInput
+              label="Large recipient warning"
+              description="Show a review when a message reaches at least this many unique recipients."
+              value={largeRecipientThreshold}
+              onInput={(value) => setLargeRecipientThreshold(value ?? 20)}
+              min={5}
+              max={200}
+              allowNegative={false}
+              suffix="recipients"
             />
             <div class="flex justify-end pt-1">
               <button

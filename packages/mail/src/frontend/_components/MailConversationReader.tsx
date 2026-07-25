@@ -1,10 +1,17 @@
-import { Dropdown, Placeholder, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { ConversationDraftSummary, DraftIntent, MailDraft, SenderIdentity } from "../../contracts";
+import type {
+  ConversationDraftSummary,
+  DeriveDraftFromMessageInput,
+  DraftDerivationKind,
+  DraftIntent,
+  MailDraft,
+  SenderIdentity,
+} from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
 import MailComposer from "./MailComposer";
@@ -230,6 +237,34 @@ export default function MailConversationReader(props: {
 
   const composerBusy = () => Boolean(compose()) || conversationDrafts.loading() || openingDraft();
 
+  const derivedDraft = mutations.create<
+    MailDraft,
+    { message: MessageDetail; input: DeriveDraftFromMessageInput },
+    { message: MessageDetail; idempotencyKey: string }
+  >({
+    onBefore: ({ message, input }) => ({ message, idempotencyKey: input.idempotencyKey }),
+    mutation: async ({ message, input }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["derive-draft"].$post({
+        param: { mailboxId: props.mailboxId, messageId: message.id },
+        json: input,
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not create a draft from this message"));
+      return response.json();
+    },
+    onSuccess: (created, context) => {
+      if (context) {
+        for (const [requestKey, idempotencyKey] of derivationKeys) {
+          if (idempotencyKey === context.idempotencyKey) derivationKeys.delete(requestKey);
+        }
+      }
+      if (context && props.messages.some((message) => message.id === context.message.id)) {
+        showComposer({ intent: "new", message: context.message }, created);
+      }
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  const derivationKeys = new Map<string, string>();
+
   const startComposer = (intent: DraftIntent, message: MessageDetail, quotedBody?: string) => {
     const conversationId = props.selectedConversationId;
     if (!conversationId || composerBusy()) return;
@@ -237,6 +272,70 @@ export default function MailConversationReader(props: {
       conversationId,
       request: { intent, message, quotedBody },
     });
+  };
+
+  const deriveMessage = async (kind: DraftDerivationKind, message: MessageDetail) => {
+    if (composerBusy() || derivedDraft.loading()) return;
+    const identities = props.identities.filter((identity) => identity.status === "verified");
+    const defaultIdentity = identities.find((identity) => identity.isDefault) ?? identities[0];
+    if (!defaultIdentity) return prompts.error("Add a verified sending identity before reusing a message.");
+    const choice = await prompts.dialog<Omit<DeriveDraftFromMessageInput, "idempotencyKey">>(
+      (close) => {
+        const [senderIdentityId, setSenderIdentityId] = createSignal(defaultIdentity.id);
+        const [includeAttachments, setIncludeAttachments] = createSignal(message.attachments.length > 0);
+        return (
+          <div class="flex flex-col gap-3">
+            <p class="text-sm text-secondary">
+              {kind === "resend"
+                ? "Create an independent draft with the original recipients and content. Nothing is sent until you review it."
+                : "Create an independent draft from this message. The original message and conversation stay unchanged."}
+            </p>
+            <Select
+              label="Send from"
+              value={senderIdentityId}
+              onChange={setSenderIdentityId}
+              options={identities.map((identity) => ({ id: identity.id, label: identity.label }))}
+            />
+            <Show when={message.attachments.length > 0}>
+              <CheckboxCard
+                label={`Include ${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`}
+                value={includeAttachments}
+                onChange={setIncludeAttachments}
+              />
+            </Show>
+            <div class="flex items-center justify-end gap-2">
+              <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="btn-primary btn-sm"
+                onClick={() =>
+                  close({
+                    kind,
+                    senderIdentityId: senderIdentityId(),
+                    includeAttachments: includeAttachments(),
+                  })
+                }
+              >
+                <i class="ti ti-file-pencil" aria-hidden="true" /> Create draft
+              </button>
+            </div>
+          </div>
+        );
+      },
+      {
+        title: kind === "resend" ? "Resend as a new draft" : "Edit as new",
+        icon: kind === "resend" ? "ti ti-repeat" : "ti ti-copy",
+        size: "small",
+      },
+    );
+    if (choice) {
+      const requestKey = JSON.stringify([message.id, choice.kind, choice.senderIdentityId, choice.includeAttachments]);
+      const idempotencyKey = derivationKeys.get(requestKey) ?? crypto.randomUUID();
+      derivationKeys.set(requestKey, idempotencyKey);
+      derivedDraft.mutate({ message, input: { ...choice, idempotencyKey } });
+    }
   };
 
   const closeComposer = () => {
@@ -270,6 +369,7 @@ export default function MailConversationReader(props: {
     closeDraftDialog?.(undefined);
     closeDraftDialog = null;
     conversationDrafts.abort();
+    derivedDraft.abort();
     draftLoadController?.abort();
   });
 
@@ -592,8 +692,7 @@ export default function MailConversationReader(props: {
                             >
                               <i class="ti ti-blockquote" aria-hidden="true" /> Quote selection
                             </button>
-                            <Show when={props.totalMessageCount > 1}>
-                              <Dropdown
+                            <Dropdown
                                 trigger={
                                   <button type="button" class="icon-btn icon-btn-sm" aria-label="Message organization actions">
                                     <i class="ti ti-dots" aria-hidden="true" />
@@ -602,19 +701,42 @@ export default function MailConversationReader(props: {
                                 position="bottom-left"
                                 width="w-64"
                                 elements={[
+                                  ...(props.totalMessageCount > 1
+                                    ? [
+                                        {
+                                          label: "Move to another conversation",
+                                          icon: "ti ti-message-forward",
+                                          action: () => props.onReassignMessage(message.id),
+                                        },
+                                        {
+                                          label: "Start a new conversation",
+                                          icon: "ti ti-arrows-split-2",
+                                          action: () => props.onSplitMessage(message.id),
+                                        },
+                                      ]
+                                    : []),
                                   {
-                                    label: "Move to another conversation",
-                                    icon: "ti ti-message-forward",
-                                    action: () => props.onReassignMessage(message.id),
+                                    label: "Edit as new",
+                                    icon: "ti ti-copy",
+                                    action: () => void deriveMessage("edit_as_new", message),
                                   },
-                                  {
-                                    label: "Start a new conversation",
-                                    icon: "ti ti-arrows-split-2",
-                                    action: () => props.onSplitMessage(message.id),
-                                  },
+                                  ...(message.from.some((sender) =>
+                                    props.identities.some(
+                                      (identity) =>
+                                        identity.status === "verified" &&
+                                        identity.fromAddress.toLowerCase() === sender.address.toLowerCase(),
+                                    ),
+                                  )
+                                    ? [
+                                        {
+                                          label: "Resend as a new draft",
+                                          icon: "ti ti-repeat",
+                                          action: () => void deriveMessage("resend", message),
+                                        },
+                                      ]
+                                    : []),
                                 ]}
                               />
-                            </Show>
                           </div>
                         </Show>
                       </div>

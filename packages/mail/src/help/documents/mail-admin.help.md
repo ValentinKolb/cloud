@@ -59,7 +59,9 @@ The **Identity label** is visible only inside the mailbox. Recipients see the **
 
 **Advanced delivery** contains provider-specific settings that most people should leave unchanged. The optional **Return-path address** receives technical delivery failures and bounce reports. Leave it empty unless your mail provider explicitly requires a separate address. A contact card is attached as a `.vcf` file to messages sent with the identity.
 
-Default Cc and Bcc recipients are added when a person starts a new message, reply, or forward with that identity. Duplicates and addresses already present in To, Cc, or Bcc are removed. These defaults are not added to automatic replies or workflow messages, and the writer can remove them before sending. A mailbox signature is inserted only when a new message is created; changing the identity later does not rewrite an edited draft. A personal signature override takes precedence.
+Default Cc and Bcc recipients are added when a person starts a new message, reply, or forward with that identity. Duplicates and addresses already present in To, Cc, or Bcc are removed. These defaults are not added to automatic replies or workflow messages, and the writer can remove them before sending. A mailbox signature is inserted into new messages, replies, and forwards; changing the identity later does not rewrite an edited draft. A personal signature override takes precedence.
+
+Under **Settings > Mailbox**, administrators can list trusted internal email domains and choose when Mail warns about a large recipient set. External-recipient warnings appear only when at least one internal domain is configured. These settings guide the final send review; they do not block legitimate delivery or change recipients automatically.
 
 Priority and receipt requests are suggestions to other mail systems:
 

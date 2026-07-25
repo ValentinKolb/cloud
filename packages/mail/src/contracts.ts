@@ -280,6 +280,28 @@ export type AutomaticReplyManagementPermission = z.infer<
   typeof automaticReplyManagementPermissionSchema
 >;
 
+export const composeSafetyConfigSchema = z
+  .object({
+    internalDomains: z
+      .array(
+        z
+          .string()
+          .trim()
+          .min(1)
+          .max(253)
+          .transform((value) => value.toLowerCase()),
+      )
+      .max(100)
+      .default([]),
+    largeRecipientThreshold: z.number().int().min(5).max(200).default(20),
+  })
+  .strict();
+export type ComposeSafetyConfig = z.infer<typeof composeSafetyConfigSchema>;
+export const defaultComposeSafetyConfig = (): ComposeSafetyConfig => ({
+  internalDomains: [],
+  largeRecipientThreshold: 20,
+});
+
 export const mailboxHealthSchema = z.enum([
   "disconnected",
   "verifying",
@@ -509,6 +531,7 @@ export const mailboxSchema = z.object({
   syncEnabled: z.boolean(),
   searchBackend: searchBackendSchema,
   automaticReplyManagementPermission: automaticReplyManagementPermissionSchema,
+  composeSafety: composeSafetyConfigSchema,
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -1125,6 +1148,26 @@ const actorCommandBaseSchema = z.object({
   correlationId: z.string().trim().max(200).optional(),
 });
 
+export const composeSafetyWarningIdSchema = z.enum([
+  "missing_attachment",
+  "large_recipient_set",
+  "external_recipients",
+  "reply_all",
+  "suspicious_link",
+]);
+export type ComposeSafetyWarningId = z.infer<
+  typeof composeSafetyWarningIdSchema
+>;
+
+export const composeSafetyApprovalSchema = z
+  .object({
+    revision: z.number().int().positive(),
+    fingerprint: z.string().length(64),
+    warningIds: z.array(composeSafetyWarningIdSchema).max(5),
+  })
+  .strict();
+export type ComposeSafetyApproval = z.infer<typeof composeSafetyApprovalSchema>;
+
 export const mailKeywordSchema = z
   .string()
   .trim()
@@ -1287,6 +1330,7 @@ export const actorCommandInputSchema = z.discriminatedUnion("kind", [
     senderIdentityId: z.string().uuid(),
     scheduledAt: z.string().datetime().optional(),
     undoSeconds: z.number().int().min(0).max(60).default(10),
+    safetyApproval: composeSafetyApprovalSchema.optional(),
   }),
 ]);
 export type ActorCommandInput = z.infer<typeof actorCommandInputSchema>;
@@ -2594,6 +2638,8 @@ export const draftIntentSchema = z.enum([
   "forward",
 ]);
 export type DraftIntent = z.infer<typeof draftIntentSchema>;
+export const draftDerivationKindSchema = z.enum(["edit_as_new", "resend"]);
+export type DraftDerivationKind = z.infer<typeof draftDerivationKindSchema>;
 export const draftDeliveryClassSchema = z.enum(["normal", "automatic_reply"]);
 export type DraftDeliveryClass = z.infer<typeof draftDeliveryClassSchema>;
 
@@ -2605,6 +2651,8 @@ export const draftSchema = z.object({
   conversationId: z.string().uuid().nullable(),
   intent: draftIntentSchema,
   sourceMessageId: z.string().uuid().nullable(),
+  derivedFromMessageId: z.string().uuid().nullable(),
+  derivationKind: draftDerivationKindSchema.nullable(),
   senderIdentityId: z.string().uuid(),
   to: z.array(mailAddressSchema),
   cc: z.array(mailAddressSchema),
@@ -2728,6 +2776,44 @@ export const draftContentInputSchema = draftEditableContentInputSchema
     includeSourceAttachments: z.boolean().optional(),
   });
 export type DraftContentInput = z.infer<typeof draftContentInputSchema>;
+
+export const deriveDraftFromMessageInputSchema = z
+  .object({
+    kind: draftDerivationKindSchema,
+    senderIdentityId: z.string().uuid(),
+    includeAttachments: z.boolean().default(true),
+    idempotencyKey: z.string().trim().min(1).max(200),
+  })
+  .strict();
+export type DeriveDraftFromMessageInput = z.input<
+  typeof deriveDraftFromMessageInputSchema
+>;
+
+export const composeSafetyWarningSchema = z
+  .object({
+    id: composeSafetyWarningIdSchema,
+    title: z.string(),
+    description: z.string(),
+  })
+  .strict();
+export type ComposeSafetyWarning = z.infer<typeof composeSafetyWarningSchema>;
+
+export const composeSafetyReviewInputSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
+export type ComposeSafetyReviewInput = z.infer<
+  typeof composeSafetyReviewInputSchema
+>;
+
+export const composeSafetyReviewSchema = z
+  .object({
+    draftId: z.string().uuid(),
+    revision: z.number().int().positive(),
+    fingerprint: z.string().length(64),
+    warnings: z.array(composeSafetyWarningSchema),
+  })
+  .strict();
+export type ComposeSafetyReview = z.infer<typeof composeSafetyReviewSchema>;
 
 export const composePreviewInputSchema = z
   .object({

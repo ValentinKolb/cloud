@@ -58,6 +58,7 @@ Check these conditions:
 - **Mailbox tools > Mailbox health** shows a usable connection.
 - The draft has recipients and either body content or an attachment.
 - Every attachment upload completed successfully and no file exceeds 100 MiB.
+- Any sending warnings for the current saved revision were reviewed. Editing recipients, links, text, or attachments after approval requires a new review.
 - The complete encoded message fits the current outgoing limit published by the provider.
 - The provider credential has not expired or been revoked.
 

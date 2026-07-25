@@ -1,6 +1,7 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { convert } from "html-to-text";
 import {
   type ActorRef,
   type ConversationDraftSummary,
@@ -11,7 +12,9 @@ import {
   type DraftEditableContentInput,
   type DraftIntent,
   type DraftRecoveryCopy,
+  type DeriveDraftFromMessageInput,
   draftContentInputSchema,
+  deriveDraftFromMessageInputSchema,
   draftEditableContentInputSchema,
   MAX_DRAFT_ATTACHMENT_BYTES,
   type MailAddress,
@@ -52,6 +55,8 @@ type DbDraft = {
   conversation_id: string | null;
   intent: DraftIntent;
   source_message_id: string | null;
+  derived_from_message_id: string | null;
+  derivation_kind: MailDraft["derivationKind"];
   sender_identity_id: string;
   author_kind: DraftActor["kind"];
   author_id: string | null;
@@ -106,6 +111,8 @@ const draftColumns = sql`
   d.conversation_id,
   d.intent,
   d.source_message_id,
+  d.derived_from_message_id,
+  d.derivation_kind,
   d.sender_identity_id,
   d.author_kind,
   d.author_id,
@@ -167,6 +174,33 @@ const parseArray = <T>(value: T[] | string): T[] => (typeof value === "string" ?
 const parseRecord = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const draftBodyPreview = (value: string): string => value.replace(/\s+/gu, " ").trim().slice(0, DRAFT_BODY_PREVIEW_LENGTH);
+const appendSignature = (body: string, signature: string | null, intent: DraftIntent): string => {
+  if (!signature) return body;
+  if (intent === "new") return [body.trimEnd(), signature].filter(Boolean).join("\n\n");
+  const lines = body.split("\n");
+  const quotedAt = lines.findIndex(
+    (line, index) =>
+      line.startsWith(">") ||
+      line === "---------- Forwarded message ----------" ||
+      (/\bwrote:\s*$/iu.test(line) && lines.slice(index + 1).some((candidate) => candidate.startsWith(">"))),
+  );
+  if (quotedAt < 0) return [body.trimEnd(), signature].filter(Boolean).join("\n\n");
+  const reply = lines.slice(0, quotedAt).join("\n").trimEnd();
+  const history = lines.slice(quotedAt).join("\n").trimStart();
+  return [reply, signature, history].filter(Boolean).join("\n\n");
+};
+const reusableMessageBody = (plainText: string | null, sanitizedHtml: string | null): string => {
+  if (plainText?.trim()) return plainText.trimEnd();
+  if (!sanitizedHtml) return "";
+  try {
+    return convert(sanitizedHtml, {
+      wordwrap: false,
+      selectors: [{ selector: "a", options: { hideLinkHrefIfSameAsText: true } }],
+    }).trimEnd();
+  } catch {
+    return "";
+  }
+};
 
 const mutableActor = (context: MailRequestContext): MutableActor | null => {
   const actor = actorRefFromRequest(context);
@@ -192,6 +226,8 @@ const mapDraft = (row: DbDraft): MailDraft => ({
   conversationId: row.conversation_id,
   intent: row.intent,
   sourceMessageId: row.source_message_id,
+  derivedFromMessageId: row.derived_from_message_id,
+  derivationKind: row.derivation_kind,
   senderIdentityId: row.sender_identity_id,
   to: parseArray(row.to_addresses),
   cc: parseArray(row.cc_addresses),
@@ -482,15 +518,12 @@ export const createDraft = async (params: {
       if (parsed.data.includeSourceAttachments && draftContext.data.intent !== "forward") {
         return fail(err.badInput("Original attachments can only be included when forwarding a message"));
       }
-      const defaultSignature =
-        draftContext.data.intent === "new"
-          ? await resolveDefaultSignatureSource({
-              db: tx,
-              context: params.context,
-              mailboxId: params.mailboxId,
-              senderIdentityId: parsed.data.senderIdentityId,
-            })
-          : null;
+      const defaultSignature = await resolveDefaultSignatureSource({
+        db: tx,
+        context: params.context,
+        mailboxId: params.mailboxId,
+        senderIdentityId: parsed.data.senderIdentityId,
+      });
       const initialSubject =
         draftContext.data.intent === "reply" || draftContext.data.intent === "reply_all"
           ? await applyConversationReferenceToReplySubjectInTransaction({
@@ -510,7 +543,7 @@ export const createDraft = async (params: {
             })
           : ok({ to: parsed.data.to, cc: parsed.data.cc });
       if (!initialRecipients.ok) return initialRecipients;
-      const initialBody = defaultSignature ? [parsed.data.body.trimEnd(), defaultSignature].filter(Boolean).join("\n\n") : parsed.data.body;
+      const initialBody = appendSignature(parsed.data.body, defaultSignature, draftContext.data.intent);
       const initialCc = mergeDefaultCc({
         to: initialRecipients.data.to,
         cc: initialRecipients.data.cc,
@@ -606,6 +639,181 @@ export const createDraft = async (params: {
     return wakeDraftProjection(result);
   } catch {
     return fail(err.internal("Failed to create draft"));
+  }
+};
+
+export const deriveDraftFromMessage = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  messageId: string;
+  input: DeriveDraftFromMessageInput;
+}): Promise<Result<MailDraft>> => {
+  const parsed = deriveDraftFromMessageInputSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid draft derivation"));
+  const actor = mutableActor(params.context);
+  if (!actor) return fail(err.forbidden("Draft author is invalid"));
+  try {
+    const result = await sql.begin(async (tx) => {
+      const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
+      if (!allowed.ok) return allowed;
+      const requestHash = await sha256Json({
+        messageId: params.messageId,
+        kind: parsed.data.kind,
+        senderIdentityId: parsed.data.senderIdentityId,
+        includeAttachments: parsed.data.includeAttachments,
+      });
+      const derivationLockKey = [
+        params.mailboxId,
+        actor.kind,
+        actorId(actor),
+        "derive",
+        parsed.data.idempotencyKey,
+      ].join(":");
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${derivationLockKey}, 0))`;
+      const [existing] = await tx<(DbDraft & { derivation_request_hash: string })[]>`
+        SELECT ${draftColumns}, d.derivation_request_hash
+        FROM mail.drafts d
+        WHERE d.mailbox_id = ${params.mailboxId}::uuid
+          AND d.author_kind = ${actor.kind}
+          AND d.author_id = ${actorId(actor)}::uuid
+          AND d.derivation_key = ${parsed.data.idempotencyKey}
+      `;
+      if (existing) {
+        return existing.derivation_request_hash === requestHash
+          ? ok(mapDraft(existing))
+          : fail(err.conflict("Draft derivation idempotency key conflicts with a different request"));
+      }
+      const identity = await validateIdentity({
+        mailboxId: params.mailboxId,
+        senderIdentityId: parsed.data.senderIdentityId,
+        db: tx,
+      });
+      if (!identity.ok) return identity;
+      const [source] = await tx<{
+        id: string;
+        subject: string;
+        plain_text: string | null;
+        sanitized_html: string | null;
+        from_addresses: MailAddress[] | string;
+        to_addresses: MailAddress[] | string;
+        cc_addresses: MailAddress[] | string;
+        bcc_addresses: MailAddress[] | string;
+      }[]>`
+        SELECT
+          message.id,
+          message.subject,
+          message.plain_text,
+          message.sanitized_html,
+          COALESCE(addresses.from_addresses, '[]'::jsonb) AS from_addresses,
+          COALESCE(addresses.to_addresses, '[]'::jsonb) AS to_addresses,
+          COALESCE(addresses.cc_addresses, '[]'::jsonb) AS cc_addresses,
+          COALESCE(addresses.bcc_addresses, '[]'::jsonb) AS bcc_addresses
+        FROM mail.message_contents message
+        LEFT JOIN LATERAL (
+          SELECT
+            jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
+              FILTER (WHERE role = 'from') AS from_addresses,
+            jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
+              FILTER (WHERE role = 'to') AS to_addresses,
+            jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
+              FILTER (WHERE role = 'cc') AS cc_addresses,
+            jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
+              FILTER (WHERE role = 'bcc') AS bcc_addresses
+          FROM mail.message_addresses
+          WHERE message_id = message.id
+        ) addresses ON true
+        WHERE message.id = ${params.messageId}::uuid
+          AND message.mailbox_id = ${params.mailboxId}::uuid
+        FOR SHARE OF message
+      `;
+      if (!source) return fail(err.notFound("Message"));
+      if (parsed.data.kind === "resend") {
+        const from = parseArray(source.from_addresses).map((address) => address.address.trim().toLowerCase());
+        const [owned] = await tx<{ id: string }[]>`
+          SELECT id
+          FROM mail.sender_identities
+          WHERE mailbox_id = ${params.mailboxId}::uuid
+            AND status = 'verified'
+            AND lower(from_address) IN (
+              SELECT value
+              FROM jsonb_array_elements_text(${from}::jsonb)
+            )
+          LIMIT 1
+        `;
+        if (!owned) return fail(err.badInput("Only a message sent by this mailbox can be resent"));
+      }
+      const body = reusableMessageBody(source.plain_text, source.sanitized_html);
+      const content = draftEditableContentInputSchema.safeParse({
+        senderIdentityId: parsed.data.senderIdentityId,
+        to: parseArray(source.to_addresses),
+        cc: parseArray(source.cc_addresses),
+        bcc: parseArray(source.bcc_addresses),
+        subject: source.subject,
+        body,
+        format: "plain",
+        priority: identity.data.defaultPriority,
+        requestDeliveryReceipt: identity.data.defaultDeliveryReceipt,
+        requestReadReceipt: identity.data.defaultReadReceipt,
+      });
+      if (!content.success) return fail(err.badInput(content.error.issues[0]?.message ?? "Source message cannot be reused"));
+      const [created] = await tx<DbDraft[]>`
+        INSERT INTO mail.drafts AS d (
+          mailbox_id, conversation_id, intent, source_message_id,
+          derived_from_message_id, derivation_kind, derivation_key, derivation_request_hash,
+          sender_identity_id,
+          author_kind, author_id, last_editor_kind, last_editor_id,
+          to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format,
+          priority, request_delivery_receipt, request_read_receipt
+        ) VALUES (
+          ${params.mailboxId}::uuid, NULL, 'new', NULL,
+          ${params.messageId}::uuid, ${parsed.data.kind}, ${parsed.data.idempotencyKey}, ${requestHash},
+          ${parsed.data.senderIdentityId}::uuid,
+          ${actor.kind}, ${actorId(actor)}::uuid, ${actor.kind}, ${actorId(actor)}::uuid,
+          ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
+          ${content.data.subject}, ${content.data.body}, ${content.data.format},
+          ${content.data.priority}, ${content.data.requestDeliveryReceipt}, ${content.data.requestReadReceipt}
+        )
+        RETURNING ${draftColumns}
+      `;
+      if (!created) return fail(err.internal("Draft insert returned no row"));
+      let attachmentCount = 0;
+      if (parsed.data.includeAttachments) {
+        const copied = await copyForwardAttachments({ db: tx, draftId: created.id, sourceMessageId: params.messageId });
+        if (!copied.ok) return copied;
+        attachmentCount = copied.data;
+      }
+      const [loaded] = await tx<DbDraft[]>`
+        SELECT ${draftColumns}
+        FROM mail.drafts d
+        WHERE d.id = ${created.id}::uuid
+      `;
+      if (!loaded) return fail(err.internal("Derived draft could not be loaded"));
+      await insertActivity({
+        db: tx,
+        mailboxId: params.mailboxId,
+        conversationId: null,
+        actor,
+        action: "draft.derived",
+        targetType: "draft",
+        targetId: created.id,
+        metadata: {
+          sourceMessageId: params.messageId,
+          derivationKind: parsed.data.kind,
+          attachmentCount,
+        },
+      });
+      await queueDraftProjectionInTransaction({ db: tx, draftId: created.id });
+      return ok(mapDraft(loaded));
+    });
+    return wakeDraftProjection(result);
+  } catch (error) {
+    log.error("Failed to derive draft from message", {
+      mailboxId: params.mailboxId,
+      messageId: params.messageId,
+      kind: parsed.data.kind,
+      error,
+    });
+    return fail(err.internal("Failed to create draft from message"));
   }
 };
 

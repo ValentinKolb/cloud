@@ -12,6 +12,8 @@ import {
   cancelConversationReminderSchema,
   cancelScheduledSendInputSchema,
   composePreviewInputSchema,
+  composeSafetyConfigSchema,
+  composeSafetyReviewInputSchema,
   composeSuggestionsInputSchema,
   configurableFolderRoleSchema,
   conversationPresenceHeartbeatSchema,
@@ -31,6 +33,7 @@ import {
   deleteSavedConversationViewSchema,
   draftContentInputSchema,
   draftEditableContentInputSchema,
+  deriveDraftFromMessageInputSchema,
   draftLeaseTokenSchema,
   mailCommandInputSchema,
   mailConversationContextQuerySchema,
@@ -63,6 +66,7 @@ import {
   cancelSendCommand,
   collaboration,
   commands,
+  composeSafety,
   composeTemplates,
   conversationContext,
   conversations,
@@ -173,6 +177,7 @@ const updateMailboxSchema = z
     syncEnabled: z.boolean().optional(),
     searchBackend: searchBackendSchema.optional(),
     automaticReplyManagementPermission: automaticReplyManagementPermissionSchema.optional(),
+    composeSafety: composeSafetyConfigSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 const attachBindingSchema = z.object({ connectionId: z.string().uuid() });
@@ -1191,6 +1196,22 @@ const mailOperationsApi = new Hono<AuthContext>()
     };
     return respond(c, messages.getMessage({ context: requestContext(c), ...params }));
   })
+  .post(
+    "/mailboxes/:mailboxId/messages/:messageId/derive-draft",
+    v("param", mailboxAndIdParamSchema("messageId")),
+    v("json", deriveDraftFromMessageInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; messageId: string };
+      return respond(
+        c,
+        drafts.deriveDraftFromMessage({
+          context: requestContext(c),
+          ...params,
+          input: c.req.valid("json"),
+        }),
+      );
+    },
+  )
   .get("/mailboxes/:mailboxId/messages/:messageId/inspector", v("param", mailboxAndIdParamSchema("messageId")), async (c) => {
     const params = c.req.valid("param") as {
       mailboxId: string;
@@ -1545,6 +1566,22 @@ const mailOperationsApi = new Hono<AuthContext>()
       }),
     );
   })
+  .post(
+    "/mailboxes/:mailboxId/drafts/:draftId/safety-review",
+    v("param", mailboxAndIdParamSchema("draftId")),
+    v("json", composeSafetyReviewInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; draftId: string };
+      return respond(
+        c,
+        composeSafety.reviewDraftComposeSafety({
+          context: requestContext(c),
+          ...params,
+          expectedRevision: c.req.valid("json").expectedRevision,
+        }),
+      );
+    },
+  )
   .get("/mailboxes/:mailboxId/drafts/:draftId/recovery-copies", v("param", mailboxAndIdParamSchema("draftId")), async (c) =>
     respond(
       c,

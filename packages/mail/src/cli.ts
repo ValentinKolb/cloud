@@ -22,6 +22,8 @@ import {
   type AttachmentLinkPage,
   type CancelScheduledSendResult,
   type ComposePreview,
+  type ComposeSafetyApproval,
+  type ComposeSafetyReview,
   type ComposeSignatureDefault,
   type ComposeSuggestion,
   type ComposeTemplate,
@@ -32,6 +34,7 @@ import {
   type DeletedMailboxPage,
   type DraftAttachmentUpload,
   type DraftIntent,
+  type DeriveDraftFromMessageInput,
   type DraftLease,
   type DraftRecoveryCopy,
   draftEditableContentInputSchema,
@@ -654,6 +657,29 @@ const readComposeDraftInput = async (input: Parameters<typeof readCliInput>[0]) 
 
 const createDraft = async (ctx: CloudCliContext, mailboxId: string, flags: Parameters<typeof readDraftContent>[0]): Promise<MailDraft> =>
   readApi(ctx, `/mailboxes/${mailboxId}/drafts`, jsonRequest("POST", await readDraftContent(flags)));
+
+const reviewDraftSafety = async (
+  ctx: CloudCliContext,
+  mailboxId: string,
+  draft: Pick<MailDraft, "id" | "revision">,
+  approve: boolean,
+): Promise<ComposeSafetyApproval | undefined> => {
+  const review = await readApi<ComposeSafetyReview>(
+    ctx,
+    `/mailboxes/${mailboxId}/drafts/${draft.id}/safety-review`,
+    jsonRequest("POST", { expectedRevision: draft.revision }),
+  );
+  if (review.warnings.length === 0) return undefined;
+  if (!approve) {
+    const details = review.warnings.map((warning) => `- ${warning.title}: ${warning.description}`).join("\n");
+    throw new Error(`Sending requires review:\n${details}\nPass --approve-safety after reviewing these warnings.`);
+  }
+  return {
+    revision: review.revision,
+    fingerprint: review.fingerprint,
+    warningIds: review.warnings.map((warning) => warning.id),
+  };
+};
 
 const uploadDraftAttachment = async (params: {
   ctx: CloudCliContext;
@@ -2613,6 +2639,74 @@ export default defineCliCommands({
           ctx.print("");
           ctx.print(message.plainText ?? "[Body not hydrated]");
         }
+      },
+    }),
+    command("message edit-as-new", {
+      summary: "Create an independent draft from an existing message",
+      args: { messageId: arg.required({ description: "Source message content id" }) },
+      flags: {
+        ...mailboxFlag,
+        identity: flag.string({ required: true, description: "Verified sender identity id" }),
+        includeAttachments: flag.boolean({
+          name: "include-attachments",
+          default: true,
+          description: "Copy source attachments into the new draft",
+        }),
+        idempotencyKey: flag.string({
+          name: "idempotency-key",
+          description: "Stable client retry key",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.identity) throw new Error("Missing sender identity.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const input: DeriveDraftFromMessageInput = {
+          kind: "edit_as_new",
+          senderIdentityId: flags.identity,
+          includeAttachments: flags.includeAttachments,
+          idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+        };
+        const draft = await readApi<MailDraft>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${args.messageId}/derive-draft`,
+          jsonRequest("POST", input),
+        );
+        if (printStructured(ctx, draft)) return;
+        ctx.print(`Created independent draft ${draft.id} from message ${args.messageId}.`);
+      },
+    }),
+    command("message resend", {
+      summary: "Create a reviewable resend draft from an outbound message",
+      args: { messageId: arg.required({ description: "Previously sent message content id" }) },
+      flags: {
+        ...mailboxFlag,
+        identity: flag.string({ required: true, description: "Verified sender identity id" }),
+        includeAttachments: flag.boolean({
+          name: "include-attachments",
+          default: true,
+          description: "Copy source attachments into the resend draft",
+        }),
+        idempotencyKey: flag.string({
+          name: "idempotency-key",
+          description: "Stable client retry key",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.identity) throw new Error("Missing sender identity.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const input: DeriveDraftFromMessageInput = {
+          kind: "resend",
+          senderIdentityId: flags.identity,
+          includeAttachments: flags.includeAttachments,
+          idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+        };
+        const draft = await readApi<MailDraft>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${args.messageId}/derive-draft`,
+          jsonRequest("POST", input),
+        );
+        if (printStructured(ctx, draft)) return;
+        ctx.print(`Created resend draft ${draft.id}; review it before sending.`);
       },
     }),
     command("message inspect", {
@@ -4912,6 +5006,10 @@ export default defineCliCommands({
           name: "idempotency-key",
           description: "Stable client retry key",
         }),
+        approveSafety: flag.boolean({
+          name: "approve-safety",
+          description: "Approve the exact current safety warnings after reviewing them",
+        }),
         wait: flag.boolean({
           description: "Wait for a successful terminal command state",
         }),
@@ -4930,6 +5028,7 @@ export default defineCliCommands({
             path,
           });
         }
+        const safetyApproval = await reviewDraftSafety(ctx, mailbox.id, draft, flags.approveSafety);
         const command = await readApi<MailCommand>(
           ctx,
           `/mailboxes/${mailbox.id}/commands`,
@@ -4941,6 +5040,7 @@ export default defineCliCommands({
             scheduledAt,
             undoSeconds: flags.undo,
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            ...(safetyApproval ? { safetyApproval } : {}),
           }),
         );
         const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;

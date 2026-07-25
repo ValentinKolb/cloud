@@ -21,6 +21,8 @@ import { apiClient } from "../../api/client";
 import type {
   AcquiredDraftLease,
   ComposePreview,
+  ComposeSafetyApproval,
+  ComposeSafetyReview,
   CreateAttachmentLinkInput,
   CreatedAttachmentLink,
   DraftEditableContent,
@@ -43,6 +45,8 @@ import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
 type UploadState = { file: File; progress: number; error: string | null; uploadId: string | null; draftId: string | null };
 type LeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: "rejected" } | { kind: "unavailable" };
+class ComposeSafetyCancelled extends Error {}
+class ComposeSafetyAttachmentRequested extends Error {}
 
 type ComposerSeed = {
   intent: DraftIntent;
@@ -770,12 +774,63 @@ export default function MailComposer(props: {
     }
   };
 
+  const reviewSafety = async (saved: MailDraft, scheduled: boolean): Promise<ComposeSafetyApproval | undefined> => {
+    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["safety-review"].$post({
+      param: { mailboxId: props.mailboxId, draftId: saved.id },
+      json: { expectedRevision: saved.revision },
+    });
+    if (!response.ok) throw new Error(await readApiError(response, "Could not review message safety"));
+    const review: ComposeSafetyReview = await response.json();
+    if (review.warnings.length === 0) return undefined;
+    const choice = await prompts.dialog<"approve" | "attachment">(
+      (close) => (
+        <div class="flex flex-col gap-3">
+          <div class="flex max-h-[45vh] flex-col gap-2 overflow-y-auto">
+            <For each={review.warnings}>
+              {(warning) => (
+                <div class="flex items-start gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3">
+                  <i class="ti ti-alert-triangle mt-0.5 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-primary">{warning.title}</p>
+                    <p class="mt-1 text-xs leading-5 text-secondary">{warning.description}</p>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+              Cancel
+            </button>
+            <Show when={review.warnings.some((warning) => warning.id === "missing_attachment")}>
+              <button type="button" class="btn-secondary btn-sm" onClick={() => close("attachment")}>
+                <i class="ti ti-paperclip" aria-hidden="true" /> Add attachment
+              </button>
+            </Show>
+            <button type="button" class="btn-primary btn-sm" onClick={() => close("approve")}>
+              {scheduled ? "Schedule anyway" : "Send anyway"}
+            </button>
+          </div>
+        </div>
+      ),
+      { title: "Review before sending", icon: "ti ti-shield-check", size: "small" },
+    );
+    if (choice === "attachment") throw new ComposeSafetyAttachmentRequested();
+    if (choice !== "approve") throw new ComposeSafetyCancelled();
+    return {
+      revision: review.revision,
+      fingerprint: review.fingerprint,
+      warningIds: review.warnings.map((warning) => warning.id),
+    };
+  };
+
   const send = mutations.create<MailCommand, { scheduledAt?: string }, { scheduledAt?: string }>({
     onBefore: (delivery) => delivery,
     mutation: async (delivery) => {
       validateDelivery();
       const saved = await persist();
       if (!saved) throw new Error(statusMessage());
+      const safetyApproval = await reviewSafety(saved, Boolean(delivery.scheduledAt));
       const response = await apiClient.mailboxes[":mailboxId"].commands.$post({
         param: { mailboxId: props.mailboxId },
         json: {
@@ -785,6 +840,7 @@ export default function MailComposer(props: {
           senderIdentityId: identityId(),
           scheduledAt: delivery.scheduledAt,
           undoSeconds: delivery.scheduledAt ? 0 : preferences.undoSeconds,
+          safetyApproval,
           idempotencyKey: crypto.randomUUID(),
         },
       });
@@ -807,7 +863,14 @@ export default function MailComposer(props: {
       props.onClose?.();
       if (props.surface === "full") navigateTo(props.returnHref);
     },
-    onError: (error) => prompts.error(error.message),
+    onError: (error) => {
+      if (error instanceof ComposeSafetyAttachmentRequested) {
+        attachmentInput?.click();
+        return;
+      }
+      if (error instanceof ComposeSafetyCancelled) return;
+      return prompts.error(error.message);
+    },
   });
 
   const schedule = async () => {

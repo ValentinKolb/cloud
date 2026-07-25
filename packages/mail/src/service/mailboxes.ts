@@ -3,7 +3,14 @@ import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result, tryCatch, unwrap } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
-import type { CreateMailboxInput, DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";
+import {
+  composeSafetyConfigSchema,
+  defaultComposeSafetyConfig,
+  type CreateMailboxInput,
+  type DeletedMailbox,
+  type DeletedMailboxPage,
+  type Mailbox,
+} from "../contracts";
 import {
   getMailboxPermission,
   isCurrentActorActive,
@@ -32,6 +39,7 @@ type DbMailbox = {
   sync_enabled: boolean;
   search_backend: Mailbox["searchBackend"];
   automatic_reply_management_permission: Mailbox["automaticReplyManagementPermission"];
+  compose_safety: unknown;
   deleted_at: Date | string | null;
   deleted_cursor_us: string | null;
   created_at: Date | string;
@@ -49,6 +57,7 @@ const mapMailbox = (row: DbMailbox): Mailbox => ({
   syncEnabled: row.sync_enabled,
   searchBackend: row.search_backend,
   automaticReplyManagementPermission: row.automatic_reply_management_permission,
+  composeSafety: composeSafetyConfigSchema.catch(defaultComposeSafetyConfig()).parse(row.compose_safety),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
@@ -61,6 +70,7 @@ const mapDeletedMailbox = (row: DbMailbox): DeletedMailbox => {
 const mailboxColumns = sql`
   m.id, m.name, m.description, m.health, m.health_reason,
   m.sync_enabled, m.search_backend, m.automatic_reply_management_permission, m.deleted_at,
+  m.compose_safety,
   CASE
     WHEN m.deleted_at IS NULL THEN NULL
     ELSE (extract(epoch FROM m.deleted_at) * 1000000)::bigint::text
@@ -160,7 +170,7 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
             ${context.actor.kind === "service_account" ? context.actor.serviceAccount.id : null}::uuid
           )
           RETURNING id, name, description, health, health_reason, sync_enabled, search_backend,
-            automatic_reply_management_permission, deleted_at, created_at, updated_at
+            automatic_reply_management_permission, compose_safety, deleted_at, created_at, updated_at
         `;
         if (!row) throw new Error("Mailbox insert returned no row");
 
@@ -366,11 +376,19 @@ export const updateMailbox = async (params: {
   syncEnabled?: boolean;
   searchBackend?: Mailbox["searchBackend"];
   automaticReplyManagementPermission?: Mailbox["automaticReplyManagementPermission"];
+  composeSafety?: Mailbox["composeSafety"];
 }): Promise<Result<Mailbox>> => {
   const name = params.name?.trim();
   if (name !== undefined && (name.length < 1 || name.length > 160)) return fail(err.badInput("Mailbox name is invalid"));
   const description = params.description?.trim() || null;
   if (description && description.length > 2_000) return fail(err.badInput("Mailbox description is too long"));
+  const composeSafety =
+    params.composeSafety === undefined
+      ? null
+      : composeSafetyConfigSchema.safeParse(params.composeSafety);
+  if (composeSafety && !composeSafety.success) {
+    return fail(err.badInput(composeSafety.error.issues[0]?.message ?? "Composer safety settings are invalid"));
+  }
 
   return tryCatch(
     () =>
@@ -391,6 +409,7 @@ export const updateMailbox = async (params: {
               ${params.automaticReplyManagementPermission ?? null},
               automatic_reply_management_permission
             ),
+            compose_safety = COALESCE(${composeSafety?.data ?? null}::jsonb, compose_safety),
             health = CASE
               WHEN ${params.syncEnabled === false} THEN 'paused'
               WHEN ${params.syncEnabled === true} AND health = 'paused' THEN 'bootstrapping'
@@ -403,7 +422,7 @@ export const updateMailbox = async (params: {
             END
           WHERE id = ${params.mailboxId}::uuid
           RETURNING id, name, description, health, health_reason, sync_enabled, search_backend,
-            automatic_reply_management_permission, deleted_at, created_at, updated_at
+            automatic_reply_management_permission, compose_safety, deleted_at, created_at, updated_at
         `;
         if (!row) throw new Error("Mailbox update returned no row");
         await audit.record(
