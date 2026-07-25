@@ -156,6 +156,8 @@ export type PublishWorkflowVersion = {
   languageId: string;
   languageVersion: number;
   manifestHash: string;
+  /** Caps on external effects for runs of this version. Absent dimensions are uncapped. */
+  effectBudget?: Record<string, number>;
   author: WorkflowAuthor;
   /** What the new version listens to. Replaces the previous version's set wholesale. */
   activations: readonly WorkflowActivationInput[];
@@ -197,12 +199,12 @@ export const publishWorkflowVersion = async (input: PublishWorkflowVersion, opti
       }[]
     >`
       INSERT INTO workflows.version (
-        workflow_id, revision, source, source_hash, plan, diagnostics,
+        workflow_id, revision, source, source_hash, plan, diagnostics, effect_budget,
         language_id, language_version, manifest_hash, created_by_kind, created_by_id
       )
       SELECT ${input.workflowId}::uuid,
              COALESCE(max(revision), 0) + 1,
-             ${input.source}, ${input.sourceHash}, ${input.plan}, ${input.diagnostics ?? []},
+             ${input.source}, ${input.sourceHash}, ${input.plan}, ${input.diagnostics ?? []}, ${input.effectBudget ?? {}},
              ${input.languageId}, ${input.languageVersion}, ${input.manifestHash},
              ${input.author.kind}, ${input.author.id ?? null}::uuid
       FROM workflows.version WHERE workflow_id = ${input.workflowId}::uuid

@@ -5,6 +5,17 @@
  */
 
 export {
+  budgetError,
+  budgetRootRunId,
+  chargeWorkflowEffectBudget,
+  checkEffectBudget,
+  totalPlannedEffects,
+  type WorkflowBudgetError,
+  type WorkflowBudgetOutcome,
+  type WorkflowEffectBudget,
+  type WorkflowEffectCharge,
+} from "./budget";
+export {
   createWorkflow,
   deleteWorkflowScope,
   getWorkflow,

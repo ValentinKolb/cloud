@@ -75,6 +75,10 @@ export const migrate = async (): Promise<void> => {
       source_hash TEXT NOT NULL CHECK (source_hash ~ '^[a-f0-9]{64}$'),
       plan JSONB NOT NULL CHECK (jsonb_typeof(plan) = 'object'),
       diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(diagnostics) = 'array'),
+      -- Caps on external effects, keyed by dimension. Grids had none: an email
+      -- action inside a loop over ten thousand records was bounded only by the
+      -- loop limit, which is a safety gap rather than a missing convenience.
+      effect_budget JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(effect_budget) = 'object'),
       language_id TEXT NOT NULL CHECK (char_length(language_id) BETWEEN 1 AND 200),
       language_version INTEGER NOT NULL CHECK (language_version > 0),
       manifest_hash TEXT NOT NULL CHECK (manifest_hash ~ '^[a-f0-9]{64}$'),
@@ -213,6 +217,10 @@ export const migrate = async (): Promise<void> => {
       state TEXT NOT NULL DEFAULT 'queued'
         CHECK (state IN ('queued', 'running', 'waiting', 'succeeded', 'failed', 'canceled', 'needs_attention')),
       inputs JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(inputs) = 'object'),
+      -- What this run has actually spent, charged as it goes. Checking only
+      -- before execution is what let Mail approve one set of effects and
+      -- perform another; charging at the moment of the effect closes that.
+      effects_used JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(effects_used) = 'object'),
       authorization_snapshot JSONB NOT NULL CHECK (jsonb_typeof(authorization_snapshot) = 'object'),
       idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
       occurred_at TIMESTAMPTZ NOT NULL,
