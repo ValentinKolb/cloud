@@ -1,6 +1,11 @@
 import { listAppsDetailed } from "@valentinkolb/cloud";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { formatNumber as fmtCount, formatDurationMs as fmtMs, formatPercent as fmtRatio } from "@valentinkolb/cloud/shared";
+import {
+  formatNumber as fmtCount,
+  formatDateTime as fmtDateTime,
+  formatDurationMs as fmtMs,
+  formatPercent as fmtRatio,
+} from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
@@ -33,15 +38,6 @@ import {
 const DRILLDOWN_EVENT_LIMIT = 100;
 
 const fmtPercent = (part: number, total: number) => (total === 0 ? "—" : `${((part / total) * 100).toFixed(1)}%`);
-
-const fmtDateTime = (value: string) =>
-  new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(value));
 
 const legacyTelemetryAppIcons: Record<string, string> = {
   gateway: "ti ti-route-scan",

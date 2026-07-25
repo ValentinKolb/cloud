@@ -1,6 +1,7 @@
 import { listApps } from "@valentinkolb/cloud";
 import { createPagination, hasRole, type NotificationDeliveryStatus } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { formatDateTime, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
@@ -31,15 +32,6 @@ import { notificationsService } from "./service";
 type DeliveryItem = Awaited<ReturnType<typeof notificationsService.delivery.list>>["items"][number];
 type RegistryItem = Awaited<ReturnType<typeof notificationsService.registry.list>>["items"][number];
 type LegacyItem = Awaited<ReturnType<typeof notificationsService.notification.list>>["items"][number];
-
-const numberFormat = new Intl.NumberFormat("de-DE");
-const dateFormat = new Intl.DateTimeFormat("de-DE", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 const parsePage = (value: string | undefined): number => {
   const parsed = Number(value ?? "1");
@@ -171,25 +163,25 @@ export default ssr<AuthContext>(async (c) => {
         <StatGrid columns={4}>
           <StatCell
             label="Failed 7d"
-            value={numberFormat.format(summary.failed)}
-            sub={summary.total > 0 ? `${numberFormat.format(summary.total)} total` : "none"}
+            value={formatNumber(summary.failed)}
+            sub={summary.total > 0 ? `${formatNumber(summary.total)} total` : "none"}
             valueClass={summary.failed > 0 ? "text-red-500" : "text-primary"}
             accent={summary.failed > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
           />
           <StatCell
             label="Active 7d"
-            value={numberFormat.format(summary.active)}
+            value={formatNumber(summary.active)}
             sub="deferred, pending, sending"
             valueClass={summary.active > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
             accent={summary.active > 0 ? { tone: "amber", icon: "ti ti-clock" } : undefined}
           />
           <StatCell
             label="Delivered 7d"
-            value={numberFormat.format(summary.delivered)}
+            value={formatNumber(summary.delivered)}
             sub="provider accepted"
             accent={{ tone: "emerald", icon: "ti ti-check" }}
           />
-          <StatCell label="Suppressed 7d" value={numberFormat.format(summary.suppressed)} sub="policy or fallback" />
+          <StatCell label="Suppressed 7d" value={formatNumber(summary.suppressed)} sub="policy or fallback" />
         </StatGrid>
 
         <section class="paper overflow-hidden" style="view-transition-name: admin-notification-deliveries-table">
@@ -258,8 +250,8 @@ export default ssr<AuthContext>(async (c) => {
                   </div>
                 );
               }
-              if (col.id === "attempts") return numberFormat.format(item.attemptCount);
-              if (col.id === "created") return <span class="text-dimmed">{dateFormat.format(item.createdAt)}</span>;
+              if (col.id === "attempts") return formatNumber(item.attemptCount);
+              if (col.id === "created") return <span class="text-dimmed">{formatDateTime(item.createdAt)}</span>;
               return "";
             }}
           />
@@ -302,17 +294,17 @@ export default ssr<AuthContext>(async (c) => {
       "Durable registry of notification kinds declared by Cloud apps.",
       <>
         <StatGrid columns={4}>
-          <StatCell label="Definitions" value={numberFormat.format(summary.total)} sub="durable catalog" />
+          <StatCell label="Definitions" value={formatNumber(summary.total)} sub="durable catalog" />
           <StatCell
             label="Active"
-            value={numberFormat.format(summary.active)}
+            value={formatNumber(summary.active)}
             sub="latest app catalogs"
             accent={{ tone: "emerald", icon: "ti ti-check" }}
           />
-          <StatCell label="Apps" value={numberFormat.format(summary.apps)} sub="registered catalogs" />
+          <StatCell label="Apps" value={formatNumber(summary.apps)} sub="registered catalogs" />
           <StatCell
             label="Required"
-            value={numberFormat.format(summary.required)}
+            value={formatNumber(summary.required)}
             sub="user-locked delivery"
             accent={{ tone: "amber", icon: "ti ti-lock" }}
           />
@@ -374,15 +366,15 @@ export default ssr<AuthContext>(async (c) => {
                   <span class="text-dimmed">-</span>
                 );
               }
-              if (col.id === "events") return numberFormat.format(item.eventCount7d);
+              if (col.id === "events") return formatNumber(item.eventCount7d);
               if (col.id === "failures") {
                 return (
                   <span class={item.failedDeliveryCount7d > 0 ? "text-red-500" : "text-dimmed"}>
-                    {numberFormat.format(item.failedDeliveryCount7d)}
+                    {formatNumber(item.failedDeliveryCount7d)}
                   </span>
                 );
               }
-              if (col.id === "seen") return <span class="text-dimmed">{dateFormat.format(item.lastSeenAt)}</span>;
+              if (col.id === "seen") return <span class="text-dimmed">{formatDateTime(item.lastSeenAt)}</span>;
               if (col.id === "state") {
                 return item.active ? (
                   <span class="inline-flex h-6 items-center gap-1 rounded-full bg-emerald-100 px-2 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
@@ -436,24 +428,19 @@ export default ssr<AuthContext>(async (c) => {
       <StatGrid columns={3}>
         <StatCell
           label="Errors 7d"
-          value={numberFormat.format(summary.error)}
+          value={formatNumber(summary.error)}
           sub={summary.error > 0 ? "last 7 days" : "none"}
           valueClass={summary.error > 0 ? "text-red-500" : "text-primary"}
           accent={summary.error > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
         />
         <StatCell
           label="Pending 7d"
-          value={numberFormat.format(summary.pending)}
+          value={formatNumber(summary.pending)}
           sub={summary.pending > 0 ? "last 7 days" : "none"}
           valueClass={summary.pending > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
           accent={summary.pending > 0 ? { tone: "amber", icon: "ti ti-clock" } : undefined}
         />
-        <StatCell
-          label="Sent 7d"
-          value={numberFormat.format(summary.sent)}
-          sub="last 7 days"
-          accent={{ tone: "emerald", icon: "ti ti-check" }}
-        />
+        <StatCell label="Sent 7d" value={formatNumber(summary.sent)} sub="last 7 days" accent={{ tone: "emerald", icon: "ti ti-check" }} />
       </StatGrid>
 
       <section class="paper overflow-hidden" style="view-transition-name: admin-notification-legacy-table">
@@ -469,17 +456,17 @@ export default ssr<AuthContext>(async (c) => {
             <div class="flex flex-wrap items-center gap-1.5">
               <span class="inline-flex h-7 items-center gap-1.5 rounded-full bg-zinc-100 px-2.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 <i class="ti ti-search text-sm" />
-                {numberFormat.format(searchSummary.total)} matches
+                {formatNumber(searchSummary.total)} matches
               </span>
               <span
                 class={`inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${searchSummary.error > 0 ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}
               >
                 <i class="ti ti-alert-circle text-sm" />
-                {numberFormat.format(searchSummary.error)} errors
+                {formatNumber(searchSummary.error)} errors
               </span>
               <span class="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-100 px-2.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
                 <i class="ti ti-clock text-sm" />
-                {numberFormat.format(searchSummary.pending)} pending
+                {formatNumber(searchSummary.pending)} pending
               </span>
             </div>
           )}
@@ -497,7 +484,7 @@ export default ssr<AuthContext>(async (c) => {
             if (col.id === "subject")
               return <span title={item.error ? `${item.subject} · ${item.error}` : item.subject}>{item.subject}</span>;
             if (col.id === "sentBy") return <span class="text-dimmed">{item.sentByName ?? <span class="italic">System</span>}</span>;
-            if (col.id === "created") return <span class="text-dimmed">{dateFormat.format(item.createdAt)}</span>;
+            if (col.id === "created") return <span class="text-dimmed">{formatDateTime(item.createdAt)}</span>;
             if (col.id === "actions") {
               return (
                 <NotificationActions
