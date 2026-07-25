@@ -7,7 +7,12 @@ import type {
   WorkflowVariableScope,
 } from "@valentinkolb/cloud/workflows/runtime";
 import type { DocumentTemplate, EmailTemplate, GridRecord, Table } from "../contracts";
-import { createGridsWorkflowActionPorts, type GridsWorkflowEffectIntentPort, gridsWorkflowActionEffect } from "./workflow-kernel-actions";
+import {
+  createGridsWorkflowActionPorts,
+  type GridsWorkflowEffectIntentPort,
+  gridsWorkflowActionEffect,
+  gridsWorkflowActionScope,
+} from "./workflow-kernel-actions";
 
 const BASE_ID = "00000000-0000-4000-8000-000000000001";
 const WORKFLOW_ID = "00000000-0000-4000-8000-000000000002";
@@ -740,5 +745,34 @@ describe("Grids workflow kernel action ports", () => {
     await ports.execute.get("createRecord")!.restoreCompleted!(ctx.value, step, { state: "completed", output });
 
     expect(ctx.variables.get("created")).toEqual(output);
+  });
+});
+
+describe("declared action scope", () => {
+  const invocation = {
+    workflowId: "11111111-1111-4111-8111-111111111111",
+    mode: "execute" as const,
+    channel: "event",
+    actor: { kind: "user" as const, userId: "u-1", groupIds: ["g-1"] },
+    inputs: {},
+    idempotencyKey: "k",
+    occurredAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  test("reads the base and the actor its app attached", () => {
+    const scope = gridsWorkflowActionScope({
+      ...invocation,
+      context: { baseId: "b-1", workflowShortId: "AB123", workflowName: "Nightly" },
+    } as never);
+
+    expect(scope.workflow).toEqual({ id: invocation.workflowId, baseId: "b-1", shortId: "AB123", name: "Nightly" });
+    expect(scope.principal?.userId).toBe("u-1");
+    expect(scope.principal?.groupIds).toEqual(["g-1"]);
+  });
+
+  test("refuses a run with no base rather than guessing one", () => {
+    // An action running against the wrong base — or none — would authorize
+    // against the wrong world, so this is loud.
+    expect(() => gridsWorkflowActionScope({ ...invocation, context: {} } as never)).toThrow(/base/i);
   });
 });

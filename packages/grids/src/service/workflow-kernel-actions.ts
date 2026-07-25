@@ -4,6 +4,7 @@ import type {
   WorkflowActor,
   WorkflowBoundPlan,
   WorkflowExecutionError,
+  WorkflowInvocation,
   WorkflowJsonValue,
   WorkflowPlanningOutcome,
   WorkflowStepOutcome,
@@ -188,15 +189,60 @@ export type GridsWorkflowActionPorts = {
   dryRun: WorkflowDryRunActionPort;
 };
 
-export type CreateGridsWorkflowActionPortsOptions = {
+/**
+ * Who a run acts as and where it acts.
+ *
+ * Split out from the port's construction options because that is all the
+ * helpers below actually need — and it is exactly what a declared action can
+ * build from its invocation, without the injected services, intents and
+ * senders that only exist so tests can substitute them.
+ */
+export type GridsWorkflowActionScope = {
   workflow: Pick<GridsWorkflow, "id" | "shortId" | "baseId" | "name">;
   principal?: GridsWorkflowPrincipal;
   authorizeExecution?: (client?: SqlClient) => Promise<boolean>;
   authorizeTarget?: (target: GridsWorkflowActionPermissionTarget, required: PermissionLevel, client?: SqlClient) => Promise<boolean>;
+};
+
+export type CreateGridsWorkflowActionPortsOptions = GridsWorkflowActionScope & {
   services?: Partial<GridsWorkflowActionServices>;
   effectIntents?: GridsWorkflowEffectIntentPort;
   notificationSender?: WorkflowNotificationSender;
   documentPdfRenderer?: DocumentPdfRenderer;
+};
+
+/**
+ * The scope a declared action works in, read from the run's invocation.
+ *
+ * Grids attaches the base and the workflow's display identity to the event
+ * context, because its actions need them and the kernel is deliberately
+ * incurious about what a scope means. Everything else — permissions, services —
+ * the action resolves itself.
+ *
+ * Throws rather than defaulting: an action running against the wrong base, or
+ * against none, would authorize against the wrong world.
+ */
+export const gridsWorkflowActionScope = (invocation: WorkflowInvocation): GridsWorkflowActionScope => {
+  const context = invocation.context ?? {};
+  const baseId = context.baseId;
+  if (typeof baseId !== "string" || !baseId) {
+    throw actionError("WORKFLOW_VALUE_INVALID", "Workflow run is missing the base it belongs to");
+  }
+  return {
+    workflow: {
+      id: invocation.workflowId,
+      baseId,
+      shortId: typeof context.workflowShortId === "string" ? context.workflowShortId : "",
+      name: typeof context.workflowName === "string" ? context.workflowName : "",
+    },
+    principal: {
+      userId: invocation.actor.userId ?? null,
+      groupIds: invocation.actor.groupIds ?? [],
+      serviceAccountId: invocation.actor.serviceAccountId ?? null,
+      actorServiceAccountId: invocation.actor.serviceAccountId ?? null,
+      credential: null,
+    },
+  };
 };
 
 const workflowPrincipalAuditMeta = (principal: GridsWorkflowPrincipal | undefined): Record<string, WorkflowJsonValue> => ({
@@ -811,7 +857,7 @@ const actorId = (context: WorkflowExecuteActionContext | WorkflowDryRunActionCon
   context.invocation.actor.userId ?? null;
 
 const workflowAuditMeta = (
-  options: CreateGridsWorkflowActionPortsOptions,
+  options: GridsWorkflowActionScope,
   context: WorkflowExecuteActionContext,
 ): Record<string, WorkflowJsonValue> => ({
   workflowId: options.workflow.id,
@@ -829,7 +875,7 @@ const workflowAuditMeta = (
 
 const requirePermission = async (
   services: GridsWorkflowActionServices,
-  options: CreateGridsWorkflowActionPortsOptions,
+  options: GridsWorkflowActionScope,
   context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
   target: GridsWorkflowActionPermissionTarget,
   required: PermissionLevel,
@@ -853,7 +899,7 @@ const requirePermission = async (
 
 const requireWorkflowPermission = async (
   services: GridsWorkflowActionServices,
-  options: CreateGridsWorkflowActionPortsOptions,
+  options: GridsWorkflowActionScope,
   context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
   client?: SqlClient,
 ): Promise<void> => {
@@ -866,11 +912,7 @@ const requireWorkflowPermission = async (
   await requirePermission(services, options, context, { workflowId: options.workflow.id }, "write", client);
 };
 
-const currentTable = async (
-  services: GridsWorkflowActionServices,
-  options: CreateGridsWorkflowActionPortsOptions,
-  tableId: string,
-): Promise<Table> => {
+const currentTable = async (services: GridsWorkflowActionServices, options: GridsWorkflowActionScope, tableId: string): Promise<Table> => {
   const table = await services.getTable(tableId);
   if (!table || table.baseId !== options.workflow.baseId) throw actionError("NOT_FOUND", "Workflow table is no longer available");
   return table;
@@ -878,7 +920,7 @@ const currentTable = async (
 
 const currentRecord = async (
   services: GridsWorkflowActionServices,
-  options: CreateGridsWorkflowActionPortsOptions,
+  options: GridsWorkflowActionScope,
   context: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
   reference: RuntimeRecord,
   required: "read" | "write",
