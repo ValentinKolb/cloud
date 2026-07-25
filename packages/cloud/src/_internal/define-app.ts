@@ -30,7 +30,7 @@ import { logger } from "../services/logging";
 import { startNotificationDefinitionRegistration } from "../services/notifications/catalog";
 import { get, loadCache as loadSettingsCache, set } from "../services/settings";
 import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
-import { registerSettings, type SettingDef } from "../services/settings/defaults";
+import { registerSettings, toLegacySettingDefs } from "../services/settings/defaults";
 import { themeBootstrapScript } from "../shared/theme";
 import { createHeartbeat } from "./heartbeat";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
@@ -238,29 +238,7 @@ export const defineApp = <
   // returns SETTINGS.map(d => d.key)). Without this registration, app-declared
   // settings would be type-known but runtime-unknown.
   if (opts.settings) {
-    const legacyDefs: SettingDef[] = Object.entries(opts.settings).map(([key, def]) => {
-      const d = def as Record<string, unknown>;
-      return {
-        key,
-        // Group derived from the dotted prefix (admin UIs use this for tab
-        // grouping; the new bespoke admin UIs ignore it but legacy paths use it).
-        group: key.split(".")[0] ?? "app",
-        kind: d.kind as SettingDef["kind"],
-        // The cast loses the per-kind discriminated default type but the data
-        // is correct; legacy validateSettingValue re-validates against kind anyway.
-        default: d.default as never,
-        label: d.label as string | undefined,
-        description: (d.description as string | undefined) ?? "",
-        placeholder: d.placeholder as string | undefined,
-        envFallback: d.envFallback as (() => unknown) | undefined,
-        envBootstrap: d.envBootstrap as (() => unknown) | undefined,
-        templateVars: d.templateVars as readonly string[] | undefined,
-        options: d.options as ReadonlyArray<{ value: string; label: string }> | undefined,
-        min: d.min as number | undefined,
-        max: d.max as number | undefined,
-      } as SettingDef;
-    });
-    registerSettings(legacyDefs);
+    registerSettings(toLegacySettingDefs(opts.settings as Record<string, unknown>));
   }
 
   // ── 1. SSR config ─────────────────────────────────────────────────────

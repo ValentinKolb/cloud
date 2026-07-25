@@ -1,15 +1,17 @@
 /**
- * Core-owned settings, declared in the `defineApp({ settings: ... })` shape.
+ * Platform-owned settings, declared in the `defineApp({ settings: ... })` shape.
  *
- * `defineApp()` registers these into the runtime registry (`SETTINGS_MAP` in
- * `cloud/services/settings/defaults.ts`) automatically, and the typed object
- * shape here drives literal-type inference for `app.settings.get/set` and
- * `c.get("settings")`.
+ * These live in the framework, not in the core app, because every container
+ * needs them registered: `settings.get("app.url")` and the per-request snapshot
+ * resolve through `SETTINGS_MAP`, which is per-process. `defaults.ts` derives
+ * its legacy entries from this object, and the core app passes it straight to
+ * `defineApp({ settings })` so `app.settings.get/set` and `c.get("settings")`
+ * keep their literal-type inference.
  *
  * Conventions:
  *   - omit `key` (it's the object key)
- *   - omit `group` (derived from key prefix in the admin UI; UI is bespoke per group)
- *   - keep `description`, `label`, `placeholder`, `default`, `kind` as in defaults.ts
+ *   - omit `group` (derived from the key prefix in the admin UI)
+ *   - keep `description`, `label`, `placeholder`, `default`, `kind` complete
  */
 
 const envString = (key: string): string | undefined => {
@@ -129,25 +131,41 @@ export const CORE_SETTINGS = {
     placeholder:
       '[{"id":"openrouter-fast","label":"OpenRouter Fast","provider":"openrouter","model":"openai/gpt-4.1-mini","enabled":true,"dataBoundary":"hosted","capabilities":["streaming"],"apiKey":"sk-or-..."}]',
   },
+  "ai.background_model_id": {
+    kind: "string",
+    label: "Background Model ID",
+    default: "",
+    description: "Model profile id used for background AI jobs (chat enrichment). Empty = platform default model.",
+    placeholder: "e.g. openrouter-fast",
+  },
+  "ai.enrich_cron": {
+    kind: "cron",
+    label: "Chat Enrichment Schedule",
+    default: "*/10 * * * *",
+    description: "How often dirty chats get an AI-generated summary, keywords, and title refresh for search.",
+  },
   "ai.global_instructions": {
-    kind: "text",
+    kind: "template",
     label: "Global Instructions",
     default: "",
-    description: "Optional instructions applied to every Cloud AI conversation after platform guardrails.",
-    placeholder: "Keep answers concise and follow the workspace language.",
+    description:
+      "Optional instructions applied to every Cloud AI conversation after platform guardrails. Supports Liquid: {{ user.displayName }}, {{ user.uid }}, {{ user.mail }}, {{ appId }}, {{ now }}, {{ today }}, {{ time }}.",
+    placeholder: "Keep answers concise. The current user is {{ user.displayName }} and today is {{ today }}.",
+    templateVars: ["user.displayName", "user.uid", "user.mail", "appId", "now", "today", "time"],
   },
   "ai.compaction_prompt": {
     kind: "text",
     label: "Compaction Prompt",
     default: "",
-    description: "Optional custom prompt used when Cloud AI summarizes old chat context before continuing a long conversation.",
-    placeholder: "Summarize the conversation so far. Keep decisions, user preferences, tool results, and unresolved tasks.",
+    description:
+      "Optional custom prompt used when Cloud AI summarizes old chat context before continuing a long conversation. Leave empty for the built-in structured handoff prompt.",
+    placeholder: "Leave empty for the built-in handoff prompt (goal, user requests, decisions, facts, dead ends, open tasks, next step).",
   },
   "ai.max_tool_result_chars": {
     kind: "number",
     label: "Max Tool Result Chars",
-    default: 2000,
-    min: 200,
+    default: 8000,
+    min: 500,
     max: 50000,
     description: "Maximum characters from one tool result kept in AI context before Nessi truncates it.",
   },

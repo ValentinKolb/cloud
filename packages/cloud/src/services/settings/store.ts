@@ -14,9 +14,9 @@
  */
 
 import { redis, sql } from "bun";
-import { decryptValue, encryptValue } from "./crypto";
-import { SETTINGS, SETTINGS_MAP, validateSettingValue, type SettingDef } from "./defaults";
 import { toPgTextArray } from "../postgres";
+import { decryptValue, encryptValue } from "./crypto";
+import { SETTINGS, SETTINGS_MAP, type SettingDef, validateSettingValue } from "./defaults";
 
 const REDIS_KEY = (k: string) => `settings:${k}`;
 const REDIS_TTL_SEC = 300;

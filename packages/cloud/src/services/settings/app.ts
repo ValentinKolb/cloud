@@ -6,10 +6,11 @@
  * Lives in cloud-lib because every app that has app-scoped settings needs
  * the same API to render its admin form (files, weather, etc.).
  */
-import { paginateItems } from "../../server/services";
+
 import { err, fail, ok, type PageParams, type Paginated } from "@valentinkolb/stdlib";
-import * as settingsPrimitives from ".";
+import { paginateItems } from "../../server/services";
 import type { SettingEntry } from ".";
+import * as settingsPrimitives from ".";
 import { SETTINGS_MAP, validateSettingValue } from "./defaults";
 
 /**
