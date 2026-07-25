@@ -61,8 +61,10 @@ export const createSearchRoutes = () =>
     }),
     v("query", SearchQuerySchema),
     async (c) => {
-      if (!c.get("user")) {
-        return c.json({ message: "Global search requires a user-backed actor", code: "FORBIDDEN" }, 403);
+      // Providers cannot see the acting credential, so they cannot cap by
+      // scope. Only a real session may search — see define-app's provider gate.
+      if (c.get("actor")?.kind !== "user") {
+        return c.json({ message: "Global search requires a user session", code: "FORBIDDEN" }, 403);
       }
 
       const query = c.req.valid("query");
