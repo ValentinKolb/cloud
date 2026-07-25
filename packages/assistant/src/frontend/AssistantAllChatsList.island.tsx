@@ -1,4 +1,5 @@
 import type { AiConversation } from "@valentinkolb/cloud/ai";
+import { formatDateTime as formatUpdatedAt } from "@valentinkolb/cloud/shared";
 import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
@@ -13,15 +14,6 @@ type Props = {
   onOpenConversation?: (conversation: AiConversation) => void;
   onChanged?: () => void;
 };
-
-const formatUpdatedAt = (value: string): string =>
-  new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
 
 export default function AssistantAllChatsList(props: Props) {
   const [conversations, setConversations] = createSignal(props.conversations);

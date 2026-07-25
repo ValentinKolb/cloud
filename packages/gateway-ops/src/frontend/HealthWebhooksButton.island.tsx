@@ -1,3 +1,4 @@
+import { formatDateTime as fmtDateTime } from "@valentinkolb/cloud/shared";
 import {
   CheckboxCard,
   DataTable,
@@ -104,17 +105,6 @@ const appStatusDescription = (app: HealthApp) => {
   if (app.signals.length > 0) return `${app.signals.join(" · ")} · ${app.id}`;
   if (app.status === "warn") return `live, stale · ${app.id}`;
   return `live · ${app.id}`;
-};
-
-const fmtDateTime = (value: string | null) => {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
 };
 
 const fmtMinutes = (value: number) => `${Math.round(value / 60_000)} min`;

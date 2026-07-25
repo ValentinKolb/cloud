@@ -1,3 +1,4 @@
+import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
 import { CopyButton, Placeholder, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -21,17 +22,6 @@ const errorMessage = async (response: Response, fallback: string): Promise<strin
   } catch {
     return fallback;
   }
-};
-
-const formatDate = (value: string | null): string => {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
 };
 
 const TokenDialog = (props: { token: string }) => (

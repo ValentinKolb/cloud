@@ -1,4 +1,5 @@
 import { coreClient } from "@valentinkolb/cloud/clients/core";
+import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
 import { DataTable, type DataTableColumn, PanelDialog, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createResource, Show } from "solid-js";
@@ -18,17 +19,6 @@ const loadLegacySettings = async (): Promise<LegacySetting[]> => {
   const response = await coreClient.admin.core.settings.legacy.$get();
   if (!response.ok) throw new Error(await errorMessage(response, "Failed to load legacy settings"));
   return response.json();
-};
-
-const formatDate = (value: string | null) => {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
 };
 
 const columns: DataTableColumn<LegacySetting>[] = [
