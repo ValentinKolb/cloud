@@ -797,10 +797,14 @@ describe("AI conversation store integration", () => {
       expect(pinnedResult).toMatchObject({ pinnedAt: expect.any(String), updatedAt: pinnedUpdatedAt });
       expect((await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId }))[0]?.id).toBe(pinned.id);
 
+      // completed_at comes from Postgres, exactly as production writes it
+      // (store.ts sets `completed_at = now()`). Stamping it from the Bun clock
+      // instead compares two clocks in the unreadCompletion check, and a
+      // millisecond of skew makes a viewed conversation stay unread.
       const insertTurn = async (conversationId: string, status: string, completed = false) => {
         await sql`
           INSERT INTO ai.turns (conversation_id, status, completed_at)
-          VALUES (${conversationId}::uuid, ${status}, ${completed ? new Date().toISOString() : null})
+          VALUES (${conversationId}::uuid, ${status}, CASE WHEN ${completed} THEN now() ELSE NULL END)
         `;
       };
       await insertTurn(running.id, "running");
