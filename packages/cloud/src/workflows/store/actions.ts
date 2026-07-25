@@ -59,8 +59,9 @@ const resolveConfig = async (
 };
 
 /** The context an action implementation receives, built once per invocation. */
-const actionContext = (ctx: WorkflowExecuteActionContext, effectKey: string, tx?: SQL) => ({
+const actionContext = (ctx: WorkflowExecuteActionContext | WorkflowDryRunActionContext, effectKey: string, tx?: SQL) => ({
   runId: ctx.run.runId,
+  invocation: ctx.invocation,
   effectKey,
   ...(tx ? { tx } : {}),
   heartbeat: async (): Promise<void> => {
@@ -258,11 +259,7 @@ export const createWorkflowDryRunPort = (actions: WorkflowActionMap): WorkflowDr
     return {
       plan: async (ctx: WorkflowDryRunActionContext, step: WorkflowActionStep) => {
         const config = await resolveConfig(ctx, step);
-        const context = {
-          runId: ctx.run.runId,
-          effectKey: workflowEffectKey(ctx.run.runId, ctx.step.key),
-          heartbeat: async () => void (await ctx.heartbeat()),
-        };
+        const context = actionContext(ctx, workflowEffectKey(ctx.run.runId, ctx.step.key));
 
         if (action.effect === "pure") {
           const result = await action.run(context, config as never);

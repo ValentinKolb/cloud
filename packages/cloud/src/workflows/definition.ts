@@ -15,7 +15,7 @@
  * root, bound by `defineApp`, types inferred rather than restated.
  */
 import type { SQL } from "bun";
-import type { WorkflowActionEffect, WorkflowFieldSchema, WorkflowJsonValue } from "./contracts";
+import type { WorkflowActionEffect, WorkflowFieldSchema, WorkflowInvocation, WorkflowJsonValue } from "./contracts";
 
 // ─── Config type inference ───────────────────────────────────────────────────
 
@@ -147,6 +147,16 @@ export type WorkflowReconcileResult<Output> =
 export type WorkflowActionContext = {
   /** Identifies the run this step belongs to, for logging and correlation. */
   runId: string;
+  /**
+   * What started this run: who it acts as, what it was given, and the app's own
+   * context from the event.
+   *
+   * An action that touches anything permissioned needs the actor, and one that
+   * works inside a scope — a base, a mailbox — reads it from the context the
+   * emitter attached. Without this every implementation would have to re-read
+   * the run to find out who it is.
+   */
+  invocation: WorkflowInvocation;
   /**
    * The transaction a transactional action runs in.
    *

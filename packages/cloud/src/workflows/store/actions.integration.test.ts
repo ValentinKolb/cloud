@@ -369,6 +369,32 @@ describe("declared actions", () => {
     expect((await getWorkflowRun(runId))?.state).toBe("failed");
   });
 
+  test("an action sees who it acts as and what its app attached", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.context");
+
+    const seen: { actor?: unknown; context?: unknown } = {};
+    const actions = {
+      "probe.context": workflowAction.pure({
+        label: "Read",
+        description: "Reads its invocation.",
+        config: CONFIG,
+        run: async (ctx) => {
+          // An action that touches anything permissioned needs the actor, and
+          // one that works inside a base or a mailbox reads that from the
+          // context its app attached to the event.
+          seen.actor = ctx.invocation.actor;
+          seen.context = ctx.invocation.context;
+          return { state: "succeeded", output: null };
+        },
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    expect(seen.actor).toBeDefined();
+    expect(seen.context).toBeDefined();
+  });
+
   test("an action the app never declared is a missing handler, not a crash", async () => {
     if (!(await ready())) return;
     const { runId } = await queued("probe.unknown");
