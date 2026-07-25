@@ -7,6 +7,7 @@ import {
   type DraftAttachment,
   type DraftContentInput,
   type DraftDeliveryClass,
+  type DraftEditableContent,
   type DraftEditableContentInput,
   type DraftIntent,
   type DraftRecoveryCopy,
@@ -14,7 +15,9 @@ import {
   draftEditableContentInputSchema,
   MAX_DRAFT_ATTACHMENT_BYTES,
   type MailAddress,
+  type MailComposeFormat,
   type MailDraft,
+  type MailPriority,
 } from "../contracts";
 import { deriveReplyAddressObjects } from "../reply-recipients";
 import { requireMailboxPermission } from "./access";
@@ -60,6 +63,9 @@ type DbDraft = {
   subject: string;
   body_markdown: string;
   body_format: MailDraft["format"];
+  priority: MailPriority;
+  request_delivery_receipt: boolean;
+  request_read_receipt: boolean;
   delivery_class: DraftDeliveryClass;
   revision: string | number;
   state: MailDraft["state"];
@@ -73,7 +79,7 @@ type DbRecoveryCopy = {
   id: string;
   draft_id: string;
   base_revision: string | number;
-  content: DraftEditableContentInput | string;
+  content: DraftEditableContent | string;
   creator_kind: DraftActor["kind"];
   creator_id: string | null;
   has_attachment_snapshot: boolean;
@@ -111,6 +117,9 @@ const draftColumns = sql`
   d.subject,
   d.body_markdown,
   d.body_format,
+  d.priority,
+  d.request_delivery_receipt,
+  d.request_read_receipt,
   d.delivery_class,
   d.revision,
   d.state,
@@ -190,6 +199,9 @@ const mapDraft = (row: DbDraft): MailDraft => ({
   subject: row.subject,
   body: row.body_markdown,
   format: row.body_format,
+  priority: row.priority,
+  requestDeliveryReceipt: row.request_delivery_receipt,
+  requestReadReceipt: row.request_read_receipt,
   attachments: parseArray(row.attachments),
   createdBy: actorFromColumns(row.author_kind, row.author_id),
   lastEditedBy: actorFromColumns(row.last_editor_kind, row.last_editor_id),
@@ -216,9 +228,31 @@ const validateIdentity = async (params: {
   mailboxId: string;
   senderIdentityId: string;
   db: typeof sql;
-}): Promise<Result<{ defaultCc: MailAddress[] }>> => {
-  const [identity] = await params.db<{ default_cc: MailAddress[] | string }[]>`
-    SELECT default_cc
+}): Promise<
+  Result<{
+    defaultCc: MailAddress[];
+    defaultBcc: MailAddress[];
+    defaultFormat: MailComposeFormat;
+    defaultPriority: MailPriority;
+    defaultDeliveryReceipt: boolean;
+    defaultReadReceipt: boolean;
+  }>
+> => {
+  const [identity] = await params.db<{
+    default_cc: MailAddress[] | string;
+    default_bcc: MailAddress[] | string;
+    default_format: MailComposeFormat;
+    default_priority: MailPriority;
+    default_delivery_receipt: boolean;
+    default_read_receipt: boolean;
+  }[]>`
+    SELECT
+      default_cc,
+      default_bcc,
+      default_format,
+      default_priority,
+      default_delivery_receipt,
+      default_read_receipt
     FROM mail.sender_identities
     WHERE id = ${params.senderIdentityId}::uuid
       AND mailbox_id = ${params.mailboxId}::uuid
@@ -228,6 +262,11 @@ const validateIdentity = async (params: {
   if (!identity) return fail(err.badInput("A verified sender identity is required"));
   return ok({
     defaultCc: typeof identity.default_cc === "string" ? (JSON.parse(identity.default_cc) as MailAddress[]) : identity.default_cc,
+    defaultBcc: typeof identity.default_bcc === "string" ? (JSON.parse(identity.default_bcc) as MailAddress[]) : identity.default_bcc,
+    defaultFormat: identity.default_format,
+    defaultPriority: identity.default_priority,
+    defaultDeliveryReceipt: identity.default_delivery_receipt,
+    defaultReadReceipt: identity.default_read_receipt,
   });
 };
 
@@ -240,6 +279,25 @@ const mergeDefaultCc = (params: {
   const blocked = new Set([...params.to, ...params.bcc].map((recipient) => recipient.address.trim().toLowerCase()));
   const merged = new Map<string, MailAddress>();
   for (const recipient of [...params.cc, ...params.defaultCc]) {
+    const key = recipient.address.trim().toLowerCase();
+    if (blocked.has(key) || merged.has(key)) continue;
+    merged.set(key, {
+      ...(recipient.name?.trim() ? { name: recipient.name.trim() } : {}),
+      address: key,
+    });
+  }
+  return [...merged.values()];
+};
+
+const mergeDefaultBcc = (params: {
+  to: MailAddress[];
+  cc: MailAddress[];
+  bcc: MailAddress[];
+  defaultBcc: MailAddress[];
+}): MailAddress[] => {
+  const blocked = new Set([...params.to, ...params.cc].map((recipient) => recipient.address.trim().toLowerCase()));
+  const merged = new Map<string, MailAddress>();
+  for (const recipient of [...params.bcc, ...params.defaultBcc]) {
     const key = recipient.address.trim().toLowerCase();
     if (blocked.has(key) || merged.has(key)) continue;
     merged.set(key, {
@@ -379,7 +437,7 @@ const storeRecoveryCopy = async (params: {
   db: typeof sql;
   draftId: string;
   baseRevision: number;
-  content: DraftEditableContentInput;
+  content: DraftEditableContent;
   actor: MutableActor;
 }): Promise<void> => {
   const contentHash = sha256Json(params.content);
@@ -453,17 +511,28 @@ export const createDraft = async (params: {
           : ok({ to: parsed.data.to, cc: parsed.data.cc });
       if (!initialRecipients.ok) return initialRecipients;
       const initialBody = defaultSignature ? [parsed.data.body.trimEnd(), defaultSignature].filter(Boolean).join("\n\n") : parsed.data.body;
+      const initialCc = mergeDefaultCc({
+        to: initialRecipients.data.to,
+        cc: initialRecipients.data.cc,
+        bcc: parsed.data.bcc,
+        defaultCc: identity.data.defaultCc,
+      });
       const initialContent = draftContentInputSchema.safeParse({
         ...parsed.data,
         to: initialRecipients.data.to,
-        cc: mergeDefaultCc({
+        cc: initialCc,
+        bcc: mergeDefaultBcc({
           to: initialRecipients.data.to,
-          cc: initialRecipients.data.cc,
+          cc: initialCc,
           bcc: parsed.data.bcc,
-          defaultCc: identity.data.defaultCc,
+          defaultBcc: identity.data.defaultBcc,
         }),
         subject: initialSubject,
         body: initialBody,
+        format: parsed.data.format ?? identity.data.defaultFormat,
+        priority: parsed.data.priority ?? identity.data.defaultPriority,
+        requestDeliveryReceipt: parsed.data.requestDeliveryReceipt ?? identity.data.defaultDeliveryReceipt,
+        requestReadReceipt: parsed.data.requestReadReceipt ?? identity.data.defaultReadReceipt,
       });
       if (!initialContent.success) {
         return fail(err.badInput(initialContent.error.issues[0]?.message ?? "Default signature makes the draft too large"));
@@ -472,7 +541,8 @@ export const createDraft = async (params: {
         INSERT INTO mail.drafts AS d (
           mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
           author_kind, author_id, last_editor_kind, last_editor_id,
-          to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format
+          to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format,
+          priority, request_delivery_receipt, request_read_receipt
         ) VALUES (
           ${params.mailboxId}::uuid,
           ${draftContext.data.conversationId}::uuid,
@@ -485,10 +555,13 @@ export const createDraft = async (params: {
           ${actorId(actor)}::uuid,
           ${initialContent.data.to}::jsonb,
           ${initialContent.data.cc}::jsonb,
-          ${parsed.data.bcc}::jsonb,
+          ${initialContent.data.bcc}::jsonb,
           ${initialContent.data.subject},
           ${initialContent.data.body},
-          ${parsed.data.format}
+          ${initialContent.data.format},
+          ${initialContent.data.priority},
+          ${initialContent.data.requestDeliveryReceipt},
+          ${initialContent.data.requestReadReceipt}
         )
         RETURNING ${draftColumns}
       `;
@@ -730,6 +803,9 @@ export const updateDraft = async (params: {
           subject = ${parsed.data.subject},
           body_markdown = ${parsed.data.body},
           body_format = ${parsed.data.format},
+          priority = ${parsed.data.priority},
+          request_delivery_receipt = ${parsed.data.requestDeliveryReceipt},
+          request_read_receipt = ${parsed.data.requestReadReceipt},
           last_editor_kind = ${actor.kind},
           last_editor_id = ${actorId(actor)}::uuid,
           revision = revision + 1
@@ -926,6 +1002,9 @@ export const restoreDraftRecoveryCopy = async (params: {
           subject = ${content.data.subject},
           body_markdown = ${content.data.body},
           body_format = ${content.data.format},
+          priority = ${content.data.priority},
+          request_delivery_receipt = ${content.data.requestDeliveryReceipt},
+          request_read_receipt = ${content.data.requestReadReceipt},
           last_editor_kind = ${actor.kind},
           last_editor_id = ${actorId(actor)}::uuid,
           revision = revision + 1

@@ -38,6 +38,11 @@ import {
   updateSenderIdentity,
   verifySenderIdentity,
 } from "./sender-identities";
+import {
+  deleteSenderIdentityTransport,
+  loadSenderIdentityTransportRuntime,
+  upsertSenderIdentityTransport,
+} from "./sender-identity-transports";
 import { claimFence, commitSyncBatch, executeBindingRediscovery, hydrateMessageBatch } from "./sync-runtime";
 import { createConversationTriageCommands } from "./triage";
 
@@ -367,6 +372,137 @@ suite("mail lifecycle control plane", () => {
       defaultCc: [{ name: "Archive", address: "archive@example.com" }],
       defaultSignatureTemplateId: null,
     });
+  });
+
+  test("fences custom identity transport updates and never exposes credentials", async () => {
+    const identity = await createSenderIdentity({
+      context: adminContext,
+      mailboxId,
+      input: {
+        label: "Custom SMTP",
+        displayName: "Custom SMTP",
+        fromAddress: `custom-smtp-${suffix}@example.com`,
+        defaultCc: [],
+        authenticationPolicy: { automation: "disabled" },
+        isDefault: false,
+      },
+    });
+    expect(identity.ok).toBe(true);
+    if (!identity.ok) return;
+
+    const verifySmtp = spyOn(imapSmtpConnector, "verifySmtp").mockResolvedValue({
+      dsn: true,
+      size: true,
+      maxMessageBytes: 25_000_000,
+    });
+    try {
+      const created = await upsertSenderIdentityTransport({
+        context: adminContext,
+        mailboxId,
+        senderIdentityId: identity.data.id,
+        input: {
+          expectedRevision: 0,
+          host: "smtp-a.example.com",
+          port: 587,
+          tlsMode: "starttls",
+          username: "smtp-user",
+          secret: { kind: "password", password: "smtp-secret-a" },
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      expect(created.data).toMatchObject({
+        mode: "custom",
+        host: "smtp-a.example.com",
+        revision: 1,
+        secret: { kind: "password", isSet: true },
+        capabilities: { dsn: true },
+      });
+      expect(JSON.stringify(created.data)).not.toContain("smtp-secret-a");
+
+      const stale = await upsertSenderIdentityTransport({
+        context: adminContext,
+        mailboxId,
+        senderIdentityId: identity.data.id,
+        input: {
+          expectedRevision: 0,
+          host: "smtp-stale.example.com",
+          port: 587,
+          tlsMode: "starttls",
+          username: "smtp-user",
+        },
+      });
+      expect(stale).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+
+      const updated = await upsertSenderIdentityTransport({
+        context: adminContext,
+        mailboxId,
+        senderIdentityId: identity.data.id,
+        input: {
+          expectedRevision: 1,
+          host: "smtp-b.example.com",
+          port: 465,
+          tlsMode: "implicit",
+          username: "smtp-user",
+        },
+      });
+      expect(updated.ok).toBe(true);
+      if (!updated.ok) return;
+      expect(updated.data).toMatchObject({ host: "smtp-b.example.com", port: 465, revision: 2 });
+
+      expect(
+        await loadSenderIdentityTransportRuntime({
+          mailboxId,
+          senderIdentityId: identity.data.id,
+          expectedRevision: 1,
+        }),
+      ).toBeNull();
+      const runtime = await loadSenderIdentityTransportRuntime({
+        mailboxId,
+        senderIdentityId: identity.data.id,
+        expectedRevision: 2,
+      });
+      expect(runtime).toMatchObject({
+        revision: 2,
+        runtime: {
+          username: "smtp-user",
+          smtp: { host: "smtp-b.example.com", port: 465, tlsMode: "implicit" },
+          secret: { kind: "password", password: "smtp-secret-a" },
+        },
+      });
+
+      const forbidden = await upsertSenderIdentityTransport({
+        context: collaboratorContext,
+        mailboxId,
+        senderIdentityId: identity.data.id,
+        input: {
+          expectedRevision: 2,
+          host: "smtp-c.example.com",
+          port: 587,
+          tlsMode: "starttls",
+          username: "smtp-user",
+        },
+      });
+      expect(forbidden).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+
+      expect(
+        await deleteSenderIdentityTransport({
+          context: adminContext,
+          mailboxId,
+          senderIdentityId: identity.data.id,
+          expectedRevision: 1,
+        }),
+      ).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+      const removed = await deleteSenderIdentityTransport({
+        context: adminContext,
+        mailboxId,
+        senderIdentityId: identity.data.id,
+        expectedRevision: 2,
+      });
+      expect(removed).toMatchObject({ ok: true, data: { mode: "mailbox", revision: 0 } });
+    } finally {
+      verifySmtp.mockRestore();
+    }
   });
 
   test("rejects an unavailable default signature without creating a partial identity", async () => {

@@ -152,6 +152,11 @@ cld --json mail identity add \
   --address support@example.com \
   --name "Support" \
   --default-cc archive@example.com \
+  --default-bcc compliance@example.com \
+  --format markdown \
+  --priority normal \
+  --delivery-receipt off \
+  --read-receipt off \
   --default-signature <template-id> \
   --default
 cld --json mail identity verify <identity-id> <binding-id> --recipient support@example.com
@@ -160,11 +165,26 @@ cld --json mail identity configure \
   --label "University support" \
   --reply-to helpdesk@example.com \
   --default-cc teamlead@example.com
+cld --json mail identity configure <identity-id> --vcard-file ./support.vcf
 cld --json mail identity list
 cld --json mail identity disable <identity-id> --yes
 ```
 
-The identity label is internal. Recipients see the display name and From address. Multiple identities may use the same From address while keeping separate Reply-to, default Cc, signature, folder mappings, and verification. Default Cc applies only when a person creates a draft; workflows and automatic replies keep their recipients explicit.
+The identity label is internal. Recipients see the display name and From address. Multiple identities may use the same From address while keeping separate Reply-to, default Cc/Bcc, format, priority, receipt requests, contact card, signature, transport, folder mappings, and verification. Recipient defaults apply only when a person creates a draft; workflows and automatic replies keep their recipients explicit. `--clear-vcard`, `--clear-default-bcc`, and the other `--clear-*` flags remove optional defaults.
+
+An identity normally uses the mailbox SMTP connection. Configure a separate verified SMTP server only when that identity must submit through another account:
+
+```bash
+cld --json mail identity transport set <identity-id> \
+  --host smtp.example.com \
+  --port 587 \
+  --tls starttls \
+  --username support@example.com \
+  --secret-stdin
+cld --json mail identity transport remove <identity-id> --yes
+```
+
+Credentials are encrypted and never returned by the API or CLI. The command reads the current transport revision and fails on a concurrent change instead of overwriting it. A queued send remains pinned to the verified transport revision it selected.
 
 Read [Mail operations](mail-operations.md) before replacing or revoking credentials, repairing projections, or changing remote folders.
 

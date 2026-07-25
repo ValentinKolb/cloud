@@ -77,3 +77,13 @@ Scheduled messages appear under **Scheduled** with recipients, content preview, 
 - discard it.
 
 After successful delivery, the message becomes normal sent mail. Scheduled delivery and Undo Send require an active mailbox transport. Pausing the mailbox stops queued delivery until an administrator resumes it.
+
+## Choose priority and receipt requests {icon="mail-cog"}
+
+Open **Delivery options** in the composer to change the selected identity's defaults for this draft:
+
+- **Priority** adds standard high- or low-importance headers. The recipient's mail client decides whether and how to show them.
+- **Delivery receipt** asks the SMTP server for a delivery-status report. The option is available only when the selected sending server advertises support.
+- **Read receipt** asks the recipient's mail client to report a disposition. Recipients and organizations can ignore or refuse the request.
+
+Mail records received reports in conversation activity. A delivery report describes what a mail server reported; a read report describes what a mail client reported. Neither is proof that a person read, understood, or acted on the message.

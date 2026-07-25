@@ -55,13 +55,23 @@ Removing the connection disconnects transport. It does not delete provider mail 
 
 **Settings > Delivery > Sending identities** controls the sending contexts available to collaborators. Use separate identities when the same address needs different defaults for roles such as private mail, university work, or a business.
 
-The **Identity label** is visible only inside the mailbox. Recipients see the **Display name** and **From address**. Each identity can also define a Reply-to address, default Cc recipients, default signature, Sent folder, Drafts folder, and whether it is the default.
+The **Identity label** is visible only inside the mailbox. Recipients see the **Display name** and **From address**. Each identity can also define Reply-to, default Cc and Bcc recipients, message format, priority, receipt requests, a default signature, a contact card, Sent and Drafts folders, and whether it is the default.
 
-**Advanced delivery** contains provider-specific settings that most people should leave unchanged. The optional **Return-path address** receives technical delivery failures and bounce reports. Leave it empty unless your mail provider explicitly requires a separate address.
+**Advanced delivery** contains provider-specific settings that most people should leave unchanged. The optional **Return-path address** receives technical delivery failures and bounce reports. Leave it empty unless your mail provider explicitly requires a separate address. A contact card is attached as a `.vcf` file to messages sent with the identity.
 
-Default Cc recipients are added when a person starts a new message, reply, or forward with that identity. They are not added to automatic replies or workflow messages, and the writer can remove them before sending. A mailbox signature is inserted only when a new message is created; changing the identity later does not rewrite an edited draft. A personal signature override takes precedence.
+Default Cc and Bcc recipients are added when a person starts a new message, reply, or forward with that identity. Duplicates and addresses already present in To, Cc, or Bcc are removed. These defaults are not added to automatic replies or workflow messages, and the writer can remove them before sending. A mailbox signature is inserted only when a new message is created; changing the identity later does not rewrite an edited draft. A personal signature override takes precedence.
 
-Two identities may deliberately share the same From address. Mail keeps their labels, Cc recipients, signatures, Reply-to values, folder mappings, and verification states separate. When a reply matches exactly one identity, Mail selects it automatically. If several matching identities are equally valid, the writer must choose one explicitly.
+Priority and receipt requests are suggestions to other mail systems:
+
+- **High** or **Low priority** adds standard importance headers. A recipient's client decides how to display them.
+- **Delivery receipt** asks the sending server for a delivery-status report. It is available only when the selected SMTP transport advertises DSN support.
+- **Read receipt** asks the recipient's mail client for a disposition notification. The recipient or their organization can ignore or refuse it.
+
+Received reports appear in conversation activity as reported outcomes. They are useful operational evidence, not proof that a person read or acted on a message.
+
+An identity normally uses the mailbox SMTP server. Configure **Custom SMTP server** only when the From address must use a different authenticated submission server. The custom credential is encrypted and write-only. Mail verifies the server before saving it and keeps scheduled sends pinned to the verified transport revision; changing or removing that transport cannot silently reroute an already queued message.
+
+Two identities may deliberately share the same From address. Mail keeps their labels, recipient defaults, signatures, Reply-to values, delivery options, transports, folder mappings, and verification states separate. When a reply matches exactly one identity, Mail selects it automatically. If several matching identities are equally valid, the writer must choose one explicitly.
 
 Verify every identity by choosing the connected account and a recipient for a real verification message. **Ready to send** means that the provider accepted this test with the identity's exact From address and advanced delivery settings. IMAP folder access alone does not prove that the provider permits those sending settings.
 

@@ -202,6 +202,9 @@ cld --json mail send \
   --subject "Message subject" \
   --body-file body.md \
   --format markdown \
+  --priority high \
+  --delivery-receipt on \
+  --read-receipt off \
   --attach ./invoice.pdf \
   --undo 0 \
   --idempotency-key support-message-42 \
@@ -210,6 +213,8 @@ cld --json mail send \
 ```
 
 Use a stable `--idempotency-key` whenever automation may retry the same send. Reusing a key with different content fails instead of sending a different message under the same operation.
+
+Priority and receipt flags are frozen into the draft and outbox snapshot. Delivery receipts require DSN support from the selected SMTP transport. Read receipts are only requests; recipients may ignore them. Received reports appear in conversation activity and should be treated as reported outcomes, not proof of human attention.
 
 Set `--conversation <conversation-id>`, the matching `--intent`, and `--source-message <message-id>` when replying or forwarding so Mail adds the correct `In-Reply-To` and `References` headers. Use `--include-source-attachments` only for a forward whose source attachments should be copied.
 

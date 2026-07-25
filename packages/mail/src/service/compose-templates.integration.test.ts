@@ -219,7 +219,17 @@ suite("mail compose templates", () => {
         defaultCc: [
           { name: "Archive", address: "archive@example.test" },
           { name: null, address: "reader@example.test" },
+          { name: "Cross-field duplicate", address: "duplicate@example.test" },
         ],
+        defaultBcc: [
+          { name: "Compliance", address: "compliance@example.test" },
+          { name: null, address: "reader@example.test" },
+          { name: "Hidden duplicate", address: "duplicate@example.test" },
+        ],
+        defaultFormat: "plain",
+        defaultPriority: "high",
+        defaultDeliveryReceipt: true,
+        defaultReadReceipt: true,
         defaultSignatureTemplateId: mailboxSignature.data.id,
       },
     });
@@ -240,7 +250,6 @@ suite("mail compose templates", () => {
         bcc: [],
         subject: "Hello",
         body: "Message body",
-        format: "markdown",
       },
     });
     expect(draft.ok).toBe(true);
@@ -248,7 +257,15 @@ suite("mail compose templates", () => {
     const signatureSource = markComposeTemplateSegment("Regards,\n{{ actor.display_name }}");
     expect(draft.data.body).toBe(`Message body\n\n${signatureSource}`);
     expect(draft.data.initialSignatureSource).toBe(signatureSource);
-    expect(draft.data.cc).toEqual([{ name: "Archive", address: "archive@example.test" }]);
+    expect(draft.data.cc).toEqual([
+      { name: "Archive", address: "archive@example.test" },
+      { name: "Cross-field duplicate", address: "duplicate@example.test" },
+    ]);
+    expect(draft.data.bcc).toEqual([{ name: "Compliance", address: "compliance@example.test" }]);
+    expect(draft.data.format).toBe("plain");
+    expect(draft.data.priority).toBe("high");
+    expect(draft.data.requestDeliveryReceipt).toBe(true);
+    expect(draft.data.requestReadReceipt).toBe(true);
 
     const collaboratorDraft = await createDraft({
       context: collaborator,
@@ -263,7 +280,6 @@ suite("mail compose templates", () => {
         bcc: [],
         subject: "Team hello",
         body: "Shared message body",
-        format: "markdown",
       },
     });
     expect(collaboratorDraft.ok).toBe(true);
@@ -271,7 +287,15 @@ suite("mail compose templates", () => {
     const mailboxSignatureSource = markComposeTemplateSegment("Team regards,\n{{ actor.display_name }}");
     expect(collaboratorDraft.data.body).toBe(`Shared message body\n\n${mailboxSignatureSource}`);
     expect(collaboratorDraft.data.initialSignatureSource).toBe(mailboxSignatureSource);
-    expect(collaboratorDraft.data.cc).toEqual([{ name: "Archive", address: "archive@example.test" }]);
+    expect(collaboratorDraft.data.cc).toEqual([
+      { name: "Archive", address: "archive@example.test" },
+      { name: "Cross-field duplicate", address: "duplicate@example.test" },
+    ]);
+    expect(collaboratorDraft.data.bcc).toEqual([{ name: "Compliance", address: "compliance@example.test" }]);
+    expect(collaboratorDraft.data.format).toBe("plain");
+    expect(collaboratorDraft.data.priority).toBe("high");
+    expect(collaboratorDraft.data.requestDeliveryReceipt).toBe(true);
+    expect(collaboratorDraft.data.requestReadReceipt).toBe(true);
   });
 
   test("resolves snippets immediately and signatures only through preview", async () => {

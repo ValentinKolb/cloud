@@ -14,6 +14,7 @@ import { remoteMessagePreconditionSchema } from "../contracts";
 import { rediscoverProviderBinding } from "./bindings";
 import { commandStillAuthorized } from "./command-authorization";
 import { imapSmtpConnector, type RemoteMessageState, type RemoteMutationTarget } from "./connectors";
+import type { SmtpConnectionConfig } from "./connectors/contract";
 import { deriveConversationWorkState } from "./conversation-work-state";
 import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
@@ -34,6 +35,7 @@ import {
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
+import { loadSenderIdentityTransportRuntime } from "./sender-identity-transports";
 
 const log = logger("mail:commands");
 const STALE_EXECUTION_MINUTES = 10;
@@ -536,7 +538,11 @@ const noLeaseAssertion: LeaseAssertion = async () => undefined;
 const providerEffectPermission = (kind: DbCommandExecution["kind"]): "write" | "admin" =>
   ["create_folder", "rename_folder", "delete_folder", "set_folder_subscription"].includes(kind) ? "admin" : "write";
 
-const beginProviderEffect = async (command: DbCommandExecution, senderIdentityId?: string): Promise<void> =>
+const beginProviderEffect = async (
+  command: DbCommandExecution,
+  senderIdentityId?: string,
+  identityTransportRevision?: number | null,
+): Promise<void> =>
   sql.begin(async (tx) => {
     const [mailbox] = await tx<{ id: string }[]>`
       SELECT id
@@ -610,6 +616,23 @@ const beginProviderEffect = async (command: DbCommandExecution, senderIdentityId
         throw Object.assign(new Error("Sender identity authorization was revoked before the provider effect"), {
           code: command.actor_kind === "workflow" ? "AUTOMATION_SENDER_DISABLED" : "SENDER_IDENTITY_UNAVAILABLE",
         });
+      }
+      if (identityTransportRevision !== null && identityTransportRevision !== undefined) {
+        const [transport] = await tx<{ sender_identity_id: string }[]>`
+          SELECT sender_identity_id
+          FROM mail.sender_identity_transports
+          WHERE sender_identity_id = ${senderIdentityId}::uuid
+            AND mailbox_id = ${command.mailbox_id}::uuid
+            AND revision = ${identityTransportRevision}
+            AND status = 'active'
+            AND encrypted_secret IS NOT NULL
+          FOR SHARE
+        `;
+        if (!transport) {
+          throw Object.assign(new Error("The selected identity SMTP transport changed before sending"), {
+            code: "IDENTITY_TRANSPORT_CHANGED",
+          });
+        }
       }
     }
     const requiredPermission = providerEffectPermission(command.kind);
@@ -1578,6 +1601,7 @@ type DbOutboxExecution = {
   command_id: string;
   sender_identity_id: string;
   selected_binding_id: string;
+  selected_identity_transport_revision: number | null;
   stable_message_id: string;
   state: string;
   scheduled_at: Date | string;
@@ -1627,6 +1651,7 @@ const loadOutbox = async (outboxId: string): Promise<{ outbox: DbOutboxExecution
       o.command_id,
       o.sender_identity_id,
       o.selected_binding_id,
+      o.selected_identity_transport_revision,
       o.stable_message_id,
       o.state,
       o.scheduled_at,
@@ -1670,6 +1695,7 @@ const loadOutbox = async (outboxId: string): Promise<{ outbox: DbOutboxExecution
       command_id: row.command_id,
       sender_identity_id: row.sender_identity_id,
       selected_binding_id: row.selected_binding_id,
+      selected_identity_transport_revision: row.selected_identity_transport_revision,
       stable_message_id: row.stable_message_id,
       state: row.state,
       scheduled_at: row.scheduled_at,
@@ -2315,25 +2341,58 @@ const prepareFreshOutbox = async (
   signal: AbortSignal,
 ): Promise<{
   sender: DbSenderBinding;
-  runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
+  mailboxRuntime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
+  sendRuntime: SmtpConnectionConfig;
   mimeBlobId: string;
   mimeByteLength: number;
   snapshot: z.infer<typeof outboundDraftSnapshotSchema>;
   alreadySent: boolean;
 }> => {
   const sender = await loadSenderBinding(command, outbox.sender_identity_id);
-  const runtime = await loadPinnedRuntime(await loadPinnedBinding(command));
+  const mailboxRuntime = await loadPinnedRuntime(await loadPinnedBinding(command));
+  const customTransport =
+    outbox.selected_identity_transport_revision === null
+      ? null
+      : await loadSenderIdentityTransportRuntime({
+          mailboxId: outbox.mailbox_id,
+          senderIdentityId: outbox.sender_identity_id,
+          expectedRevision: outbox.selected_identity_transport_revision,
+        });
+  if (outbox.selected_identity_transport_revision !== null && !customTransport) {
+    throw Object.assign(new Error("The selected identity SMTP transport is no longer available"), {
+      code: "IDENTITY_TRANSPORT_CHANGED",
+    });
+  }
+  const sendRuntime = customTransport?.runtime ?? mailboxRuntime;
   const mime = await ensureMimeBlob(outbox);
-  const limits = await loadBindingProviderLimits(sql, outbox.selected_binding_id);
-  assertProviderMessageSize(
-    mime.byteLength,
-    limits ? activeSmtpMessageLimit(limits) : null,
-  );
+  const providerLimits = await loadBindingProviderLimits(sql, outbox.selected_binding_id);
+  const smtpLimit =
+    customTransport === null
+      ? providerLimits
+        ? activeSmtpMessageLimit(providerLimits)
+        : null
+      : customTransport.capabilities.maxMessageBytes;
+  assertProviderMessageSize(mime.byteLength, smtpLimit);
+  if (mime.snapshot.requestDeliveryReceipt) {
+    const supportsDsn = customTransport?.capabilities.dsn ?? (providerLimits?.smtp.dsn === true);
+    if (!supportsDsn) {
+      throw Object.assign(new Error("Delivery receipts are not supported by the selected SMTP server"), {
+        code: "SMTP_DSN_UNSUPPORTED",
+      });
+    }
+  }
   await assertLeaseActive();
-  const beforeSend = await sentMatches({ runtime, sentPath: sender.sent_path, messageId: outbox.stable_message_id, signal });
+  await beginProviderEffect(command, outbox.sender_identity_id, outbox.selected_identity_transport_revision);
+  const beforeSend = await sentMatches({
+    runtime: mailboxRuntime,
+    sentPath: sender.sent_path,
+    messageId: outbox.stable_message_id,
+    signal,
+  });
   return {
     sender,
-    runtime,
+    mailboxRuntime,
+    sendRuntime,
     mimeBlobId: mime.blobId,
     mimeByteLength: mime.byteLength,
     snapshot: mime.snapshot,
@@ -2404,7 +2463,7 @@ const persistSmtpResult = async (params: {
   const sentStored = await appendSentCopy({
     outbox,
     sender: prepared.sender,
-    runtime: prepared.runtime,
+    runtime: prepared.mailboxRuntime,
     mimeBlobId: prepared.mimeBlobId,
     mimeByteLength: prepared.mimeByteLength,
     assertLeaseActive: params.assertLeaseActive,
@@ -2443,7 +2502,7 @@ const persistSmtpFailure = async (params: {
     return;
   }
   const reconciled = await sentMatches({
-    runtime: prepared.runtime,
+    runtime: prepared.mailboxRuntime,
     sentPath: prepared.sender.sent_path,
     messageId: outbox.stable_message_id,
   }).catch(() => []);
@@ -2492,18 +2551,22 @@ const executeFreshOutbox = async (
 
   await assertLeaseActive();
   try {
-    await beginProviderEffect(command, outbox.sender_identity_id);
+    await beginProviderEffect(command, outbox.sender_identity_id, outbox.selected_identity_transport_revision);
   } catch (error) {
     await finishOutbox({ outbox, command, outboxState: "failed", commandState: "failed", draftState: "draft", error });
     return;
   }
 
   try {
-    const result = await imapSmtpConnector.sendSource(prepared.runtime, {
+    const result = await imapSmtpConnector.sendSource(prepared.sendRuntime, {
       source: createBlobReadable(prepared.mimeBlobId),
       envelopeFrom: prepared.snapshot.useNullEnvelopeSender ? null : (prepared.snapshot.envelopeFrom ?? prepared.snapshot.from.address),
       recipients: outboundRecipients(prepared.snapshot),
       messageId: outbox.stable_message_id,
+      deliveryStatusNotification:
+        prepared.snapshot.requestDeliveryReceipt && prepared.snapshot.receiptAddress
+          ? { id: outbox.id }
+          : undefined,
       signal,
     });
     await assertLeaseActive();

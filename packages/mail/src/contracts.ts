@@ -427,11 +427,13 @@ const availableProviderQuotaSchema = z.object({
 const unavailableProviderMessageLimitSchema = z.object({
   status: z.enum(["unsupported", "unavailable"]),
   maxMessageBytes: z.null(),
+  dsn: z.boolean().default(false),
 });
 
 const availableProviderMessageLimitSchema = z.object({
   status: z.literal("supported"),
   maxMessageBytes: z.number().int().positive().nullable(),
+  dsn: z.boolean().default(false),
 });
 
 export const providerLimitSnapshotSchema = z.object({
@@ -456,7 +458,7 @@ export const unavailableProviderLimitSnapshot = (
 ): ProviderLimitSnapshot => ({
   checkedAt,
   imap: { status: "unavailable", storage: null, messages: null },
-  smtp: { status: "unavailable", maxMessageBytes: null },
+  smtp: { status: "unavailable", maxMessageBytes: null, dsn: false },
 });
 
 export const parseProviderLimitSnapshot = (
@@ -2426,6 +2428,48 @@ export const mailAddressSchema = z.object({
 });
 export type MailAddress = z.infer<typeof mailAddressSchema>;
 
+export const mailPrioritySchema = z.enum(["low", "normal", "high"]);
+export type MailPriority = z.infer<typeof mailPrioritySchema>;
+
+export const mailComposeFormatSchema = z.enum(["plain", "markdown"]);
+export type MailComposeFormat = z.infer<typeof mailComposeFormatSchema>;
+
+const senderIdentityVcardSchema = z
+  .string()
+  .max(256 * 1024)
+  .refine(
+    (value) => {
+      const normalized = value.replaceAll("\r\n", "\n").trim();
+      return !normalized.includes("\0") && normalized.startsWith("BEGIN:VCARD\n") && normalized.endsWith("\nEND:VCARD");
+    },
+    "vCard must contain a complete BEGIN:VCARD ... END:VCARD document",
+  );
+
+export const smtpTransportCapabilitiesSchema = z.object({
+  dsn: z.boolean(),
+  size: z.boolean(),
+  maxMessageBytes: z.number().int().positive().nullable(),
+});
+export type SmtpTransportCapabilities = z.infer<typeof smtpTransportCapabilitiesSchema>;
+
+export const senderIdentityTransportSchema = z.object({
+  mode: z.enum(["mailbox", "custom"]),
+  host: z.string().nullable(),
+  port: z.number().int().min(1).max(65_535).nullable(),
+  tlsMode: tlsModeSchema.nullable(),
+  username: z.string().nullable(),
+  secret: z.object({
+    kind: z.enum(["password", "oauth2"]).nullable(),
+    isSet: z.boolean(),
+  }),
+  revision: z.number().int().nonnegative(),
+  status: z.enum(["active", "degraded", "revoked"]),
+  capabilities: smtpTransportCapabilitiesSchema,
+  lastVerifiedAt: z.string().datetime().nullable(),
+  lastError: z.string().nullable(),
+});
+export type SenderIdentityTransport = z.infer<typeof senderIdentityTransportSchema>;
+
 export const senderIdentitySchema = z.object({
   id: z.string().uuid(),
   mailboxId: z.string().uuid(),
@@ -2434,8 +2478,15 @@ export const senderIdentitySchema = z.object({
   fromAddress: z.string().email(),
   replyTo: z.string().email().nullable(),
   defaultCc: z.array(mailAddressSchema),
+  defaultBcc: z.array(mailAddressSchema),
+  defaultFormat: mailComposeFormatSchema,
+  defaultPriority: mailPrioritySchema,
+  defaultDeliveryReceipt: z.boolean(),
+  defaultReadReceipt: z.boolean(),
+  vcard: senderIdentityVcardSchema.nullable(),
   envelopeSender: z.string().email().nullable(),
   defaultSignatureTemplateId: z.string().uuid().nullable(),
+  transport: senderIdentityTransportSchema,
   authenticationPolicy: senderAuthenticationPolicySchema,
   sentFolderId: z.string().uuid().nullable(),
   draftsFolderId: z.string().uuid().nullable(),
@@ -2452,6 +2503,12 @@ export const createSenderIdentityInputSchema = z.object({
   fromAddress: z.string().email().max(320),
   replyTo: z.string().email().max(320).nullable().optional(),
   defaultCc: z.array(mailAddressSchema).max(50).default([]),
+  defaultBcc: z.array(mailAddressSchema).max(50).default([]),
+  defaultFormat: mailComposeFormatSchema.default("markdown"),
+  defaultPriority: mailPrioritySchema.default("normal"),
+  defaultDeliveryReceipt: z.boolean().default(false),
+  defaultReadReceipt: z.boolean().default(false),
+  vcard: senderIdentityVcardSchema.nullable().optional(),
   envelopeSender: z.string().email().max(320).nullable().optional(),
   defaultSignatureTemplateId: z.string().uuid().nullable().optional(),
   authenticationPolicy: senderAuthenticationPolicySchema.default({
@@ -2461,7 +2518,7 @@ export const createSenderIdentityInputSchema = z.object({
   draftsFolderId: z.string().uuid().nullable().optional(),
   isDefault: z.boolean().optional(),
 });
-export type CreateSenderIdentityInput = z.infer<
+export type CreateSenderIdentityInput = z.input<
   typeof createSenderIdentityInputSchema
 >;
 
@@ -2472,6 +2529,7 @@ export const updateSenderIdentityInputSchema = createSenderIdentityInputSchema
     displayName: z.string().trim().max(200).optional(),
     fromAddress: z.string().email().max(320).optional(),
     defaultCc: z.array(mailAddressSchema).max(50).optional(),
+    defaultBcc: z.array(mailAddressSchema).max(50).optional(),
     authenticationPolicy: senderAuthenticationPolicySchema.optional(),
   })
   .partial()
@@ -2482,6 +2540,31 @@ export const updateSenderIdentityInputSchema = createSenderIdentityInputSchema
 export type UpdateSenderIdentityInput = z.infer<
   typeof updateSenderIdentityInputSchema
 >;
+
+export const senderIdentityTransportInputSchema = z
+  .object({
+    host: z.string().trim().min(1).max(253),
+    port: z.number().int().min(1).max(65_535),
+    tlsMode: tlsModeSchema,
+    username: z.string().trim().min(1).max(320),
+    secret: providerSecretSchema,
+  })
+  .strict();
+export type SenderIdentityTransportInput = z.infer<typeof senderIdentityTransportInputSchema>;
+
+export const updateSenderIdentityTransportInputSchema = senderIdentityTransportInputSchema
+  .omit({ secret: true })
+  .extend({
+    expectedRevision: z.number().int().nonnegative(),
+    secret: providerSecretSchema.optional(),
+  })
+  .strict();
+export type UpdateSenderIdentityTransportInput = z.infer<typeof updateSenderIdentityTransportInputSchema>;
+
+export const deleteSenderIdentityTransportInputSchema = z
+  .object({ expectedRevision: z.number().int().positive() })
+  .strict();
+export type DeleteSenderIdentityTransportInput = z.infer<typeof deleteSenderIdentityTransportInputSchema>;
 
 export const defaultSenderSetupInputSchema = z.object({
   bindingId: z.string().uuid(),
@@ -2528,7 +2611,10 @@ export const draftSchema = z.object({
   bcc: z.array(mailAddressSchema),
   subject: z.string(),
   body: z.string(),
-  format: z.enum(["plain", "markdown"]),
+  format: mailComposeFormatSchema,
+  priority: mailPrioritySchema,
+  requestDeliveryReceipt: z.boolean(),
+  requestReadReceipt: z.boolean(),
   attachments: z.array(draftAttachmentSchema),
   createdBy: draftActorRefSchema,
   lastEditedBy: draftActorRefSchema,
@@ -2613,19 +2699,34 @@ export const draftEditableContentInputSchema = z
       .string()
       .max(2 * 1024 * 1024)
       .default(""),
-    format: z.enum(["plain", "markdown"]).default("markdown"),
+    format: mailComposeFormatSchema.default("markdown"),
+    priority: mailPrioritySchema.default("normal"),
+    requestDeliveryReceipt: z.boolean().default(false),
+    requestReadReceipt: z.boolean().default(false),
   })
   .strict();
-export type DraftEditableContentInput = z.infer<
+export type DraftEditableContentInput = z.input<
   typeof draftEditableContentInputSchema
 >;
+export type DraftEditableContent = z.output<typeof draftEditableContentInputSchema>;
 
-export const draftContentInputSchema = draftEditableContentInputSchema.extend({
-  conversationId: z.string().uuid().nullable().optional(),
-  intent: draftIntentSchema.optional(),
-  sourceMessageId: z.string().uuid().nullable().optional(),
-  includeSourceAttachments: z.boolean().optional(),
-});
+export const draftContentInputSchema = draftEditableContentInputSchema
+  .omit({
+    format: true,
+    priority: true,
+    requestDeliveryReceipt: true,
+    requestReadReceipt: true,
+  })
+  .extend({
+    format: mailComposeFormatSchema.optional(),
+    priority: mailPrioritySchema.optional(),
+    requestDeliveryReceipt: z.boolean().optional(),
+    requestReadReceipt: z.boolean().optional(),
+    conversationId: z.string().uuid().nullable().optional(),
+    intent: draftIntentSchema.optional(),
+    sourceMessageId: z.string().uuid().nullable().optional(),
+    includeSourceAttachments: z.boolean().optional(),
+  });
 export type DraftContentInput = z.infer<typeof draftContentInputSchema>;
 
 export const composePreviewInputSchema = z
@@ -2634,7 +2735,7 @@ export const composePreviewInputSchema = z
     conversationId: z.string().uuid().nullable().default(null),
   })
   .strict();
-export type ComposePreviewInput = z.infer<typeof composePreviewInputSchema>;
+export type ComposePreviewInput = z.input<typeof composePreviewInputSchema>;
 
 export const composePreviewSchema = z.object({
   html: z.string(),
@@ -2649,7 +2750,7 @@ export const renderComposeSnippetInputSchema = z
     conversationId: z.string().uuid().nullable().default(null),
   })
   .strict();
-export type RenderComposeSnippetInput = z.infer<
+export type RenderComposeSnippetInput = z.input<
   typeof renderComposeSnippetInputSchema
 >;
 
@@ -2660,7 +2761,7 @@ export const composeSuggestionsInputSchema = z
     conversationId: z.string().uuid().nullable().default(null),
   })
   .strict();
-export type ComposeSuggestionsInput = z.infer<
+export type ComposeSuggestionsInput = z.input<
   typeof composeSuggestionsInputSchema
 >;
 

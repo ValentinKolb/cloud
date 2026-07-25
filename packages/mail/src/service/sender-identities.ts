@@ -7,7 +7,12 @@ import {
   type DefaultSenderSetupInput,
   defaultSenderSetupInputSchema,
   type MailAddress,
+  type MailComposeFormat,
+  type MailPriority,
+  parseProviderLimitSnapshot,
+  smtpTransportCapabilitiesSchema,
   type SenderIdentity,
+  type SmtpTransportCapabilities,
   type UpdateSenderIdentityInput,
   updateSenderIdentityInputSchema,
 } from "../contracts";
@@ -26,6 +31,12 @@ type DbIdentity = {
   from_address: string;
   reply_to: string | null;
   default_cc: MailAddress[] | string;
+  default_bcc: MailAddress[] | string;
+  default_format: MailComposeFormat;
+  default_priority: MailPriority;
+  default_delivery_receipt: boolean;
+  default_read_receipt: boolean;
+  vcard: string | null;
   envelope_sender: string | null;
   default_signature_template_id: string | null;
   automation_policy: "disabled" | "mailbox";
@@ -33,6 +44,18 @@ type DbIdentity = {
   drafts_folder_id: string | null;
   is_default: boolean;
   status: SenderIdentity["status"];
+  transport_host: string | null;
+  transport_port: number | null;
+  transport_tls_mode: "implicit" | "starttls" | null;
+  transport_username: string | null;
+  transport_secret_kind: "password" | "oauth2" | null;
+  transport_secret_is_set: boolean;
+  transport_revision: number | null;
+  transport_status: "active" | "degraded" | "revoked" | null;
+  transport_capabilities: SmtpTransportCapabilities | string | null;
+  transport_last_verified_at: Date | string | null;
+  transport_last_error_message: string | null;
+  mailbox_limit_snapshot: unknown;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -55,6 +78,12 @@ const identityColumns = sql`
   si.from_address,
   si.reply_to,
   si.default_cc,
+  si.default_bcc,
+  si.default_format,
+  si.default_priority,
+  si.default_delivery_receipt,
+  si.default_read_receipt,
+  si.vcard,
   si.envelope_sender,
   (
     SELECT signature_default.template_id
@@ -68,9 +97,46 @@ const identityColumns = sql`
   si.drafts_folder_id,
   si.is_default,
   si.status,
+  (SELECT transport.host FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_host,
+  (SELECT transport.port FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_port,
+  (SELECT transport.tls_mode FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_tls_mode,
+  (SELECT transport.username FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_username,
+  (SELECT transport.secret_kind FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_secret_kind,
+  COALESCE((SELECT transport.encrypted_secret IS NOT NULL FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id), false) AS transport_secret_is_set,
+  (SELECT transport.revision FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_revision,
+  (SELECT transport.status FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_status,
+  (SELECT transport.capabilities FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_capabilities,
+  (SELECT transport.last_verified_at FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_last_verified_at,
+  (SELECT transport.last_error_message FROM mail.sender_identity_transports transport WHERE transport.sender_identity_id = si.id) AS transport_last_error_message,
+  (
+    SELECT connection.limit_snapshot
+    FROM mail.provider_connections connection
+    WHERE connection.owner_mailbox_id = si.mailbox_id
+      AND connection.status = 'active'
+    LIMIT 1
+  ) AS mailbox_limit_snapshot,
   si.created_at,
   si.updated_at
 `;
+
+const parseTransportCapabilities = (value: DbIdentity["transport_capabilities"]): SmtpTransportCapabilities => {
+  if (!value) return { dsn: false, size: false, maxMessageBytes: null };
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return smtpTransportCapabilitiesSchema.parse(parsed);
+  } catch {
+    return { dsn: false, size: false, maxMessageBytes: null };
+  }
+};
+
+const mailboxTransportCapabilities = (value: unknown): SmtpTransportCapabilities => {
+  const smtp = parseProviderLimitSnapshot(value).smtp;
+  return {
+    dsn: smtp.dsn,
+    size: smtp.status === "supported",
+    maxMessageBytes: smtp.maxMessageBytes,
+  };
+};
 
 const mapIdentity = (row: DbIdentity): SenderIdentity => ({
   id: row.id,
@@ -80,8 +146,46 @@ const mapIdentity = (row: DbIdentity): SenderIdentity => ({
   fromAddress: row.from_address,
   replyTo: row.reply_to,
   defaultCc: typeof row.default_cc === "string" ? (JSON.parse(row.default_cc) as MailAddress[]) : row.default_cc,
+  defaultBcc: typeof row.default_bcc === "string" ? (JSON.parse(row.default_bcc) as MailAddress[]) : row.default_bcc,
+  defaultFormat: row.default_format,
+  defaultPriority: row.default_priority,
+  defaultDeliveryReceipt: row.default_delivery_receipt,
+  defaultReadReceipt: row.default_read_receipt,
+  vcard: row.vcard,
   envelopeSender: row.envelope_sender,
   defaultSignatureTemplateId: row.default_signature_template_id,
+  transport: row.transport_host
+    ? {
+        mode: "custom",
+        host: row.transport_host,
+        port: row.transport_port,
+        tlsMode: row.transport_tls_mode,
+        username: row.transport_username,
+        secret: { kind: row.transport_secret_kind, isSet: row.transport_secret_is_set },
+        revision: row.transport_revision ?? 0,
+        status: row.transport_status ?? "revoked",
+        capabilities: parseTransportCapabilities(row.transport_capabilities),
+        lastVerifiedAt: row.transport_last_verified_at
+          ? (row.transport_last_verified_at instanceof Date
+              ? row.transport_last_verified_at
+              : new Date(row.transport_last_verified_at)
+            ).toISOString()
+          : null,
+        lastError: row.transport_last_error_message,
+      }
+    : {
+        mode: "mailbox",
+        host: null,
+        port: null,
+        tlsMode: null,
+        username: null,
+        secret: { kind: null, isSet: false },
+        revision: 0,
+        status: "active",
+        capabilities: mailboxTransportCapabilities(row.mailbox_limit_snapshot),
+        lastVerifiedAt: null,
+        lastError: null,
+      },
   authenticationPolicy: { automation: row.automation_policy },
   sentFolderId: row.sent_folder_id,
   draftsFolderId: row.drafts_folder_id,
@@ -244,6 +348,12 @@ export const createSenderIdentity = async (params: {
           from_address,
           reply_to,
           default_cc,
+          default_bcc,
+          default_format,
+          default_priority,
+          default_delivery_receipt,
+          default_read_receipt,
+          vcard,
           envelope_sender,
           automation_policy,
           sent_folder_id,
@@ -258,6 +368,12 @@ export const createSenderIdentity = async (params: {
           ${parsed.data.fromAddress.toLowerCase()},
           ${parsed.data.replyTo?.toLowerCase() ?? null},
           ${normalizeAddresses(parsed.data.defaultCc)}::jsonb,
+          ${normalizeAddresses(parsed.data.defaultBcc)}::jsonb,
+          ${parsed.data.defaultFormat},
+          ${parsed.data.defaultPriority},
+          ${parsed.data.defaultDeliveryReceipt},
+          ${parsed.data.defaultReadReceipt},
+          ${parsed.data.vcard ?? null},
           ${parsed.data.envelopeSender?.toLowerCase() ?? null},
           ${parsed.data.authenticationPolicy.automation},
           ${parsed.data.sentFolderId ?? null}::uuid,
@@ -353,6 +469,12 @@ export const updateSenderIdentity = async (params: {
             ? (JSON.parse(current.default_cc) as MailAddress[])
             : current.default_cc
           : normalizeAddresses(parsed.data.defaultCc);
+      const defaultBcc =
+        parsed.data.defaultBcc === undefined
+          ? typeof current.default_bcc === "string"
+            ? (JSON.parse(current.default_bcc) as MailAddress[])
+            : current.default_bcc
+          : normalizeAddresses(parsed.data.defaultBcc);
       const providerRelevantChanged =
         fromAddress !== current.from_address ||
         replyTo !== current.reply_to ||
@@ -389,6 +511,12 @@ export const updateSenderIdentity = async (params: {
           from_address = ${fromAddress},
           reply_to = ${replyTo},
           default_cc = ${defaultCc}::jsonb,
+          default_bcc = ${defaultBcc}::jsonb,
+          default_format = ${parsed.data.defaultFormat ?? current.default_format},
+          default_priority = ${parsed.data.defaultPriority ?? current.default_priority},
+          default_delivery_receipt = ${parsed.data.defaultDeliveryReceipt ?? current.default_delivery_receipt},
+          default_read_receipt = ${parsed.data.defaultReadReceipt ?? current.default_read_receipt},
+          vcard = ${parsed.data.vcard === undefined ? current.vcard : parsed.data.vcard},
           envelope_sender = ${envelopeSender},
           automation_policy = ${nextPolicy.automation},
           sent_folder_id = ${sentFolderId}::uuid,

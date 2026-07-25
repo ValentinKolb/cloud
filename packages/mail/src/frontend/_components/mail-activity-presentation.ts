@@ -10,6 +10,8 @@ const labels: Readonly<Record<string, string>> = {
   "conversation.message_reassigned": "moved a message between conversations",
   "conversation.reference_allocated": "assigned a reference number",
   "conversation.split": "split the conversation",
+  "message.delivery_receipt_received": "received a delivery-status report",
+  "message.read_receipt_received": "received a read-receipt report",
 };
 
 type CollaborationSnapshot = {

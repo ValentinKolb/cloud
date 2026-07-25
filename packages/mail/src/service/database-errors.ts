@@ -3,7 +3,7 @@ type ErrorWriter = (message: string, metadata?: Record<string, unknown>) => void
 export const logDatabaseFailure = (
   write: ErrorWriter,
   operation: string,
-  resource: "provider binding" | "provider connection",
+  resource: "provider binding" | "provider connection" | "sender identity transport",
   error: unknown,
 ): void => {
   const value = error as { code?: unknown; errno?: unknown; constraint?: unknown; constraint_name?: unknown } | null;

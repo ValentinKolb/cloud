@@ -1,8 +1,8 @@
 import { markdown, sanitizeEmailHtml } from "@valentinkolb/cloud/shared";
 import MailComposer from "nodemailer/lib/mail-composer";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import { z } from "zod";
-import { mailAddressSchema } from "../contracts";
+import { mailAddressSchema, mailPrioritySchema } from "../contracts";
 
 const outboundDraftSnapshotBaseSchema = z.object({
   revision: z.number().int().positive(),
@@ -11,6 +11,11 @@ const outboundDraftSnapshotBaseSchema = z.object({
   envelopeFrom: z.string().email().max(320).nullable(),
   useNullEnvelopeSender: z.boolean().default(false),
   automaticReply: z.boolean().default(false),
+  priority: mailPrioritySchema.default("normal"),
+  requestDeliveryReceipt: z.boolean().default(false),
+  requestReadReceipt: z.boolean().default(false),
+  receiptAddress: z.string().email().max(320).nullable().default(null),
+  vcard: z.string().max(256 * 1024).nullable().default(null),
   to: z.array(mailAddressSchema).max(200),
   cc: z.array(mailAddressSchema).max(200),
   bcc: z.array(mailAddressSchema).max(200),
@@ -75,6 +80,35 @@ export const buildMimeStream = (params: {
       : params.snapshot.renderedHtml === undefined
         ? sanitizeEmailHtml(markdown.renderSync(params.snapshot.body))
         : (params.snapshot.renderedHtml ?? undefined);
+  const headers: Record<string, string> = {};
+  if (params.snapshot.automaticReply) {
+    headers["Auto-Submitted"] = "auto-replied";
+    headers["X-Auto-Response-Suppress"] = "All";
+  }
+  if (params.snapshot.priority === "high") {
+    headers.Importance = "high";
+    headers.Priority = "urgent";
+    headers["X-Priority"] = "1";
+  } else if (params.snapshot.priority === "low") {
+    headers.Importance = "low";
+    headers.Priority = "non-urgent";
+    headers["X-Priority"] = "5";
+  }
+  if (params.snapshot.requestReadReceipt && params.snapshot.receiptAddress) {
+    headers["Disposition-Notification-To"] = params.snapshot.receiptAddress;
+  }
+  const attachments = params.snapshot.attachments.map((attachment) => ({
+    filename: attachment.filename,
+    contentType: attachment.contentType,
+    content: params.openAttachment(attachment.blobId),
+  }));
+  if (params.snapshot.vcard) {
+    attachments.push({
+      filename: "contact.vcf",
+      contentType: "text/vcard; charset=utf-8",
+      content: Readable.from(Buffer.from(params.snapshot.vcard, "utf8")),
+    });
+  }
   return new MailComposer({
     from: formatAddress(params.snapshot.from),
     replyTo: params.snapshot.replyTo ?? undefined,
@@ -88,12 +122,8 @@ export const buildMimeStream = (params: {
     date: params.date,
     inReplyTo: params.snapshot.inReplyTo ?? undefined,
     references: params.snapshot.references,
-    headers: params.snapshot.automaticReply ? { "Auto-Submitted": "auto-replied", "X-Auto-Response-Suppress": "All" } : undefined,
-    attachments: params.snapshot.attachments.map((attachment) => ({
-      filename: attachment.filename,
-      contentType: attachment.contentType,
-      content: params.openAttachment(attachment.blobId),
-    })),
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+    attachments,
     disableFileAccess: true,
     disableUrlAccess: true,
   })

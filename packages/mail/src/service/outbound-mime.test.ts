@@ -148,6 +148,40 @@ describe("outbound MIME", () => {
     expect(text).not.toMatch(/^Bcc:/im);
   });
 
+  test("emits frozen priority, MDN, and vCard identity options", async () => {
+    const snapshot = outboundDraftSnapshotSchema.parse({
+      revision: 4,
+      from: { name: "Support", address: "support@example.com" },
+      replyTo: null,
+      envelopeFrom: null,
+      priority: "high",
+      requestReadReceipt: true,
+      receiptAddress: "support@example.com",
+      vcard: "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Support\r\nEMAIL:support@example.com\r\nEND:VCARD",
+      to: [{ name: null, address: "customer@example.com" }],
+      cc: [],
+      bcc: [],
+      subject: "Priority request",
+      body: "Please review.",
+      format: "plain",
+    });
+    const source = await buildMimeSource({
+      snapshot,
+      messageId: "<priority@example.com>",
+      date: new Date("2026-07-25T08:00:00.000Z"),
+    });
+    const raw = source.toString("utf8");
+    const parsed = await simpleParser(source);
+
+    expect(raw).toMatch(/^Importance: high$/im);
+    expect(raw).toMatch(/^Priority: urgent$/im);
+    expect(raw).toMatch(/^X-Priority: 1$/im);
+    expect(raw).toMatch(/^Disposition-Notification-To: support@example.com$/im);
+    expect(parsed.attachments).toHaveLength(1);
+    expect(parsed.attachments[0]?.filename).toBe("contact.vcf");
+    expect(parsed.attachments[0]?.content.toString("utf8")).toContain("EMAIL:support@example.com");
+  });
+
   test("emits plaintext drafts without an HTML alternative", async () => {
     const snapshot = outboundDraftSnapshotSchema.parse({
       revision: 1,

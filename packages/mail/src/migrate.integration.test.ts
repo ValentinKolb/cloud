@@ -7,6 +7,65 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("installs identity delivery options and custom transport fencing once", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        applied_count: string | number;
+        transport_table_present: boolean;
+        receipt_table_present: boolean;
+        outbox_fence_present: boolean;
+        draft_options_present: boolean;
+        identity_options_present: boolean;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT count(*)
+          FROM mail.schema_migrations
+          WHERE version = 88 AND name = 'identity_delivery_options'
+        ) AS applied_count,
+        to_regclass('mail.sender_identity_transports') IS NOT NULL AS transport_table_present,
+        to_regclass('mail.message_receipt_reports') IS NOT NULL AS receipt_table_present,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'outbox_submissions'
+            AND column_name = 'selected_identity_transport_revision'
+        ) AS outbox_fence_present,
+        (
+          SELECT count(*) = 3
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'drafts'
+            AND column_name IN ('priority', 'request_delivery_receipt', 'request_read_receipt')
+        ) AS draft_options_present,
+        (
+          SELECT count(*) = 6
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'sender_identities'
+            AND column_name IN (
+              'default_bcc',
+              'default_format',
+              'default_priority',
+              'default_delivery_receipt',
+              'default_read_receipt',
+              'vcard'
+            )
+        ) AS identity_options_present
+    `;
+    expect({ ...shape, applied_count: Number(shape?.applied_count) }).toEqual({
+      applied_count: 1,
+      transport_table_present: true,
+      receipt_table_present: true,
+      outbox_fence_present: true,
+      draft_options_present: true,
+      identity_options_present: true,
+    });
+  });
+
   test("installs privacy-safe remote image metadata and personal rules once", async () => {
     await migrate();
     await migrate();

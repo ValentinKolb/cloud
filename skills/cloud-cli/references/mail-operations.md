@@ -303,7 +303,7 @@ Do not automatically delete provider mail after the run. The marker keeps test m
 | Area | Commands |
 | --- | --- |
 | Health | `status`, `mailbox wait`, `operator status`, `admin operations` |
-| Providers | `provider discover|list|add|replace|revoke`, `binding list|attach|verify`, `identity list|add|setup-default|configure|verify|disable` |
+| Providers | `provider discover|list|add|replace|revoke`, `binding list|attach|verify`, `identity list|add|setup-default|configure|verify|disable`, `identity transport set|remove` |
 | Maintenance | `sync`, `sync folder`, `rediscover`, `repair folder|hydration`, `operator run` |
 | Storage | `admin storage show|reconcile` |
 | Folders | `folders`, `folder create|rename|delete|subscribe|unsubscribe|show|hide`, `folder role set|clear` |

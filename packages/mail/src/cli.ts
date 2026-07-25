@@ -43,6 +43,7 @@ import {
   type MailCommand,
   type MailConversationContext,
   type MailDraft,
+  type MailPriority,
   type MailingListDispositionResult,
   type MailSearchExpression,
   type MailStorageSummary,
@@ -367,6 +368,16 @@ const attachmentLinkPasswordInput = flag.input({
   stdinName: "password-stdin",
   description: "Optional attachment-link password",
 });
+const senderIdentityVcardInput = flag.input({
+  fileName: "vcard-file",
+  stdinName: "vcard-stdin",
+  description: "Optional vCard document attached to messages from this identity",
+});
+const senderIdentityTransportSecretInput = flag.input({
+  fileName: "secret-file",
+  stdinName: "secret-stdin",
+  description: "SMTP password or OAuth JSON; use stdin/file to avoid shell history",
+});
 
 const rejectInlineSecretInput = (input: Parameters<typeof readCliInput>[0], label: string, alternatives: string): void => {
   if (input.source === "value") {
@@ -514,6 +525,19 @@ const parseAddresses = (values: string[]): Array<{ name: null; address: string }
     address: address.trim().toLowerCase(),
   }));
 
+const readOptionalVcard = async (
+  input: Parameters<typeof readCliInput>[0],
+): Promise<string | undefined> => {
+  const value = await readCliInput(input, {
+    label: "vCard",
+    required: false,
+  });
+  return value === null ? undefined : value;
+};
+
+const receiptSetting = (value: "on" | "off" | undefined): boolean | undefined =>
+  value === undefined ? undefined : value === "on";
+
 const draftEditableContentFlags = {
   identity: flag.string({ required: true, description: "Sender identity id" }),
   to: flag.stringList({ description: "Recipient; repeatable" }),
@@ -526,7 +550,16 @@ const draftEditableContentFlags = {
     stdinName: "body-stdin",
     description: "Plaintext or Markdown body",
   }),
-  format: flag.enum(["plain", "markdown"] as const, { default: "markdown" }),
+  format: flag.enum(["plain", "markdown"] as const),
+  priority: flag.enum(["low", "normal", "high"] as const),
+  deliveryReceipt: flag.enum(["on", "off"] as const, {
+    name: "delivery-receipt",
+    description: "Request a delivery-status notification when the SMTP server supports it",
+  }),
+  readReceipt: flag.enum(["on", "off"] as const, {
+    name: "read-receipt",
+    description: "Request a read receipt; recipients may ignore the request",
+  }),
 };
 
 const composeDraftInputFlag = flag.input({
@@ -562,6 +595,9 @@ const readDraftEditableContent = async (flags: {
   subject?: string;
   body: Parameters<typeof readCliInput>[0];
   format?: "plain" | "markdown";
+  priority?: MailPriority;
+  deliveryReceipt?: "on" | "off";
+  readReceipt?: "on" | "off";
 }) => {
   if (!flags.identity) throw new Error("Missing sender identity.");
   const body = await readCliInput(flags.body, {
@@ -575,7 +611,14 @@ const readDraftEditableContent = async (flags: {
     bcc: parseAddresses(flags.bcc),
     subject: flags.subject ?? "",
     body: body ?? "",
-    format: flags.format ?? "markdown",
+    ...(flags.format !== undefined ? { format: flags.format } : {}),
+    ...(flags.priority !== undefined ? { priority: flags.priority } : {}),
+    ...(flags.deliveryReceipt !== undefined
+      ? { requestDeliveryReceipt: flags.deliveryReceipt === "on" }
+      : {}),
+    ...(flags.readReceipt !== undefined
+      ? { requestReadReceipt: flags.readReceipt === "on" }
+      : {}),
   };
 };
 
@@ -4080,6 +4123,16 @@ export default defineCliCommands({
             address: identity.fromAddress,
             name: identity.displayName,
             defaultCc: identity.defaultCc.map((recipient) => recipient.address).join(", "),
+            defaultBcc: identity.defaultBcc.map((recipient) => recipient.address).join(", "),
+            format: identity.defaultFormat,
+            priority: identity.defaultPriority,
+            receipts: [
+              identity.defaultDeliveryReceipt ? "delivery" : null,
+              identity.defaultReadReceipt ? "read" : null,
+            ]
+              .filter(Boolean)
+              .join(", "),
+            transport: identity.transport.mode,
             status: identity.status,
             automation: identity.authenticationPolicy.automation === "mailbox" ? "enabled" : "disabled",
             default: identity.isDefault ? "yes" : "",
@@ -4090,6 +4143,11 @@ export default defineCliCommands({
             { key: "address", label: "ADDRESS" },
             { key: "name", label: "NAME" },
             { key: "defaultCc", label: "DEFAULT CC" },
+            { key: "defaultBcc", label: "DEFAULT BCC" },
+            { key: "format", label: "FORMAT" },
+            { key: "priority", label: "PRIORITY" },
+            { key: "receipts", label: "RECEIPTS" },
+            { key: "transport", label: "SMTP" },
             { key: "status", label: "STATUS" },
             { key: "automation", label: "AUTOMATIC REPLIES" },
             { key: "default", label: "DEFAULT" },
@@ -4106,6 +4164,22 @@ export default defineCliCommands({
         address: flag.string({ required: true }),
         name: flag.string({ description: "Recipient-visible display name" }),
         defaultCc: flag.stringList({ name: "default-cc", description: "Default Cc recipient; repeatable" }),
+        defaultBcc: flag.stringList({ name: "default-bcc", description: "Default Bcc recipient; repeatable" }),
+        format: flag.enum(["plain", "markdown"] as const, {
+          description: "Default compose format",
+        }),
+        priority: flag.enum(["low", "normal", "high"] as const, {
+          description: "Default message priority",
+        }),
+        deliveryReceipt: flag.enum(["on", "off"] as const, {
+          name: "delivery-receipt",
+          description: "Default delivery-receipt request",
+        }),
+        readReceipt: flag.enum(["on", "off"] as const, {
+          name: "read-receipt",
+          description: "Default read-receipt request",
+        }),
+        vcard: senderIdentityVcardInput,
         defaultSignature: flag.string({
           name: "default-signature",
           description: "Mailbox signature template id",
@@ -4121,6 +4195,7 @@ export default defineCliCommands({
       },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const vcard = await readOptionalVcard(flags.vcard);
         const identity = await readApi<SenderIdentity>(
           ctx,
           `/mailboxes/${mailbox.id}/sender-identities`,
@@ -4129,6 +4204,16 @@ export default defineCliCommands({
             displayName: flags.name ?? "",
             fromAddress: flags.address,
             defaultCc: parseAddresses(flags.defaultCc),
+            defaultBcc: parseAddresses(flags.defaultBcc),
+            ...(flags.format !== undefined ? { defaultFormat: flags.format } : {}),
+            ...(flags.priority !== undefined ? { defaultPriority: flags.priority } : {}),
+            ...(flags.deliveryReceipt !== undefined
+              ? { defaultDeliveryReceipt: flags.deliveryReceipt === "on" }
+              : {}),
+            ...(flags.readReceipt !== undefined
+              ? { defaultReadReceipt: flags.readReceipt === "on" }
+              : {}),
+            ...(vcard !== undefined ? { vcard } : {}),
             defaultSignatureTemplateId: flags.defaultSignature ?? null,
             ...(flags.automation !== undefined ? { authenticationPolicy: { automation: flags.automation } } : {}),
             sentFolderId: flags.sentFolder,
@@ -4181,6 +4266,24 @@ export default defineCliCommands({
         clearReplyTo: flag.boolean({ name: "clear-reply-to" }),
         defaultCc: flag.stringList({ name: "default-cc", description: "Default Cc recipient; repeatable" }),
         clearDefaultCc: flag.boolean({ name: "clear-default-cc" }),
+        defaultBcc: flag.stringList({ name: "default-bcc", description: "Default Bcc recipient; repeatable" }),
+        clearDefaultBcc: flag.boolean({ name: "clear-default-bcc" }),
+        format: flag.enum(["plain", "markdown"] as const, {
+          description: "Default compose format",
+        }),
+        priority: flag.enum(["low", "normal", "high"] as const, {
+          description: "Default message priority",
+        }),
+        deliveryReceipt: flag.enum(["on", "off"] as const, {
+          name: "delivery-receipt",
+          description: "Default delivery-receipt request",
+        }),
+        readReceipt: flag.enum(["on", "off"] as const, {
+          name: "read-receipt",
+          description: "Default read-receipt request",
+        }),
+        vcard: senderIdentityVcardInput,
+        clearVcard: flag.boolean({ name: "clear-vcard" }),
         defaultSignature: flag.string({ name: "default-signature", description: "Mailbox signature template id" }),
         clearDefaultSignature: flag.boolean({ name: "clear-default-signature" }),
         envelopeSender: flag.string({ name: "envelope-sender" }),
@@ -4201,6 +4304,13 @@ export default defineCliCommands({
         if (flags.defaultCc.length > 0 && flags.clearDefaultCc) {
           throw new Error("Use either --default-cc or --clear-default-cc.");
         }
+        if (flags.defaultBcc.length > 0 && flags.clearDefaultBcc) {
+          throw new Error("Use either --default-bcc or --clear-default-bcc.");
+        }
+        const vcard = await readOptionalVcard(flags.vcard);
+        if (vcard !== undefined && flags.clearVcard) {
+          throw new Error("Use either --vcard-file/--vcard-stdin or --clear-vcard.");
+        }
         if (flags.defaultSignature && flags.clearDefaultSignature) {
           throw new Error("Use either --default-signature or --clear-default-signature.");
         }
@@ -4217,6 +4327,20 @@ export default defineCliCommands({
           ...(flags.replyTo !== undefined || flags.clearReplyTo ? { replyTo: flags.clearReplyTo ? null : flags.replyTo } : {}),
           ...(flags.defaultCc.length > 0 || flags.clearDefaultCc
             ? { defaultCc: flags.clearDefaultCc ? [] : parseAddresses(flags.defaultCc) }
+            : {}),
+          ...(flags.defaultBcc.length > 0 || flags.clearDefaultBcc
+            ? { defaultBcc: flags.clearDefaultBcc ? [] : parseAddresses(flags.defaultBcc) }
+            : {}),
+          ...(flags.format !== undefined ? { defaultFormat: flags.format } : {}),
+          ...(flags.priority !== undefined ? { defaultPriority: flags.priority } : {}),
+          ...(flags.deliveryReceipt !== undefined
+            ? { defaultDeliveryReceipt: receiptSetting(flags.deliveryReceipt) }
+            : {}),
+          ...(flags.readReceipt !== undefined
+            ? { defaultReadReceipt: receiptSetting(flags.readReceipt) }
+            : {}),
+          ...(vcard !== undefined || flags.clearVcard
+            ? { vcard: flags.clearVcard ? null : vcard }
             : {}),
           ...(flags.defaultSignature !== undefined || flags.clearDefaultSignature
             ? { defaultSignatureTemplateId: flags.clearDefaultSignature ? null : flags.defaultSignature }
@@ -4245,6 +4369,84 @@ export default defineCliCommands({
         );
         if (printStructured(ctx, identity)) return;
         ctx.print(`Updated ${identity.label} (${identity.status}).`);
+      },
+    }),
+    command("identity transport set", {
+      summary: "Add or replace a verified custom SMTP transport for an identity",
+      args: { identityId: arg.required({ description: "Sender identity id" }) },
+      flags: {
+        ...mailboxFlag,
+        host: flag.string({ required: true, description: "SMTP host" }),
+        port: flag.int({ required: true, min: 1, max: 65_535, description: "SMTP port" }),
+        tls: flag.enum(["implicit", "starttls"] as const, {
+          required: true,
+          description: "SMTP TLS mode",
+        }),
+        username: flag.string({ required: true, description: "SMTP username" }),
+        secret: senderIdentityTransportSecretInput,
+        oauth2: flag.boolean({
+          description: "Interpret secret input as OAuth2 JSON",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.host || flags.port === undefined || !flags.tls || !flags.username) {
+          throw new Error("SMTP host, port, TLS mode, and username are required.");
+        }
+        rejectInlineSecretInput(flags.secret, "SMTP secret", "--secret-stdin or --secret-file");
+        const secretInput = await readCliInput(flags.secret, {
+          label: "SMTP secret",
+          required: false,
+        });
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const identities = await readApi<SenderIdentity[]>(ctx, `/mailboxes/${mailbox.id}/sender-identities`);
+        const identity = identities.find((item) => item.id === args.identityId);
+        if (!identity) throw new Error("Sender identity not found.");
+        const transport = await readApi<SenderIdentity["transport"]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}/transport`,
+          jsonRequest("PUT", {
+            expectedRevision: identity.transport.revision,
+            host: flags.host,
+            port: flags.port,
+            tlsMode: flags.tls,
+            username: flags.username,
+            ...(secretInput
+              ? {
+                  secret: flags.oauth2
+                    ? parseOAuthSecret(secretInput)
+                    : { kind: "password" as const, password: secretInput },
+                }
+              : {}),
+          }),
+        );
+        if (printStructured(ctx, transport)) return;
+        ctx.print(
+          `Verified custom SMTP ${transport.host}:${transport.port}; delivery receipts ${
+            transport.capabilities.dsn ? "supported" : "not advertised"
+          }.`,
+        );
+      },
+    }),
+    command("identity transport remove", {
+      summary: "Return an identity to the mailbox SMTP transport",
+      args: { identityId: arg.required({ description: "Sender identity id" }) },
+      flags: {
+        ...mailboxFlag,
+        yes: confirmFlag("Confirm custom SMTP transport removal"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to remove the custom SMTP transport.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const identities = await readApi<SenderIdentity[]>(ctx, `/mailboxes/${mailbox.id}/sender-identities`);
+        const identity = identities.find((item) => item.id === args.identityId);
+        if (!identity || identity.transport.mode !== "custom") throw new Error("Custom SMTP transport not found.");
+        await readApi(
+          ctx,
+          `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}/transport`,
+          jsonRequest("DELETE", { expectedRevision: identity.transport.revision }),
+        );
+        if (printStructured(ctx, { removed: true, identityId: args.identityId })) return;
+        ctx.print("The identity now uses the mailbox SMTP transport.");
       },
     }),
     command("identity disable", {

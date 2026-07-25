@@ -34,6 +34,7 @@ import { resolveMailExecution } from "./execution";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
+import { recordMessageReceipt } from "./message-receipts";
 import { createAttachmentStream, listConversations, openAttachment } from "./messages";
 import { createProviderConnection, listProviderConnections, replaceProviderConnection } from "./provider-connections";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
@@ -541,8 +542,8 @@ suite("mail PostgreSQL foundation", () => {
     if (scheduledConversationDrafts.ok) {
       expect(scheduledConversationDrafts.data.map((draft) => draft.id)).not.toContain(replyDraft.data.id);
     }
-    const [replyOutbox] = await sql<{ draft_snapshot: Record<string, unknown> | string }[]>`
-      SELECT draft_snapshot
+    const [replyOutbox] = await sql<{ id: string; stable_message_id: string; draft_snapshot: Record<string, unknown> | string }[]>`
+      SELECT id, stable_message_id, draft_snapshot
       FROM mail.outbox_submissions
       WHERE command_id = ${replyCommand.data.id}::uuid
     `;
@@ -550,6 +551,63 @@ suite("mail PostgreSQL foundation", () => {
       typeof replyOutbox?.draft_snapshot === "string" ? JSON.parse(replyOutbox.draft_snapshot) : replyOutbox?.draft_snapshot;
     expect(replySnapshot?.inReplyTo).toBe("<ordering-inbound@example.com>");
     expect(replySnapshot?.references).toContain("<ordering-inbound@example.com>");
+    const [reportMessage] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, internal_date, content_hash, hydration_status
+      ) VALUES (
+        ${mailbox.data.id}::uuid,
+        ${`<delivery-report-${suffix}@example.com>`},
+        now(),
+        ${"f".repeat(64)},
+        'complete'
+      )
+      RETURNING id
+    `;
+    if (!reportMessage || !replyOutbox) throw new Error("Receipt test fixtures were not created");
+    const recordedReceipt = await sql.begin((tx) =>
+      recordMessageReceipt({
+        db: tx,
+        mailboxId: mailbox.data.id,
+        reportMessageId: reportMessage.id,
+        receipt: {
+          kind: "delivery",
+          status: "delivered",
+          originalEnvelopeId: replyOutbox.id,
+          originalMessageId: replyOutbox.stable_message_id.replace(/^<|>$/gu, "").toLowerCase(),
+        },
+      }),
+    );
+    expect(recordedReceipt).toMatchObject({
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+      reason: "outbound",
+      targetId: reportMessage.id,
+    });
+    const replayedReceipt = await sql.begin((tx) =>
+      recordMessageReceipt({
+        db: tx,
+        mailboxId: mailbox.data.id,
+        reportMessageId: reportMessage.id,
+        receipt: {
+          kind: "delivery",
+          status: "delivered",
+          originalEnvelopeId: replyOutbox.id,
+          originalMessageId: replyOutbox.stable_message_id.replace(/^<|>$/gu, "").toLowerCase(),
+        },
+      }),
+    );
+    expect(replayedReceipt).toBeNull();
+    const [storedReceipt] = await sql<{ reports: number; activities: number }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.message_receipt_reports WHERE report_message_id = ${reportMessage.id}::uuid) AS reports,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.activity_events
+          WHERE target_id = ${reportMessage.id}::uuid
+            AND action = 'message.delivery_receipt_received'
+        ) AS activities
+    `;
+    expect(storedReceipt).toEqual({ reports: 1, activities: 1 });
     const rejectedPostSendAutosave = await updateDraft({
       context,
       mailboxId: mailbox.data.id,

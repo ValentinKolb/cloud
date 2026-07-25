@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { type DraftEditableContentInput, draftEditableContentInputSchema } from "../../contracts";
+import { type DraftEditableContent, draftEditableContentInputSchema } from "../../contracts";
 
-export type MailDraftJournal = { revision: number; content: DraftEditableContentInput };
+export type MailDraftJournal = { revision: number; content: DraftEditableContent };
 
 const mailDraftJournalSchema = z.object({
   revision: z.number().int().nonnegative(),
@@ -26,8 +26,8 @@ export const promoteMailDraftJournal = (config: {
   pendingKey: string;
   draftKey: string;
   revision: number;
-  fallbackContent: DraftEditableContentInput;
-  serverContent: DraftEditableContentInput;
+  fallbackContent: DraftEditableContent;
+  serverContent: DraftEditableContent;
 }): boolean => {
   const pending = readMailDraftJournal(config.storage, config.pendingKey);
   const content = pending?.content ?? config.fallbackContent;

@@ -1,5 +1,6 @@
 import {
   AutocompleteEditor,
+  CheckboxCard,
   type Completion,
   MarkdownEditor,
   Panes,
@@ -13,7 +14,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -22,11 +23,13 @@ import type {
   ComposePreview,
   CreateAttachmentLinkInput,
   CreatedAttachmentLink,
+  DraftEditableContent,
   DraftEditableContentInput,
   DraftIntent,
   DraftRecoveryCopy,
   MailCommand,
   MailDraft,
+  MailPriority,
   SenderIdentity,
 } from "../../contracts";
 import { readApiError } from "./api-response";
@@ -65,12 +68,6 @@ const intentIcon = (intent: DraftIntent): string =>
         ? "ti-arrow-forward-up"
         : "ti-send";
 
-const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
-
 const journalKey = (mailboxId: string, draftId: string): string => `cloud:mail:draft:${mailboxId}:${draftId}`;
 const pendingJournalKey = (mailboxId: string, seed?: ComposerSeed): string =>
   `cloud:mail:draft:${mailboxId}:pending:${seed?.conversationId ?? "new"}:${seed?.sourceMessageId ?? "new"}:${seed?.intent ?? "new"}`;
@@ -107,12 +104,33 @@ export default function MailComposer(props: {
     props.initialDraft?.senderIdentityId ??
       (props.seed?.senderIdentityId !== undefined ? (props.seed.senderIdentityId ?? "") : (defaultIdentity()?.id ?? "")),
   );
+  const initialIdentity = () => verifiedIdentities().find((identity) => identity.id === identityId()) ?? defaultIdentity();
+  const selectedIdentity = () => verifiedIdentities().find((identity) => identity.id === identityId()) ?? null;
   const [to, setTo] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.to) : (props.seed?.to ?? []));
-  const [cc, setCc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.cc) : (props.seed?.cc ?? []));
+  const [cc, setCc] = createSignal(
+    props.initialDraft ? formatMailRecipients(props.initialDraft.cc) : (props.seed?.cc ?? []),
+  );
   const [bcc, setBcc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.bcc) : []);
   const [subject, setSubject] = createSignal(props.initialDraft?.subject ?? props.seed?.subject ?? "");
   const [body, setBody] = createSignal(props.initialDraft?.body ?? props.seed?.body ?? "");
-  const [format, setFormat] = createSignal<"plain" | "markdown">(props.initialDraft?.format ?? preferences.composeFormat);
+  const [format, setFormat] = createSignal<"plain" | "markdown">(
+    props.initialDraft?.format ?? initialIdentity()?.defaultFormat ?? preferences.composeFormat,
+  );
+  const [priority, setPriority] = createSignal(props.initialDraft?.priority ?? initialIdentity()?.defaultPriority ?? "normal");
+  const [requestDeliveryReceipt, setRequestDeliveryReceipt] = createSignal(
+    props.initialDraft?.requestDeliveryReceipt ?? initialIdentity()?.defaultDeliveryReceipt ?? false,
+  );
+  const [requestReadReceipt, setRequestReadReceipt] = createSignal(
+    props.initialDraft?.requestReadReceipt ?? initialIdentity()?.defaultReadReceipt ?? false,
+  );
+  const deliveryOptionsSummary = createMemo(() => {
+    const options: string[] = [];
+    if (priority() === "high") options.push("high priority");
+    if (priority() === "low") options.push("low priority");
+    if (requestDeliveryReceipt()) options.push("delivery receipt");
+    if (requestReadReceipt()) options.push("read receipt");
+    return options;
+  });
   const [includeSourceAttachments, setIncludeSourceAttachments] = createSignal(
     props.seed?.intent === "forward" && (props.seed.sourceAttachmentCount ?? 0) > 0,
   );
@@ -145,7 +163,7 @@ export default function MailComposer(props: {
     return result;
   };
 
-  const content = (): DraftEditableContentInput => ({
+  const content = (): DraftEditableContent => ({
     senderIdentityId: identityId(),
     to: parseMailRecipients(to()),
     cc: parseMailRecipients(cc()),
@@ -153,6 +171,9 @@ export default function MailComposer(props: {
     subject: subject(),
     body: body(),
     format: format(),
+    priority: priority(),
+    requestDeliveryReceipt: requestDeliveryReceipt(),
+    requestReadReceipt: requestReadReceipt(),
   });
 
   const serializedContent = () => JSON.stringify(content());
@@ -280,6 +301,9 @@ export default function MailComposer(props: {
     setSubject(value.subject);
     setBody(value.body);
     setFormat(value.format);
+    setPriority(value.priority);
+    setRequestDeliveryReceipt(value.requestDeliveryReceipt);
+    setRequestReadReceipt(value.requestReadReceipt);
   };
 
   const startHeartbeat = () => {
@@ -343,6 +367,9 @@ export default function MailComposer(props: {
     setSubject(journal.content.subject);
     setBody(journal.content.body);
     setFormat(journal.content.format);
+    setPriority(journal.content.priority);
+    setRequestDeliveryReceipt(journal.content.requestDeliveryReceipt);
+    setRequestReadReceipt(journal.content.requestReadReceipt);
     return true;
   };
 
@@ -383,7 +410,7 @@ export default function MailComposer(props: {
           setBody([currentContent.body.trimEnd(), signature].filter(Boolean).join("\n\n"));
         }
       }
-      const serverContent: DraftEditableContentInput = {
+      const serverContent: DraftEditableContent = {
         senderIdentityId: currentDraft.senderIdentityId,
         to: currentDraft.to,
         cc: currentDraft.cc,
@@ -391,6 +418,9 @@ export default function MailComposer(props: {
         subject: currentDraft.subject,
         body: currentDraft.body,
         format: currentDraft.format,
+        priority: currentDraft.priority,
+        requestDeliveryReceipt: currentDraft.requestDeliveryReceipt,
+        requestReadReceipt: currentDraft.requestReadReceipt,
       };
       promoteMailDraftJournal({
         storage: localStorage,
@@ -790,6 +820,72 @@ export default function MailComposer(props: {
     if (scheduledAt) send.mutate({ scheduledAt });
   };
 
+  const editDeliveryOptions = () =>
+    prompts.dialog<boolean>(
+      (close) => {
+        const [nextPriority, setNextPriority] = createSignal<MailPriority>(priority());
+        const [nextDeliveryReceipt, setNextDeliveryReceipt] = createSignal(requestDeliveryReceipt());
+        const [nextReadReceipt, setNextReadReceipt] = createSignal(requestReadReceipt());
+        const deliveryReceiptSupported = () => selectedIdentity()?.transport.capabilities.dsn === true;
+        const save = () => {
+          setPriority(nextPriority());
+          setRequestDeliveryReceipt(nextDeliveryReceipt());
+          setRequestReadReceipt(nextReadReceipt());
+          beginDraft();
+          close(true);
+        };
+
+        return (
+          <div class="flex flex-col gap-3">
+            <Select
+              label="Priority"
+              description="Recipients may see high or low importance when their mail client supports it."
+              value={nextPriority}
+              onChange={(value) => setNextPriority(value === "high" ? "high" : value === "low" ? "low" : "normal")}
+              options={[
+                { id: "normal", label: "Normal" },
+                { id: "high", label: "High", icon: "ti ti-arrow-up" },
+                { id: "low", label: "Low", icon: "ti ti-arrow-down" },
+              ]}
+            />
+            <CheckboxCard
+              label="Request a delivery receipt"
+              description={
+                deliveryReceiptSupported()
+                  ? "Ask the sending server to report delivery or failure. Receiving servers may not return a report."
+                  : "The selected sending server does not advertise delivery receipts."
+              }
+              icon="ti ti-mail-check"
+              value={nextDeliveryReceipt}
+              onChange={setNextDeliveryReceipt}
+              disabled={!deliveryReceiptSupported()}
+            />
+            <CheckboxCard
+              label="Request a read receipt"
+              description="Ask recipients to confirm opening the message. They may decline or their mail client may ignore the request."
+              icon="ti ti-eye-check"
+              value={nextReadReceipt}
+              onChange={setNextReadReceipt}
+            />
+            <div class="info-block-note flex items-start gap-2 text-xs">
+              <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
+              <p>Receipt requests are optional signals, not proof that a message was delivered or read.</p>
+            </div>
+            <div class="flex items-center justify-end gap-2">
+              <button type="button" class="btn-secondary btn-sm" onClick={() => close(false)}>
+                Cancel
+              </button>
+              <button type="button" class="btn-primary btn-sm" onClick={save}>
+                <i class="ti ti-check" aria-hidden="true" />
+                Apply
+              </button>
+            </div>
+          </div>
+        );
+      },
+      { title: "Delivery options", icon: "ti ti-adjustments", size: "large" },
+    );
+
   const discard = async () => {
     if (uploads().length > 0) return await prompts.error("Cancel attachment uploads before discarding this draft.");
     const currentDraft = draft();
@@ -1127,6 +1223,15 @@ export default function MailComposer(props: {
             value={identityId}
             onChange={(value) => {
               setIdentityId(value);
+              if (!draft()) {
+                const identity = verifiedIdentities().find((candidate) => candidate.id === value);
+                if (identity) {
+                  setFormat(identity.defaultFormat);
+                  setPriority(identity.defaultPriority);
+                  setRequestDeliveryReceipt(identity.defaultDeliveryReceipt);
+                  setRequestReadReceipt(identity.defaultReadReceipt);
+                }
+              }
               beginDraft();
             }}
             options={verifiedIdentities().map((identity) => ({
@@ -1220,7 +1325,7 @@ export default function MailComposer(props: {
                 <span class="chip max-w-full" role="listitem">
                   <i class="ti ti-paperclip" aria-hidden="true" />
                   <span class="max-w-48 truncate">{attachment.filename}</span>
-                  <span class="text-xs text-dimmed">{formatBytes(attachment.byteLength)}</span>
+                  <span class="text-xs text-dimmed">{text.pprintBytes(attachment.byteLength)}</span>
                   <Show when={props.canShareAttachments}>
                     <button
                       type="button"
@@ -1339,6 +1444,29 @@ export default function MailComposer(props: {
           ]}
           disabled={!editable()}
         />
+        <Tooltip
+          content={
+            deliveryOptionsSummary().length > 0
+              ? `Delivery options: ${deliveryOptionsSummary().join(", ")}`
+              : "Delivery options"
+          }
+        >
+          <button
+            type="button"
+            class="icon-btn relative"
+            aria-label="Delivery options"
+            disabled={!editable()}
+            onClick={() => void editDeliveryOptions()}
+          >
+            <i class="ti ti-adjustments" aria-hidden="true" />
+            <Show when={deliveryOptionsSummary().length > 0}>
+              <span
+                class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]"
+                aria-hidden="true"
+              />
+            </Show>
+          </button>
+        </Tooltip>
         <span class="flex-1" />
         <Tooltip content="Discard draft">
           <button type="button" class="icon-btn" aria-label="Discard draft" disabled={!draft() || !editable()} onClick={discard}>

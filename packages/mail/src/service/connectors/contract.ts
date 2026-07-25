@@ -1,10 +1,13 @@
 import type { Readable } from "node:stream";
 import type {
   ConnectorVerification,
+  MailEndpoint,
   ProviderConnectionInput,
   ProviderLimitSnapshot,
+  ProviderSecret,
   RemoteFolder,
   RemoteMessageRef,
+  SmtpTransportCapabilities,
 } from "../../contracts";
 import type { MessageProtocolFacts } from "../message-protocol";
 
@@ -170,11 +173,21 @@ export type SendSourceRequest = {
   envelopeFrom: string | null;
   recipients: string[];
   messageId: string;
+  deliveryStatusNotification?: {
+    id: string;
+  };
   signal?: AbortSignal;
+};
+
+export type SmtpConnectionConfig = {
+  username: string;
+  smtp: MailEndpoint;
+  secret: ProviderSecret;
 };
 
 export interface MailConnector {
   verify(config: ProviderConnectionInput): Promise<ConnectorVerification>;
+  verifySmtp(config: SmtpConnectionConfig): Promise<SmtpTransportCapabilities>;
   discoverLimits(config: ProviderConnectionInput): Promise<ProviderLimitSnapshot>;
   discoverFolders(config: ProviderConnectionInput, signal?: AbortSignal): Promise<RemoteFolder[]>;
   getFolderStatus(config: ProviderConnectionInput, folderPath: string, signal?: AbortSignal): Promise<FolderStatusSnapshot>;
@@ -204,7 +217,7 @@ export interface MailConnector {
     signal?: AbortSignal,
   ): Promise<void>;
   send(config: ProviderConnectionInput, request: SendRequest): Promise<SendResult>;
-  sendSource(config: ProviderConnectionInput, request: SendSourceRequest): Promise<SendResult>;
+  sendSource(config: SmtpConnectionConfig, request: SendSourceRequest): Promise<SendResult>;
   setFlags(config: ProviderConnectionInput, target: RemoteMutationTarget, flags: string[]): Promise<void>;
   changeMessageState(
     config: ProviderConnectionInput,

@@ -15,7 +15,7 @@ const snapshot = (
 ): ProviderLimitSnapshot => ({
   checkedAt,
   imap: { status: "supported", storage: null, messages: null },
-  smtp: { status: "supported", maxMessageBytes },
+  smtp: { status: "supported", maxMessageBytes, dsn: false },
 });
 
 describe("provider limits", () => {
@@ -28,13 +28,13 @@ describe("provider limits", () => {
     expect(
       providerLimitSnapshotSchema.safeParse({
         ...snapshot("2026-07-24T10:00:00.000Z"),
-        smtp: { status: "supported", maxMessageBytes: 0 },
+        smtp: { status: "supported", maxMessageBytes: 0, dsn: false },
       }).success,
     ).toBe(false);
     expect(
       providerLimitSnapshotSchema.safeParse({
         ...snapshot("2026-07-24T10:00:00.000Z"),
-        smtp: { status: "unsupported", maxMessageBytes: 25_000_000 },
+        smtp: { status: "unsupported", maxMessageBytes: 25_000_000, dsn: false },
       }).success,
     ).toBe(false);
   });
@@ -57,7 +57,7 @@ describe("provider limits", () => {
       activeSmtpMessageLimit(
         {
           ...snapshot(new Date(now).toISOString()),
-          smtp: { status: "unsupported", maxMessageBytes: null },
+          smtp: { status: "unsupported", maxMessageBytes: null, dsn: false },
         },
         now,
       ),

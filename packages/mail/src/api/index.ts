@@ -26,6 +26,7 @@ import {
   createSavedConversationViewSchema,
   createSenderIdentityInputSchema,
   defaultSenderSetupInputSchema,
+  deleteSenderIdentityTransportInputSchema,
   deleteConversationCommentSchema,
   deleteSavedConversationViewSchema,
   draftContentInputSchema,
@@ -54,6 +55,7 @@ import {
   updateMailboxComposeStyleInputSchema,
   updateSavedConversationViewSchema,
   updateSenderIdentityInputSchema,
+  updateSenderIdentityTransportInputSchema,
 } from "../contracts";
 import {
   attachmentLinks,
@@ -84,6 +86,7 @@ import {
   scheduledSends,
   search,
   senderIdentities,
+  senderIdentityTransports,
   settingsContext,
   storageObservability,
   triage,
@@ -787,6 +790,44 @@ const mailOperationsApi = new Hono<AuthContext>()
           input: c.req.valid("json"),
         }),
       ),
+  )
+  .put(
+    "/mailboxes/:mailboxId/sender-identities/:senderIdentityId/transport",
+    v("param", mailboxAndIdParamSchema("senderIdentityId")),
+    v("json", updateSenderIdentityTransportInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as {
+        mailboxId: string;
+        senderIdentityId: string;
+      };
+      return respond(
+        c,
+        senderIdentityTransports.upsertSenderIdentityTransport({
+          context: requestContext(c),
+          ...params,
+          input: c.req.valid("json"),
+        }),
+      );
+    },
+  )
+  .delete(
+    "/mailboxes/:mailboxId/sender-identities/:senderIdentityId/transport",
+    v("param", mailboxAndIdParamSchema("senderIdentityId")),
+    v("json", deleteSenderIdentityTransportInputSchema),
+    async (c) => {
+      const params = c.req.valid("param") as {
+        mailboxId: string;
+        senderIdentityId: string;
+      };
+      return respond(
+        c,
+        senderIdentityTransports.deleteSenderIdentityTransport({
+          context: requestContext(c),
+          ...params,
+          expectedRevision: c.req.valid("json").expectedRevision,
+        }),
+      );
+    },
   )
   .delete(
     "/mailboxes/:mailboxId/saved-views/:viewId",

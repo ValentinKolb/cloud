@@ -38,6 +38,7 @@ import * as scheduledSends from "./scheduled-sends";
 import { cancelSendCommand } from "./scheduled-sends";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
+import * as senderIdentityTransports from "./sender-identity-transports";
 import * as settingsContext from "./settings-context";
 import * as storageObservability from "./storage-observability";
 import * as subscriptionWorkspace from "./subscription-workspace";
@@ -99,6 +100,7 @@ export {
   scheduledSends,
   search,
   senderIdentities,
+  senderIdentityTransports,
   settingsContext,
   storageObservability,
   subscriptionWorkspace,
@@ -145,6 +147,7 @@ export const mailService = {
   scheduledSends,
   search,
   senderIdentities,
+  senderIdentityTransports,
   settingsContext,
   storageObservability,
   triage,

@@ -13,7 +13,9 @@ import {
   type CreateComposeTemplateInput,
   createComposeTemplateInputSchema,
   composeSuggestionsInputSchema,
+  type DraftEditableContent,
   type DraftEditableContentInput,
+  draftEditableContentInputSchema,
   type MailboxComposeStyle,
   type RenderComposeSnippetInput,
   renderComposeSnippetInputSchema,
@@ -607,7 +609,7 @@ const composeRenderContext = async (params: {
   db: SqlClient;
   mailboxId: string;
   senderIdentityId: string;
-  draft: DraftEditableContentInput;
+  draft: DraftEditableContent;
   actor: ActorRef;
 }): Promise<Result<ComposeRenderContext>> => {
   const [base] = await params.db<
@@ -681,17 +683,19 @@ export const renderComposeDraft = async (params: {
   renderLiquid: boolean;
 }): Promise<Result<RenderedComposeContent>> => {
   const db = params.db ?? sql;
+  const parsed = draftEditableContentInputSchema.safeParse(params.draft);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid draft"));
   const context = await composeRenderContext({
     db,
     mailboxId: params.mailboxId,
-    senderIdentityId: params.draft.senderIdentityId,
-    draft: params.draft,
+    senderIdentityId: parsed.data.senderIdentityId,
+    draft: parsed.data,
     actor: params.actor,
   });
   if (!context.ok) return context;
   return renderComposeContent({
-    body: params.draft.body,
-    format: params.draft.format,
+    body: parsed.data.body,
+    format: parsed.data.format,
     customCss: await mailboxStyleSource(db, params.mailboxId),
     context: context.data,
     renderLiquid: params.renderLiquid,

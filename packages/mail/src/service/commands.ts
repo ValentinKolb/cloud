@@ -10,6 +10,7 @@ import {
   type MailCommandInput,
   type MaintenanceCommandInput,
   maintenanceCommandInputSchema,
+  smtpTransportCapabilitiesSchema,
 } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, type MailRequestContext } from "./auth";
@@ -129,6 +130,9 @@ type DraftForOutbox = {
   subject: string;
   body_markdown: string;
   body_format: "plain" | "markdown";
+  priority: "low" | "normal" | "high";
+  request_delivery_receipt: boolean;
+  request_read_receipt: boolean;
   origin: "user" | "workflow";
   delivery_class: "normal" | "automatic_reply";
   revision: string | number;
@@ -137,6 +141,10 @@ type DraftForOutbox = {
   from_address: string;
   reply_to: string | null;
   envelope_sender: string | null;
+  vcard: string | null;
+  identity_transport_revision: number | null;
+  identity_transport_capabilities: unknown;
+  identity_transport_verified_at: Date | string | null;
   parent_message_id: string | null;
   reference_ids: string[] | null;
   attachments: unknown;
@@ -372,6 +380,9 @@ const createSendOutbox = async (params: {
       d.subject,
       d.body_markdown,
       d.body_format,
+      d.priority,
+      d.request_delivery_receipt,
+      d.request_read_receipt,
       d.origin,
       d.delivery_class,
       d.revision,
@@ -380,6 +391,10 @@ const createSendOutbox = async (params: {
       si.from_address,
       si.reply_to,
       si.envelope_sender,
+      si.vcard,
+      identity_transport.revision AS identity_transport_revision,
+      identity_transport.capabilities AS identity_transport_capabilities,
+      identity_transport.last_verified_at AS identity_transport_verified_at,
       CASE WHEN d.intent IN ('reply', 'reply_all') THEN source.message_id ELSE NULL END AS parent_message_id,
       CASE WHEN d.intent IN ('reply', 'reply_all') THEN source.reference_ids ELSE ARRAY[]::text[] END AS reference_ids,
       COALESCE(
@@ -401,6 +416,10 @@ const createSendOutbox = async (params: {
       ) AS attachments
     FROM mail.drafts d
     JOIN mail.sender_identities si ON si.id = d.sender_identity_id
+    LEFT JOIN mail.sender_identity_transports identity_transport
+      ON identity_transport.sender_identity_id = si.id
+     AND identity_transport.status = 'active'
+     AND identity_transport.encrypted_secret IS NOT NULL
     LEFT JOIN mail.message_contents source ON source.id = d.source_message_id
     WHERE d.id = ${prepared.draftId}::uuid
       AND d.mailbox_id = ${params.mailboxId}::uuid
@@ -421,6 +440,9 @@ const createSendOutbox = async (params: {
     subject: draft.subject,
     body: draft.body_markdown,
     format: draft.body_format,
+    priority: draft.priority,
+    requestDeliveryReceipt: draft.request_delivery_receipt,
+    requestReadReceipt: draft.request_read_receipt,
   });
   if (!content.success) {
     const invalid = err.badInput(content.error.issues[0]?.message ?? "Draft content is invalid");
@@ -456,6 +478,11 @@ const createSendOutbox = async (params: {
     envelopeFrom: draft.envelope_sender,
     useNullEnvelopeSender: draft.delivery_class === "automatic_reply",
     automaticReply: draft.delivery_class === "automatic_reply",
+    priority: draft.priority,
+    requestDeliveryReceipt: draft.request_delivery_receipt,
+    requestReadReceipt: draft.request_read_receipt,
+    receiptAddress: draft.from_address,
+    vcard: draft.vcard,
     to: draft.to_addresses,
     cc: draft.cc_addresses,
     bcc: draft.bcc_addresses,
@@ -483,9 +510,28 @@ const createSendOutbox = async (params: {
     params.db,
     params.selectedBindingId,
   );
-  const smtpLimitBytes = providerLimits
-    ? activeSmtpMessageLimit(providerLimits)
-    : null;
+  const rawIdentityTransportCapabilities =
+    typeof draft.identity_transport_capabilities === "string"
+      ? JSON.parse(draft.identity_transport_capabilities)
+      : draft.identity_transport_capabilities;
+  const identityTransportCapabilities =
+    draft.identity_transport_revision === null
+      ? null
+      : smtpTransportCapabilitiesSchema.parse(rawIdentityTransportCapabilities);
+  const smtpLimitBytes =
+    draft.identity_transport_revision !== null
+      ? (identityTransportCapabilities?.maxMessageBytes ?? null)
+      : providerLimits
+        ? activeSmtpMessageLimit(providerLimits)
+        : null;
+  const supportsDsn =
+    draft.identity_transport_revision !== null
+      ? identityTransportCapabilities?.dsn === true
+      : providerLimits?.smtp.dsn === true;
+  if (draft.request_delivery_receipt && !supportsDsn) {
+    const unsupported = err.badInput("Delivery receipts are not supported by the selected SMTP server");
+    throw Object.assign(new Error(unsupported.message), unsupported);
+  }
   try {
     assertProviderMessageSize(byteLength, smtpLimitBytes);
   } catch (error) {
@@ -510,7 +556,8 @@ const createSendOutbox = async (params: {
       mime_date,
       preflight_byte_length,
       preflight_smtp_limit_bytes,
-      preflight_checked_at
+      preflight_checked_at,
+      selected_identity_transport_revision
     )
     VALUES (
       ${params.mailboxId}::uuid,
@@ -527,7 +574,14 @@ const createSendOutbox = async (params: {
       ${mimeDate},
       ${byteLength},
       ${smtpLimitBytes},
-      ${smtpLimitBytes === null ? null : providerLimits?.checkedAt ?? null}::timestamptz
+      ${
+        draft.identity_transport_revision === null
+          ? smtpLimitBytes === null
+            ? null
+            : providerLimits?.checkedAt ?? null
+          : draft.identity_transport_verified_at
+      }::timestamptz,
+      ${draft.identity_transport_revision}
     )
   `;
   await params.db`

@@ -4575,6 +4575,91 @@ const addPrivacySafeRemoteContent = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addIdentityDeliveryOptions = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.sender_identities
+      ADD COLUMN default_bcc JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN default_format TEXT NOT NULL DEFAULT 'markdown',
+      ADD COLUMN default_priority TEXT NOT NULL DEFAULT 'normal',
+      ADD COLUMN default_delivery_receipt BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN default_read_receipt BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN vcard TEXT
+  `;
+  await db`
+    ALTER TABLE mail.sender_identities
+      ADD CONSTRAINT sender_identities_default_bcc_array_chk
+        CHECK (jsonb_typeof(default_bcc) = 'array'),
+      ADD CONSTRAINT sender_identities_default_format_chk
+        CHECK (default_format IN ('plain', 'markdown')),
+      ADD CONSTRAINT sender_identities_default_priority_chk
+        CHECK (default_priority IN ('low', 'normal', 'high')),
+      ADD CONSTRAINT sender_identities_vcard_size_chk
+        CHECK (vcard IS NULL OR octet_length(vcard) <= 262144)
+  `;
+  await db`
+    ALTER TABLE mail.drafts
+      ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal',
+      ADD COLUMN request_delivery_receipt BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN request_read_receipt BOOLEAN NOT NULL DEFAULT false,
+      ADD CONSTRAINT drafts_priority_chk CHECK (priority IN ('low', 'normal', 'high'))
+  `;
+  await db`
+    ALTER TABLE mail.outbox_submissions
+      ADD COLUMN selected_identity_transport_revision INTEGER
+        CHECK (selected_identity_transport_revision IS NULL OR selected_identity_transport_revision > 0)
+  `;
+  await db`
+    CREATE TABLE mail.sender_identity_transports (
+      sender_identity_id UUID PRIMARY KEY,
+      mailbox_id UUID NOT NULL,
+      host TEXT NOT NULL,
+      port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+      tls_mode TEXT NOT NULL CHECK (tls_mode IN ('implicit', 'starttls')),
+      username TEXT NOT NULL,
+      secret_kind TEXT NOT NULL CHECK (secret_kind IN ('password', 'oauth2')),
+      encrypted_secret TEXT,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'degraded', 'revoked')),
+      capabilities JSONB NOT NULL DEFAULT '{"dsn":false,"size":false,"maxMessageBytes":null}'::jsonb,
+      last_verified_at TIMESTAMPTZ,
+      last_error_message TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (mailbox_id, sender_identity_id)
+        REFERENCES mail.sender_identities (mailbox_id, id) ON DELETE CASCADE,
+      CONSTRAINT sender_identity_transports_capabilities_object_chk
+        CHECK (jsonb_typeof(capabilities) = 'object')
+    )
+  `;
+  await db`
+    CREATE INDEX sender_identity_transports_mailbox_idx
+    ON mail.sender_identity_transports (mailbox_id, sender_identity_id)
+  `;
+  await db`
+    CREATE TABLE mail.message_receipt_reports (
+      report_message_id UUID PRIMARY KEY REFERENCES mail.message_contents(id) ON DELETE CASCADE,
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
+      outbox_submission_id UUID NOT NULL REFERENCES mail.outbox_submissions(id) ON DELETE CASCADE,
+      activity_id BIGINT NOT NULL UNIQUE REFERENCES mail.activity_events(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('delivery', 'read')),
+      status TEXT NOT NULL CHECK (
+        status IN ('delivered', 'delayed', 'failed', 'relayed', 'expanded', 'displayed', 'deleted', 'denied', 'other')
+      ),
+      original_envelope_id UUID,
+      original_message_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT message_receipt_reports_correlation_chk CHECK (
+        original_envelope_id IS NOT NULL OR original_message_id IS NOT NULL
+      )
+    )
+  `;
+  await db`
+    CREATE INDEX message_receipt_reports_outbox_idx
+    ON mail.message_receipt_reports (outbox_submission_id, created_at DESC)
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4662,6 +4747,7 @@ const migrations: readonly MailMigration[] = [
   { version: 85, name: "provider_limit_snapshots", run: addProviderLimitSnapshots },
   { version: 86, name: "outbound_message_preflight", run: addOutboundMessagePreflight },
   { version: 87, name: "privacy_safe_remote_content", run: addPrivacySafeRemoteContent },
+  { version: 88, name: "identity_delivery_options", run: addIdentityDeliveryOptions },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

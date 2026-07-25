@@ -604,6 +604,12 @@ test("compose rendering commands send one validated draft context", async () => 
     body: "Draft body",
     format: "markdown",
   };
+  const validatedDraft = {
+    ...draft,
+    priority: "normal",
+    requestDeliveryReceipt: false,
+    requestReadReceipt: false,
+  };
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
     if (request.method !== "POST") return api({ message: "unexpected" }, { status: 500 });
@@ -659,15 +665,15 @@ test("compose rendering commands send one validated draft context", async () => 
   expect(requests).toEqual([
     {
       path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-snippet`,
-      body: { templateId: COMPOSE_TEMPLATE_ID, draft, conversationId: CONVERSATION_ID },
+      body: { templateId: COMPOSE_TEMPLATE_ID, draft: validatedDraft, conversationId: CONVERSATION_ID },
     },
     {
       path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-suggestions`,
-      body: { query: "gre", draft, conversationId: CONVERSATION_ID },
+      body: { query: "gre", draft: validatedDraft, conversationId: CONVERSATION_ID },
     },
     {
       path: `/api/mail/mailboxes/${MAILBOX_ID}/compose-preview`,
-      body: { draft, conversationId: CONVERSATION_ID },
+      body: { draft: validatedDraft, conversationId: CONVERSATION_ID },
     },
   ]);
   expect(JSON.parse(snippet.stdout)).toEqual({ markdown: "Rendered snippet" });
@@ -3056,6 +3062,7 @@ test("sender creation keeps the default automation policy unless explicitly disa
       displayName: "",
       fromAddress: "sender@example.com",
       defaultCc: [],
+      defaultBcc: [],
       defaultSignatureTemplateId: null,
       isDefault: false,
     },
@@ -3064,6 +3071,7 @@ test("sender creation keeps the default automation policy unless explicitly disa
       displayName: "",
       fromAddress: "sender@example.com",
       defaultCc: [],
+      defaultBcc: [],
       defaultSignatureTemplateId: null,
       authenticationPolicy: { automation: "disabled" },
       isDefault: false,

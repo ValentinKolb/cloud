@@ -13,6 +13,7 @@ import {
   createWorkflowInputSchema,
   createWorkflowVersionInputSchema,
   deactivateWorkflowInputSchema,
+  deleteSenderIdentityTransportInputSchema,
   draftContentInputSchema,
   draftEditableContentInputSchema,
   dryRunWorkflowInputSchema,
@@ -30,6 +31,7 @@ import {
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
   updateLocalTagSchema,
+  updateSenderIdentityTransportInputSchema,
   validateWorkflowInputSchema,
   workflowRunStateSchema,
   workflowTargetStateSchema,
@@ -184,8 +186,30 @@ describe("sender identity contracts", () => {
       label: "Work",
       displayName: "",
       defaultCc: [],
+      defaultBcc: [],
+      defaultFormat: "markdown",
+      defaultPriority: "normal",
+      defaultDeliveryReceipt: false,
+      defaultReadReceipt: false,
       authenticationPolicy: { automation: "mailbox" },
     });
+  });
+
+  test("accepts complete vCards and rejects partial identity cards", () => {
+    expect(
+      createSenderIdentityInputSchema.safeParse({
+        label: "Work",
+        fromAddress: "sender@example.com",
+        vcard: "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Work\r\nEND:VCARD",
+      }).success,
+    ).toBe(true);
+    expect(
+      createSenderIdentityInputSchema.safeParse({
+        label: "Work",
+        fromAddress: "sender@example.com",
+        vcard: "FN:Work",
+      }).success,
+    ).toBe(false);
   });
 
   test("preserves an explicit automation opt-out", () => {
@@ -237,6 +261,39 @@ describe("mail message state contracts", () => {
         removeFlags: [],
         addKeywords: ["FollowUp"],
         removeKeywords: ["followup"],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("sender identity transport contracts", () => {
+  const transport = {
+    host: "smtp.example.com",
+    port: 587,
+    tlsMode: "starttls" as const,
+    username: "sender@example.com",
+  };
+
+  test("requires an explicit revision for every transport mutation", () => {
+    expect(updateSenderIdentityTransportInputSchema.safeParse(transport).success).toBe(false);
+    expect(updateSenderIdentityTransportInputSchema.safeParse({ ...transport, expectedRevision: 0 }).success).toBe(true);
+    expect(deleteSenderIdentityTransportInputSchema.safeParse({ expectedRevision: 0 }).success).toBe(false);
+    expect(deleteSenderIdentityTransportInputSchema.safeParse({ expectedRevision: 1 }).success).toBe(true);
+  });
+
+  test("accepts credential rotation without requiring a secret on metadata updates", () => {
+    expect(
+      updateSenderIdentityTransportInputSchema.safeParse({
+        ...transport,
+        expectedRevision: 2,
+        secret: { kind: "password", password: "rotated-secret" },
+      }).success,
+    ).toBe(true);
+    expect(
+      updateSenderIdentityTransportInputSchema.safeParse({
+        ...transport,
+        expectedRevision: 2,
+        secret: { kind: "password", password: "" },
       }).success,
     ).toBe(false);
   });

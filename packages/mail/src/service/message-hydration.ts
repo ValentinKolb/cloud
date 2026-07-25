@@ -10,6 +10,7 @@ import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./ev
 import { assertMailboxTransportFence, type MailboxTransportFence } from "./mailbox-transport-fence";
 import { createBlobReadable, type StoredBlob, storeReadableBlob } from "./message-blobs";
 import { extractMessageProtocolFacts, parseMessageProtocolFacts, readMessageRootHeaders } from "./message-protocol";
+import { parseMessageReceiptSource, recordMessageReceipt } from "./message-receipts";
 import { splitSearchText } from "./search-chunks";
 
 type HydratedPart = {
@@ -255,6 +256,18 @@ const storeMessageSource = async (source: Readable, expectedSize?: number | null
       });
     }
     throw error;
+  }
+};
+
+const readReceiptSource = async (blob: StoredBlob): Promise<string | null> => {
+  if (blob.byteLength > 2 * 1024 * 1024) return null;
+  const source = createBlobReadable(blob.id);
+  const chunks: Buffer[] = [];
+  try {
+    for await (const chunk of source) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    return Buffer.concat(chunks).toString("utf8");
+  } finally {
+    source.destroy();
   }
 };
 
@@ -712,10 +725,17 @@ export const hydrateMessageFromSource = async (params: {
 
     const sourceHash = storedSource.contentHash;
     const protocolFacts = extractMessageProtocolFacts((name) => headers.getFirst(name));
+    const receiptSource =
+      protocolFacts.deliveryStatus ||
+      /(?:^|;)\s*report-type\s*=\s*["']?disposition-notification\b/iu.test(protocolFacts.contentType ?? "")
+        ? await readReceiptSource(storedSource)
+        : null;
+    const receipt = receiptSource ? parseMessageReceiptSource(receiptSource) : null;
     const sanitized = originalHtml ? sanitizeIncomingMailHtmlWithRemoteImages(originalHtml) : null;
     const sanitizedHtml = sanitized?.html ?? null;
     let canonicalMessageId: string | null = null;
     let collaborationEvent: Omit<MailCollaborationEvent, "type" | "at"> | null = null;
+    let receiptEvent: Omit<MailCollaborationEvent, "type" | "at"> | null = null;
     await sql.begin(async (tx) => {
       const [current] = await tx<{ id: string }[]>`
         SELECT id
@@ -838,10 +858,19 @@ export const hydrateMessageFromSource = async (params: {
       `;
       if (!duplicate.duplicateFound) {
         collaborationEvent = await applyVerifiedConversationTransition({ db: tx, messageId: params.messageId });
+        if (receipt) {
+          receiptEvent = await recordMessageReceipt({
+            db: tx,
+            mailboxId: claimed.mailbox_id,
+            reportMessageId: params.messageId,
+            receipt,
+          });
+        }
       }
     });
     if (canonicalMessageId) return { status: "deduplicated", sourceHash, canonicalMessageId };
     if (collaborationEvent) await publishMailCollaborationEvent(collaborationEvent);
+    if (receiptEvent) await publishMailCollaborationEvent(receiptEvent);
     return { status: "hydrated", sourceHash };
   } catch (error) {
     params.source.destroy();

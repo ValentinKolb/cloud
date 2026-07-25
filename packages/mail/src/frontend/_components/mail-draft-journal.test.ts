@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { DraftEditableContentInput } from "../../contracts";
+import type { DraftEditableContent } from "../../contracts";
 import { promoteMailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
 
-const content = (body: string): DraftEditableContentInput => ({
+const content = (body: string): DraftEditableContent => ({
   senderIdentityId: "00000000-0000-4000-8000-000000000001",
   to: [],
   cc: [],
@@ -10,6 +10,9 @@ const content = (body: string): DraftEditableContentInput => ({
   subject: "Subject",
   body,
   format: "plain",
+  priority: "normal",
+  requestDeliveryReceipt: false,
+  requestReadReceipt: false,
 });
 
 const storage = () => {

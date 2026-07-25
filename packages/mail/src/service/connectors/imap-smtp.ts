@@ -24,6 +24,7 @@ import type {
   ProviderTransportDiagnostics,
   RemoteFolder,
   RemoteNamespace,
+  SmtpTransportCapabilities,
 } from "../../contracts";
 import { EMPTY_MESSAGE_PROTOCOL_FACTS, extractMessageProtocolFacts } from "../message-protocol";
 import type {
@@ -45,6 +46,7 @@ import type {
   SendRequest,
   SendResult,
   SendSourceRequest,
+  SmtpConnectionConfig,
   SourceDownload,
   SourceDownloadRequest,
 } from "./contract";
@@ -68,7 +70,7 @@ const authForImap = (config: ProviderConnectionInput): NonNullable<ImapFlowOptio
     ? { user: config.username, pass: config.secret.password }
     : { user: config.username, accessToken: config.secret.accessToken };
 
-const authForSmtp = (config: ProviderConnectionInput): SMTPTransport.Options["auth"] =>
+const authForSmtp = (config: SmtpConnectionConfig): SMTPTransport.Options["auth"] =>
   config.secret.kind === "password"
     ? { user: config.username, pass: config.secret.password }
     : { type: "OAuth2", user: config.username, accessToken: config.secret.accessToken };
@@ -245,7 +247,7 @@ const verifyImap = async (
     };
   });
 
-const smtpOptions = (config: ProviderConnectionInput, endpoint: ResolvedEndpoint, address: string): SMTPTransport.Options => ({
+const smtpOptions = (config: SmtpConnectionConfig, endpoint: ResolvedEndpoint, address: string): SMTPTransport.Options => ({
   host: address,
   port: endpoint.port,
   secure: endpoint.tlsMode === "implicit",
@@ -268,8 +270,8 @@ const smtpOptions = (config: ProviderConnectionInput, endpoint: ResolvedEndpoint
 });
 
 const withSmtpTransport = async <T>(
-  config: ProviderConnectionInput,
-  fn: (transport: nodemailer.Transporter<SMTPTransport.SentMessageInfo>) => Promise<T>,
+  config: SmtpConnectionConfig,
+  fn: (transport: nodemailer.Transporter<SMTPTransport.SentMessageInfo, SMTPTransport.Options>) => Promise<T>,
   options: { allowAddressFailover?: boolean; signal?: AbortSignal } = {},
 ): Promise<T> => {
   const throwIfAborted = (): void => {
@@ -299,7 +301,7 @@ const withSmtpTransport = async <T>(
   throw lastError ?? new Error("SMTP endpoint did not provide a usable address");
 };
 
-const verifySmtp = async (config: ProviderConnectionInput): Promise<void> =>
+const verifySmtp = async (config: SmtpConnectionConfig): Promise<void> =>
   withSmtpTransport(
     config,
     async (transport) => {
@@ -330,7 +332,7 @@ const readSmtpCapabilityEvidence = (connection: SMTPConnection): z.infer<typeof 
 };
 
 const smtpConnectionOptions = (
-  config: ProviderConnectionInput,
+  config: SmtpConnectionConfig,
   endpoint: ResolvedEndpoint,
   address: string,
 ): SMTPConnection.Options => ({
@@ -353,7 +355,7 @@ const smtpConnectionOptions = (
 });
 
 const connectForSmtpCapabilities = async (
-  config: ProviderConnectionInput,
+  config: SmtpConnectionConfig,
   endpoint: ResolvedEndpoint,
   address: string,
 ): Promise<ProviderLimitSnapshot["smtp"]> => {
@@ -370,11 +372,12 @@ const connectForSmtpCapabilities = async (
     });
     const evidence = readSmtpCapabilityEvidence(connection);
     if (!evidence.extensions.includes("SIZE")) {
-      return { status: "unsupported", maxMessageBytes: null };
+      return { status: "unsupported", maxMessageBytes: null, dsn: evidence.extensions.includes("DSN") };
     }
     return {
       status: "supported",
       maxMessageBytes: evidence.maxAllowedSize > 0 ? evidence.maxAllowedSize : null,
+      dsn: evidence.extensions.includes("DSN"),
     };
   } finally {
     connection.close();
@@ -394,8 +397,39 @@ const discoverSmtpLimits = async (config: ProviderConnectionInput): Promise<Prov
     }
     throw lastError ?? new Error("SMTP endpoint did not provide a usable address");
   } catch {
-    return { status: "unavailable", maxMessageBytes: null };
+    return { status: "unavailable", maxMessageBytes: null, dsn: false };
   }
+};
+
+const verifySmtpTransport = async (config: SmtpConnectionConfig): Promise<SmtpTransportCapabilities> => {
+  await verifySmtp(config);
+  const endpoint = await resolvePublicEndpoint(config.smtp);
+  let lastError: unknown;
+  for (const resolved of endpoint.addresses) {
+    const connection = new SMTPConnection(smtpConnectionOptions(config, endpoint, resolved.address));
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error): void => reject(error);
+        connection.once("error", onError);
+        connection.connect((error) => {
+          connection.off("error", onError);
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      const evidence = readSmtpCapabilityEvidence(connection);
+      return {
+        dsn: evidence.extensions.includes("DSN"),
+        size: evidence.extensions.includes("SIZE"),
+        maxMessageBytes: evidence.extensions.includes("SIZE") && evidence.maxAllowedSize > 0 ? evidence.maxAllowedSize : null,
+      };
+    } catch (error) {
+      lastError = error;
+    } finally {
+      connection.close();
+    }
+  }
+  throw lastError ?? new Error("SMTP endpoint did not provide capability evidence");
 };
 
 const discoverImapLimits = async (config: ProviderConnectionInput): Promise<ProviderLimitSnapshot["imap"]> => {
@@ -908,7 +942,7 @@ const send = async (config: ProviderConnectionInput, request: SendRequest): Prom
     };
   });
 
-const sendSource = async (config: ProviderConnectionInput, request: SendSourceRequest): Promise<SendResult> =>
+const sendSource = async (config: SmtpConnectionConfig, request: SendSourceRequest): Promise<SendResult> =>
   withSmtpTransport(
     config,
     async (transport) => {
@@ -920,6 +954,13 @@ const sendSource = async (config: ProviderConnectionInput, request: SendSourceRe
         const info = await transport.sendMail({
           raw: request.source,
           envelope: { from: request.envelopeFrom ?? "", to: request.recipients },
+          dsn: request.deliveryStatusNotification
+            ? {
+                envid: request.deliveryStatusNotification.id,
+                ret: "HDRS",
+                notify: ["SUCCESS", "FAILURE", "DELAY"],
+              }
+            : undefined,
           disableFileAccess: true,
           disableUrlAccess: true,
         });
@@ -1194,6 +1235,7 @@ const listenForChanges = async (
 
 export const imapSmtpConnector: MailConnector = {
   verify,
+  verifySmtp: verifySmtpTransport,
   discoverLimits,
   discoverFolders,
   getFolderStatus,
