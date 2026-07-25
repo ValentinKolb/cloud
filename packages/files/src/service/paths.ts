@@ -92,9 +92,11 @@ export const parseBase = async (baseType: string, baseId: string): Promise<Mutat
   }
 
   if (baseType === "group") {
-    // Fetch group's gidNumber
+    // Resolve by cn — it is globally unique, unlike `name`, which is only
+    // unique per provider. The group's id travels with the base so that
+    // access checks compare identities rather than labels.
     const rows: DbRow[] = await sql`
-      SELECT gid_number FROM auth.groups WHERE cn = ${baseId}
+      SELECT id, cn, gid_number FROM auth.groups WHERE cn = ${baseId}
     `;
 
     if (rows.length === 0) {
@@ -107,7 +109,8 @@ export const parseBase = async (baseType: string, baseId: string): Promise<Mutat
       ok: true,
       data: {
         type: "group",
-        name: baseId,
+        groupId: rows[0]!.id as string,
+        name: rows[0]!.cn as string,
         gidNumber: gidNumber ?? undefined,
       },
     };

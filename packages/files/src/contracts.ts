@@ -89,7 +89,8 @@ export const FileBaseSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("group"),
-    name: z.string().describe("Group name"),
+    groupId: z.string().describe("auth.groups UUID — the only identity access checks may compare"),
+    name: z.string().describe("Group cn — the share directory name and URL segment, never an access check"),
     gidNumber: z.number().optional().describe("Numeric POSIX GID"),
   }),
 ]);

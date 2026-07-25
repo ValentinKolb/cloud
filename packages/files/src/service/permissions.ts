@@ -1,32 +1,18 @@
 import { sql } from "bun";
 import { toPgTextArray } from "@valentinkolb/cloud/services";
+import { getEffectiveGroupIds } from "@valentinkolb/cloud/server";
 import type { User, FileBase, FileBaseInfo, MutationResult } from "@/contracts";
 
 type DbRow = Record<string, unknown>;
 
 /**
- * Get all group names a user belongs to (direct + indirect via group hierarchy).
- */
-const getAllGroups = async (userId: string): Promise<string[]> => {
-  const rows: DbRow[] = await sql`
-    WITH RECURSIVE all_groups AS (
-      SELECT g.id, g.name
-      FROM auth.user_groups_v2 ug
-      JOIN auth.groups g ON g.id = ug.group_id
-      WHERE ug.user_id = ${userId}
-      UNION
-      SELECT gp.id, gp.name
-      FROM auth.group_groups_v2 gg
-      JOIN auth.groups gp ON gp.id = gg.parent_group_id
-      JOIN all_groups ag ON gg.child_group_id = ag.id
-    )
-    SELECT name FROM all_groups`;
-  return rows.map((r) => r.name as string);
-};
-
-/**
  * Check if a user can access a file base (home directory or group directory).
- * Checks recursive group membership.
+ *
+ * Group membership is compared by id, never by label. `auth.groups.name` is
+ * only unique per provider, so a local group may carry the same name as an
+ * FreeIPA one — matching on it would let a member of the local group reach
+ * the FreeIPA group's share. `getEffectiveGroupIds` resolves direct and
+ * nested memberships from the authoritative mirror.
  */
 export const canAccess = async (user: User, base: FileBase): Promise<MutationResult<void>> => {
   if (base.type === "home") {
@@ -40,8 +26,8 @@ export const canAccess = async (user: User, base: FileBase): Promise<MutationRes
     return { ok: true, data: undefined };
   }
 
-  const allGroups = await getAllGroups(user.id);
-  if (!allGroups.includes(base.name)) {
+  const groupIds = await getEffectiveGroupIds({ userId: user.id });
+  if (!groupIds.includes(base.groupId)) {
     return {
       ok: false,
       error: "Access denied: not a member of this group",
@@ -67,18 +53,19 @@ export const listBases = async (user: User): Promise<FileBase[]> => {
   });
 
   // Get all groups (direct + indirect) and their gidNumbers
-  const allGroups = await getAllGroups(user.id);
-  if (allGroups.length > 0) {
+  const groupIds = await getEffectiveGroupIds({ userId: user.id });
+  if (groupIds.length > 0) {
     const groupRows: DbRow[] = await sql`
-      SELECT name, gid_number FROM auth.groups
-      WHERE name = ANY(${toPgTextArray(allGroups)}::text[])
+      SELECT id, cn, gid_number FROM auth.groups
+      WHERE id = ANY(${toPgTextArray(groupIds)}::uuid[])
       AND gid_number IS NOT NULL
     `;
 
     for (const row of groupRows) {
       bases.push({
         type: "group",
-        name: row.name as string,
+        groupId: row.id as string,
+        name: row.cn as string,
         gidNumber: row.gid_number as number,
       });
     }
