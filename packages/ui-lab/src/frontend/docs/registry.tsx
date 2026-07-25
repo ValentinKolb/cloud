@@ -1038,6 +1038,7 @@ export const allMappedDemoIds = (): string[] => allDocPages.flatMap((page) => pa
 export const hiddenUiLabExports = [
   { name: "LAYOUT_UPDATE_EVENT", reason: "Internal layout event constant used by the layout helper." },
   { name: "aiSkillsApi", reason: "API client behind the AI Skills demos, not a visual component." },
+  { name: "canPreviewFile", reason: "Predicate behind the FileView preview examples, not a visual component." },
   { name: "clampImageCropRect", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "confirmDiscardIfDirty", reason: "Small PanelDialog workflow helper documented through PanelDialog usage." },
   { name: "createAvatarDataUrlFromFile", reason: "Low-level avatar upload helper; account avatar UX is intentionally app-owned." },
@@ -1045,6 +1046,7 @@ export const hiddenUiLabExports = [
   { name: "createDialogCore", reason: "Factory behind the shared dialogCore singleton; app code normally uses dialogCore directly." },
   { name: "createFormState", reason: "Prompt implementation helper, not a standalone visual component." },
   { name: "formatFileViewSize", reason: "Formatting helper covered by the FileView examples." },
+  { name: "getFileViewPreviewKind", reason: "Preview-kind lookup behind the FileView examples, alongside formatFileViewSize." },
   { name: "getInitialImageCropRect", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "imageCropRectToPixels", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "normalizeDockWorkspaceState", reason: "State normalization helper covered by DockWorkspace behavior." },
