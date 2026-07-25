@@ -12,10 +12,17 @@
  * dies belongs here.
  */
 import { type SQL, sql } from "bun";
-import type { WorkflowActor, WorkflowJsonValue } from "../contracts";
+import type { WorkflowActor, WorkflowInvocationMode, WorkflowJsonValue } from "../contracts";
 import { coordinateWorkflowExecution } from "../runtime/coordinator";
-import { executeWorkflowPlan } from "../runtime/executor";
-import type { WorkflowExecuteActionPort, WorkflowTracePort, WorkflowValueResolverPort } from "../runtime/ports";
+import { dryRunWorkflowPlan, executeWorkflowPlan } from "../runtime/executor";
+import type {
+  WorkflowDryRunActionPort,
+  WorkflowDryRunResult,
+  WorkflowExecuteActionPort,
+  WorkflowRuntimeRunIdentity,
+  WorkflowTracePort,
+  WorkflowValueResolverPort,
+} from "../runtime/ports";
 import { dispatchPendingWorkflowEvents } from "./events";
 import {
   claimWorkflowRun,
@@ -84,6 +91,31 @@ const settle = (result: Awaited<ReturnType<typeof executeWorkflowPlan>>): Workfl
   }
 };
 
+/** The identity the trace port names a run by, built from what the claim returned. */
+const runIdentity = (claim: WorkflowRunClaim, mode: WorkflowInvocationMode): WorkflowRuntimeRunIdentity => ({
+  runId: claim.runId,
+  executionGeneration: claim.executionGeneration,
+  mode,
+  workflowId: claim.workflowId,
+  sourceHash: claim.sourceHash,
+  idempotencyKey: claim.idempotencyKey,
+});
+
+/**
+ * Announces a run's own transitions, around the step-level ones the executor emits.
+ *
+ * Best-effort on purpose: an observer that throws — a browser stream, a metric
+ * sink — must not be able to fail a run that has otherwise done its work.
+ */
+const traceRun = async (trace: WorkflowTracePort | undefined, event: Parameters<WorkflowTracePort["emit"]>[0]): Promise<void> => {
+  if (!trace) return;
+  try {
+    await trace.emit(event);
+  } catch {
+    // Observing is not part of the run's contract.
+  }
+};
+
 /**
  * Claims one run and carries it as far as it goes.
  *
@@ -104,6 +136,7 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
     heartbeatMs: HEARTBEAT_MS,
     port,
     execute: async ({ claim, heartbeat }) => {
+      await traceRun(options.trace, { type: "run.started", run: runIdentity(claim, "execute") });
       const result = await executeWorkflowPlan({
         runId: claim.runId,
         executionGeneration: claim.executionGeneration,
@@ -139,9 +172,116 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
     case "idle":
       return { state: "idle" };
     case "finished":
+      // After the coordinator persisted it: an observer that re-reads the run
+      // has to find the state this announces, not the one before it.
+      await traceRun(options.trace, {
+        type: "run.finished",
+        run: runIdentity(outcome.claim, "execute"),
+        state: outcome.result.state,
+      });
       return { state: "finished", runId: outcome.claim.runId, result: outcome.result };
     case "released":
     case "retry":
+      await traceRun(options.trace, { type: "run.finished", run: runIdentity(outcome.claim, "execute"), state: "released" });
+      return { state: "released", runId: outcome.claim.runId, error: outcome.error };
+    case "stale":
+    case "canceled":
+      return { state: "lost", runId: outcome.claim.runId };
+  }
+};
+
+export type WorkflowDryRunWorkerOptions = Omit<WorkflowWorkerOptions, "actions"> & {
+  /** The same declarations, planning instead of acting. */
+  actions: WorkflowDryRunActionPort;
+};
+
+export type WorkflowDryRunOutcome =
+  | { state: "idle" }
+  | { state: "finished"; runId: string; result: WorkflowDryRunResult }
+  | { state: "released"; runId: string; error: unknown }
+  | { state: "lost"; runId: string };
+
+/**
+ * How a dry run reports: a plan is not a run that happened.
+ *
+ * `planned` and a terminal `succeeded` both mean the plan holds; anything that
+ * could not be determined is a failure of the *question*, not of the work, and
+ * shows up as the run's error so the caller sees which step could not be
+ * planned rather than an empty answer.
+ */
+const settleDryRun = (result: WorkflowDryRunResult): WorkflowRunResult => {
+  if (result.state === "planned") return { state: "succeeded", result: { effects: result.effects, output: result.output ?? null } };
+  if (result.state === "canceled") return { state: "canceled", ...(result.message ? { message: result.message } : {}) };
+  if (result.state === "terminal" && result.status === "succeeded") {
+    return { state: "succeeded", result: { effects: result.effects, ...(result.message ? { message: result.message } : {}) } };
+  }
+  const reason = result.state === "terminal" ? (result.message ?? "the plan would fail") : result.reason;
+  return {
+    state: "failed",
+    error: { code: `WORKFLOW_DRY_RUN_${result.state === "terminal" ? "TERMINAL" : result.state.toUpperCase()}`, message: reason },
+  };
+};
+
+/**
+ * The same loop for the question rather than the work.
+ *
+ * A dry run is a real run with real bookkeeping — it is leased, journaled and
+ * recoverable — because a preflight over ten thousand records takes as long as
+ * the work would and must survive the same crashes. Only the claim's mode and
+ * the port it drives differ, which is exactly the distinction that keeps a dry
+ * run from performing what it was meant to describe.
+ */
+export const dryRunOneWorkflow = async (options: WorkflowDryRunWorkerOptions & { runId?: string }): Promise<WorkflowDryRunOutcome> => {
+  const db = options.db ?? sql;
+  const repository = createWorkflowRuntimeRepository({ db });
+  const port = createWorkflowCoordinatorPort({ worker: options.worker, runId: options.runId, appId: options.appId, mode: "dryRun" });
+
+  let planned: WorkflowDryRunResult | null = null;
+  const outcome = await coordinateWorkflowExecution<void, WorkflowRunClaim, WorkflowRunResult>({
+    input: undefined,
+    heartbeatMs: HEARTBEAT_MS,
+    port,
+    execute: async ({ claim, heartbeat }) => {
+      await traceRun(options.trace, { type: "run.started", run: runIdentity(claim, "dryRun") });
+      planned = await dryRunWorkflowPlan({
+        runId: claim.runId,
+        executionGeneration: claim.executionGeneration,
+        plan: claim.plan,
+        invocation: {
+          workflowId: claim.workflowId,
+          mode: "dryRun",
+          channel: "event",
+          actor: actorFromSnapshot(claim.authorization),
+          inputs: claim.inputs,
+          idempotencyKey: claim.idempotencyKey,
+          context: claim.context,
+          occurredAt: claim.occurredAt.toISOString(),
+        },
+        repository,
+        clock: { now: () => claim.occurredAt.toISOString() },
+        actions: options.actions,
+        ...(options.trace ? { trace: options.trace } : {}),
+        ...(options.values ? { values: options.values } : {}),
+        ...(options.maxLoopItems === undefined ? {} : { maxLoopItems: options.maxLoopItems }),
+      });
+      await heartbeat();
+      return settleDryRun(planned);
+    },
+  });
+
+  switch (outcome.state) {
+    case "idle":
+      return { state: "idle" };
+    case "finished":
+      await traceRun(options.trace, {
+        type: "run.finished",
+        run: runIdentity(outcome.claim, "dryRun"),
+        state: outcome.result.state,
+      });
+      return { state: "finished", runId: outcome.claim.runId, result: planned as unknown as WorkflowDryRunResult };
+    case "released":
+    case "retry":
+      await traceRun(options.trace, { type: "run.finished", run: runIdentity(outcome.claim, "dryRun"), state: "released" });
       return { state: "released", runId: outcome.claim.runId, error: outcome.error };
     case "stale":
     case "canceled":

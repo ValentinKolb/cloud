@@ -8,10 +8,10 @@ export {
   createWorkflowActionPort,
   createWorkflowDryRunPort,
   type WorkflowActionPortOptions,
-  workflowActionDescriptors,
-  workflowEffectKey,
   type WorkflowEffectJournalPort,
   type WorkflowEffectJournalStep,
+  workflowActionDescriptors,
+  workflowEffectKey,
 } from "./actions";
 export {
   budgetError,
@@ -51,6 +51,7 @@ export {
 export {
   getWorkflowRun,
   listStrandedWorkflowEffects,
+  listWorkflowRunSteps,
   listWorkflowRuns,
   type StrandedWorkflowEffect,
   type WorkflowAppHealth,
@@ -86,9 +87,12 @@ export {
   wakeWorkflowRunsWaitingOn,
 } from "./runs";
 export {
+  dryRunOneWorkflow,
   hasClaimableWorkflowRun,
   runOneWorkflow,
   tickWorkflows,
+  type WorkflowDryRunOutcome,
+  type WorkflowDryRunWorkerOptions,
   type WorkflowTickResult,
   type WorkflowWorkerOptions,
   type WorkflowWorkerOutcome,

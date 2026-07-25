@@ -13,7 +13,7 @@
  * defect was exactly that divergence, and here it is not a bug to fix but a
  * shape that cannot occur.
  */
-import { type SQL, sql } from "bun";
+import type { SQL } from "bun";
 import { type WorkflowJsonValue, type WorkflowStepOutcome, workflowPathKey } from "../contracts";
 import { type ErasedWorkflowAction, LANGUAGE_EFFECT, type WorkflowActionMap } from "../definition";
 import type {

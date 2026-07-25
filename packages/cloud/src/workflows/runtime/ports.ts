@@ -7,6 +7,7 @@ import type {
   WorkflowJsonValue,
   WorkflowPlanningIssue,
   WorkflowPlanningOutcome,
+  WorkflowRunState,
   WorkflowStepOutcome,
 } from "../contracts";
 
@@ -104,12 +105,27 @@ export interface WorkflowDryRunActionPort {
   get(action: string): WorkflowDryRunActionHandler | undefined;
 }
 
+/**
+ * What an observer is told about a run's progress.
+ *
+ * The run-level events bracket the step-level ones: a worker claimed this run,
+ * and it settled this way. An app that streams progress to a browser needs both
+ * ends — without `run.started` a queued run appears to sit still until its first
+ * step reports, and without `run.finished` a run that failed before any step
+ * never announces that it stopped.
+ *
+ * Deliberately thin: the transition and which run it happened to. Whoever
+ * publishes re-reads the run, because the row is the truth and an event that
+ * carried a copy of it would be one more thing to keep in step.
+ */
 export type WorkflowTraceEvent =
+  | { type: "run.started"; run: WorkflowRuntimeRunIdentity }
   | { type: "step.started"; step: WorkflowRuntimeStepIdentity }
   | { type: "step.restored"; step: WorkflowRuntimeStepIdentity; restored: WorkflowRestoredStep }
   | { type: "step.waiting"; step: WorkflowRuntimeStepIdentity; dependency: WorkflowDependency }
   | { type: "step.finished"; step: WorkflowRuntimeStepIdentity; result: WorkflowRuntimeStepResult }
-  | { type: "run.canceled"; run: WorkflowRuntimeRunIdentity; message?: string };
+  | { type: "run.canceled"; run: WorkflowRuntimeRunIdentity; message?: string }
+  | { type: "run.finished"; run: WorkflowRuntimeRunIdentity; state: WorkflowRunState | "released" };
 
 export interface WorkflowTracePort {
   emit(event: WorkflowTraceEvent): Promise<void> | void;

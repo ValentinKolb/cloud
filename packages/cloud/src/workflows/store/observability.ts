@@ -125,10 +125,16 @@ export const listWorkflowRuns = async (filter: WorkflowRunFilter = {}, options: 
 
 export type WorkflowStepSummary = {
   stepKey: string;
+  /** Where the step sits in the written source, so a view can point at it. */
+  sourcePath: WorkflowJsonValue;
+  /** Which iteration of an enclosing loop this was. Empty outside one. */
+  iterationPath: WorkflowJsonValue;
   kind: string;
   action: string | null;
   state: string;
   attempt: number;
+  /** What the step reported — the output a later step referenced, or why it stopped. */
+  outcome: WorkflowJsonValue | null;
   effectKey: string | null;
   effectState: string | null;
   effectStartedAt: Date | null;
@@ -136,6 +142,74 @@ export type WorkflowStepSummary = {
   startedAt: Date;
   finishedAt: Date | null;
   durationMs: number | null;
+};
+
+/** One step's row, shaped for a run view. Shared by the detail read and the live one. */
+type StepRow = {
+  step_key: string;
+  source_path: WorkflowJsonValue;
+  iteration_path: WorkflowJsonValue;
+  kind: string;
+  action: string | null;
+  state: string;
+  attempt: number;
+  outcome: WorkflowJsonValue | null;
+  effect_key: string | null;
+  effect_state: string | null;
+  effect_started_at: Date | null;
+  dependency: WorkflowJsonValue | null;
+  started_at: Date;
+  finished_at: Date | null;
+};
+
+const STEP_SELECT = `
+  step_key, source_path, iteration_path, kind, action, state, attempt, outcome,
+  effect_key, effect_state, effect_started_at, dependency, started_at, finished_at
+`;
+
+const toStepSummary = (step: StepRow): WorkflowStepSummary => ({
+  stepKey: step.step_key,
+  sourcePath: step.source_path,
+  iterationPath: step.iteration_path,
+  kind: step.kind,
+  action: step.action,
+  state: step.state,
+  attempt: step.attempt,
+  outcome: step.outcome,
+  effectKey: step.effect_key,
+  effectState: step.effect_state,
+  effectStartedAt: step.effect_started_at,
+  dependency: step.dependency,
+  startedAt: step.started_at,
+  finishedAt: step.finished_at,
+  durationMs: millisBetween(step.started_at, step.finished_at),
+});
+
+/**
+ * The steps of one run, or just the ones named.
+ *
+ * Naming them is what a live update needs: a step finished, and the stream
+ * carries that step rather than re-reading a plan that may have thousands.
+ */
+export const listWorkflowRunSteps = async (
+  runId: string,
+  options: { stepKeys?: readonly string[]; db?: SQL } = {},
+): Promise<WorkflowStepSummary[]> => {
+  const db = options.db ?? sql;
+  const keys = options.stepKeys;
+  if (keys && keys.length === 0) return [];
+  const rows = keys
+    ? await db<StepRow[]>`
+        SELECT ${db.unsafe(STEP_SELECT)} FROM workflows.step_outcome
+        WHERE run_id = ${runId}::uuid AND step_key IN ${db(keys)}
+        ORDER BY started_at, step_key
+      `
+    : await db<StepRow[]>`
+        SELECT ${db.unsafe(STEP_SELECT)} FROM workflows.step_outcome
+        WHERE run_id = ${runId}::uuid
+        ORDER BY started_at, step_key
+      `;
+  return rows.map(toStepSummary);
 };
 
 export type WorkflowRunDetail = WorkflowRunSummary & {
@@ -180,24 +254,7 @@ export const getWorkflowRun = async (runId: string, options: { db?: SQL } = {}):
   `;
   if (!row) return null;
 
-  const steps = await db<
-    {
-      step_key: string;
-      kind: string;
-      action: string | null;
-      state: string;
-      attempt: number;
-      effect_key: string | null;
-      effect_state: string | null;
-      effect_started_at: Date | null;
-      dependency: WorkflowJsonValue | null;
-      started_at: Date;
-      finished_at: Date | null;
-    }[]
-  >`
-    SELECT step_key, kind, action, state, attempt, effect_key, effect_state, effect_started_at, dependency, started_at, finished_at
-    FROM workflows.step_outcome WHERE run_id = ${runId}::uuid ORDER BY started_at, step_key
-  `;
+  const steps = await listWorkflowRunSteps(runId, { db });
 
   const childCounts = await db<{ state: WorkflowRunState; count: string }[]>`
     SELECT state, count(*) AS count FROM workflows.run WHERE parent_run_id = ${runId}::uuid GROUP BY state
@@ -215,20 +272,7 @@ export const getWorkflowRun = async (runId: string, options: { db?: SQL } = {}):
     eventId: row.event_id,
     eventData: row.event_data,
     children,
-    steps: steps.map((step) => ({
-      stepKey: step.step_key,
-      kind: step.kind,
-      action: step.action,
-      state: step.state,
-      attempt: step.attempt,
-      effectKey: step.effect_key,
-      effectState: step.effect_state,
-      effectStartedAt: step.effect_started_at,
-      dependency: step.dependency,
-      startedAt: step.started_at,
-      finishedAt: step.finished_at,
-      durationMs: millisBetween(step.started_at, step.finished_at),
-    })),
+    steps,
   };
 };
 

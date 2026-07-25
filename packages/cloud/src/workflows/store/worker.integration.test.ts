@@ -16,8 +16,8 @@ import type { WorkflowExecuteActionHandler, WorkflowExecuteActionPort } from "..
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
 import { getWorkflowRun } from "./observability";
-import { claimWorkflowRun } from "./runs";
-import { runOneWorkflow, tickWorkflows } from "./worker";
+import { claimWorkflowRun, createWorkflowRun } from "./runs";
+import { dryRunOneWorkflow, runOneWorkflow, tickWorkflows } from "./worker";
 
 let readiness: Promise<boolean> | null = null;
 const ready = (): Promise<boolean> => {
@@ -178,6 +178,133 @@ describe("workflow worker", () => {
     expect(firstRuns).toBe(1);
     expect(secondRuns).toBe(1);
     expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
+  });
+
+  test("a run announces that it started and how it settled, around its steps", async () => {
+    if (!(await ready())) return;
+    const plan = planWith([actionStep(0, "probe.watched")], ["probe.watched"]);
+    const { appId, scopeId } = await workflowListening("probe.watched", plan);
+    const emission = await emitWorkflowEvent({ appId, scopeId, type: "probe.watched" }, { dispatch: "now" });
+    const runId = emission.runIds[0]!;
+
+    const seen: string[] = [];
+    await runOneWorkflow({
+      worker: "w1",
+      runId,
+      actions: port({ "probe.watched": async () => ({ state: "completed", output: null }) }),
+      trace: {
+        emit: (event) => {
+          seen.push(event.type);
+          if (event.type === "run.finished") seen.push(`state:${event.state}`);
+        },
+      },
+    });
+
+    // The run-level events bracket the step-level ones. Without them a queued
+    // run appears to sit still until its first step reports, and one that fails
+    // before any step never announces that it stopped.
+    expect(seen).toEqual(["run.started", "step.started", "step.finished", "run.finished", "state:succeeded"]);
+  });
+
+  test("an observer that throws does not cost the run its outcome", async () => {
+    if (!(await ready())) return;
+    const plan = planWith([actionStep(0, "probe.observed")], ["probe.observed"]);
+    const { appId, scopeId } = await workflowListening("probe.observed", plan);
+    const emission = await emitWorkflowEvent({ appId, scopeId, type: "probe.observed" }, { dispatch: "now" });
+    const runId = emission.runIds[0]!;
+
+    // A browser stream or a metric sink is not part of the run's contract.
+    const outcome = await runOneWorkflow({
+      worker: "w1",
+      runId,
+      actions: port({ "probe.observed": async () => ({ state: "completed", output: null }) }),
+      trace: {
+        emit: (event) => {
+          if (event.type === "run.started" || event.type === "run.finished") throw new Error("stream gone");
+        },
+      },
+    });
+
+    expect(outcome.state).toBe("finished");
+    expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
+  });
+
+  test("a dry run is leased and journaled like a run, and performs nothing", async () => {
+    if (!(await ready())) return;
+    const plan = planWith([actionStep(0, "probe.costly")], ["probe.costly"]);
+    const { appId, scopeId, workflowId } = await workflowListening("probe.dry", plan);
+    const version = await sql<{ id: string }[]>`
+      SELECT id FROM workflows.version WHERE workflow_id = ${workflowId}::uuid ORDER BY revision DESC LIMIT 1
+    `;
+    // A dry run is asked for directly rather than caused by an event: nothing
+    // happened, somebody wants to know what would.
+    const runId = await createWorkflowRun({
+      appId,
+      scopeId,
+      workflowId,
+      workflowVersionId: version[0]!.id,
+      mode: "dryRun",
+      authorization: { kind: "system" },
+      idempotencyKey: `dry:${crypto.randomUUID()}`,
+      occurredAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    let performed = 0;
+    const outcome = await dryRunOneWorkflow({
+      worker: "w1",
+      runId,
+      actions: {
+        get: () => ({
+          plan: async () => ({ state: "planned" as const, effects: [{ action: "probe.costly", summary: "would send one" }] }),
+        }),
+      },
+    });
+
+    expect(outcome.state).toBe("finished");
+    expect(performed).toBe(0);
+    const detail = await getWorkflowRun(runId);
+    expect(detail?.state).toBe("succeeded");
+    expect(JSON.stringify(detail?.result)).toContain("would send one");
+    // Journaled the same way, so a preflight over ten thousand records survives
+    // the same crash the work would have.
+    expect(detail?.steps.map((step) => step.state)).toEqual(["planned"]);
+    expect(detail?.steps[0]?.sourcePath).toEqual(["steps", 0]);
+  });
+
+  test("the execute worker never answers a dry run by doing the work", async () => {
+    if (!(await ready())) return;
+    const plan = planWith([actionStep(0, "probe.untouched")], ["probe.untouched"]);
+    const { appId, scopeId, workflowId } = await workflowListening("probe.modes", plan);
+    const [version] = await sql<{ id: string }[]>`
+      SELECT id FROM workflows.version WHERE workflow_id = ${workflowId}::uuid ORDER BY revision DESC LIMIT 1
+    `;
+    await createWorkflowRun({
+      appId,
+      scopeId,
+      workflowId,
+      workflowVersionId: version!.id,
+      mode: "dryRun",
+      authorization: { kind: "system" },
+      idempotencyKey: `dry:${crypto.randomUUID()}`,
+      occurredAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+
+    let performed = 0;
+    const outcome = await runOneWorkflow({
+      worker: "w1",
+      appId,
+      actions: port({
+        "probe.untouched": async () => {
+          performed += 1;
+          return { state: "completed", output: null };
+        },
+      }),
+    });
+
+    // The claim's mode filter is the whole guard: a dry run claimed by the
+    // execute path performs the effects it was meant only to describe.
+    expect(outcome).toEqual({ state: "idle" });
+    expect(performed).toBe(0);
   });
 
   test("an idle worker says so instead of spinning", async () => {
