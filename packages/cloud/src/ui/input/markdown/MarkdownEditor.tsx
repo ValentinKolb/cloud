@@ -757,6 +757,8 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
   return (
     <div
       class="md-editor"
+      role="group"
+      aria-label="Markdown editor"
       data-disabled={props.disabled ? "true" : undefined}
       data-error={props.error ? "true" : undefined}
       data-variant={props.variant === "paper" ? "paper" : undefined}
@@ -815,6 +817,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
           aria-describedby={props.ariaDescribedBy}
           aria-invalid={props.ariaInvalid}
           aria-required={props.ariaRequired}
+          role="combobox"
           aria-autocomplete="list"
           aria-expanded={dropdownOpen()}
           aria-controls={dropdownOpen() ? listboxId() : undefined}

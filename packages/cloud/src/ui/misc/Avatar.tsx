@@ -32,7 +32,7 @@ export default function Avatar(props: AvatarProps) {
   }
 
   return (
-    <div class={className} style={props.style} aria-label={`${label} avatar`}>
+    <div class={className} style={props.style} role="img" aria-label={`${label} avatar`}>
       {initials}
     </div>
   );

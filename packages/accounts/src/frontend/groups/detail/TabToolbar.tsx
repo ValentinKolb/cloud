@@ -39,7 +39,7 @@ export default function TabToolbar(props: Props) {
           href={props.serviceAccountsToggleUrl}
           class={`btn-input btn-input-sm shrink-0 self-stretch ${props.showServiceAccounts ? "btn-input-active" : ""}`}
           title={props.showServiceAccounts ? "Hide service account memberships" : "Show service account memberships"}
-          aria-pressed={props.showServiceAccounts}
+          aria-current={props.showServiceAccounts ? "true" : undefined}
         >
           <i class="ti ti-user-key text-sm" />
           Service accounts

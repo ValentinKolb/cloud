@@ -184,7 +184,7 @@ describe("CLI command builder", () => {
     const mod = defineCliCommands({
       name: "admin",
       summary: "Admin commands",
-      commands: [command("logs list", { summary: "List logs", run: () => void (ran += 1) })],
+      commands: [command("logs list", { summary: "List logs", run: () => { ran += 1; } })],
     });
 
     // The runner reads global flags without consuming them, so they reach the

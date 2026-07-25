@@ -161,6 +161,14 @@ export default function DataTable<T>(props: DataTableProps<T>) {
     return { href: props.sortHref({ key, direction }), active, direction };
   };
 
+  /** Only a sortable column carries a sort state; the rest carry none at all. */
+  const ariaSortFor = (col: DataTableColumn<T>): "ascending" | "descending" | "none" | undefined => {
+    const sort = sortLinkFor(col);
+    if (!sort) return undefined;
+    if (!sort.active) return "none";
+    return props.sort?.direction === "asc" ? "ascending" : "descending";
+  };
+
   const renderHeaderDefault = (col: DataTableColumn<T>): JSX.Element => {
     const sort = sortLinkFor(col);
     const title = (
@@ -178,7 +186,6 @@ export default function DataTable<T>(props: DataTableProps<T>) {
       <a
         href={sort.href}
         class={`flex flex-col gap-0.5 leading-tight hover:text-primary ${headerAlignmentClass(col)}`}
-        aria-sort={sort.active ? (props.sort?.direction === "asc" ? "ascending" : "descending") : "none"}
       >
         <span class="inline-flex items-center gap-1">
           {title}
@@ -244,6 +251,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                 {(col, index) => (
                   <th
                     class={`${headerPadding()} ${alignmentClass(col)} ${columnHoverClass(index())} ${col.headerClass ?? ""} ${col.class ?? ""}`}
+                    aria-sort={ariaSortFor(col)}
                     onMouseEnter={() => setHoveredColumnIfEnabled(index())}
                   >
                     {props.renderHeader ? props.renderHeader({ col, render: () => renderHeaderDefault(col) }) : renderHeaderDefault(col)}

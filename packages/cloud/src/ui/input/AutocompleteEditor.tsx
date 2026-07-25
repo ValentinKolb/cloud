@@ -580,6 +580,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
           aria-describedby={props.ariaDescribedBy}
           aria-invalid={props.ariaInvalid}
           aria-required={props.ariaRequired}
+          role="combobox"
           aria-autocomplete="list"
           aria-expanded={dropdownOpenSignal()}
           aria-controls={dropdownOpenSignal() ? listboxId() : undefined}
