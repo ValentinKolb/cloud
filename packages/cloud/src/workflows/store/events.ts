@@ -28,6 +28,30 @@ export type WorkflowEventInput = {
   dedupeKey?: string;
   /** The occurrence's own time, not the emitter's. Runs replay against this. */
   occurredAt?: Date;
+  /**
+   * Everything the plan reads under context.*, distinct from the payload.
+   *
+   * An app that already holds the facts a run needs — a captured row, the
+   * launcher that was pressed — hands them over rather than making every step
+   * read them again.
+   */
+  context?: Record<string, WorkflowJsonValue>;
+  /**
+   * Who the resulting runs act as.
+   *
+   * Without this every run would execute as the system: the activation's own
+   * snapshot is the fallback, and it is only meaningful for occurrences that
+   * have no human behind them, like a schedule tick.
+   */
+  authorization?: WorkflowJsonValue;
+  /**
+   * Restricts matching to one workflow's activations.
+   *
+   * For occurrences that concern exactly one workflow because the app already
+   * decided — it evaluated its own trigger filter — and a broadcast would start
+   * every workflow in the scope.
+   */
+  targetWorkflowId?: string;
 };
 
 export type WorkflowEmission = {
@@ -45,6 +69,22 @@ type ActivationMatch = {
   authorization_snapshot: WorkflowJsonValue;
 };
 
+type StoredEvent = {
+  id: string;
+  appId: string;
+  scopeId: string;
+  type: string;
+  occurredAt: Date;
+  data: Record<string, WorkflowJsonValue>;
+  context: Record<string, WorkflowJsonValue>;
+  authorization: WorkflowJsonValue;
+  targetWorkflowId: string | null;
+};
+
+/** An empty object means the emitter named nobody; fall back to the activation. */
+const isEmpty = (value: WorkflowJsonValue): boolean =>
+  !value || (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
+
 /**
  * Turns one event into runs.
  *
@@ -52,10 +92,7 @@ type ActivationMatch = {
  * redelivered event or a retried dispatch converges on the same runs rather
  * than adding more.
  */
-const materializeRuns = async (
-  tx: SQL,
-  event: { id: string; appId: string; scopeId: string; type: string; occurredAt: Date; data: Record<string, WorkflowJsonValue> },
-): Promise<string[]> => {
+const materializeRuns = async (tx: SQL, event: StoredEvent): Promise<string[]> => {
   const matches = await tx<ActivationMatch[]>`
     SELECT a.id AS activation_id, a.workflow_id, a.workflow_version_id, a.authorization_snapshot
     FROM workflows.activation AS a
@@ -64,6 +101,7 @@ const materializeRuns = async (
       AND a.event_type = ${event.type}
       AND w.app_id = ${event.appId}
       AND w.scope_id = ${event.scopeId}
+      AND (${event.targetWorkflowId}::uuid IS NULL OR a.workflow_id = ${event.targetWorkflowId}::uuid)
     ORDER BY a.id
   `;
 
@@ -78,7 +116,10 @@ const materializeRuns = async (
           workflowVersionId: match.workflow_version_id,
           mode: "execute",
           inputs: event.data,
-          authorization: match.authorization_snapshot,
+          context: event.context,
+          // The emitter's actor wins; the activation's snapshot is what a
+          // schedule tick or a captured row falls back to.
+          authorization: isEmpty(event.authorization) ? match.authorization_snapshot : event.authorization,
           idempotencyKey: `event:${event.id}:${match.activation_id}`,
           occurredAt: event.occurredAt,
           eventId: event.id,
@@ -107,12 +148,19 @@ export const emitWorkflowEvent = async (
   const db = options.db ?? sql;
   const occurredAt = event.occurredAt ?? new Date();
   const data = event.data ?? {};
+  const context = event.context ?? {};
+  const authorization = event.authorization ?? {};
 
   return db.begin(async (tx) => {
     const inserted = await tx<{ id: string }[]>`
-      INSERT INTO workflows.event (app_id, scope_id, type, data, dedupe_key, occurred_at)
-      VALUES (${event.appId}, ${event.scopeId}, ${event.type}, ${data}, ${event.dedupeKey ?? null}, ${occurredAt})
-      ON CONFLICT (app_id, type, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
+      INSERT INTO workflows.event (
+        app_id, scope_id, type, data, context, authorization_snapshot, target_workflow_id, dedupe_key, occurred_at
+      )
+      VALUES (
+        ${event.appId}, ${event.scopeId}, ${event.type}, ${data}, ${context}, ${authorization},
+        ${event.targetWorkflowId ?? null}::uuid, ${event.dedupeKey ?? null}, ${occurredAt}
+      )
+      ON CONFLICT (app_id, scope_id, type, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
       RETURNING id
     `;
 
@@ -121,7 +169,10 @@ export const emitWorkflowEvent = async (
       // rather than starting more — that is the whole point of the key.
       const [existing] = await tx<{ id: string }[]>`
         SELECT id FROM workflows.event
-        WHERE app_id = ${event.appId} AND type = ${event.type} AND dedupe_key = ${event.dedupeKey ?? null}
+        WHERE app_id = ${event.appId}
+          AND scope_id = ${event.scopeId}
+          AND type = ${event.type}
+          AND dedupe_key = ${event.dedupeKey ?? null}
       `;
       if (!existing) throw new Error("workflow event conflicted but could not be found");
       const runs = await tx<{ id: string }[]>`SELECT id FROM workflows.run WHERE event_id = ${existing.id}::uuid ORDER BY created_at, id`;
@@ -131,7 +182,17 @@ export const emitWorkflowEvent = async (
     const eventId = inserted[0].id;
     if (options.dispatch !== "now") return { eventId, runIds: [], duplicate: false };
 
-    const runIds = await materializeRuns(tx, { id: eventId, ...event, occurredAt, data });
+    const runIds = await materializeRuns(tx, {
+      id: eventId,
+      appId: event.appId,
+      scopeId: event.scopeId,
+      type: event.type,
+      occurredAt,
+      data,
+      context,
+      authorization,
+      targetWorkflowId: event.targetWorkflowId ?? null,
+    });
     await tx`UPDATE workflows.event SET dispatched_at = now(), attempts = attempts + 1 WHERE id = ${eventId}::uuid`;
     return { eventId, runIds, duplicate: false };
   });
@@ -163,9 +224,20 @@ export const dispatchPendingWorkflowEvents = async (
     try {
       await db.begin(async (tx) => {
         const [row] = await tx<
-          { id: string; app_id: string; scope_id: string; type: string; data: Record<string, WorkflowJsonValue>; occurred_at: Date }[]
+          {
+            id: string;
+            app_id: string;
+            scope_id: string;
+            type: string;
+            data: Record<string, WorkflowJsonValue>;
+            context: Record<string, WorkflowJsonValue>;
+            authorization_snapshot: WorkflowJsonValue;
+            target_workflow_id: string | null;
+            occurred_at: Date;
+          }[]
         >`
-          SELECT id, app_id, scope_id, type, data, occurred_at FROM workflows.event
+          SELECT id, app_id, scope_id, type, data, context, authorization_snapshot, target_workflow_id, occurred_at
+          FROM workflows.event
           WHERE id = ${id}::uuid AND dispatched_at IS NULL
           FOR UPDATE SKIP LOCKED
         `;
@@ -179,6 +251,9 @@ export const dispatchPendingWorkflowEvents = async (
           type: row.type,
           occurredAt: row.occurred_at,
           data: row.data,
+          context: row.context,
+          authorization: row.authorization_snapshot,
+          targetWorkflowId: row.target_workflow_id,
         });
         await tx`UPDATE workflows.event SET dispatched_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = ${row.id}::uuid`;
         dispatched += 1;

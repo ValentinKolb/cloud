@@ -323,6 +323,30 @@ describe("workflow run store", () => {
     expect(await countChildWorkflowRuns(parentId)).toMatchObject({ queued: 249, running: 1 });
   });
 
+  test("a dry run is never claimed by an execute worker", async () => {
+    if (!(await ready())) return;
+    const { base } = await fixture();
+    const dryRunId = await createWorkflowRun({ ...base, mode: "dryRun", idempotencyKey: "ask" });
+
+    // A dry run asks what would happen. Claiming it here and driving it through
+    // the execute path performs the effects it was meant to only describe.
+    expect(await claimWorkflowRun({ worker: "w1", runId: dryRunId })).toBeNull();
+    expect(await claimWorkflowRun({ worker: "w1", runId: dryRunId, mode: "dryRun" })).not.toBeNull();
+  });
+
+  test("a cancelled run keeps the reason it was cancelled for", async () => {
+    if (!(await ready())) return;
+    const { base } = await fixture();
+    const runId = await createWorkflowRun({ ...base, idempotencyKey: "cancel-reason" });
+    const claim = await claimWorkflowRun({ worker: "w1", runId });
+
+    await finishWorkflowRun(claim!, { state: "canceled", message: "base was deleted" });
+    const [row] = await sql<{ result: { message?: string } | null }[]>`SELECT result FROM workflows.run WHERE id = ${runId}::uuid`;
+    // "Why did this stop" has to survive, or a cancelled run is indistinguishable
+    // from one nobody can explain.
+    expect(row?.result?.message).toBe("base was deleted");
+  });
+
   test("a version cannot be edited under a run that pinned it", async () => {
     if (!(await ready())) return;
     const { workflowVersionId } = await fixture();

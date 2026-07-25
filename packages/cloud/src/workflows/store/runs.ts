@@ -56,6 +56,7 @@ export type WorkflowRunClaim = {
   /** The pinned plan. Read from the version the run points at, never the workflow's current one. */
   plan: WorkflowBoundPlan;
   inputs: Record<string, WorkflowJsonValue>;
+  context: Record<string, WorkflowJsonValue>;
   authorization: WorkflowJsonValue;
   /**
    * The event's logical time, not the worker's clock. A replay after a crash
@@ -88,6 +89,7 @@ type ClaimRow = {
   scope_id: string;
   plan: WorkflowBoundPlan;
   inputs: Record<string, WorkflowJsonValue>;
+  context: Record<string, WorkflowJsonValue>;
   authorization_snapshot: WorkflowJsonValue;
   occurred_at: Date;
   parent_run_id: string | null;
@@ -107,6 +109,7 @@ const toClaim = (row: ClaimRow): WorkflowRunClaim => ({
   scopeId: row.scope_id,
   plan: row.plan,
   inputs: row.inputs,
+  context: row.context,
   authorization: row.authorization_snapshot,
   occurredAt: row.occurred_at,
   parentRunId: row.parent_run_id,
@@ -147,6 +150,8 @@ export type NewWorkflowRun = {
   idempotencyKey: string;
   occurredAt: Date;
   inputs?: Record<string, WorkflowJsonValue>;
+  /** Read by the plan as context.*, alongside the inputs. */
+  context?: Record<string, WorkflowJsonValue>;
   eventId?: string;
   /** Set together, or the run is not a child of anything. */
   parentRunId?: string;
@@ -165,12 +170,12 @@ export const createWorkflowRun = async (run: NewWorkflowRun, options: { db?: SQL
   const [row] = await db<{ id: string }[]>`
     INSERT INTO workflows.run (
       app_id, scope_id, workflow_id, workflow_version_id, event_id, parent_run_id, parent_step_key,
-      mode, inputs, authorization_snapshot, idempotency_key, occurred_at
+      mode, inputs, context, authorization_snapshot, idempotency_key, occurred_at
     )
     VALUES (
       ${run.appId}, ${run.scopeId}, ${run.workflowId}::uuid, ${run.workflowVersionId}::uuid,
       ${run.eventId ?? null}::uuid, ${run.parentRunId ?? null}::uuid, ${run.parentStepKey ?? null},
-      ${run.mode}, ${run.inputs ?? {}}, ${run.authorization},
+      ${run.mode}, ${run.inputs ?? {}}, ${run.context ?? {}}, ${run.authorization},
       ${run.idempotencyKey}, ${run.occurredAt}
     )
     ON CONFLICT (workflow_id, mode, idempotency_key) DO UPDATE SET updated_at = workflows.run.updated_at
@@ -204,6 +209,7 @@ export const createChildWorkflowRuns = async (
     parent_step_key: parent.stepKey,
     mode: child.mode,
     inputs: child.inputs ?? {},
+    context: child.context ?? {},
     authorization_snapshot: child.authorization,
     idempotency_key: child.idempotencyKey,
     occurred_at: child.occurredAt,
@@ -244,6 +250,13 @@ export const claimWorkflowRun = async (options: {
   runId?: string;
   /** Restricts a worker to one app's runs, so a per-app process cannot drain another's. */
   appId?: string;
+  /**
+   * Which mode to claim. Defaults to `execute`.
+   *
+   * A dry run asks what *would* happen; claiming one and running it through the
+   * execute path performs the effects it was meant to only describe.
+   */
+  mode?: WorkflowInvocationMode;
   leaseMs?: number;
   db?: SQL;
 }): Promise<WorkflowRunClaim | null> => {
@@ -257,6 +270,7 @@ export const claimWorkflowRun = async (options: {
         AND cancel_requested_at IS NULL
         AND (${options.runId ?? null}::uuid IS NULL OR id = ${options.runId ?? null}::uuid)
         AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
+        AND mode = ${options.mode ?? "execute"}
       ORDER BY claimable_at, created_at, id
       LIMIT 1
       FOR UPDATE SKIP LOCKED
@@ -275,7 +289,7 @@ export const claimWorkflowRun = async (options: {
     WHERE r.id = c.id
     RETURNING r.id, r.execution_generation, r.mode, r.workflow_id, r.workflow_version_id,
               v.source_hash, r.idempotency_key, r.app_id, r.scope_id, v.plan,
-              r.inputs, r.authorization_snapshot, r.occurred_at, r.parent_run_id, r.parent_step_key, r.attempt
+              r.inputs, r.context, r.authorization_snapshot, r.occurred_at, r.parent_run_id, r.parent_step_key, r.attempt
   `;
   const row = rows[0];
   return row ? toClaim(row) : null;
@@ -326,7 +340,13 @@ export const finishWorkflowRun = async (
   const rows = await db<{ id: string }[]>`
     UPDATE workflows.run
     SET state = ${result.state},
-        result = ${result.state === "succeeded" ? (result.result ?? null) : null},
+        result = ${
+          result.state === "succeeded"
+            ? (result.result ?? null)
+            : result.state === "canceled" && result.message
+              ? { message: result.message }
+              : null
+        },
         error = ${result.state === "failed" || result.state === "needs_attention" ? result.error : null},
         lease_owner = NULL,
         lease_expires_at = NULL,
@@ -395,6 +415,7 @@ export const createWorkflowCoordinatorPort = (options: {
   worker: string;
   runId?: string;
   appId?: string;
+  mode?: WorkflowInvocationMode;
   leaseMs?: number;
 }): WorkflowCoordinatorPort<void, WorkflowRunClaim, WorkflowRunResult> => ({
   claim: () => claimWorkflowRun(options),

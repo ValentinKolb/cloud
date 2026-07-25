@@ -168,6 +168,26 @@ export const migrate = async (): Promise<void> => {
       type TEXT NOT NULL CHECK (char_length(type) BETWEEN 1 AND 200),
       data JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(data) = 'object'),
       dedupe_key TEXT CHECK (dedupe_key IS NULL OR char_length(dedupe_key) BETWEEN 1 AND 500),
+      /*
+       * Everything the plan reads under context.* — a captured row, the
+       * launcher that was pressed. Distinct from data, which is the event's
+       * own payload: an app may hand a run facts it already has rather than
+       * make every step read them again.
+       */
+      context JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(context) = 'object'),
+      /*
+       * Restricts matching to one workflow's activations.
+       *
+       * Some occurrences concern exactly one workflow and nobody else: an app
+       * that evaluates its own trigger filter has already decided who should
+       * run. A column rather than a call argument, because dispatch is deferred
+       * and re-reads the row — an argument would evaporate and the event would
+       * fan out to every activation in the scope.
+       */
+      target_workflow_id UUID,
+      -- Who the resulting runs act as, frozen at emission. Named _snapshot to
+      -- match activation and run, and because "authorization" is reserved.
+      authorization_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(authorization_snapshot) = 'object'),
       occurred_at TIMESTAMPTZ NOT NULL,
       dispatched_at TIMESTAMPTZ,
       -- Dispatch can fail on its own — a version deleted mid-flight, a
@@ -181,7 +201,7 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_event_dedupe
-    ON workflows.event(app_id, type, dedupe_key)
+    ON workflows.event(app_id, scope_id, type, dedupe_key)
     WHERE dedupe_key IS NOT NULL
   `.simple();
   await sql`
@@ -217,6 +237,8 @@ export const migrate = async (): Promise<void> => {
       state TEXT NOT NULL DEFAULT 'queued'
         CHECK (state IN ('queued', 'running', 'waiting', 'succeeded', 'failed', 'canceled', 'needs_attention')),
       inputs JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(inputs) = 'object'),
+      /** Read by the plan as context.*; carried over from the event. */
+      context JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(context) = 'object'),
       -- What this run has actually spent, charged as it goes. Checking only
       -- before execution is what let Mail approve one set of effects and
       -- perform another; charging at the moment of the effect closes that.
@@ -251,7 +273,11 @@ export const migrate = async (): Promise<void> => {
       finished_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      FOREIGN KEY (workflow_version_id, workflow_id) REFERENCES workflows.version(id, workflow_id) ON DELETE RESTRICT,
+      -- Cascade, not RESTRICT: a workflow cascades to its versions, so
+      -- restricting here made deleting any workflow that had ever run
+      -- impossible. Deleting a workflow is a deliberate act that takes its
+      -- history with it.
+      FOREIGN KEY (workflow_version_id, workflow_id) REFERENCES workflows.version(id, workflow_id) ON DELETE CASCADE,
       CONSTRAINT run_parent_chk CHECK ((parent_run_id IS NULL) = (parent_step_key IS NULL)),
       CONSTRAINT run_lease_chk CHECK ((lease_owner IS NULL) = (lease_expires_at IS NULL)),
       UNIQUE (workflow_id, mode, idempotency_key)

@@ -158,6 +158,11 @@ export type PublishWorkflowVersion = {
   manifestHash: string;
   /** Caps on external effects for runs of this version. Absent dimensions are uncapped. */
   effectBudget?: Record<string, number>;
+  /**
+   * Who runs started by these activations act as, when the occurrence has no
+   * actor of its own — a schedule tick, an observed row change.
+   */
+  authorization?: WorkflowJsonValue;
   author: WorkflowAuthor;
   /** What the new version listens to. Replaces the previous version's set wholesale. */
   activations: readonly WorkflowActivationInput[];
@@ -212,6 +217,13 @@ export const publishWorkflowVersion = async (input: PublishWorkflowVersion, opti
     `;
     if (!version) throw new Error("workflow version insert returned no row");
 
+    // Whether each key is currently enabled, so a publish carries the operator's
+    // decision forward instead of turning a disabled workflow back on.
+    const existing = await tx<{ key: string; enabled: boolean }[]>`
+      SELECT key, enabled FROM workflows.activation WHERE workflow_id = ${input.workflowId}::uuid
+    `;
+    const wasEnabled = new Map(existing.map((row) => [row.key, row.enabled]));
+
     if (input.activations.length > 0) {
       const rows = input.activations.map((activation) => ({
         workflow_id: input.workflowId,
@@ -219,8 +231,8 @@ export const publishWorkflowVersion = async (input: PublishWorkflowVersion, opti
         key: activation.key,
         event_type: activation.eventType,
         config: activation.config ?? {},
-        authorization_snapshot: {},
-        enabled: activation.enabled ?? true,
+        authorization_snapshot: input.authorization ?? {},
+        enabled: activation.enabled ?? wasEnabled.get(activation.key) ?? true,
       }));
       await tx`
         INSERT INTO workflows.activation ${tx(rows)}

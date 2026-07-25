@@ -95,7 +95,9 @@ const settle = (result: Awaited<ReturnType<typeof executeWorkflowPlan>>): Workfl
 export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: string }): Promise<WorkflowWorkerOutcome> => {
   const db = options.db ?? sql;
   const repository = createWorkflowRuntimeRepository({ db });
-  const port = createWorkflowCoordinatorPort({ worker: options.worker, runId: options.runId, appId: options.appId });
+  // Execute only. A dry run is a question and belongs to the dry-run path; the
+  // claim filter is what keeps this loop from answering it by doing the work.
+  const port = createWorkflowCoordinatorPort({ worker: options.worker, runId: options.runId, appId: options.appId, mode: "execute" });
 
   const outcome = await coordinateWorkflowExecution<void, WorkflowRunClaim, WorkflowRunResult>({
     input: undefined,
@@ -113,6 +115,8 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
           actor: actorFromSnapshot(claim.authorization),
           inputs: claim.inputs,
           idempotencyKey: claim.idempotencyKey,
+          // Everything the plan reads under context.*, carried from the event.
+          context: claim.context,
           // The occurrence's time, not the worker's: a replay after a crash has
           // to see the same "now" the first attempt did, or a step that reads
           // the date stops being a function of its inputs.
