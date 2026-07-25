@@ -66,7 +66,6 @@ export default function AppLayoutHelp(props: {
 |---|---|
 | `Layout.HelpDocuments` | **Registrar.** Renders `null`; registers the manifest so the global Help modal can open the app's topics. `pageBase` is required |
 | `Layout.HelpPage` | **Reader.** Renders the full Help surface for the app's own `/help` route |
-| `Layout.Help` | **Legacy** JSX-tab registrar. Zero app call sites. Do not use it in new code |
 
 `HelpDocuments` registers into a browser-side registry, so it **must** run inside a `.island.tsx`. A plain SSR wrapper renders nothing and registers nothing. Pass the server-created manifest in; never import the collection into the client bundle.
 

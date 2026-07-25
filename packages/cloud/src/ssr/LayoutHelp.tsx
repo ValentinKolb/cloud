@@ -1,6 +1,6 @@
 import type { HelpDocumentManifest, HelpDocumentPayload, HelpSearchPayload } from "@valentinkolb/cloud/shared";
 import { clipboard, hotkeys } from "@valentinkolb/stdlib/solid";
-import { children, createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { MarkdownView, prompts } from "../ui";
 import { appAccentStyle } from "./app-appearance";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
@@ -16,8 +16,6 @@ type HelpTopicBase = {
   order?: number;
 };
 
-export type LayoutHelpTab = HelpTopicBase & { children: JSX.Element };
-export type LayoutHelpProps = LayoutHelpTab;
 export type LayoutHelpDocumentsProps = {
   documents: readonly HelpDocumentManifest[];
   /** Canonical standalone Help route owned by the current app. */
@@ -90,12 +88,6 @@ const registerTopic = (topic: HelpTopic) => {
     emitTopicsChanged();
   };
 };
-
-export function LayoutHelp(props: LayoutHelpProps) {
-  const resolved = children(() => props.children);
-  onMount(() => onCleanup(registerTopic({ ...props, kind: "content", children: resolved() })));
-  return null;
-}
 
 /** Register an app's server-prepared Markdown manifest with the shared help UI. */
 export function LayoutHelpDocuments(props: LayoutHelpDocumentsProps) {

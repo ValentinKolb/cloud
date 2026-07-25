@@ -3,7 +3,7 @@ import { dirname, join, normalize, resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dir, "../../../..");
 const sourceGlob = new Bun.Glob("packages/*/src/**/*.tsx");
-const helpRegistration = /<Layout\.(?:Help|HelpDocuments|HelpPage)(?:\s|>)/;
+const helpRegistration = /<Layout\.(?:HelpDocuments|HelpPage)(?:\s|>)/;
 
 const withoutTsx = (path: string) => path.replace(/\.tsx$/, "");
 const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
