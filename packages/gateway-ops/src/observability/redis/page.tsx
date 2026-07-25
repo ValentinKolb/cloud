@@ -10,6 +10,15 @@ import { getRedisDiagnostics, type RedisPrefixDiagnostic } from "../data/service
 import RedisDataFilters from "./_components/RedisDataFilters.island";
 
 const numberFormat = new Intl.NumberFormat("de-DE");
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+const formatBytes = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const exponent = Math.min(BYTE_UNITS.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const scaled = bytes / 1024 ** exponent;
+  return `${scaled >= 10 || exponent === 0 ? Math.round(scaled) : scaled.toFixed(1)} ${BYTE_UNITS[exponent]}`;
+};
+
 const formatNumber = (value: number): string => numberFormat.format(Math.round(value));
 const normalize = (value: string): string => value.toLowerCase();
 
@@ -24,8 +33,15 @@ const formatTtl = (ms: number): string => {
   return `${Math.round(hours / 24)}d`;
 };
 
-const warningClasses =
-  "rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/25 dark:text-amber-100";
+/**
+ * The service marks fatal problems (diagnostics unreachable) red and routine
+ * advisories amber. This page ignored the tone and painted everything amber,
+ * so "Redis is down" looked like "some keys have no expiry".
+ */
+const warningClasses = (tone: string): string =>
+  tone === "red"
+    ? "rounded-lg border border-red-200 bg-red-50 p-3 text-red-900 dark:border-red-500/30 dark:bg-red-950/25 dark:text-red-100"
+    : "rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/25 dark:text-amber-100";
 const warningGridClass = (count: number): string => {
   if (count <= 1) return "grid gap-2";
   if (count === 2) return "grid gap-2 md:grid-cols-2";
@@ -57,6 +73,17 @@ export default ssr<AuthContext>(async (c) => {
     .map((prefix) => ({ label: prefix.prefix, value: prefix.count }));
 
   const expiringKeys = diagnostics.keyspace.reduce((sum, row) => sum + row.expires, 0);
+  const runtime = diagnostics.runtime;
+  const memoryPressure =
+    runtime.usedMemoryBytes !== null && runtime.maxMemoryBytes !== null && runtime.maxMemoryBytes > 0
+      ? runtime.usedMemoryBytes / runtime.maxMemoryBytes > 0.85
+      : false;
+  const memorySub =
+    runtime.maxMemoryBytes && runtime.maxMemoryBytes > 0
+      ? `of ${formatBytes(runtime.maxMemoryBytes)}`
+      : runtime.usedMemoryBytes === null
+        ? "unavailable"
+        : "no maxmemory set";
   const keyspaceKeys = diagnostics.keyspace.reduce((sum, row) => sum + row.keys, 0);
   const expirySub = keyspaceKeys > 0 ? `${Math.round((expiringKeys / keyspaceKeys) * 100)}% expiring` : "no keyspace";
 
@@ -76,34 +103,41 @@ export default ssr<AuthContext>(async (c) => {
           <p class="mt-1 text-xs text-dimmed">Keyspace health and bounded prefix sampling. Raw keys are not listed.</p>
         </div>
 
-        <StatGrid columns={4}>
+        <StatGrid columns={5}>
+          <StatCell label="Keys" value={formatNumber(diagnostics.dbSize)} sub={`${formatNumber(expiringKeys)} expiring`} />
           <StatCell
-            label="Keys"
-            value={formatNumber(diagnostics.dbSize)}
-            sub={diagnostics.scanComplete ? "full scan" : `${formatNumber(diagnostics.sampledKeys)} sampled`}
-            accent={{ tone: diagnostics.available ? "emerald" : "red", icon: "ti ti-database" }}
+            label="Memory"
+            value={runtime.usedMemoryBytes === null ? "—" : formatBytes(runtime.usedMemoryBytes)}
+            sub={memorySub}
+            valueClass={memoryPressure ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+            accent={memoryPressure ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
           />
-          <StatCell label="Expiring" value={formatNumber(expiringKeys)} sub={expirySub} />
           <StatCell
-            label="Avg TTL"
-            value={formatTtl(diagnostics.keyspace[0]?.avgTtlMs ?? 0)}
-            sub={diagnostics.keyspace[0]?.database ?? "db0"}
+            label="Evicted"
+            value={runtime.evictedKeys === null ? "—" : formatNumber(runtime.evictedKeys)}
+            sub={runtime.maxMemoryPolicy ?? "policy unknown"}
+            valueClass={(runtime.evictedKeys ?? 0) > 0 ? "text-red-500" : "text-primary"}
+            accent={(runtime.evictedKeys ?? 0) > 0 ? { tone: "red", icon: "ti ti-trash-x" } : undefined}
+          />
+          <StatCell
+            label="Hit rate"
+            value={runtime.hitRate === null ? "—" : `${(runtime.hitRate * 100).toFixed(1)}%`}
+            sub={runtime.connectedClients === null ? "clients unknown" : `${formatNumber(runtime.connectedClients)} clients`}
+            valueClass={runtime.hitRate !== null && runtime.hitRate < 0.8 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
           />
           <StatCell
             label="Warnings"
             value={formatNumber(diagnostics.warnings.length)}
-            sub={diagnostics.warnings.length ? "needs review" : "none"}
-            valueClass={diagnostics.warnings.length ? "text-amber-600 dark:text-amber-400" : "text-primary"}
-            accent={
-              diagnostics.warnings.length ? { tone: "amber", icon: "ti ti-alert-triangle" } : { tone: "emerald", icon: "ti ti-check" }
-            }
+            sub={diagnostics.warnings.length === 0 ? "none" : "see below"}
+            valueClass={diagnostics.warnings.length > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+            accent={diagnostics.warnings.length > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
           />
         </StatGrid>
 
         {diagnostics.warnings.length ? (
           <section class={warningGridClass(diagnostics.warnings.length)}>
             {diagnostics.warnings.map((warning) => (
-              <article class={warningClasses}>
+              <article class={warningClasses(warning.tone)}>
                 <div class="flex items-start gap-2">
                   <i class="ti ti-alert-triangle mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" />
                   <div class="min-w-0">

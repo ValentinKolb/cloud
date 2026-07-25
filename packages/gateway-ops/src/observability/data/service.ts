@@ -79,6 +79,34 @@ export type RedisPrefixDiagnostic = {
   share: number;
 };
 
+/** Health signals from `INFO`, all nullable because older servers omit fields. */
+export type RedisRuntime = {
+  usedMemoryBytes: number | null;
+  maxMemoryBytes: number | null;
+  maxMemoryPolicy: string | null;
+  evictedKeys: number | null;
+  expiredKeys: number | null;
+  connectedClients: number | null;
+  blockedClients: number | null;
+  rejectedConnections: number | null;
+  role: string | null;
+  /** Fraction of lookups served from cache, or null when nothing was looked up. */
+  hitRate: number | null;
+};
+
+export const emptyRedisRuntime = (): RedisRuntime => ({
+  usedMemoryBytes: null,
+  maxMemoryBytes: null,
+  maxMemoryPolicy: null,
+  evictedKeys: null,
+  expiredKeys: null,
+  connectedClients: null,
+  blockedClients: null,
+  rejectedConnections: null,
+  role: null,
+  hitRate: null,
+});
+
 export type RedisDiagnostics = {
   available: boolean;
   error: string | null;
@@ -87,6 +115,7 @@ export type RedisDiagnostics = {
   scanComplete: boolean;
   keyspace: RedisKeyspaceDb[];
   prefixes: RedisPrefixDiagnostic[];
+  runtime: RedisRuntime;
   warnings: DiagnosticWarning[];
 };
 
@@ -152,6 +181,7 @@ const emptyRedis = (message: string): RedisDiagnostics => ({
   scanComplete: false,
   keyspace: [],
   prefixes: [],
+  runtime: emptyRedisRuntime(),
   warnings: [
     {
       area: "redis",
@@ -420,11 +450,50 @@ const buildPrefixes = (keys: string[]): RedisPrefixDiagnostic[] => {
   return rows.sort((a, b) => b.count - a.count || a.prefix.localeCompare(b.prefix));
 };
 
+/** `INFO` returns `key:value` lines per section; only the scalars are needed. */
+const parseRedisInfo = (raw: string): Map<string, string> => {
+  const values = new Map<string, string>();
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line || line.startsWith("#")) continue;
+    const separator = line.indexOf(":");
+    if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1).trim());
+  }
+  return values;
+};
+
 const collectRedis = async (): Promise<RedisDiagnostics> => {
   const redis = Bun.redis;
-  const [dbSizeRaw, keyspaceInfoRaw] = await Promise.all([redis.send("DBSIZE", []), redis.send("INFO", ["keyspace"])]);
+  const [dbSizeRaw, keyspaceInfoRaw, runtimeInfoRaw] = await Promise.all([
+    redis.send("DBSIZE", []),
+    redis.send("INFO", ["keyspace"]),
+    // Keyspace shape alone says nothing about whether Redis is healthy: memory
+    // pressure, evictions and a collapsing hit rate are the failures that
+    // actually page someone, and none of them were collected.
+    redis.send("INFO", ["memory", "stats", "clients", "replication"]).catch(() => ""),
+  ]);
   const dbSize = toNumber(dbSizeRaw);
   const keyspace = parseRedisKeyspace(String(keyspaceInfoRaw ?? ""));
+  const info = parseRedisInfo(String(runtimeInfoRaw ?? ""));
+  const infoNumber = (key: string): number | null => {
+    const value = info.get(key);
+    if (value === undefined) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const hits = infoNumber("keyspace_hits");
+  const misses = infoNumber("keyspace_misses");
+  const runtime = {
+    usedMemoryBytes: infoNumber("used_memory"),
+    maxMemoryBytes: infoNumber("maxmemory"),
+    maxMemoryPolicy: info.get("maxmemory_policy") ?? null,
+    evictedKeys: infoNumber("evicted_keys"),
+    expiredKeys: infoNumber("expired_keys"),
+    connectedClients: infoNumber("connected_clients"),
+    blockedClients: infoNumber("blocked_clients"),
+    rejectedConnections: infoNumber("rejected_connections"),
+    role: info.get("role") ?? null,
+    hitRate: hits !== null && misses !== null && hits + misses > 0 ? hits / (hits + misses) : null,
+  };
 
   const sampledKeys: string[] = [];
   let cursor = "0";
@@ -484,6 +553,7 @@ const collectRedis = async (): Promise<RedisDiagnostics> => {
     scanComplete,
     keyspace,
     prefixes,
+    runtime,
     warnings,
   };
 };

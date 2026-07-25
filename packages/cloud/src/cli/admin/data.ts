@@ -38,7 +38,17 @@ export type PostgresDiagnostics = {
   warnings: DiagnosticWarning[];
 };
 
+export type RedisRuntime = {
+  usedMemoryBytes: number | null;
+  maxMemoryBytes: number | null;
+  maxMemoryPolicy: string | null;
+  evictedKeys: number | null;
+  connectedClients: number | null;
+  hitRate: number | null;
+};
+
 export type RedisDiagnostics = {
+  runtime?: RedisRuntime;
   available: boolean;
   error: string | null;
   dbSize: number;
@@ -183,13 +193,18 @@ export const dataCommands = [
     run: async ({ ctx }) => {
       const data = await apiGet<RedisDiagnostics>(ctx, "/api/gateway/data/redis");
       const expiring = data.keyspace.reduce((sum, row) => sum + row.expires, 0);
+      const runtime = data.runtime;
       const rows = [
         {
           available: data.available,
           keys: data.dbSize,
           expiring,
-          sampled: data.sampledKeys,
-          scanComplete: data.scanComplete,
+          // Keyspace shape says nothing about health; these are the signals
+          // that actually indicate Redis is in trouble.
+          memory: runtime?.usedMemoryBytes == null ? "-" : formatBytes(runtime.usedMemoryBytes),
+          evicted: runtime?.evictedKeys ?? "-",
+          hitRate: runtime?.hitRate == null ? "-" : `${(runtime.hitRate * 100).toFixed(1)}%`,
+          clients: runtime?.connectedClients ?? "-",
           warnings: data.warnings.length,
           error: data.error ?? "",
         },
@@ -198,8 +213,10 @@ export const dataCommands = [
         { key: "available" },
         { key: "keys" },
         { key: "expiring" },
-        { key: "sampled" },
-        { key: "scanComplete" },
+        { key: "memory" },
+        { key: "evicted" },
+        { key: "hitRate", label: "Hit rate" },
+        { key: "clients" },
         { key: "warnings" },
         { key: "error" },
       ]);
