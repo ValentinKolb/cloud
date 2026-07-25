@@ -1,3 +1,4 @@
+import { formatNumber } from "@valentinkolb/cloud/shared";
 import { Checkbox, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { createSignal, Show } from "solid-js";
@@ -22,8 +23,6 @@ type RecipientPreview = {
   skippedNoEmailCount: number;
   recipientHash: string;
 };
-
-const formatCount = new Intl.NumberFormat("en");
 
 const readError = async (res: Response, fallback: string) => {
   try {
@@ -61,8 +60,8 @@ function FinalizeDialog(props: {
       <div class="info-block-warning flex min-w-0 items-start gap-2 text-sm">
         <i class="ti ti-alert-triangle mt-0.5 shrink-0" />
         <span class="min-w-0 break-words">
-          This will send the email to {formatCount.format(props.deliverableCount)} recipients.{" "}
-          {formatCount.format(props.skippedNoEmailCount)} selected accounts have no email address and will be skipped.
+          This will send the email to {formatNumber(props.deliverableCount)} recipients. {formatNumber(props.skippedNoEmailCount)} selected
+          accounts have no email address and will be skipped.
         </span>
       </div>
       <Checkbox

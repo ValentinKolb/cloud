@@ -1,13 +1,14 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { accountsAppService as accountsService, notificationBatches, type NotificationBatch } from "@valentinkolb/cloud/services";
+import { accountsAppService as accountsService, type NotificationBatch, notificationBatches } from "@valentinkolb/cloud/services";
+import { formatNumber } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
-import NotificationBatchStatusFilters from "./NotificationBatchStatusFilters.island";
 import NewNotificationBatch from "./NewNotificationBatch.island";
+import NotificationBatchStatusFilters from "./NotificationBatchStatusFilters.island";
 
 const MAX_PAGE = 10_000;
 
@@ -51,8 +52,6 @@ const statusLabel = (status: NotificationBatch["status"]) =>
     .split("_")
     .map((part) => part[0]!.toUpperCase() + part.slice(1))
     .join(" ");
-
-const formatCount = new Intl.NumberFormat("en");
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
@@ -138,14 +137,12 @@ export default ssr<AuthContext>(async (c) => {
                   if (col.id === "targets")
                     return (
                       <span class="text-dimmed">
-                        {formatCount.format(entry.deliverableCount)} / {formatCount.format(entry.targetCount)} deliverable
+                        {formatNumber(entry.deliverableCount)} / {formatNumber(entry.targetCount)} deliverable
                       </span>
                     );
-                  if (col.id === "sent") return <span class="text-dimmed">{formatCount.format(entry.sentCount)}</span>;
+                  if (col.id === "sent") return <span class="text-dimmed">{formatNumber(entry.sentCount)}</span>;
                   if (col.id === "errors")
-                    return (
-                      <span class={entry.errorCount > 0 ? "text-red-600" : "text-dimmed"}>{formatCount.format(entry.errorCount)}</span>
-                    );
+                    return <span class={entry.errorCount > 0 ? "text-red-600" : "text-dimmed"}>{formatNumber(entry.errorCount)}</span>;
                   if (col.id === "created") return <span class="text-dimmed">{dates.formatDateTime(entry.createdAt)}</span>;
                   return "";
                 }}

@@ -7,6 +7,7 @@ import {
   type NotificationBatchRecipientStatus,
   notificationBatches,
 } from "@valentinkolb/cloud/services";
+import { formatNumber } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Avatar, DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
@@ -44,8 +45,6 @@ const statusLabel = (status: NotificationBatch["status"] | NotificationBatchReci
     .split("_")
     .map((part) => part[0]!.toUpperCase() + part.slice(1))
     .join(" ");
-
-const formatCount = new Intl.NumberFormat("en");
 
 const RULE_LABELS: Record<string, { label: string; icon: string }> = {
   account_manager: { label: "Account managers", icon: "ti ti-shield-check" },
@@ -198,16 +197,16 @@ export default ssr<AuthContext>(async (c) => {
                 </span>
               }
             />
-            <StatCell label="Matched" value={formatCount.format(batch.targetCount)} />
+            <StatCell label="Matched" value={formatNumber(batch.targetCount)} />
             <StatCell
               label="Deliverable"
-              value={formatCount.format(batch.deliverableCount)}
-              sub={`${formatCount.format(batch.skippedCount)} skipped`}
+              value={formatNumber(batch.deliverableCount)}
+              sub={`${formatNumber(batch.skippedCount)} skipped`}
             />
-            <StatCell label="Sent" value={formatCount.format(batch.sentCount)} />
+            <StatCell label="Sent" value={formatNumber(batch.sentCount)} />
             <StatCell
               label="Errors"
-              value={formatCount.format(batch.errorCount)}
+              value={formatNumber(batch.errorCount)}
               valueClass={batch.errorCount > 0 ? "text-red-600 dark:text-red-400" : undefined}
               accent={batch.errorCount > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
             />
@@ -257,7 +256,7 @@ export default ssr<AuthContext>(async (c) => {
                         {selectionUserIds.length > previewSelectionUserIds.length ? (
                           <span class="chip max-w-full">
                             <i class="ti ti-dots" />
-                            <span>{formatCount.format(selectionUserIds.length - previewSelectionUserIds.length)} more</span>
+                            <span>{formatNumber(selectionUserIds.length - previewSelectionUserIds.length)} more</span>
                           </span>
                         ) : null}
                       </>
@@ -304,7 +303,7 @@ export default ssr<AuthContext>(async (c) => {
                       {selectionGroupIds.length > previewSelectionGroupIds.length ? (
                         <span class="chip max-w-full">
                           <i class="ti ti-dots" />
-                          <span>{formatCount.format(selectionGroupIds.length - previewSelectionGroupIds.length)} more</span>
+                          <span>{formatNumber(selectionGroupIds.length - previewSelectionGroupIds.length)} more</span>
                         </span>
                       ) : null}
                     </>
@@ -330,7 +329,7 @@ export default ssr<AuthContext>(async (c) => {
                 <p class="mt-1 text-xs text-dimmed">
                   {batch.status === "draft"
                     ? "Recipients are snapshotted when the batch is finalized."
-                    : `${formatCount.format(recipientsPage.total)} recipients`}
+                    : `${formatNumber(recipientsPage.total)} recipients`}
                 </p>
               </div>
             </div>
@@ -377,7 +376,7 @@ export default ssr<AuthContext>(async (c) => {
                           {statusLabel(entry.status)}
                         </span>
                       );
-                    if (col.id === "attempts") return <span class="text-dimmed">{formatCount.format(entry.attemptCount)}</span>;
+                    if (col.id === "attempts") return <span class="text-dimmed">{formatNumber(entry.attemptCount)}</span>;
                     if (col.id === "sent")
                       return <span class="text-dimmed">{entry.sentAt ? dates.formatDateTime(entry.sentAt) : "-"}</span>;
                     if (col.id === "actions")
