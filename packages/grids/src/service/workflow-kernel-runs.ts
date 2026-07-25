@@ -230,11 +230,15 @@ export const materializeWorkflowInvocation = async (input: MaterializeWorkflowIn
     `;
     if (existing) return existingInvocationReceipt(input, existing);
 
+    // The plan comes from the kernel's latest version; the base and the
+    // enabled policy stay Grids'.
     const [workflow] = await tx<DbRow[]>`
-      SELECT base_id, revision, plan, enabled
-      FROM grids.workflows
-      WHERE id = ${input.invocation.workflowId}::uuid AND deleted_at IS NULL
-      FOR SHARE
+      SELECT p.base_id, v.revision, v.plan, p.enabled
+      FROM grids.workflow_profile AS p
+      JOIN LATERAL (
+        SELECT revision, plan FROM workflows.version WHERE workflow_id = p.id ORDER BY revision DESC LIMIT 1
+      ) AS v ON TRUE
+      WHERE p.id = ${input.invocation.workflowId}::uuid AND p.deleted_at IS NULL
     `;
     if (!workflow) return fail(err.notFound("workflow"));
     if (workflow.base_id !== input.baseId) return fail(err.badInput("workflow base does not match invocation"));

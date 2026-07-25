@@ -16,6 +16,7 @@ import {
   resumeWaitingWorkflowRun,
 } from "./workflow-kernel-runs";
 import { finishDryRun } from "./workflow-kernel-runtime";
+import { insertTestWorkflow, renameTestWorkflow } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -28,10 +29,14 @@ describe("workflow run materialization", () => {
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Workflow cancel test')`;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, ${testShortId("W")}, ${baseId}::uuid, 'Cancelable workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: testShortId("W"),
+        baseId: baseId,
+        name: "Cancelable workflow",
+        source: "steps: []",
+        enabled: true,
+      });
       await sql`
         INSERT INTO grids.workflow_runs (
           id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
@@ -112,10 +117,14 @@ describe("workflow run materialization", () => {
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Workflow scalar result test')`;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, ${workflowShortId}, ${baseId}::uuid, 'Scalar workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: workflowShortId,
+        baseId: baseId,
+        name: "Scalar workflow",
+        source: "steps: []",
+        enabled: true,
+      });
       await sql`
         INSERT INTO grids.workflow_runs (
           id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
@@ -161,10 +170,14 @@ describe("workflow run materialization", () => {
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Workflow path test')`;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, ${workflowShortId}, ${baseId}::uuid, 'Path workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: workflowShortId,
+        baseId: baseId,
+        name: "Path workflow",
+        source: "steps: []",
+        enabled: true,
+      });
       await sql`
         INSERT INTO grids.workflow_runs (
           id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
@@ -230,10 +243,14 @@ describe("workflow run materialization", () => {
 
       try {
         await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Workflow concurrency test')`;
-        await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, ${workflowShortId}, ${baseId}::uuid, 'Concurrent no-op workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+        await insertTestWorkflow({
+          id: workflowId,
+          shortId: workflowShortId,
+          baseId: baseId,
+          name: "Concurrent no-op workflow",
+          source: "steps: []",
+          enabled: true,
+        });
         await Promise.all(
           runIds.map(
             (runId, index) => sql`
@@ -297,14 +314,18 @@ describe("workflow run materialization", () => {
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR000', 'Stable run test')`;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, 'WR010', ${baseId}::uuid, 'Original name', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: "WR010",
+        baseId: baseId,
+        name: "Original name",
+        source: "steps: []",
+        enabled: true,
+      });
 
       const first = await materializeWorkflowInvocation({ baseId, invocation });
       expect(first.ok).toBe(true);
-      await sql`UPDATE grids.workflows SET name = 'Renamed workflow' WHERE id = ${workflowId}::uuid`;
+      await renameTestWorkflow(workflowId, "Renamed workflow");
       const repeated = await materializeWorkflowInvocation({ baseId, invocation });
 
       expect(repeated).toEqual(
@@ -338,14 +359,18 @@ describe("workflow run materialization", () => {
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR001', 'Run revision test')`;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, 'WR002', ${baseId}::uuid, 'Revision workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: "WR002",
+        baseId: baseId,
+        name: "Revision workflow",
+        source: "steps: []",
+        enabled: true,
+      });
 
       const first = await materializeWorkflowInvocation({ baseId, invocation });
       expect(first.ok).toBe(true);
-      await sql`UPDATE grids.workflows SET name = 'Revision workflow 2' WHERE id = ${workflowId}::uuid`;
+      await renameTestWorkflow(workflowId, "Revision workflow 2");
 
       const second = await materializeWorkflowInvocation({
         baseId,
@@ -368,10 +393,14 @@ describe("workflow run materialization", () => {
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR003', 'Park step test')`;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, 'WR004', ${baseId}::uuid, 'Park workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: "WR004",
+        baseId: baseId,
+        name: "Park workflow",
+        source: "steps: []",
+        enabled: true,
+      });
       await sql`
         INSERT INTO grids.workflow_runs (
           id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
@@ -452,10 +481,14 @@ describe("workflow run materialization", () => {
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR007', 'Effect fence test')`;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, 'WR008', ${baseId}::uuid, 'Effect fence workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: "WR008",
+        baseId: baseId,
+        name: "Effect fence workflow",
+        source: "steps: []",
+        enabled: true,
+      });
       await sql`
         INSERT INTO grids.workflow_runs (
           id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
@@ -559,10 +592,14 @@ describe("workflow run materialization", () => {
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR020', 'Dry-run issue test')`;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, 'WR021', ${baseId}::uuid, 'Dry-run workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: "WR021",
+        baseId: baseId,
+        name: "Dry-run workflow",
+        source: "steps: []",
+        enabled: true,
+      });
       await sql`
         INSERT INTO grids.workflow_runs (
           id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
@@ -625,10 +662,14 @@ describe("workflow run materialization", () => {
         INSERT INTO auth.service_accounts (id, name, kind, app_id, resource_type, resource_id)
         VALUES (${serviceAccountId}::uuid, 'Workflow credential test', 'resource_bound', 'grids', 'base', ${baseId})
       `;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES (${workflowId}::uuid, 'WR006', ${baseId}::uuid, 'Credential workflow', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: "WR006",
+        baseId: baseId,
+        name: "Credential workflow",
+        source: "steps: []",
+        enabled: true,
+      });
 
       const materialized = await materializeWorkflowInvocation({ baseId, invocation, principal });
       expect(materialized.ok).toBe(true);

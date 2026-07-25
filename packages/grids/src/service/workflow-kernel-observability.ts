@@ -186,7 +186,7 @@ export const getWorkflowRunProvenance = async (runId: string): Promise<WorkflowR
       service_account.name AS service_account_label,
       launcher.name AS launcher_name
     FROM grids.workflow_runs run
-    LEFT JOIN grids.workflows workflow ON workflow.id = run.workflow_id
+    LEFT JOIN workflows.workflow AS workflow ON workflow.id = run.workflow_id
     LEFT JOIN auth.users actor ON actor.id = run.actor_user_id
     LEFT JOIN auth.service_accounts service_account ON service_account.id = run.service_account_id
     LEFT JOIN grids.workflow_launchers launcher ON launcher.id = run.launcher_id

@@ -63,7 +63,11 @@ const ACCESS_RESOURCES = {
   workflow: {
     junctionTable: "grids.workflow_access",
     junctionResourceColumn: "workflow_id",
-    resourceTable: "grids.workflows",
+    resourceTable: "grids.workflow_profile",
+    // The profile carries the Grids half of a workflow; its name belongs to the
+    // kernel's workflow row, so the resolver joins across for it.
+    resourceJoin: "JOIN workflows.workflow AS definition ON definition.id = resource.id",
+    nameExpression: "definition.name",
     scope: "baseChild",
     bindingIdKey: "workflowId",
     allowedPermissions: ["read", "write", "admin", "none"],
@@ -413,7 +417,13 @@ const joinUnionAll = (parts: unknown[], client: SqlClient): unknown =>
   parts.slice(1).reduce((query, part) => client`${query} UNION ALL ${part}`, parts[0]);
 
 const resourceScopeSql = (definition: AccessResourceDefinition) => ({
-  tableJoin: definition.scope === "tableChild" ? "JOIN grids.tables parent_table ON parent_table.id = resource.table_id" : "",
+  tableJoin: [
+    definition.scope === "tableChild" ? "JOIN grids.tables parent_table ON parent_table.id = resource.table_id" : "",
+    "resourceJoin" in definition ? definition.resourceJoin : "",
+  ]
+    .filter(Boolean)
+    .join(" "),
+  nameExpression: "nameExpression" in definition ? definition.nameExpression : "resource.name",
   baseIdExpression:
     definition.scope === "base" ? "resource.id" : definition.scope === "tableChild" ? "parent_table.base_id" : "resource.base_id",
   tableIdExpression: definition.scope === "table" ? "resource.id" : definition.scope === "tableChild" ? "parent_table.id" : "NULL::uuid",
@@ -422,7 +432,7 @@ const resourceScopeSql = (definition: AccessResourceDefinition) => ({
 });
 
 const baseTreeSelect = (resourceType: AccessResourceType, definition: AccessResourceDefinition, sortOrder: number, baseId: string) => {
-  const { tableJoin, baseIdExpression, tableIdExpression, tableNameExpression } = resourceScopeSql(definition);
+  const { tableJoin, baseIdExpression, tableIdExpression, tableNameExpression, nameExpression } = resourceScopeSql(definition);
   const parentAlive = definition.scope === "tableChild" ? "AND parent_table.deleted_at IS NULL" : "";
 
   return sql`
@@ -430,7 +440,7 @@ const baseTreeSelect = (resourceType: AccessResourceType, definition: AccessReso
       ${sortOrder}::int AS sort_order,
       ${resourceType}::text AS resource_type,
       resource.id AS resource_id,
-      resource.name AS resource_name,
+      ${sql.unsafe(nameExpression)} AS resource_name,
       ${sql.unsafe(tableIdExpression)} AS table_id,
       ${sql.unsafe(tableNameExpression)} AS table_name,
       a.id AS access_id,

@@ -325,7 +325,7 @@ export const loadBaseWorkflowGrantsForSubject = async (
 
     SELECT 'workflow'::text, wa.workflow_id::text, a.permission, ${tierExpr}
     FROM grids.workflow_access wa
-    JOIN grids.workflows w ON w.id = wa.workflow_id
+    JOIN grids.workflow_profile w ON w.id = wa.workflow_id
     JOIN auth.access a ON a.id = wa.access_id
     WHERE w.base_id = ${params.baseId}::uuid AND ${principalMatch}
   `;

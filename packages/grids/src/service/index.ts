@@ -32,15 +32,6 @@ import * as relationsModule from "./relations";
 import * as tables from "./tables";
 import * as templates from "./templates";
 import * as views from "./views";
-import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "./workflow-kernel-launchers";
-import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-kernel-record-events";
-import { getWorkflowRun, resumeWaitingWorkflowRun } from "./workflow-kernel-runs";
-import {
-  invokeGridsWorkflow,
-  reconcileWorkflowKernelRuntime,
-  startWorkflowKernelRuntime,
-  stopWorkflowKernelRuntime,
-} from "./workflow-kernel-runtime";
 import {
   createWorkflow,
   getWorkflow,
@@ -53,7 +44,16 @@ import {
   removeWorkflow,
   updateWorkflow,
   validateWorkflowSource,
-} from "./workflow-kernel-store";
+} from "./workflow-definitions";
+import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "./workflow-kernel-launchers";
+import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-kernel-record-events";
+import { getWorkflowRun, resumeWaitingWorkflowRun } from "./workflow-kernel-runs";
+import {
+  invokeGridsWorkflow,
+  reconcileWorkflowKernelRuntime,
+  startWorkflowKernelRuntime,
+  stopWorkflowKernelRuntime,
+} from "./workflow-kernel-runtime";
 import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "./workflow-launchers";
 
 export const gridsService = {

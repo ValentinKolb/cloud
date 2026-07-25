@@ -11,6 +11,7 @@ import {
   getTemplate,
   updateRunMetadata,
 } from "./documents";
+import { insertTestWorkflow } from "./workflow-test-fixture";
 
 type Fixture = {
   actorId: string;
@@ -196,21 +197,17 @@ describe("document audit integration", () => {
       const workflowId = uuid();
       const workflowRunId = uuid();
       const workflowPlan = { inputs: {}, automatic: {}, steps: [] };
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, diagnostics, enabled, position, owner_user_id)
-        VALUES (
-          ${workflowId}::uuid,
-          ${shortId("W")},
-          ${fixture.baseId}::uuid,
-          'Generate invoice',
-          'steps: []',
-          ${workflowPlan}::jsonb,
-          '[]'::jsonb,
-          TRUE,
-          0,
-          ${fixture.actorId}::uuid
-        )
-      `;
+      await insertTestWorkflow({
+        id: workflowId,
+        shortId: shortId("W"),
+        baseId: fixture.baseId,
+        name: "Generate invoice",
+        source: "steps: []",
+        plan: workflowPlan,
+        enabled: true,
+        position: 0,
+        ownerUserId: fixture.actorId,
+      });
       await sql`
         INSERT INTO grids.workflow_runs (
           id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,

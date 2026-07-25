@@ -17,7 +17,7 @@ import * as records from "./records";
 import * as tables from "./tables";
 import type { Base, Field } from "./types";
 import * as views from "./views";
-import { createWorkflow } from "./workflow-kernel-store";
+import { createWorkflow } from "./workflow-definitions";
 import { createLauncher } from "./workflow-launchers";
 
 const log = logger("grids:templates");

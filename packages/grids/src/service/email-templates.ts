@@ -88,9 +88,13 @@ export const listDependenciesForBase = async (baseId: string, client: SqlClient 
       binding.value AS template_id,
       workflow.id::text AS workflow_id,
       workflow.short_id AS workflow_short_id,
-      workflow.name AS workflow_name
-    FROM grids.workflows workflow
-    CROSS JOIN LATERAL jsonb_each_text(COALESCE(workflow.plan -> 'bindings', '{}'::jsonb)) binding
+      definition.name AS workflow_name
+    FROM grids.workflow_profile workflow
+    JOIN workflows.workflow AS definition ON definition.id = workflow.id
+    CROSS JOIN LATERAL (
+      SELECT plan FROM workflows.version WHERE workflow_id = workflow.id ORDER BY revision DESC LIMIT 1
+    ) AS version
+    CROSS JOIN LATERAL jsonb_each_text(COALESCE(version.plan -> 'bindings', '{}'::jsonb)) binding
     JOIN grids.email_templates template
       ON template.id::text = binding.value
      AND template.base_id = workflow.base_id

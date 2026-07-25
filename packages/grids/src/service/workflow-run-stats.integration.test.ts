@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { getWorkflowRunStats } from "./workflow-kernel-observability";
+import { insertTestWorkflow } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -23,12 +24,8 @@ describe("workflow run statistics integration", () => {
         INSERT INTO grids.bases (id, short_id, name)
         VALUES (${baseId}::uuid, ${shortId("B")}, 'Workflow run stats integration')
       `;
-      await sql`
-        INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-        VALUES
-          (${workflowAId}::uuid, ${shortId("W")}, ${baseId}::uuid, 'Workflow A', 'steps: []', '{}'::jsonb, TRUE),
-          (${workflowBId}::uuid, ${shortId("W")}, ${baseId}::uuid, 'Workflow B', 'steps: []', '{}'::jsonb, TRUE)
-      `;
+      await insertTestWorkflow({ id: workflowAId, baseId, name: "Workflow A", shortId: shortId("W"), enabled: true });
+      await insertTestWorkflow({ id: workflowBId, baseId, name: "Workflow B", shortId: shortId("W"), enabled: true });
       await sql`
         INSERT INTO grids.workflow_runs (
           id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,

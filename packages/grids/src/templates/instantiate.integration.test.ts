@@ -155,9 +155,13 @@ describe("built-in template instantiation", () => {
             WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
           `;
           const workflows = await sql<Array<{ name: string; enabled: boolean; plan: { steps?: unknown[] } }>>`
-            SELECT name, enabled, plan
-            FROM grids.workflows
-            WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
+            SELECT definition.name, profile.enabled, version.plan
+            FROM grids.workflow_profile AS profile
+            JOIN workflows.workflow AS definition ON definition.id = profile.id
+            CROSS JOIN LATERAL (
+              SELECT plan FROM workflows.version WHERE workflow_id = profile.id ORDER BY revision DESC LIMIT 1
+            ) AS version
+            WHERE profile.base_id = ${created.data.id}::uuid AND profile.deleted_at IS NULL
           `;
           const launchers = await sql<Array<{ name: string; enabled: boolean; diagnostics: unknown[] }>>`
             SELECT name, enabled, diagnostics

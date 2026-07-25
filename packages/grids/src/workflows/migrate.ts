@@ -1,6 +1,6 @@
 import type { SQL } from "bun";
 
-export const WORKFLOW_KERNEL_SCHEMA_VERSION = 2;
+export const WORKFLOW_KERNEL_SCHEMA_VERSION = 4;
 
 const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
   await sql`
@@ -17,8 +17,14 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
   `;
   if (migration?.applied) return false;
 
-  // Workflows are local alpha data. Reset only their schema; document and scan
-  // records remain intact and are reconnected after the new tables exist.
+  /*
+   * Workflows are local alpha data, so the schema is reset rather than migrated.
+   *
+   * grids.workflows is gone for good: identity, versions and activations belong
+   * to the kernel now. What it leaves behind — access grants, run options, runs
+   * — is re-keyed onto grids.workflow_profile below. Documents and scan records
+   * are real user data and survive; only their link back to a run is cleared.
+   */
   await sql`
     ALTER TABLE grids.document_runs DROP CONSTRAINT IF EXISTS document_runs_workflow_run_id_fkey;
     UPDATE grids.document_runs SET workflow_run_id = NULL WHERE workflow_run_id IS NOT NULL;
@@ -28,6 +34,8 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
     DROP TABLE IF EXISTS grids.workflow_runs CASCADE;
     DROP TABLE IF EXISTS grids.workflow_launchers CASCADE;
     DROP TABLE IF EXISTS grids.workflow_access CASCADE;
+    DROP TABLE IF EXISTS grids.workflow_run_profile CASCADE;
+    DROP TABLE IF EXISTS grids.workflow_profile CASCADE;
     DROP TABLE IF EXISTS grids.workflow_revisions CASCADE;
     DROP TABLE IF EXISTS grids.workflows CASCADE;
     DROP FUNCTION IF EXISTS grids.populate_workflow_run_snapshots();
@@ -57,7 +65,9 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
 const migrateKernelProfile = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflow_profile (
-      workflow_id UUID PRIMARY KEY,
+      -- The kernel's workflow id. Named id because the generic access resolver
+      -- joins every resource table on resource.id.
+      id UUID PRIMARY KEY,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       short_id TEXT NOT NULL,
       position INT NOT NULL DEFAULT 0,
@@ -85,7 +95,7 @@ const migrateKernelProfile = async (sql: SQL): Promise<void> => {
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_profile_base_live
-    ON grids.workflow_profile(base_id, position, created_at, workflow_id) WHERE deleted_at IS NULL
+    ON grids.workflow_profile(base_id, position, created_at, id) WHERE deleted_at IS NULL
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_profile_record_events
@@ -127,93 +137,17 @@ const migrateKernelProfile = async (sql: SQL): Promise<void> => {
   `.simple();
 };
 
-const migrateDefinitions = async (sql: SQL): Promise<void> => {
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.workflows (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      short_id TEXT NOT NULL,
-      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      source TEXT NOT NULL,
-      plan JSONB NOT NULL,
-      diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb,
-      enabled BOOLEAN NOT NULL DEFAULT FALSE,
-      position INT NOT NULL DEFAULT 0,
-      revision INT NOT NULL DEFAULT 1,
-      record_event_active_since TIMESTAMPTZ,
-      owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-      deleted_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT workflows_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
-      CONSTRAINT workflows_revision_chk CHECK (revision >= 1),
-      CONSTRAINT workflows_source_length_chk CHECK (length(source) BETWEEN 1 AND 200000),
-      CONSTRAINT workflows_diagnostics_array_chk CHECK (jsonb_typeof(diagnostics) = 'array')
-    )
-  `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflows_short_id
-    ON grids.workflows(base_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_workflows_base_live
-    ON grids.workflows(base_id, position, created_at, id) WHERE deleted_at IS NULL
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_workflows_automatic
-    ON grids.workflows(base_id, record_event_active_since)
-    WHERE deleted_at IS NULL AND enabled = TRUE
-  `.simple();
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.workflow_revisions (
-      workflow_id UUID NOT NULL REFERENCES grids.workflows(id) ON DELETE CASCADE,
-      revision INT NOT NULL CHECK (revision >= 1),
-      name TEXT NOT NULL,
-      description TEXT,
-      source TEXT NOT NULL,
-      plan JSONB NOT NULL,
-      diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb,
-      enabled BOOLEAN NOT NULL,
-      position INT NOT NULL DEFAULT 0,
-      actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      PRIMARY KEY (workflow_id, revision),
-      CONSTRAINT workflow_revisions_source_length_chk CHECK (length(source) BETWEEN 1 AND 200000),
-      CONSTRAINT workflow_revisions_diagnostics_array_chk CHECK (jsonb_typeof(diagnostics) = 'array')
-    )
-  `.simple();
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_workflow_revisions_history`.simple();
-  await sql`
-    INSERT INTO grids.workflow_revisions (
-      workflow_id, revision, name, description, source, plan, diagnostics, enabled, position, actor_user_id, created_at
-    )
-    SELECT id, revision, name, description, source, plan, diagnostics, enabled, position, owner_user_id, updated_at
-    FROM grids.workflows
-    ON CONFLICT (workflow_id, revision) DO NOTHING
-  `.simple();
-
-  await sql`
-    CREATE OR REPLACE FUNCTION grids.bump_workflow_revision()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      NEW.revision := OLD.revision + 1;
-      NEW.updated_at := now();
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql
-  `.simple();
-  await sql`DROP TRIGGER IF EXISTS bump_workflow_revision ON grids.workflows`.simple();
-  await sql`
-    CREATE TRIGGER bump_workflow_revision
-    BEFORE UPDATE ON grids.workflows
-    FOR EACH ROW EXECUTE FUNCTION grids.bump_workflow_revision()
-  `.simple();
-
+/**
+ * What still hangs off a workflow, now keyed by the kernel's id.
+ *
+ * Access grants and run options are Grids' own — the kernel has no notion of a
+ * scanner button or of who may edit a base's automation — so they stay here and
+ * point at the profile.
+ */
+const migrateDefinitionLinks = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflow_access (
-      workflow_id UUID NOT NULL REFERENCES grids.workflows(id) ON DELETE CASCADE,
+      workflow_id UUID NOT NULL REFERENCES grids.workflow_profile(id) ON DELETE CASCADE,
       access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
       PRIMARY KEY (workflow_id, access_id)
     )
@@ -225,11 +159,13 @@ const migrateDefinitions = async (sql: SQL): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
-      workflow_id UUID NOT NULL REFERENCES grids.workflows(id) ON DELETE CASCADE,
+      workflow_id UUID NOT NULL REFERENCES grids.workflow_profile(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       kind TEXT NOT NULL CHECK (kind IN ('scanner', 'bulk', 'dashboard')),
       config JSONB NOT NULL,
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      -- The revision this launcher's config was checked against. Publishing a
+      -- plan that may take different inputs switches it off until someone looks.
       validated_revision INT NOT NULL CHECK (validated_revision >= 1),
       diagnostics JSONB NOT NULL DEFAULT '[]'::jsonb,
       deleted_at TIMESTAMPTZ,
@@ -247,20 +183,13 @@ const migrateDefinitions = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_launchers_workflow
     ON grids.workflow_launchers(workflow_id, kind, created_at, id) WHERE deleted_at IS NULL
   `.simple();
-  await sql`
-    UPDATE grids.workflow_launchers
-    SET config = jsonb_set(config, '{inputMode}', '"fixed"'::jsonb, TRUE),
-        updated_at = now()
-    WHERE kind = 'dashboard'
-      AND NOT (config ? 'inputMode')
-  `.simple();
 };
 
 const migrateRuns = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflow_runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      workflow_id UUID REFERENCES grids.workflows(id) ON DELETE SET NULL,
+      workflow_id UUID,
       launcher_id UUID REFERENCES grids.workflow_launchers(id) ON DELETE SET NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       workflow_revision INT NOT NULL CHECK (workflow_revision >= 1),
@@ -494,7 +423,7 @@ const migrateDeliveries = async (sql: SQL): Promise<void> => {
     CREATE TABLE IF NOT EXISTS grids.workflow_email_deliveries (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
-      workflow_id UUID REFERENCES grids.workflows(id) ON DELETE SET NULL,
+      workflow_id UUID,
       workflow_run_id UUID REFERENCES grids.workflow_runs(id) ON DELETE SET NULL,
       workflow_step_run_id UUID REFERENCES grids.workflow_step_runs(id) ON DELETE SET NULL,
       template_id UUID REFERENCES grids.email_templates(id) ON DELETE SET NULL,
@@ -543,7 +472,7 @@ const migrateDeliveries = async (sql: SQL): Promise<void> => {
 export const migrateWorkflowKernel = async (sql: SQL): Promise<void> => {
   const didReset = await resetAlphaWorkflowSchema(sql);
   await migrateKernelProfile(sql);
-  await migrateDefinitions(sql);
+  await migrateDefinitionLinks(sql);
   await migrateRuns(sql);
   await migrateDeliveries(sql);
   if (didReset) {

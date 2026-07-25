@@ -15,9 +15,9 @@ import {
 import { list as listRecords } from "./records";
 import { authorizeWorkflowTarget, revalidateWorkflowPrincipal, workflowPermissionAllows } from "./workflow-authorization";
 import { loadWorkflowCatalog, resolveWorkflowFieldRef } from "./workflow-catalog";
+import { getWorkflow } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
 import { invokeGridsWorkflow } from "./workflow-kernel-runtime";
-import { getWorkflow } from "./workflow-kernel-store";
 import { getLauncher } from "./workflow-launchers";
 
 export const MAX_BULK_LAUNCHER_RECORDS = 10_000;

@@ -7,6 +7,7 @@ import {
   getOrCreateWorkflowEmailDeliveryIntent,
   getWorkflowEmailDeliveryIntent,
 } from "./workflow-email-deliveries";
+import { insertTestWorkflow } from "./workflow-test-fixture";
 
 type Fixture = {
   baseId: string;
@@ -28,10 +29,7 @@ const insertFixture = async (): Promise<Fixture> => {
   const templateId = testUuid();
 
   await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Email delivery')`;
-  await sql`
-    INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan)
-    VALUES (${workflowId}::uuid, ${testShortId("W")}, ${baseId}::uuid, 'Notify', 'steps: []', '{}'::jsonb)
-  `;
+  await insertTestWorkflow({ id: workflowId, shortId: testShortId("W"), baseId: baseId, name: "Notify", source: "steps: []" });
   await sql`
     INSERT INTO grids.workflow_runs (
       id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key,

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { SQL, sql } from "bun";
+import { migrate as migrateCoreWorkflows } from "../../core/src/migrate/core/workflows";
 import { migrate } from "./migrate";
+import { insertTestWorkflow } from "./service/workflow-test-fixture";
 import { WORKFLOW_KERNEL_SCHEMA_VERSION } from "./workflows/migrate";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
@@ -34,7 +36,9 @@ describe("grids schema migration", () => {
     "serializes concurrent setup and remains idempotent",
     async () => {
       await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
         await Promise.all([migrate(database), migrate(database)]);
+        await migrateCoreWorkflows(database);
         await migrate(database);
 
         const [row] = await database<Array<{ tableCount: number }>>`
@@ -43,9 +47,9 @@ describe("grids schema migration", () => {
           WHERE table_schema = 'grids'
             AND table_type = 'BASE TABLE'
         `;
-        // 37 plus workflow_profile and workflow_run_profile, added ahead of the
-        // move onto the shared workflow kernel.
-        expect(row?.tableCount).toBe(39);
+        // workflow_profile and workflow_run_profile arrived; grids.workflows and
+        // workflow_revisions moved into the kernel.
+        expect(row?.tableCount).toBe(37);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -75,47 +79,17 @@ describe("grids schema migration", () => {
     30_000,
   );
 
-  postgresTest(
-    "increments workflow revisions",
-    async () => {
-      await withIsolatedDatabase(async (database) => {
-        await migrate(database);
-
-        const baseId = uuid();
-        await database`
-          INSERT INTO grids.bases (id, short_id, name)
-          VALUES (${baseId}::uuid, ${shortId("B")}, 'Workflow revision migration')
-        `;
-        const [created] = await database<Array<{ id: string; revision: number }>>`
-          INSERT INTO grids.workflows (short_id, base_id, name, source, plan)
-          VALUES (${shortId("W")}, ${baseId}::uuid, 'Revision test', 'inputs: {}\nsteps: []', '{"inputs":{},"steps":[]}'::jsonb)
-          RETURNING id::text AS id, revision
-        `;
-        const [updated] = await database<Array<{ revision: number }>>`
-          UPDATE grids.workflows
-          SET name = 'Revision test updated'
-          WHERE id = ${created!.id}::uuid
-          RETURNING revision
-        `;
-        const [constraint] = await database<Array<{ count: number }>>`
-          SELECT count(*)::int AS count
-          FROM pg_constraint
-          WHERE conname = 'workflows_revision_chk'
-            AND conrelid = 'grids.workflows'::regclass
-        `;
-
-        expect(created?.revision).toBe(1);
-        expect(updated?.revision).toBe(2);
-        expect(constraint?.count).toBe(1);
-      });
-    },
-    30_000,
-  );
+  /*
+   * The workflow revision trigger is gone. Revisions are published versions in
+   * the kernel now, not a side effect of any UPDATE — which is why renaming a
+   * workflow no longer produces one.
+   */
 
   postgresTest(
     "migrates persisted dashboard value formats",
     async () => {
       await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
         await migrate(database);
         const baseId = uuid();
         const dashboardId = uuid();
@@ -146,6 +120,7 @@ describe("grids schema migration", () => {
           )
         `;
 
+        await migrateCoreWorkflows(database);
         await migrate(database);
 
         const rows = await database<Array<{ id: string; configText: string }>>`
@@ -172,6 +147,7 @@ describe("grids schema migration", () => {
     "backfills legacy email preview data once without replacing later edits",
     async () => {
       await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
         await migrate(database);
         const baseId = uuid();
         const templateId = uuid();
@@ -193,6 +169,7 @@ describe("grids schema migration", () => {
         await database`ALTER TABLE grids.email_templates ALTER COLUMN sample_data DROP NOT NULL`.simple();
         await database`UPDATE grids.email_templates SET sample_data = NULL WHERE id = ${templateId}::uuid`;
 
+        await migrateCoreWorkflows(database);
         await migrate(database);
         const [backfilled] = await database<Array<{ sampleData: Record<string, unknown> }>>`
           SELECT sample_data AS "sampleData"
@@ -207,6 +184,7 @@ describe("grids schema migration", () => {
         });
 
         await database`UPDATE grids.email_templates SET sample_data = '{}'::jsonb WHERE id = ${templateId}::uuid`;
+        await migrateCoreWorkflows(database);
         await migrate(database);
         const [preserved] = await database<Array<{ sampleData: Record<string, unknown> }>>`
           SELECT sample_data AS "sampleData"
@@ -223,6 +201,7 @@ describe("grids schema migration", () => {
     "enforces combined table revision, source, mapping, and read-only invariants",
     async () => {
       await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
         await migrate(database);
         const baseId = uuid();
         const storedTableId = uuid();
@@ -301,6 +280,7 @@ describe("grids schema migration", () => {
     "preserves document runs while resetting alpha workflow runs",
     async () => {
       await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
         await migrate(database);
 
         const baseId = uuid();
@@ -312,17 +292,7 @@ describe("grids schema migration", () => {
           INSERT INTO grids.bases (id, short_id, name)
           VALUES (${baseId}::uuid, ${shortId("B")}, 'Workflow reset artifacts')
         `;
-        await database`
-          INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan)
-          VALUES (${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, 'Old workflow', 'steps: []', '{}'::jsonb)
-        `;
-        await database`
-          INSERT INTO grids.workflow_revisions (
-            workflow_id, revision, name, source, plan, diagnostics, enabled, position
-          ) VALUES (
-            ${workflowId}::uuid, 1, 'Old workflow', 'steps: []', '{}'::jsonb, '[]'::jsonb, FALSE, 0
-          )
-        `;
+        await insertTestWorkflow({ db: database, id: workflowId, baseId, name: "Old workflow", shortId: shortId("W") });
         await database`
           INSERT INTO grids.workflow_runs (
             id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
@@ -347,6 +317,7 @@ describe("grids schema migration", () => {
         `;
 
         await database`DELETE FROM grids.workflow_kernel_migrations WHERE version = ${WORKFLOW_KERNEL_SCHEMA_VERSION}`;
+        await migrateCoreWorkflows(database);
         await migrate(database);
 
         const [document] = await database<Array<{ workflowRunId: string | null }>>`
@@ -354,24 +325,13 @@ describe("grids schema migration", () => {
           FROM grids.document_runs
           WHERE id = ${documentRunId}::uuid
         `;
-        const [revisionState] = await database<Array<{ foreignKeys: number; orphaned: number }>>`
-          SELECT
-            (
-              SELECT count(*)::int
-              FROM pg_constraint
-              WHERE conrelid = 'grids.workflow_revisions'::regclass
-                AND confrelid = 'grids.workflows'::regclass
-                AND contype = 'f'
-            ) AS "foreignKeys",
-            (
-              SELECT count(*)::int
-              FROM grids.workflow_revisions revision
-              LEFT JOIN grids.workflows workflow ON workflow.id = revision.workflow_id
-              WHERE workflow.id IS NULL
-            ) AS orphaned
+        const [surviving] = await database<Array<{ count: number }>>`
+          SELECT count(*)::int AS count FROM grids.document_runs WHERE id = ${documentRunId}::uuid
         `;
+        // The document is real user data and survives; only its link to a run
+        // that no longer exists is cleared.
         expect(document).toEqual({ workflowRunId: null });
-        expect(revisionState).toEqual({ foreignKeys: 1, orphaned: 0 });
+        expect(surviving).toEqual({ count: 1 });
       });
     },
     30_000,
@@ -381,6 +341,7 @@ describe("grids schema migration", () => {
     "derives a view base id and enforces base-wide live names",
     async () => {
       await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
         await migrate(database);
         const baseId = uuid();
         const firstTableId = uuid();
@@ -424,6 +385,7 @@ describe("grids schema migration", () => {
     "fails clearly when legacy data already contains ambiguous names",
     async () => {
       await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
         await migrate(database);
         const baseId = uuid();
         await database`DROP INDEX grids.idx_grids_tables_live_name`.simple();
@@ -440,6 +402,7 @@ describe("grids schema migration", () => {
 
         let migrationError: unknown;
         try {
+          await migrateCoreWorkflows(database);
           await migrate(database);
         } catch (error) {
           migrationError = error;

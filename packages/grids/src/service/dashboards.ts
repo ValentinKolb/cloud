@@ -94,7 +94,7 @@ const ensureWorkflowLauncherInBase = async (launcherId: string, baseId: string, 
     SELECT EXISTS(
       SELECT 1
       FROM grids.workflow_launchers launcher
-      JOIN grids.workflows workflow ON workflow.id = launcher.workflow_id AND workflow.deleted_at IS NULL
+      JOIN grids.workflow_profile workflow ON workflow.id = launcher.workflow_id AND workflow.deleted_at IS NULL
       JOIN grids.bases b ON b.id = launcher.base_id AND b.deleted_at IS NULL
       WHERE launcher.id = ${launcherId}::uuid
         AND launcher.base_id = ${baseId}::uuid

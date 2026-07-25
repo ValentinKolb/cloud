@@ -3,6 +3,7 @@ import { sql } from "bun";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { browseRunsForTemplate, listRunsForRecord, listRunsForTemplate, listRunsForWorkflowRun } from "./document-browse";
+import { insertTestWorkflow } from "./workflow-test-fixture";
 
 type Fixture = {
   baseId: string;
@@ -42,10 +43,14 @@ const insertFixture = async (): Promise<Fixture> => {
     INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
     VALUES (${snapshotId}::uuid, ${baseId}::uuid, ${tableId}::uuid, ${recordId}::uuid, '{}'::jsonb, '{}'::jsonb)
   `;
-  await sql`
-    INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
-    VALUES (${workflowId}::uuid, ${testShortId("W")}, ${baseId}::uuid, 'Invoice workflow', 'steps: []', '{}'::jsonb, TRUE)
-  `;
+  await insertTestWorkflow({
+    id: workflowId,
+    shortId: testShortId("W"),
+    baseId: baseId,
+    name: "Invoice workflow",
+    source: "steps: []",
+    enabled: true,
+  });
   await sql`
     INSERT INTO grids.workflow_runs (
       id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,

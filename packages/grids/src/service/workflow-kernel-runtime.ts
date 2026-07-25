@@ -44,6 +44,7 @@ import {
   revalidateWorkflowPrincipalInTransaction,
   workflowPermissionAllows,
 } from "./workflow-authorization";
+import { getWorkflow, listScheduledWorkflows } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
 import { createGridsWorkflowActionPorts } from "./workflow-kernel-actions";
 import { createWorkflowRecordEventRuntime } from "./workflow-kernel-record-events";
@@ -64,7 +65,6 @@ import {
   WORKFLOW_RUN_LEASE_MS,
   workflowInvocationFingerprint,
 } from "./workflow-kernel-runs";
-import { getWorkflow, listScheduledWorkflows } from "./workflow-kernel-store";
 import {
   createGridsWorkflowValueResolver,
   createWorkflowInputPreparationDeps,

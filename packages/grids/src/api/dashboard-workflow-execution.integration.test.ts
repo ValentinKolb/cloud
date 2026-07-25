@@ -14,6 +14,7 @@ import type {
   invokeDashboardLauncher as invokeDashboardLauncherService,
   invokeScannerLauncher as invokeScannerLauncherService,
 } from "../service/workflow-kernel-launchers";
+import { insertTestWorkflow } from "../service/workflow-test-fixture";
 import { canReadDashboardForRequest, createDashboardsApi } from "./dashboards";
 import { createWorkflowsApi } from "./workflows";
 
@@ -181,21 +182,16 @@ const insertFixture = async (userId: string): Promise<DashboardWorkflowFixture> 
     INSERT INTO grids.bases (id, short_id, name)
     VALUES (${baseId}::uuid, ${shortId("B")}, 'Dashboard workflow execution')
   `;
-  await sql`
-    INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, diagnostics, enabled, position, revision)
-    VALUES (
-      ${workflowId}::uuid,
-      ${shortId("W")},
-      ${baseId}::uuid,
-      'Dashboard-only workflow',
-      'steps: []',
-      ${plan}::jsonb,
-      '[]'::jsonb,
-      true,
-      0,
-      1
-    )
-  `;
+  await insertTestWorkflow({
+    id: workflowId,
+    shortId: shortId("W"),
+    baseId: baseId,
+    name: "Dashboard-only workflow",
+    source: "steps: []",
+    plan: plan,
+    enabled: true,
+    position: 0,
+  });
   await sql`
     INSERT INTO grids.workflow_launchers (
       id, short_id, base_id, workflow_id, name, kind, config, enabled, validated_revision, diagnostics

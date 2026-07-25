@@ -19,7 +19,7 @@
  * `mail.mailboxes` without inverting the dependency. Apps drop their own
  * workflows when a scope goes away.
  */
-import { sql } from "bun";
+import { type SQL, sql } from "bun";
 
 /**
  * The state vocabularies below are inlined as literal SQL rather than shared
@@ -28,13 +28,17 @@ import { sql } from "bun";
  * `WorkflowPlanningOutcome` discriminants — a state only one app can enter is
  * a state the other app's UI renders wrong, so nothing is invented here.
  */
-export const migrate = async (): Promise<void> => {
-  await sql`CREATE SCHEMA IF NOT EXISTS workflows`.simple();
+/**
+ * `db` lets a test point this at an isolated connection. Production always uses
+ * the ambient one, through `runCoreSetup`.
+ */
+export const migrate = async (db: SQL = sql): Promise<void> => {
+  await db`CREATE SCHEMA IF NOT EXISTS workflows`.simple();
   console.log("  ✓ workflows schema");
 
   // ─── Definition ────────────────────────────────────────────────────────────
 
-  await sql`
+  await db`
     CREATE TABLE IF NOT EXISTS workflows.workflow (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       app_id TEXT NOT NULL,
@@ -54,7 +58,7 @@ export const migrate = async (): Promise<void> => {
       UNIQUE (id, app_id)
     )
   `.simple();
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_workflow_scope
     ON workflows.workflow(app_id, scope_id, name, id)
   `.simple();
@@ -66,7 +70,7 @@ export const migrate = async (): Promise<void> => {
    * holds, because a run pinned to a version has no way to notice that the
    * plan underneath it changed.
    */
-  await sql`
+  await db`
     CREATE TABLE IF NOT EXISTS workflows.version (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       workflow_id UUID NOT NULL REFERENCES workflows.workflow(id) ON DELETE CASCADE,
@@ -89,26 +93,26 @@ export const migrate = async (): Promise<void> => {
       UNIQUE (id, workflow_id)
     )
   `.simple();
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_version_history
     ON workflows.version(workflow_id, revision DESC)
   `.simple();
 
-  await sql`
+  await db`
     CREATE OR REPLACE FUNCTION workflows.reject_version_update() RETURNS TRIGGER AS $$
     BEGIN
       RAISE EXCEPTION 'workflow versions are immutable' USING ERRCODE = '55000';
     END;
     $$ LANGUAGE plpgsql
   `.simple();
-  await sql`DROP TRIGGER IF EXISTS version_reject_update ON workflows.version`.simple();
-  await sql`
+  await db`DROP TRIGGER IF EXISTS version_reject_update ON workflows.version`.simple();
+  await db`
     CREATE TRIGGER version_reject_update
     BEFORE UPDATE ON workflows.version
     FOR EACH ROW EXECUTE FUNCTION workflows.reject_version_update()
   `.simple();
 
-  await sql`
+  await db`
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_active_version_fk') THEN
@@ -127,7 +131,7 @@ export const migrate = async (): Promise<void> => {
    * current pointer — is what stops an edit from redirecting work that is
    * already in flight.
    */
-  await sql`
+  await db`
     CREATE TABLE IF NOT EXISTS workflows.activation (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       workflow_id UUID NOT NULL,
@@ -143,7 +147,7 @@ export const migrate = async (): Promise<void> => {
       UNIQUE (workflow_id, key)
     )
   `.simple();
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_activation_dispatch
     ON workflows.activation(event_type, workflow_id, id)
     WHERE enabled
@@ -160,7 +164,7 @@ export const migrate = async (): Promise<void> => {
    * `dedupe_key` makes delivery at-most-once for the sources that can repeat
    * themselves — a schedule slot, a provider webhook.
    */
-  await sql`
+  await db`
     CREATE TABLE IF NOT EXISTS workflows.event (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       app_id TEXT NOT NULL,
@@ -199,17 +203,17 @@ export const migrate = async (): Promise<void> => {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
-  await sql`
+  await db`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workflows_event_dedupe
     ON workflows.event(app_id, scope_id, type, dedupe_key)
     WHERE dedupe_key IS NOT NULL
   `.simple();
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_event_pending
     ON workflows.event(occurred_at, id)
     WHERE dispatched_at IS NULL
   `.simple();
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_event_history
     ON workflows.event(app_id, scope_id, occurred_at DESC, id DESC)
   `.simple();
@@ -223,7 +227,7 @@ export const migrate = async (): Promise<void> => {
    * `workflow_run_targets` would have produced, but with one lease protocol,
    * one journal and one observability query instead of two of each.
    */
-  await sql`
+  await db`
     CREATE TABLE IF NOT EXISTS workflows.run (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       app_id TEXT NOT NULL,
@@ -286,29 +290,29 @@ export const migrate = async (): Promise<void> => {
   // Claimable work, oldest first:
   //   WHERE state IN ('queued', 'running') AND claimable_at < now()
   //   ORDER BY claimable_at, created_at, id
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_run_dispatch
     ON workflows.run(claimable_at, created_at, id)
     WHERE state IN ('queued', 'running')
   `.simple();
   // Parked runs the wake scan has to pick up once their deadline passes.
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_run_wake
     ON workflows.run(wake_at, id)
     WHERE state = 'waiting' AND wake_at IS NOT NULL
   `.simple();
   // Fan-out: both "how are my children doing" and "list them" read this.
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_run_children
     ON workflows.run(parent_run_id, state, created_at, id)
     WHERE parent_run_id IS NOT NULL
   `.simple();
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_run_workflow_history
     ON workflows.run(workflow_id, created_at DESC, id DESC)
     WHERE parent_run_id IS NULL
   `.simple();
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_run_scope_history
     ON workflows.run(app_id, scope_id, created_at DESC, id DESC)
     WHERE parent_run_id IS NULL
@@ -325,7 +329,7 @@ export const migrate = async (): Promise<void> => {
    * and step — so `(run_id, step_key)` already guarantees the uniqueness Grids
    * enforced with a global unique index on its intents.
    */
-  await sql`
+  await db`
     CREATE TABLE IF NOT EXISTS workflows.step_outcome (
       run_id UUID NOT NULL REFERENCES workflows.run(id) ON DELETE CASCADE,
       step_key TEXT NOT NULL CHECK (char_length(step_key) BETWEEN 1 AND 1000),
@@ -368,13 +372,13 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   // Resuming a parked run: find the steps blocked on a dependency that fired.
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_step_outcome_dependency
     ON workflows.step_outcome((dependency ->> 'kind'), (dependency ->> 'key'))
     WHERE state = 'waiting'
   `.simple();
   // Ambiguous effects that never settled are the queue a human works through.
-  await sql`
+  await db`
     CREATE INDEX IF NOT EXISTS idx_workflows_step_outcome_unsettled_effect
     ON workflows.step_outcome(effect_started_at, run_id)
     WHERE effect_state IN ('executing', 'ambiguous')

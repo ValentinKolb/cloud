@@ -25,8 +25,8 @@ import {
   RECORD_EVENT_WORK_PARTITIONS,
   recordEventWorkReader,
 } from "./record-events";
+import { listRecordEventWorkflows } from "./workflow-definitions";
 import { failQueuedWorkflowRun, materializeWorkflowInvocation } from "./workflow-kernel-runs";
-import { listRecordEventWorkflows } from "./workflow-kernel-store";
 import { type GridsWorkflowPrincipal, loadWorkflowUserGroupIds } from "./workflow-kernel-values";
 
 const log = logger("grids:workflow-kernel-record-events");

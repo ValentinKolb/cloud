@@ -3,7 +3,6 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { getWorkflowTriggerRuntimeState } from "../service/workflow-kernel-runtime";
 import {
   createWorkflow,
   getWorkflow,
@@ -12,7 +11,8 @@ import {
   removeWorkflow,
   restoreWorkflowRevision,
   updateWorkflow,
-} from "../service/workflow-kernel-store";
+} from "../service/workflow-definitions";
+import { getWorkflowTriggerRuntimeState } from "../service/workflow-kernel-runtime";
 import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "../service/workflow-launchers";
 import {
   CreateGridsWorkflowLauncherSchema,

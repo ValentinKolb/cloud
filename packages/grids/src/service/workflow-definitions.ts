@@ -68,18 +68,18 @@ const revisionConflict = () => ({
  * every caller means by "the workflow". A disabled workflow still has its plan.
  */
 const WORKFLOW_SELECT = sql.unsafe(`
-  p.workflow_id AS id, p.short_id, p.base_id, w.name, w.description,
+  p.id, p.short_id, p.base_id, w.name, w.description,
   v.source, v.plan, v.diagnostics, v.revision,
   p.enabled, p.position, p.owner_user_id, p.deleted_at, p.created_at, p.updated_at
 `);
 
 const WORKFLOW_FROM = sql.unsafe(`
   FROM grids.workflow_profile AS p
-  JOIN workflows.workflow AS w ON w.id = p.workflow_id
+  JOIN workflows.workflow AS w ON w.id = p.id
   LEFT JOIN LATERAL (
     SELECT source, plan, diagnostics, revision
     FROM workflows.version
-    WHERE workflow_id = p.workflow_id
+    WHERE workflow_id = p.id
     ORDER BY revision DESC
     LIMIT 1
   ) AS v ON TRUE
@@ -160,7 +160,7 @@ const metadataEvent = async (
 export const getWorkflow = async (id: string, includeDeleted = false): Promise<GridsWorkflow | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT ${WORKFLOW_SELECT} ${WORKFLOW_FROM}
-    WHERE p.workflow_id = ${id}::uuid AND (${includeDeleted} = TRUE OR p.deleted_at IS NULL)
+    WHERE p.id = ${id}::uuid AND (${includeDeleted} = TRUE OR p.deleted_at IS NULL)
   `;
   return row ? mapWorkflow(row) : null;
 };
@@ -170,7 +170,7 @@ export const getWorkflowByIdOrShortId = async (baseId: string, idOrShortId: stri
     SELECT ${WORKFLOW_SELECT} ${WORKFLOW_FROM}
     WHERE p.base_id = ${baseId}::uuid
       AND p.deleted_at IS NULL
-      AND (${idOrShortId} = p.workflow_id::text OR p.short_id = ${idOrShortId})
+      AND (${idOrShortId} = p.id::text OR p.short_id = ${idOrShortId})
   `;
   return row ? mapWorkflow(row) : null;
 };
@@ -181,17 +181,17 @@ export const listWorkflows = async (baseId: string, enabledOnly = false, include
     WHERE p.base_id = ${baseId}::uuid
       AND (${includeDeleted} = TRUE OR p.deleted_at IS NULL)
       AND (${enabledOnly} = FALSE OR p.enabled = TRUE)
-    ORDER BY p.position, p.created_at, p.workflow_id
+    ORDER BY p.position, p.created_at, p.id
   `;
   return rows.map(mapWorkflow);
 };
 
 export const listWorkflowScopes = async (baseId: string, includeDeleted = false): Promise<Array<Pick<GridsWorkflow, "id" | "baseId">>> => {
   const rows = await sql<Array<{ id: string; base_id: string }>>`
-    SELECT workflow_id::text AS id, base_id::text AS base_id
+    SELECT id::text AS id, base_id::text AS base_id
     FROM grids.workflow_profile
     WHERE base_id = ${baseId}::uuid AND (${includeDeleted} = TRUE OR deleted_at IS NULL)
-    ORDER BY position, created_at, workflow_id
+    ORDER BY position, created_at, id
   `;
   return rows.map((row) => ({ id: row.id, baseId: row.base_id }));
 };
@@ -202,7 +202,7 @@ export const listScheduledWorkflows = async (): Promise<GridsWorkflow[]> => {
     WHERE p.deleted_at IS NULL
       AND p.enabled = TRUE
       AND jsonb_path_exists(v.plan, '$.triggers[*] ? (@.kind == "schedule")')
-    ORDER BY p.created_at, p.workflow_id
+    ORDER BY p.created_at, p.id
   `;
   return rows.map(mapWorkflow);
 };
@@ -229,7 +229,7 @@ export const listRecordEventWorkflows = async (baseId: string, occurredAt: strin
       AND p.record_event_active_since IS NOT NULL
       AND p.record_event_active_since <= ${occurredAt}::timestamptz
       AND jsonb_path_exists(v.plan, '$.triggers[*] ? (@.kind == "recordEvent")')
-    ORDER BY p.position, p.created_at, p.workflow_id
+    ORDER BY p.position, p.created_at, p.id
   `;
   return rows.map(mapWorkflow);
 };
@@ -269,12 +269,12 @@ export const createWorkflow = async (
         tx.savepoint(async (sp) => {
           const [inserted] = await sp<DbRow[]>`
             INSERT INTO grids.workflow_profile (
-              workflow_id, base_id, short_id, position, owner_user_id, enabled, record_event_active_since
+              id, base_id, short_id, position, owner_user_id, enabled, record_event_active_since
             ) VALUES (
               ${workflow.id}::uuid, ${baseId}::uuid, ${shortId}, ${input.position ?? 0}, ${actorId}::uuid, ${enabled},
               ${enabled && hasRecordEventTrigger(plan.data) ? sql`now()` : null}
             )
-            RETURNING workflow_id
+            RETURNING id
           `;
           if (!inserted) throw new Error("workflow profile insert failed");
           return inserted;
@@ -357,8 +357,8 @@ export const updateWorkflow = async (
             ELSE record_event_active_since
           END,
           updated_at = now()
-      WHERE workflow_id = ${id}::uuid AND deleted_at IS NULL
-      RETURNING workflow_id
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING id
     `;
     if (!row) return fail(err.notFound("workflow"));
 
@@ -478,7 +478,7 @@ export const getWorkflowRevision = async (workflowId: string, revision: number):
     SELECT v.revision, v.source, v.plan, v.diagnostics, v.created_at, v.created_by_id, w.name, w.description, p.position
     FROM workflows.version AS v
     JOIN workflows.workflow AS w ON w.id = v.workflow_id
-    JOIN grids.workflow_profile AS p ON p.workflow_id = v.workflow_id
+    JOIN grids.workflow_profile AS p ON p.id = v.workflow_id
     WHERE v.workflow_id = ${workflowId}::uuid AND v.revision = ${revision}
   `;
   if (!row) return null;
@@ -527,8 +527,8 @@ export const removeWorkflow = async (id: string, actorId: string | null): Promis
     const [row] = await tx<DbRow[]>`
       UPDATE grids.workflow_profile
       SET deleted_at = now(), enabled = FALSE, record_event_active_since = NULL, updated_at = now()
-      WHERE workflow_id = ${id}::uuid AND deleted_at IS NULL
-      RETURNING workflow_id
+      WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING id
     `;
     if (!row) return;
     // Soft delete: the kernel rows stay so the run history a deleted workflow

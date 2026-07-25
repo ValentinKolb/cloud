@@ -18,7 +18,7 @@ import {
   validateAccessPermission,
 } from "../service/access";
 import { get as getTable } from "../service/tables";
-import { getWorkflow } from "../service/workflow-kernel-store";
+import { getWorkflow } from "../service/workflow-definitions";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 
 const AccessListSchema = z.array(AccessEntrySchema);

@@ -1,8 +1,9 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
+import { createWorkflow, listWorkflows } from "./workflow-definitions";
 import { getWorkflowRunStats, listWorkflowEmailDeliveriesPage, listWorkflowRunsPage } from "./workflow-kernel-observability";
-import { createWorkflow, listWorkflows } from "./workflow-kernel-store";
+import { deleteTestWorkflow, insertTestWorkflow } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const uuid = () => Bun.randomUUIDv7();
@@ -49,7 +50,7 @@ describe("workflow history integration", () => {
           'reader@example.test', ${`history-email-${runId}`}, 'sent', 'Retained delivery'
         )
       `;
-      await sql`UPDATE grids.workflows SET deleted_at = now(), enabled = FALSE WHERE id = ${workflowId}::uuid`;
+      await deleteTestWorkflow(workflowId);
 
       expect(await listWorkflows(baseId)).toEqual([]);
       const historicalWorkflows = await listWorkflows(baseId, false, true);

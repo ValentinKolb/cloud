@@ -17,6 +17,7 @@ import {
   resolveAccessBinding,
   resolveResourceBinding,
 } from "./access";
+import { insertTestWorkflow } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const uuid = () => Bun.randomUUIDv7();
@@ -56,17 +57,14 @@ const insertFixture = async (item: Fixture) => {
     INSERT INTO grids.dashboards (id, short_id, base_id, name)
     VALUES (${item.dashboardId}::uuid, ${shortId("A")}, ${item.baseId}::uuid, 'Operations')
   `;
-  await sql`
-    INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan)
-    VALUES (
-      ${item.workflowId}::uuid,
-      ${shortId("W")},
-      ${item.baseId}::uuid,
-      'Check in',
-      'steps: []',
-      '{"inputs":[],"triggers":[],"steps":[],"bindings":{}}'::jsonb
-    )
-  `;
+  await insertTestWorkflow({
+    id: item.workflowId,
+    shortId: shortId("W"),
+    baseId: item.baseId,
+    name: "Check in",
+    source: "steps: []",
+    plan: { inputs: [], triggers: [], steps: [], bindings: {} },
+  });
 };
 
 const resources = (item: Fixture): Array<{ type: AccessBinding["resourceType"]; id: string; permission: PermissionLevel }> => [

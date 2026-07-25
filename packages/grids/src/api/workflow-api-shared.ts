@@ -10,7 +10,7 @@ import { listByTable as listFieldsByTable } from "../service/field-read";
 import { hasAtLeast, loadBaseWorkflowGrantsForSubject, resolveEffectivePermission } from "../service/permission-resolver";
 import { listByBase as listTablesByBase } from "../service/tables";
 import { buildWorkflowCatalog, type WorkflowCatalog, type WorkflowCatalogEntry } from "../service/workflow-catalog";
-import { listWorkflowScopes, listWorkflows } from "../service/workflow-kernel-store";
+import { listWorkflowScopes, listWorkflows } from "../service/workflow-definitions";
 import { bindGridsWorkflow } from "../workflows/binder";
 import {
   GRIDS_WORKFLOW_CHANNELS,

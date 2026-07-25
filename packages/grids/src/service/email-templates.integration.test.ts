@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { postgresTest } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { create, get, listDependenciesForBase, remove, update } from "./email-templates";
-import { createWorkflow, removeWorkflow } from "./workflow-kernel-store";
+import { createWorkflow, removeWorkflow } from "./workflow-definitions";
 
 const uuid = () => Bun.randomUUIDv7();
 const shortId = () => `B${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);

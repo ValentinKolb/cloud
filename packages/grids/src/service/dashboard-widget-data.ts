@@ -21,7 +21,7 @@ import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePe
 import * as tables from "./tables";
 import type { Field } from "./types";
 import * as views from "./views";
-import { getWorkflow } from "./workflow-kernel-store";
+import { getWorkflow } from "./workflow-definitions";
 import { getLauncher } from "./workflow-launchers";
 
 /**
