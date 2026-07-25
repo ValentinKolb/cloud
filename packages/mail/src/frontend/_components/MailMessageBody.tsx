@@ -1,8 +1,25 @@
+import { prompts } from "@valentinkolb/cloud/ui";
+import { mutation } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { normalizeContentId, referencedContentIds, rewriteCidSources, splitPlainMessageSegments } from "./mail-message-presentation";
+import { apiClient } from "../../api/client";
+import type { MessageRemoteContent, RemoteContentRule } from "../../service/remote-content";
+import { readApiError } from "./api-response";
+import {
+  normalizeContentId,
+  referencedContentIds,
+  referencedRemoteImageIds,
+  rewriteCidSources,
+  rewriteRemoteImageSources,
+  splitPlainMessageSegments,
+} from "./mail-message-presentation";
 
 const MAX_INLINE_IMAGE_COUNT = 32;
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_REMOTE_IMAGE_BYTES = 25 * 1024 * 1024;
+const REMOTE_IMAGE_WORKERS = 2;
+const REMOTE_IMAGE_REQUEST_GAP_MS = 350;
+
+const sleep = (durationMs: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, durationMs));
 
 const buildMessageDocument = (html: string, channel: string): string => {
   const channelLiteral = JSON.stringify(channel).replaceAll("<", "\\u003c");
@@ -68,14 +85,91 @@ export default function MailMessageBody(props: {
   html: string | null;
   plainText: string | null;
   attachments: Array<{ id: string; contentId: string | null; contentType: string; sizeBytes: number }>;
+  remoteContent: MessageRemoteContent;
   onSelectionChange: (value: string) => void;
 }) {
   const channel = crypto.randomUUID();
   const [height, setHeight] = createSignal(160);
   const [cidUrls, setCidUrls] = createSignal(new Map<string, string>());
+  const [remoteUrls, setRemoteUrls] = createSignal(new Map<string, string>());
+  const [remoteLoading, setRemoteLoading] = createSignal(false);
   let frame: HTMLIFrameElement | undefined;
+  let remoteController: AbortController | null = null;
+  let remoteLoadedBytes = 0;
+  const remoteObjectUrls: string[] = [];
   const plainSegments = createMemo(() => splitPlainMessageSegments(props.plainText ?? ""));
-  const documentSource = createMemo(() => buildMessageDocument(rewriteCidSources(props.html ?? "", cidUrls()), channel));
+  const remoteImageIds = createMemo(() => {
+    const stored = new Set(props.remoteContent.imageIds.map((id) => id.toLowerCase()));
+    return referencedRemoteImageIds(props.html ?? "").filter((id) => stored.has(id));
+  });
+  const remoteImagesRemaining = createMemo(() => remoteImageIds().filter((id) => !remoteUrls().has(id)).length);
+  const documentSource = createMemo(() => {
+    const withCidImages = rewriteCidSources(props.html ?? "", cidUrls());
+    return buildMessageDocument(rewriteRemoteImageSources(withCidImages, remoteUrls()), channel);
+  });
+
+  const loadRemoteImages = async () => {
+    if (remoteLoading() || remoteImagesRemaining() === 0) return;
+    remoteController?.abort();
+    const controller = new AbortController();
+    remoteController = controller;
+    setRemoteLoading(true);
+    const pending = remoteImageIds().filter((id) => !remoteUrls().has(id));
+    const loaded: Array<[string, string]> = [];
+    let budgetExhausted = false;
+    let cursor = 0;
+    const worker = async () => {
+      while (!controller.signal.aborted && !budgetExhausted) {
+        const index = cursor;
+        cursor += 1;
+        const imageId = pending[index];
+        if (!imageId) return;
+        try {
+          const response = await fetch(
+            `/api/mail/mailboxes/${props.mailboxId}/messages/${props.messageId}/remote-images/${imageId}`,
+            { credentials: "same-origin", signal: controller.signal },
+          );
+          if (!response.ok) continue;
+          const blob = await response.blob();
+          if (budgetExhausted || remoteLoadedBytes + blob.size > MAX_REMOTE_IMAGE_BYTES) {
+            budgetExhausted = true;
+            return;
+          }
+          remoteLoadedBytes += blob.size;
+          const objectUrl = URL.createObjectURL(blob);
+          remoteObjectUrls.push(objectUrl);
+          loaded.push([imageId, objectUrl]);
+          setRemoteUrls((current) => new Map([...current, [imageId, objectUrl]]));
+        } finally {
+          if (!controller.signal.aborted) await sleep(REMOTE_IMAGE_REQUEST_GAP_MS);
+        }
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(REMOTE_IMAGE_WORKERS, pending.length) }, worker));
+      if (loaded.length === 0 && !controller.signal.aborted) {
+        prompts.error("The remote images could not be loaded safely.");
+      } else if (budgetExhausted && !controller.signal.aborted) {
+        prompts.error("Some remote images were not loaded because this message exceeds the safe image limit.");
+      }
+    } finally {
+      if (remoteController === controller) remoteController = null;
+      if (!controller.signal.aborted) setRemoteLoading(false);
+    }
+  };
+
+  const allowRemoteContent = mutation.create<RemoteContentRule, { scope: "sender" | "domain"; value: string }>({
+    mutation: async (input) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["remote-content-rules"].$post({
+        param: { mailboxId: props.mailboxId },
+        json: input,
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not save the remote image preference"));
+      return response.json();
+    },
+    onSuccess: () => loadRemoteImages(),
+    onError: (error) => prompts.error(error.message),
+  });
 
   const receiveMessage = (event: MessageEvent) => {
     if (!frame || event.source !== frame.contentWindow || !event.data || typeof event.data !== "object") return;
@@ -123,10 +217,14 @@ export default function MailMessageBody(props: {
     void loadCidImages().catch((error) => {
       if (!controller.signal.aborted) console.warn("Could not load inline email image", error);
     });
+    if (props.remoteContent.allowedByRule) void loadRemoteImages();
     onCleanup(() => {
       disposed = true;
       controller.abort();
+      allowRemoteContent.abort();
+      remoteController?.abort();
       for (const url of objectUrls) URL.revokeObjectURL(url);
+      for (const url of remoteObjectUrls) URL.revokeObjectURL(url);
       window.removeEventListener("message", receiveMessage);
       props.onSelectionChange("");
     });
@@ -154,15 +252,51 @@ export default function MailMessageBody(props: {
         </Show>
       }
     >
-      <iframe
-        ref={frame}
-        title="Email message content"
-        class="block w-full border-0 bg-transparent"
-        style={{ height: `${height()}px` }}
-        sandbox="allow-scripts allow-popups"
-        referrerpolicy="no-referrer"
-        srcdoc={documentSource()}
-      />
+      <div class="flex min-w-0 flex-col gap-2">
+        <Show when={remoteImagesRemaining() > 0}>
+          <div class="info-block-note flex flex-wrap items-center gap-2 text-xs">
+            <i class="ti ti-photo-shield shrink-0" aria-hidden="true" />
+            <span class="min-w-48 flex-1">Remote images are blocked to protect your privacy.</span>
+            <button type="button" class="btn-secondary btn-xs" disabled={remoteLoading()} onClick={() => void loadRemoteImages()}>
+              <i class={`ti ${remoteLoading() ? "ti-loader-2 animate-spin" : "ti-photo"}`} aria-hidden="true" />
+              Load images
+            </button>
+            <Show when={props.remoteContent.sender}>
+              {(sender) => (
+                <button
+                  type="button"
+                  class="btn-simple btn-xs"
+                  disabled={remoteLoading() || allowRemoteContent.loading()}
+                  onClick={() => void allowRemoteContent.mutate({ scope: "sender", value: sender() })}
+                >
+                  Always for sender
+                </button>
+              )}
+            </Show>
+            <Show when={props.remoteContent.domain}>
+              {(domain) => (
+                <button
+                  type="button"
+                  class="btn-simple btn-xs"
+                  disabled={remoteLoading() || allowRemoteContent.loading()}
+                  onClick={() => void allowRemoteContent.mutate({ scope: "domain", value: domain() })}
+                >
+                  Always for domain
+                </button>
+              )}
+            </Show>
+          </div>
+        </Show>
+        <iframe
+          ref={frame}
+          title="Email message content"
+          class="block w-full border-0 bg-transparent"
+          style={{ height: `${height()}px` }}
+          sandbox="allow-scripts allow-popups"
+          referrerpolicy="no-referrer"
+          srcdoc={documentSource()}
+        />
+      </div>
     </Show>
   );
 }

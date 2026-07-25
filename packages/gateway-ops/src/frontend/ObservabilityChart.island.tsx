@@ -16,12 +16,17 @@ import { Chart } from "@valentinkolb/cloud/ui";
 export type ObservabilityChartFormat = "number" | "bytes" | "datetime";
 
 export type ObservabilityChartProps = {
-  kind: "line" | "bar" | "donut";
+  kind: "line" | "bar" | "donut" | "stateTimeline";
   class?: string;
+  /** Lane charts size by row count, so height comes from the caller. */
+  style?: string;
   /** `line` only. */
   series?: { label?: string; data: { x: number; y: number }[] }[];
   /** `bar` and `donut`. */
   data?: { label: string; value: number }[];
+  /** `stateTimeline` — one lane per row, marks positioned on the time axis. */
+  rows?: { label: string; intervals: { from: number; to: number; state: string; label?: string }[] }[];
+  states?: { state: string; label?: string; color?: string }[];
   xFormat?: ObservabilityChartFormat;
   yFormat?: ObservabilityChartFormat;
   legend?: boolean;
@@ -59,6 +64,20 @@ export default function ObservabilityChart(props: ObservabilityChartProps) {
         yAxis={{ format: formatterFor(props.yFormat) }}
         legend={props.legend}
         area={props.area}
+      />
+    );
+  }
+
+  if (props.kind === "stateTimeline") {
+    return (
+      <Chart
+        kind="stateTimeline"
+        class={cls()}
+        style={props.style}
+        rows={props.rows ?? []}
+        states={props.states}
+        xAxis={{ format: formatterFor(props.xFormat) }}
+        legend={props.legend}
       />
     );
   }

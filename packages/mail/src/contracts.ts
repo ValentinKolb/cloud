@@ -190,6 +190,17 @@ export const mailingListDispositionResultSchema = z
   .strict();
 export type MailingListDispositionResult = z.infer<typeof mailingListDispositionResultSchema>;
 
+export const remoteContentRuleScopeSchema = z.enum(["sender", "domain"]);
+export type RemoteContentRuleScope = z.infer<typeof remoteContentRuleScopeSchema>;
+
+export const remoteContentRuleInputSchema = z
+  .object({
+    scope: remoteContentRuleScopeSchema,
+    value: z.string().trim().min(1).max(320),
+  })
+  .strict();
+export type RemoteContentRuleInput = z.infer<typeof remoteContentRuleInputSchema>;
+
 export const mailConversationContextQuerySchema = z
   .object({
     contactsCursor: z.string().min(1).max(2048).optional(),

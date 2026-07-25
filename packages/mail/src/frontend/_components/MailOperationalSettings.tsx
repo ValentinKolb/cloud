@@ -232,6 +232,7 @@ export default function MailOperationalSettings(props: {
     command.loading() ||
     operatorCommand.loading() ||
     refreshLimits.loading();
+  const syncLoading = () => command.loading() && lastCommand() === "sync_mailbox";
 
   const connectedBinding = () =>
     props.bindings.find((binding) => binding.state === "active") ?? props.bindings.find((binding) => binding.state !== "revoked");
@@ -267,9 +268,10 @@ export default function MailOperationalSettings(props: {
             type="button"
             class="btn-primary btn-sm"
             disabled={busy() || !props.mailbox.syncEnabled}
+            aria-busy={syncLoading()}
             onClick={() => command.mutate({ kind: "sync_mailbox" })}
           >
-            <i class={`ti ${command.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
+            <i class={`ti ${syncLoading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
             Sync now
           </button>
           <Show
@@ -418,7 +420,7 @@ export default function MailOperationalSettings(props: {
         </Show>
       </section>
 
-      <Show when={operatorStatus.loading}>
+      <Show when={operatorStatus.loading && !operatorStatus()}>
         <Placeholder state="loading" variant="panel" title="Loading mailbox activity" />
       </Show>
       <Show when={operatorStatus.error}>

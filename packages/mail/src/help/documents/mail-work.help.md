@@ -105,6 +105,20 @@ Received attachments stay with the message that carried them. Select an attachme
 
 Mailbox administrators can also create a public download link from an attachment. The URL is shown only at creation and can be protected with a password, expiry time, and download-session limit. Manage or revoke existing links under **Mailbox tools > Shared links**.
 
+## Control remote images {icon="photo-shield"}
+
+Mail blocks images that a message would otherwise load from an external server. Loading one of these images can tell the sender that the message was opened. Images included directly in the message remain visible.
+
+When a message contains blocked images, choose:
+
+- **Load images** to load them for this open message only.
+- **Always for sender** to allow images in future messages from that exact address.
+- **Always for domain** to allow images from every address at that domain. Use this broader option only for a domain you trust.
+
+These preferences apply only to you in the current mailbox. They do not change what collaborators see. Open **Mailbox tools > Remote images** to review or remove saved preferences.
+
+Mail retrieves allowed images through its protected image service instead of exposing the image address to your browser. The external server can still learn that its image was requested, so keep images blocked for unknown or suspicious senders.
+
 Under an expanded message, choose:
 
 - **Reply** to answer the sender.

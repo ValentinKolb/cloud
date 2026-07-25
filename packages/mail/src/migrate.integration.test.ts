@@ -7,6 +7,38 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("installs privacy-safe remote image metadata and personal rules once", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        applied_count: string | number;
+        image_table_present: boolean;
+        rules_table_present: boolean;
+        image_index_present: boolean;
+        principal_index_present: boolean;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT count(*)
+          FROM mail.schema_migrations
+          WHERE version = 87 AND name = 'privacy_safe_remote_content'
+        ) AS applied_count,
+        to_regclass('mail.message_remote_images') IS NOT NULL AS image_table_present,
+        to_regclass('mail.remote_content_rules') IS NOT NULL AS rules_table_present,
+        to_regclass('mail.message_remote_images_message_idx') IS NOT NULL AS image_index_present,
+        to_regclass('mail.remote_content_rules_principal_idx') IS NOT NULL AS principal_index_present
+    `;
+    expect({ ...shape, applied_count: Number(shape?.applied_count) }).toEqual({
+      applied_count: 1,
+      image_table_present: true,
+      rules_table_present: true,
+      image_index_present: true,
+      principal_index_present: true,
+    });
+  });
+
   test("hard-migrates the alpha conversation state model without retaining the removed column", async () => {
     await migrate();
     const mailboxId = crypto.randomUUID();

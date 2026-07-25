@@ -4,7 +4,9 @@ import {
   attachmentPreviewKind,
   normalizeContentId,
   referencedContentIds,
+  referencedRemoteImageIds,
   rewriteCidSources,
+  rewriteRemoteImageSources,
   splitPlainMessageSegments,
 } from "./mail-message-presentation";
 
@@ -65,5 +67,15 @@ describe("mail message presentation", () => {
     expect(
       referencedContentIds('<img src="cid:Logo%40Example.COM"><img src="cid:logo@example.com"><a href="cid:ignored@example.com">link</a>'),
     ).toEqual(["logo@example.com"]);
+  });
+
+  test("rewrites only known opaque remote image references", () => {
+    const first = "00000000-0000-4000-8000-000000000001";
+    const second = "00000000-0000-4000-8000-000000000002";
+    const html = `<img alt="known" data-mail-remote-image="${first}"><img data-mail-remote-image="${second}">`;
+    expect(referencedRemoteImageIds(html)).toEqual([first, second]);
+    expect(rewriteRemoteImageSources(html, new Map([[first, "blob:https://cloud.example/remote-image"]]))).toBe(
+      `<img alt="known" src="blob:https://cloud.example/remote-image" data-mail-remote-image="${first}"><img data-mail-remote-image="${second}">`,
+    );
   });
 });

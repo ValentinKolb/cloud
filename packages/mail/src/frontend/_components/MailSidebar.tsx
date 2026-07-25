@@ -72,10 +72,11 @@ export default function MailSidebar(props: {
   viewCounts: ConversationViewCounts;
   canWrite: boolean;
   canAdmin: boolean;
-  managementOpening: "health" | "links" | null;
+  managementOpening: "health" | "links" | "remote-content" | null;
   settingsOpening: boolean;
   onOpenHealth: () => void;
   onOpenSharedLinks: () => void;
+  onOpenRemoteContent: () => void;
   onOpenSettings: () => void;
   onMoveConversation: (input: { conversationId: string; sourceFolderId: string; destinationFolderId: string }) => void | Promise<void>;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
@@ -181,9 +182,12 @@ export default function MailSidebar(props: {
         </button>
       }
       elements={[
-        { label: "Mailbox health", icon: "ti ti-heartbeat", action: props.onOpenHealth },
-        { label: "Subscriptions", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` },
-        { label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks },
+        ...(props.canAdmin ? [{ label: "Mailbox health", icon: "ti ti-heartbeat", action: props.onOpenHealth }] : []),
+        { label: "Remote images", icon: "ti ti-photo-shield", action: props.onOpenRemoteContent },
+        ...(props.canAdmin
+          ? [{ label: "Subscriptions", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` }]
+          : []),
+        ...(props.canAdmin ? [{ label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks }] : []),
       ]}
       position="top-right"
     />
@@ -344,7 +348,7 @@ export default function MailSidebar(props: {
             </a>
           )}
           {automationsItem("mobile-action")}
-          <Show when={props.canAdmin}>{mailboxTools("sidebar-item-mobile")}</Show>
+          {mailboxTools("sidebar-item-mobile")}
           <button type="button" class="sidebar-item-mobile" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
             <i class="ti ti-settings" aria-hidden="true" /> Settings
           </button>
@@ -393,7 +397,7 @@ export default function MailSidebar(props: {
             </button>
           )}
           {automationsItem("desktop-footer")}
-          <Show when={props.canAdmin}>{mailboxTools("sidebar-item w-full")}</Show>
+          {mailboxTools("sidebar-item w-full")}
           <button type="button" class="sidebar-item w-full" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
             <i class={`ti ${props.settingsOpening ? "ti-loader-2 animate-spin" : "ti-settings"}`} aria-hidden="true" />
             <span>Settings</span>

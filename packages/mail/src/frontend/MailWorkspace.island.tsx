@@ -14,6 +14,7 @@ import { readApiError } from "./_components/api-response";
 import { openMailAttachmentLinksDialog } from "./_components/MailAttachmentLinksDialog";
 import { chooseBulkTags, chooseConversationTags } from "./_components/MailBulkTagDialog";
 import { openMailboxHealthDialog } from "./_components/MailboxHealthDialog";
+import { openMailRemoteContentRulesDialog } from "./_components/MailRemoteContentRulesDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
@@ -71,7 +72,7 @@ export default function MailWorkspace(props: {
     participants: [],
   });
   const [settingsOpening, setSettingsOpening] = createSignal(false);
-  const [managementOpening, setManagementOpening] = createSignal<"health" | "links" | null>(null);
+  const [managementOpening, setManagementOpening] = createSignal<"health" | "links" | "remote-content" | null>(null);
   const [liveDegraded, setLiveDegraded] = createSignal(false);
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
   const [selectionMode, setSelectionMode] = createSignal(false);
@@ -399,6 +400,16 @@ export default function MailWorkspace(props: {
     setManagementOpening("links");
     try {
       await openMailAttachmentLinksDialog({ mailboxId: data.mailbox.id, dateConfig: props.dateConfig });
+    } finally {
+      setManagementOpening(null);
+    }
+  };
+
+  const openRemoteContent = async () => {
+    if (managementOpening()) return;
+    setManagementOpening("remote-content");
+    try {
+      await openMailRemoteContentRulesDialog(data.mailbox.id);
     } finally {
       setManagementOpening(null);
     }
@@ -1257,6 +1268,7 @@ export default function MailWorkspace(props: {
         settingsOpening={settingsOpening()}
         onOpenHealth={() => void openHealth()}
         onOpenSharedLinks={() => void openSharedLinks()}
+        onOpenRemoteContent={() => void openRemoteContent()}
         onOpenSettings={() => void openSettings()}
         onMoveConversation={(input) =>
           runAction("move", {

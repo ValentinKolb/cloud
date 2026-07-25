@@ -44,6 +44,12 @@ const message = (overrides: Partial<MessageDetail> = {}): MessageDetail => ({
   forwardText: "Question",
   selectedHeaders: {},
   sourceAvailable: false,
+  remoteContent: {
+    imageIds: [],
+    allowedByRule: false,
+    sender: null,
+    domain: null,
+  },
   attachments: [],
   ...overrides,
 });

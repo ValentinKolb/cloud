@@ -29,6 +29,7 @@ const COMPOSE_TEMPLATE_ID = "00000000-0000-4000-8000-000000000023";
 const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
 const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
 const ATTACHMENT_LINK_ID = "00000000-0000-4000-8000-000000000026";
+const REMOTE_CONTENT_RULE_ID = "00000000-0000-4000-8000-000000000027";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -279,6 +280,84 @@ test("subscription commands expose safe list actions and durable disposition", a
     disposition: "archive",
   });
   expect((writes[1]?.body as { idempotencyKey?: string }).idempotencyKey).toBeString();
+});
+
+test("remote content commands manage personal sender and domain rules", async () => {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const senderRule = {
+    id: REMOTE_CONTENT_RULE_ID,
+    mailboxId: MAILBOX_ID,
+    scope: "sender",
+    value: "sender@example.com",
+    createdAt: "2026-07-25T08:00:00.000Z",
+  };
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/remote-content-rules`;
+    if (request.method === "GET" && url.pathname === base) return api([senderRule]);
+    if (request.method === "POST" && url.pathname === base) {
+      const body = await request.json();
+      requests.push({ method: request.method, path: url.pathname, body });
+      return api({ ...senderRule, scope: body.scope, value: body.value });
+    }
+    if (request.method === "DELETE" && url.pathname === `${base}/${REMOTE_CONTENT_RULE_ID}`) {
+      requests.push({ method: request.method, path: url.pathname, body: null });
+      return api({ id: REMOTE_CONTENT_RULE_ID });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const listed = await runCli(origin, ["--json", "mail", "remote-content", "list", "--mailbox", MAILBOX_ID]);
+  const sender = await runCli(origin, [
+    "--json",
+    "mail",
+    "remote-content",
+    "allow-sender",
+    "sender@example.com",
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const domain = await runCli(origin, [
+    "--json",
+    "mail",
+    "remote-content",
+    "allow-domain",
+    "example.com",
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const refused = await runCli(origin, [
+    "mail",
+    "remote-content",
+    "remove",
+    REMOTE_CONTENT_RULE_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const removed = await runCli(origin, [
+    "--json",
+    "mail",
+    "remote-content",
+    "remove",
+    REMOTE_CONTENT_RULE_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--yes",
+  ]);
+
+  expect([listed, sender, domain, removed].every((result) => result.exitCode === 0 && result.stderr === "")).toBe(true);
+  expect(JSON.parse(listed.stdout)).toEqual([senderRule]);
+  expect(JSON.parse(sender.stdout).value).toBe("sender@example.com");
+  expect(JSON.parse(domain.stdout).value).toBe("example.com");
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.stderr).toContain("Pass --yes");
+  expect(requests).toEqual([
+    { method: "POST", path: `/api/mail/mailboxes/${MAILBOX_ID}/remote-content-rules`, body: { scope: "sender", value: "sender@example.com" } },
+    { method: "POST", path: `/api/mail/mailboxes/${MAILBOX_ID}/remote-content-rules`, body: { scope: "domain", value: "example.com" } },
+    { method: "DELETE", path: `/api/mail/mailboxes/${MAILBOX_ID}/remote-content-rules/${REMOTE_CONTENT_RULE_ID}`, body: null },
+  ]);
 });
 
 test("search forwards nested expressions and cursors", async () => {

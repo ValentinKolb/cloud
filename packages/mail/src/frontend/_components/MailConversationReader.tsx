@@ -535,6 +535,7 @@ export default function MailConversationReader(props: {
                               html={message.sanitizedHtml}
                               plainText={message.plainText}
                               attachments={message.attachments}
+                              remoteContent={message.remoteContent}
                               onSelectionChange={(value) =>
                                 setMessageSelections((current) => {
                                   if (current[message.id] === value) return current;

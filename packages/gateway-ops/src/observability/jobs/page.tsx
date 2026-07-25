@@ -9,9 +9,18 @@ import {
   trace,
 } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid, StructuredDataPreview } from "@valentinkolb/cloud/ui";
+import {
+  DataTable,
+  type DataTableColumn,
+  Pagination,
+  Placeholder,
+  StatCell,
+  StatGrid,
+  StructuredDataPreview,
+} from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { gatewayOpsHelp } from "../../help";
 import JobsActionToast from "./_components/JobsActionToast.island";
 import JobsFilterBar from "./_components/JobsFilterBar.island";
@@ -23,7 +32,13 @@ import {
   minDurationFromFilter,
   parseJobsFilterFromUrl,
 } from "./_components/types";
-import { type BackgroundJobOverviewRow, buildBackgroundJobRows, filterBackgroundJobRows, jobsObservabilityService } from "./service";
+import {
+  type BackgroundJobOverviewRow,
+  buildBackgroundJobRows,
+  buildJobTimelineRows,
+  filterBackgroundJobRows,
+  jobsObservabilityService,
+} from "./service";
 
 const baseUrl = "/admin/observability/jobs";
 const numberFormat = new Intl.NumberFormat("de-DE");
@@ -54,6 +69,19 @@ const formatDate = (value: string | null): string => {
 };
 
 const formatTimestamp = (value: number | null): string => (value === null ? "-" : formatDate(new Date(value).toISOString()));
+
+/**
+ * A schedule can legitimately be a little late — the handler polls, the tick
+ * lands a moment after the minute. Only a clear overshoot means it stopped.
+ */
+const OVERDUE_GRACE_MS = 2 * 60 * 1000;
+
+const formatDuration = (ms: number): string => {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+};
 
 const windowLabel = (filter: JobsFilterState): string =>
   jobsWindowOptions.find((option) => option.value === filter.window)?.label.toLowerCase() ?? "24 hours";
@@ -333,7 +361,18 @@ const OverviewTable = (props: { rows: BackgroundJobOverviewRow[]; filter: JobsFi
               {formatMs(row.trace?.avgDurationMs ?? null)} / {formatMs(row.trace?.p99DurationMs ?? null)}
             </span>
           );
-        if (col.id === "next") return <span class="text-[10px] text-dimmed">{formatTimestamp(row.nextRunAt)}</span>;
+        if (col.id === "next") {
+          // A schedule whose next run is already in the past is not "due soon",
+          // it has stopped firing — the failure mode a plain timestamp hides.
+          const overdueMs = row.nextRunAt ? Date.now() - row.nextRunAt : 0;
+          return overdueMs > OVERDUE_GRACE_MS ? (
+            <span class="text-[10px] text-red-500" title={`Expected at ${formatTimestamp(row.nextRunAt)}`}>
+              overdue {formatDuration(overdueMs)}
+            </span>
+          ) : (
+            <span class="text-[10px] text-dimmed">{formatTimestamp(row.nextRunAt)}</span>
+          );
+        }
         if (col.id === "action") return <ActionCell row={row} filter={props.filter} />;
         return "";
       }}
@@ -505,14 +544,20 @@ export default ssr<AuthContext>(async (c) => {
         .then((schedules) => ({ schedules, error: null as string | null }))
         .catch((error) => ({ schedules: [], error: error instanceof Error ? error.message : String(error) }));
 
-  const [stats, groups, listResult, selectedSpan, selectedEvents, scheduleResult] = await Promise.all([
+  const [stats, groups, listResult, selectedSpan, selectedEvents, scheduleResult, timelineResult] = await Promise.all([
     trace.stats({ filter: traceFilter }),
     filter.source ? Promise.resolve([]) : trace.sourceGroups({ filter: traceFilter }),
     filter.source ? trace.list(paginationInput, { filter: traceFilter }) : Promise.resolve({ spans: [], total: 0 }),
     selectedRun ? trace.getSpan(selectedRun) : Promise.resolve(null),
     selectedRun ? trace.events({ ...selectedRun, limit: 200 }) : Promise.resolve([]),
     schedulesPromise,
+    // Lanes need the individual runs; the overview table only has aggregates.
+    trace.list({ page: 1, perPage: 2000, offset: 0 }, { filter: traceFilter }).catch(() => ({ spans: [], total: 0 })),
   ]);
+  const windowSeconds = jobsWindowOptions.find((option) => option.value === filter.window)?.seconds ?? 86_400;
+  const timelineWindow = { fromMs: Date.now() - windowSeconds * 1000, toMs: Date.now() };
+  const timelineRows = buildJobTimelineRows(timelineResult.spans, timelineWindow);
+
   const pagination = createPagination(paginationInput, listResult.total);
   const selectedRunKey = selectedSpan ? runKey(selectedSpan) : filter.run;
   const overviewRows = filterBackgroundJobRows(buildBackgroundJobRows(scheduleResult.schedules, groups), {
@@ -546,6 +591,31 @@ export default ssr<AuthContext>(async (c) => {
         </div>
 
         {statsGrid(stats, filter)}
+
+        <section class="paper p-3">
+          <h2 class="text-xs font-semibold text-primary">Run timeline</h2>
+          <p class="text-[10px] text-dimmed">
+            One lane per job, busiest first. Marks sit where the run started; their width is a readability floor, not a duration — most runs
+            finish in milliseconds. Red is a failure, amber a run that never finished.
+          </p>
+          {timelineRows.length === 0 ? (
+            <Placeholder variant="compact" description="No runs recorded in this window." />
+          ) : (
+            <ObservabilityChart
+              kind="stateTimeline"
+              class="mt-2 w-full text-dimmed"
+              style={`height:${Math.max(160, 56 + timelineRows.length * 22)}px`}
+              rows={timelineRows}
+              states={[
+                { state: "ok", label: "Succeeded" },
+                { state: "error", label: "Failed" },
+                { state: "stuck", label: "Never finished" },
+              ]}
+              xFormat="datetime"
+              legend
+            />
+          )}
+        </section>
         <FeedbackBanner feedback={actionFeedback} />
         <ControlWarning error={scheduleResult.error} />
 

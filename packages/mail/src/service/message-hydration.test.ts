@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeIncomingMailHtml } from "./message-hydration";
+import { sanitizeIncomingMailHtml, sanitizeIncomingMailHtmlWithRemoteImages } from "./message-hydration";
 
 describe("incoming mail HTML", () => {
   test("removes executable content and remote tracking images", () => {
@@ -32,5 +32,34 @@ describe("incoming mail HTML", () => {
         '<div class="gmail_quote unknown">history</div><blockquote type="cite" class="yahoo_quoted other">quoted</blockquote>',
       ),
     ).toBe('<div class="gmail_quote">history</div><blockquote type="cite" class="yahoo_quoted">quoted</blockquote>');
+  });
+
+  test("keeps remote image locations only in server-side metadata", () => {
+    const result = sanitizeIncomingMailHtmlWithRemoteImages(`
+      <img src="https://Tracker.Example/pixel?message=123#fragment" data-mail-remote-image="00000000-0000-4000-8000-000000000099" alt="Tracking pixel">
+      <img src="cid:logo@example.com" data-mail-remote-image="00000000-0000-4000-8000-000000000098" alt="Inline logo">
+    `);
+
+    expect(result.html).not.toContain("tracker.example");
+    expect(result.html).not.toContain("message=123");
+    expect(result.html).toContain('src="cid:logo@example.com"');
+    expect(result.remoteImages).toHaveLength(1);
+    expect(result.remoteImages[0]).toMatchObject({
+      position: 0,
+      sourceUrl: "https://tracker.example/pixel?message=123",
+      sourceHost: "tracker.example",
+    });
+    expect(result.html).toContain(`data-mail-remote-image="${result.remoteImages[0]?.id}"`);
+    expect(result.html).not.toContain("00000000-0000-4000-8000-000000000099");
+    expect(result.html).not.toContain("00000000-0000-4000-8000-000000000098");
+  });
+
+  test("bounds retained remote image metadata", () => {
+    const result = sanitizeIncomingMailHtmlWithRemoteImages(
+      Array.from({ length: 70 }, (_, index) => `<img src="https://images.example/${index}.png">`).join(""),
+    );
+    expect(result.remoteImages).toHaveLength(64);
+    expect(result.html.match(/data-mail-remote-image=/gu)).toHaveLength(64);
+    expect(result.html).not.toContain("https://images.example");
   });
 });

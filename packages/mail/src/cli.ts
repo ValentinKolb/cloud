@@ -84,6 +84,7 @@ import type { AddConversationLocalTagsResult, ConversationLocalTags, LocalTag } 
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { DiscoveredMailConfiguration } from "./service/onboarding-discovery";
 import type { ConversationReminder } from "./service/reminders";
+import type { RemoteContentRule } from "./service/remote-content";
 import type { SavedConversationView } from "./service/saved-views";
 import type { MessageSearchHit, MessageSearchPage } from "./service/search";
 
@@ -1503,6 +1504,74 @@ export default defineCliCommands({
         if (printStructured(ctx, result)) return;
         ctx.print(`Queued ${result.commandCount} ${flags.destination} command(s) for ${item.name}.`);
         if (result.truncated) ctx.print("More than 500 placements matched. Run the command again after these commands complete.");
+      },
+    }),
+    command("remote-content list", {
+      summary: "List personal remote image preferences",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const rules = await readApi<RemoteContentRule[]>(ctx, `/mailboxes/${mailbox.id}/remote-content-rules`);
+        printTable(
+          ctx,
+          rules,
+          rules.map((rule) => ({ scope: rule.scope, value: rule.value, createdAt: rule.createdAt, id: rule.id })),
+          [
+            { key: "scope", label: "MATCH" },
+            { key: "value", label: "VALUE" },
+            { key: "createdAt", label: "CREATED" },
+            { key: "id", label: "ID" },
+          ],
+        );
+      },
+    }),
+    command("remote-content allow-sender", {
+      summary: "Always load remote images from one sender",
+      args: { sender: arg.required({ description: "Sender email address" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const rule = await readApi<RemoteContentRule>(
+          ctx,
+          `/mailboxes/${mailbox.id}/remote-content-rules`,
+          jsonRequest("POST", { scope: "sender", value: args.sender }),
+        );
+        if (printStructured(ctx, rule)) return;
+        ctx.print(`Remote images are allowed for ${rule.value}.`);
+      },
+    }),
+    command("remote-content allow-domain", {
+      summary: "Always load remote images from one sender domain",
+      args: { domain: arg.required({ description: "Sender domain" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const rule = await readApi<RemoteContentRule>(
+          ctx,
+          `/mailboxes/${mailbox.id}/remote-content-rules`,
+          jsonRequest("POST", { scope: "domain", value: args.domain }),
+        );
+        if (printStructured(ctx, rule)) return;
+        ctx.print(`Remote images are allowed for senders at ${rule.value}.`);
+      },
+    }),
+    command("remote-content remove", {
+      summary: "Remove a personal remote image preference",
+      args: { ruleId: arg.required({ description: "Rule id shown by remote-content list" }) },
+      flags: {
+        ...mailboxFlag,
+        yes: confirmFlag("Confirm remote image preference removal"),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to remove the remote image preference.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const removed = await readApi<{ id: string }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/remote-content-rules/${args.ruleId}`,
+          { method: "DELETE" },
+        );
+        if (printStructured(ctx, removed)) return;
+        ctx.print(`Removed remote image preference ${removed.id}.`);
       },
     }),
     command("configure", {

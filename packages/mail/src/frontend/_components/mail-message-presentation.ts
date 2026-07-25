@@ -7,6 +7,7 @@ export { type AttachmentPreviewKind, attachmentPreviewKind } from "../../attachm
 
 const QUOTED_LINE = /^\s*>/u;
 const CID_SOURCE = /\bsrc=(["'])cid:([^"']+)\1/giu;
+const REMOTE_IMAGE_ATTRIBUTE = /\bdata-mail-remote-image=(["'])([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\1/giu;
 
 export const normalizeContentId = (value: string): string => value.trim().replace(/^<|>$/gu, "").toLowerCase();
 
@@ -37,6 +38,21 @@ export const rewriteCidSources = (html: string, urls: ReadonlyMap<string, string
     }
     const url = urls.get(normalizeContentId(decoded));
     return url ? `src=${quote}${url}${quote}` : source;
+  });
+
+export const referencedRemoteImageIds = (html: string): string[] => {
+  const ids = new Set<string>();
+  for (const match of html.matchAll(REMOTE_IMAGE_ATTRIBUTE)) {
+    const id = match[2]?.toLowerCase();
+    if (id) ids.add(id);
+  }
+  return [...ids];
+};
+
+export const rewriteRemoteImageSources = (html: string, urls: ReadonlyMap<string, string>): string =>
+  html.replace(REMOTE_IMAGE_ATTRIBUTE, (attribute, _quote: string, rawId: string) => {
+    const url = urls.get(rawId.toLowerCase());
+    return url ? `src="${url}" ${attribute}` : attribute;
   });
 
 export const splitPlainMessageSegments = (value: string): PlainMessageSegment[] => {

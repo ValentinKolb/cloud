@@ -4535,6 +4535,46 @@ const addOutboundMessagePreflight = async (db: SqlClient): Promise<void> => {
   await db`ALTER TABLE mail.outbox_submissions ALTER COLUMN mime_date SET NOT NULL`;
 };
 
+const addPrivacySafeRemoteContent = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE IF NOT EXISTS mail.message_remote_images (
+      id UUID PRIMARY KEY,
+      message_id UUID NOT NULL REFERENCES mail.message_contents(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL CHECK (position >= 0 AND position < 64),
+      source_url TEXT NOT NULL CHECK (char_length(source_url) BETWEEN 1 AND 8192),
+      source_host TEXT NOT NULL CHECK (
+        char_length(source_host) BETWEEN 1 AND 253
+        AND source_host = lower(source_host)
+      ),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (message_id, position)
+    )
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS message_remote_images_message_idx
+    ON mail.message_remote_images (message_id, position)
+  `;
+  await db`
+    CREATE TABLE IF NOT EXISTS mail.remote_content_rules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      actor_kind TEXT NOT NULL CHECK (actor_kind IN ('user', 'service_account')),
+      actor_id UUID NOT NULL,
+      scope TEXT NOT NULL CHECK (scope IN ('sender', 'domain')),
+      value TEXT NOT NULL CHECK (
+        char_length(value) BETWEEN 1 AND 320
+        AND value = lower(value)
+      ),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, actor_kind, actor_id, scope, value)
+    )
+  `;
+  await db`
+    CREATE INDEX IF NOT EXISTS remote_content_rules_principal_idx
+    ON mail.remote_content_rules (mailbox_id, actor_kind, actor_id, scope, value)
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4621,6 +4661,7 @@ const migrations: readonly MailMigration[] = [
   { version: 84, name: "mailing_list_subscriptions", run: addMailingListSubscriptions },
   { version: 85, name: "provider_limit_snapshots", run: addProviderLimitSnapshots },
   { version: 86, name: "outbound_message_preflight", run: addOutboundMessagePreflight },
+  { version: 87, name: "privacy_safe_remote_content", run: addPrivacySafeRemoteContent },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

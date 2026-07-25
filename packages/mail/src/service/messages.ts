@@ -6,6 +6,7 @@ import type { ConversationView, ConversationWorkStatus } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { type ConversationCursorScope, decodeConversationCursor, encodeConversationCursor } from "./conversation-cursor";
 import { resolveMailExecution } from "./execution";
+import { type MessageRemoteContent, resolveMessagesRemoteContent } from "./remote-content";
 
 type DateCursor = { version: 1; date: string; id: string };
 
@@ -601,6 +602,7 @@ export type MessageDetail = MessageSummary & {
   forwardText: string;
   selectedHeaders: Record<string, unknown>;
   sourceAvailable: boolean;
+  remoteContent: MessageRemoteContent;
   attachments: Array<{
     id: string;
     filename: string | null;
@@ -647,8 +649,29 @@ const mapMessageDetail = (row: DbMessageDetail): MessageDetail => ({
   selectedHeaders:
     typeof row.selected_headers === "string" ? (JSON.parse(row.selected_headers) as Record<string, unknown>) : row.selected_headers,
   sourceAvailable: row.source_available,
+  remoteContent: {
+    imageIds: [],
+    allowedByRule: false,
+    sender: null,
+    domain: null,
+  },
   attachments: parseJsonArray(row.attachments),
 });
+
+const attachRemoteContent = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  messages: MessageDetail[],
+): Promise<Result<MessageDetail[]>> => {
+  const metadata = await resolveMessagesRemoteContent({ context, mailboxId, messages });
+  if (!metadata.ok) return metadata;
+  return ok(
+    messages.map((message) => ({
+      ...message,
+      remoteContent: metadata.data.get(message.id) ?? message.remoteContent,
+    })),
+  );
+};
 
 const messageDetailSelect = sql`
   ${messageSummarySelect},
@@ -727,7 +750,7 @@ export const listConversationMessageDetails = async (params: {
     ${messageDetailAttachmentJoin}
     ORDER BY mc.internal_date, mc.id
   `;
-  return ok(rows.map(mapMessageDetail));
+  return attachRemoteContent(params.context, params.mailboxId, rows.map(mapMessageDetail));
 };
 
 export const getMessage = async (params: {
@@ -746,7 +769,8 @@ export const getMessage = async (params: {
     WHERE mc.id = ${params.messageId}::uuid AND mc.mailbox_id = ${params.mailboxId}::uuid
   `;
   if (!row) return fail(err.notFound("Message"));
-  return ok(mapMessageDetail(row));
+  const resolved = await attachRemoteContent(params.context, params.mailboxId, [mapMessageDetail(row)]);
+  return resolved.ok ? ok(resolved.data[0]!) : resolved;
 };
 
 export type AttachmentDownload = {

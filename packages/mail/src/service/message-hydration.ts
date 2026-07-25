@@ -93,14 +93,44 @@ const incomingAllowedTags = [
   "ul",
 ] as const;
 
-export const sanitizeIncomingMailHtml = (html: string): string =>
-  sanitizeHtml(html, {
+const MAX_REMOTE_IMAGE_COUNT = 64;
+const MAX_REMOTE_IMAGE_URL_BYTES = 128 * 1024;
+const MAX_REMOTE_IMAGE_URL_LENGTH = 8_192;
+
+export type SanitizedRemoteImage = {
+  id: string;
+  position: number;
+  sourceUrl: string;
+  sourceHost: string;
+};
+
+export type SanitizedIncomingMailHtml = {
+  html: string;
+  remoteImages: SanitizedRemoteImage[];
+};
+
+const normalizedRemoteImageUrl = (value: string): URL | null => {
+  if (value.length > MAX_REMOTE_IMAGE_URL_LENGTH) return null;
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password || !url.hostname) return null;
+    url.hash = "";
+    return url;
+  } catch {
+    return null;
+  }
+};
+
+export const sanitizeIncomingMailHtmlWithRemoteImages = (html: string): SanitizedIncomingMailHtml => {
+  const remoteImages: SanitizedRemoteImage[] = [];
+  let remoteUrlBytes = 0;
+  const sanitized = sanitizeHtml(html, {
     allowedTags: [...incomingAllowedTags],
     allowedAttributes: {
       a: ["href", "title", "target", "rel"],
       blockquote: ["class", "type"],
       div: ["class"],
-      img: ["src", "alt", "title", "width", "height"],
+      img: ["src", "alt", "title", "width", "height", "data-mail-remote-image"],
       table: ["cellpadding", "cellspacing", "width", "align", "border"],
       td: ["width", "align", "valign", "colspan", "rowspan"],
       th: ["width", "align", "valign", "colspan", "rowspan"],
@@ -118,8 +148,42 @@ export const sanitizeIncomingMailHtml = (html: string): string =>
         tagName: "a",
         attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer nofollow" },
       }),
+      img: (_tagName, attribs) => {
+        const source = attribs.src;
+        const safeAttributes = { ...attribs };
+        delete safeAttributes["data-mail-remote-image"];
+        if (!source || source.toLowerCase().startsWith("cid:")) return { tagName: "img", attribs: safeAttributes };
+        const url = normalizedRemoteImageUrl(source);
+        const sourceUrl = url?.toString();
+        const sourceBytes = sourceUrl ? Buffer.byteLength(sourceUrl) : 0;
+        delete safeAttributes.src;
+        if (
+          !url ||
+          !sourceUrl ||
+          remoteImages.length >= MAX_REMOTE_IMAGE_COUNT ||
+          remoteUrlBytes + sourceBytes > MAX_REMOTE_IMAGE_URL_BYTES
+        ) {
+          return { tagName: "img", attribs: safeAttributes };
+        }
+        const id = randomUUID();
+        remoteUrlBytes += sourceBytes;
+        remoteImages.push({
+          id,
+          position: remoteImages.length,
+          sourceUrl,
+          sourceHost: url.hostname.toLowerCase(),
+        });
+        return {
+          tagName: "img",
+          attribs: { ...safeAttributes, "data-mail-remote-image": id },
+        };
+      },
     },
   });
+  return { html: sanitized, remoteImages };
+};
+
+export const sanitizeIncomingMailHtml = (html: string): string => sanitizeIncomingMailHtmlWithRemoteImages(html).html;
 
 const selectedHeaders = (headers: Headers | null): Record<string, unknown> => {
   if (!headers) return {};
@@ -648,7 +712,8 @@ export const hydrateMessageFromSource = async (params: {
 
     const sourceHash = storedSource.contentHash;
     const protocolFacts = extractMessageProtocolFacts((name) => headers.getFirst(name));
-    const sanitizedHtml = originalHtml ? sanitizeIncomingMailHtml(originalHtml) : null;
+    const sanitized = originalHtml ? sanitizeIncomingMailHtmlWithRemoteImages(originalHtml) : null;
+    const sanitizedHtml = sanitized?.html ?? null;
     let canonicalMessageId: string | null = null;
     let collaborationEvent: Omit<MailCollaborationEvent, "type" | "at"> | null = null;
     await sql.begin(async (tx) => {
@@ -667,6 +732,7 @@ export const hydrateMessageFromSource = async (params: {
       if (canonicalMessageId) return;
       await tx`DELETE FROM mail.message_parts WHERE message_id = ${params.messageId}::uuid`;
       await tx`DELETE FROM mail.message_search_chunks WHERE message_id = ${params.messageId}::uuid`;
+      await tx`DELETE FROM mail.message_remote_images WHERE message_id = ${params.messageId}::uuid`;
       for (const part of parts) {
         const [partRow] = await tx<{ id: string }[]>`
           INSERT INTO mail.message_parts (
@@ -734,6 +800,24 @@ export const hydrateMessageFromSource = async (params: {
             ${claimed.mailbox_id}::uuid,
             ${position},
             to_tsvector('simple'::regconfig, ${searchChunks[position]!})
+          )
+        `;
+      }
+      for (const remoteImage of sanitized?.remoteImages ?? []) {
+        await tx`
+          INSERT INTO mail.message_remote_images (
+            id,
+            message_id,
+            position,
+            source_url,
+            source_host
+          )
+          VALUES (
+            ${remoteImage.id}::uuid,
+            ${params.messageId}::uuid,
+            ${remoteImage.position},
+            ${remoteImage.sourceUrl},
+            ${remoteImage.sourceHost}
           )
         `;
       }
