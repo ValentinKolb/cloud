@@ -69,6 +69,28 @@ Three states are deliberately distinct:
 
 `--health failed` means the most recent run of a source failed, i.e. it is unhealthy right now — it does not list every source that has ever failed. `--health stuck` lists sources with abandoned spans. Use `jobs runs --source <id>` for run history and `jobs show` for a single run with its recorded events, which is the closest thing a background job has to a log. These commands are read-only; trigger a schedule from the admin UI.
 
+## Workflows
+
+```bash
+cld admin workflows health --json
+cld admin workflows runs --state failed --json
+cld admin workflows runs --state needs_attention --window 7d --json
+cld admin workflows show <run-id> --json
+cld admin workflows effects --json
+cld admin workflows events --json
+```
+
+Every app's workflow runs live in one schema, so these read across all of them; `--app` narrows to one. Start with `workflows health`, which is one row per app.
+
+Four columns there are the ones worth acting on:
+
+- **stranded** — effects that left the process and never reported back. A replay refuses to repeat them, because repeating is how the same message goes out twice, so each is a run that cannot continue until a human decides. `workflows effects` lists them.
+- **undispatched** — events that never turned into runs, either matching no activation or failing to dispatch. This is what a workflow that silently stopped firing looks like: the occurrence happened, nothing ran, and nothing errored anywhere visible. `workflows events` lists them with `attempts` and the last error.
+- **attention** — runs that need a decision rather than a retry.
+- **worst lag** — the gap between the occurrence that caused a run and the run actually starting. A growing lag means the workers are behind, not that anything failed.
+
+`workflows runs` hides the child runs of a fan-out unless `--children` is passed; a bulk operation over ten thousand records is ten thousand runs and would bury everything else. `workflows show` gives one run with its steps, the event that caused it, and its effect budget as `used/limit`. All read-only — cancelling a run or settling a stranded effect stays a deliberate action in the admin UI.
+
 ## Notifications and announcements
 
 ```bash

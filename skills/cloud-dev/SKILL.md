@@ -175,6 +175,7 @@ Violating these produces code that looks fine and is wrong.
 6. **Never group ordinary content with horizontal lines.** No `<hr>`, `divide-y`, or full-width `border-t`/`border-b`. → `design.md`
 7. **Migrations are idempotent and never add-then-drop a column.** Postgres counts dropped columns against the 1600 limit. → `backend.md`
 8. **Auth, sessions, roles, principals, and credentials are core.** An app that implements one of those is in the wrong place. → `architecture.md`
+9. **Workflow runs, leases, retry and crash recovery are the kernel's.** An app brings action implementations and an event vocabulary; a run table in an app is a rewrite of something that already exists. → `workflows.md`
 
 ## Where to look
 
@@ -190,6 +191,7 @@ Read a reference when its condition applies. Do not preload them.
 | `auth.md` | Protecting a route, checking a resource permission, or working on accounts, sessions, groups, or service accounts. |
 | `api-keys.md` | An app resource needs API keys for automation or integrations. |
 | `help.md` | Writing or changing end-user Help for an app. |
+| `workflows.md` | The app needs user-authored automation. Declaring actions and events, emitting them, effects and budgets. **Never write a run engine — the kernel owns runs, leases, retry and recovery.** |
 | `cli.md` | Adding or changing an app's `cld` CLI module. |
 | `ops.md` | Running the stack, adding a container, env vars and settings, building, or deploying. |
 | `checklist.md` | Before calling any change done. |
