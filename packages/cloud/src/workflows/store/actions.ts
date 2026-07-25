@@ -16,7 +16,13 @@
 import { type SQL, sql } from "bun";
 import type { WorkflowJsonValue, WorkflowStepOutcome } from "../contracts";
 import { type ErasedWorkflowAction, LANGUAGE_EFFECT, type WorkflowActionMap } from "../definition";
-import type { WorkflowActionStep, WorkflowExecuteActionContext, WorkflowExecuteActionPort } from "../runtime/ports";
+import type {
+  WorkflowActionStep,
+  WorkflowDryRunActionContext,
+  WorkflowDryRunActionPort,
+  WorkflowExecuteActionContext,
+  WorkflowExecuteActionPort,
+} from "../runtime/ports";
 import { budgetError, budgetRootRunId, chargeWorkflowEffectBudget } from "./budget";
 import { beginWorkflowEffect, readWorkflowEffect, recordWorkflowEffect, settleWorkflowEffect } from "./runs";
 
@@ -43,7 +49,10 @@ const asError = (message: string, retryable = false): Extract<WorkflowStepOutcom
  * ever sees them. The action's parameter type is derived from its schema, which
  * is what keeps the two honest.
  */
-const resolveConfig = async (ctx: WorkflowExecuteActionContext, step: WorkflowActionStep): Promise<Record<string, WorkflowJsonValue>> => {
+const resolveConfig = async (
+  ctx: { evaluate(value: WorkflowJsonValue, path?: Array<string | number>): Promise<WorkflowJsonValue> },
+  step: WorkflowActionStep,
+): Promise<Record<string, WorkflowJsonValue>> => {
   const resolved = await ctx.evaluate(step.config as WorkflowJsonValue, ["config"]);
   return (resolved && typeof resolved === "object" && !Array.isArray(resolved) ? resolved : {}) as Record<string, WorkflowJsonValue>;
 };
@@ -232,3 +241,66 @@ export const workflowActionDescriptors = (actions: WorkflowActionMap, namespace:
     // A pure action has nothing to plan, so a dry run reports it in full.
     dryRun: (action.effect === "pure" ? "full" : "validate") as "full" | "validate",
   }));
+
+/**
+ * The port a dry run executes with, built from the same declarations.
+ *
+ * A dry run and a preflight are the same operation: run the plan with impure
+ * steps reporting what they *would* do. Because both come from one `plan` hook,
+ * what a dry run promises and what execution charges cannot drift apart.
+ *
+ * A pure action is simply run — it is deterministic and touches nothing, which
+ * is what makes its dry run exact rather than a description.
+ */
+export const createWorkflowDryRunPort = (actions: WorkflowActionMap): WorkflowDryRunActionPort => ({
+  get: (name) => {
+    const action = actions[name];
+    if (!action) return undefined;
+    return {
+      plan: async (ctx: WorkflowDryRunActionContext, step: WorkflowActionStep) => {
+        const config = await resolveConfig(ctx, step);
+        const context = {
+          runId: ctx.run.runId,
+          effectKey: workflowEffectKey(ctx.run.runId, ctx.step.key),
+          heartbeat: async () => void (await ctx.heartbeat()),
+        };
+
+        if (action.effect === "pure") {
+          const result = await action.run(context, config as never);
+          return result.state === "succeeded"
+            ? { state: "planned" as const, output: (result.output ?? null) as WorkflowJsonValue, effects: [] }
+            : { state: "terminal" as const, status: "failed" as const, message: result.message, effects: [] };
+        }
+
+        if (!action.plan) return { state: "unsupported" as const, reason: `${name} cannot be planned` };
+
+        const planned = await action.plan(context, config as never);
+        return {
+          state: "planned" as const,
+          output: (planned.output ?? null) as WorkflowJsonValue,
+          effects: [
+            { action: name, summary: planned.summary, ...(planned.consumes ? { consumes: planned.consumes } : {}) } as WorkflowJsonValue,
+          ],
+          // An issue names the step it belongs to, so the dry-run view can point
+          // at what could not be determined rather than listing loose strings.
+          ...(planned.issues?.length
+            ? {
+                issues: planned.issues.map((reason) => ({
+                  state: "indeterminate" as const,
+                  reason,
+                  step: {
+                    key: ctx.step.key,
+                    sourcePath: ctx.step.sourcePath,
+                    iterationPath: ctx.step.iterationPath,
+                    path: ctx.step.path,
+                    kind: ctx.step.kind,
+                    ...(ctx.step.action ? { action: ctx.step.action } : {}),
+                  },
+                })),
+              }
+            : {}),
+        };
+      },
+    };
+  },
+});

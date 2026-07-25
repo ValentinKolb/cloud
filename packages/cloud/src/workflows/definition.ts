@@ -124,6 +124,16 @@ export type WorkflowPlannedEffect = {
   summary: string;
   /** Counts consumed from the effect budget, keyed by budget dimension. */
   consumes?: Record<string, number>;
+  /**
+   * What the step would produce.
+   *
+   * Later steps plan against it, so a dry run of a whole plan stays useful past
+   * its first impure step. Mark synthetic values as such — a downstream step
+   * that cannot tell a planned record from a real one will act on a fiction.
+   */
+  output?: WorkflowJsonValue;
+  /** Why the plan is not fully determined — surfaced in the dry-run view. */
+  issues?: string[];
 };
 
 /** Result of asking an external system whether an ambiguous effect landed. */

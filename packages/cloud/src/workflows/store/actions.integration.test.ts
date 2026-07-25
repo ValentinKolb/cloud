@@ -10,7 +10,7 @@ import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
 import type { WorkflowBoundPlan, WorkflowIrStep } from "../contracts";
 import { workflowAction } from "../definition";
-import { createWorkflowActionPort } from "./actions";
+import { createWorkflowActionPort, createWorkflowDryRunPort } from "./actions";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
 import { getWorkflowRun } from "./observability";
@@ -375,5 +375,56 @@ describe("declared actions", () => {
     const outcome = await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort({}) });
     expect(outcome.state).toBe("finished");
     expect((await getWorkflowRun(runId))?.state).toBe("failed");
+  });
+
+  test("a dry run reports impure steps and really runs pure ones", async () => {
+    if (!(await ready())) return;
+
+    const actions = {
+      "probe.format": workflowAction.pure({
+        label: "Format",
+        description: "Formats.",
+        config: CONFIG,
+        run: async (_ctx, input) => ({ state: "succeeded", output: { normalized: input.to.toUpperCase() } }),
+      }),
+      "probe.send": workflowAction.ambiguous({
+        label: "Send",
+        description: "Sends.",
+        config: CONFIG,
+        run: async () => ({ state: "succeeded", output: { id: "real" } }),
+        plan: async (_ctx, input) => ({
+          summary: `send to ${input.to}`,
+          consumes: { emails: 1 },
+          output: { id: "planned", planned: true },
+        }),
+        reconcile: async () => ({ state: "unknown", message: "" }),
+      }),
+    };
+    const port = createWorkflowDryRunPort(actions);
+    const ctx = {
+      run: { runId: "r-1" },
+      step: {
+        key: "steps.0",
+        sourcePath: ["steps", 0],
+        iterationPath: [],
+        path: ["steps", 0],
+        kind: "action" as const,
+        action: "probe.send",
+      },
+      evaluate: async (value: unknown) => value,
+      heartbeat: async () => undefined,
+    };
+    const step = { kind: "action" as const, action: "probe.send", config: { to: "a@b.c" }, sourcePath: ["steps", 0] };
+
+    // A pure action is deterministic and touches nothing, so its dry run is
+    // exact rather than a description.
+    const pure = await port.get("probe.format")!.plan(ctx as never, step);
+    expect(pure).toMatchObject({ state: "planned", output: { normalized: "A@B.C" } });
+
+    // An impure one reports what it would do — and the synthetic output is what
+    // keeps a dry run useful past its first impure step.
+    const impure = await port.get("probe.send")!.plan(ctx as never, step);
+    expect(impure).toMatchObject({ state: "planned", output: { id: "planned", planned: true } });
+    expect(JSON.stringify((impure as { effects: unknown[] }).effects)).toContain("emails");
   });
 });
