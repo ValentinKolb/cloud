@@ -2,10 +2,24 @@
  * Filter state for the logs admin page.
  * All filter values are stored as URL query parameters (SSR-friendly).
  */
+/** Windows offered on the page; the numbers are hours of lookback. */
+export const LOG_WINDOWS = { "1h": 1, "24h": 24, "7d": 168, "30d": 720 } as const;
+
+export type LogWindow = keyof typeof LOG_WINDOWS;
+
+export const isLogWindow = (value: string | null | undefined): value is LogWindow =>
+  value !== null && value !== undefined && value in LOG_WINDOWS;
+
 export type LogFilterState = {
   level: string;
   sources: string[];
   search: string;
+  /**
+   * The stat tiles used to summarise 24h while the table below was unbounded,
+   * so clicking through to "errors" returned the full retention and the number
+   * could not be reproduced. Both now read the same window.
+   */
+  window: LogWindow;
   page: number;
 };
 
@@ -13,6 +27,7 @@ export const defaultLogFilter: LogFilterState = {
   level: "all",
   sources: [],
   search: "",
+  window: "24h",
   page: 1,
 };
 
@@ -24,6 +39,7 @@ export function parseLogFilterFromUrl(url: URL): LogFilterState {
     level: params.get("level") || defaultLogFilter.level,
     sources: rawSources.length > 0 ? [...new Set(rawSources.map((value) => value.trim()).filter(Boolean))] : defaultLogFilter.sources,
     search: params.get("search") || defaultLogFilter.search,
+    window: isLogWindow(params.get("window")) ? (params.get("window") as LogWindow) : defaultLogFilter.window,
     page: parseInt(params.get("page") || "1", 10) || 1,
   };
 }
@@ -36,6 +52,7 @@ export function buildLogFilterUrl(baseUrl: string, updates: Partial<LogFilterSta
   if (merged.level !== defaultLogFilter.level) params.set("level", merged.level);
   for (const source of merged.sources) params.append("source", source);
   if (merged.search) params.set("search", merged.search);
+  if (merged.window !== defaultLogFilter.window) params.set("window", merged.window);
   if (merged.page > 1) params.set("page", String(merged.page));
 
   const queryString = params.toString();
@@ -44,5 +61,10 @@ export function buildLogFilterUrl(baseUrl: string, updates: Partial<LogFilterSta
 
 /** Check if any filters are active (non-default). */
 export function hasActiveLogFilters(filter: LogFilterState): boolean {
-  return filter.level !== defaultLogFilter.level || filter.sources.length > 0 || filter.search !== "";
+  return (
+    filter.level !== defaultLogFilter.level ||
+    filter.sources.length > 0 ||
+    filter.search !== "" ||
+    filter.window !== defaultLogFilter.window
+  );
 }

@@ -8,7 +8,7 @@ export type MetricsCatalogueRow = {
   description: string;
   type: string;
   series: number;
-  status: "ok" | "error";
+  status: "ok" | "degraded" | "error";
   error: string | null;
 };
 
@@ -123,12 +123,23 @@ export default function MetricsCatalogue(props: MetricsCatalogueProps) {
           }
           if (col.id === "series") return <span class="tabular-nums text-dimmed">{row.series}</span>;
           if (col.id === "status") {
-            return row.status === "ok" ? (
-              <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
-                <i class="ti ti-check text-xs" />
-                OK
-              </span>
-            ) : (
+            if (row.status === "ok")
+              return (
+                <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
+                  <i class="ti ti-check text-xs" />
+                  OK
+                </span>
+              );
+            // Degraded means the collector ran but its backing source is
+            // unreachable, so the series exist with zeroed values.
+            if (row.status === "degraded")
+              return (
+                <span class="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300" title={row.error ?? undefined}>
+                  <i class="ti ti-alert-triangle text-xs" />
+                  Degraded
+                </span>
+              );
+            return (
               <span class="inline-flex items-center gap-1 text-red-700 dark:text-red-300" title={row.error ?? undefined}>
                 <i class="ti ti-alert-triangle text-xs" />
                 Error

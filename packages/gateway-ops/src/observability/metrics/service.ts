@@ -36,7 +36,7 @@ export type MetricsCollectorStatus = {
   name: string;
   description: string;
   metricNames: string[];
-  status: "ok" | "error";
+  status: "ok" | "degraded" | "error";
   durationMs: number;
   series: number;
   lastRunAt: string;
@@ -77,7 +77,22 @@ type CollectorDefinition = {
   description: string;
   metricNames: string[];
   collect: () => Promise<MetricSample[]>;
+  /**
+   * Reports an unreachable backing source without failing the collector.
+   *
+   * Some diagnostics deliberately never throw — they degrade to an
+   * `available: false` payload so the page can still render. The collector
+   * then completed "successfully" and reported ok, which is how the
+   * collectors tile showed all green while Postgres was down. Inspecting the
+   * emitted samples keeps the `_up 0` series that Prometheus alerts on while
+   * still marking the collector degraded.
+   */
+  degraded?: (samples: MetricSample[]) => string | null;
 };
+
+/** True when the collector emitted an explicit "backing source is up" gauge set to 0. */
+export const upGaugeIsDown = (samples: MetricSample[], name: string): boolean =>
+  samples.some((sample) => sample.name === name && sample.value === 0);
 
 const seconds = (value: number): number => Math.floor(value / 1000);
 const nowIso = (): string => new Date().toISOString();
@@ -474,6 +489,7 @@ const metricCatalog: CollectorDefinition[] = [
   },
   {
     id: "postgres",
+    degraded: (samples) => (upGaugeIsDown(samples, "cloud_postgres_up") ? "Postgres diagnostics unavailable" : null),
     name: "Postgres",
     description: "Postgres table, schema, extension, size, and warning diagnostics.",
     metricNames: [
@@ -592,6 +608,7 @@ const metricCatalog: CollectorDefinition[] = [
   },
   {
     id: "redis",
+    degraded: (samples) => (upGaugeIsDown(samples, "cloud_redis_up") ? "Redis diagnostics unavailable" : null),
     name: "Redis",
     description: "Redis keyspace, expiry, TTL, and bounded prefix sample diagnostics.",
     metricNames: [
@@ -687,6 +704,7 @@ const runCollector = async (collector: CollectorDefinition): Promise<{ status: M
   const lastRunAt = nowIso();
   try {
     const samples = await withTimeout(collector.name, collector.collect(), COLLECTOR_TIMEOUT_MS);
+    const degraded = collector.degraded?.(samples) ?? null;
     return {
       samples,
       status: {
@@ -694,11 +712,11 @@ const runCollector = async (collector: CollectorDefinition): Promise<{ status: M
         name: collector.name,
         description: collector.description,
         metricNames: collector.metricNames,
-        status: "ok",
+        status: degraded ? "degraded" : "ok",
         durationMs: Math.round(performance.now() - start),
         series: samples.length,
         lastRunAt,
-        error: null,
+        error: degraded,
       },
     };
   } catch (error) {

@@ -1,7 +1,7 @@
-import { Hono } from "hono";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
+import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
 import { hasRole } from "@valentinkolb/cloud/contracts";
-import type { WidgetResponse, WidgetBlock } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { Hono } from "hono";
 import { loggingService } from "./service";
 
 /**

@@ -1,11 +1,17 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import { gatewayOpsHelp } from "../../help";
 import LogTable from "./_components/LogTable.island";
+import { buildLogFilterUrl, LOG_WINDOWS } from "./_components/types";
+
+const LOGS_PAGE_PATH = "/admin/observability/logs";
+
+const LOG_WINDOW_KEYS = Object.keys(LOG_WINDOWS) as (keyof typeof LOG_WINDOWS)[];
+
 import { parseLogFilterFromUrl } from "./_components/types";
 import { createPagination } from "./contracts";
 import { loggingService } from "./service";
@@ -17,27 +23,32 @@ export default ssr<AuthContext>(async (c) => {
   const perPage = 100;
   const pagination = { page: filter.page, perPage, offset: (filter.page - 1) * perPage };
 
-  const [{ items: entries, total }, sources, summary] = await Promise.all([
-    loggingService.entry.list({
-      pagination,
-      filter: {
-        sources: filter.sources.length > 0 ? filter.sources : undefined,
-        level: filter.level !== "all" ? filter.level : undefined,
-        search: filter.search || undefined,
-      },
-    }),
-    loggingService.source.list(),
-    loggingService.stats.summary(),
+  // A logging backend that is down must degrade the page, not 500 it: the
+  // operator still needs the rest of the console to diagnose why.
+  const [listResult, sources, summary, sourceStats] = await Promise.all([
+    loggingService.entry
+      .list({
+        pagination,
+        filter: {
+          sources: filter.sources.length > 0 ? filter.sources : undefined,
+          level: filter.level !== "all" ? filter.level : undefined,
+          search: filter.search || undefined,
+        },
+      })
+      .then((result) => ({ result, error: null as string | null }))
+      .catch((error) => ({ result: { items: [], total: 0 }, error: error instanceof Error ? error.message : String(error) })),
+    loggingService.source.list().catch(() => []),
+    loggingService.stats.summary().catch(() => null),
+    loggingService.stats.by({ groupBy: "source", sinceHours: LOG_WINDOWS[filter.window], limit: 1 }).catch(() => []),
   ]);
+  const { items: entries, total } = listResult.result;
+  const loadError = listResult.error;
+  const topSource = sourceStats[0] ?? null;
 
   const paginationResult = createPagination(pagination, total);
   const baseUrl = (() => {
-    const params = new URLSearchParams();
-    if (filter.level !== "all") params.set("level", filter.level);
-    for (const source of filter.sources) params.append("source", source);
-    if (filter.search) params.set("search", filter.search);
-    const qs = params.toString();
-    return qs ? `/admin/observability/logs?${qs}&page=` : "/admin/observability/logs?page=";
+    const withoutPage = buildLogFilterUrl(LOGS_PAGE_PATH, { page: 1 }, filter);
+    return withoutPage.includes("?") ? `${withoutPage}&page=` : `${withoutPage}?page=`;
   })();
 
   const rawRetention = await get<unknown>("logs.retention_days");
@@ -51,25 +62,56 @@ export default ssr<AuthContext>(async (c) => {
           <h1 class="text-base font-semibold text-primary">Logs</h1>
         </div>
 
+        {loadError ? (
+          <Placeholder
+            state="error"
+            surface="paper"
+            icon="ti ti-database-off"
+            title="Could not read the log store"
+            description={loadError}
+          />
+        ) : null}
+
+        <nav class="flex flex-wrap items-center gap-1" aria-label="Log window">
+          <span class="mr-1 text-[10px] text-dimmed">Window</span>
+          {LOG_WINDOW_KEYS.map((option) => (
+            <a
+              href={buildLogFilterUrl(LOGS_PAGE_PATH, { window: option, page: 1 }, filter)}
+              class={`btn-input btn-input-sm ${option === filter.window ? "btn-input-active" : ""}`}
+              aria-current={option === filter.window ? "true" : undefined}
+            >
+              {option}
+            </a>
+          ))}
+        </nav>
+
         {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
         <StatGrid columns={5}>
           <StatCell
-            label="Errors 24h"
-            value={summary.errors24h.toLocaleString()}
-            sub={summary.errors24h > 0 ? "last 24h" : "none"}
-            valueClass={summary.errors24h > 0 ? "text-red-500" : "text-primary"}
-            accent={summary.errors24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+            label="Errors"
+            value={summary ? summary.errors24h.toLocaleString() : "—"}
+            sub={summary ? filter.window : "unavailable"}
+            valueClass={summary && summary.errors24h > 0 ? "text-red-500" : "text-primary"}
+            href={buildLogFilterUrl(LOGS_PAGE_PATH, { level: "error", page: 1 }, filter)}
+            accent={summary && summary.errors24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
           />
           <StatCell
-            label="Warnings 24h"
-            value={summary.warnings24h.toLocaleString()}
-            sub={summary.warnings24h > 0 ? "last 24h" : "none"}
-            valueClass={summary.warnings24h > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
-            accent={summary.warnings24h > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
+            label="Warnings"
+            value={summary ? summary.warnings24h.toLocaleString() : "—"}
+            sub={summary ? filter.window : "unavailable"}
+            valueClass={summary && summary.warnings24h > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+            href={buildLogFilterUrl(LOGS_PAGE_PATH, { level: "warn", page: 1 }, filter)}
+            accent={summary && summary.warnings24h > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
           />
-          <StatCell label="Volume 24h" value={summary.total24h.toLocaleString()} sub="all levels" />
-          <StatCell label="Sources" value={summary.sources} sub="distinct" accent={{ tone: "blue", icon: "ti ti-stack-3" }} />
-          <StatCell label="Total · Retention" value={summary.total.toLocaleString()} sub={`${retentionDays}d auto-prune`} />
+          <StatCell label="Volume" value={summary ? summary.total24h.toLocaleString() : "—"} sub={`${filter.window} · all levels`} />
+          <StatCell
+            label="Noisiest source"
+            value={topSource ? topSource.key : "—"}
+            sub={topSource ? `${topSource.count.toLocaleString()} entries` : "no entries in window"}
+            href={topSource ? buildLogFilterUrl(LOGS_PAGE_PATH, { sources: [topSource.key], page: 1 }, filter) : undefined}
+            accent={{ tone: "blue", icon: "ti ti-stack-3" }}
+          />
+          <StatCell label="Retained" value={summary ? summary.total.toLocaleString() : "—"} sub={`${retentionDays}d auto-prune`} />
         </StatGrid>
 
         <LogTable entries={entries} total={total} filter={filter} sources={sources} retentionDays={retentionDays} />

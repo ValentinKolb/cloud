@@ -5,6 +5,7 @@ import {
   dialogCore,
   NumberInput,
   PanelDialog,
+  Placeholder,
   panelDialogOptions,
   prompts,
   SelectInput,
@@ -442,7 +443,24 @@ export default function HealthWebhooksPanel() {
         </div>
       </div>
 
-      <Show when={!webhooks.loading} fallback={<div class="paper p-4 text-sm text-dimmed">Loading webhooks...</div>}>
+      {/* A failed load must not read as "nothing configured" — that is the
+          difference between "alerting is off" and "I cannot tell". */}
+      <Show when={webhooks.error} keyed>
+        {(error: unknown) => (
+          <Placeholder
+            state="error"
+            icon="ti ti-plug-connected-x"
+            title="Could not load health webhooks"
+            description={error instanceof Error ? error.message : String(error)}
+            surface="paper"
+          />
+        )}
+      </Show>
+
+      <Show
+        when={!webhooks.loading && !webhooks.error}
+        fallback={webhooks.error ? null : <div class="paper p-4 text-sm text-dimmed">Loading webhooks...</div>}
+      >
         <DataTable
           rows={webhooks() ?? []}
           columns={columns}

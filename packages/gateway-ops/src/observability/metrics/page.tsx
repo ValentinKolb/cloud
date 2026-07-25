@@ -72,6 +72,7 @@ const buildMetricRows = (snapshot: MetricsSnapshot): MetricsCatalogueRow[] => {
 export default ssr<AuthContext>(async (c) => {
   const [snapshot, tokens] = await Promise.all([getMetricsSnapshot(), listMetricsTokens()]);
   const okCollectors = snapshot.collectors.filter((collector) => collector.status === "ok").length;
+  const unhealthyCollectors = snapshot.collectors.filter((collector) => collector.status !== "ok");
   const metrics = buildMetricRows(snapshot);
   const sources = [...new Map(metrics.map((metric) => [metric.sourceId, { id: metric.sourceId, label: metric.source }])).values()].sort(
     (a, b) => a.label.localeCompare(b.label),
@@ -87,15 +88,22 @@ export default ssr<AuthContext>(async (c) => {
         </div>
 
         <StatGrid columns={4}>
-          <StatCell label="Endpoint" value={METRICS_ENDPOINT} sub="bearer token required" accent={{ tone: "blue", icon: "ti ti-plug" }} />
+          <StatCell
+            label="Scrape endpoint"
+            value={METRICS_ENDPOINT}
+            sub={`${formatNumber(snapshot.series)} series · bearer token required`}
+            accent={{ tone: "blue", icon: "ti ti-plug" }}
+          />
           <StatCell
             label="Collectors"
             value={`${okCollectors}/${snapshot.collectors.length}`}
-            sub="healthy"
+            sub={unhealthyCollectors.length > 0 ? unhealthyCollectors.map((collector) => collector.name).join(", ") : "healthy"}
+            valueClass={unhealthyCollectors.length > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+            title={
+              unhealthyCollectors.map((collector) => `${collector.name}: ${collector.error ?? collector.status}`).join("\n") || undefined
+            }
             accent={
-              okCollectors === snapshot.collectors.length
-                ? { tone: "emerald", icon: "ti ti-check" }
-                : { tone: "amber", icon: "ti ti-alert-triangle" }
+              unhealthyCollectors.length === 0 ? { tone: "emerald", icon: "ti ti-check" } : { tone: "amber", icon: "ti ti-alert-triangle" }
             }
           />
           <StatCell label="Series" value={formatNumber(snapshot.series)} sub="last payload" />
