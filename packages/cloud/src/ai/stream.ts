@@ -122,6 +122,14 @@ export const createAiConversationStreamResponse = (input: {
   conversation: AiConversation;
   signal?: AbortSignal;
   heartbeatMs?: number;
+  /**
+   * Re-checked on every heartbeat. A stream can outlive the grant that opened
+   * it by hours, and authorizing once at connect time means a withdrawn grant
+   * keeps delivering model output until the client happens to disconnect.
+   * Returning false closes the stream; the client's reconnect then meets the
+   * ordinary 403.
+   */
+  revalidate?: () => Promise<boolean>;
 }): Response => {
   const heartbeatMs = input.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   const liveAbort = new AbortController();
@@ -160,7 +168,20 @@ export const createAiConversationStreamResponse = (input: {
 
       if (heartbeatMs > 0) {
         heartbeat = setInterval(() => {
-          enqueue(encodeSseHeartbeat());
+          if (!enqueue(encodeSseHeartbeat())) return;
+          if (!input.revalidate) return;
+          // Fail closed: a revalidation that throws is not a pass.
+          void input.revalidate()
+            .catch((error) => {
+              log.warn("AI conversation stream revalidation failed", {
+                conversationId: input.conversation.id,
+                error: error instanceof Error ? error.message : "revalidation failed",
+              });
+              return false;
+            })
+            .then((allowed) => {
+              if (!allowed) close();
+            });
         }, heartbeatMs);
       }
 

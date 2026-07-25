@@ -561,7 +561,19 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
-        return createAiConversationStreamResponse({ conversation, signal: c.req.raw.signal });
+        return createAiConversationStreamResponse({
+          conversation,
+          signal: c.req.raw.signal,
+          // Both calls hit the database: resolveContext re-runs the app's own
+          // access check, loadConversation re-checks ownership and resource
+          // scope. The actor itself is a request-time snapshot, so this catches
+          // a withdrawn grant but not a revoked credential — see r9358ceb.
+          revalidate: async () => {
+            const current = await config.resolveContext(c);
+            if (current instanceof Response) return false;
+            return Boolean(await loadConversation(c, current));
+          },
+        });
       })
 
       // ── Conversation files (bash VFS: /input uploads, /files workspace) ────
