@@ -40,6 +40,18 @@ export {
   type WorkflowEventInput,
 } from "./events";
 export {
+  getWorkflowRun,
+  listStrandedWorkflowEffects,
+  listWorkflowRuns,
+  type StrandedWorkflowEffect,
+  type WorkflowAppHealth,
+  type WorkflowRunDetail,
+  type WorkflowRunFilter,
+  type WorkflowRunSummary,
+  type WorkflowStepSummary,
+  workflowHealth,
+} from "./observability";
+export {
   beginWorkflowEffect,
   claimWorkflowRun,
   countChildWorkflowRuns,
