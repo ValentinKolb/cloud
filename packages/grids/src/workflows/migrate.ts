@@ -62,6 +62,15 @@ const migrateKernelProfile = async (sql: SQL): Promise<void> => {
       short_id TEXT NOT NULL,
       position INT NOT NULL DEFAULT 0,
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      /*
+       * Whether this workflow may run at all — Grids policy, not the kernel's.
+       *
+       * The kernel only knows enabled per activation, which cannot express a
+       * workflow with no triggers: those are invoked directly, and disabling
+       * one has to refuse the invocation too. Grids mirrors this onto its
+       * activations so the kernel's dispatcher agrees about triggers.
+       */
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
       -- Suppresses replay of record events older than the activation.
       record_event_active_since TIMESTAMPTZ,
       deleted_at TIMESTAMPTZ,
@@ -81,7 +90,7 @@ const migrateKernelProfile = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_profile_record_events
     ON grids.workflow_profile(base_id, record_event_active_since)
-    WHERE deleted_at IS NULL AND record_event_active_since IS NOT NULL
+    WHERE deleted_at IS NULL AND enabled AND record_event_active_since IS NOT NULL
   `.simple();
 
   /*

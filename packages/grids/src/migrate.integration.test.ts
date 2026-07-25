@@ -43,7 +43,9 @@ describe("grids schema migration", () => {
           WHERE table_schema = 'grids'
             AND table_type = 'BASE TABLE'
         `;
-        expect(row?.tableCount).toBe(37);
+        // 37 plus workflow_profile and workflow_run_profile, added ahead of the
+        // move onto the shared workflow kernel.
+        expect(row?.tableCount).toBe(39);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
