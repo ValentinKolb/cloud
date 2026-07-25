@@ -158,7 +158,7 @@ const runUrl = (filter: JobsFilterState, span: TraceSpan): string => buildJobsFi
 const closeRunUrl = (filter: JobsFilterState): string => buildJobsFilterUrl(baseUrl, { run: null }, filter);
 
 const statsGrid = (stats: TraceRunStats, filter: JobsFilterState) => (
-  <StatGrid columns={5}>
+  <StatGrid columns={6}>
     <StatCell label="Sources" value={formatNumber(stats.sources)} sub={filter.source ? "selected source" : "job families"} />
     <StatCell label="Runs" value={formatNumber(stats.runs)} sub={windowLabel(filter)} />
     <StatCell
@@ -171,10 +171,31 @@ const statsGrid = (stats: TraceRunStats, filter: JobsFilterState) => (
     <StatCell
       label="Running"
       value={formatNumber(stats.running)}
-      sub="open spans"
+      sub="in flight now"
       accent={stats.running > 0 ? { tone: "blue", icon: "ti ti-loader" } : undefined}
     />
-    <StatCell label="P99" value={formatMs(stats.p99DurationMs)} sub={`avg ${formatMs(stats.avgDurationMs)}`} />
+    <StatCell
+      label="Stuck"
+      value={formatNumber(stats.stuck)}
+      sub="open, abandoned"
+      valueClass={stats.stuck > 0 ? "text-red-500" : "text-primary"}
+      accent={stats.stuck > 0 ? { tone: "red", icon: "ti ti-plug-connected-x" } : undefined}
+      href={stats.stuck > 0 ? buildJobsFilterUrl(baseUrl, { health: "stuck" }, filter) : undefined}
+    />
+    <StatCell
+      label="P99"
+      value={formatMs(stats.p99DurationMs)}
+      sub={
+        stats.anomalous > 0
+          ? `avg ${formatMs(stats.avgDurationMs)} · ${formatNumber(stats.anomalous)} excluded`
+          : `avg ${formatMs(stats.avgDurationMs)}`
+      }
+      title={
+        stats.anomalous > 0
+          ? `${formatNumber(stats.anomalous)} runs lasted longer than the abandonment threshold and are excluded from these percentiles.`
+          : undefined
+      }
+    />
   </StatGrid>
 );
 

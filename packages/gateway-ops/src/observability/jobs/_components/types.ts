@@ -1,6 +1,6 @@
 import type { TraceCategory, TraceWindow } from "@valentinkolb/cloud/services";
 
-export type JobsHealthFilter = "all" | "failed" | "running" | "healthy";
+export type JobsHealthFilter = "all" | "failed" | "stuck" | "running" | "healthy";
 export type JobsTypeFilter = "all" | TraceCategory;
 export type JobsDurationFilter = "all" | "20" | "100" | "1000" | "10000";
 
@@ -44,7 +44,7 @@ export const jobsDurationOptions: Array<{ value: JobsDurationFilter; label: stri
 ];
 
 const windows = new Set(jobsWindowOptions.map((option) => option.value));
-const healthFilters = new Set<JobsHealthFilter>(["all", "failed", "running", "healthy"]);
+const healthFilters = new Set<JobsHealthFilter>(["all", "failed", "stuck", "running", "healthy"]);
 const typeFilters = new Set<JobsTypeFilter>(["all", "job", "schedule", "ai", "http", "notification", "sync", "custom"]);
 const durationFilters = new Set(jobsDurationOptions.map((option) => option.value));
 

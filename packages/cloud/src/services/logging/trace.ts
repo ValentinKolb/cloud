@@ -61,10 +61,28 @@ export type TraceSummary = {
 
 export type TraceWindow = "10m" | "1h" | "12h" | "24h" | "7d" | "30d";
 
+/**
+ * A span open longer than this is treated as abandoned rather than running,
+ * and a span that *closed* after longer than this is treated as anomalous
+ * rather than slow.
+ *
+ * Both cases are real: a process that dies mid-run leaves an open span
+ * forever, and a sweep that closes such spans later produces "runs" of
+ * several days. Counting either as normal makes "running" report activity
+ * that is not happening and drags duration percentiles far off the real
+ * distribution, so both are separated out instead of silently averaged in.
+ */
+export const TRACE_STUCK_AFTER_MS = 60 * 60 * 1000;
+
 export type TraceRunStats = {
   runs: number;
   sources: number;
+  /** Open and started recently — genuinely in flight. */
   running: number;
+  /** Open past the abandonment threshold — nothing is working on these. */
+  stuck: number;
+  /** Closed, but with a duration past the threshold; excluded from percentiles. */
+  anomalous: number;
   succeeded: number;
   failed: number;
   errorRate: number;
@@ -84,6 +102,8 @@ export type TraceSourceGroup = {
   aiRuns: number;
   customRuns: number;
   running: number;
+  stuck: number;
+  anomalous: number;
   succeeded: number;
   failed: number;
   errorRate: number;
@@ -199,6 +219,8 @@ type DbTraceStatsRow = {
   runs: number;
   sources: number;
   running: number;
+  stuck: number;
+  anomalous: number;
   succeeded: number;
   failed: number;
   error_rate: number | string | null;
@@ -383,6 +405,8 @@ const mapStatsRow = (row: DbTraceStatsRow | undefined): TraceRunStats => ({
   runs: row?.runs ?? 0,
   sources: row?.sources ?? 0,
   running: row?.running ?? 0,
+  stuck: row?.stuck ?? 0,
+  anomalous: row?.anomalous ?? 0,
   succeeded: row?.succeeded ?? 0,
   failed: row?.failed ?? 0,
   errorRate: toNumber(row?.error_rate),
@@ -402,6 +426,8 @@ const mapSourceGroupRow = (row: DbTraceSourceGroupRow): TraceSourceGroup => ({
   aiRuns: row.ai_runs,
   customRuns: row.custom_runs,
   running: row.running,
+  stuck: row.stuck,
+  anomalous: row.anomalous,
   succeeded: row.succeeded,
   failed: row.failed,
   errorRate: toNumber(row.error_rate),
@@ -702,6 +728,33 @@ const traceConditions = (filter: TraceListFilter | undefined): any[] => {
 const traceWhere = (filter: TraceListFilter | undefined) =>
   traceConditions(filter).reduce((acc, condition) => sql`${acc} AND ${condition}`);
 
+/**
+ * Abandoned spans are old by definition, so a windowed count hides exactly the
+ * ones worth seeing: with a 24h window, a span orphaned three days ago reports
+ * zero. Stuck is therefore counted across all retained spans, with the rest of
+ * the filter (source, category, search) still applied.
+ */
+const stuckWhere = (filter: TraceListFilter | undefined) =>
+  traceConditions({ ...filter, window: undefined })
+    .concat([sql`s.ended_at IS NULL`, sql`s.started_at < now() - (${TRACE_STUCK_AFTER_MS}::bigint * INTERVAL '1 millisecond')`])
+    .reduce((acc, condition) => sql`${acc} AND ${condition}`);
+
+const countStuck = async (filter: TraceListFilter | undefined): Promise<number> => {
+  const [row] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count FROM logging.trace_spans s WHERE ${stuckWhere(filter)}
+  `;
+  return row?.count ?? 0;
+};
+
+const countStuckBySource = async (filter: TraceListFilter | undefined): Promise<Map<string, number>> => {
+  const rows = await sql<{ source: string; count: number }[]>`
+    SELECT s.source, COUNT(*)::int AS count
+    FROM logging.trace_spans s WHERE ${stuckWhere(filter)}
+    GROUP BY s.source
+  `;
+  return new Map(rows.map((row) => [row.source, row.count]));
+};
+
 const list = async (
   pagination: PaginationParams,
   options?: {
@@ -756,21 +809,24 @@ const stats = async (options?: { filter?: TraceListFilter }): Promise<TraceRunSt
     SELECT
       COUNT(*)::int AS runs,
       COUNT(DISTINCT s.source)::int AS sources,
-      COUNT(*) FILTER (WHERE s.ended_at IS NULL)::int AS running,
+      COUNT(*) FILTER (WHERE s.ended_at IS NULL AND s.started_at >= now() - (${TRACE_STUCK_AFTER_MS}::bigint * INTERVAL '1 millisecond'))::int AS running,
+        COUNT(*) FILTER (WHERE s.ended_at IS NULL AND s.started_at < now() - (${TRACE_STUCK_AFTER_MS}::bigint * INTERVAL '1 millisecond'))::int AS stuck,
+        COUNT(*) FILTER (WHERE s.duration_ms > ${TRACE_STUCK_AFTER_MS})::int AS anomalous,
       COUNT(*) FILTER (WHERE s.status = 'ok')::int AS succeeded,
       COUNT(*) FILTER (WHERE s.status = 'error')::int AS failed,
       COALESCE(ROUND((COUNT(*) FILTER (WHERE s.status = 'error'))::numeric * 100 / NULLIF(COUNT(*), 0), 2), 0)::float AS error_rate,
-      (AVG(s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS avg_duration_ms,
-      (percentile_cont(0.95) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS p95_duration_ms,
-      (percentile_cont(0.99) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS p99_duration_ms
+      (AVG(s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL AND s.duration_ms <= ${TRACE_STUCK_AFTER_MS}))::float AS avg_duration_ms,
+      (percentile_cont(0.95) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL AND s.duration_ms <= ${TRACE_STUCK_AFTER_MS}))::float AS p95_duration_ms,
+      (percentile_cont(0.99) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL AND s.duration_ms <= ${TRACE_STUCK_AFTER_MS}))::float AS p99_duration_ms
     FROM logging.trace_spans s
     WHERE ${where}
   `;
-  return mapStatsRow(row);
+  return { ...mapStatsRow(row), stuck: await countStuck(options?.filter) };
 };
 
 const sourceGroups = async (options?: { filter?: TraceListFilter }): Promise<TraceSourceGroup[]> => {
   const where = traceWhere(options?.filter);
+  const stuckBySource = await countStuckBySource(options?.filter);
   const rows = await sql<DbTraceSourceGroupRow[]>`
     WITH grouped AS (
       SELECT
@@ -784,13 +840,15 @@ const sourceGroups = async (options?: { filter?: TraceListFilter }): Promise<Tra
         COUNT(*) FILTER (WHERE s.category = 'schedule')::int AS schedule_runs,
         COUNT(*) FILTER (WHERE s.category = 'ai')::int AS ai_runs,
         COUNT(*) FILTER (WHERE s.category = 'custom')::int AS custom_runs,
-        COUNT(*) FILTER (WHERE s.ended_at IS NULL)::int AS running,
+        COUNT(*) FILTER (WHERE s.ended_at IS NULL AND s.started_at >= now() - (${TRACE_STUCK_AFTER_MS}::bigint * INTERVAL '1 millisecond'))::int AS running,
+        COUNT(*) FILTER (WHERE s.ended_at IS NULL AND s.started_at < now() - (${TRACE_STUCK_AFTER_MS}::bigint * INTERVAL '1 millisecond'))::int AS stuck,
+        COUNT(*) FILTER (WHERE s.duration_ms > ${TRACE_STUCK_AFTER_MS})::int AS anomalous,
         COUNT(*) FILTER (WHERE s.status = 'ok')::int AS succeeded,
         COUNT(*) FILTER (WHERE s.status = 'error')::int AS failed,
         COALESCE(ROUND((COUNT(*) FILTER (WHERE s.status = 'error'))::numeric * 100 / NULLIF(COUNT(*), 0), 2), 0)::float AS error_rate,
-        (AVG(s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS avg_duration_ms,
-        (percentile_cont(0.95) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS p95_duration_ms,
-        (percentile_cont(0.99) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS p99_duration_ms,
+        (AVG(s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL AND s.duration_ms <= ${TRACE_STUCK_AFTER_MS}))::float AS avg_duration_ms,
+        (percentile_cont(0.95) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL AND s.duration_ms <= ${TRACE_STUCK_AFTER_MS}))::float AS p95_duration_ms,
+        (percentile_cont(0.99) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL AND s.duration_ms <= ${TRACE_STUCK_AFTER_MS}))::float AS p99_duration_ms,
         (array_agg(s.name ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_name,
         (array_agg(s.category ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_category,
         (array_agg(s.status ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_status,
@@ -811,7 +869,7 @@ const sourceGroups = async (options?: { filter?: TraceListFilter }): Promise<Tra
       runs DESC,
       source ASC
   `;
-  return rows.map(mapSourceGroupRow);
+  return rows.map((row) => ({ ...mapSourceGroupRow(row), stuck: stuckBySource.get(row.source) ?? 0 }));
 };
 
 const events = async (params: { traceId: string; spanId?: string; limit?: number }): Promise<TraceEvent[]> => {

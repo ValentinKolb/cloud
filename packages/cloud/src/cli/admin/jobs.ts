@@ -12,6 +12,8 @@ export type BackgroundJobTrace = {
   runs: number;
   failed: number;
   running: number;
+  stuck: number;
+  anomalous: number;
   latestStatus: string | null;
   latestStartedAt: string | null;
   latestEndedAt: string | null;
@@ -53,7 +55,10 @@ export type TraceEvent = {
   attributes: Record<string, unknown> | null;
 };
 
-const HEALTH_VALUES = ["all", "failed", "running", "healthy"] as const;
+const HEALTH_VALUES = ["all", "failed", "stuck", "running", "healthy"] as const;
+const WINDOW_VALUES = ["10m", "1h", "12h", "24h", "7d", "30d"] as const;
+
+const windowFlag = () => flag.enum(WINDOW_VALUES, { default: "24h", description: "Lookback window for run statistics" });
 const TYPE_VALUES = ["all", "job", "schedule", "ai", "http", "notification", "sync", "custom"] as const;
 
 /** `traceId:spanId`, the identifier `jobs runs` prints and `jobs show` takes. */
@@ -68,6 +73,7 @@ const jobRows = (items: BackgroundJobRow[]) =>
     runs: row.trace?.runs ?? 0,
     failed: row.trace?.failed ?? 0,
     running: row.trace?.running ?? 0,
+    stuck: row.trace?.stuck ?? 0,
     latest: row.trace?.latestStatus ?? "-",
     avgMs: formatMs(row.trace?.avgDurationMs ?? null),
   }));
@@ -76,17 +82,23 @@ export const jobCommands = [
   command("jobs list", {
     summary: "List background jobs and schedules with their run health",
     description:
-      "Joins registered schedules with recorded trace runs. `--health failed` means the MOST RECENT run of a source failed, i.e. currently unhealthy — it does not list every source that has ever failed. Use `jobs runs --source <id>` for run history.",
-    examples: ["cld admin jobs list --json", "cld admin jobs list --health failed", "cld admin jobs list --type schedule --search mail"],
+      "Joins registered schedules with recorded trace runs over the selected window. `--health failed` means the MOST RECENT run of a source failed, i.e. currently unhealthy — it does not list every source that has ever failed. `--health stuck` lists sources with spans left open past the abandonment threshold; those are not running, nothing is working on them. Use `jobs runs --source <id>` for run history.",
+    examples: [
+      "cld admin jobs list --json",
+      "cld admin jobs list --health stuck",
+      "cld admin jobs list --health failed --window 7d",
+      "cld admin jobs list --type schedule --search mail",
+    ],
     flags: {
       search: flag.string({ aliases: ["q"], description: "Free-text match on source, label, or app" }),
       type: flag.enum(TYPE_VALUES, { default: "all", description: "Trace category" }),
-      health: flag.enum(HEALTH_VALUES, { default: "all", description: "Current health of the latest run" }),
+      health: flag.enum(HEALTH_VALUES, { default: "all", description: "Health of the source in this window" }),
+      window: windowFlag(),
     },
     run: async ({ ctx, flags }) => {
       const raw = await apiGet<{ items: BackgroundJobRow[] }>(
         ctx,
-        `/api/gateway/jobs${queryString({ search: flags.search, type: flags.type, health: flags.health })}`,
+        `/api/gateway/jobs${queryString({ search: flags.search, type: flags.type, health: flags.health, window: flags.window })}`,
       );
       printJsonOrTable(ctx, raw, jobRows(raw.items), [
         { key: "source", label: "Source" },
@@ -96,6 +108,7 @@ export const jobCommands = [
         { key: "runs", label: "Runs" },
         { key: "failed", label: "Failed" },
         { key: "running", label: "Running" },
+        { key: "stuck", label: "Stuck" },
         { key: "latest", label: "Latest" },
         { key: "avgMs", label: "Avg" },
       ]);
@@ -104,9 +117,15 @@ export const jobCommands = [
 
   command("jobs stats", {
     summary: "Show aggregate run counts across all background jobs",
-    examples: ["cld admin jobs stats --json"],
-    run: async ({ ctx }) => {
-      const raw = await apiGet<Record<string, number>>(ctx, "/api/gateway/jobs/stats");
+    description:
+      "Running counts spans in flight now; stuck counts spans left open past the abandonment threshold; anomalous counts finished runs longer than that threshold, which are excluded from the duration percentiles so those describe real runs.",
+    examples: ["cld admin jobs stats --json", "cld admin jobs stats --window 7d"],
+    flags: { source: flag.string({ description: "Restrict to one job source" }), window: windowFlag() },
+    run: async ({ ctx, flags }) => {
+      const raw = await apiGet<Record<string, number>>(
+        ctx,
+        `/api/gateway/jobs/stats${queryString({ source: flags.source, window: flags.window })}`,
+      );
       printJsonOrTable(
         ctx,
         raw,
@@ -115,6 +134,8 @@ export const jobCommands = [
           { key: "runs", label: "Runs" },
           { key: "sources", label: "Sources" },
           { key: "running", label: "Running" },
+          { key: "stuck", label: "Stuck" },
+          { key: "anomalous", label: "Anomalous" },
           { key: "succeeded", label: "Succeeded" },
           { key: "failed", label: "Failed" },
         ],
@@ -128,12 +149,13 @@ export const jobCommands = [
     examples: ["cld admin jobs runs --source gateway:telemetry:cleanup --json", "cld admin jobs runs --per-page 10"],
     flags: {
       source: flag.string({ description: "Restrict to one job source" }),
+      window: windowFlag(),
       ...paginationFlags({ defaultPerPage: 25, maxPerPage: 200 }),
     },
     run: async ({ ctx, flags }) => {
       const raw = await apiGet<{ items: TraceSpan[] }>(
         ctx,
-        `/api/gateway/jobs/runs${queryString({ source: flags.source, ...pageQuery(flags) })}`,
+        `/api/gateway/jobs/runs${queryString({ source: flags.source, window: flags.window, ...pageQuery(flags) })}`,
       );
       printJsonOrTable(
         ctx,

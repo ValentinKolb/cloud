@@ -1,14 +1,14 @@
-import {
-  schedulerControl,
-  SchedulerControlNotFoundError,
-  SchedulerControlTimeoutError,
-  SchedulerControlUnavailableError,
-  type SchedulerControl,
-  type SchedulerControlInfo,
-  type SchedulerControlState,
-} from "@valentinkolb/sync";
 import type { TraceCategory, TraceSourceGroup } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import {
+  type SchedulerControl,
+  type SchedulerControlInfo,
+  SchedulerControlNotFoundError,
+  type SchedulerControlState,
+  SchedulerControlTimeoutError,
+  SchedulerControlUnavailableError,
+  schedulerControl,
+} from "@valentinkolb/sync";
 
 export type ScheduleMetadata = {
   appId: string | null;
@@ -67,7 +67,7 @@ export type BackgroundJobOverviewFilter = {
   source?: string | null;
   search?: string;
   type?: "all" | TraceCategory;
-  health?: "all" | "failed" | "running" | "healthy";
+  health?: "all" | "failed" | "stuck" | "running" | "healthy";
   requireTraceMatch?: boolean;
 };
 
@@ -100,7 +100,9 @@ const cleanDetailHref = (value: unknown): string | null => {
   return href;
 };
 
-export const normalizeScheduleMetadata = (schedule: Pick<SchedulerControlInfo, "scheduleId" | "schedulerId" | "meta">): ScheduleMetadata => {
+export const normalizeScheduleMetadata = (
+  schedule: Pick<SchedulerControlInfo, "scheduleId" | "schedulerId" | "meta">,
+): ScheduleMetadata => {
   const meta = schedule.meta && typeof schedule.meta === "object" ? schedule.meta : {};
   const source = clean(meta.source) ?? schedule.scheduleId;
   return {
@@ -117,10 +119,7 @@ export const normalizeScheduleMetadata = (schedule: Pick<SchedulerControlInfo, "
 
 const traceOnlyLabel = (group: TraceSourceGroup): string => group.latestName ?? group.names[0] ?? group.source;
 
-export const buildBackgroundJobRows = (
-  schedules: SchedulerControlInfo[],
-  groups: TraceSourceGroup[],
-): BackgroundJobOverviewRow[] => {
+export const buildBackgroundJobRows = (schedules: SchedulerControlInfo[], groups: TraceSourceGroup[]): BackgroundJobOverviewRow[] => {
   const groupsBySource = new Map(groups.map((group) => [group.source, group]));
   const scheduledSources = new Set<string>();
 
@@ -208,7 +207,11 @@ const rowMatchesHealth = (row: BackgroundJobOverviewRow, health: BackgroundJobOv
   if (!health || health === "all") return true;
   const trace = row.trace;
   if (!trace) return false;
-  if (health === "running") return Boolean(trace.latestStartedAt && !trace.latestEndedAt);
+  // "stuck" is about abandoned spans anywhere in the window, not about the
+  // latest run, because the latest run of a source can look fine while older
+  // ones hang forever.
+  if (health === "stuck") return trace.stuck > 0;
+  if (health === "running") return trace.running > 0;
   if (health === "failed") return trace.latestStatus === "error";
   if (health === "healthy") return trace.latestStatus === "ok";
   return true;
@@ -237,8 +240,10 @@ export const listSchedulesWithControl = (control: SchedulerControlLike): Promise
 
 const scheduleControlError = (error: unknown) => {
   if (error instanceof SchedulerControlNotFoundError) return err.notFound("Schedule not found");
-  if (error instanceof SchedulerControlTimeoutError) return err.conflict("Timed out while waiting for the schedule handler to accept the run");
-  if (error instanceof SchedulerControlUnavailableError) return err.conflict("Schedule is unavailable because no live handler registered it");
+  if (error instanceof SchedulerControlTimeoutError)
+    return err.conflict("Timed out while waiting for the schedule handler to accept the run");
+  if (error instanceof SchedulerControlUnavailableError)
+    return err.conflict("Schedule is unavailable because no live handler registered it");
   return err.internal(error instanceof Error ? error.message : String(error));
 };
 

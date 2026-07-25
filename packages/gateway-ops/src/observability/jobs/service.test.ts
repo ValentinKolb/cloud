@@ -1,17 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import type { TraceSourceGroup } from "@valentinkolb/cloud/services";
 import {
+  type SchedulerControlInfo,
   SchedulerControlNotFoundError,
   SchedulerControlTimeoutError,
   SchedulerControlUnavailableError,
-  type SchedulerControlInfo,
 } from "@valentinkolb/sync";
-import type { TraceSourceGroup } from "@valentinkolb/cloud/services";
-import {
-  buildBackgroundJobRows,
-  filterBackgroundJobRows,
-  normalizeScheduleMetadata,
-  runScheduleNowWithControl,
-} from "./service";
+import { buildBackgroundJobRows, filterBackgroundJobRows, normalizeScheduleMetadata, runScheduleNowWithControl } from "./service";
 
 const schedule = (overrides: Partial<SchedulerControlInfo> = {}): SchedulerControlInfo => ({
   schedulerId: "gateway-ops-lifecycle",
@@ -48,6 +43,8 @@ const group = (source: string, overrides: Partial<TraceSourceGroup> = {}): Trace
   aiRuns: 0,
   customRuns: 0,
   running: 0,
+  stuck: 0,
+  anomalous: 0,
   succeeded: 9,
   failed: 1,
   errorRate: 10,
@@ -89,10 +86,10 @@ describe("jobs observability service", () => {
   });
 
   test("builds schedule rows joined by trace source and keeps trace-only rows", () => {
-    const rows = buildBackgroundJobRows([schedule()], [
-      group("gateway:health-webhook-check"),
-      group("auth:ipa:backfill", { categories: ["job"], latestName: "IPA backfill" }),
-    ]);
+    const rows = buildBackgroundJobRows(
+      [schedule()],
+      [group("gateway:health-webhook-check"), group("auth:ipa:backfill", { categories: ["job"], latestName: "IPA backfill" })],
+    );
 
     const scheduleRow = rows.find((row) => row.kind === "schedule");
     expect(scheduleRow).toMatchObject({
@@ -122,7 +119,12 @@ describe("jobs observability service", () => {
         schedule(),
         schedule({
           scheduleId: "gateway:telemetry:cleanup",
-          meta: { appId: "gateway-ops", family: "gateway:telemetry", label: "Gateway telemetry cleanup", source: "gateway:telemetry:cleanup" },
+          meta: {
+            appId: "gateway-ops",
+            family: "gateway:telemetry",
+            label: "Gateway telemetry cleanup",
+            source: "gateway:telemetry:cleanup",
+          },
         }),
       ],
       [group("gateway:health-webhook-check"), group("auth:ipa:backfill", { categories: ["job"], latestStatus: "error" })],
@@ -134,10 +136,11 @@ describe("jobs observability service", () => {
     expect(filterBackgroundJobRows(rows, { source: "gateway:health-webhook-check" }).map((row) => row.source)).toEqual([
       "gateway:health-webhook-check",
     ]);
-    expect(filterBackgroundJobRows(rows, { requireTraceMatch: true }).map((row) => row.source).sort()).toEqual([
-      "auth:ipa:backfill",
-      "gateway:health-webhook-check",
-    ]);
+    expect(
+      filterBackgroundJobRows(rows, { requireTraceMatch: true })
+        .map((row) => row.source)
+        .sort(),
+    ).toEqual(["auth:ipa:backfill", "gateway:health-webhook-check"]);
   });
 
   test("runScheduleNowWithControl maps accepted and schedulerControl failures", async () => {
