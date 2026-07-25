@@ -6,6 +6,7 @@ import {
   defineCliCommands,
   flag,
   printRows as printJsonOrTable,
+  printStructured,
 } from "@valentinkolb/cloud/cli";
 import type { OAuthAccessMode, OAuthAllowedProfile, OAuthClient, OAuthScope, UpdateOAuthClient } from "./contracts";
 
@@ -140,8 +141,7 @@ export default defineCliCommands({
       args: { client: arg.required({ valueLabel: "client" }) },
       async run({ ctx, args }) {
         const client = await resolveClient(ctx, args.client);
-        if (ctx.options.output === "json") ctx.json(client);
-        else ctx.print(JSON.stringify(client, null, 2));
+        if (!printStructured(ctx, client)) ctx.print(JSON.stringify(client, null, 2));
       },
     }),
     command("clients create", {
@@ -174,8 +174,7 @@ export default defineCliCommands({
         });
 
         const client = await apiJson<OAuthClient & { clientSecret?: string }>(ctx, "POST", "", input);
-        if (ctx.options.output === "json") ctx.json(client);
-        else {
+        if (!printStructured(ctx, client)) {
           ctx.print(`Created ${client.name} (${client.clientId})`);
           if (client.clientSecret) ctx.print(`Client secret: ${client.clientSecret}`);
         }
@@ -238,8 +237,7 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Refusing to regenerate a secret without --yes.");
         const client = await resolveClient(ctx, args.client);
         const result = await apiJson<{ clientSecret: string }>(ctx, "POST", `/${encodeURIComponent(client.id)}/regenerate-secret`);
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Client secret: ${result.clientSecret}`);
+        if (!printStructured(ctx, result)) ctx.print(`Client secret: ${result.clientSecret}`);
       },
     }),
   ],

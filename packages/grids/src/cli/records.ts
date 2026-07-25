@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
 import type { CreateRecordSnapshotResponse, GridRecord, RecordSnapshot, RecordSnapshotListResponse, TableQueryResult } from "../contracts";
 import {
   type CombinedAuditResponse,
@@ -160,8 +160,8 @@ export const recordCommands = [
       const body = (await readJsonInput<Record<string, unknown>>(flags.body, "table query JSON", true)) ?? {};
       if (flags.cursor) body.cursor = flags.cursor;
       const payload = await readApi<TableQueryResult>(ctx, `/tables/${encodeURIComponent(table.id)}/query`, jsonRequest("POST", body));
-      if (ctx.options.output === "json") ctx.json(payload);
-      else printJsonOrTable(ctx, payload, recordRows(payload.items ?? []), [{ key: "recordId", label: "ID" }]);
+      if (!printStructured(ctx, payload))
+        printJsonOrTable(ctx, payload, recordRows(payload.items ?? []), [{ key: "recordId", label: "ID" }]);
     },
   }),
   command("records get", {
@@ -186,8 +186,7 @@ export const recordCommands = [
           deletedOnly: flags.deletedOnly ? "true" : undefined,
         })}`,
       );
-      if (ctx.options.output === "json") ctx.json(record);
-      else {
+      if (!printStructured(ctx, record)) {
         ctx.print(`${record.id} v${record.version}`);
         ctx.print(JSON.stringify(record.data, null, 2));
       }
@@ -354,8 +353,7 @@ export const recordCommands = [
         ctx,
         `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/audit`,
       );
-      if (ctx.options.output === "json") ctx.json(payload);
-      else ctx.table(payload.items as Record<string, unknown>[], []);
+      if (!printStructured(ctx, payload)) ctx.table(payload.items as Record<string, unknown>[], []);
     },
   }),
   command("records audit list", {
@@ -564,8 +562,7 @@ export const snapshotCommands = [
     args: { snapshot: arg.required({ description: "Snapshot UUID" }) },
     async run({ ctx, args }) {
       const snapshot = await readApi<RecordSnapshot>(ctx, `/documents/snapshots/${encodeURIComponent(args.snapshot)}`);
-      if (ctx.options.output === "json") ctx.json(snapshot);
-      else {
+      if (!printStructured(ctx, snapshot)) {
         ctx.print(`${snapshot.id}`);
         ctx.print(`record: ${snapshot.recordId}`);
         ctx.print(`created: ${snapshot.createdAt}`);

@@ -114,17 +114,22 @@ Always go through `ctx.fetch` and `ctx.readJson` so profile credentials, token r
 
 ## Output
 
-Commands must respect `ctx.options.output`. Get this right in one helper per module and use it everywhere:
+Commands must respect `ctx.options.output` — `"text"`, `"json"`, or `"jsonl"`. Use the framework helpers rather than writing the branch:
 
 ```ts
-const printResult = <T>(ctx: CloudCliContext, value: T, rows: Row[], columns: CloudCliTableColumn<Row>[]) => {
-  if (ctx.options.output === "json") return ctx.json(value);
-  if (ctx.options.output === "jsonl") return rows.forEach((row) => ctx.jsonLine(row));
-  ctx.table(rows, columns);
-};
+import { printRows, printStructured } from "@valentinkolb/cloud/cli";
+
+// A list: full payload as JSON, one object per line as JSONL, table in text mode.
+printRows(ctx, result, rows, columns);
+
+// A single value with bespoke text rendering — guard, then render.
+if (printStructured(ctx, mailbox)) return;
+ctx.print(`${mailbox.name} — ${mailbox.address}`);
 ```
 
-> **There is no framework-level output helper**, and the result is that apps have reinvented one under many incompatible names. Several of those variants branch only on `"json"` and silently print a text table under `--jsonl`. Do not copy an existing app's helper without checking it handles all three modes — write the three-branch shape above.
+Both emit the **full value** in structured modes, not the table projection: a table drops fields on purpose, a JSON consumer wants them.
+
+> Hand-writing the branch is how this went wrong before — twenty app modules checked only for `"json"` and silently printed a text table under `--jsonl`, which is a wrong answer rather than an error for anything parsing the output. `check:boundaries` now fails on a file that mentions `"json"` without `"jsonl"`. A local helper is still fine when you need extra behaviour, as long as it covers all three modes.
 
 Keep output deterministic and agent-friendly: stable tables by default, complete data under `--json`.
 

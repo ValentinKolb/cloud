@@ -8,6 +8,7 @@ import {
   defineCliCommands,
   flag,
   printRows as printJsonOrTable,
+  printStructured,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type {
@@ -363,8 +364,7 @@ export default defineCliCommands({
       run: async ({ ctx, args }) => {
         const space = await resolveSpaceRef(ctx, args.space);
         await ctx.setDefault(SPACE_DEFAULT_KEY, space.id);
-        if (ctx.options.output === "json") ctx.json({ space, defaultSpace: space.id });
-        else ctx.print(`Using space ${space.name} (${space.id}).`);
+        if (!printStructured(ctx, { space, defaultSpace: space.id })) ctx.print(`Using space ${space.name} (${space.id}).`);
       },
     }),
     command("current", {
@@ -373,8 +373,7 @@ export default defineCliCommands({
         const spaceRef = await ctx.getDefault(SPACE_DEFAULT_KEY);
         if (!spaceRef) throw new Error("No default space configured. Run `cld spaces use <space>`.");
         const space = await resolveSpaceRef(ctx, spaceRef);
-        if (ctx.options.output === "json") ctx.json({ space, defaultSpace: space.id });
-        else ctx.print(`${space.name} (${space.id})`);
+        if (!printStructured(ctx, { space, defaultSpace: space.id })) ctx.print(`${space.name} (${space.id})`);
       },
     }),
     command("get", {
@@ -386,8 +385,7 @@ export default defineCliCommands({
       run: async ({ ctx, args }) => {
         const { spaceRef } = await resolveSpaceArg(ctx, args.spaceArg ? [args.spaceArg] : [], 0);
         const space = await resolveSpaceRef(ctx, spaceRef);
-        if (ctx.options.output === "json") ctx.json(space);
-        else {
+        if (!printStructured(ctx, space)) {
           ctx.print(`${space.name} (${space.id})`);
           if (space.description) ctx.print(space.description);
           ctx.print(`columns: ${space.columns.map((column) => column.name).join(", ") || "none"}`);
@@ -416,8 +414,8 @@ export default defineCliCommands({
           }),
         );
         if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(SPACE_DEFAULT_KEY, space.id);
-        if (ctx.options.output === "json") ctx.json(space);
-        else ctx.print(`Created ${space.name} (${space.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
+        if (!printStructured(ctx, space))
+          ctx.print(`Created ${space.name} (${space.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
       },
     }),
     ...spaceAccessCommands,
@@ -467,8 +465,7 @@ export default defineCliCommands({
         const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
         const space = await resolveSpaceRef(ctx, spaceRef);
         const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
-        if (ctx.options.output === "json") ctx.json(item);
-        else {
+        if (!printStructured(ctx, item)) {
           ctx.print(`${item.title} (${item.id})`);
           if (item.description) ctx.print(item.description);
           ctx.print(`column: ${space.columns.find((column) => column.id === item.columnId)?.name ?? item.columnId}`);
@@ -501,8 +498,7 @@ export default defineCliCommands({
             tagIds: resolveTagIds(space, stringFlags(ctx.flags, "tag")),
           }),
         );
-        if (ctx.options.output === "json") ctx.json(item);
-        else ctx.print(`Created ${item.title} (${item.id}).`);
+        if (!printStructured(ctx, item)) ctx.print(`Created ${item.title} (${item.id}).`);
       },
     }),
     command("update-item", {
@@ -536,8 +532,7 @@ export default defineCliCommands({
         if (Object.keys(json).length === 0) throw new Error("No item fields to update.");
 
         const updated = await readApi<SpaceItem>(ctx, `/${space.id}/items/${item.id}`, jsonRequest("PATCH", json));
-        if (ctx.options.output === "json") ctx.json(updated);
-        else ctx.print(`Updated ${updated.title} (${updated.id}).`);
+        if (!printStructured(ctx, updated)) ctx.print(`Updated ${updated.title} (${updated.id}).`);
       },
     }),
     ...(["done", "reopen"] as const).map((action) =>
@@ -554,8 +549,8 @@ export default defineCliCommands({
             `/${space.id}/items/${item.id}/completed`,
             jsonRequest("POST", { completed: action === "done" }),
           );
-          if (ctx.options.output === "json") ctx.json(updated);
-          else ctx.print(`${action === "done" ? "Completed" : "Reopened"} ${updated.title} (${updated.id}).`);
+          if (!printStructured(ctx, updated))
+            ctx.print(`${action === "done" ? "Completed" : "Reopened"} ${updated.title} (${updated.id}).`);
         },
       }),
     ),
@@ -594,8 +589,7 @@ export default defineCliCommands({
           `/${space.id}/items/${item.id}/comments`,
           jsonRequest("POST", { content: content ?? "" }),
         );
-        if (ctx.options.output === "json") ctx.json(comment);
-        else ctx.print(`Created comment ${comment.id}.`);
+        if (!printStructured(ctx, comment)) ctx.print(`Created comment ${comment.id}.`);
       },
     }),
     command("calendar", {

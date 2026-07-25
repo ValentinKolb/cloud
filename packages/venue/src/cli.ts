@@ -8,6 +8,7 @@ import {
   defineCliCommands,
   flag,
   printRows as printJsonOrTable,
+  printStructured,
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
@@ -271,8 +272,7 @@ export default defineCliCommands({
       args: { venue: arg.optional({ valueLabel: "venue" }) },
       async run({ ctx, args }) {
         const dashboard = await loadDashboard(ctx, args.venue);
-        if (ctx.options.output === "json") ctx.json(dashboard);
-        else ctx.print(JSON.stringify(dashboard, null, 2));
+        if (!printStructured(ctx, dashboard)) ctx.print(JSON.stringify(dashboard, null, 2));
       },
     }),
     command("status", {
@@ -281,8 +281,7 @@ export default defineCliCommands({
       async run({ ctx, args }) {
         const venue = await resolveVenueRef(ctx, args.venue);
         const status = await apiGet<PublicStatus>(ctx, `/public/${encode(venue.slug)}/status`);
-        if (ctx.options.output === "json") ctx.json(status);
-        else {
+        if (!printStructured(ctx, status)) {
           ctx.table(
             [
               {
@@ -316,8 +315,7 @@ export default defineCliCommands({
       },
       async run({ ctx, flags }) {
         const venue = await apiJson<Venue>(ctx, "POST", "/venues", buildVenueInput(undefined, flags));
-        if (ctx.options.output === "json") ctx.json(venue);
-        else ctx.print(`Created ${venue.name} (${venue.id})`);
+        if (!printStructured(ctx, venue)) ctx.print(`Created ${venue.name} (${venue.id})`);
       },
     }),
     command("update", {
@@ -387,8 +385,7 @@ export default defineCliCommands({
           permission: flags.permission,
           expiresAt: flags.expiresAt ?? null,
         });
-        if (ctx.options.output === "json") ctx.json(response);
-        else {
+        if (!printStructured(ctx, response)) {
           ctx.print(`Created ${response.credential.name}`);
           ctx.print("Store this token now. It cannot be shown again.");
           ctx.print(`Prefix: ${response.credential.tokenPrefix}`);
@@ -441,8 +438,7 @@ export default defineCliCommands({
           endTime: flags.end,
           note: flags.note ?? null,
         });
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Created opening rule ${result.id}`);
+        if (!printStructured(ctx, result)) ctx.print(`Created opening rule ${result.id}`);
       },
     }),
     command("opening-rules delete", {
@@ -495,8 +491,7 @@ export default defineCliCommands({
           position: flags.position ?? 0,
         };
         const section = await apiJson<PublicSection>(ctx, "POST", `/venues/${encode(venue.id)}/sections`, input);
-        if (ctx.options.output === "json") ctx.json(section);
-        else ctx.print(`Created section ${section.id}`);
+        if (!printStructured(ctx, section)) ctx.print(`Created section ${section.id}`);
       },
     }),
     command("sections update", {

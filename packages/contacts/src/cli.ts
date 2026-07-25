@@ -8,6 +8,7 @@ import {
   defineCliCommands,
   flag,
   printRows as printJsonOrTable,
+  printStructured,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type {
@@ -373,8 +374,7 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
   if (command === "use") {
     const book = await resolveBookRef(ctx, requireArg(args, 0, "book"));
     await ctx.setDefault(CONTACTS_BOOK_DEFAULT_KEY, book.id);
-    if (ctx.options.output === "json") ctx.json({ book, defaultBook: book.id });
-    else ctx.print(`Using contact book ${book.name} (${book.id}).`);
+    if (!printStructured(ctx, { book, defaultBook: book.id })) ctx.print(`Using contact book ${book.name} (${book.id}).`);
     return 0;
   }
 
@@ -382,16 +382,14 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
     const bookRef = await ctx.getDefault(CONTACTS_BOOK_DEFAULT_KEY);
     if (!bookRef) throw new Error("No default contact book configured. Run `cld contacts use <book>`.");
     const book = await resolveBookRef(ctx, bookRef);
-    if (ctx.options.output === "json") ctx.json({ book, defaultBook: book.id });
-    else ctx.print(`${book.name} (${book.id})`);
+    if (!printStructured(ctx, { book, defaultBook: book.id })) ctx.print(`${book.name} (${book.id})`);
     return 0;
   }
 
   if (command === "book") {
     const { bookRef } = await resolveBookArg(ctx, args, 0);
     const book = await resolveBookRef(ctx, bookRef);
-    if (ctx.options.output === "json") ctx.json(book);
-    else {
+    if (!printStructured(ctx, book)) {
       ctx.print(`${book.name} (${book.id})`);
       if (book.description) ctx.print(book.description);
       ctx.print(`system: ${book.isSystem ? "yes" : "no"}`);
@@ -406,8 +404,8 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
     };
     const book = await readApi<ContactBook>(ctx, "/books", jsonRequest("POST", data));
     if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(CONTACTS_BOOK_DEFAULT_KEY, book.id);
-    if (ctx.options.output === "json") ctx.json(book);
-    else ctx.print(`Created ${book.name} (${book.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
+    if (!printStructured(ctx, book))
+      ctx.print(`Created ${book.name} (${book.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
     return 0;
   }
 
@@ -421,8 +419,7 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
     if (description !== undefined) data.description = description;
     if (Object.keys(data).length === 0) throw new Error("No book fields to update.");
     const updated = await readApi<ContactBook>(ctx, `/books/${book.id}`, jsonRequest("PATCH", data));
-    if (ctx.options.output === "json") ctx.json(updated);
-    else ctx.print(`Updated ${updated.name} (${updated.id}).`);
+    if (!printStructured(ctx, updated)) ctx.print(`Updated ${updated.name} (${updated.id}).`);
     return 0;
   }
 
@@ -430,8 +427,7 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
     const { bookRef } = await resolveBookArg(ctx, args, 0);
     const book = await resolveBookRef(ctx, bookRef);
     const payload = await readApi<unknown>(ctx, `/books/${book.id}`, { method: "DELETE" });
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Deleted ${book.name} (${book.id}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Deleted ${book.name} (${book.id}).`);
     return 0;
   }
 
@@ -459,8 +455,7 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
 
   if (command === "get") {
     const { contact } = await resolveContactCommandArgs(ctx, args);
-    if (ctx.options.output === "json") ctx.json(contact);
-    else {
+    if (!printStructured(ctx, contact)) {
       ctx.print(`${resolveContactName(contact)} (${contact.id})`);
       if (contact.jobTitle || contact.companyName) ctx.print([contact.jobTitle, contact.companyName].filter(Boolean).join(", "));
       if (contact.emails.length > 0) ctx.print(`email: ${contact.emails.map((email) => email.email).join(", ")}`);
@@ -497,8 +492,7 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
     const data = await buildContactPayload<CreateContactInput>(ctx, book.id);
     assertHasPayload(data as Record<string, unknown>, "create");
     const contact = await readApi<Contact>(ctx, `/books/${book.id}/contacts`, jsonRequest("POST", data));
-    if (ctx.options.output === "json") ctx.json(contact);
-    else ctx.print(`Created ${resolveContactName(contact)} (${contact.id}).`);
+    if (!printStructured(ctx, contact)) ctx.print(`Created ${resolveContactName(contact)} (${contact.id}).`);
     return 0;
   }
 
@@ -507,16 +501,14 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
     const data = await buildContactPayload<UpdateContactInput>(ctx, book.id);
     assertHasPayload(data as Record<string, unknown>, "update");
     const updated = await readApi<Contact>(ctx, `/books/${book.id}/contacts/${contact.id}`, jsonRequest("PATCH", data));
-    if (ctx.options.output === "json") ctx.json(updated);
-    else ctx.print(`Updated ${resolveContactName(updated)} (${updated.id}).`);
+    if (!printStructured(ctx, updated)) ctx.print(`Updated ${resolveContactName(updated)} (${updated.id}).`);
     return 0;
   }
 
   if (command === "delete") {
     const { book, contact } = await resolveContactCommandArgs(ctx, args);
     const payload = await readApi<unknown>(ctx, `/books/${book.id}/contacts/${contact.id}`, { method: "DELETE" });
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Deleted ${resolveContactName(contact)} (${contact.id}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Deleted ${resolveContactName(contact)} (${contact.id}).`);
     return 0;
   }
 
@@ -530,16 +522,14 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
       `/books/${book.id}/contacts/${contact.id}/move`,
       jsonRequest("POST", { targetBookId: targetBook.id }),
     );
-    if (ctx.options.output === "json") ctx.json(moved);
-    else ctx.print(`Moved ${resolveContactName(moved)} to ${targetBook.name}.`);
+    if (!printStructured(ctx, moved)) ctx.print(`Moved ${resolveContactName(moved)} to ${targetBook.name}.`);
     return 0;
   }
 
   if (command === "tree") {
     const { book, contact } = await resolveContactCommandArgs(ctx, args);
     const tree = await readApi<ContactTree>(ctx, `/books/${book.id}/contacts/${contact.id}/tree`);
-    if (ctx.options.output === "json") ctx.json(tree);
-    else ctx.print(formatContactTree(tree));
+    if (!printStructured(ctx, tree)) ctx.print(formatContactTree(tree));
     return 0;
   }
 
@@ -565,8 +555,7 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
       const content = await readInputContent(ctx);
       const data: CreateContactNoteInput = { content: content ?? "" };
       const note = await readApi<ContactNote>(ctx, `/books/${book.id}/contacts/${contact.id}/notes`, jsonRequest("POST", data));
-      if (ctx.options.output === "json") ctx.json(note);
-      else ctx.print(`Created note ${note.id}.`);
+      if (!printStructured(ctx, note)) ctx.print(`Created note ${note.id}.`);
       return 0;
     }
 
@@ -575,14 +564,12 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
       const content = await readInputContent(ctx);
       const data: UpdateContactNoteInput = { content: content ?? "" };
       const note = await readApi<ContactNote>(ctx, `/books/${book.id}/contacts/${contact.id}/notes/${noteId}`, jsonRequest("PATCH", data));
-      if (ctx.options.output === "json") ctx.json(note);
-      else ctx.print(`Updated note ${note.id}.`);
+      if (!printStructured(ctx, note)) ctx.print(`Updated note ${note.id}.`);
       return 0;
     }
 
     const payload = await readApi<unknown>(ctx, `/books/${book.id}/contacts/${contact.id}/notes/${noteId}`, { method: "DELETE" });
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Deleted note ${noteId}.`);
+    if (!printStructured(ctx, payload)) ctx.print(`Deleted note ${noteId}.`);
     return 0;
   }
 
@@ -609,8 +596,7 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
       if (!color) throw new Error("Missing color. Pass --color <#RRGGBB>.");
       const data: CreateContactTagInput = { name: requireArg(rest, 0, "tag name"), color };
       const tag = await readApi<ContactTag>(ctx, `/books/${book.id}/tags`, jsonRequest("POST", data));
-      if (ctx.options.output === "json") ctx.json(tag);
-      else ctx.print(`Created tag ${tag.name} (${tag.id}).`);
+      if (!printStructured(ctx, tag)) ctx.print(`Created tag ${tag.name} (${tag.id}).`);
       return 0;
     }
 
@@ -623,14 +609,12 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
       if (color !== undefined) data.color = color;
       if (Object.keys(data).length === 0) throw new Error("No tag fields to update.");
       const updated = await readApi<ContactTag>(ctx, `/books/${book.id}/tags/${tag.id}`, jsonRequest("PATCH", data));
-      if (ctx.options.output === "json") ctx.json(updated);
-      else ctx.print(`Updated tag ${updated.name} (${updated.id}).`);
+      if (!printStructured(ctx, updated)) ctx.print(`Updated tag ${updated.name} (${updated.id}).`);
       return 0;
     }
 
     const payload = await readApi<unknown>(ctx, `/books/${book.id}/tags/${tag.id}`, { method: "DELETE" });
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Deleted tag ${tag.name} (${tag.id}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Deleted tag ${tag.name} (${tag.id}).`);
     return 0;
   }
 

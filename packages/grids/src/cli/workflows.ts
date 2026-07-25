@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
 import type { WorkflowInvocationReceipt } from "@valentinkolb/cloud/workflows";
 import type { DocumentRunSummaryList, EmailTemplate } from "../contracts";
 import {
@@ -107,8 +107,7 @@ export const emailTemplateCommands = [
     flags: { ...baseFlag, ...emailTemplateFlag },
     async run({ ctx, args, flags }) {
       const { template } = await resolveEmailTemplateFromCommand(ctx, args.args, flags.template);
-      if (ctx.options.output === "json") ctx.json(template);
-      else {
+      if (!printStructured(ctx, template)) {
         ctx.print(`${template.name} (${template.shortId})`);
         if (template.description) ctx.print(template.description);
         ctx.print(`subject: ${template.subject}`);
@@ -305,8 +304,7 @@ export const workflowCommands = [
     flags: { ...baseFlag, ...workflowFlag },
     async run({ ctx, args, flags }) {
       const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
-      if (ctx.options.output === "json") ctx.json(workflow);
-      else {
+      if (!printStructured(ctx, workflow)) {
         ctx.print(`${workflow.name} (${workflow.shortId})`);
         if (workflow.description) ctx.print(workflow.description);
         ctx.print(`enabled: ${workflow.enabled ? "yes" : "no"}`);
@@ -687,8 +685,7 @@ export const workflowRunCommands = [
     args: { run: arg.required({ description: "Workflow run UUID" }) },
     async run({ ctx, args }) {
       const run = await readApi<WorkflowRun>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}`);
-      if (ctx.options.output === "json") ctx.json(run);
-      else {
+      if (!printStructured(ctx, run)) {
         ctx.print(`${run.id} (${run.status})`);
         ctx.print(`workflow: ${run.workflowId ?? "-"}`);
         ctx.print(`launcher: ${run.launcherId ?? "-"}`);

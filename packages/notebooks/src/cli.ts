@@ -11,6 +11,7 @@ import {
   defineCliCommands,
   flag,
   printRows as printJsonOrTable,
+  printStructured,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type { ApiType } from "./api";
@@ -446,8 +447,8 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const notebookRef = requireArg(args, 0, "notebook");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, notebook.shortId);
-    if (ctx.options.output === "json") ctx.json({ notebook, defaultNotebook: notebook.shortId });
-    else ctx.print(`Using notebook ${notebook.name} (${notebook.shortId}).`);
+    if (!printStructured(ctx, { notebook, defaultNotebook: notebook.shortId }))
+      ctx.print(`Using notebook ${notebook.name} (${notebook.shortId}).`);
     return 0;
   }
 
@@ -455,16 +456,14 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const notebookRef = await ctx.getDefault(NOTEBOOK_DEFAULT_KEY);
     if (!notebookRef) throw new Error("No default notebook configured. Run `cld notebooks use <notebook>`.");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    if (ctx.options.output === "json") ctx.json({ notebook, defaultNotebook: notebook.shortId });
-    else ctx.print(`${notebook.name} (${notebook.shortId})`);
+    if (!printStructured(ctx, { notebook, defaultNotebook: notebook.shortId })) ctx.print(`${notebook.name} (${notebook.shortId})`);
     return 0;
   }
 
   if (command === "get") {
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const payload = await resolveNotebookRef(ctx, api, notebookRef);
-    if (ctx.options.output === "json") ctx.json(payload);
-    else {
+    if (!printStructured(ctx, payload)) {
       ctx.print(`${payload.name} (${payload.shortId})`);
       if (payload.description) ctx.print(payload.description);
       ctx.print(`id: ${payload.id}`);
@@ -486,8 +485,8 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     });
     const payload = await ctx.readJson<Notebook>(response);
     if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.shortId);
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Created ${payload.name} (${payload.shortId}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
+    if (!printStructured(ctx, payload))
+      ctx.print(`Created ${payload.name} (${payload.shortId}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
     return 0;
   }
 
@@ -517,8 +516,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         body: JSON.stringify(body),
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Updated ${payload.name} (${payload.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Updated ${payload.name} (${payload.shortId}).`);
     return 0;
   }
 
@@ -530,8 +528,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}`, { method: "DELETE" }),
     );
     if ((await ctx.getDefault(NOTEBOOK_DEFAULT_KEY)) === notebook.shortId) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, "");
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(payload.message);
+    if (!printStructured(ctx, payload)) ctx.print(payload.message);
     return 0;
   }
 
@@ -555,8 +552,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       }),
     );
     if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.shortId);
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Created ${payload.name} (${payload.shortId}) from ${templateId}.`);
+    if (!printStructured(ctx, payload)) ctx.print(`Created ${payload.name} (${payload.shortId}) from ${templateId}.`);
     return 0;
   }
 
@@ -565,8 +561,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const response = await api[":id"].tree.$get({ param: { id: notebook.shortId } });
     const payload = await ctx.readJson<NoteTreeNode[]>(response);
-    if (ctx.options.output === "json") ctx.json(payload);
-    else printTree(ctx, payload);
+    if (!printStructured(ctx, payload)) printTree(ctx, payload);
     return 0;
   }
 
@@ -713,8 +708,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         content: body,
       },
     };
-    if (ctx.options.output === "json") ctx.json(result);
-    else ctx.print(body);
+    if (!printStructured(ctx, result)) ctx.print(body);
     return 0;
   }
 
@@ -737,8 +731,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         ifContentHash: request.ifContentHash,
         ifBlockHash: request.ifBlockHash,
       });
-      if (ctx.options.output === "json") ctx.json({ note: payload, ...edit });
-      else {
+      if (!printStructured(ctx, { note: payload, ...edit })) {
         ctx.print(`Dry run for ${payload.title} (${payload.shortId})`);
         ctx.print(`${edit.beforeHash} -> ${edit.afterHash}`);
         printBlocks(ctx, edit.blocks);
@@ -755,8 +748,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       },
     );
     const payload = await ctx.readJson<NoteEditResponse>(response);
-    if (ctx.options.output === "json") ctx.json(payload);
-    else {
+    if (!printStructured(ctx, payload)) {
       ctx.print(`${payload.changed ? "Edited" : "No changes"} ${payload.note.title} (${payload.note.shortId}).`);
       ctx.print(`${payload.beforeHash} -> ${payload.afterHash}`);
     }
@@ -771,8 +763,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       ? await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } })
       : await api[":id"].notes[":noteId"].$get({ param: { id: notebook.shortId, noteId: note.shortId } });
     const payload = await ctx.readJson<Note | NoteWithContent>(response);
-    if (ctx.options.output === "json") ctx.json(payload);
-    else {
+    if (!printStructured(ctx, payload)) {
       ctx.print(`${payload.title} (${payload.shortId})`);
       ctx.print(`id: ${payload.id}`);
       if ("contentMd" in payload && payload.contentMd) {
@@ -789,8 +780,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
     const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } });
     const payload = await ctx.readJson<NoteWithContent>(response);
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(payload.contentMd ?? "");
+    if (!printStructured(ctx, payload)) ctx.print(payload.contentMd ?? "");
     return 0;
   }
 
@@ -807,8 +797,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         body: JSON.stringify({ parentId: parent?.id ?? null, position: numberFlag(ctx.flags, "position") ?? note.position }),
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Moved ${payload.title} (${payload.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Moved ${payload.title} (${payload.shortId}).`);
     return 0;
   }
 
@@ -828,8 +817,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         body: JSON.stringify({ targetNotebookId: target.id, targetParentId: parent?.id ?? null }),
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Copied ${note.title} to ${target.name} as ${payload.shortId}.`);
+    if (!printStructured(ctx, payload)) ctx.print(`Copied ${note.title} to ${target.name} as ${payload.shortId}.`);
     return 0;
   }
 
@@ -843,8 +831,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         method: "DELETE",
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(payload.message);
+    if (!printStructured(ctx, payload)) ctx.print(payload.message);
     return 0;
   }
 
@@ -858,8 +845,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         method: "POST",
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Locked ${payload.title} (${payload.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Locked ${payload.title} (${payload.shortId}).`);
     return 0;
   }
 
@@ -875,8 +861,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         body: JSON.stringify({ favorite }),
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`${favorite ? "Favorited" : "Unfavorited"} ${note.title} (${note.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`${favorite ? "Favorited" : "Unfavorited"} ${note.title} (${note.shortId}).`);
     return 0;
   }
 
@@ -934,8 +919,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       }),
     });
     const payload = await ctx.readJson<Note>(response);
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Created ${payload.title} (${payload.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Created ${payload.title} (${payload.shortId}).`);
     return 0;
   }
 
@@ -992,8 +976,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         body: JSON.stringify({ yjsSnapshot: version.yjsSnapshot }),
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Restored version ${versionId} from ${source.title} into ${target.title}.`);
+    if (!printStructured(ctx, payload)) ctx.print(`Restored version ${versionId} from ${source.title} into ${target.title}.`);
     return 0;
   }
 
@@ -1049,8 +1032,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const payload = await ctx.readJson<Attachment>(
       await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}`),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else {
+    if (!printStructured(ctx, payload)) {
       ctx.print(`${payload.filename} (${payload.shortId})`);
       ctx.print(`${payload.mimeType} · ${payload.sizeBytes} bytes · ${payload.createdAt}`);
     }
@@ -1066,8 +1048,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const payload = await ctx.readJson<Attachment>(
       await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments`, { method: "POST", body: form }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(`Uploaded ${payload.filename} as attach://${payload.shortId}.`);
+    if (!printStructured(ctx, payload)) ctx.print(`Uploaded ${payload.filename} as attach://${payload.shortId}.`);
     return 0;
   }
 
@@ -1084,8 +1065,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     );
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
     await Bun.write(output, response);
-    if (ctx.options.output === "json") ctx.json({ attachment: metadata, output });
-    else ctx.print(`Saved ${metadata.filename} to ${output}.`);
+    if (!printStructured(ctx, { attachment: metadata, output })) ctx.print(`Saved ${metadata.filename} to ${output}.`);
     return 0;
   }
 
@@ -1096,8 +1076,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const payload = await ctx.readJson<{ count: number }>(
       await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}/usage`),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(String(payload.count));
+    if (!printStructured(ctx, payload)) ctx.print(String(payload.count));
     return 0;
   }
 
@@ -1111,8 +1090,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         method: "DELETE",
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(payload.message);
+    if (!printStructured(ctx, payload)) ctx.print(payload.message);
     return 0;
   }
 
@@ -1123,8 +1101,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/export.zip`);
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
     await Bun.write(output, response);
-    if (ctx.options.output === "json") ctx.json({ notebook, output });
-    else ctx.print(`Exported ${notebook.name} to ${output}.`);
+    if (!printStructured(ctx, { notebook, output })) ctx.print(`Exported ${notebook.name} to ${output}.`);
     return 0;
   }
 
@@ -1157,8 +1134,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         body: JSON.stringify({ name, permission, expiresAt: stringFlag(ctx.flags, "expires-at") ?? null }),
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else {
+    if (!printStructured(ctx, payload)) {
       ctx.print(`Created ${payload.credential.name} (${payload.credential.id}).`);
       ctx.print(payload.token);
     }
@@ -1175,8 +1151,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         method: "DELETE",
       }),
     );
-    if (ctx.options.output === "json") ctx.json(payload);
-    else ctx.print(payload.message);
+    if (!printStructured(ctx, payload)) ctx.print(payload.message);
     return 0;
   }
 

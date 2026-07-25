@@ -1,4 +1,5 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
+import { printStructured } from "@valentinkolb/cloud/cli";
 import type { Field, Table } from "../contracts";
 import {
   COMPUTED_FIELD_TYPES,
@@ -168,10 +169,7 @@ export const fieldTypeReference = (type: string): FieldTypeReference => {
 };
 
 export const printFieldTypeReference = (ctx: CloudCliContext, ref: FieldTypeReference) => {
-  if (ctx.options.output === "json") {
-    ctx.json(ref);
-    return;
-  }
+  if (printStructured(ctx, ref)) return;
   ctx.print(`${ref.type} (${ref.category})`);
   ctx.print(`kind: ${ref.kind}`);
   ctx.print(`record writable: ${ref.recordWritable ? "yes" : "no"}`);
@@ -264,10 +262,7 @@ export const recordShapeForFields = (table: Table, fields: Field[]) => {
 };
 
 export const printRecordShape = (ctx: CloudCliContext, shape: ReturnType<typeof recordShapeForFields>) => {
-  if (ctx.options.output === "json") {
-    ctx.json(shape);
-    return;
-  }
+  if (printStructured(ctx, shape)) return;
   ctx.print(`Record payload for ${shape.table.name} (${shape.table.shortId})`);
   if (shape.table.kind === "federated") {
     ctx.print("Combined tables are read-only. Use GQL, views, dashboards, documents, workflows, or export to consume their data.");

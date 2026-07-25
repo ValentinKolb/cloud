@@ -11,6 +11,8 @@ import {
   createAccessCommands,
   defineCliCommands,
   flag,
+  printStructured,
+  printRows as printTable,
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
@@ -32,9 +34,9 @@ import {
   createAutomaticReplyConfigurationSchema,
   type DeletedMailbox,
   type DeletedMailboxPage,
+  type DeriveDraftFromMessageInput,
   type DraftAttachmentUpload,
   type DraftIntent,
-  type DeriveDraftFromMessageInput,
   type DraftLease,
   type DraftRecoveryCopy,
   draftEditableContentInputSchema,
@@ -46,8 +48,8 @@ import {
   type MailCommand,
   type MailConversationContext,
   type MailDraft,
-  type MailPriority,
   type MailingListDispositionResult,
+  type MailPriority,
   type MailSearchExpression,
   type MailStorageSummary,
   type MailSubscriptionPage,
@@ -59,8 +61,8 @@ import {
   type MailWorkflowRunPage,
   type MailWorkflowRunTarget,
   type MailWorkflowVersion,
-  mailSearchExpressionSchema,
   type MessageInspector,
+  mailSearchExpressionSchema,
   type PlatformMailOperations,
   type ProviderBinding,
   type ProviderConnection,
@@ -282,25 +284,6 @@ const pollUntil = async <T>(params: {
   }
 };
 
-const printTable = <T extends Record<string, unknown>>(
-  ctx: CloudCliContext,
-  value: unknown,
-  rows: T[],
-  columns: Parameters<CloudCliContext["table"]>[1],
-) => {
-  if (ctx.options.output === "json") ctx.json(value);
-  else if (ctx.options.output === "jsonl") {
-    for (const item of Array.isArray(value) ? value : [value]) ctx.jsonLine(item);
-  } else ctx.table(rows, columns);
-};
-
-const printStructured = (ctx: CloudCliContext, value: unknown): boolean => {
-  if (ctx.options.output === "json") ctx.json(value);
-  else if (ctx.options.output === "jsonl") ctx.jsonLine(value);
-  else return false;
-  return true;
-};
-
 const listMailboxes = (ctx: CloudCliContext): Promise<MailboxWithPermission[]> => readApi(ctx, "/mailboxes?limit=200");
 const getMailbox = (ctx: CloudCliContext, mailboxId: string, signal?: AbortSignal): Promise<Mailbox> =>
   readApi(ctx, `/mailboxes/${mailboxId}`, { signal });
@@ -320,11 +303,7 @@ const resolveMailbox = async (ctx: CloudCliContext, ref?: string): Promise<Resol
   throw new Error(`Mailbox "${effectiveRef}" was not found.`);
 };
 
-const findSubscription = async (
-  ctx: CloudCliContext,
-  mailboxId: string,
-  requestedListKey: string,
-): Promise<MailSubscriptionSummary> => {
+const findSubscription = async (ctx: CloudCliContext, mailboxId: string, requestedListKey: string): Promise<MailSubscriptionSummary> => {
   const listKey = requestedListKey.trim().toLowerCase();
   const query = new URLSearchParams({ limit: "1", listKey });
   const page = await readApi<MailSubscriptionPage>(ctx, `/mailboxes/${mailboxId}/subscriptions?${query}`);
@@ -528,9 +507,7 @@ const parseAddresses = (values: string[]): Array<{ name: null; address: string }
     address: address.trim().toLowerCase(),
   }));
 
-const readOptionalVcard = async (
-  input: Parameters<typeof readCliInput>[0],
-): Promise<string | undefined> => {
+const readOptionalVcard = async (input: Parameters<typeof readCliInput>[0]): Promise<string | undefined> => {
   const value = await readCliInput(input, {
     label: "vCard",
     required: false,
@@ -538,8 +515,7 @@ const readOptionalVcard = async (
   return value === null ? undefined : value;
 };
 
-const receiptSetting = (value: "on" | "off" | undefined): boolean | undefined =>
-  value === undefined ? undefined : value === "on";
+const receiptSetting = (value: "on" | "off" | undefined): boolean | undefined => (value === undefined ? undefined : value === "on");
 
 const draftEditableContentFlags = {
   identity: flag.string({ required: true, description: "Sender identity id" }),
@@ -616,12 +592,8 @@ const readDraftEditableContent = async (flags: {
     body: body ?? "",
     ...(flags.format !== undefined ? { format: flags.format } : {}),
     ...(flags.priority !== undefined ? { priority: flags.priority } : {}),
-    ...(flags.deliveryReceipt !== undefined
-      ? { requestDeliveryReceipt: flags.deliveryReceipt === "on" }
-      : {}),
-    ...(flags.readReceipt !== undefined
-      ? { requestReadReceipt: flags.readReceipt === "on" }
-      : {}),
+    ...(flags.deliveryReceipt !== undefined ? { requestDeliveryReceipt: flags.deliveryReceipt === "on" } : {}),
+    ...(flags.readReceipt !== undefined ? { requestReadReceipt: flags.readReceipt === "on" } : {}),
   };
 };
 
@@ -1634,11 +1606,9 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (!flags.yes) throw new Error("Pass --yes to remove the remote image preference.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const removed = await readApi<{ id: string }>(
-          ctx,
-          `/mailboxes/${mailbox.id}/remote-content-rules/${args.ruleId}`,
-          { method: "DELETE" },
-        );
+        const removed = await readApi<{ id: string }>(ctx, `/mailboxes/${mailbox.id}/remote-content-rules/${args.ruleId}`, {
+          method: "DELETE",
+        });
         if (printStructured(ctx, removed)) return;
         ctx.print(`Removed remote image preference ${removed.id}.`);
       },
@@ -2172,7 +2142,9 @@ export default defineCliCommands({
         const summary = await readApi<MailStorageSummary>(ctx, "/admin/storage");
         if (printStructured(ctx, summary)) return;
         ctx.print(`Snapshot: ${summary.calculatedAt ?? "not reconciled"}`);
-        ctx.print(`Mail relations: ${text.pprintBytes(summary.physicalDatabaseBytes)}; blobs: ${text.pprintBytes(summary.physicalBlobBytes)}.`);
+        ctx.print(
+          `Mail relations: ${text.pprintBytes(summary.physicalDatabaseBytes)}; blobs: ${text.pprintBytes(summary.physicalBlobBytes)}.`,
+        );
         ctx.table(
           summary.mailboxes.map((mailbox) => ({
             mailbox: mailbox.mailboxName,
@@ -2715,14 +2687,13 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const inspector = await readApi<MessageInspector>(
-          ctx,
-          `/mailboxes/${mailbox.id}/messages/${args.messageId}/inspector`,
-        );
+        const inspector = await readApi<MessageInspector>(ctx, `/mailboxes/${mailbox.id}/messages/${args.messageId}/inspector`);
         if (printStructured(ctx, inspector)) return;
         ctx.print(`Subject: ${inspector.subject || "(no subject)"}`);
         ctx.print(`Message-ID: ${inspector.messageId ?? "unavailable"}`);
-        ctx.print(`Stored source: ${inspector.source.available ? `${text.pprintBytes(inspector.source.byteLength ?? 0)} exact` : "unavailable"}`);
+        ctx.print(
+          `Stored source: ${inspector.source.available ? `${text.pprintBytes(inspector.source.byteLength ?? 0)} exact` : "unavailable"}`,
+        );
         ctx.print(`MIME parts: ${inspector.parts.length}; attachments: ${inspector.attachments.length}`);
         ctx.print(`Provider placements: ${inspector.placements.length}`);
         if (inspector.warnings.length > 0) {
@@ -4106,10 +4077,7 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const connections = await readApi<ProviderConnection[]>(
-          ctx,
-          `/mailboxes/${mailbox.id}/connections`,
-        );
+        const connections = await readApi<ProviderConnection[]>(ctx, `/mailboxes/${mailbox.id}/connections`);
         if (printStructured(ctx, connections)) return;
         printTable(
           ctx,
@@ -4157,9 +4125,7 @@ export default defineCliCommands({
           { method: "POST" },
         );
         if (printStructured(ctx, connection)) return;
-        ctx.print(
-          `Refreshed limits for ${connection.name} at ${connection.limits.checkedAt}.`,
-        );
+        ctx.print(`Refreshed limits for ${connection.name} at ${connection.limits.checkedAt}.`);
       },
     }),
     command("binding list", {
@@ -4220,10 +4186,7 @@ export default defineCliCommands({
             defaultBcc: identity.defaultBcc.map((recipient) => recipient.address).join(", "),
             format: identity.defaultFormat,
             priority: identity.defaultPriority,
-            receipts: [
-              identity.defaultDeliveryReceipt ? "delivery" : null,
-              identity.defaultReadReceipt ? "read" : null,
-            ]
+            receipts: [identity.defaultDeliveryReceipt ? "delivery" : null, identity.defaultReadReceipt ? "read" : null]
               .filter(Boolean)
               .join(", "),
             transport: identity.transport.mode,
@@ -4301,12 +4264,8 @@ export default defineCliCommands({
             defaultBcc: parseAddresses(flags.defaultBcc),
             ...(flags.format !== undefined ? { defaultFormat: flags.format } : {}),
             ...(flags.priority !== undefined ? { defaultPriority: flags.priority } : {}),
-            ...(flags.deliveryReceipt !== undefined
-              ? { defaultDeliveryReceipt: flags.deliveryReceipt === "on" }
-              : {}),
-            ...(flags.readReceipt !== undefined
-              ? { defaultReadReceipt: flags.readReceipt === "on" }
-              : {}),
+            ...(flags.deliveryReceipt !== undefined ? { defaultDeliveryReceipt: flags.deliveryReceipt === "on" } : {}),
+            ...(flags.readReceipt !== undefined ? { defaultReadReceipt: flags.readReceipt === "on" } : {}),
             ...(vcard !== undefined ? { vcard } : {}),
             defaultSignatureTemplateId: flags.defaultSignature ?? null,
             ...(flags.automation !== undefined ? { authenticationPolicy: { automation: flags.automation } } : {}),
@@ -4427,15 +4386,9 @@ export default defineCliCommands({
             : {}),
           ...(flags.format !== undefined ? { defaultFormat: flags.format } : {}),
           ...(flags.priority !== undefined ? { defaultPriority: flags.priority } : {}),
-          ...(flags.deliveryReceipt !== undefined
-            ? { defaultDeliveryReceipt: receiptSetting(flags.deliveryReceipt) }
-            : {}),
-          ...(flags.readReceipt !== undefined
-            ? { defaultReadReceipt: receiptSetting(flags.readReceipt) }
-            : {}),
-          ...(vcard !== undefined || flags.clearVcard
-            ? { vcard: flags.clearVcard ? null : vcard }
-            : {}),
+          ...(flags.deliveryReceipt !== undefined ? { defaultDeliveryReceipt: receiptSetting(flags.deliveryReceipt) } : {}),
+          ...(flags.readReceipt !== undefined ? { defaultReadReceipt: receiptSetting(flags.readReceipt) } : {}),
+          ...(vcard !== undefined || flags.clearVcard ? { vcard: flags.clearVcard ? null : vcard } : {}),
           ...(flags.defaultSignature !== undefined || flags.clearDefaultSignature
             ? { defaultSignatureTemplateId: flags.clearDefaultSignature ? null : flags.defaultSignature }
             : {}),
@@ -4506,9 +4459,7 @@ export default defineCliCommands({
             username: flags.username,
             ...(secretInput
               ? {
-                  secret: flags.oauth2
-                    ? parseOAuthSecret(secretInput)
-                    : { kind: "password" as const, password: secretInput },
+                  secret: flags.oauth2 ? parseOAuthSecret(secretInput) : { kind: "password" as const, password: secretInput },
                 }
               : {}),
           }),

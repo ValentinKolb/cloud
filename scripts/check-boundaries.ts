@@ -192,6 +192,40 @@ const checkContractsSharedDrift = (): Violation[] => {
 
 violations.push(...checkContractsSharedDrift());
 
+/**
+ * A CLI command that branches on `output === "json"` but never mentions
+ * "jsonl" silently prints a text table under `--jsonl`, which is a wrong
+ * answer rather than an error for anything consuming the output.
+ *
+ * Use `printRows` / `printStructured` from `@valentinkolb/cloud/cli`. A local
+ * helper is still fine as long as it covers all three modes.
+ */
+const checkCliOutputModes = (): Violation[] => {
+  const violations: Violation[] = [];
+
+  for (const appName of APP_PACKAGE_NAMES) {
+    for (const file of readFiles(join(workspaceRoot, "packages", appName, "src"))) {
+      if (file.endsWith(".test.ts")) continue;
+      const source = readFileSync(file, "utf8");
+      if (!source.includes('options.output === "json"')) continue;
+      if (source.includes('options.output === "jsonl"')) continue;
+      if (source.includes("printStructured") || source.includes("printRows")) continue;
+
+      const line = source.split("\n").findIndex((l) => l.includes('options.output === "json"')) + 1;
+      violations.push({
+        file,
+        line,
+        specifier: 'options.output === "json"',
+        message: "CLI output branches on json but never handles jsonl. Use printRows/printStructured from @valentinkolb/cloud/cli.",
+      });
+    }
+  }
+
+  return violations;
+};
+
+violations.push(...checkCliOutputModes());
+
 if (violations.length > 0) {
   console.error("Boundary check failed:\n");
   for (const violation of violations) {

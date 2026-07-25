@@ -8,6 +8,7 @@ import {
   flag,
   paginationFlags,
   printRows as printJsonOrTable,
+  printStructured,
 } from "@valentinkolb/cloud/cli";
 
 type UserProvider = "local" | "ipa";
@@ -222,8 +223,7 @@ const readErrorResponse = async (ctx: CloudCliContext, response: Response): Prom
 };
 
 const printMessage = (ctx: CloudCliContext, result: MessageResponse | { message?: string }, fallback: string) => {
-  if (ctx.options.output === "json") ctx.json(result);
-  else ctx.print(result.message ?? fallback);
+  if (!printStructured(ctx, result)) ctx.print(result.message ?? fallback);
 };
 
 const compact = <T extends Record<string, unknown>>(value: T): Partial<T> =>
@@ -567,8 +567,7 @@ export default defineCliCommands({
       async run({ ctx, args }) {
         const user = await resolveUserRef(ctx, args.user);
         const detail = await apiGet<User>(ctx, `/users/${encode(user.id)}`);
-        if (ctx.options.output === "json") ctx.json(detail);
-        else ctx.print(JSON.stringify(detail, null, 2));
+        if (!printStructured(ctx, detail)) ctx.print(JSON.stringify(detail, null, 2));
       },
     }),
     command("users create", {
@@ -656,9 +655,7 @@ export default defineCliCommands({
         if (!response.ok) return readErrorResponse(ctx, response);
         const bytes = new Uint8Array(await response.arrayBuffer());
         await writeFile(flags.out, bytes);
-        if (ctx.options.output === "json") {
-          ctx.json({ out: flags.out, bytes: bytes.byteLength, contentType: response.headers.get("content-type") ?? null });
-        } else {
+        if (!printStructured(ctx, { out: flags.out, bytes: bytes.byteLength, contentType: response.headers.get("content-type") ?? null })) {
           ctx.print(`Wrote ${bytes.byteLength} bytes to ${flags.out}.`);
         }
       },
@@ -674,8 +671,7 @@ export default defineCliCommands({
         const dataUrl = await readAvatarDataUrl(flags);
         const user = await resolveUserRef(ctx, args.user);
         const result = await apiJson<UpdateAvatarResponse>(ctx, "PUT", `/users/${encode(user.id)}/avatar`, { dataUrl });
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`${result.message} ${result.avatarHash}`);
+        if (!printStructured(ctx, result)) ctx.print(`${result.message} ${result.avatarHash}`);
       },
     }),
     command("users avatar remove", {
@@ -771,8 +767,7 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Refusing to reset a password without --yes.");
         const user = await resolveUserRef(ctx, args.user);
         const result = await apiJson<{ message: string; password: string }>(ctx, "POST", `/users/${encode(user.id)}/password-reset`);
-        if (ctx.options.output === "json") ctx.json(result);
-        else {
+        if (!printStructured(ctx, result)) {
           ctx.print(result.message);
           ctx.print(`Temporary password: ${result.password}`);
         }
@@ -786,8 +781,7 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Refusing to create a login token without --yes.");
         const user = await resolveUserRef(ctx, args.user);
         const result = await apiJson<LoginTokenResponse>(ctx, "POST", `/users/${encode(user.id)}/login-token`);
-        if (ctx.options.output === "json") ctx.json(result);
-        else {
+        if (!printStructured(ctx, result)) {
           ctx.print(`Login token: ${result.token}`);
           ctx.print(`Magic link: ${result.magicLink}`);
           ctx.print(`Expires in: ${result.expiresInSeconds}s`);

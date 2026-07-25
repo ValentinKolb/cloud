@@ -7,6 +7,7 @@ import {
   flag,
   paginationFlags,
   printRows as printJsonOrTable,
+  printStructured,
 } from "@valentinkolb/cloud/cli";
 import type { IpaHost, IpaHostgroup, PaginationResponse, SyncCronResponse } from "./contracts";
 
@@ -92,8 +93,7 @@ const resolveHost = async (ctx: CloudCliContext, fqdn: string): Promise<IpaHost>
 };
 
 const printMessage = (ctx: CloudCliContext, result: MessageResponse) => {
-  if (ctx.options.output === "json") ctx.json(result);
-  else ctx.print(result.message);
+  if (!printStructured(ctx, result)) ctx.print(result.message);
 };
 
 export default defineCliCommands({
@@ -128,8 +128,7 @@ export default defineCliCommands({
       args: { fqdn: arg.required({ valueLabel: "fqdn" }) },
       async run({ ctx, args }) {
         const host = await resolveHost(ctx, args.fqdn);
-        if (ctx.options.output === "json") ctx.json(host);
-        else ctx.print(JSON.stringify(host, null, 2));
+        if (!printStructured(ctx, host)) ctx.print(JSON.stringify(host, null, 2));
       },
     }),
     command("hosts update", {
@@ -274,8 +273,7 @@ export default defineCliCommands({
       summary: "Show the host sync schedule",
       async run({ ctx }) {
         const sync = await apiGet<SyncCronResponse>(ctx, "/settings/sync-cron");
-        if (ctx.options.output === "json") ctx.json(sync);
-        else ctx.table([sync], [{ key: "cron" }, { key: "timezone" }]);
+        if (!printStructured(ctx, sync)) ctx.table([sync], [{ key: "cron" }, { key: "timezone" }]);
       },
     }),
     command("sync schedule", {

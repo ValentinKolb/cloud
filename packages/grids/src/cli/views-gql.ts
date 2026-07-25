@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
 import type { DslQueryAutocompleteResponse, DslQueryCompileViewResponse, DslQueryExecuteResponse, View } from "../contracts";
 import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
 import {
@@ -318,8 +318,7 @@ export const viewCommands = [
         ? await resolveOptionalView(ctx, table, flags.view)
         : await resolveOptionalView(ctx, table, table ? rest[1] : rest[0]);
       if (!view) throw new Error("Missing view.");
-      if (ctx.options.output === "json") ctx.json(view);
-      else {
+      if (!printStructured(ctx, view)) {
         ctx.print(`${view.name} (${view.shortId})`);
         ctx.print(`scope: ${view.ownerUserId ? "personal" : "shared"}`);
         ctx.print(`id: ${view.id}`);

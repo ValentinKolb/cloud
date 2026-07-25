@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { arg, type CloudCliContext, type CloudCliFlags, command, defineCliCommands, flag } from "@valentinkolb/cloud/cli";
+import { arg, type CloudCliContext, type CloudCliFlags, command, defineCliCommands, flag, printStructured } from "@valentinkolb/cloud/cli";
 import { encoding, password, crypto as stdCrypto } from "@valentinkolb/stdlib";
 import { qr } from "@valentinkolb/stdlib/qr";
 
@@ -283,8 +283,7 @@ const outputQr = async (ctx: CloudCliContext, payload: string) => {
   const out = stringFlag(ctx.flags, "out", "output");
   if (out) {
     await writeFile(out, svg);
-    if (ctx.options.output === "json") ctx.json({ out, bytes: svg.length });
-    else ctx.print(`Wrote ${out}.`);
+    if (!printStructured(ctx, { out, bytes: svg.length })) ctx.print(`Wrote ${out}.`);
     return;
   }
   outputValue(ctx, svg, { payload, svg });
@@ -369,8 +368,7 @@ const runSpeedtest = async (ctx: CloudCliContext) => {
     download_mbps: round(downloadMbps),
     upload_mbps: round(uploadMbps),
   };
-  if (ctx.options.output === "json") ctx.json(result);
-  else {
+  if (!printStructured(ctx, result)) {
     ctx.print(
       [
         `Server:   ${result.server}`,
@@ -388,8 +386,7 @@ const runPasswordCommand = async (ctx: CloudCliContext, args: string[]) => {
   if (command === "strength") {
     const value = await readInput(ctx, args.slice(1), "password");
     const result = password.strength(value);
-    if (ctx.options.output === "json") ctx.json(result);
-    else {
+    if (!printStructured(ctx, result)) {
       const feedback = result.feedback.length > 0 ? `\n${result.feedback.map((item) => `- ${item}`).join("\n")}` : "";
       ctx.print(`${result.label} (${result.entropy.toFixed(1)} bits, ${result.crackTime})${feedback}`);
     }
@@ -428,8 +425,7 @@ const runEncryptionCommand = async (ctx: CloudCliContext, kind: "encrypt" | "dec
   const mode = requireArg(args, 0, "encryption mode");
   if (kind === "encrypt" && mode === "keypair") {
     const keys = await stdCrypto.asymmetric.generate();
-    if (ctx.options.output === "json") ctx.json(keys);
-    else ctx.print(`publicKey: ${keys.publicKey}\nprivateKey: ${keys.privateKey}`);
+    if (!printStructured(ctx, keys)) ctx.print(`publicKey: ${keys.publicKey}\nprivateKey: ${keys.privateKey}`);
     return;
   }
 
@@ -595,8 +591,7 @@ export default defineCliCommands({
       },
       run: ({ ctx, args }) => {
         const result = convertColor(args.color);
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`${result.hex}\n${result.rgb}\n${result.hsl}`);
+        if (!printStructured(ctx, result)) ctx.print(`${result.hex}\n${result.rgb}\n${result.hsl}`);
       },
     }),
     command("mailto", {
@@ -613,8 +608,7 @@ export default defineCliCommands({
         const result = buildMailto(ctx);
         const format = stringFlag(ctx.flags, "format") ?? "link";
         if (ctx.options.output === "json" || format === "all") {
-          if (ctx.options.output === "json") ctx.json(result);
-          else ctx.print(`${result.link}\n${result.markdown}\n${result.html}`);
+          if (!printStructured(ctx, result)) ctx.print(`${result.link}\n${result.markdown}\n${result.html}`);
           return 0;
         }
         if (format === "link" || format === "markdown" || format === "html") {

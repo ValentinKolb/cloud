@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import type { CliInputFlagValue, CloudCliContext } from "@valentinkolb/cloud/cli";
-import { flag } from "@valentinkolb/cloud/cli";
+import { flag, printStructured } from "@valentinkolb/cloud/cli";
 import type { DslQueryExecuteResponse, Table, View } from "../contracts";
 import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
 import { UUID_RE } from "./resources";
@@ -209,8 +209,7 @@ export const readGql = async (input: CliInputFlagValue): Promise<string> => {
 export const writeOrPrint = async (ctx: CloudCliContext, text: string, out: string | undefined) => {
   if (out) {
     await writeFile(out, text);
-    if (ctx.options.output === "json") ctx.json({ path: out });
-    else ctx.print(`Wrote ${out}.`);
+    if (!printStructured(ctx, { path: out })) ctx.print(`Wrote ${out}.`);
     return;
   }
   ctx.print(text);

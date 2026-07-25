@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
 import type {
   CreateDocumentLinkResponse,
   DocumentLink,
@@ -92,8 +92,7 @@ export const documentTemplateCommands = [
     flags: { ...baseFlag, ...tableFlag, ...documentTemplateFlag },
     async run({ ctx, args, flags }) {
       const { template } = await resolveDocumentTemplateFromCommand(ctx, args.args, flags);
-      if (ctx.options.output === "json") ctx.json(template);
-      else {
+      if (!printStructured(ctx, template)) {
         ctx.print(`${template.name} (${template.shortId})`);
         if (template.description) ctx.print(template.description);
         ctx.print(`enabled: ${template.enabled ? "yes" : "no"}`);
@@ -230,8 +229,7 @@ export const documentTemplateCommands = [
         `/documents/templates/${encodeURIComponent(template.id)}/preview`,
         jsonRequest("POST", body),
       );
-      if (ctx.options.output === "json") ctx.json(preview);
-      else ctx.print(preview.html);
+      if (!printStructured(ctx, preview)) ctx.print(preview.html);
     },
   }),
   command("document-templates preview-pdf", {
@@ -282,8 +280,7 @@ export const documentTemplateCommands = [
         ? `/documents/templates/${encodeURIComponent(template.id)}/preview-data-draft`
         : `/documents/templates/by-table/${encodeURIComponent(table.id)}/preview-data-draft`;
       const preview = await readApi<DocumentPreviewResponse>(ctx, endpoint, jsonRequest("POST", body));
-      if (ctx.options.output === "json") ctx.json(preview);
-      else ctx.print(preview.html);
+      if (!printStructured(ctx, preview)) ctx.print(preview.html);
     },
   }),
   command("document-templates preview-draft-pdf", {
@@ -516,8 +513,7 @@ export const documentCommands = [
         `/documents/runs/${encodeURIComponent(args.run)}/links`,
         jsonRequest("POST", { expiresIn: flags.expiresIn, comment: flags.comment }),
       );
-      if (ctx.options.output === "json") ctx.json(payload);
-      else ctx.print(payload.url);
+      if (!printStructured(ctx, payload)) ctx.print(payload.url);
     },
   }),
   command("documents links revoke", {

@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, paginationFlags, printStructured } from "@valentinkolb/cloud/cli";
 import type {
   FederatedDraftInput,
   FederatedRevisionView,
@@ -164,8 +164,7 @@ export const tableCommands = [
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      if (ctx.options.output === "json") ctx.json(table);
-      else {
+      if (!printStructured(ctx, table)) {
         ctx.print(`${table.name} (${table.shortId})`);
         if (table.description) ctx.print(table.description);
         ctx.print(`id: ${table.id}`);
@@ -263,8 +262,7 @@ export const tableCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       if (table.kind !== "federated") throw new Error(`Table "${table.name}" is not a Combined table.`);
       const config = await readApi<FederatedTableConfig>(ctx, `/tables/${encodeURIComponent(table.id)}/federation`);
-      if (ctx.options.output === "json") ctx.json(config);
-      else {
+      if (!printStructured(ctx, config)) {
         ctx.print(`${table.name} (${table.shortId})`);
         ctx.print(
           `draft: revision ${config.draft.revision} · ${config.draft.sources.length} sources · ${config.draft.diagnostics.length} diagnostics`,
@@ -365,9 +363,9 @@ export const tableCommands = [
         `/tables/${encodeURIComponent(table.id)}/federation/validate`,
         jsonRequest("POST", input),
       );
-      if (ctx.options.output === "json") ctx.json(result);
-      else if (result.valid) ctx.print("Combined table configuration is valid.");
-      else for (const diagnostic of result.diagnostics) ctx.print(`${diagnostic.code}: ${diagnostic.message}`);
+      if (!printStructured(ctx, result))
+        if (result.valid) ctx.print("Combined table configuration is valid.");
+        else for (const diagnostic of result.diagnostics) ctx.print(`${diagnostic.code}: ${diagnostic.message}`);
     },
   }),
   command("tables combined draft", {
@@ -491,8 +489,7 @@ export const fieldCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const fieldRef = flags.field ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "field");
       const field = await resolveField(ctx, table.id, fieldRef);
-      if (ctx.options.output === "json") ctx.json(field);
-      else {
+      if (!printStructured(ctx, field)) {
         ctx.print(`${field.name} (${field.shortId})`);
         ctx.print(`type: ${field.type}`);
         ctx.print(`id: ${field.id}`);
@@ -609,8 +606,7 @@ export const fieldCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const field = await resolveField(ctx, table.id, flags.field ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "field"));
       const payload = await readApi<FieldDependentsResponse>(ctx, `/fields/${encodeURIComponent(field.id)}/dependents`);
-      if (ctx.options.output === "json") ctx.json(payload);
-      else {
+      if (!printStructured(ctx, payload)) {
         ctx.print(payload.hasBlocking ? "Blocking dependents found." : "No blocking dependents.");
         ctx.table(payload.dependents as Record<string, unknown>[], []);
       }

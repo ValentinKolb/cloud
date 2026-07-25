@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, paginationFlags, printStructured } from "@valentinkolb/cloud/cli";
 import type { Base, Dashboard, Field, Table } from "../contracts";
 import {
   baseArgs,
@@ -103,8 +103,7 @@ export const baseCrudCommands = [
     flags: baseFlag,
     async run({ ctx, args }) {
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
-      if (ctx.options.output === "json") ctx.json(base);
-      else {
+      if (!printStructured(ctx, base)) {
         ctx.print(`${base.name} (${base.shortId})`);
         if (base.description) ctx.print(base.description);
         ctx.print(`id: ${base.id}`);

@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
 import type { Dashboard } from "../contracts";
 import {
   DASHBOARD_REFERENCE,
@@ -61,8 +61,7 @@ export const formCommands = [
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const form = await readApi<Form>(ctx, `/forms/by-table/${encodeURIComponent(table.id)}/default`);
-      if (ctx.options.output === "json") ctx.json(form);
-      else {
+      if (!printStructured(ctx, form)) {
         ctx.print(`${form.name} (${form.shortId || "default"})`);
         ctx.print(`active: ${form.isActive ? "yes" : "no"}`);
         ctx.print(`id: ${form.id}`);
@@ -75,8 +74,7 @@ export const formCommands = [
     flags: { ...baseFlag, ...tableFlag, ...formFlag },
     async run({ ctx, args, flags }) {
       const { form } = await resolveFormFromCommand(ctx, args.args, flags);
-      if (ctx.options.output === "json") ctx.json(form);
-      else {
+      if (!printStructured(ctx, form)) {
         ctx.print(`${form.name} (${form.shortId || "default"})`);
         ctx.print(`active: ${form.isActive ? "yes" : "no"}`);
         ctx.print(`public: ${form.publicToken ? "yes" : "no"}`);
@@ -220,8 +218,7 @@ export const dashboardCommands = [
     flags: { ...baseFlag, ...dashboardFlag },
     async run({ ctx, args, flags }) {
       const { dashboard } = await resolveDashboardFromCommand(ctx, args.args, flags.dashboard);
-      if (ctx.options.output === "json") ctx.json(dashboard);
-      else {
+      if (!printStructured(ctx, dashboard)) {
         ctx.print(`${dashboard.name} (${dashboard.shortId})`);
         if (dashboard.description) ctx.print(dashboard.description);
         ctx.print(`scope: ${dashboard.ownerUserId ? "personal" : "shared"}`);
@@ -329,8 +326,7 @@ export const dashboardCommands = [
         `/dashboards/${encodeURIComponent(dashboard.id)}/widgets/resolve`,
         jsonRequest("POST", body),
       );
-      if (ctx.options.output === "json") ctx.json(resolved);
-      else ctx.print(JSON.stringify(resolved, null, 2));
+      if (!printStructured(ctx, resolved)) ctx.print(JSON.stringify(resolved, null, 2));
     },
   }),
   command("dashboards widgets run", {

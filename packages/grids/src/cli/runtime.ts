@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import type { CliInputFlagValue, CloudCliContext } from "@valentinkolb/cloud/cli";
-import { flag, readCliInput } from "@valentinkolb/cloud/cli";
+import { flag, printStructured, readCliInput } from "@valentinkolb/cloud/cli";
 import type { DslQueryAutocompleteResponse } from "../contracts";
 import type { WorkflowAutocompleteResponse } from "../workflows/contracts";
 
@@ -49,8 +49,7 @@ export const writeApiFile = async (ctx: CloudCliContext, path: string, init: Req
     throw new Error(text || response.statusText);
   }
   await writeFile(out, new Uint8Array(await response.arrayBuffer()));
-  if (ctx.options.output === "json") ctx.json({ path: out });
-  else ctx.print(`Wrote ${out}.`);
+  if (!printStructured(ctx, { path: out })) ctx.print(`Wrote ${out}.`);
 };
 
 export const printJsonOrTable = <TRow extends Record<string, unknown>>(

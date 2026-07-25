@@ -1,4 +1,13 @@
-import { arg, command, confirmFlag, flag, listAccessPrincipalEntities, paginationFlags, printAccessEntries } from "@valentinkolb/cloud/cli";
+import {
+  arg,
+  command,
+  confirmFlag,
+  flag,
+  listAccessPrincipalEntities,
+  paginationFlags,
+  printAccessEntries,
+  printStructured,
+} from "@valentinkolb/cloud/cli";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
   ACCESS_RESOURCE_TYPES,
@@ -206,10 +215,7 @@ export const accessCommands = [
         page: flags.page,
         perPage: flags.perPage,
       });
-      if (ctx.options.output === "json") {
-        ctx.json(payload);
-        return;
-      }
+      if (printStructured(ctx, payload)) return;
       ctx.table(
         payload.items.map((item) => {
           if (item.kind === "user") {
