@@ -4,6 +4,7 @@
  * browser bundle.
  */
 
+export { createWorkflowActionPort, type WorkflowActionPortOptions, workflowActionDescriptors, workflowEffectKey } from "./actions";
 export {
   budgetError,
   budgetRootRunId,
