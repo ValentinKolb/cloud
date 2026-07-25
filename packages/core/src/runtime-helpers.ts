@@ -16,6 +16,7 @@ import { migrate as migrateAuth } from "./migrate/core/auth";
 import { migrate as migrateLogging } from "./migrate/core/logging";
 import { migrate as migrateNotifications } from "./migrate/core/notifications";
 import { migrate as migrateSettings } from "./migrate/core/settings";
+import { migrate as migrateWorkflows } from "./migrate/core/workflows";
 import type { CoreNotificationSender } from "./notifications";
 
 /** Run all core database migrations (auth, notifications, settings, logging). */
@@ -27,6 +28,7 @@ export const runCoreSetup = async (): Promise<void> => {
     { name: "notifications", run: migrateNotifications },
     { name: "settings", run: migrateSettings },
     { name: "logging", run: migrateLogging },
+    { name: "workflows", run: migrateWorkflows },
     { name: "weather", run: migrateWeather },
   ];
   for (const step of steps) {
