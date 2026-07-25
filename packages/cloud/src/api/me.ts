@@ -35,7 +35,7 @@ import {
   UserSchema,
   WebAuthnPasskeySchema,
 } from "../contracts";
-import { type AuthContext, auth, isDirectUserActor, jsonResponse, rateLimit, requiresAuth, respond, v } from "../server";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "../server";
 import {
   accountLifecycle,
   accountsAppService as accountsService,
@@ -68,7 +68,7 @@ const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
  * both resolve to a `user` actor and are unaffected.
  */
 const requireDirectUserActor = createMiddleware<AuthContext>(async (c, next) => {
-  if (!isDirectUserActor(c.get("actor"))) {
+  if (c.get("actor")?.kind !== "user") {
     return c.json(
       {
         message: "Credentials cannot manage account authentication. Sign in to change passkeys, API keys, or your password.",

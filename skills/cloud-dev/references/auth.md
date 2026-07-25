@@ -112,7 +112,7 @@ The same split runs through the whole API surface. When a helper offers both sha
 
 ### The one thing a credential may not do
 
-`isDirectUserActor(c.get("actor"))` answers whether the caller is the user themselves rather than a credential acting for them. Reach for it in exactly one situation: **an endpoint that manages how the account is authenticated** — passkeys, API keys, the password, account deletion.
+`c.get("actor").kind === "user"` distinguishes the user themselves from a credential acting for them. There is exactly one situation where that distinction is legitimate: **an endpoint that manages how the account is authenticated** — passkeys, API keys, the password, account deletion.
 
 A personal API key acts as its user, so it passes every user-backed check. Without this gate it could enrol a passkey and become a full login, or mint further keys that survive revoking the leaked one. No scope in the vocabulary expresses "may add an authenticator", so the answer cannot come from scopes. Core gates the mutating `/api/me` authentication routes this way; reading them stays open.
 
