@@ -242,8 +242,12 @@ const requireRole = (...args: (RoleOrSpecial | RoleOptions)[]) => {
 const requireUser = (options: RoleOptions = {}) =>
   createMiddleware<AuthContext>(async (c, next) => {
     const { user } = await loadAuthenticatedActor(c);
-    if (!user) return handleReject(c, options, user === null ? "forbidden" : "unauthenticated");
-    return next();
+    if (user) return next();
+    // A caller that reaches here is authenticated but has no user, so the
+    // generic "Insufficient permissions" would send them looking for a missing
+    // role. `onReject` still wins, which is what keeps SSR redirects working.
+    if (options.onReject) return handleReject(c, options, "forbidden");
+    return c.json({ message: "Self-service endpoints require a user-backed actor", code: "FORBIDDEN" }, 403);
   });
 
 /** Preset: Redirect to a fixed URL on rejection */
