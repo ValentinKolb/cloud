@@ -36,6 +36,88 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
   return true;
 };
 
+/**
+ * Where the Grids half of a workflow will live once the kernel owns identity,
+ * versions, activations, runs and the journal.
+ *
+ * Added ahead of the cutover and read by nothing yet, so this stays a safe
+ * checkpoint: the engine below still owns every workflow.
+ *
+ * There is deliberately nowhere here for a draft. The editor saves on an
+ * explicit action and keeps its working copy in a signal, like every other app
+ * — so each save is simply a new immutable version, and an unsaved reload
+ * losing its edits is the behaviour users already expect.
+ *
+ * Keyed by the kernel's workflow id with no foreign key to it. app-grids and
+ * app-core start concurrently with no dependency declared between them, and
+ * Grids' migration regularly wins on a cold database. Grids deletes the kernel
+ * rows itself instead, which is why the kernel holds app_id and scope_id as
+ * opaque strings rather than as references.
+ */
+const migrateKernelProfile = async (sql: SQL): Promise<void> => {
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.workflow_profile (
+      workflow_id UUID PRIMARY KEY,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      short_id TEXT NOT NULL,
+      position INT NOT NULL DEFAULT 0,
+      owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      -- Suppresses replay of record events older than the activation.
+      record_event_active_since TIMESTAMPTZ,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT workflow_profile_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_profile_short_id
+    ON grids.workflow_profile(base_id, short_id) WHERE deleted_at IS NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_profile_base_live
+    ON grids.workflow_profile(base_id, position, created_at, workflow_id) WHERE deleted_at IS NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_profile_record_events
+    ON grids.workflow_profile(base_id, record_event_active_since)
+    WHERE deleted_at IS NULL AND record_event_active_since IS NOT NULL
+  `.simple();
+
+  /*
+   * Why a run happened, from Grids' point of view.
+   *
+   * The kernel records the cause as an event; this records what the run list
+   * filters and labels by. A table rather than JSONB on the run, because those
+   * are indexed predicates.
+   */
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.workflow_run_profile (
+      run_id UUID PRIMARY KEY,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      workflow_id UUID NOT NULL,
+      launcher_id UUID,
+      launcher_kind TEXT CHECK (launcher_kind IS NULL OR launcher_kind IN ('scanner', 'bulk', 'dashboard')),
+      channel TEXT NOT NULL CHECK (channel IN ('api', 'dashboard', 'scanner', 'bulk', 'schedule', 'recordEvent')),
+      actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE SET NULL,
+      -- Detects "same idempotency key, different request". The kernel answers a
+      -- repeat with the first run's id, so without this a changed payload would
+      -- be silently ignored rather than refused.
+      request_fingerprint TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_run_profile_workflow
+    ON grids.workflow_run_profile(workflow_id, created_at DESC, run_id DESC)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_run_profile_base
+    ON grids.workflow_run_profile(base_id, channel, created_at DESC, run_id DESC)
+  `.simple();
+};
+
 const migrateDefinitions = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflows (
@@ -451,6 +533,7 @@ const migrateDeliveries = async (sql: SQL): Promise<void> => {
 
 export const migrateWorkflowKernel = async (sql: SQL): Promise<void> => {
   const didReset = await resetAlphaWorkflowSchema(sql);
+  await migrateKernelProfile(sql);
   await migrateDefinitions(sql);
   await migrateRuns(sql);
   await migrateDeliveries(sql);
