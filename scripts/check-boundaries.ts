@@ -46,14 +46,29 @@ const extractSpecifiers = (source: string): Array<{ specifier: string; index: nu
 
 const lineFromIndex = (source: string, index: number): number => source.slice(0, index).split("\n").length;
 
-// Allowed @valentinkolb/cloud subpath imports from apps
-const allowedCloudSubpath = (specifier: string): boolean =>
-  /^@valentinkolb\/cloud(?:$|\/(ui|desktop|server|browser|cli|shared|services|ai|ssr|config|contracts|api|clients|workflows)(?:\/|$))/.test(
-    specifier,
-  );
+/**
+ * An app may only import @valentinkolb/cloud subpaths that the package
+ * actually exports. Validating the first path segment is not enough: the
+ * tsconfig `paths` aliases are broader than the exports map, so an import can
+ * resolve in the monorepo and still throw ERR_PACKAGE_PATH_NOT_EXPORTED for an
+ * npm consumer. Resolve against the real map instead.
+ */
+const cloudExports: Record<string, unknown> = JSON.parse(
+  readFileSync(join(workspaceRoot, "packages", "cloud", "package.json"), "utf8"),
+).exports;
 
-const allowedSubpathList =
-  "/ui, /desktop, /server, /browser, /cli, /shared, /services, /ai, /ssr, /config, /contracts, /api, /clients, /workflows";
+const allowedCloudSubpath = (specifier: string): boolean => {
+  const subpath = specifier === "@valentinkolb/cloud" ? "." : `.${specifier.slice("@valentinkolb/cloud".length)}`;
+
+  if (subpath in cloudExports) return cloudExports[subpath] !== null;
+
+  return Object.entries(cloudExports).some(([pattern, target]) => {
+    if (target === null || !pattern.endsWith("/*")) return false;
+    return subpath.startsWith(pattern.slice(0, -1));
+  });
+};
+
+const allowedSubpathList = "see the exports map in packages/cloud/package.json";
 
 const APP_PACKAGE_NAMES = readdirSync(join(workspaceRoot, "packages")).filter(
   (name) => name !== "cloud" && existsSync(join(workspaceRoot, "packages", name, "src")),

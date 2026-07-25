@@ -14,7 +14,9 @@
   "files": [
     "src",
     "scripts",
-    "public"
+    "public",
+    "!src/**/*.test.ts",
+    "!src/**/*.integration.test.ts"
   ],
   "exports": {
     ".": "./src/index.ts",
@@ -23,6 +25,7 @@
     "./desktop": "./src/desktop/index.ts",
     "./desktop/solid": "./src/desktop/solid.tsx",
     "./server": "./src/server/index.ts",
+    "./server/*": "./src/server/*",
     "./browser": "./src/server/api-client.ts",
     "./browser/live": "./src/browser/live-websocket.ts",
     "./browser/notifications": "./src/browser/notifications.ts",
@@ -40,10 +43,12 @@
     "./ai/ui": "./src/ai/ui.tsx",
     "./ssr": "./src/ssr/index.ts",
     "./ssr/islands": "./src/ssr/islands/index.ts",
+    "./ssr/*": "./src/ssr/*",
     "./config": "./src/config/index.ts",
     "./config/*": "./src/config/*",
     "./contracts": "./src/contracts/index.ts",
     "./contracts/notifications": "./src/contracts/notification-types.ts",
+    "./contracts/*": "./src/contracts/*",
     "./workflows": "./src/workflows/index.ts",
     "./workflows/language": "./src/workflows/language/index.ts",
     "./workflows/runtime": "./src/workflows/runtime/index.ts",
