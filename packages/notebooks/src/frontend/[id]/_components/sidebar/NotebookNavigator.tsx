@@ -1,7 +1,7 @@
 import { Dropdown, Placeholder, prompts, SelectChip } from "@valentinkolb/cloud/ui";
-import { dates, searchParams, type DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates, searchParams } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { parseNavigatorQuery, type NavigatorQuery, withNavigatorQuery } from "../../../../lib/navigator-url";
+import { type NavigatorQuery, parseNavigatorQuery, withNavigatorQuery } from "../../../../lib/navigator-url";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";

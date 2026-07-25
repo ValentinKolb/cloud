@@ -10,8 +10,8 @@
  * inside fenced code accidentally render as pills.
  */
 import { syntaxTree } from "@codemirror/language";
-import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
+import { RangeSet } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 

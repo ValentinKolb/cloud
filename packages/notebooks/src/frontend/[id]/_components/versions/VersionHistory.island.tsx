@@ -1,7 +1,7 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { MarkdownView, openSpotlightSearch, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
-import { dates, type DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { diffLines } from "diff";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";

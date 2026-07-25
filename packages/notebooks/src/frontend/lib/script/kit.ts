@@ -21,56 +21,59 @@ import {
   text as stdText,
   timing as stdTiming,
 } from "@valentinkolb/stdlib";
-import { qr as stdQr } from "@valentinkolb/stdlib/qr";
 import { clipboard as stdClipboard, files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
+import { qr as stdQr } from "@valentinkolb/stdlib/qr";
 import { createKitAttachmentsAPI } from "./kit-attachments";
+import { createKitLocalStateAPI } from "./kit-localstate";
 import { createKitCurrentNote } from "./kit-note";
 import { createKitNotesAPI } from "./kit-notes";
-import { createKitLocalStateAPI } from "./kit-localstate";
 import { createKitStateAPI } from "./kit-state";
 import { createKitTagsAPI } from "./kit-tags";
-import { createKitUI } from "./kit-ui";
 import type { Kit, KitContext } from "./kit-types";
+import { createKitUI } from "./kit-ui";
 
-export type { Kit, KitContext, KitNoteSnapshot, KitMode } from "./kit-types";
 // Re-export the common Kit* types so script-side typings can
 // reference them without reaching into the internal module.
 export type {
-  KitCurrentNote,
-  KitScriptCurrentNote,
-  KitNote,
-  KitStdLib,
-  KitQuery,
-  KitNotesAPI,
-  KitNotebookAPI,
-  KitReadableNoteBlocks,
-  KitWritableNoteBlocks,
-  KitTableView,
-  KitWritableTableView,
-  KitListView,
-  KitWritableListView,
-  KitTodoItem,
-  KitTodoView,
-  KitWritableTodoView,
-  KitDataView,
-  KitWritableDataView,
-  KitSectionView,
-  KitWritableSectionView,
+  Kit,
   KitAttachment,
   KitAttachmentsAPI,
-  KitTagSummary,
-  KitTagsAPI,
-  KitStateAPI,
-  KitLocalStateAPI,
-  KitToastOptions,
-  KitUI,
-  KitElement,
-  KitChild,
-  KitChartKind,
-  KitChartOptions,
   KitButtonOptions,
   KitButtonVariant,
+  KitChartKind,
+  KitChartOptions,
+  KitChild,
+  KitContext,
+  KitCurrentNote,
+  KitDataView,
+  KitElement,
   KitHeadingLevel,
+  KitListView,
+  KitLocalStateAPI,
+  KitMode,
+  KitNote,
+  KitNotebookAPI,
+  KitNoteSnapshot,
+  KitNotesAPI,
+  KitQuery,
+  KitReadableNoteBlocks,
+  KitScriptCurrentNote,
+  KitSectionView,
+  KitStateAPI,
+  KitStdLib,
+  KitTableView,
+  KitTagSummary,
+  KitTagsAPI,
+  KitToastOptions,
+  KitTodoItem,
+  KitTodoView,
+  KitUI,
+  KitWritableDataView,
+  KitWritableListView,
+  KitWritableNoteBlocks,
+  KitWritableSectionView,
+  KitWritableTableView,
+  KitWritableTodoView,
 } from "./kit-types";
 
 /**

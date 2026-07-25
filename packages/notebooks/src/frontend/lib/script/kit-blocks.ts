@@ -1,4 +1,4 @@
-import { extractNamedBlocks, namedBlockBody, type NamedBlock, type NamedBlockType } from "../../../lib/named-blocks";
+import { extractNamedBlocks, type NamedBlock, type NamedBlockType, namedBlockBody } from "../../../lib/named-blocks";
 import type {
   KitContext,
   KitDataView,

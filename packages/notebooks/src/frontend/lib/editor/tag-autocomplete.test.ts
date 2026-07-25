@@ -1,6 +1,6 @@
+import { beforeEach, expect, test } from "bun:test";
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
-import { beforeEach, expect, test } from "bun:test";
 import { buildTagCompletionSource } from "./tag-autocomplete";
 
 const mockTags = (tags: Array<{ tag: string; count: number }>) => {

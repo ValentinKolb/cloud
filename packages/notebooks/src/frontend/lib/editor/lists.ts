@@ -1,8 +1,8 @@
 import { syntaxTree } from "@codemirror/language";
-import { StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import { StateField } from "@codemirror/state";
 import type { DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { SyntaxNodeRef } from "@lezer/common";
 
 const tabSize = 2;

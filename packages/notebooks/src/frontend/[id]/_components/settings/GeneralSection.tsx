@@ -163,8 +163,9 @@ export function GeneralSection(props: {
         </div>
         <p class="text-dimmed">
           Variables: <code>notebook.id</code>, <code>notebook.short_id</code>, <code>notebook.name</code>, <code>note.short_id</code>,{" "}
-          <code>note.depth</code>, <code>parent.exists</code>, <code>parent.id</code>, <code>parent.short_id</code>, <code>parent.title</code>,{" "}
-          <code>parent.path</code>, <code>date</code>, <code>time</code>, <code>datetime</code>, and <code>timezone</code>.
+          <code>note.depth</code>, <code>parent.exists</code>, <code>parent.id</code>, <code>parent.short_id</code>,{" "}
+          <code>parent.title</code>, <code>parent.path</code>, <code>date</code>, <code>time</code>, <code>datetime</code>, and{" "}
+          <code>timezone</code>.
         </p>
       </div>
 

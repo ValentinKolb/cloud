@@ -1,6 +1,6 @@
-import { SpotlightButton, SPOTLIGHT_SHORTCUT_TITLE, type SpotlightButtonVariant } from "@valentinkolb/cloud/ui";
-import { buildNoteUrl } from "../../../params";
+import { SPOTLIGHT_SHORTCUT_TITLE, SpotlightButton, type SpotlightButtonVariant } from "@valentinkolb/cloud/ui";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
+import { buildNoteUrl } from "../../../params";
 import { openNoteSearchPrompt } from "./openNoteSearchPrompt";
 
 type Props = {

@@ -1,9 +1,9 @@
+import { describe, expect, test } from "bun:test";
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
-import { describe, expect, test } from "bun:test";
-import { markdownExtension } from "./markdown";
 import { buildDataBlockTemplate } from "./data-block-template";
 import { infoBlockCompletionSource } from "./info-block-snippets";
+import { markdownExtension } from "./markdown";
 
 const stateFor = (doc: string) =>
   EditorState.create({

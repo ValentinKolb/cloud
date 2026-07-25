@@ -1,6 +1,6 @@
-import { tags as t } from "@lezer/highlight";
-import { createTheme, type CreateThemeOptions } from "@uiw/codemirror-themes";
 import { EditorView } from "@codemirror/view";
+import { tags as t } from "@lezer/highlight";
+import { type CreateThemeOptions, createTheme } from "@uiw/codemirror-themes";
 
 /**
  * Layout / chrome styles — shared between rich and raw modes. Deliberately

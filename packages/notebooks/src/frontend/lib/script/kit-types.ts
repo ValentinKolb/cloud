@@ -109,8 +109,8 @@ import type {
   text as stdText,
   timing as stdTiming,
 } from "@valentinkolb/stdlib";
-import type { qr as stdQr } from "@valentinkolb/stdlib/qr";
 import type { files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
+import type { qr as stdQr } from "@valentinkolb/stdlib/qr";
 
 /**
  * Curated `@valentinkolb/stdlib` namespaces re-exposed as `std` so

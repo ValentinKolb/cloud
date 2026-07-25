@@ -1,10 +1,10 @@
+import { prompts, SPOTLIGHT_SHORTCUT } from "@valentinkolb/cloud/ui";
+import { hotkeys, mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
-import { hotkeys, mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, SPOTLIGHT_SHORTCUT } from "@valentinkolb/cloud/ui";
-import { buildNoteUrl } from "../../../params";
 import { onNotebookSearchRequest } from "../../../lib/hotkeys";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
+import { buildNoteUrl } from "../../../params";
 import { openNoteSearchPrompt } from "../search/openNoteSearchPrompt";
 
 type Props = {

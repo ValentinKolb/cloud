@@ -15,10 +15,10 @@
  *  - superscript: a single `^`, no whitespace, closing `^`.
  */
 
-import { RangeSet, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
-import { Decoration, EditorView } from "@codemirror/view";
+import { RangeSet, StateField } from "@codemirror/state";
 import type { DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView } from "@codemirror/view";
 
 const SUB_REGEX = /(?<!~)~(?!~)([^~\s]+)~(?!~)/g;
 const SUP_REGEX = /\^([^\^\s]+)\^/g;

@@ -264,11 +264,7 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
     handleDelete,
     handleLock,
     loading: () =>
-      createNoteMut.loading() ||
-      moveNoteMut.loading() ||
-      copyNoteMut.loading() ||
-      deleteNoteMut.loading() ||
-      lockNoteMut.loading(),
+      createNoteMut.loading() || moveNoteMut.loading() || copyNoteMut.loading() || deleteNoteMut.loading() || lockNoteMut.loading(),
   };
 }
 

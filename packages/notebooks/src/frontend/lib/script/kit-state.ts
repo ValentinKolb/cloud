@@ -18,7 +18,7 @@
  * If scripts ever need richer types (Y.Array, Y.Map nested), add a
  * separate explicit escape hatch. For now keep it simple.
  */
-import * as Y from "yjs";
+import type * as Y from "yjs";
 import { assertActive, type KitContext, type KitKVSetter, type KitStateAPI } from "./kit-types";
 
 const STATE_MAP_NAME = "kit:state";

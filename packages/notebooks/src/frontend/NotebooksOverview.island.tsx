@@ -126,11 +126,7 @@ export default function NotebooksOverview(props: Props) {
   };
 
   return (
-    <AppOverview
-      title="Notebooks"
-      subtitle="Collaborative notes, linked knowledge, scripts, and reusable workspaces."
-      icon="ti ti-note"
-    >
+    <AppOverview title="Notebooks" subtitle="Collaborative notes, linked knowledge, scripts, and reusable workspaces." icon="ti ti-note">
       <AppOverview.Main
         title="Your notebooks"
         description={

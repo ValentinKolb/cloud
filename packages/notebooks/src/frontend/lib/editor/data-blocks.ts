@@ -1,6 +1,6 @@
-import { Prec, RangeSet, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
-import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
-import { extractDataBlocks, namedBlockBody, renderDataBlockHtml, type DataBlock } from "../../../lib/named-blocks";
+import { type EditorState, type Extension, Prec, type Range, RangeSet, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
+import { type DataBlock, extractDataBlocks, namedBlockBody, renderDataBlockHtml } from "../../../lib/named-blocks";
 import { refreshMarkdownDecorationsEffect, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 
 type DataBlockRange = {

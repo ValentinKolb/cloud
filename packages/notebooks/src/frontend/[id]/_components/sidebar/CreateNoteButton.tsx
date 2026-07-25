@@ -1,8 +1,8 @@
-import { apiClient } from "@/api/client";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { buildNoteUrl } from "../../../params";
+import { apiClient } from "@/api/client";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
+import { buildNoteUrl } from "../../../params";
 
 type Props = {
   notebookId: string;

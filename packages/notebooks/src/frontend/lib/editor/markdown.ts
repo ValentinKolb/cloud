@@ -1,20 +1,19 @@
-import type { Extension } from "@codemirror/state";
-import { markdown as markdownExt, markdownLanguage } from "@codemirror/lang-markdown";
-import { LanguageDescription } from "@codemirror/language";
-
-// Static imports — ensures these land in the bundle
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { sql } from "@codemirror/lang-sql";
+import { cpp } from "@codemirror/lang-cpp";
 import { css } from "@codemirror/lang-css";
-import { json } from "@codemirror/lang-json";
 import { go } from "@codemirror/lang-go";
 import { java } from "@codemirror/lang-java";
+// Static imports — ensures these land in the bundle
+import { javascript } from "@codemirror/lang-javascript";
+import { json } from "@codemirror/lang-json";
+import { markdown as markdownExt, markdownLanguage } from "@codemirror/lang-markdown";
+import { php } from "@codemirror/lang-php";
+import { python } from "@codemirror/lang-python";
+import { rust } from "@codemirror/lang-rust";
+import { sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
-import { rust } from "@codemirror/lang-rust";
-import { cpp } from "@codemirror/lang-cpp";
-import { php } from "@codemirror/lang-php";
+import { LanguageDescription } from "@codemirror/language";
+import type { Extension } from "@codemirror/state";
 
 const codeLanguages = [
   LanguageDescription.of({

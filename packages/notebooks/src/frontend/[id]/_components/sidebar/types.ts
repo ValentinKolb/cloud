@@ -1,6 +1,6 @@
-import type { NotebookSettings } from "../settings/NotebookSettingsStore";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type { NavigatorQuery } from "../../../../lib/navigator-url";
+import type { NotebookSettings } from "../settings/NotebookSettingsStore";
 
 /** Notebook metadata (matches backend NotebookSchema) */
 export type Notebook = {

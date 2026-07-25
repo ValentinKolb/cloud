@@ -1,5 +1,5 @@
-import { EditorSelection, EditorState } from "@codemirror/state";
 import { describe, expect, test } from "bun:test";
+import { EditorSelection, EditorState } from "@codemirror/state";
 import { isPointerSelectionTransaction, selectionIntersectsRange } from "./cursor-zone-field";
 
 describe("selectionIntersectsRange", () => {

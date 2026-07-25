@@ -39,10 +39,10 @@ import {
   type CompletionSource,
   pickedCompletion,
 } from "@codemirror/autocomplete";
+import { apiClient } from "@/api/client";
 import { createNotebookFetchCache } from "./_lib/notebook-fetch-cache";
 import { isInsideFencedCode } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
-import { apiClient } from "@/api/client";
 
 /** Server response shape — matches `KitTagSummary` in `kit-types.ts`. */
 type TagSummary = { tag: string; count: number };

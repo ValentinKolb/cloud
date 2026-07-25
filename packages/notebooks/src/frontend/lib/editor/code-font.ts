@@ -13,10 +13,10 @@
  * mono via the theme directly (it's a source view).
  */
 import { syntaxTree } from "@codemirror/language";
-import { RangeSet, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView } from "@codemirror/view";
+import { RangeSet, StateField } from "@codemirror/state";
 import type { DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView } from "@codemirror/view";
 import { refreshMarkdownDecorationsEffect } from "./_lib/cursor-zone-field";
 
 const codeMark = Decoration.mark({ class: "cm-md-code" });

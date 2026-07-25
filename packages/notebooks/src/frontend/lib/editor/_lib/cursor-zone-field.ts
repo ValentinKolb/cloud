@@ -37,11 +37,10 @@
  * the standard shape.
  */
 import { forceParsing } from "@codemirror/language";
-import { Prec, StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension, SelectionRange, Transaction } from "@codemirror/state";
+import { Prec, StateEffect, StateField } from "@codemirror/state";
+import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { Decoration, EditorView, keymap, ViewPlugin } from "@codemirror/view";
-import type { ViewUpdate } from "@codemirror/view";
-import type { DecorationSet } from "@codemirror/view";
 
 export type CursorZoneRange = { from: number; to: number };
 

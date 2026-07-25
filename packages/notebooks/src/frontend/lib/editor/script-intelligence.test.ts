@@ -1,6 +1,6 @@
+import { describe, expect, test } from "bun:test";
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
-import { describe, expect, test } from "bun:test";
 import { loadScriptIntelligenceTypeFiles } from "../../../../scripts/script-intelligence-type-files";
 import { markdownExtension } from "./markdown";
 import { __testing, createScriptTypeCompletionSource } from "./script-intelligence";

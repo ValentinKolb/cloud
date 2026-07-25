@@ -1,3 +1,4 @@
+import { initialMarkdownDecorationRefreshExtension, pointerSelectionMarkdownRefreshExtension } from "./_lib/cursor-zone-field";
 import { basicExtensions } from "./basic";
 import { codeFontExtension } from "./code-font";
 import { dataBlocksExtension } from "./data-blocks";
@@ -17,33 +18,32 @@ import { subSupExtension } from "./sub-sup";
 import { tablesExtension } from "./tables";
 import { tagPillExtension } from "./tag-pill";
 import { customDarkInit, customLightInit, rawDarkInit, rawLightInit } from "./theme";
-import { initialMarkdownDecorationRefreshExtension, pointerSelectionMarkdownRefreshExtension } from "./_lib/cursor-zone-field";
 
 export {
-  initialMarkdownDecorationRefreshExtension,
-  pointerSelectionMarkdownRefreshExtension,
   basicExtensions,
   codeFontExtension,
+  customDarkInit,
+  customLightInit,
   dataBlocksExtension,
   imageExtension,
   infoBlocksExtension,
+  initialMarkdownDecorationRefreshExtension,
   katexExtension,
   linksExtension,
   listsExtension,
-  markExtension,
   markdownExtension,
+  markExtension,
   markupExtension,
   mermaidExtension,
   namedBlocksExtension,
+  pointerSelectionMarkdownRefreshExtension,
+  rawDarkInit,
+  rawLightInit,
   scriptsExtension,
   searchTheme,
   subSupExtension,
   tablesExtension,
   tagPillExtension,
-  customDarkInit,
-  customLightInit,
-  rawDarkInit,
-  rawLightInit,
 };
 
 export const editor = {

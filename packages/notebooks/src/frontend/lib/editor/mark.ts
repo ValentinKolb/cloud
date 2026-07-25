@@ -8,10 +8,10 @@
  * full-doc scan is microseconds — well within tick budget.
  */
 
-import { RangeSet, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
-import { Decoration, EditorView } from "@codemirror/view";
+import { RangeSet, StateField } from "@codemirror/state";
 import type { DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView } from "@codemirror/view";
 
 const MARK_REGEX = /==(?!=)([^\s=][^=]*?[^\s=]|[^\s=])==(?!=)/g;
 

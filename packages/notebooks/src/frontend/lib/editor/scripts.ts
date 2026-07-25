@@ -44,12 +44,12 @@
  * runtime is created in read mode so script write APIs stay disabled.
  */
 import { syntaxTree } from "@codemirror/language";
-import { Prec, RangeSet, StateField, type EditorState, type Extension, type Range, type Transaction } from "@codemirror/state";
-import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
+import { type EditorState, type Extension, Prec, type Range, RangeSet, StateField, type Transaction } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import type * as Y from "yjs";
-import { createKit } from "../script/kit";
 import type { KitNoteSnapshot } from "../script/kit";
+import { createKit } from "../script/kit";
 import { runScript } from "../script/runner";
 import { selectionIntersectsRange } from "./_lib/cursor-zone-field";
 

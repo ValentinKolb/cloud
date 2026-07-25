@@ -53,13 +53,13 @@
  * tables are hand-edited and small. Data tables belong in the Grids app.
  */
 import { syntaxTree } from "@codemirror/language";
-import { Prec, StateField, RangeSet, type EditorState, type Extension, type Range } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
+import { type EditorState, type Extension, Prec, type Range, RangeSet, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
+import { type EvalContext, evaluateFormula, formatValue, isFormula } from "@valentinkolb/cloud/shared";
 import { clipboard } from "@valentinkolb/stdlib/browser";
-import { evaluateFormula, formatValue, isFormula, type EvalContext } from "@valentinkolb/cloud/shared";
-import { refreshMarkdownDecorationsEffect, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 import { isNamedBlockHandle } from "../../../lib/named-blocks";
 import { renderPrettyTableHtml } from "../pretty-table";
+import { refreshMarkdownDecorationsEffect, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 
 type Align = "left" | "right" | "center" | null;
 

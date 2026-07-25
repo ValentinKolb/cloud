@@ -1,10 +1,9 @@
 import { getNotebookPresenceColor, notebooksYjs } from "../../../lib/yjs";
-import { createYjsProvider } from "./provider";
 import type { YjsProviderOptions } from "./provider";
+import { createYjsProvider } from "./provider";
 
-export { createYjsProvider };
 export type { YjsProviderOptions };
-export { getNotebookPresenceColor, notebooksYjs };
+export { createYjsProvider, getNotebookPresenceColor, notebooksYjs };
 
 export const yjs = {
   createYjsProvider,

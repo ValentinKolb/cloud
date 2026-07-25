@@ -1,6 +1,6 @@
-import { createScriptIntelligenceService } from "./script-intelligence-service";
-import type { ScriptWorkerRequest, ScriptWorkerResponse } from "./script-intelligence-protocol";
 import { typeFiles } from "notebooks-script-intelligence/type-files";
+import type { ScriptWorkerRequest, ScriptWorkerResponse } from "./script-intelligence-protocol";
+import { createScriptIntelligenceService } from "./script-intelligence-service";
 
 let servicePromise: ReturnType<typeof createScriptIntelligenceService> | null = null;
 

@@ -1,6 +1,6 @@
 import { syntaxTree } from "@codemirror/language";
-import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
+import { RangeSet } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import {
   blockWidgetLineNavigationExtension,

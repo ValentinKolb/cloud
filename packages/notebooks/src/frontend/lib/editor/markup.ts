@@ -10,10 +10,10 @@
  * Also renders horizontal rules (--- / *** / ___) as visual lines.
  */
 import { syntaxTree } from "@codemirror/language";
-import { RangeSet, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { RangeSet, StateField } from "@codemirror/state";
 import type { DecorationSet } from "@codemirror/view";
+import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 
 // =============================================================================
 // Widgets

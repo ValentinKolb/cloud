@@ -1,12 +1,12 @@
-import { RangeSet, type Extension, type Range } from "@codemirror/state";
+import { type Extension, type Range, RangeSet } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { extractNamedBlocks } from "../../../lib/named-blocks";
 import {
   blockWidgetLineNavigationExtension,
   type CursorZoneState,
   cursorZoneStateField,
   selectionIntersectsRange,
 } from "./_lib/cursor-zone-field";
-import { extractNamedBlocks } from "../../../lib/named-blocks";
 
 class NamedBlockHandleWidget extends WidgetType {
   constructor(
