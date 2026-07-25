@@ -202,7 +202,7 @@ export const syncFromIpa = async (): Promise<void> => {
     return;
   }
   if (!config.configured) {
-    throw new Error("FreeIPA is enabled but not fully configured.");
+    throw new Error(`FreeIPA is enabled but not fully configured. Missing: ${config.missingSettings.join(", ")}.`);
   }
   const excludedGroupsSet = freeipa.util.toExcludedGroupsSet(config.groupsExcluded);
   const ipaSession = await freeipa.session.getServiceSession({
@@ -703,7 +703,7 @@ export const syncUser = async (username: string): Promise<SyncUserOutcome> => {
     return { status: "skipped_disabled" };
   }
   if (!config.configured) {
-    throw new Error("FreeIPA is enabled but not fully configured.");
+    throw new Error(`FreeIPA is enabled but not fully configured. Missing: ${config.missingSettings.join(", ")}.`);
   }
   const ipaSession = await freeipa.session.getServiceSession({
     url: config.url,

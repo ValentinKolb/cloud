@@ -4,6 +4,8 @@ import { coreSettings } from "./settings/api";
 export type FreeIpaConfig = {
   enabled: boolean;
   configured: boolean;
+  /** Setting keys that are still empty. Empty when `configured` is true. */
+  missingSettings: string[];
   url: string;
   serviceUser: string;
   servicePassword: string;
@@ -16,7 +18,17 @@ export type FreeIpaConfig = {
 };
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-const normalizeStringList = (value: unknown, fallback: string[]): string[] => {
+
+/**
+ * `fallback` is only for groups that have a genuine FreeIPA-wide default.
+ *
+ * The scope groups deliberately have none: `base_sync` decides who gets a Cloud
+ * account at all and `base_ipa_realm` decides who is a full user rather than a
+ * guest, and both depend entirely on how the directory is organised. A guess
+ * either over-provisions every FreeIPA user or silently demotes everyone to
+ * guest, so an empty value has to make the config incomplete instead.
+ */
+const normalizeStringList = (value: unknown, fallback: string[] = []): string[] => {
   if (!Array.isArray(value)) return fallback;
   const normalized = value.map((entry) => (typeof entry === "string" ? entry.trim() : "")).filter(Boolean);
   return normalized.length > 0 ? normalized : fallback;
@@ -56,18 +68,33 @@ export const getFreeIpaConfig = async (): Promise<FreeIpaConfig> => {
   const serviceUser = normalizeString(rawServiceUser);
   const servicePassword = normalizeString(rawServicePassword);
   const enabled = Boolean(rawEnabled);
-  const configured = url.length > 0 && serviceUser.length > 0 && servicePassword.length > 0;
+
+  // "admins" and the excluded list are real FreeIPA defaults; the scope groups
+  // are not, so they stay empty and make the config incomplete.
+  const groupsAdmin = normalizeStringList(rawAdmin, ["admins"]);
+  const groupsBaseSync = normalizeStringList(rawBaseSync);
+  const groupsBaseIpaRealm = normalizeStringList(rawBaseIpaRealm);
+  const groupsExcluded = normalizeStringList(rawExcluded, ["editors", "trust admins", "admins"]);
+
+  const missingSettings = [
+    ...(url ? [] : ["freeipa.url"]),
+    ...(serviceUser ? [] : ["freeipa.service_user"]),
+    ...(servicePassword ? [] : ["freeipa.service_password"]),
+    ...(groupsBaseSync.length > 0 ? [] : ["freeipa.groups.base_sync"]),
+    ...(groupsBaseIpaRealm.length > 0 ? [] : ["freeipa.groups.base_ipa_realm"]),
+  ];
 
   return {
     enabled,
-    configured,
+    configured: missingSettings.length === 0,
+    missingSettings,
     url,
     serviceUser,
     servicePassword,
-    groupsAdmin: normalizeStringList(rawAdmin, ["admins"]),
-    groupsBaseSync: normalizeStringList(rawBaseSync, ["users"]),
-    groupsBaseIpaRealm: normalizeStringList(rawBaseIpaRealm, ["cloud"]),
-    groupsExcluded: normalizeStringList(rawExcluded, ["editors", "trust admins", "admins"]),
+    groupsAdmin,
+    groupsBaseSync,
+    groupsBaseIpaRealm,
+    groupsExcluded,
     caCert: normalizeString(rawCaCert),
     allowInsecure: Boolean(rawAllowInsecure),
   };

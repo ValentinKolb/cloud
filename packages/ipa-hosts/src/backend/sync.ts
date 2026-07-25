@@ -103,7 +103,7 @@ export const syncFromIpaHosts = async (): Promise<SyncSummary> => {
     return summary;
   }
   if (!config.configured) {
-    throw new Error("FreeIPA is enabled but not fully configured.");
+    throw new Error(`FreeIPA is enabled but not fully configured. Missing: ${config.missingSettings.join(", ")}.`);
   }
 
   const startedAt = Date.now();

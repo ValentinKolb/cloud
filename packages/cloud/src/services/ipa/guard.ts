@@ -11,7 +11,7 @@ export const ensureFreeIpaMutationAvailable = async (): Promise<MutationError | 
     return { ok: false, error: "FreeIPA is disabled.", status: 400 };
   }
   if (!config.configured) {
-    return { ok: false, error: "FreeIPA is enabled but not fully configured.", status: 500 };
+    return { ok: false, error: `FreeIPA is enabled but not fully configured. Missing: ${config.missingSettings.join(", ")}.`, status: 500 };
   }
   return null;
 };

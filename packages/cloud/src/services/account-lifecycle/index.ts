@@ -300,7 +300,7 @@ export const accountLifecycle = {
       return { scanned: 0, changed: 0, skipped: 0, failed: 0 };
     }
     if (!freeIpaConfig.configured) {
-      throw new Error("FreeIPA is enabled but not fully configured.");
+      throw new Error(`FreeIPA is enabled but not fully configured. Missing: ${freeIpaConfig.missingSettings.join(", ")}.`);
     }
 
     const rows = await sql<DbRow[]>`
@@ -599,7 +599,7 @@ export const accountLifecycle = {
       return { scanned: 0, changed: 0, skipped: 0, failed: 0 };
     }
     if (!freeIpaConfig.configured) {
-      throw new Error("FreeIPA is enabled but not fully configured.");
+      throw new Error(`FreeIPA is enabled but not fully configured. Missing: ${freeIpaConfig.missingSettings.join(", ")}.`);
     }
 
     const configuredDays = await getIpaExpiresDays();

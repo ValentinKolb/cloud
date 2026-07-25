@@ -285,18 +285,20 @@ export const CORE_SETTINGS = {
   "freeipa.groups.base_sync": {
     kind: "string_list",
     label: "Base Sync Groups",
-    default: ["users"] as readonly string[],
-    description: "FreeIPA groups that define the in-sync account scope.",
-    placeholder: "users,cloud",
+    default: [] as readonly string[],
+    description:
+      "Required. FreeIPA groups whose members get a Cloud account at all. There is no safe default — leaving this empty keeps FreeIPA incomplete rather than syncing your whole directory.",
+    placeholder: "e.g. ipausers",
     envFallback: () => envCsv("GROUPS_BASE_SYNC"),
     envBootstrap: () => envCsv("GROUPS_BASE_SYNC"),
   },
   "freeipa.groups.base_ipa_realm": {
     kind: "string_list",
     label: "Base Realm Groups",
-    default: ["users"] as readonly string[],
-    description: "FreeIPA groups that imply canonical full-user profile.",
-    placeholder: "users,staff",
+    default: [] as readonly string[],
+    description:
+      "Required. FreeIPA groups whose members become full users; everyone else in the sync scope becomes a guest. There is no safe default — leaving this empty keeps FreeIPA incomplete rather than demoting every account to guest.",
+    placeholder: "e.g. staff",
     envFallback: () => envCsv("GROUPS_BASE_IPA_REALM"),
     envBootstrap: () => envCsv("GROUPS_BASE_IPA_REALM"),
   },
