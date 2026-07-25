@@ -1,5 +1,5 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { formatBytes, formatNumber } from "@valentinkolb/cloud/shared";
+import { formatBytes, formatDateTime as formatDate, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataPanel, DataTable, type DataTableColumn, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
@@ -28,17 +28,6 @@ import {
 import PostgresDataFilters from "./_components/PostgresDataFilters.island";
 
 const numberFormat = new Intl.NumberFormat("de-DE");
-
-const formatDate = (value: string | null): string => {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-};
 
 const normalize = (value: string): string => value.toLowerCase();
 
