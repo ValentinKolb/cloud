@@ -48,8 +48,9 @@ describe("grids schema migration", () => {
             AND table_type = 'BASE TABLE'
         `;
         // workflow_profile and workflow_run_profile arrived; grids.workflows and
-        // workflow_revisions moved into the kernel.
-        expect(row?.tableCount).toBe(37);
+        // workflow_revisions moved into the kernel, and workflow_effect_intents
+        // folded into the step row that already describes the step.
+        expect(row?.tableCount).toBe(36);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 

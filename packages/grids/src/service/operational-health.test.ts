@@ -6,7 +6,7 @@ const healthy = (): Omit<GridsOperationalHealth, "issues"> => ({
   observedAt: "2026-07-22T10:00:00.000Z",
   outbox: { pending: 0, failed: 0, dead: 0, oldestActiveAgeSeconds: 0 },
   workflows: { queued: 0, running: 0, waiting: 0, needsAttention: 0, staleRunning: 0, oldestQueuedAgeSeconds: 0 },
-  effects: { pending: 0, executing: 0, needsAttention: 0, oldestActiveAgeSeconds: 0 },
+  effects: { executing: 0, needsAttention: 0, oldestActiveAgeSeconds: 0 },
   federatedDegraded: 0,
   emailFailed24h: 0,
   gql: { total24h: 0, errors24h: 0, avgDurationMs24h: 0, p99DurationMs24h: 0 },

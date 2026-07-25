@@ -408,7 +408,6 @@ const metricCatalog: CollectorDefinition[] = [
         },
         ...(
           [
-            ["pending", snapshot.effectsPending],
             ["executing", snapshot.effectsExecuting],
             ["needs_attention", snapshot.effectsNeedsAttention],
           ] as const

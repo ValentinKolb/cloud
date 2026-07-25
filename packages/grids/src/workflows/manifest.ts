@@ -1,12 +1,13 @@
+/**
+ * What the workflow language accepts.
+ *
+ * The action half is derived from the declarations in `src/workflows.ts` rather
+ * than written again: a descriptor and its implementation used to be two places
+ * that could disagree, and only a run in production would say so.
+ */
 import { type WorkflowFieldSchema, type WorkflowLanguageManifest, workflowBuiltinActionDescriptors } from "@valentinkolb/cloud/workflows";
-
-const identifier = (description: string, optional = false): WorkflowFieldSchema => ({
-  kind: "string",
-  format: "identifier",
-  maxLength: 120,
-  optional,
-  description,
-});
+import { workflowActionDescriptors } from "@valentinkolb/cloud/workflows/store";
+import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
 
 const text = (description: string, optional = false, maxLength = 1_000): WorkflowFieldSchema => ({
   kind: "string",
@@ -28,22 +29,6 @@ const commonInputProperties = {
   description: text("Additional guidance shown to the operator.", true),
   required: { kind: "boolean", optional: true, description: "Whether callers must provide this input." },
 } satisfies Record<string, WorkflowFieldSchema>;
-
-const recordValues = (description: string): WorkflowFieldSchema => ({
-  kind: "record",
-  minProperties: 1,
-  values: value(description),
-  description,
-});
-
-const auditAnswers: WorkflowFieldSchema = {
-  kind: "record",
-  values: value("Answer value or select-option UUID."),
-  optional: true,
-  description: "Audit answers keyed by the table audit-question UUID.",
-};
-
-const saveAs = identifier("Name used to reference this action output in later steps.", true);
 
 export const gridsWorkflowManifest: WorkflowLanguageManifest = {
   id: "grids",
@@ -124,100 +109,5 @@ export const gridsWorkflowManifest: WorkflowLanguageManifest = {
       }),
     },
   ],
-  actions: [
-    {
-      kind: "updateRecord",
-      label: "Update record",
-      description: "Updates fields on one record after a current permission check.",
-      effect: "transactional",
-      dryRun: "full",
-      outputType: "grids.record",
-      config: object({
-        record: text("Record input or output reference.", false, 500),
-        set: recordValues("Fields and values to update."),
-        audit: auditAnswers,
-      }),
-    },
-    {
-      kind: "createRecord",
-      label: "Create record",
-      description: "Creates one record in a table after a current permission check.",
-      effect: "transactional",
-      dryRun: "full",
-      outputType: "grids.record",
-      config: object({
-        table: text("Target table name or ID.", false, 200),
-        values: recordValues("Initial field values."),
-        saveAs,
-      }),
-    },
-    {
-      kind: "generateDocument",
-      label: "Generate document",
-      description: "Creates a frozen document snapshot from a configured template.",
-      effect: "durable-intent",
-      dryRun: "validate",
-      outputType: "grids.document",
-      config: object({
-        template: text("Document template name or ID.", false, 200),
-        record: text("Record input or output reference.", false, 500),
-        filename: value("Optional filename override.", true),
-        tags: { kind: "array", items: value("Tag value."), maxItems: 20, optional: true },
-        saveAs,
-      }),
-    },
-    {
-      kind: "createDocumentLink",
-      label: "Create document link",
-      description: "Creates a revocable public download link for a generated document.",
-      effect: "transactional",
-      dryRun: "validate",
-      outputType: "grids.documentLink",
-      config: object({
-        document: text("Document output reference.", false, 500),
-        expiresIn: { kind: "string", enum: ["1d", "7d", "30d", "90d"], optional: true },
-        comment: value("Optional link comment.", true),
-        saveAs,
-      }),
-    },
-    {
-      kind: "sendEmail",
-      label: "Send email",
-      description: "Renders a Grids email template and creates a durable delivery intent.",
-      effect: "durable-intent",
-      dryRun: "validate",
-      outputType: "grids.emailDelivery",
-      config: object({
-        template: text("Email template name or ID.", false, 200),
-        to: {
-          kind: "array",
-          minItems: 1,
-          maxItems: 50,
-          items: {
-            kind: "union",
-            variants: [object({ email: value("Email address.") }), object({ user: value("User ID.") })],
-          },
-        },
-        data: { kind: "record", values: value("Template value."), optional: true, maxProperties: 200 },
-        saveAs,
-      }),
-    },
-    {
-      kind: "httpRequest",
-      label: "HTTP request",
-      description: "Sends an explicit JSON HTTP request. Ambiguous remote outcomes are never retried blindly.",
-      effect: "ambiguous-external",
-      dryRun: "validate",
-      outputType: "core.value",
-      config: object({
-        method: { kind: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"], optional: true },
-        url: { kind: "string", format: "uri", maxLength: 4_000, description: "HTTP or HTTPS URL." },
-        headers: { kind: "record", values: text("Header value.", false, 1_000), optional: true, maxProperties: 100 },
-        json: value("JSON request payload.", true),
-        timeoutMs: { kind: "number", integer: true, minimum: 1_000, maximum: 60_000, optional: true },
-        saveAs,
-      }),
-    },
-    ...workflowBuiltinActionDescriptors,
-  ],
+  actions: [...workflowActionDescriptors(GRIDS_WORKFLOW_ACTIONS), ...workflowBuiltinActionDescriptors],
 };

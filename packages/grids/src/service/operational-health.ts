@@ -20,7 +20,7 @@ export type GridsOperationalHealth = {
     staleRunning: number;
     oldestQueuedAgeSeconds: number;
   };
-  effects: { pending: number; executing: number; needsAttention: number; oldestActiveAgeSeconds: number };
+  effects: { executing: number; needsAttention: number; oldestActiveAgeSeconds: number };
   federatedDegraded: number;
   emailFailed24h: number;
   gql: { total24h: number; errors24h: number; avgDurationMs24h: number; p99DurationMs24h: number };
@@ -39,7 +39,6 @@ type OperationalHealthRow = {
   workflow_needs_attention: number | string;
   workflow_stale_running: number | string;
   workflow_oldest_queued_age_seconds: number | string;
-  effects_pending: number | string;
   effects_executing: number | string;
   effects_needs_attention: number | string;
   effects_oldest_active_age_seconds: number | string;
@@ -139,7 +138,6 @@ export const mapOperationalHealth = (row: OperationalHealthRow, gqlRow?: GqlHeal
       oldestQueuedAgeSeconds: number(row.workflow_oldest_queued_age_seconds),
     },
     effects: {
-      pending: number(row.effects_pending),
       executing: number(row.effects_executing),
       needsAttention: number(row.effects_needs_attention),
       oldestActiveAgeSeconds: number(row.effects_oldest_active_age_seconds),

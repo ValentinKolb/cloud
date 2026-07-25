@@ -25,8 +25,10 @@ import {
   type WorkflowTraceEvent,
   type WorkflowTracePort,
 } from "@valentinkolb/cloud/workflows/runtime";
+import { createWorkflowActionPort, createWorkflowDryRunPort } from "@valentinkolb/cloud/workflows/store";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { job, scheduler } from "@valentinkolb/sync";
+import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
 import {
   type GridsWorkflow,
   type GridsWorkflowChannel,
@@ -38,15 +40,10 @@ import {
 import type { SqlClient } from "./audit";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
 import { get as getDashboard } from "./dashboards";
-import {
-  authorizeWorkflowTarget,
-  revalidateWorkflowPrincipal,
-  revalidateWorkflowPrincipalInTransaction,
-  workflowPermissionAllows,
-} from "./workflow-authorization";
+import { canExecuteWorkflow } from "./workflow-action-scope";
+import { authorizeWorkflowTarget } from "./workflow-authorization";
 import { getWorkflow, listScheduledWorkflows } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
-import { createGridsWorkflowActionPorts } from "./workflow-kernel-actions";
 import { createWorkflowRecordEventRuntime } from "./workflow-kernel-record-events";
 import {
   type ClaimedWorkflowRun,
@@ -58,6 +55,7 @@ import {
   type GridsWorkflowRunCompletion,
   GridsWorkflowRuntimeRepository,
   getWorkflowRun,
+  gridsWorkflowEffectJournal,
   listExpiredWaitingWorkflowRuns,
   listRecoverableWorkflowRunIds,
   materializeWorkflowInvocation,
@@ -149,49 +147,6 @@ const workflowStepTrace = (jobId: string, runId: string): WorkflowTracePort => (
     });
   },
 });
-
-const workflowPermission = async (
-  workflowId: string,
-  baseId: string,
-  principal: GridsWorkflowPrincipal,
-  required: "read" | "write" | "admin",
-  client?: SqlClient,
-): Promise<boolean> => {
-  return authorizeWorkflowTarget(principal, { baseId, workflowId }, required, client);
-};
-
-const canExecuteAcceptedRun = async (
-  workflowId: string,
-  baseId: string,
-  principal: GridsWorkflowPrincipal,
-  authorization: GridsWorkflowAuthorization,
-  launcherId: string | null | undefined,
-  client?: SqlClient,
-): Promise<boolean> => {
-  if (authorization.kind === "workflow") return workflowPermission(workflowId, baseId, principal, "write", client);
-  const revalidated = client
-    ? await revalidateWorkflowPrincipalInTransaction(principal, baseId, client)
-    : await revalidateWorkflowPrincipal(principal, baseId);
-  if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, "write")) return false;
-  if (!launcherId) return false;
-  const dashboard = await getDashboard(authorization.dashboardId, {}, client);
-  if (!dashboard || dashboard.baseId !== baseId) return false;
-  if (
-    !(await canReadDashboardIncludedData(
-      dashboard,
-      {
-        userId: revalidated.subject.type === "user" ? revalidated.subject.userId : null,
-        userGroups: [],
-        serviceAccountId: revalidated.subject.type === "service_account" ? revalidated.subject.serviceAccountId : null,
-      },
-      client,
-    ))
-  ) {
-    return false;
-  }
-  const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === authorization.dashboardWidgetId);
-  return widget?.kind === "workflow-button" && widget.launcherId === launcherId;
-};
 
 const finishExecution = async (result: Awaited<ReturnType<typeof executeWorkflowPlan>>): Promise<GridsWorkflowRunCompletion> => {
   if (result.state === "succeeded") {
@@ -286,26 +241,21 @@ const executeClaimedWorkflowRun = async (
       ? { state: "active" }
       : leaseCancellation(execution.signal, outcome.state === "canceled" ? outcome.message : undefined);
   });
-  const storedWorkflow = claimed.context.workflow;
-  const workflow =
-    storedWorkflow && typeof storedWorkflow === "object" && !Array.isArray(storedWorkflow)
-      ? {
-          id: String(storedWorkflow.id ?? claimed.run.workflowId ?? ""),
-          shortId: String(storedWorkflow.shortId ?? ""),
-          baseId: claimed.run.baseId,
-          name: String(storedWorkflow.name ?? "Workflow"),
-        }
-      : await getWorkflow(claimed.run.workflowId ?? "", true);
-  if (!workflow) throw new Error("workflow metadata is unavailable for this run");
+  const workflowId = claimed.run.workflowId ?? "";
   const actor = {
     ...claimed.principal,
     groupIds: await loadWorkflowUserGroupIds(claimed.run.actorUserId),
   } satisfies GridsWorkflowPrincipal;
-  if (!(await canExecuteAcceptedRun(workflow.id, claimed.run.baseId, actor, claimed.authorization, claimed.run.launcherId))) {
-    throw err.forbidden("Workflow execution access was revoked.");
-  }
+  const claim = {
+    baseId: claimed.run.baseId,
+    workflowId,
+    principal: actor,
+    authorization: claimed.authorization,
+    launcherId: claimed.run.launcherId,
+  };
+  if (!(await canExecuteWorkflow(claim))) throw err.forbidden("Workflow execution access was revoked.");
   const invocation: WorkflowInvocation<GridsWorkflowChannel> = {
-    workflowId: workflow.id,
+    workflowId,
     mode: claimed.run.mode,
     channel: claimed.run.channel,
     actor,
@@ -314,14 +264,17 @@ const executeClaimedWorkflowRun = async (
     idempotencyKey: claimed.idempotencyKey,
     occurredAt: claimed.occurredAt,
   };
-  const actions = createGridsWorkflowActionPorts({
-    workflow,
-    principal: actor,
-    authorizeExecution: (client) =>
-      canExecuteAcceptedRun(workflow.id, claimed.run.baseId, actor, claimed.authorization, claimed.run.launcherId, client),
-    authorizeTarget: (target, required, client) =>
-      authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, ...target }, required, client),
-  });
+  /*
+   * The declared actions, not a per-run port. Each one re-reads the run to
+   * find out who it acts as, so nothing here has to be closed over -- which is
+   * what lets `src/workflows.ts` be a plain vocabulary rather than a factory.
+   *
+   * `budget: false` while runs still live in grids.workflow_runs: the kernel
+   * charges against workflows.run, which has no row for this one. The budgets
+   * arrive with the runs.
+   */
+  const actions = createWorkflowActionPort(GRIDS_WORKFLOW_ACTIONS, { budget: false, journal: gridsWorkflowEffectJournal });
+  const dryRun = createWorkflowDryRunPort(GRIDS_WORKFLOW_ACTIONS);
   const values = createGridsWorkflowValueResolver(claimed.run.baseId, actor, {
     authorizeTable: (tableId) => authorizeWorkflowTarget(actor, { baseId: claimed.run.baseId, tableId }, "read"),
   });
@@ -335,7 +288,7 @@ const executeClaimedWorkflowRun = async (
         invocation: { ...invocation, mode: "execute" },
         repository,
         clock,
-        actions: actions.execute,
+        actions,
         values,
         ...(workflowTrace ? { trace: workflowTrace } : {}),
       }),
@@ -349,7 +302,7 @@ const executeClaimedWorkflowRun = async (
       invocation: { ...invocation, mode: "dryRun" },
       repository,
       clock,
-      actions: actions.dryRun,
+      actions: dryRun,
       values,
       ...(workflowTrace ? { trace: workflowTrace } : {}),
     }),
@@ -425,9 +378,14 @@ export const invokeGridsWorkflow = async (input: InvokeGridsWorkflowInput): Prom
   const workflow = await getWorkflow(input.workflowId);
   if (!workflow) return fail(err.notFound("workflow"));
   const authorization = input.authorization ?? { kind: "workflow" };
-  if (!(await canExecuteAcceptedRun(workflow.id, workflow.baseId, input.principal, authorization, input.launcherId))) {
-    return fail(err.forbidden("Workflow actor cannot run this workflow."));
-  }
+  const claim = {
+    baseId: workflow.baseId,
+    workflowId: workflow.id,
+    principal: input.principal,
+    authorization,
+    launcherId: input.launcherId,
+  };
+  if (!(await canExecuteWorkflow(claim))) return fail(err.forbidden("Workflow actor cannot run this workflow."));
   if (!input.idempotencyKey.trim() || input.idempotencyKey.length > 200) return fail(err.badInput("invalid idempotency key"));
   const occurredAt = input.occurredAt ?? new Date().toISOString();
   const rawInvocation: WorkflowInvocation<GridsWorkflowChannel> = {

@@ -14,7 +14,6 @@ export type GridsOperationalSnapshot = {
   workflowNeedsAttention: number;
   workflowStaleRunning: number;
   workflowOldestQueuedAgeSeconds: number;
-  effectsPending: number;
   effectsExecuting: number;
   effectsNeedsAttention: number;
   effectsOldestActiveAgeSeconds: number;
@@ -70,7 +69,6 @@ export const getGridsOperationalSnapshot = async (): Promise<GridsOperationalSna
     workflowNeedsAttention: number(row.workflow_needs_attention),
     workflowStaleRunning: number(row.workflow_stale_running),
     workflowOldestQueuedAgeSeconds: number(row.workflow_oldest_queued_age_seconds),
-    effectsPending: number(row.effects_pending),
     effectsExecuting: number(row.effects_executing),
     effectsNeedsAttention: number(row.effects_needs_attention),
     effectsOldestActiveAgeSeconds: number(row.effects_oldest_active_age_seconds),

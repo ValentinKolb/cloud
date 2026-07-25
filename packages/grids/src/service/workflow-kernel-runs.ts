@@ -17,6 +17,7 @@ import type {
   WorkflowRuntimeStepIdentity,
   WorkflowRuntimeStepResult,
 } from "@valentinkolb/cloud/workflows/runtime";
+import type { WorkflowEffectJournalPort } from "@valentinkolb/cloud/workflows/store";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { WorkflowRunEventScope } from "../lib/workflow-run-events";
@@ -483,28 +484,20 @@ export const cancelWorkflowRun = async (runId: string, actorUserId: string | nul
                 inputs, status, result, error, result_message, created_at, started_at, finished_at
     `;
     if (!row) return null;
+    /*
+     * Cancelling stops the run, but it cannot un-send what already left. An
+     * effect still marked executing is exactly one nobody knows the fate of, so
+     * it settles as ambiguous — the queue a human works through — rather than
+     * being written off as failed.
+     */
     await tx`
       UPDATE grids.workflow_step_runs
       SET status = 'canceled',
           outcome = ${{ state: "terminal", status: "canceled", message: "Canceled by a user." }}::jsonb,
+          effect_state = CASE WHEN effect_state = 'executing' THEN 'ambiguous' ELSE effect_state END,
           finished_at = now()
       WHERE run_id = ${runId}::uuid
         AND status IN ('running', 'waiting')
-    `;
-    await tx`
-      UPDATE grids.workflow_effect_intents
-      SET status = CASE
-            WHEN status = 'executing' AND effect_started_at IS NOT NULL THEN 'needs_attention'
-            ELSE 'failed'
-          END,
-          error = CASE
-            WHEN status = 'executing' AND effect_started_at IS NOT NULL
-              THEN ${{ code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN", message: "The run was canceled while an external effect may have been in progress.", retryable: false }}::jsonb
-            ELSE ${{ code: "WORKFLOW_RUN_CANCELED", message: "The run was canceled before the effect completed.", retryable: false }}::jsonb
-          END,
-          updated_at = now()
-      WHERE run_id = ${runId}::uuid
-        AND status IN ('pending', 'executing')
     `;
     await logAudit(
       {
@@ -546,21 +539,132 @@ const notifyPersistedWorkflowRun = async (runId: string, transitionId: string, s
   await notifyWorkflowRunEvent(run, step ? [step] : [], eventScope(authorization), transitionId);
 };
 
-export const getActiveWorkflowStepRunId = async (
-  step: Pick<WorkflowRuntimeStepIdentity, "runId" | "key" | "executionGeneration">,
-): Promise<string> => {
+/**
+ * Where a step's effect evidence is written while runs still live here.
+ *
+ * The same four operations the kernel journals against `workflows.step_outcome`,
+ * against the step row Grids already keeps. Every write is fenced on the run
+ * being the one this worker claimed: a worker whose lease expired writes with a
+ * stale generation and is refused rather than recording an outcome for a run
+ * somebody else is now executing.
+ */
+export const gridsWorkflowEffectJournal: WorkflowEffectJournalPort = {
+  read: async (step) => {
+    const [row] = await sql<Array<{ effect_key: string | null; effect_state: string | null; effect_output: WorkflowJsonValue }>>`
+      SELECT effect_key, effect_state, effect_output
+      FROM grids.workflow_step_runs
+      WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key}
+    `;
+    return row?.effect_key && row.effect_state ? { key: row.effect_key, state: row.effect_state, output: row.effect_output } : null;
+  },
+
+  begin: async (step, effectKey) => {
+    const rows = await sql`
+      UPDATE grids.workflow_step_runs AS step_run
+      SET effect_key = ${effectKey},
+          effect_state = 'executing',
+          effect_started_at = COALESCE(step_run.effect_started_at, now())
+      FROM grids.workflow_runs AS run
+      WHERE step_run.run_id = ${step.runId}::uuid
+        AND step_run.step_key = ${step.key}
+        AND run.id = step_run.run_id
+        AND run.status = 'running'
+        AND run.execution_generation = ${step.executionGeneration}
+      RETURNING step_run.id
+    `;
+    if (rows.length === 0) throw workflowConflict(`Workflow step "${step.key}" lost its execution lease.`);
+  },
+
+  record: async (tx, step, effectKey, output) => {
+    const rows = await tx`
+      UPDATE grids.workflow_step_runs AS step_run
+      SET effect_key = ${effectKey},
+          effect_state = 'succeeded',
+          effect_output = ${output}::jsonb,
+          effect_started_at = COALESCE(step_run.effect_started_at, now())
+      FROM grids.workflow_runs AS run
+      WHERE step_run.run_id = ${step.runId}::uuid
+        AND step_run.step_key = ${step.key}
+        AND run.id = step_run.run_id
+        AND run.status = 'running'
+        AND run.execution_generation = ${step.executionGeneration}
+      RETURNING step_run.id
+    `;
+    if (rows.length === 0) throw workflowConflict(`Workflow step "${step.key}" lost its execution lease.`);
+  },
+
+  settle: async (step, state) => {
+    await sql`
+      UPDATE grids.workflow_step_runs
+      SET effect_state = ${state}
+      WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key} AND effect_key IS NOT NULL
+    `;
+  },
+};
+
+/**
+ * Everything a declared action needs to know about the run it is executing in.
+ *
+ * One read, because a declared action is a static function: it cannot be handed
+ * the wiring that started the run, so it asks the run itself. The credential and
+ * the authorization snapshot are the point — they decide whether an effect is
+ * allowed, and rebuilding a principal from the invocation's actor alone would
+ * silently promote a read-scoped token to a session's authority.
+ */
+export type GridsWorkflowRunScope = {
+  runId: string;
+  baseId: string;
+  workflow: { id: string; shortId: string; name: string };
+  principal: GridsWorkflowPrincipal;
+  authorization: GridsWorkflowAuthorization;
+  launcherId: string | null;
+};
+
+export const getWorkflowRunScope = async (runId: string, client?: SqlClient): Promise<GridsWorkflowRunScope | null> => {
+  const db = client ?? sql;
+  const [row] = await db<DbRow[]>`
+    SELECT run.id::text AS id, run.base_id::text AS base_id, run.launcher_id::text AS launcher_id,
+           run.authorization_snapshot AS authorization,
+           run.actor_user_id, run.service_account_id, run.actor_service_account_id,
+           run.credential_kind, run.credential_id, to_json(run.credential_scopes) AS credential_scopes,
+           run.credential_permission_cap, run.credential_expires_at,
+           run.credential_resource_app_id, run.credential_resource_type, run.credential_resource_id,
+           profile.id::text AS workflow_id, profile.short_id, workflow.name
+    FROM grids.workflow_runs AS run
+    JOIN grids.workflow_profile AS profile ON profile.id = run.workflow_id
+    JOIN workflows.workflow AS workflow ON workflow.id = profile.id
+    WHERE run.id = ${runId}::uuid
+  `;
+  if (!row) return null;
+  return {
+    runId: row.id as string,
+    baseId: row.base_id as string,
+    workflow: { id: row.workflow_id as string, shortId: row.short_id as string, name: row.name as string },
+    principal: principalFromRow(row),
+    authorization: parseJsonbRow<GridsWorkflowAuthorization>(row.authorization, { kind: "workflow" }),
+    launcherId: (row.launcher_id as string | null) ?? null,
+  };
+};
+
+/**
+ * The step row this worker is currently executing, for effects that hang off it.
+ *
+ * Fenced by comparing the step's generation to its run's rather than to a
+ * number the caller passes: a worker whose lease expired left its step at an
+ * older generation than the claim that superseded it, so it matches nothing.
+ */
+export const getActiveWorkflowStepRunId = async (runId: string, stepKey: string): Promise<string> => {
   const [row] = await sql<Array<{ id: string }>>`
     SELECT step_run.id::text AS id
     FROM grids.workflow_step_runs step_run
     JOIN grids.workflow_runs run ON run.id = step_run.run_id
-    WHERE step_run.run_id = ${step.runId}::uuid
-      AND step_run.step_key = ${step.key}
+    WHERE step_run.run_id = ${runId}::uuid
+      AND step_run.step_key = ${stepKey}
       AND step_run.status = 'running'
-      AND step_run.execution_generation = ${step.executionGeneration}
       AND run.status = 'running'
-      AND run.execution_generation = ${step.executionGeneration}
+      AND run.execution_generation = step_run.execution_generation
   `;
-  if (!row) throw workflowConflict(`Workflow step "${step.key}" lost its execution lease.`);
+  if (!row) throw workflowConflict(`Workflow step "${stepKey}" lost its execution lease.`);
   return row.id;
 };
 

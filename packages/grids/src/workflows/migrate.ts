@@ -1,6 +1,6 @@
 import type { SQL } from "bun";
 
-export const WORKFLOW_KERNEL_SCHEMA_VERSION = 4;
+export const WORKFLOW_KERNEL_SCHEMA_VERSION = 5;
 
 const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
   await sql`
@@ -24,6 +24,9 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
    * to the kernel now. What it leaves behind — access grants, run options, runs
    * — is re-keyed onto grids.workflow_profile below. Documents and scan records
    * are real user data and survive; only their link back to a run is cleared.
+   *
+   * grids.workflow_effect_intents is gone too: a step's effect is recorded on
+   * the step's own row, the way the kernel's journal does it.
    */
   await sql`
     ALTER TABLE grids.document_runs DROP CONSTRAINT IF EXISTS document_runs_workflow_run_id_fkey;
@@ -352,63 +355,37 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
       ),
       outcome JSONB,
       execution_generation INT NOT NULL CHECK (execution_generation >= 0),
+      /*
+       * What the step's effect did, on the row that already describes the step.
+       *
+       * This replaces a second table keyed by its own idempotency key, whose
+       * only remaining job was to answer "did the write happen before we
+       * crashed". A step already has one row per run; the answer belongs on it,
+       * and the columns match workflows.step_outcome so the journal moves with
+       * the runs rather than being translated.
+       */
+      effect_key TEXT CHECK (effect_key IS NULL OR char_length(effect_key) BETWEEN 1 AND 500),
+      effect_state TEXT CHECK (effect_state IS NULL OR effect_state IN ('executing', 'succeeded', 'ambiguous', 'failed')),
+      effect_started_at TIMESTAMPTZ,
+      -- Recorded in the same transaction that performed the effect: a
+      -- transactional action can only promise that a crash means it did not
+      -- happen if the evidence commits with the work.
+      effect_output JSONB,
       started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       finished_at TIMESTAMPTZ,
-      UNIQUE (run_id, step_key)
+      UNIQUE (run_id, step_key),
+      CONSTRAINT workflow_step_runs_effect_chk CHECK ((effect_key IS NULL) = (effect_state IS NULL))
     )
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_step_runs_run
     ON grids.workflow_step_runs(run_id, started_at, id)
   `.simple();
-
+  // Effects that never settled are the queue a human works through.
   await sql`
-    CREATE TABLE IF NOT EXISTS grids.workflow_effect_intents (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      run_id UUID NOT NULL REFERENCES grids.workflow_runs(id) ON DELETE CASCADE,
-      step_key TEXT NOT NULL,
-      effect_kind TEXT NOT NULL,
-      idempotency_key TEXT NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('pending', 'executing', 'succeeded', 'failed', 'needs_attention')),
-      request JSONB NOT NULL,
-      result JSONB,
-      error JSONB,
-      attempts INT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-      execution_generation INT CHECK (execution_generation IS NULL OR execution_generation >= 0),
-      effect_started_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      UNIQUE (idempotency_key)
-    )
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_workflow_effect_intents_run
-    ON grids.workflow_effect_intents(run_id, step_key, created_at)
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_workflow_effect_intents_recovery
-    ON grids.workflow_effect_intents(status, updated_at)
-    WHERE status IN ('pending', 'executing')
-  `.simple();
-  await sql`
-    ALTER TABLE grids.workflow_effect_intents
-      ADD COLUMN IF NOT EXISTS execution_generation INT,
-      ADD COLUMN IF NOT EXISTS effect_started_at TIMESTAMPTZ
-  `.simple();
-  await sql`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'workflow_effect_intents_generation_check'
-          AND connamespace = 'grids'::regnamespace
-      ) THEN
-        ALTER TABLE grids.workflow_effect_intents
-          ADD CONSTRAINT workflow_effect_intents_generation_check
-          CHECK (execution_generation IS NULL OR execution_generation >= 0);
-      END IF;
-    END $$
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_step_runs_unsettled_effect
+    ON grids.workflow_step_runs(effect_started_at, run_id)
+    WHERE effect_state IN ('executing', 'ambiguous')
   `.simple();
 };
 

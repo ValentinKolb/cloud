@@ -59,19 +59,22 @@ describe("workflow step outcomes", () => {
     expect(workflowStepIssueReason({ state: "planned", control: { kind: "if", branches: ["then"] } })).toBeNull();
   });
 
-  test("describes dry-run effects without exposing raw payloads", () => {
+  test("shows what a step said it would do, and what it would spend", () => {
+    // The description is the action's own — the same `plan` hook the effect
+    // budget is charged from — so the dry-run view and the run cannot disagree
+    // about what a step costs.
     expect(
       workflowStepPlannedEffects({
         effects: [
-          { action: "updateRecord", recordId: "00000000-0000-4000-8000-000000000001", fieldIds: ["status"] },
-          { action: "sendEmail", templateName: "Ready notice", recipientCount: 2 },
-          { action: "httpRequest", method: "POST", host: "api.example.test", json: { secret: true } },
+          { action: "updateRecord", summary: "Update 1 field(s) on one record" },
+          { action: "sendEmail", summary: 'Send "Ready notice" to 2 recipient(s)', consumes: { emails: 2 } },
+          { action: "httpRequest", summary: "POST api.example.test", consumes: { httpRequests: 1 } },
         ],
       }),
     ).toEqual([
-      { title: "Update record", detail: "Record 00000000 · 1 field" },
-      { title: "Send email", detail: "Ready notice · 2 recipients" },
-      { title: "HTTP request", detail: "POST api.example.test" },
+      { title: "Update record", detail: "Update 1 field(s) on one record" },
+      { title: "Send email", detail: 'Send "Ready notice" to 2 recipient(s) · 2 emails' },
+      { title: "HTTP request", detail: "POST api.example.test · 1 httpRequests" },
     ]);
   });
 

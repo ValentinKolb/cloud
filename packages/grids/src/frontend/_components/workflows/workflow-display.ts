@@ -85,34 +85,28 @@ const workflowStateSummary = (value: JsonRecord): string | null => {
 
 type WorkflowPlannedEffect = { title: string; detail: string | null };
 
-const shortId = (value: unknown): string | null => (typeof value === "string" && value ? value.slice(0, 8) : null);
-
-const fieldCount = (item: JsonRecord): string => {
-  const count = Array.isArray(item.fieldIds) ? item.fieldIds.length : 0;
-  return `${count} field${count === 1 ? "" : "s"}`;
+/**
+ * What a dry run says a step would do.
+ *
+ * The description comes from the action itself now — the same `plan` hook the
+ * budget is charged from — rather than from a per-action formatter here that
+ * had to be kept in step with what each action happened to report. What is left
+ * is presentation: a readable name, and the counts against the run's allowance.
+ */
+const plannedEffectCounts = (consumes: unknown): string | null => {
+  const counts = objectValue(consumes);
+  if (!counts) return null;
+  const parts = Object.entries(counts)
+    .filter(([, amount]) => typeof amount === "number" && amount > 0)
+    .map(([dimension, amount]) => `${amount} ${dimension}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
 };
 
-const plannedEffectDetails: Record<string, (item: JsonRecord) => string> = {
-  updateRecord: (item) => {
-    const count = Array.isArray(item.fieldIds) ? item.fieldIds.length : 0;
-    return `Record ${shortId(item.recordId) ?? "selected"} · ${count} field${count === 1 ? "" : "s"}`;
-  },
-  createRecord: fieldCount,
-  generateDocument: (item) =>
-    [typeof item.templateName === "string" ? item.templateName : "Document", typeof item.filename === "string" ? item.filename : null]
-      .filter(Boolean)
-      .join(" · "),
-  createDocumentLink: (item) => `${String(item.expiresIn ?? "30d")} expiry${item.hasComment ? " · with comment" : ""}`,
-  sendEmail: (item) => {
-    const count = typeof item.recipientCount === "number" ? item.recipientCount : 0;
-    return `${typeof item.templateName === "string" ? item.templateName : "Email"} · ${count} recipient${count === 1 ? "" : "s"}`;
-  },
-  httpRequest: (item) => `${String(item.method ?? "POST")} ${String(item.host ?? "")}`.trim(),
-};
-
-const plannedEffectDetail = (action: string, item: JsonRecord): string | null => {
-  const format = plannedEffectDetails[action];
-  return format ? format(item) : typeof item.effect === "string" ? item.effect.replaceAll("-", " ") : null;
+const plannedEffectTitle = (action: unknown): string => {
+  if (typeof action !== "string" || !action) return "Workflow effect";
+  if (action === "httpRequest") return "HTTP request";
+  const words = action.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 };
 
 export const workflowStepPlannedEffects = (outcome: unknown): WorkflowPlannedEffect[] => {
@@ -126,11 +120,11 @@ export const workflowStepPlannedEffects = (outcome: unknown): WorkflowPlannedEff
         detail: null,
       };
     }
-    const action = typeof item.action === "string" ? item.action : "Workflow effect";
-    const words = action === "httpRequest" ? "HTTP request" : action.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+    const summary = typeof item.summary === "string" && item.summary.trim() ? item.summary : null;
+    const counts = plannedEffectCounts(item.consumes);
     return {
-      title: action === "httpRequest" ? words : `${words.charAt(0).toUpperCase()}${words.slice(1)}`,
-      detail: plannedEffectDetail(action, item),
+      title: plannedEffectTitle(item.action),
+      detail: [summary, counts].filter(Boolean).join(" · ") || null,
     };
   });
 };

@@ -1343,13 +1343,20 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
       FROM grids.workflow_runs
       WHERE mode = 'execute'
     ), effects AS (
+      -- An effect is journaled on its own step row, and only from the moment it
+      -- starts: there is no queue of intended effects to count, only ones in
+      -- flight and ones that escaped without saying whether they landed.
       SELECT
-        count(*) FILTER (WHERE status = 'pending')::int AS pending,
-        count(*) FILTER (WHERE status = 'executing')::int AS executing,
-        count(*) FILTER (WHERE status = 'needs_attention')::int AS needs_attention,
-        count(*) FILTER (WHERE status = 'needs_attention' AND updated_at >= now() - interval '24 hours')::int AS needs_attention_recent,
-        COALESCE(EXTRACT(EPOCH FROM (now() - min(updated_at) FILTER (WHERE status IN ('pending', 'executing')))), 0)::float AS oldest_active_age_seconds
-      FROM grids.workflow_effect_intents
+        count(*) FILTER (WHERE effect_state = 'executing')::int AS executing,
+        count(*) FILTER (WHERE effect_state = 'ambiguous')::int AS needs_attention,
+        count(*) FILTER (
+          WHERE effect_state = 'ambiguous' AND COALESCE(finished_at, effect_started_at) >= now() - interval '24 hours'
+        )::int AS needs_attention_recent,
+        COALESCE(
+          EXTRACT(EPOCH FROM (now() - min(effect_started_at) FILTER (WHERE effect_state IN ('executing', 'ambiguous')))),
+          0
+        )::float AS oldest_active_age_seconds
+      FROM grids.workflow_step_runs
     ), federation AS (
       SELECT count(*) FILTER (WHERE status = 'degraded')::int AS degraded
       FROM grids.federated_table_revisions
@@ -1383,7 +1390,6 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
       workflow_runs.needs_attention AS workflow_needs_attention,
       workflow_runs.stale_running AS workflow_stale_running,
       workflow_runs.oldest_queued_age_seconds AS workflow_oldest_queued_age_seconds,
-      effects.pending AS effects_pending,
       effects.executing AS effects_executing,
       effects.needs_attention AS effects_needs_attention,
       effects.oldest_active_age_seconds AS effects_oldest_active_age_seconds,

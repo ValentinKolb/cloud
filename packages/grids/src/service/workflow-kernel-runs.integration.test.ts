@@ -5,12 +5,12 @@ import { sql } from "bun";
 import { testShortId } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import type { GridsWorkflowChannel, GridsWorkflowPrincipal } from "../workflows/contracts";
-import { SqlGridsWorkflowEffectIntents } from "./workflow-kernel-actions";
 import {
   cancelWorkflowRun,
   claimWorkflowRun,
   finishWorkflowRun,
   GridsWorkflowRuntimeRepository,
+  gridsWorkflowEffectJournal,
   listExpiredWaitingWorkflowRuns,
   materializeWorkflowInvocation,
   resumeWaitingWorkflowRun,
@@ -48,15 +48,13 @@ describe("workflow run materialization", () => {
       `;
       await sql`
         INSERT INTO grids.workflow_step_runs (
-          run_id, step_key, source_path, iteration_path, kind, action, mode, status, execution_generation
-        ) VALUES (${runId}::uuid, 'steps.0', '["steps",0]'::jsonb, '{}'::int[], 'action', 'wait', 'execute', 'running', 7)
-      `;
-      await sql`
-        INSERT INTO grids.workflow_effect_intents (
-          run_id, step_key, effect_kind, idempotency_key, status, request, execution_generation, effect_started_at
+          run_id, step_key, source_path, iteration_path, kind, action, mode, status, execution_generation,
+          effect_key, effect_state, effect_started_at
         ) VALUES
-          (${runId}::uuid, 'steps.0', 'transactional', 'cancel-pending', 'pending', '{}'::jsonb, 7, NULL),
-          (${runId}::uuid, 'steps.0', 'durable-intent', 'cancel-started', 'executing', '{}'::jsonb, 7, now())
+          (${runId}::uuid, 'steps.0', '["steps",0]'::jsonb, '{}'::int[], 'action', 'httpRequest', 'execute', 'running', 7,
+           'cancel-started', 'executing', now()),
+          (${runId}::uuid, 'steps.1', '["steps",1]'::jsonb, '{}'::int[], 'action', 'wait', 'execute', 'running', 7,
+           NULL, NULL, NULL)
       `;
 
       const canceled = await cancelWorkflowRun(runId, null);
@@ -79,28 +77,19 @@ describe("workflow run materialization", () => {
       const [storedRun] = await sql<Array<{ status: string; lease_expires_at: Date | null }>>`
         SELECT status, lease_expires_at FROM grids.workflow_runs WHERE id = ${runId}::uuid
       `;
-      const [storedStep] = await sql<Array<{ status: string; outcome: unknown }>>`
-        SELECT status, outcome FROM grids.workflow_step_runs WHERE run_id = ${runId}::uuid
-      `;
-      const intents = await sql<Array<{ idempotency_key: string; status: string; error: { code?: string } | null }>>`
-        SELECT idempotency_key, status, error
-        FROM grids.workflow_effect_intents
+      const steps = await sql<Array<{ step_key: string; status: string; outcome: { state?: string }; effect_state: string | null }>>`
+        SELECT step_key, status, outcome, effect_state
+        FROM grids.workflow_step_runs
         WHERE run_id = ${runId}::uuid
-        ORDER BY idempotency_key
+        ORDER BY step_key
       `;
       expect(storedRun).toEqual({ status: "canceled", lease_expires_at: null });
-      expect(storedStep).toMatchObject({ status: "canceled", outcome: { state: "terminal", status: "canceled" } });
-      expect(intents).toEqual([
-        {
-          idempotency_key: "cancel-pending",
-          status: "failed",
-          error: expect.objectContaining({ code: "WORKFLOW_RUN_CANCELED" }),
-        },
-        {
-          idempotency_key: "cancel-started",
-          status: "needs_attention",
-          error: expect.objectContaining({ code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN" }),
-        },
+      // Cancelling stops the run; it cannot un-send what already left. The
+      // effect that was in flight stays unsettled for a human to judge, and the
+      // step that never started one has nothing to settle.
+      expect(steps.map(({ step_key, status, outcome, effect_state }) => [step_key, status, outcome.state, effect_state])).toEqual([
+        ["steps.0", "canceled", "terminal", "ambiguous"],
+        ["steps.1", "canceled", "terminal", null],
       ]);
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
@@ -472,12 +461,12 @@ describe("workflow run materialization", () => {
     }
   });
 
-  postgresTest("fences recovered external effects by generation and attempt", async () => {
+  postgresTest("fences an effect journal write against a lease the worker no longer holds", async () => {
     await migrate();
     const baseId = Bun.randomUUIDv7();
     const workflowId = Bun.randomUUIDv7();
     const runId = Bun.randomUUIDv7();
-    const intents = new SqlGridsWorkflowEffectIntents();
+    const step = { runId, key: "steps.0", executionGeneration: 1 };
 
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, 'WR007', 'Effect fence test')`;
@@ -498,64 +487,39 @@ describe("workflow run materialization", () => {
           '{}'::jsonb, 'running', now(), 1, now(), now() + interval '2 minutes'
         )
       `;
+      await sql`
+        INSERT INTO grids.workflow_step_runs (
+          run_id, step_key, source_path, iteration_path, kind, action, mode, status, execution_generation
+        ) VALUES (${runId}::uuid, 'steps.0', '["steps",0]'::jsonb, '{}'::int[], 'action', 'httpRequest', 'execute', 'running', 1)
+      `;
 
-      const durableRequest = { action: "sendEmail", templateId: "notice" };
-      const first = await intents.prepare({
-        runId,
-        stepKey: "steps.0",
-        executionGeneration: 1,
-        effectKind: "durable-intent",
-        idempotencyKey: `workflow:${runId}:step:steps.0`,
-        request: durableRequest,
-      });
-      expect(first).toMatchObject({ state: "execute", executionGeneration: 1, attempt: 1 });
-      if (first.state !== "execute") throw new Error("Durable effect was not claimed");
-      await intents.begin(first, async () => undefined);
+      expect(await gridsWorkflowEffectJournal.read(step)).toBeNull();
+      await gridsWorkflowEffectJournal.begin(step, `workflow:${runId}:step:steps.0`);
+      // Marked before it acts: that is the only ordering that leaves evidence
+      // when the process dies mid-effect.
+      expect(await gridsWorkflowEffectJournal.read(step)).toMatchObject({ state: "executing" });
 
+      // Another worker claims the run, which bumps the generation.
       await sql`
         UPDATE grids.workflow_runs
         SET execution_generation = 2, heartbeat_at = now(), lease_expires_at = now() + interval '2 minutes'
         WHERE id = ${runId}::uuid
       `;
-      await expect(intents.succeed(first, { sent: true })).rejects.toThrow("could not be completed");
-      const recovered = await intents.prepare({
-        runId,
-        stepKey: "steps.0",
-        executionGeneration: 2,
-        effectKind: "durable-intent",
-        idempotencyKey: `workflow:${runId}:step:steps.0`,
-        request: durableRequest,
-      });
-      expect(recovered).toMatchObject({ state: "execute", executionGeneration: 2, attempt: 2 });
-      if (recovered.state !== "execute") throw new Error("Durable effect was not recovered");
-      await intents.begin(recovered, async () => undefined);
-      await intents.succeed(recovered, { sent: true });
+      await expect(gridsWorkflowEffectJournal.begin(step, "stale")).rejects.toThrow("lost its execution lease");
+      await expect(sql.begin(async (tx) => gridsWorkflowEffectJournal.record(tx, step, "stale", { sent: true }))).rejects.toThrow(
+        "lost its execution lease",
+      );
 
-      const ambiguous = await intents.prepare({
-        runId,
-        stepKey: "steps.1",
-        executionGeneration: 2,
-        effectKind: "ambiguous-external",
-        idempotencyKey: `workflow:${runId}:step:steps.1`,
-        request: { action: "httpRequest", host: "example.test" },
-      });
-      if (ambiguous.state !== "execute") throw new Error("Ambiguous effect was not claimed");
-      await intents.begin(ambiguous, async () => undefined);
-      await sql`
-        UPDATE grids.workflow_runs
-        SET execution_generation = 3, heartbeat_at = now(), lease_expires_at = now() + interval '2 minutes'
-        WHERE id = ${runId}::uuid
+      const [unchanged] = await sql<Array<{ effect_key: string; effect_state: string }>>`
+        SELECT effect_key, effect_state FROM grids.workflow_step_runs WHERE run_id = ${runId}::uuid
       `;
-      expect(
-        await intents.prepare({
-          runId,
-          stepKey: "steps.1",
-          executionGeneration: 3,
-          effectKind: "ambiguous-external",
-          idempotencyKey: `workflow:${runId}:step:steps.1`,
-          request: { action: "httpRequest", host: "example.test" },
-        }),
-      ).toMatchObject({ state: "needs_attention", error: { code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN" } });
+      expect(unchanged).toEqual({ effect_key: `workflow:${runId}:step:steps.0`, effect_state: "executing" });
+
+      // The worker that does hold the lease settles it, and the record commits
+      // with the work that produced it.
+      const held = { ...step, executionGeneration: 2 };
+      await sql.begin(async (tx) => gridsWorkflowEffectJournal.record(tx, held, `workflow:${runId}:step:steps.0`, { sent: true }));
+      expect(await gridsWorkflowEffectJournal.read(held)).toMatchObject({ state: "succeeded", output: { sent: true } });
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }
