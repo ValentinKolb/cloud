@@ -11,7 +11,7 @@ name: Docker Images
 #   workflow_dispatch       → build everything on demand.
 #
 # Apps ui-lab and pulse are intentionally skipped: ui-lab is dev-only, pulse
-# is not release-ready yet. The expeditions app moved out to the cloud-template
+# is not release-ready yet. Everything else in the workspace ships. The expeditions app moved out to the cloud-template
 # repo as the standalone reference app.
 
 on:
@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
 
           # Single source of truth for which apps produce a docker image.
-          ALL='["gateway","core","accounts","api-docs","contacts","dashboard","faq","files","gateway-ops","grids","ipa-hosts","notebooks","oauth","proxy-auth","quotes","spaces","tools","venue","weather"]'
+          ALL='["gateway","core","accounts","api-docs","assistant","contacts","dashboard","faq","files","gateway-ops","grids","ipa-hosts","mail","notebooks","oauth","proxy-auth","quotes","spaces","tools","venue","weather"]'
 
           if [[ "$REF" == refs/tags/cloud-*-v* ]]; then
             # Tag form: cloud-<image>-v<version>. Strip prefix + version to

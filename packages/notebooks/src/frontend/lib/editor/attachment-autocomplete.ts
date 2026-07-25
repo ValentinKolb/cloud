@@ -24,10 +24,11 @@ import {
   type CompletionSource,
   pickedCompletion,
 } from "@codemirror/autocomplete";
+import { formatBytes } from "@valentinkolb/cloud/shared";
+import { apiClient } from "@/api/client";
 import { createNotebookFetchCache } from "./_lib/notebook-fetch-cache";
 import { isInsideFencedCode } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
-import { apiClient } from "@/api/client";
 
 /** Lightweight attachment projection — only what the picker needs. */
 type AttRef = {
@@ -68,13 +69,6 @@ const attachmentCache = createNotebookFetchCache<AttRef[]>(
 
 /** Pretty byte size — `42 KB`, `3.7 MB`, etc. Used in the option
  *  detail to give the user a sense of file weight before picking. */
-const formatBytes = (n: number): string => {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-};
-
 /** Markdown for one attachment. Image → embedded markdown image,
  *  non-image → link. Filename is escaped against `]` and `\`. */
 const buildAttachmentMarkdown = (a: AttRef): string => {

@@ -1,7 +1,8 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { AppWorkspace, Chart, MarkdownEditor, MarkdownView, SegmentedControl, StatCell, toast } from "@valentinkolb/cloud/ui";
 import { desktop } from "@valentinkolb/cloud/desktop";
 import { DesktopWorkspace, workspace as desktopWorkspace } from "@valentinkolb/cloud/desktop/solid";
+import { formatBytes } from "@valentinkolb/cloud/shared";
+import { AppWorkspace, Chart, MarkdownEditor, MarkdownView, SegmentedControl, StatCell, toast } from "@valentinkolb/cloud/ui";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import type {
   DesktopLabBridge,
   MarkdownDirectoryNode,
@@ -75,12 +76,6 @@ const collectDirectoryIds = (nodes: MarkdownTreeNode[], ids: Set<string>) => {
     ids.add(node.id);
     collectDirectoryIds(node.children, ids);
   }
-};
-
-const formatBytes = (size: number) => {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 };
 
 const formatTime = (value: string) => new Date(value).toLocaleString();

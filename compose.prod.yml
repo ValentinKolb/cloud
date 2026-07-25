@@ -55,6 +55,10 @@ services:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-api-docs:latest
 
+  app-assistant:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-assistant:latest
+
   app-contacts:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-contacts:latest
@@ -78,6 +82,10 @@ services:
   app-ipa-hosts:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-ipa-hosts:latest
+
+  app-mail:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-mail:latest
 
   app-notebooks:
     <<: *app-defaults

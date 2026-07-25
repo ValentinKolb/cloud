@@ -1,5 +1,6 @@
 import type { Message, Usage } from "@valentinkolb/nessi";
 import { fileIcons } from "@valentinkolb/stdlib";
+import { formatBytes as sharedFormatBytes } from "../../shared/format";
 import { type AiAttachmentRef, parseAiAttachmentMarkers } from "../attachments";
 import { assistantVisibleTextFromMessage } from "../timeline";
 import type { AiStoredMessage, AiUserContentPart } from "../types";
@@ -91,12 +92,6 @@ export const FILE_INPUT_ACCEPT = [
   ...Array.from(TEXT_ATTACHMENT_MEDIA_TYPES),
   ...TEXT_ATTACHMENT_EXTENSIONS.map((extension) => `.${extension}`),
 ].join(",");
-
-export const formatBytes = (bytes: number): string => {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-};
 
 /** Seconds-granular work duration ("8s", "2m 14s") — stdlib's dates.formatDuration is deliberately minute-granular. */
 export const formatWorkedDuration = (ms: number): string => {
@@ -425,3 +420,6 @@ export const readTextFile = async (file: File): Promise<PendingAiTextFile> => {
     icon: fileIcons.getFileIcon({ name: file.name, type: "file", mimeType: mediaType }),
   };
 };
+
+/** Re-exported for existing callers; the implementation is shared. */
+export const formatBytes = (bytes: number): string => sharedFormatBytes(bytes);

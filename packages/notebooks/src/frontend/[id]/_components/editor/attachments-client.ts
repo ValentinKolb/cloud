@@ -4,8 +4,9 @@
  *
  * Browser-only. Uses the typed notebooks API client (same-origin via gateway).
  */
-import { images } from "@valentinkolb/stdlib/browser";
+
 import type { EditorView } from "@codemirror/view";
+import { images } from "@valentinkolb/stdlib/browser";
 import { apiClient } from "../../../../api/client";
 
 // =============================================================================
@@ -71,6 +72,8 @@ export {
   extractAttachmentIds,
 } from "../../../lib/editor/attachment-url";
 
+import { formatBytes as sharedFormatBytes } from "@valentinkolb/cloud/shared";
+
 export type AttachmentRef = {
   id: string;
   shortId: string;
@@ -102,12 +105,6 @@ export const uploadFile = async (notebookId: string, file: File): Promise<Attach
 };
 
 /** Human-readable file size — used by picker, detail panel, overview. */
-export const formatBytes = (b: number): string => {
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  return `${(b / 1024 / 1024).toFixed(1)} MB`;
-};
-
 /** Markdown form for inserting an attachment reference. Image vs file.
  *  Uses the short-id `attach://` scheme — see `service/attachments.ts`
  *  for why we picked `attach://` over `file://`. */
@@ -142,3 +139,6 @@ export const uploadAndInsert = async (view: EditorView, notebookId: string, file
   const att = await uploadFile(notebookId, file);
   insertAttachment(view, att);
 };
+
+/** Re-exported for existing callers; the implementation is shared. */
+export const formatBytes = (bytes: number): string => sharedFormatBytes(bytes);

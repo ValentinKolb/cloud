@@ -12,7 +12,7 @@
 
 import type { AiEnrichmentOverview } from "@valentinkolb/cloud/ai";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
-import { AI_PLATFORM_PROMPT_TEMPLATE, renderLiquidTemplate } from "@valentinkolb/cloud/shared";
+import { AI_PLATFORM_PROMPT_TEMPLATE, formatBytes, renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import {
   CheckboxCard,
   createTemplateEditorPanesValue,
@@ -446,12 +446,6 @@ export default function CoreSettingsForm(props: Props) {
     </div>
   );
 }
-
-const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-};
 
 type SettingsSection = {
   id: string;

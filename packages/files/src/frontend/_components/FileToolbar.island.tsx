@@ -1,3 +1,4 @@
+import { formatBytes } from "@valentinkolb/cloud/shared";
 import { Dropdown, ProgressBar, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -40,19 +41,6 @@ const validateName = (v: string | undefined) => {
   if (v.includes("/")) return "Name cannot contain /";
   if (v === "." || v === "..") return "Invalid name";
   return null;
-};
-
-const formatBytes = (bytes: number) => {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
-  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 };
 
 export default function FileToolbar({
