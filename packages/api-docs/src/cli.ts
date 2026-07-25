@@ -47,7 +47,10 @@ export const fetchOpenApiText = async (
   return response.text();
 };
 
-export const fetchOpenApiDocument = async (ctx: CloudCliContext, source: ApiDocSource): Promise<ReturnType<typeof parseOpenApiDocument>> => {
+export const fetchOpenApiDocument = async (
+  ctx: CloudCliContext,
+  source: ApiDocSource,
+): Promise<ReturnType<typeof parseOpenApiDocument>> => {
   const text = await fetchOpenApiText(ctx, source);
   try {
     return parseOpenApiDocument(JSON.parse(text) as unknown);
@@ -133,7 +136,6 @@ const limitFlag = flag.int({ default: 50, min: 1, max: 500, description: "Maximu
 export default defineCliCommands({
   name: "api-docs",
   summary: "Inspect the live OpenAPI documentation published by Cloud apps.",
-  requiresCloud: true,
   commands: [
     command("list", {
       summary: "List apps that publish OpenAPI documentation",

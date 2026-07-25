@@ -34,7 +34,7 @@ const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Res
       return value;
     },
     print: (value = "") => lines.push(value),
-    write: (value) => lines.push(value),
+    write: async (value) => void lines.push(value),
     error: (value) => lines.push(value),
     json: (value) => lines.push(JSON.stringify(value, null, 2)),
     jsonLine: (value) => lines.push(JSON.stringify(value)),
@@ -114,37 +114,33 @@ describe("accounts CLI", () => {
   });
 
   test("adds group members through the user-accessible group relation endpoint", async () => {
-    const { ctx, calls, lines } = createContext(
-      ["groups", "members", "add", "team"],
-      { user: "alice", yes: true },
-      [
-        jsonResponse({
-          groups: [{ id: "g1", provider: "local", name: "team", description: null, gidnumber: null }],
-          pagination,
-        }),
-        jsonResponse({
-          items: [
-            {
-              kind: "user",
-              user: {
-                id: "u1",
-                uid: "alice",
-                roles: ["user"],
-                provider: "local",
-                profile: "user",
-                givenname: "Alice",
-                sn: "Example",
-                displayName: "Alice Example",
-                mail: "alice@example.org",
-                avatarHash: null,
-              },
+    const { ctx, calls, lines } = createContext(["groups", "members", "add", "team"], { user: "alice", yes: true }, [
+      jsonResponse({
+        groups: [{ id: "g1", provider: "local", name: "team", description: null, gidnumber: null }],
+        pagination,
+      }),
+      jsonResponse({
+        items: [
+          {
+            kind: "user",
+            user: {
+              id: "u1",
+              uid: "alice",
+              roles: ["user"],
+              provider: "local",
+              profile: "user",
+              givenname: "Alice",
+              sn: "Example",
+              displayName: "Alice Example",
+              mail: "alice@example.org",
+              avatarHash: null,
             },
-          ],
-          pagination,
-        }),
-        jsonResponse({ message: "User added as member." }),
-      ],
-    );
+          },
+        ],
+        pagination,
+      }),
+      jsonResponse({ message: "User added as member." }),
+    ]);
 
     await accountsCli.run(ctx);
 
@@ -159,30 +155,26 @@ describe("accounts CLI", () => {
   });
 
   test("filters service account keys by resolved user", async () => {
-    const { ctx, calls } = createContext(
-      ["service-accounts", "list"],
-      { user: "alice" },
-      [
-        jsonResponse({
-          users: [
-            {
-              id: "u1",
-              uid: "alice",
-              roles: ["user"],
-              provider: "local",
-              profile: "user",
-              givenname: "Alice",
-              sn: "Example",
-              displayName: "Alice Example",
-              mail: "alice@example.org",
-              avatarHash: null,
-            },
-          ],
-          pagination,
-        }),
-        jsonResponse({ credentials: [], pagination: { page: 1, per_page: 50, total: 0, total_pages: 0, has_next: false } }),
-      ],
-    );
+    const { ctx, calls } = createContext(["service-accounts", "list"], { user: "alice" }, [
+      jsonResponse({
+        users: [
+          {
+            id: "u1",
+            uid: "alice",
+            roles: ["user"],
+            provider: "local",
+            profile: "user",
+            givenname: "Alice",
+            sn: "Example",
+            displayName: "Alice Example",
+            mail: "alice@example.org",
+            avatarHash: null,
+          },
+        ],
+        pagination,
+      }),
+      jsonResponse({ credentials: [], pagination: { page: 1, per_page: 50, total: 0, total_pages: 0, has_next: false } }),
+    ]);
 
     await accountsCli.run(ctx);
 
@@ -193,20 +185,16 @@ describe("accounts CLI", () => {
   });
 
   test("detects exact user matches across all pages before resolving", async () => {
-    const { ctx, calls } = createContext(
-      ["service-accounts", "list"],
-      { user: "Sam Example" },
-      [
-        jsonResponse({
-          users: [user({ id: "u1", uid: "sam.one", displayName: "Sam Example", mail: "sam.one@example.org" })],
-          pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
-        }),
-        jsonResponse({
-          users: [user({ id: "u2", uid: "sam.two", displayName: "Sam Example", mail: "sam.two@example.org" })],
-          pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
-        }),
-      ],
-    );
+    const { ctx, calls } = createContext(["service-accounts", "list"], { user: "Sam Example" }, [
+      jsonResponse({
+        users: [user({ id: "u1", uid: "sam.one", displayName: "Sam Example", mail: "sam.one@example.org" })],
+        pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
+      }),
+      jsonResponse({
+        users: [user({ id: "u2", uid: "sam.two", displayName: "Sam Example", mail: "sam.two@example.org" })],
+        pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
+      }),
+    ]);
 
     await expect(accountsCli.run(ctx)).rejects.toThrow('User "Sam Example" is ambiguous');
     expect(calls.map((call) => call.path)).toEqual([
@@ -216,21 +204,17 @@ describe("accounts CLI", () => {
   });
 
   test("detects exact user entity matches across all pages before group mutations", async () => {
-    const { ctx, calls } = createContext(
-      ["groups", "members", "add", "team"],
-      { user: "Sam Example", yes: true },
-      [
-        jsonResponse({ groups: [group({ id: "g1", name: "team" })], pagination }),
-        jsonResponse({
-          items: [{ kind: "user", user: user({ id: "u1", uid: "sam.one", displayName: "Sam Example", mail: "sam.one@example.org" }) }],
-          pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
-        }),
-        jsonResponse({
-          items: [{ kind: "user", user: user({ id: "u2", uid: "sam.two", displayName: "Sam Example", mail: "sam.two@example.org" }) }],
-          pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
-        }),
-      ],
-    );
+    const { ctx, calls } = createContext(["groups", "members", "add", "team"], { user: "Sam Example", yes: true }, [
+      jsonResponse({ groups: [group({ id: "g1", name: "team" })], pagination }),
+      jsonResponse({
+        items: [{ kind: "user", user: user({ id: "u1", uid: "sam.one", displayName: "Sam Example", mail: "sam.one@example.org" }) }],
+        pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
+      }),
+      jsonResponse({
+        items: [{ kind: "user", user: user({ id: "u2", uid: "sam.two", displayName: "Sam Example", mail: "sam.two@example.org" }) }],
+        pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
+      }),
+    ]);
 
     await expect(accountsCli.run(ctx)).rejects.toThrow('User "Sam Example" is ambiguous');
     expect(calls.map((call) => call.path)).toEqual([
@@ -241,20 +225,16 @@ describe("accounts CLI", () => {
   });
 
   test("detects exact group matches across all pages before resolving", async () => {
-    const { ctx, calls } = createContext(
-      ["groups", "members", "list", "team"],
-      {},
-      [
-        jsonResponse({
-          groups: [group({ id: "g1", name: "team" })],
-          pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
-        }),
-        jsonResponse({
-          groups: [group({ id: "g2", name: "team" })],
-          pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
-        }),
-      ],
-    );
+    const { ctx, calls } = createContext(["groups", "members", "list", "team"], {}, [
+      jsonResponse({
+        groups: [group({ id: "g1", name: "team" })],
+        pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
+      }),
+      jsonResponse({
+        groups: [group({ id: "g2", name: "team" })],
+        pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
+      }),
+    ]);
 
     await expect(accountsCli.run(ctx)).rejects.toThrow('Group "team" is ambiguous');
     expect(calls.map((call) => call.path)).toEqual([

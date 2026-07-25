@@ -12,10 +12,7 @@ const sse = (...events: unknown[]) =>
     headers: { "Content-Type": "text/event-stream" },
   });
 
-const createContext = (
-  args: string[],
-  fetcher: CloudCliContext["fetch"],
-): { ctx: CloudCliContext; stdout: string[]; stderr: string[] } => {
+const createContext = (args: string[], fetcher: CloudCliContext["fetch"]): { ctx: CloudCliContext; stdout: string[]; stderr: string[] } => {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const ctx: CloudCliContext = {
@@ -29,11 +26,12 @@ const createContext = (
     },
     fetch: fetcher,
     readJson: async <T>(response: Response) => {
-      if (!response.ok) throw new Error(`${response.status} ${(await response.json() as { message?: string }).message ?? response.statusText}`);
+      if (!response.ok)
+        throw new Error(`${response.status} ${((await response.json()) as { message?: string }).message ?? response.statusText}`);
       return (await response.json()) as T;
     },
     print: (value = "") => stdout.push(`${value}\n`),
-    write: (value) => stdout.push(value),
+    write: async (value) => void stdout.push(value),
     error: (value) => stderr.push(value),
     json: (value) => stdout.push(`${JSON.stringify(value)}\n`),
     jsonLine: (value) => stdout.push(`${JSON.stringify(value)}\n`),

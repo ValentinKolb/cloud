@@ -102,7 +102,7 @@ const createContext = (
       return value;
     },
     print: (value = "") => lines.push(value),
-    write: (value) => lines.push(value),
+    write: async (value) => void lines.push(value),
     error: (value) => lines.push(value),
     json: (value) => jsonValues.push(value),
     jsonLine: (value) => jsonValues.push(value),

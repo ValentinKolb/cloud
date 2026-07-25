@@ -37,7 +37,7 @@ const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Res
       return value;
     },
     print: (value = "") => lines.push(value),
-    write: (value) => lines.push(value),
+    write: async (value) => void lines.push(value),
     error: (value) => lines.push(value),
     json: (value) => lines.push(JSON.stringify(value, null, 2)),
     jsonLine: (value) => lines.push(JSON.stringify(value)),

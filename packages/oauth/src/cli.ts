@@ -119,7 +119,6 @@ const updateInput = (flags: {
 export default defineCliCommands({
   name: "oauth",
   summary: "Manage OAuth clients.",
-  requiresCloud: true,
   commands: [
     command("clients list", {
       summary: "List OAuth clients",

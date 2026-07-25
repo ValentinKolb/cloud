@@ -99,7 +99,6 @@ const printMessage = (ctx: CloudCliContext, result: MessageResponse) => {
 export default defineCliCommands({
   name: "ipa-hosts",
   summary: "Manage IPA hosts and hostgroups.",
-  requiresCloud: true,
   commands: [
     command("hosts list", {
       summary: "List IPA hosts",

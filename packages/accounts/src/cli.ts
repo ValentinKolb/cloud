@@ -536,7 +536,6 @@ const relationEntities = async (
 export default defineCliCommands({
   name: "accounts",
   summary: "Manage accounts, groups, requests, audit events, and service-account credentials.",
-  requiresCloud: true,
   commands: [
     command("users list", {
       summary: "List accounts",

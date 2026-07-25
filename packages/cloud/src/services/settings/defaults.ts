@@ -292,15 +292,16 @@ for (const setting of SETTINGS) {
 /** Group display labels */
 export const GROUP_LABELS: Record<string, string> = {
   app: "Application",
+  ai: "AI",
   freeipa: "FreeIPA",
   user: "User Management",
   mail: "Mail",
+  notifications: "Notifications",
   gotenberg: "PDF Rendering",
   security: "Security",
   legal: "Legal",
 };
 
-/** Register additional settings (used by apps to add their own defaults). */
 /** Fields whose divergence changes behaviour rather than just wording. */
 const CONFLICT_FIELDS = ["kind", "default", "min", "max"] as const;
 

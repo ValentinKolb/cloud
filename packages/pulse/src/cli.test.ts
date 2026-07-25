@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { CloudCliContext, CloudCliFlags, CloudCliOutputMode } from "@valentinkolb/cloud/cli";
 import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { CloudCliContext, CloudCliFlags, CloudCliOutputMode } from "@valentinkolb/cloud/cli";
 import pulseCli from "./cli";
 
 type FetchCall = {
@@ -43,7 +43,7 @@ const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Res
       return value;
     },
     print: (value = "") => lines.push(value),
-    write: (value) => lines.push(value),
+    write: async (value) => void lines.push(value),
     error: (value) => lines.push(value),
     json: (value) => lines.push(JSON.stringify(value, null, 2)),
     jsonLine: (value) => lines.push(JSON.stringify(value)),
@@ -386,11 +386,11 @@ describe("pulse CLI", () => {
   });
 
   test("lists bounded field definitions by source and role", async () => {
-    const { ctx, calls, tables } = createContext(
-      ["fields", "list", baseId],
-      { source: "docker", role: "attribute", q: "request" },
-      [jsonResponse(base), jsonResponse([source]), jsonResponse(inventory.fields)],
-    );
+    const { ctx, calls, tables } = createContext(["fields", "list", baseId], { source: "docker", role: "attribute", q: "request" }, [
+      jsonResponse(base),
+      jsonResponse([source]),
+      jsonResponse(inventory.fields),
+    ]);
 
     await pulseCli.run(ctx);
 
@@ -611,11 +611,11 @@ describe("pulse CLI", () => {
 
   test("clears a configured metrics bearer token explicitly", async () => {
     const configuredSource = { ...source, kind: "metrics", bearerTokenConfigured: true };
-    const { ctx, calls } = createContext(
-      ["sources", "update", baseId, "docker"],
-      { "clear-bearer-token": true },
-      [jsonResponse(base), jsonResponse([configuredSource]), jsonResponse({ ...configuredSource, bearerTokenConfigured: false })],
-    );
+    const { ctx, calls } = createContext(["sources", "update", baseId, "docker"], { "clear-bearer-token": true }, [
+      jsonResponse(base),
+      jsonResponse([configuredSource]),
+      jsonResponse({ ...configuredSource, bearerTokenConfigured: false }),
+    ]);
 
     await pulseCli.run(ctx);
 
@@ -742,11 +742,11 @@ describe("pulse CLI", () => {
       config: { dsl: nextDsl, refreshIntervalSeconds: 60 },
     });
 
-    const { ctx: refreshCtx, calls: refreshCalls } = createContext(
-      ["dashboards", "update", baseId, "Ops"],
-      { refresh: "never" },
-      [jsonResponse(base), jsonResponse([dashboard]), jsonResponse({ ...dashboard, config: { ...dashboard.config, refreshIntervalSeconds: null } })],
-    );
+    const { ctx: refreshCtx, calls: refreshCalls } = createContext(["dashboards", "update", baseId, "Ops"], { refresh: "never" }, [
+      jsonResponse(base),
+      jsonResponse([dashboard]),
+      jsonResponse({ ...dashboard, config: { ...dashboard.config, refreshIntervalSeconds: null } }),
+    ]);
 
     await pulseCli.run(refreshCtx);
 

@@ -2,9 +2,13 @@
  * Info Blocks Extension for Marked
  *
  * Renders custom info blocks with syntax:
- * ::: note
+ * :::note
  * Content here
  * :::
+ *
+ * The type follows the colons directly — `::: note` with a space does not
+ * match. An optional argument after the type overrides the label:
+ * `:::warning Before deleting`.
  *
  * Supported types: note, info, success, warning, danger
  */

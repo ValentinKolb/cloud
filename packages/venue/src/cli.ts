@@ -242,7 +242,6 @@ const printMutationResult = (ctx: CloudCliContext, result: unknown, fallback: st
 export default defineCliCommands({
   name: "venue",
   summary: "Manage venues.",
-  requiresCloud: true,
   commands: [
     command("list", {
       summary: "List accessible venues",

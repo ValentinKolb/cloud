@@ -33,7 +33,8 @@ export type CloudCliContext = {
   readJson: <T>(response: Response) => Promise<T>;
   print: (value?: string) => void;
   /** Write a stdout chunk without adding a newline. */
-  write: (value: string) => void;
+  /** Resolves once the value is flushed; await it when writing large output. */
+  write: (value: string) => Promise<void>;
   /** Print one informational or progress line to stderr. */
   error: (value: string) => void;
   json: (value: unknown) => void;
@@ -51,8 +52,6 @@ export type CloudCliModule = {
   run: (context: CloudCliContext) => Promise<number | void> | number | void;
 };
 
-export const defineCloudCliModule = <TModule extends CloudCliModule>(module: TModule): TModule => module;
-
 export * from "./access";
-export * from "./output";
 export * from "./commands";
+export * from "./output";
