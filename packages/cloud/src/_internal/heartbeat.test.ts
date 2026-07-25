@@ -11,6 +11,16 @@ const entry = {
   routes: ["/app/test"],
 } satisfies AppRegistryEntry;
 
+/** Matches what the ephemeral store returns; the heartbeat ignores the value. */
+const upsertResult = () => ({
+  key: `apps/${entry.id}`,
+  value: entry,
+  version: "1",
+  createdAt: 0,
+  updatedAt: 0,
+  expiresAt: 0,
+});
+
 const waitUntil = async (predicate: () => boolean, timeoutMs = 250): Promise<void> => {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
@@ -32,11 +42,11 @@ describe("createHeartbeat", () => {
         maxConcurrent = Math.max(maxConcurrent, concurrent);
         await Bun.sleep(5);
         concurrent -= 1;
-        return { ok: true as const };
+        return upsertResult();
       },
       remove: async () => {
         removals += 1;
-        return { ok: true as const };
+        return true;
       },
     };
 
@@ -59,9 +69,9 @@ describe("createHeartbeat", () => {
       upsert: async () => {
         attempts += 1;
         if (attempts === 2) throw new Error("registry unavailable");
-        return { ok: true as const };
+        return upsertResult();
       },
-      remove: async () => ({ ok: true as const }),
+      remove: async () => true,
     };
 
     const heartbeat = createHeartbeat("test", entry, {
@@ -78,28 +88,26 @@ describe("createHeartbeat", () => {
   });
 
   test("waits for initial registration before removing a stopped app", async () => {
-    let finishRegistration: (() => void) | null = null;
+    const registration = Promise.withResolvers<void>();
     const operations: string[] = [];
     const registry = {
       upsert: async () => {
         operations.push("upsert:start");
-        await new Promise<void>((resolve) => {
-          finishRegistration = resolve;
-        });
+        await registration.promise;
         operations.push("upsert:end");
-        return { ok: true as const };
+        return upsertResult();
       },
       remove: async () => {
         operations.push("remove");
-        return { ok: true as const };
+        return true;
       },
     };
 
     const heartbeat = createHeartbeat("test", entry, { intervalMs: 10, registry });
     const starting = heartbeat.start();
-    await waitUntil(() => finishRegistration !== null);
+    await waitUntil(() => operations.includes("upsert:start"));
     const stopping = heartbeat.stop();
-    finishRegistration?.();
+    registration.resolve();
     await Promise.all([starting, stopping]);
 
     expect(operations).toEqual(["upsert:start", "upsert:end", "remove"]);
