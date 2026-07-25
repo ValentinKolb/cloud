@@ -33,6 +33,19 @@ const withIsolatedDatabase = async (run: (database: SQL) => Promise<void>) => {
 
 describe("grids schema migration", () => {
   postgresTest(
+    "says which container has not run yet when the kernel schema is missing",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        // Nothing declares an ordering between the app containers, so on an
+        // empty database Grids can migrate before app-core. Postgres would
+        // refuse the health view naming a table nobody would think to look for.
+        await expect(migrate(database)).rejects.toThrow(/app-core has not migrated yet/);
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
     "serializes concurrent setup and remains idempotent",
     async () => {
       await withIsolatedDatabase(async (database) => {

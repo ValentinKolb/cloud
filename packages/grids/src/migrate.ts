@@ -1322,6 +1322,26 @@ const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
 };
 
 const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
+  /*
+   * The workflow half of this view reads the kernel's tables, which app-core
+   * creates. Nothing declares an ordering between the app containers — they all
+   * start at once and each migrates itself — so on an empty database Grids can
+   * get here first, and Postgres would refuse the view with a bare "relation
+   * does not exist" naming a table nobody would think to look for.
+   *
+   * Refusing loudly is right: the container restarts, and by then app-core has
+   * been through. Creating the view without its workflow counters instead would
+   * leave a Grids that reports its own health as fine while knowing nothing
+   * about the runs it depends on.
+   */
+  const [kernel] = await sql<Array<{ run: string | null }>>`SELECT to_regclass('workflows.run')::text AS run`;
+  if (!kernel?.run) {
+    throw new Error(
+      "grids.operational_health needs the workflows schema, which app-core has not migrated yet. " +
+        "This is expected on a cold database: start app-core, or wait for this container's restart.",
+    );
+  }
+
   await sql`
     CREATE OR REPLACE VIEW grids.operational_health AS
     WITH outbox AS (
