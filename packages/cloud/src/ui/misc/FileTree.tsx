@@ -8,21 +8,10 @@
 import { fileIcons } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import ContextMenu from "./ContextMenu";
+import { allFolderPaths, buildTree, type FileTreeEntry, flattenVisible, parentOf, type TreeNode } from "./file-tree";
 import Dropdown, { type DropdownItem } from "./Dropdown";
 
-export type FileTreeEntry = {
-  /** Canonical identity, e.g. "/input/report.csv". */
-  path: string;
-  /** Folders are usually implicit from paths — explicit entries model empty dirs. */
-  kind?: "file" | "folder";
-  size?: number;
-  mediaType?: string;
-  updatedAt?: string;
-  /** Icon override (tabler class without "ti " prefix); default derives from the name. */
-  icon?: string;
-  /** Small trailing badge, e.g. "ro" on read-only mounts. */
-  badge?: string;
-};
+export type { FileTreeEntry } from "./file-tree";
 
 /** Presence of a callback enables the matching UI affordance. */
 export type FileTreeActions = {
@@ -48,66 +37,6 @@ export type FileTreeProps = {
   actions?: FileTreeActions;
   class?: string;
 };
-
-type TreeNode = {
-  entry: FileTreeEntry;
-  name: string;
-  depth: number;
-  isFolder: boolean;
-  children: TreeNode[];
-};
-
-const parentOf = (path: string): string => {
-  const index = path.lastIndexOf("/");
-  return index <= 0 ? "/" : path.slice(0, index);
-};
-
-const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1) || path;
-
-/** Flat paths → sorted tree (folders first, then files, both alphabetical). */
-const buildTree = (entries: FileTreeEntry[]): TreeNode[] => {
-  const byPath = new Map<string, FileTreeEntry>();
-  const folders = new Set<string>();
-  for (const entry of entries) {
-    byPath.set(entry.path, entry);
-    if (entry.kind === "folder") folders.add(entry.path);
-    // Register all ancestor folders of every entry.
-    for (let dir = parentOf(entry.path); dir !== "/"; dir = parentOf(dir)) folders.add(dir);
-  }
-
-  const nodeFor = (path: string, depth: number): TreeNode => {
-    const entry = byPath.get(path) ?? { path, kind: "folder" as const };
-    const isFolder = folders.has(path);
-    return { entry, name: nameOf(path), depth, isFolder, children: [] };
-  };
-
-  const childrenOf = (dir: string, depth: number): TreeNode[] => {
-    const prefix = dir === "/" ? "/" : `${dir}/`;
-    const names = new Set<string>();
-    for (const path of [...byPath.keys(), ...folders]) {
-      if (!path.startsWith(prefix) || path === dir) continue;
-      const rest = path.slice(prefix.length);
-      const head = rest.split("/")[0];
-      if (head) names.add(head);
-    }
-    const nodes = [...names].map((name) => {
-      const node = nodeFor(`${prefix}${name}`, depth);
-      if (node.isFolder) node.children = childrenOf(node.entry.path, depth + 1);
-      return node;
-    });
-    return nodes.sort((a, b) => (a.isFolder === b.isFolder ? a.name.localeCompare(b.name) : a.isFolder ? -1 : 1));
-  };
-
-  return childrenOf("/", 0);
-};
-
-const flattenVisible = (nodes: TreeNode[], expanded: Set<string>): TreeNode[] =>
-  nodes.flatMap((node) => [node, ...(node.isFolder && expanded.has(node.entry.path) ? flattenVisible(node.children, expanded) : [])]);
-
-const allFolderPaths = (nodes: TreeNode[]): string[] =>
-  nodes.flatMap((node) => (node.isFolder ? [node.entry.path, ...allFolderPaths(node.children)] : []));
-
-export const __fileTreeTest = { buildTree, flattenVisible, allFolderPaths };
 
 export default function FileTree(props: FileTreeProps) {
   const tree = createMemo(() => buildTree(props.entries));

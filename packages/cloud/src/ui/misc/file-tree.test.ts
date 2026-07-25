@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { __fileTreeTest, type FileTreeEntry } from "./FileTree";
-
-const { buildTree, flattenVisible, allFolderPaths } = __fileTreeTest;
+import { allFolderPaths, buildTree, type FileTreeEntry, flattenVisible } from "./file-tree";
 
 const entries: FileTreeEntry[] = [
   { path: "/input/report.csv", size: 10 },
