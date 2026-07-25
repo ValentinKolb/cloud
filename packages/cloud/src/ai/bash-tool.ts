@@ -88,9 +88,7 @@ const renderSkillsReadme = (skills: AiSkillUserView[]): string => {
 };
 
 /** One-line skill index for the system prompt (progressive disclosure: details live in SKILL.md). */
-export const listActiveAiSkillHints = async (input: {
-  userId: string;
-}): Promise<{ slug: string; description: string }[]> => {
+export const listActiveAiSkillHints = async (input: { userId: string }): Promise<{ slug: string; description: string }[]> => {
   const skills = await aiSkillStore.activeSkills(input);
   return skills.map((skill) => ({ slug: skill.slug, description: skill.description }));
 };

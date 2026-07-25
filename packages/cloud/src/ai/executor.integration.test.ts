@@ -200,7 +200,8 @@ describe("AI executor integration", () => {
       expect(messages[0]?.message.role).toBe("user");
       expect(messages[1]?.message.role).toBe("assistant");
       expect(messages[1]?.loopId).toBe(turn.id);
-      const assistantText = messages[1]?.message.role === "assistant" ? messages[1].message.content.map((b) => (b.type === "text" ? b.text : "")).join("") : "";
+      const assistantText =
+        messages[1]?.message.role === "assistant" ? messages[1].message.content.map((b) => (b.type === "text" ? b.text : "")).join("") : "";
       expect(assistantText).toContain("Hello from the mock model");
     } finally {
       await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
@@ -246,7 +247,12 @@ describe("AI executor integration", () => {
       });
       expect(claim?.turn.attempt).toBe(2);
 
-      await createExecutor("live-worker").run({ conversationId: conversation.id, turnId: turn.id, claim: claim!, signal: new AbortController().signal });
+      await createExecutor("live-worker").run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
 
       const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
       // Exactly one user message (no duplicate) and one assistant answer.

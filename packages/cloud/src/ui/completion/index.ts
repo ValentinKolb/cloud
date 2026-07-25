@@ -10,31 +10,30 @@
  */
 
 export {
-  type Suggestion,
-  type SuggestContext,
-  type Completion,
-  type QueryContext,
-  type DetectOptions,
-  type ResolveResult,
-  TRIGGER_CHARS,
-  WORD_CHAR,
-  GHOST_SENTINEL,
-  abbreviations,
-  detectQuery,
-  resolveSuggestions,
-  suggestSync,
-  pickGhost,
-  collectKnownLabels,
-  buildSuggestContext,
-  displayLabel,
-} from "./engine";
-
-export {
-  type TryExpandOptions,
+  applySuggestion,
   resetCompletionState,
+  type TryExpandOptions,
   tryExpand,
   tryRestore,
-  applySuggestion,
 } from "./behaviors";
+export {
+  abbreviations,
+  buildSuggestContext,
+  type Completion,
+  collectKnownLabels,
+  type DetectOptions,
+  detectQuery,
+  displayLabel,
+  GHOST_SENTINEL,
+  pickGhost,
+  type QueryContext,
+  type ResolveResult,
+  resolveSuggestions,
+  type SuggestContext,
+  type Suggestion,
+  suggestSync,
+  TRIGGER_CHARS,
+  WORD_CHAR,
+} from "./engine";
 
-export { type RenderOptions, plainTextHighlight, renderWithOverlay } from "./overlay";
+export { plainTextHighlight, type RenderOptions, renderWithOverlay } from "./overlay";

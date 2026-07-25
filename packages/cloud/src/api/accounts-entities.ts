@@ -1,20 +1,20 @@
+import { err, fail } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { accountsAppService as accountsService } from "../services";
-import { respond, auth, jsonResponse, requiresAuth, v } from "../server";
-import { err, fail } from "@valentinkolb/stdlib";
 import {
+  createPagination,
   EntityKindSchema,
   EntityListItemSchema,
   ErrorResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
+  parsePagination,
   UserProfileSchema,
   UserProviderSchema,
-  createPagination,
-  parsePagination,
 } from "../contracts";
+import { auth, jsonResponse, requiresAuth, respond, v } from "../server";
+import { accountsAppService as accountsService } from "../services";
 
 const EntitiesListResponseSchema = z.object({
   items: z.array(EntityListItemSchema),

@@ -5,3 +5,5 @@ export { default as AdminLayout } from "./AdminLayout";
 export { hasDedicatedRuntimeRoute, resolveRuntimeRoute, visibleNavigationApps } from "./app-navigation";
 export { default as Layout } from "./Layout";
 export { getRuntimeContext, type RuntimeContext } from "./runtime";
+export type { UrlFilterField } from "./url-filter";
+export { createUrlFilter, flag, list, oneOf, page, text } from "./url-filter";

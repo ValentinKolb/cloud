@@ -1,23 +1,23 @@
-import { redis, sql } from "bun";
 import {
-  generateAuthenticationOptions,
-  generateRegistrationOptions,
-  verifyAuthenticationResponse,
-  verifyRegistrationResponse,
   type AuthenticationResponseJSON,
   type AuthenticatorTransportFuture,
+  generateAuthenticationOptions,
+  generateRegistrationOptions,
   type PublicKeyCredentialCreationOptionsJSON,
   type PublicKeyCredentialRequestOptionsJSON,
   type RegistrationResponseJSON,
+  verifyAuthenticationResponse,
+  verifyRegistrationResponse,
   type WebAuthnCredential,
 } from "@simplewebauthn/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { redis, sql } from "bun";
 import type { User, WebAuthnPasskey } from "../contracts/shared";
-import { audit } from "./audit";
 import { accounts } from "./accounts";
+import { audit } from "./audit";
 import { logger } from "./logging";
-import { coreSettings } from "./settings/api";
 import { isUniqueViolation, toPgTextArray } from "./postgres";
+import { coreSettings } from "./settings/api";
 
 const CHALLENGE_TTL_SECONDS = 300;
 const REGISTRATION_CHALLENGE_PREFIX = "webauthn:registration:";

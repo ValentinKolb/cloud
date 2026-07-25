@@ -67,9 +67,9 @@ describe("Cloud guided Help corpus", () => {
     }
 
     const covered = new Set(helpPackages);
-    expect(
-      registeredPackages.filter((packageName) => !covered.has(packageName as (typeof helpPackages)[number])),
-    ).toEqual([...registeredHelpExemptions]);
+    expect(registeredPackages.filter((packageName) => !covered.has(packageName as (typeof helpPackages)[number]))).toEqual([
+      ...registeredHelpExemptions,
+    ]);
   });
 
   test("every app-owned article renders through the shared guided profile", async () => {

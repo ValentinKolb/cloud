@@ -11,12 +11,12 @@
  */
 import { For, type JSX, Show } from "solid-js";
 import {
-  toggleBold,
-  toggleItalic,
-  toggleCode,
   insertLink,
-  toggleHeading,
+  toggleBold,
   toggleBulletList,
+  toggleCode,
+  toggleHeading,
+  toggleItalic,
   toggleNumberedList,
   toggleQuote,
 } from "./actions";

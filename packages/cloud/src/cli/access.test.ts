@@ -111,9 +111,7 @@ describe("access CLI helper", () => {
 
     await mod.run(ctx);
 
-    expect(lines).toEqual([
-      JSON.stringify({ resource: { id: "resource-a", label: "resource-a" }, entries: state.entries }),
-    ]);
+    expect(lines).toEqual([JSON.stringify({ resource: { id: "resource-a", label: "resource-a" }, entries: state.entries })]);
   });
 
   test("uuid principal refs are used directly instead of entity search", async () => {

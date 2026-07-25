@@ -9,8 +9,9 @@
  * One process = one app = one watcher; lives until `stopRuntimeWatcher()`
  * (called from defineApp's shutdown handler) or process exit.
  */
-import { logger } from "../services/logging";
+
 import type { CloudRuntime } from "../contracts/app";
+import { logger } from "../services/logging";
 import { appRegistry, listApps } from "./registry";
 import { buildRuntimeFromRegistry } from "./runtime-context";
 

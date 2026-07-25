@@ -21,8 +21,8 @@ import type {
 } from "./types";
 import { validateAiTurnRequest } from "./validate";
 
-export { validateAiTurnRequest, isAiSettingsError } from "./validate";
 export type { ValidateAiTurnInput } from "./validate";
+export { isAiSettingsError, validateAiTurnRequest } from "./validate";
 
 const log = logger("ai:runtime");
 
@@ -69,7 +69,11 @@ export type SubmitAiChatTurnInput = {
 };
 
 export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ turn: AiTurn; message: AiStoredMessage }> => {
-  const { resolved } = await validateAiTurnRequest({ input: input.input, modelPolicy: input.modelPolicy, requestedModelId: input.requestedModelId });
+  const { resolved } = await validateAiTurnRequest({
+    input: input.input,
+    modelPolicy: input.modelPolicy,
+    requestedModelId: input.requestedModelId,
+  });
   const runConfig: AiChatTurnRunConfig = {
     kind: "chat",
     input: input.input,
@@ -109,7 +113,11 @@ export const submitAiCompaction = async (input: SubmitAiCompactionInput): Promis
     modelPolicy: input.modelPolicy,
     requestedModelId: input.requestedModelId,
   };
-  const turn = await aiConversationStore.createTurn({ conversationId: input.conversationId, modelProfileId: resolved.profile.id, runConfig });
+  const turn = await aiConversationStore.createTurn({
+    conversationId: input.conversationId,
+    modelProfileId: resolved.profile.id,
+    runConfig,
+  });
   await enqueueAiTurn({ conversationId: input.conversationId, turnId: turn.id });
   return { turn };
 };
@@ -182,7 +190,9 @@ export const submitAiTurnAction = async (input: {
     if (pending.kind === "client_tool") return { ok: false, status: 400, message: "Frontend tool requests require a tool result." };
 
     if (input.action.approved && input.action.remember === "always" && pending.allowAlways && input.toolApprovalContext) {
-      await rememberAiToolApproval(input.toolApprovalContext, { toolName: pending.name, approvalScope: pending.approvalScope }).catch(() => undefined);
+      await rememberAiToolApproval(input.toolApprovalContext, { toolName: pending.name, approvalScope: pending.approvalScope }).catch(
+        () => undefined,
+      );
     }
     await aiToolAudit
       .noteApprovalResolved({
@@ -204,7 +214,9 @@ export const submitAiTurnAction = async (input: {
       event: { type: "tool_result", callId: input.callId, result: input.action.result },
     });
     if (!resolved) return { ok: false, status: 409, message: "AI action was already resolved." };
-    await aiToolAudit.noteToolCompleted({ turnId: input.turnId, callId: input.callId, result: input.action.result, isError: false }).catch(() => undefined);
+    await aiToolAudit
+      .noteToolCompleted({ turnId: input.turnId, callId: input.callId, result: input.action.result, isError: false })
+      .catch(() => undefined);
   }
 
   await enqueueAiTurn({ conversationId: input.conversationId, turnId: input.turnId });
@@ -222,8 +234,22 @@ const runClaimedTurn = async (
   onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>,
 ): Promise<void> => {
   const claim =
-    (await aiConversationStore.claimTurn({ ...job, leaseOwner, leaseMs: AI_TURN_LEASE_MS, from: "queue", maxAttempts: AI_TURN_MAX_ATTEMPTS, runBudgetMs: AI_TURN_RUN_BUDGET_MS })) ??
-    (await aiConversationStore.claimTurn({ ...job, leaseOwner, leaseMs: AI_TURN_LEASE_MS, from: "waiting", maxAttempts: AI_TURN_MAX_ATTEMPTS, runBudgetMs: AI_TURN_RUN_BUDGET_MS }));
+    (await aiConversationStore.claimTurn({
+      ...job,
+      leaseOwner,
+      leaseMs: AI_TURN_LEASE_MS,
+      from: "queue",
+      maxAttempts: AI_TURN_MAX_ATTEMPTS,
+      runBudgetMs: AI_TURN_RUN_BUDGET_MS,
+    })) ??
+    (await aiConversationStore.claimTurn({
+      ...job,
+      leaseOwner,
+      leaseMs: AI_TURN_LEASE_MS,
+      from: "waiting",
+      maxAttempts: AI_TURN_MAX_ATTEMPTS,
+      runBudgetMs: AI_TURN_RUN_BUDGET_MS,
+    }));
 
   if (!claim) return; // Already owned, done, cancelled, or attempt-capped.
 
@@ -325,12 +351,18 @@ export const startAiRuntime = (
       }
     })().catch((error) => {
       if (!controller.signal.aborted) {
-        log.error("AI turn worker stopped unexpectedly", { consumerId, error: error instanceof Error ? error.message : "AI turn worker failed" });
+        log.error("AI turn worker stopped unexpectedly", {
+          consumerId,
+          error: error instanceof Error ? error.message : "AI turn worker failed",
+        });
       }
     });
   }
 
-  const runSweep = () => void sweepAiRuntime().catch((error) => log.warn("AI runtime sweep failed", { error: error instanceof Error ? error.message : "sweep failed" }));
+  const runSweep = () =>
+    void sweepAiRuntime().catch((error) =>
+      log.warn("AI runtime sweep failed", { error: error instanceof Error ? error.message : "sweep failed" }),
+    );
   runSweep();
   const sweepTimer = setInterval(runSweep, AI_SWEEP_INTERVAL_MS);
   if (typeof sweepTimer === "object" && "unref" in sweepTimer) sweepTimer.unref();

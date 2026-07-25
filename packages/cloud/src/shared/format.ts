@@ -4,21 +4,22 @@
  * These existed as ~30 local copies that disagreed with each other: the same
  * count rendered as `1.234.567`, `1,234,567` and `1234.6k` on adjacent pages,
  * the same duration as `90.00s` and `2m`, and seven hand-written date
- * formatters hardcoded `de-DE` and so ignored the viewer's configured locale
- * and timezone entirely.
+ * formatters hardcoded `de-DE`, so the viewer's configured locale and timezone
+ * were ignored outright.
  *
- * Anything `@valentinkolb/stdlib` already owns is delegated to, not
- * reimplemented — bytes via `text.pprintBytes`, dates via `dates.*`. Only the
- * pieces stdlib has no equivalent for live here, and a feature request is out
- * to move number/percent/duration formatting there too; when it lands these
- * become thin re-exports.
+ * Everything here now delegates to `@valentinkolb/stdlib`, which owns the
+ * number, percent, duration, byte and date formatting. This module stays as
+ * the Cloud-facing surface for two reasons: it keeps the import site stable
+ * for the pages that already use it, and it adds the couple of conveniences
+ * that are Cloud's rather than stdlib's — a part-of-total ratio, and date
+ * helpers that treat an absent value as absent instead of throwing.
+ *
+ * Prefer `text.pprint*` directly in new code that has no null handling to do.
  */
 import { type DateContext, dates, text } from "@valentinkolb/stdlib";
 
 /** Shown where a value is genuinely absent, as opposed to zero. */
 export const EMPTY_VALUE = "—";
-
-const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
 export type FormatOptions = {
   /** Rendered when the value is null, undefined or not finite. */
@@ -30,29 +31,18 @@ export type FormatOptions = {
  * Grouped count. `compact` switches to `1.2k` / `3.4M` for dense surfaces
  * where the exact figure is not the point.
  */
-export const formatNumber = (value: number | null | undefined, options: FormatOptions & { compact?: boolean } = {}): string => {
-  if (!isNumber(value)) return options.fallback ?? EMPTY_VALUE;
-  return new Intl.NumberFormat(options.locale, {
-    notation: options.compact ? "compact" : "standard",
-    maximumFractionDigits: options.compact ? 1 : 0,
-  }).format(value);
-};
+export const formatNumber = (value: number | null | undefined, options: FormatOptions & { compact?: boolean; decimals?: number } = {}): string =>
+  text.pprintNumber(value, options);
 
 /**
  * Percentage from a ratio in 0..1.
  *
  * Taking a ratio rather than an already-multiplied number is deliberate: the
  * old copies disagreed about which they expected, which is a silent factor-100
- * bug waiting to happen.
+ * bug rather than a visible one.
  */
-export const formatPercent = (
-  ratio: number | null | undefined,
-  options: FormatOptions & { decimals?: number; clamp?: boolean } = {},
-): string => {
-  if (!isNumber(ratio)) return options.fallback ?? EMPTY_VALUE;
-  const bounded = options.clamp ? Math.min(1, Math.max(0, ratio)) : ratio;
-  return `${(bounded * 100).toFixed(options.decimals ?? 1)}%`;
-};
+export const formatPercent = (ratio: number | null | undefined, options: FormatOptions & { decimals?: number; clamp?: boolean } = {}): string =>
+  text.pprintPercent(ratio, { decimals: 1, ...options });
 
 /** Share of a total, guarding the zero-total case the copies kept getting wrong. */
 export const formatRatio = (
@@ -60,7 +50,9 @@ export const formatRatio = (
   total: number | null | undefined,
   options: FormatOptions & { decimals?: number } = {},
 ): string =>
-  !isNumber(part) || !isNumber(total) || total === 0 ? (options.fallback ?? EMPTY_VALUE) : formatPercent(part / total, options);
+  typeof part !== "number" || typeof total !== "number" || !Number.isFinite(part) || !Number.isFinite(total) || total === 0
+    ? (options.fallback ?? EMPTY_VALUE)
+    : formatPercent(part / total, options);
 
 /**
  * Duration from a measured millisecond count.
@@ -69,20 +61,11 @@ export const formatRatio = (
  * `durationMs`, a request latency or a timeout budget never had timestamps to
  * subtract.
  */
-export const formatDurationMs = (ms: number | null | undefined, options: FormatOptions = {}): string => {
-  if (!isNumber(ms)) return options.fallback ?? EMPTY_VALUE;
-  if (ms < 1) return "<1ms";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
-};
+export const formatDurationMs = (ms: number | null | undefined, options: FormatOptions = {}): string => text.pprintDurationMs(ms, options);
 
 /** Byte size. Defaults to SI because storage tooling reports GB, not GiB. */
 export const formatBytes = (bytes: number | null | undefined, options: FormatOptions & { mode?: "iec" | "si" } = {}): string =>
-  isNumber(bytes) ? text.pprintBytes(bytes, options.mode ?? "si") : (options.fallback ?? EMPTY_VALUE);
+  typeof bytes === "number" && Number.isFinite(bytes) ? text.pprintBytes(bytes, options.mode ?? "si") : (options.fallback ?? EMPTY_VALUE);
 
 /**
  * Absolute date and time in the viewer's locale and timezone.

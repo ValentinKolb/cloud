@@ -1,6 +1,7 @@
 /** Keep an app discoverable even when the ephemeral registry is recreated. */
-import { appRegistry } from "./registry";
+
 import type { AppRegistryEntry } from "../contracts/registry";
+import { appRegistry } from "./registry";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 

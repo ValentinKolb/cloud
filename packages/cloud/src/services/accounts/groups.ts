@@ -1,12 +1,12 @@
 import { sql } from "bun";
 import type { BaseGroup, GroupMember, MutationResult, UserProvider } from "../../contracts/shared";
-import * as localGroups from "./local-groups";
-import { providers } from "../providers";
-import { getServiceIpaSession } from "../ipa/service-account";
 import { freeipa } from "../../server/services";
+import { getServiceIpaSession } from "../ipa/service-account";
 import { toPgUuidArray } from "../postgres";
+import { providers } from "../providers";
 import { buildBaseGroup } from "./base-group";
 import { buildManagedGroupScopeCondition, buildMemberGroupScopeCondition } from "./group-sql";
+import * as localGroups from "./local-groups";
 
 type DbRow = Record<string, unknown>;
 

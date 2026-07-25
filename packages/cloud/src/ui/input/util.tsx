@@ -1,4 +1,4 @@
-import { Show, createUniqueId, type Accessor, type JSX } from "solid-js";
+import { type Accessor, createUniqueId, type JSX, Show } from "solid-js";
 
 export type InputA11y = {
   inputId: string;

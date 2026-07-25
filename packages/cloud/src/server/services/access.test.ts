@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { createAccess, deleteAccess, getEffectiveGroupIds, getEffectiveGroups, getEffectivePermission, listUsersWithAccess } from "./access";
+import {
+  createAccess,
+  deleteAccess,
+  getEffectiveGroupIds,
+  getEffectiveGroups,
+  getEffectivePermission,
+  listUsersWithAccess,
+} from "./access";
 
 type Fixture = {
   accessIds: string[];

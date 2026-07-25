@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { auth, jsonResponse, requiresAuth, v, type AuthContext } from "../server";
-import { ErrorResponseSchema } from "../contracts";
-import { logger } from "../services";
 import { listApps } from "..";
-import { SearchItemSchema, SearchQuerySchema, SearchResponseSchema, type SearchItem } from "./search/schemas";
+import { ErrorResponseSchema } from "../contracts";
+import { type AuthContext, auth, jsonResponse, requiresAuth, v } from "../server";
+import { logger } from "../services";
+import { type SearchItem, SearchItemSchema, SearchQuerySchema, SearchResponseSchema } from "./search/schemas";
 
 const log = logger("search");
 

@@ -366,7 +366,8 @@ export const createAccessCommands = <TResource extends AccessResource>(adapter: 
       assertAllowedPermission(permission, allowed);
       const principal = await resolveAccessPrincipal(ctx, flags as PrincipalFlags, adapter);
       const entry = await adapter.grant(ctx, resource, principal, permission);
-      if (!printStructured(ctx, { resource, entry })) ctx.print(`Granted ${permission} on ${resource.label} to ${entryDisplayName(entry)}.`);
+      if (!printStructured(ctx, { resource, entry }))
+        ctx.print(`Granted ${permission} on ${resource.label} to ${entryDisplayName(entry)}.`);
     },
   });
 

@@ -15,6 +15,7 @@ const rangeUrl = (url: URL, range: TelemetryRange): string => {
   return query ? `${url.pathname}?${query}` : url.pathname;
 };
 
+import { formatNumber as fmtCount, formatDurationMs as fmtMs } from "@valentinkolb/cloud/shared";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
@@ -41,14 +42,6 @@ const fmtUptime = (ms: number) => {
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
   return `${(ms / 3_600_000).toFixed(1)}h`;
 };
-
-const fmtMs = (ms: number) => {
-  if (ms < 1) return "<1ms";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
-};
-
-const fmtCount = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 const Check = () => <i class="ti ti-check text-emerald-500 text-xs" />;
 const Dash = () => <i class="ti ti-minus text-zinc-300 dark:text-zinc-600 text-xs" />;

@@ -1,6 +1,6 @@
 import type { MutationResult } from "../../contracts/shared";
-import { providers } from "../providers";
 import { getFreeIpaConfig } from "../freeipa-config";
+import { providers } from "../providers";
 
 export const getServiceIpaSession = async (): Promise<MutationResult<string>> => {
   if (!(await getFreeIpaConfig()).enabled) {

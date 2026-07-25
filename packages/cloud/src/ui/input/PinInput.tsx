@@ -1,5 +1,5 @@
 import { For, onMount } from "solid-js";
-import { InputWrapper, createInputA11y } from "./util";
+import { createInputA11y, InputWrapper } from "./util";
 
 type PinInputProps = {
   label?: string;

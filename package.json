@@ -85,7 +85,7 @@
     "check:css": "bun run scripts/check-css-architecture.ts"
   },
   "dependencies": {
-    "@valentinkolb/stdlib": "0.15.0",
+    "@valentinkolb/stdlib": "0.16.0",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.18"
   },

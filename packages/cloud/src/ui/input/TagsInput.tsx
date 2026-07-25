@@ -1,4 +1,4 @@
-import { InputWrapper, createInputA11y } from "./util";
+import { createInputA11y, InputWrapper } from "./util";
 
 type TagsInputProps = {
   label?: string;

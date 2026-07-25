@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canMutateManagedGroup, hasOnlySelfUpdateFields, isAdminActor, isSelfTarget, type AccountsActor } from "./authz";
+import { type AccountsActor, canMutateManagedGroup, hasOnlySelfUpdateFields, isAdminActor, isSelfTarget } from "./authz";
 
 const actor = (overrides: Partial<AccountsActor> = {}): AccountsActor => ({
   userId: "user-1",

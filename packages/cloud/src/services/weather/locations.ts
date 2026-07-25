@@ -1,5 +1,5 @@
+import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { err, fail, ok, paginate, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
 import { logger } from "../logging";
 
 const log = logger("weather");

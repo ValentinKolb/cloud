@@ -26,16 +26,25 @@ describe("applyWireEventToBlocks", () => {
     let blocks: AiTurnBlock[] = [];
     blocks = applyWireEventToBlocks(blocks, wire({ attempt: 1, seq: 1, type: "block_set", block: { id: "a", kind: "text", text: "hi" } }));
     expect(blocks).toHaveLength(1);
-    blocks = applyWireEventToBlocks(blocks, wire({ attempt: 1, seq: 2, type: "block_set", block: { id: "a", kind: "text", text: "hello" } }));
+    blocks = applyWireEventToBlocks(
+      blocks,
+      wire({ attempt: 1, seq: 2, type: "block_set", block: { id: "a", kind: "text", text: "hello" } }),
+    );
     expect(blocks).toHaveLength(1);
     expect(blocks[0]).toMatchObject({ id: "a", text: "hello" });
   });
 
   test("block_delta appends to text and creates when missing", () => {
     let blocks: AiTurnBlock[] = [{ id: "a", kind: "text", text: "he" }];
-    blocks = applyWireEventToBlocks(blocks, wire({ attempt: 1, seq: 1, type: "block_delta", blockId: "a", blockKind: "text", delta: "llo" }));
+    blocks = applyWireEventToBlocks(
+      blocks,
+      wire({ attempt: 1, seq: 1, type: "block_delta", blockId: "a", blockKind: "text", delta: "llo" }),
+    );
     expect(blocks[0]).toMatchObject({ text: "hello" });
-    blocks = applyWireEventToBlocks(blocks, wire({ attempt: 1, seq: 2, type: "block_delta", blockId: "b", blockKind: "thinking", delta: "hmm" }));
+    blocks = applyWireEventToBlocks(
+      blocks,
+      wire({ attempt: 1, seq: 2, type: "block_delta", blockId: "b", blockKind: "thinking", delta: "hmm" }),
+    );
     expect(blocks).toHaveLength(2);
     expect(blocks[1]).toMatchObject({ id: "b", kind: "thinking", text: "hmm" });
   });
@@ -43,8 +52,19 @@ describe("applyWireEventToBlocks", () => {
   test("tool blocks update in place across status changes", () => {
     let blocks: AiTurnBlock[] = [];
     const id = toolBlockId("call-1");
-    blocks = applyWireEventToBlocks(blocks, wire({ attempt: 1, seq: 1, type: "block_set", block: { id, kind: "tool", callId: "call-1", name: "web", status: "running" } }));
-    blocks = applyWireEventToBlocks(blocks, wire({ attempt: 1, seq: 2, type: "block_set", block: { id, kind: "tool", callId: "call-1", name: "web", status: "completed", result: { ok: true } } }));
+    blocks = applyWireEventToBlocks(
+      blocks,
+      wire({ attempt: 1, seq: 1, type: "block_set", block: { id, kind: "tool", callId: "call-1", name: "web", status: "running" } }),
+    );
+    blocks = applyWireEventToBlocks(
+      blocks,
+      wire({
+        attempt: 1,
+        seq: 2,
+        type: "block_set",
+        block: { id, kind: "tool", callId: "call-1", name: "web", status: "completed", result: { ok: true } },
+      }),
+    );
     expect(blocks).toHaveLength(1);
     expect(blocks[0]).toMatchObject({ status: "completed", result: { ok: true } });
   });

@@ -1,9 +1,9 @@
 import { sql } from "bun";
 import * as jose from "jose";
-import { accounts } from "./accounts";
-import * as settings from "./settings";
-import { serviceAccounts, type ServiceAccount } from "./service-accounts";
 import type { User } from "../contracts/shared";
+import { accounts } from "./accounts";
+import { type ServiceAccount, serviceAccounts } from "./service-accounts";
+import * as settings from "./settings";
 
 type DbKey = {
   public_key: string;

@@ -79,13 +79,26 @@ describe("bash tool end-to-end", () => {
     const ctx = { actor, conversationId: conversation.id };
 
     try {
-      await aiSkillStore.writeFile({ skillId: skill.id, path: "/SKILL.md", bytes: bytes("# E2E skill\nUse for tests.\n"), actorUserId: userId });
+      await aiSkillStore.writeFile({
+        skillId: skill.id,
+        path: "/SKILL.md",
+        bytes: bytes("# E2E skill\nUse for tests.\n"),
+        actorUserId: userId,
+      });
       // Executable file in a user skill: mounted only after code approval — user skills never get one.
       await aiSkillStore.writeFile({ skillId: skill.id, path: "/scripts/run.js", bytes: bytes("console.log('x')\n"), actorUserId: userId });
-      await aiFileStore.write({ conversationId: conversation.id, path: "/input/data.csv", bytes: bytes("a,b\n1,2\n3,4\n"), mediaType: "text/csv" });
+      await aiFileStore.write({
+        conversationId: conversation.id,
+        path: "/input/data.csv",
+        bytes: bytes("a,b\n1,2\n3,4\n"),
+        mediaType: "text/csv",
+      });
 
       // Uploaded file is readable; results persist under /files across calls.
-      const transform = await runBash({ command: "awk -F, 'NR>1 {sum+=$2} END {print sum}' /input/data.csv > /files/sum.txt && cat /files/sum.txt" }, ctx);
+      const transform = await runBash(
+        { command: "awk -F, 'NR>1 {sum+=$2} END {print sum}' /input/data.csv > /files/sum.txt && cat /files/sum.txt" },
+        ctx,
+      );
       expect(transform.exitCode).toBe(0);
       expect(transform.stdout.trim()).toBe("6");
       const persisted = await aiFileStore.readAll({ conversationId: conversation.id, path: "/files/sum.txt" });

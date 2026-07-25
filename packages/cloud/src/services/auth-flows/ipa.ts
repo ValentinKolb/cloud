@@ -1,8 +1,8 @@
 import { sql } from "bun";
+import type { User } from "../../contracts/shared";
 import { accounts } from "../accounts";
 import { logger } from "../logging";
 import { providers } from "../providers";
-import type { User } from "../../contracts/shared";
 
 type IpaLoginFailure =
   | { ok: false; status: 401; reason: "password_expired"; message: string; uid: string }

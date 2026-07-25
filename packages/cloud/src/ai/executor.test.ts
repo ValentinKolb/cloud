@@ -46,7 +46,21 @@ describe("nessi block event mapping", () => {
       name: "web_search",
     } as OutboundEvent);
     expect(start).toEqual([
-      { type: "block_set", block: { id: toolBlockId("call-1"), kind: "tool", callId: "call-1", name: "web_search", args: undefined, status: "running", result: undefined, isError: undefined, approval: undefined, frontendMode: undefined } },
+      {
+        type: "block_set",
+        block: {
+          id: toolBlockId("call-1"),
+          kind: "tool",
+          callId: "call-1",
+          name: "web_search",
+          args: undefined,
+          status: "running",
+          result: undefined,
+          isError: undefined,
+          approval: undefined,
+          frontendMode: undefined,
+        },
+      },
     ]);
 
     // Raw args JSON streams as deltas on the tool block — never rendered.
@@ -61,7 +75,10 @@ describe("nessi block event mapping", () => {
       block: { type: "tool_call", id: "call-1", name: "web_search", args: { query: "hi" } },
     } as OutboundEvent);
     expect(end).toHaveLength(1);
-    expect(end[0]).toMatchObject({ type: "block_set", block: { id: toolBlockId("call-1"), kind: "tool", args: { query: "hi" }, status: "running" } });
+    expect(end[0]).toMatchObject({
+      type: "block_set",
+      block: { id: toolBlockId("call-1"), kind: "tool", args: { query: "hi" }, status: "running" },
+    });
 
     const done = mapper.translate({
       ...turn,
@@ -144,7 +161,15 @@ describe("nessi block event mapping", () => {
 
   test("seeded tool blocks keep their metadata across attempts", () => {
     const mapper = createEventMapper(3, [
-      { id: toolBlockId("call-1"), kind: "tool", callId: "call-1", name: "danger", args: { a: 1 }, status: "awaiting_approval", approval: { allowAlways: true } },
+      {
+        id: toolBlockId("call-1"),
+        kind: "tool",
+        callId: "call-1",
+        name: "danger",
+        args: { a: 1 },
+        status: "awaiting_approval",
+        approval: { allowAlways: true },
+      },
     ]);
     const ops = mapper.translate({
       ...turn,

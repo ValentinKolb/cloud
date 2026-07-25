@@ -1,12 +1,12 @@
 import { sql } from "bun";
-import { applyIpaAccountTransitionPolicy } from "../accounts/switching";
-import { calculateIpaProfileFromGroupNames, parseIpaAccountTransitionPolicy, parseIpaMatchMode } from "../account-model";
-import { writeDeletedAccountAudit } from "../account-lifecycle/audit";
-import { logger } from "../logging";
-import * as settings from "../settings";
-import { session } from "../session";
 import { freeipa } from "../../server/services";
+import { writeDeletedAccountAudit } from "../account-lifecycle/audit";
+import { calculateIpaProfileFromGroupNames, parseIpaAccountTransitionPolicy, parseIpaMatchMode } from "../account-model";
+import { applyIpaAccountTransitionPolicy } from "../accounts/switching";
 import { getFreeIpaConfig } from "../freeipa-config";
+import { logger } from "../logging";
+import { session } from "../session";
+import * as settings from "../settings";
 import { buildEffectiveIpaGroupsByUid } from "./effective-groups";
 import { calculateIpaProfileFromEffectiveProjection, getEffectiveUserGroups } from "./profile";
 import { selectStaleLocalIpaRows } from "./sync-planning";

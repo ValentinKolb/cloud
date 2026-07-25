@@ -1,5 +1,5 @@
-import { dates, type DateContext } from "@valentinkolb/stdlib";
-import { InputWrapper, createInputA11y } from "./util";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { createInputA11y, InputWrapper } from "./util";
 
 type DateTimeInputProps = {
   label?: string;

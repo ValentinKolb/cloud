@@ -1,10 +1,9 @@
-import type { Context } from "hono";
-import type { MiddlewareHandler } from "hono";
-import { createMiddleware } from "hono/factory";
 import { ratelimit } from "@valentinkolb/sync";
-import { auth, type AuthContext } from "./auth";
-import * as settings from "../../services/settings";
+import type { Context, MiddlewareHandler } from "hono";
+import { createMiddleware } from "hono/factory";
 import type { MessageResponse } from "../../contracts/shared";
+import * as settings from "../../services/settings";
+import { type AuthContext, auth } from "./auth";
 
 export type RateLimitRouteOverride = {
   method?: string;

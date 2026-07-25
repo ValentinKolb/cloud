@@ -1,9 +1,9 @@
 import { sql } from "bun";
 import type { BaseGroup, GroupMember, MutationResult } from "../../contracts/shared";
 import { freeipa } from "../../server/services";
-import { updateProfileForAffectedUsers, updateUserIpaProfile } from "./profile";
 import { toPgUuidArray } from "../postgres";
-import { getIpaUrl, ensureFreeIpaMutationAvailable } from "./guard";
+import { ensureFreeIpaMutationAvailable, getIpaUrl } from "./guard";
+import { updateProfileForAffectedUsers, updateUserIpaProfile } from "./profile";
 
 type DbRow = Record<string, unknown>;
 

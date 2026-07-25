@@ -1,5 +1,5 @@
-import { weatherLocationsService } from "./locations";
 import { weatherCityService } from "./geo";
+import { weatherLocationsService } from "./locations";
 
 /** Weather location cookie name. */
 export const WEATHER_LOCATION_COOKIE = "weather_location";

@@ -1,5 +1,5 @@
-import { registerGroupLabel, registerSettings } from "../settings/defaults";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { registerGroupLabel, registerSettings } from "../settings/defaults";
 import { getCurrentWeather, getWeatherData } from "./forecast";
 import { WEATHER_COUNTRY_CODE } from "./geo";
 import { weatherLocationService } from "./location";
@@ -91,9 +91,9 @@ export const weatherService = {
 
 export type WeatherService = typeof weatherService;
 export type {
-  WeatherData,
-  DailyForecast,
   CurrentWeather,
+  DailyForecast,
   HourlyForecast,
+  WeatherData,
   WeatherIcon,
 } from "./types";

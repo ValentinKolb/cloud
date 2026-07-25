@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { arg, command, confirmFlag, defineCliCommands, flag, readCliInput, type CliInputFlagValue, type CloudCliContext } from "./index";
+import { arg, type CliInputFlagValue, type CloudCliContext, command, confirmFlag, defineCliCommands, flag, readCliInput } from "./index";
 
 type User = {
   id: string;

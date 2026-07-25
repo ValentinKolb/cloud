@@ -450,19 +450,25 @@ describe("AI conversation store integration", () => {
       expect(first.ok && duplicate.ok ? duplicate.steer.id : null).toBe(first.ok ? first.steer.id : null);
       expect(second.ok ? second.steer.seq : null).toBe(2);
 
-      expect(await aiConversationStore.completeTurn({
-        conversationId: conversation.id,
-        turnId: turn.id,
-        status: "completed",
-        leaseOwner: "steer-worker",
-      })).toBe("pending_steering");
-      expect((await aiConversationStore.listMessages({ conversationId: conversation.id })).filter((entry) => entry.message.role === "user")).toHaveLength(1);
+      expect(
+        await aiConversationStore.completeTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          status: "completed",
+          leaseOwner: "steer-worker",
+        }),
+      ).toBe("pending_steering");
+      expect(
+        (await aiConversationStore.listMessages({ conversationId: conversation.id })).filter((entry) => entry.message.role === "user"),
+      ).toHaveLength(1);
 
-      await expect(aiConversationStore.takePendingTurnSteers({
-        conversationId: conversation.id,
-        turnId: turn.id,
-        leaseOwner: "other-worker",
-      })).rejects.toThrow("lost its lease");
+      await expect(
+        aiConversationStore.takePendingTurnSteers({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "other-worker",
+        }),
+      ).rejects.toThrow("lost its lease");
 
       const consumed = await aiConversationStore.takePendingTurnSteers({
         conversationId: conversation.id,
@@ -471,26 +477,30 @@ describe("AI conversation store integration", () => {
       });
       expect(consumed.map((steer) => steer.text)).toEqual(["First steer", "Second steer"]);
       expect(consumed.every((steer) => steer.status === "consumed" && Boolean(steer.messageId))).toBe(true);
-      expect(await aiConversationStore.takePendingTurnSteers({
-        conversationId: conversation.id,
-        turnId: turn.id,
-        leaseOwner: "steer-worker",
-      })).toEqual([]);
+      expect(
+        await aiConversationStore.takePendingTurnSteers({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "steer-worker",
+        }),
+      ).toEqual([]);
 
       const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
       const steeringMessages = messages.filter((entry) => entry.meta?.steerId);
-      expect(steeringMessages.map((entry) => entry.message.role === "user" ? entry.message.content[0] : null)).toEqual([
+      expect(steeringMessages.map((entry) => (entry.message.role === "user" ? entry.message.content[0] : null))).toEqual([
         { type: "text", text: "First steer" },
         { type: "text", text: "Second steer" },
       ]);
       expect(new Set(steeringMessages.map((entry) => entry.meta?.steerId))).toEqual(new Set(consumed.map((steer) => steer.id)));
 
-      expect(await aiConversationStore.completeTurn({
-        conversationId: conversation.id,
-        turnId: turn.id,
-        status: "completed",
-        leaseOwner: "steer-worker",
-      })).toBe("completed");
+      expect(
+        await aiConversationStore.completeTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          status: "completed",
+          leaseOwner: "steer-worker",
+        }),
+      ).toBe("completed");
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }
@@ -804,12 +814,18 @@ describe("AI conversation store integration", () => {
       expect(summaries.find((item) => item.id === failed.id)?.runStatus).toBe("failed");
       expect(summaries.find((item) => item.id === done.id)).toMatchObject({ runStatus: "idle", unreadCompletion: true });
       expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "running" })).toHaveLength(1);
-      expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "needs_attention" })).toHaveLength(1);
+      expect(
+        await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "needs_attention" }),
+      ).toHaveLength(1);
       expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "failed" })).toHaveLength(1);
       expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, status: "unread" })).toHaveLength(1);
-      expect(await aiConversationStore.archiveConversation({ conversationId: running.id, appId: "ai-test", ownerUserId: userId })).toBe(false);
+      expect(await aiConversationStore.archiveConversation({ conversationId: running.id, appId: "ai-test", ownerUserId: userId })).toBe(
+        false,
+      );
 
-      expect(await aiConversationStore.markConversationViewed({ conversationId: done.id, appId: "ai-test", ownerUserId: userId })).toBe(true);
+      expect(await aiConversationStore.markConversationViewed({ conversationId: done.id, appId: "ai-test", ownerUserId: userId })).toBe(
+        true,
+      );
       expect((await aiConversationStore.getConversation({ conversationId: done.id }))?.unreadCompletion).toBe(false);
       await aiConversationStore.updateConversationMetadata({
         conversationId: done.id,
@@ -821,10 +837,14 @@ describe("AI conversation store integration", () => {
       });
       expect((await aiConversationStore.getConversation({ conversationId: done.id }))?.unreadCompletion).toBe(false);
 
-      expect(await aiConversationStore.archiveConversation({ conversationId: pinned.id, appId: "ai-test", ownerUserId: userId })).toBe(true);
+      expect(await aiConversationStore.archiveConversation({ conversationId: pinned.id, appId: "ai-test", ownerUserId: userId })).toBe(
+        true,
+      );
       expect(await aiConversationStore.getConversation({ conversationId: pinned.id })).toBeNull();
       expect(await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, archived: true })).toHaveLength(1);
-      expect(await aiConversationStore.restoreConversation({ conversationId: pinned.id, appId: "ai-test", ownerUserId: userId })).toMatchObject({
+      expect(
+        await aiConversationStore.restoreConversation({ conversationId: pinned.id, appId: "ai-test", ownerUserId: userId }),
+      ).toMatchObject({
         id: pinned.id,
         pinnedAt: null,
         archivedAt: null,

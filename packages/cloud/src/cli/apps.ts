@@ -1,4 +1,4 @@
-import { command, defineCliCommands, flag, type CloudCliContext } from "./index";
+import { type CloudCliContext, command, defineCliCommands, flag } from "./index";
 
 type VisibleApp = {
   id: string;

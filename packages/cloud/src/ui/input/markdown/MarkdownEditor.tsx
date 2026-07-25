@@ -1,27 +1,27 @@
-import { createSignal, createEffect, createMemo, createUniqueId, type JSX, onMount, onCleanup, untrack, For, Show } from "solid-js";
-import { handleShortcut, handleListContinuation, handleSmartPaste } from "./behaviors";
+import { createEffect, createMemo, createSignal, createUniqueId, For, type JSX, onCleanup, onMount, Show, untrack } from "solid-js";
 import {
-  type Completion,
-  type QueryContext,
-  type Suggestion,
   abbreviations as abbreviationsCompletion,
+  applySuggestion,
+  buildSuggestContext,
+  type Completion,
+  collectKnownLabels,
+  detectQuery,
+  displayLabel,
+  type QueryContext,
+  renderWithOverlay,
+  resetCompletionState,
+  resolveSuggestions,
+  type Suggestion,
   tryExpand,
   tryRestore,
-  resetCompletionState,
-  detectQuery,
-  collectKnownLabels,
-  applySuggestion,
-  renderWithOverlay,
-  buildSuggestContext,
-  displayLabel,
-  resolveSuggestions,
 } from "../../completion";
-import { highlightMarkdown } from "./highlight";
-import { isInCodeZone } from "./code-zone";
 import { computeActiveFormats } from "./active-formats";
+import { handleListContinuation, handleShortcut, handleSmartPaste } from "./behaviors";
+import { isInCodeZone } from "./code-zone";
+import { highlightMarkdown } from "./highlight";
 import Toolbar from "./Toolbar";
 
-export type { Completion, Suggestion, SuggestContext } from "../../completion";
+export type { Completion, SuggestContext, Suggestion } from "../../completion";
 export { abbreviations } from "../../completion";
 
 export type MarkdownEditorProps = {
@@ -352,11 +352,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     }
   };
 
-  const runAsyncCompletion = async (
-    ctx: QueryContext,
-    promise: Promise<Suggestion[]>,
-    signal: AbortSignal,
-  ): Promise<void> => {
+  const runAsyncCompletion = async (ctx: QueryContext, promise: Promise<Suggestion[]>, signal: AbortSignal): Promise<void> => {
     try {
       const suggestions = await promise;
       if (signal.aborted) return;
@@ -822,9 +818,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
           aria-autocomplete="list"
           aria-expanded={dropdownOpen()}
           aria-controls={dropdownOpen() ? listboxId() : undefined}
-          aria-activedescendant={
-            dropdownOpen() && completionState() ? optionId(completionState()!.selectedIndex) : undefined
-          }
+          aria-activedescendant={dropdownOpen() && completionState() ? optionId(completionState()!.selectedIndex) : undefined}
         />
       </div>
       <Show when={(props.showStats ?? true) && !props.disabled}>
@@ -871,75 +865,70 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
           the popover would stretch to viewport edges). */}
       <Show when={Boolean(completionState() || completionLoading() || completionError())}>
         <div
-            ref={(el) => (dropdownEl = el)}
-            popover="manual"
-            class="popup fixed inset-auto m-0 border border-zinc-200 p-1 dark:border-zinc-700"
-            classList={{ dark: isDarkTheme() }}
-            role="presentation"
-            aria-label="Completion suggestions"
-          >
-            <div id={listboxId()} class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
-              <Show when={completionLoading()}>
-                <div class="flex items-center gap-2 px-2 py-1.5 text-sm text-zinc-500 dark:text-zinc-400" role="status">
-                  <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
-                  Loading suggestions
+          ref={(el) => (dropdownEl = el)}
+          popover="manual"
+          class="popup fixed inset-auto m-0 border border-zinc-200 p-1 dark:border-zinc-700"
+          classList={{ dark: isDarkTheme() }}
+          role="presentation"
+          aria-label="Completion suggestions"
+        >
+          <div id={listboxId()} class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
+            <Show when={completionLoading()}>
+              <div class="flex items-center gap-2 px-2 py-1.5 text-sm text-zinc-500 dark:text-zinc-400" role="status">
+                <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+                Loading suggestions
+              </div>
+            </Show>
+            <Show when={completionError()}>
+              {(message) => (
+                <div class="flex items-center gap-2 px-2 py-1.5 text-sm text-red-600 dark:text-red-300" role="alert">
+                  <i class="ti ti-alert-circle" aria-hidden="true" />
+                  <span class="min-w-0 flex-1">{message()}</span>
+                  <button type="button" class="btn-simple btn-xs" onMouseDown={(event) => event.preventDefault()} onClick={retryCompletion}>
+                    Retry
+                  </button>
                 </div>
-              </Show>
-              <Show when={completionError()}>
-                {(message) => (
-                  <div class="flex items-center gap-2 px-2 py-1.5 text-sm text-red-600 dark:text-red-300" role="alert">
-                    <i class="ti ti-alert-circle" aria-hidden="true" />
-                    <span class="min-w-0 flex-1">{message()}</span>
-                    <button
-                      type="button"
-                      class="btn-simple btn-xs"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={retryCompletion}
-                    >
-                      Retry
-                    </button>
+              )}
+            </Show>
+            <For each={completionState()?.suggestions ?? []}>
+              {(suggestion, index) => {
+                const state = () => completionState();
+                const isSelected = () => index() === state()?.selectedIndex;
+                return (
+                  <div
+                    // mousedown rather than click so we beat the
+                    // textarea's blur — clicking an option must
+                    // insert + keep editor focus, not blur away.
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      const current = state();
+                      if (!current) return;
+                      setCompletionState({ ...current, selectedIndex: index() });
+                      acceptActiveSuggestion();
+                      textareaEl?.focus();
+                    }}
+                    onMouseEnter={() => {
+                      const current = state();
+                      if (current) setCompletionState({ ...current, selectedIndex: index() });
+                    }}
+                    role="option"
+                    id={optionId(index())}
+                    aria-selected={isSelected()}
+                    class={`group flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors ${
+                      isSelected()
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                        : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    <span class="font-mono truncate">{suggestionLabel(suggestion)}</span>
+                    <Show when={suggestion.hint}>
+                      <span class="ml-auto text-xs text-zinc-500 dark:text-zinc-400 truncate">{suggestion.hint}</span>
+                    </Show>
                   </div>
-                )}
-              </Show>
-              <For each={completionState()?.suggestions ?? []}>
-                {(suggestion, index) => {
-                  const state = () => completionState();
-                  const isSelected = () => index() === state()?.selectedIndex;
-                  return (
-                    <div
-                      // mousedown rather than click so we beat the
-                      // textarea's blur — clicking an option must
-                      // insert + keep editor focus, not blur away.
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        const current = state();
-                        if (!current) return;
-                        setCompletionState({ ...current, selectedIndex: index() });
-                        acceptActiveSuggestion();
-                        textareaEl?.focus();
-                      }}
-                      onMouseEnter={() => {
-                        const current = state();
-                        if (current) setCompletionState({ ...current, selectedIndex: index() });
-                      }}
-                      role="option"
-                      id={optionId(index())}
-                      aria-selected={isSelected()}
-                      class={`group flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors ${
-                        isSelected()
-                          ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-                          : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                      }`}
-                    >
-                      <span class="font-mono truncate">{suggestionLabel(suggestion)}</span>
-                      <Show when={suggestion.hint}>
-                        <span class="ml-auto text-xs text-zinc-500 dark:text-zinc-400 truncate">{suggestion.hint}</span>
-                      </Show>
-                    </div>
-                  );
-                }}
-              </For>
-            </div>
+                );
+              }}
+            </For>
+          </div>
         </div>
       </Show>
     </div>

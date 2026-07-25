@@ -216,11 +216,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       ? e.name === "AbortError"
       : Boolean(e && typeof e === "object" && "name" in e && (e as { name: string }).name === "AbortError");
 
-  const startCompletionResolution = (
-    ctx: QueryContext,
-    suggestCtx: ReturnType<typeof buildSuggestContext>,
-    signal: AbortSignal,
-  ): void => {
+  const startCompletionResolution = (ctx: QueryContext, suggestCtx: ReturnType<typeof buildSuggestContext>, signal: AbortSignal): void => {
     if (signal.aborted) return;
     setError(null);
     setLoading(true);
@@ -267,10 +263,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     const prev = completionState();
     if (
       prev &&
-      (prev.ctx.start !== ctx.start ||
-        prev.ctx.end !== ctx.end ||
-        prev.ctx.text !== ctx.text ||
-        prev.ctx.completion !== ctx.completion)
+      (prev.ctx.start !== ctx.start || prev.ctx.end !== ctx.end || prev.ctx.text !== ctx.text || prev.ctx.completion !== ctx.completion)
     ) {
       setCompletionState(null);
       closeDropdown();
@@ -325,11 +318,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     }
   };
 
-  const runFetch = async (
-    ctx: QueryContext,
-    promise: Promise<Suggestion[]>,
-    signal: AbortSignal,
-  ): Promise<void> => {
+  const runFetch = async (ctx: QueryContext, promise: Promise<Suggestion[]>, signal: AbortSignal): Promise<void> => {
     try {
       const list = await promise;
       if (signal.aborted) return; // newer keystroke superseded us
@@ -594,9 +583,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
           aria-autocomplete="list"
           aria-expanded={dropdownOpenSignal()}
           aria-controls={dropdownOpenSignal() ? listboxId() : undefined}
-          aria-activedescendant={
-            dropdownOpenSignal() && completionState() ? optionId(completionState()!.selectedIndex) : undefined
-          }
+          aria-activedescendant={dropdownOpenSignal() && completionState() ? optionId(completionState()!.selectedIndex) : undefined}
         />
       </div>
 

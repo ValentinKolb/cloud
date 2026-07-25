@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js";
-import Dropdown from "../misc/Dropdown";
 import type { DropdownItem } from "../misc/Dropdown";
+import Dropdown from "../misc/Dropdown";
 
 export type SelectChipOption<T extends string | number = string> = {
   value: T;

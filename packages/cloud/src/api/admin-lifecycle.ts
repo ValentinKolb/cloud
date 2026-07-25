@@ -1,10 +1,10 @@
+import { ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { v, jsonResponse, requiresAdmin, auth, type AuthContext, respond } from "../server";
-import { ok } from "@valentinkolb/stdlib";
+import { createPagination, ErrorResponseSchema, MessageResponseSchema, PaginationQuerySchema, parsePagination } from "../contracts";
+import { type AuthContext, auth, jsonResponse, requiresAdmin, respond, v } from "../server";
 import { accountLifecycle, lifecycleJobs } from "../services";
-import { ErrorResponseSchema, MessageResponseSchema, PaginationQuerySchema, createPagination, parsePagination } from "../contracts";
 
 const DeletedAccountSchema = z.object({
   id: z.uuid(),
@@ -146,7 +146,8 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Admin Lifecycle"],
       summary: "Submit a lifecycle job",
-      description: "Dispatches one of the account-lifecycle backfill jobs. Scheduled lifecycle jobs are controlled from Admin Observability Jobs.",
+      description:
+        "Dispatches one of the account-lifecycle backfill jobs. Scheduled lifecycle jobs are controlled from Admin Observability Jobs.",
       ...requiresAdmin,
       responses: {
         200: jsonResponse(TriggerJobResponseSchema, "Job submitted"),

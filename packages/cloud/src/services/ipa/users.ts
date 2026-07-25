@@ -1,13 +1,13 @@
-import { sql } from "bun";
 import { password } from "@valentinkolb/stdlib";
+import { sql } from "bun";
+import type { MutationResult, UserProfile } from "../../contracts/shared";
+import { freeipa } from "../../server/services";
 import { writeDeletedAccountAudit } from "../account-lifecycle/audit";
 import { resolveProviderProfile } from "../accounts/base-user";
-import { getIpaUrl, ensureFreeIpaMutationAvailable } from "./guard";
 import { logger } from "../logging";
 import { session } from "../session";
 import * as settings from "../settings";
-import type { MutationResult, UserProfile } from "../../contracts/shared";
-import { freeipa } from "../../server/services";
+import { ensureFreeIpaMutationAvailable, getIpaUrl } from "./guard";
 
 type CreateUser = {
   email: string;

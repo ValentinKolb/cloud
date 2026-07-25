@@ -186,14 +186,17 @@ describe("projection reducer", () => {
     ]);
     expect(visibleMessages(state).map((message) => message.id)).toEqual(["u1"]);
 
-    const finished = reduceProjection(state, wire({
-      attempt: 1,
-      seq: 4,
-      type: "turn_finished",
-      status: "completed",
-      error: null,
-      messages: [initial, steer],
-    }));
+    const finished = reduceProjection(
+      state,
+      wire({
+        attempt: 1,
+        seq: 4,
+        type: "turn_finished",
+        status: "completed",
+        error: null,
+        messages: [initial, steer],
+      }),
+    );
     expect(visibleMessages(finished).map((message) => message.id)).toEqual(["u1", "u2"]);
   });
 

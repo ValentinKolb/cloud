@@ -1,4 +1,4 @@
-import { sql, type SQLQuery } from "bun";
+import { type SQLQuery, sql } from "bun";
 
 type SqlFragment = SQLQuery;
 type SqlValue = SQLQuery | string;

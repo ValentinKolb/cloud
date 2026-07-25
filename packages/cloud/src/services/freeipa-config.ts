@@ -1,5 +1,5 @@
-import { coreSettings } from "./settings/api";
 import { setFreeIpaTlsResolver } from "../server/services/freeipa/tls";
+import { coreSettings } from "./settings/api";
 
 export type FreeIpaConfig = {
   enabled: boolean;

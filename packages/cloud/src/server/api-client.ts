@@ -1,5 +1,5 @@
-import { hc } from "hono/client";
 import type { Hono } from "hono";
+import { hc } from "hono/client";
 
 export type CreateApiClientConfig = {
   baseUrl?: string;

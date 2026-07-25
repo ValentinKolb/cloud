@@ -299,13 +299,15 @@ export const aiSkillStore = {
       const skill = skills[0];
       if (!skill) return { ok: false, reason: "not_found" };
 
-      const currentRows = await tx<{
-        path: string;
-        bytes: Uint8Array;
-        size: number;
-        media_type: string;
-        updated_at: Date | string;
-      }[]>`
+      const currentRows = await tx<
+        {
+          path: string;
+          bytes: Uint8Array;
+          size: number;
+          media_type: string;
+          updated_at: Date | string;
+        }[]
+      >`
         SELECT path, bytes, size, media_type, updated_at
         FROM ai.skill_files
         WHERE skill_id = ${input.skillId}
@@ -385,13 +387,15 @@ export const aiSkillStore = {
         `;
       }
 
-      const updatedRows = await tx<{
-        path: string;
-        bytes: Uint8Array;
-        size: number;
-        media_type: string;
-        updated_at: Date | string;
-      }[]>`
+      const updatedRows = await tx<
+        {
+          path: string;
+          bytes: Uint8Array;
+          size: number;
+          media_type: string;
+          updated_at: Date | string;
+        }[]
+      >`
         SELECT path, bytes, size, media_type, updated_at
         FROM ai.skill_files
         WHERE skill_id = ${input.skillId}
@@ -441,7 +445,13 @@ export const aiSkillStore = {
         bytes = EXCLUDED.bytes, media_type = EXCLUDED.media_type, size = EXCLUDED.size, updated_at = now()
     `;
     await sql`UPDATE ai.skills SET updated_at = now() WHERE id = ${input.skillId}`;
-    await recordEvent({ skillId: skill.id, skillSlug: skill.slug, actorUserId: input.actorUserId, event: "updated", meta: { path: input.path } });
+    await recordEvent({
+      skillId: skill.id,
+      skillSlug: skill.slug,
+      actorUserId: input.actorUserId,
+      event: "updated",
+      meta: { path: input.path },
+    });
     await revokeCodeIfApproved(skill, input.actorUserId, "content_changed");
   },
 
@@ -453,7 +463,13 @@ export const aiSkillStore = {
     `;
     if (rows.length === 0) return false;
     await sql`UPDATE ai.skills SET updated_at = now() WHERE id = ${input.skillId}`;
-    await recordEvent({ skillId: skill.id, skillSlug: skill.slug, actorUserId: input.actorUserId, event: "updated", meta: { deleted: input.path } });
+    await recordEvent({
+      skillId: skill.id,
+      skillSlug: skill.slug,
+      actorUserId: input.actorUserId,
+      event: "updated",
+      meta: { deleted: input.path },
+    });
     await revokeCodeIfApproved(skill, input.actorUserId, "content_changed");
     return true;
   },
@@ -532,7 +548,15 @@ export const aiSkillStore = {
 
   async listAccess(skillId: string): Promise<AccessEntry[]> {
     const rows = await sql<
-      { id: string; user_id: string | null; group_id: string | null; service_account_id: string | null; authenticated_only: boolean; permission: PermissionLevel; created_at: Date | string }[]
+      {
+        id: string;
+        user_id: string | null;
+        group_id: string | null;
+        service_account_id: string | null;
+        authenticated_only: boolean;
+        permission: PermissionLevel;
+        created_at: Date | string;
+      }[]
     >`
       SELECT a.id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only, a.permission, a.created_at
       FROM ai.skill_access sa
@@ -630,7 +654,13 @@ export const aiSkillStore = {
     const skill = await this.get(input.skillId);
     if (!skill) throw new Error("Skill not found.");
     await sql`UPDATE ai.skills SET allow_code = FALSE, code_review_requested_at = NULL, updated_at = now() WHERE id = ${input.skillId}`;
-    await recordEvent({ skillId: skill.id, skillSlug: skill.slug, actorUserId: input.actorUserId, event: "code_revoked", meta: { reason: "manual" } });
+    await recordEvent({
+      skillId: skill.id,
+      skillSlug: skill.slug,
+      actorUserId: input.actorUserId,
+      event: "code_revoked",
+      meta: { reason: "manual" },
+    });
   },
 
   /** Workspace skills waiting for a code review (admin queue, oldest first, capped). */

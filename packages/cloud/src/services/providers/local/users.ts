@@ -1,11 +1,11 @@
 import { sql } from "bun";
+import type { MutationResult, UserProfile } from "../../../contracts/shared";
 import { writeDeletedAccountAudit } from "../../account-lifecycle/audit";
+import { resolveStoredAdminState } from "../../accounts/model";
+import { generateUniqueAbbreviation } from "../../ipa/users";
+import { isUniqueViolation } from "../../postgres";
 import { session } from "../../session";
 import * as settings from "../../settings";
-import { generateUniqueAbbreviation } from "../../ipa/users";
-import { resolveStoredAdminState } from "../../accounts/model";
-import { isUniqueViolation } from "../../postgres";
-import type { MutationResult, UserProfile } from "../../../contracts/shared";
 
 type DbRow = Record<string, unknown>;
 

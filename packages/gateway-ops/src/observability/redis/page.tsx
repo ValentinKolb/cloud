@@ -1,4 +1,5 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { formatBytes, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
@@ -12,14 +13,6 @@ import RedisDataFilters from "./_components/RedisDataFilters.island";
 const numberFormat = new Intl.NumberFormat("de-DE");
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 
-const formatBytes = (bytes: number): string => {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const exponent = Math.min(BYTE_UNITS.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
-  const scaled = bytes / 1024 ** exponent;
-  return `${scaled >= 10 || exponent === 0 ? Math.round(scaled) : scaled.toFixed(1)} ${BYTE_UNITS[exponent]}`;
-};
-
-const formatNumber = (value: number): string => numberFormat.format(Math.round(value));
 const normalize = (value: string): string => value.toLowerCase();
 
 const formatTtl = (ms: number): string => {

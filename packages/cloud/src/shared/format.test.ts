@@ -5,7 +5,7 @@ describe("formatNumber", () => {
   test("groups by default and compacts on request", () => {
     expect(formatNumber(1_234_567, { locale: "en" })).toBe("1,234,567");
     expect(formatNumber(1_234_567, { locale: "en", compact: true })).toBe("1.2M");
-    expect(formatNumber(1234, { locale: "en", compact: true })).toBe("1.2K");
+    expect(formatNumber(1234, { locale: "en", compact: true })).toBe("1.2k");
   });
 
   test("distinguishes absent from zero", () => {
@@ -42,14 +42,14 @@ describe("formatDurationMs", () => {
     expect(formatDurationMs(0.4)).toBe("<1ms");
     expect(formatDurationMs(842)).toBe("842ms");
     expect(formatDurationMs(1234)).toBe("1.23s");
-    expect(formatDurationMs(90_000)).toBe("1m");
+    expect(formatDurationMs(90_000)).toBe("1m 30s");
     expect(formatDurationMs(7_200_000)).toBe("2h");
-    expect(formatDurationMs(1_000_000_000)).toBe("11d");
+    expect(formatDurationMs(1_000_000_000)).toBe("11d 13h");
   });
 
   test("renders absent durations as absent", () => {
     expect(formatDurationMs(null)).toBe(EMPTY_VALUE);
-    expect(formatDurationMs(0)).toBe("<1ms");
+    expect(formatDurationMs(0)).toBe("0ms");
   });
 });
 

@@ -14,7 +14,7 @@
  * — otherwise an expansion's tail could cascade into another match.
  */
 
-import { type Completion, type QueryContext, type Suggestion, type SuggestContext, TRIGGER_CHARS, WORD_CHAR, suggestSync } from "./engine";
+import { type Completion, type QueryContext, type SuggestContext, type Suggestion, suggestSync, TRIGGER_CHARS, WORD_CHAR } from "./engine";
 
 type LastExpansion = {
   textarea: HTMLTextAreaElement;

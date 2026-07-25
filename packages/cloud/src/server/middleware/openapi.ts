@@ -1,4 +1,4 @@
-import { resolver, type GenerateSpecOptions } from "hono-openapi";
+import { type GenerateSpecOptions, resolver } from "hono-openapi";
 import type { ZodType } from "zod";
 
 // ==========================

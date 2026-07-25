@@ -6,8 +6,9 @@
  * instead of constructing their own — the type stays in lockstep with the
  * actual route definitions in `@valentinkolb/cloud/api`.
  */
-import { api } from "../server/api-client";
+
 import type { CoreApiType } from "../api";
+import { api } from "../server/api-client";
 
 export const coreClient = api.create<CoreApiType>({ baseUrl: "/api" });
 

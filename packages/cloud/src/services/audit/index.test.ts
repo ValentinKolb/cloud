@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { describe, expect, test } from "bun:test";
+import { sql } from "bun";
 import { audit, sanitizeAuditMetadata, sanitizeAuditText } from "./index";
 
 describe("sanitizeAuditMetadata", () => {

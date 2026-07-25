@@ -15,7 +15,7 @@
  *     so the textarea's native undo history stays usable. We never
  *     assign `textarea.value` directly.
  */
-import { toggleBold, toggleItalic, toggleCode, toggleBulletList, toggleNumberedList, toggleHeading, insertLink } from "./actions";
+import { insertLink, toggleBold, toggleBulletList, toggleCode, toggleHeading, toggleItalic, toggleNumberedList } from "./actions";
 
 /* ────────────────────────────────────────────────────────────────────
  * Keyboard shortcuts

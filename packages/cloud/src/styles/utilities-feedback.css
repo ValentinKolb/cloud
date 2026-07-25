@@ -15,8 +15,7 @@
 
   @supports (color: color-mix(in srgb, black, white)) {
     background: color-mix(in srgb, var(--info-block-accent) var(--info-block-tint), var(--info-block-surface));
-    box-shadow: inset 0 0 0 1px
-      color-mix(in srgb, var(--info-block-accent) var(--info-block-outline-strength), var(--ui-border));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info-block-accent) var(--info-block-outline-strength), var(--ui-border));
   }
 
   & :where(.ti) {
@@ -24,15 +23,8 @@
   }
 }
 
-.dark :is(
-  .info-block,
-  .info-block-note,
-  .info-block-info,
-  .info-block-success,
-  .info-block-warning,
-  .info-block-danger,
-  .info-block-error
-) {
+.dark
+  :is(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger, .info-block-error) {
   --info-block-accent: var(--info-block-accent-dark);
   --info-block-surface: var(--ui-surface-subtle);
   --info-block-tint: 5%;
@@ -40,41 +32,20 @@
   color: var(--color-zinc-300);
 }
 
-.dark :is(
-    .info-block,
-    .info-block-note,
-    .info-block-info,
-    .info-block-success,
-    .info-block-warning,
-    .info-block-danger,
-    .info-block-error
-  )
+.dark
+  :is(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger, .info-block-error)
   > :first-child {
   color: var(--color-zinc-100);
 }
 
-.dark :is(
-    .info-block,
-    .info-block-note,
-    .info-block-info,
-    .info-block-success,
-    .info-block-warning,
-    .info-block-danger,
-    .info-block-error
-  )
+.dark
+  :is(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger, .info-block-error)
   :where(div, span, p, strong) {
   color: inherit;
 }
 
-.dark :is(
-    .info-block,
-    .info-block-note,
-    .info-block-info,
-    .info-block-success,
-    .info-block-warning,
-    .info-block-danger,
-    .info-block-error
-  )
+.dark
+  :is(.info-block, .info-block-note, .info-block-info, .info-block-success, .info-block-warning, .info-block-danger, .info-block-error)
   :where(.ti) {
   color: var(--info-block-accent);
 }

@@ -1,4 +1,5 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { formatDate, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
@@ -9,17 +10,6 @@ import MetricsTokens from "./_components/MetricsTokens.island";
 import { getMetricsSnapshot, listMetricsTokens, METRICS_ENDPOINT, type MetricsSnapshot } from "./service";
 
 const numberFormat = new Intl.NumberFormat("de-DE");
-const formatNumber = (value: number): string => numberFormat.format(Math.round(value));
-
-const formatDate = (value: string): string =>
-  new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-
 const parseMetricMetadata = (text: string): Map<string, { description: string; type: string; series: number }> => {
   const metrics = new Map<string, { description: string; type: string; series: number }>();
   for (const line of text.split("\n")) {

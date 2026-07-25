@@ -1,16 +1,4 @@
 import { sql } from "bun";
-import { accountLifecycle } from "../account-lifecycle";
-import { audit, type AuditActor, type AuditTarget } from "../audit";
-import { lifecycleJobs } from "../account-lifecycle/scheduler";
-import { logger, logging, type LogEntry } from "../logging";
-import { getFreeIpaConfig } from "../freeipa-config";
-import { isUniqueViolation } from "../postgres";
-import { providers } from "../providers";
-import * as users from "./users";
-import * as groups from "./groups";
-import * as entities from "./entities";
-import { canMutateManagedGroup, hasOnlySelfUpdateFields, isAdminActor, isSelfTarget, type AccountsActor } from "./authz";
-import type { AccountsNotificationSender } from "./notification-sender";
 import type {
   BaseGroup,
   BaseUser,
@@ -26,13 +14,25 @@ import {
   err,
   fail,
   ok,
-  paginate,
-  paginateItems,
   type PageParams,
   type Paginated,
+  paginate,
+  paginateItems,
   type Result,
   type ServiceError,
 } from "../../server/services";
+import { accountLifecycle } from "../account-lifecycle";
+import { lifecycleJobs } from "../account-lifecycle/scheduler";
+import { type AuditActor, type AuditTarget, audit } from "../audit";
+import { getFreeIpaConfig } from "../freeipa-config";
+import { type LogEntry, logger, logging } from "../logging";
+import { isUniqueViolation } from "../postgres";
+import { providers } from "../providers";
+import { type AccountsActor, canMutateManagedGroup, hasOnlySelfUpdateFields, isAdminActor, isSelfTarget } from "./authz";
+import * as entities from "./entities";
+import * as groups from "./groups";
+import type { AccountsNotificationSender } from "./notification-sender";
+import * as users from "./users";
 
 type CreateUserInput =
   | {

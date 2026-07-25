@@ -1,7 +1,7 @@
 import * as ipaAuth from "../ipa/auth";
-import * as ipaUsers from "../ipa/users";
 import * as ipaGroups from "../ipa/groups";
 import * as ipaSync from "../ipa/sync";
+import * as ipaUsers from "../ipa/users";
 import { local } from "./local";
 
 export const ipa = {

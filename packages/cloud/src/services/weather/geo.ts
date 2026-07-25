@@ -1,6 +1,6 @@
-import * as settings from "../settings";
 import { err, fail, ok, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
-import { geoService, type GeoPlace } from "../../server";
+import { type GeoPlace, geoService } from "../../server";
+import * as settings from "../settings";
 
 export const WEATHER_COUNTRY_CODE = "DE";
 

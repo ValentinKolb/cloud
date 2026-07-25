@@ -3,9 +3,9 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";
 import { aiAttachmentMarker } from "./attachments";
-import { isAiSettingsError } from "./validate";
 import type { AiSettingsError, AiUserContentPart } from "./types";
 import { isAiImageMediaType } from "./types";
+import { isAiSettingsError } from "./validate";
 
 export const AiCreateConversationInputSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),

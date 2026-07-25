@@ -1,21 +1,21 @@
 import { sql } from "bun";
 import type { User } from "../../contracts/shared";
-import { logger } from "../logging";
+import { err, fail, freeipa, ok, type Result } from "../../server/services";
+import { dates } from "../../shared";
+import { getConfiguredExpiryDays, parseIpaAccountTransitionPolicy } from "../account-model";
 import { applyIpaAccountTransitionPolicy } from "../accounts/switching";
 import { audit } from "../audit";
-import { get as getSetting } from "../settings";
-import { session } from "../session";
-import { getConfiguredExpiryDays, parseIpaAccountTransitionPolicy } from "../account-model";
 import { getFreeIpaConfig } from "../freeipa-config";
-import { getServiceIpaSession } from "../ipa/service-account";
 import { buildEffectiveIpaGroupsByUid } from "../ipa/effective-groups";
-import { providers } from "../providers";
+import { getIpaUrl } from "../ipa/guard";
+import { getServiceIpaSession } from "../ipa/service-account";
+import { logger } from "../logging";
 import { parsePgJsonRecord } from "../postgres";
-import { dates } from "../../shared";
-import { err, fail, freeipa, ok, type Result } from "../../server/services";
+import { providers } from "../providers";
+import { session } from "../session";
+import { get as getSetting } from "../settings";
 import { writeDeletedAccountAudit } from "./audit";
 import type { AccountLifecycleNotificationSender } from "./notification-sender";
-import { getIpaUrl } from "../ipa/guard";
 
 const log = logger("auth:lifecycle");
 

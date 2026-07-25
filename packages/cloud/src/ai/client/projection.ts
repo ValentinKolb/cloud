@@ -86,9 +86,7 @@ export const reduceWireEvent = (state: AiChatProjection, event: AiWireEvent): Ai
   if (event.type === "turn_started") {
     if (active && active.turnId === event.turnId && event.attempt < active.attempt) return state;
     const pendingSteers =
-      active?.turnId === event.turnId
-        ? active.blocks.filter((block) => block.kind === "steer_message" && block.status !== "consumed")
-        : [];
+      active?.turnId === event.turnId ? active.blocks.filter((block) => block.kind === "steer_message" && block.status !== "consumed") : [];
     return {
       ...state,
       activeTurn: {
@@ -118,7 +116,5 @@ export const reduceWireEvent = (state: AiChatProjection, event: AiWireEvent): Ai
 export const visibleMessages = (state: AiChatProjection): AiStoredMessage[] => {
   const activeTurnId = state.activeTurn?.turnId;
   if (!activeTurnId) return state.messages;
-  return state.messages.filter(
-    (message) => message.loopId !== activeTurnId || (message.message.role === "user" && !message.meta?.steerId),
-  );
+  return state.messages.filter((message) => message.loopId !== activeTurnId || (message.message.role === "user" && !message.meta?.steerId));
 };

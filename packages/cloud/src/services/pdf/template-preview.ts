@@ -1,4 +1,4 @@
-import { renderLiquidTemplate, type LiquidTemplateOptions } from "../../shared/template-rendering";
+import { type LiquidTemplateOptions, renderLiquidTemplate } from "../../shared/template-rendering";
 import {
   type GotenbergConfig,
   GotenbergRenderError,

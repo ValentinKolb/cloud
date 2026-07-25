@@ -8,6 +8,13 @@ import {
   type TraceSpan,
   trace,
 } from "@valentinkolb/cloud/services";
+import {
+  formatDate,
+  formatDurationMs as formatMs,
+  formatNumber,
+  formatPercent,
+  formatDateTime as formatTimestamp,
+} from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import {
   DataTable,
@@ -43,32 +50,6 @@ import {
 const baseUrl = "/admin/observability/jobs";
 const numberFormat = new Intl.NumberFormat("de-DE");
 const percentFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
-
-const formatNumber = (value: number): string => numberFormat.format(Math.round(value));
-const formatPercent = (value: number): string => `${percentFormat.format(value)}%`;
-
-const formatMs = (ms: number | null): string => {
-  if (ms === null) return "-";
-  if (ms < 1) return "<1ms";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)}s`;
-  if (ms < 60 * 60_000) return `${Math.round(ms / 60_000)}m`;
-  return `${(ms / (60 * 60_000)).toFixed(1)}h`;
-};
-
-const formatDate = (value: string | null): string => {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(value));
-};
-
-const formatTimestamp = (value: number | null): string => (value === null ? "-" : formatDate(new Date(value).toISOString()));
 
 /**
  * A schedule can legitimately be a little late — the handler polls, the tick
@@ -366,11 +347,14 @@ const OverviewTable = (props: { rows: BackgroundJobOverviewRow[]; filter: JobsFi
           // it has stopped firing — the failure mode a plain timestamp hides.
           const overdueMs = row.nextRunAt ? Date.now() - row.nextRunAt : 0;
           return overdueMs > OVERDUE_GRACE_MS ? (
-            <span class="text-[10px] text-red-500" title={`Expected at ${formatTimestamp(row.nextRunAt)}`}>
+            <span
+              class="text-[10px] text-red-500"
+              title={`Expected at ${formatTimestamp(row.nextRunAt === null ? null : new Date(row.nextRunAt))}`}
+            >
               overdue {formatDuration(overdueMs)}
             </span>
           ) : (
-            <span class="text-[10px] text-dimmed">{formatTimestamp(row.nextRunAt)}</span>
+            <span class="text-[10px] text-dimmed">{formatTimestamp(row.nextRunAt === null ? null : new Date(row.nextRunAt))}</span>
           );
         }
         if (col.id === "action") return <ActionCell row={row} filter={props.filter} />;

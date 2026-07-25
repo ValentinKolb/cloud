@@ -1,5 +1,6 @@
 import { listAppsDetailed } from "@valentinkolb/cloud";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { formatNumber as fmtCount, formatDurationMs as fmtMs, formatPercent as fmtRatio } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
@@ -31,18 +32,7 @@ import {
 /** Individual requests shown once a route is selected. */
 const DRILLDOWN_EVENT_LIMIT = 100;
 
-const fmtMs = (ms: number | null) => {
-  if (ms === null) return "—";
-  if (ms < 1) return "<1ms";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
-};
-
-const fmtCount = (value: number) => value.toLocaleString();
-
 const fmtPercent = (part: number, total: number) => (total === 0 ? "—" : `${((part / total) * 100).toFixed(1)}%`);
-
-const fmtRatio = (ratio: number): string => `${(Math.max(0, Math.min(1, ratio)) * 100).toFixed(3)}%`;
 
 const fmtDateTime = (value: string) =>
   new Intl.DateTimeFormat("de-DE", {

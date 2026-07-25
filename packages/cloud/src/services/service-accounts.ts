@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import { isUniqueViolation } from "./postgres";
 
 export type ServiceAccountKind = "user_delegated" | "resource_bound";

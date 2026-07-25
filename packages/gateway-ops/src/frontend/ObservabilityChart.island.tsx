@@ -1,3 +1,4 @@
+import { formatBytes, formatDateTime, formatNumber } from "@valentinkolb/cloud/shared";
 import { Chart } from "@valentinkolb/cloud/ui";
 
 /**
@@ -33,22 +34,11 @@ export type ObservabilityChartProps = {
   area?: boolean;
 };
 
-const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
-
-const formatBytes = (value: number): string => {
-  if (!Number.isFinite(value) || value <= 0) return "0 B";
-  const exponent = Math.min(BYTE_UNITS.length - 1, Math.floor(Math.log(value) / Math.log(1024)));
-  const scaled = value / 1024 ** exponent;
-  return `${scaled >= 10 || exponent === 0 ? Math.round(scaled) : scaled.toFixed(1)} ${BYTE_UNITS[exponent]}`;
-};
-
-const formatDateTime = (value: number): string =>
-  new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
-
-const formatterFor = (format: ObservabilityChartFormat | undefined) => {
-  if (format === "bytes") return formatBytes;
-  if (format === "datetime") return formatDateTime;
-  return (value: number) => value.toLocaleString();
+/** Chart axes hand over a raw number, so each shared helper is adapted to that. */
+const formatterFor = (format: ObservabilityChartFormat | undefined): ((value: number) => string) => {
+  if (format === "bytes") return (value) => formatBytes(value);
+  if (format === "datetime") return (value) => formatDateTime(new Date(value));
+  return (value) => formatNumber(value);
 };
 
 export default function ObservabilityChart(props: ObservabilityChartProps) {

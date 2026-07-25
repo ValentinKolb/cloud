@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { QueryContext, Suggestion } from "./engine";
 import { applySuggestion, resetCompletionState, tryRestore } from "./behaviors";
+import type { QueryContext, Suggestion } from "./engine";
 
 type FakeTextarea = HTMLTextAreaElement & {
   value: string;

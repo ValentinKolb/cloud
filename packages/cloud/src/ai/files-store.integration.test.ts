@@ -48,7 +48,12 @@ describe("aiFileStore integration", () => {
     const conversation = await aiConversationStore.createConversation({ appId: "ai-files-test", ownerUserId: userId });
 
     try {
-      await aiFileStore.write({ conversationId: conversation.id, path: "/input/data.csv", bytes: bytes("a,b\n1,2\n3,4\n"), mediaType: "text/csv" });
+      await aiFileStore.write({
+        conversationId: conversation.id,
+        path: "/input/data.csv",
+        bytes: bytes("a,b\n1,2\n3,4\n"),
+        mediaType: "text/csv",
+      });
       const stat = await aiFileStore.stat({ conversationId: conversation.id, path: "/input/data.csv" });
       expect(stat?.size).toBe(12);
       expect(stat?.mediaType).toBe("text/csv");

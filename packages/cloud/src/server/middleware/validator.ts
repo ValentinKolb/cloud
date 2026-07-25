@@ -1,6 +1,6 @@
+import type { Context, ValidationTargets } from "hono";
 import { validator as honoValidator } from "hono-openapi";
 import type { ZodType } from "zod";
-import type { ValidationTargets, Context } from "hono";
 
 /**
  * Zod validator middleware with pretty error messages and OpenAPI support.

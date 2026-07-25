@@ -13,7 +13,14 @@ const readError = async (response: Response, fallback: string): Promise<string> 
   return body && typeof body === "object" && "message" in body && typeof body.message === "string" ? body.message : fallback;
 };
 
-const TEXT_MEDIA_TYPES = new Set(["application/json", "application/yaml", "application/xml", "image/svg+xml", "text/javascript", "text/typescript"]);
+const TEXT_MEDIA_TYPES = new Set([
+  "application/json",
+  "application/yaml",
+  "application/xml",
+  "image/svg+xml",
+  "text/javascript",
+  "text/typescript",
+]);
 const isTextMediaType = (mediaType: string): boolean => mediaType.startsWith("text/") || TEXT_MEDIA_TYPES.has(mediaType);
 
 const bytesToBase64 = (bytes: Uint8Array): string => {
@@ -32,7 +39,10 @@ export const conversationFileSource = (baseUrl: string, conversationId: string):
   };
 
   const request = async <T>(url: string, init: RequestInit, fallback: string): Promise<T> => {
-    const response = await fetch(url, { ...init, headers: init.body instanceof FormData ? undefined : { "Content-Type": "application/json" } });
+    const response = await fetch(url, {
+      ...init,
+      headers: init.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
+    });
     if (!response.ok) throw new Error(await readError(response, fallback));
     return (await response.json()) as T;
   };

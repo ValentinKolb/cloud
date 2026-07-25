@@ -107,8 +107,7 @@ const EventsQuerySchema = z.object({
 
 /** Media types the explorer edits as text; everything else travels base64. */
 const isTextMediaType = (mediaType: string): boolean =>
-  mediaType.startsWith("text/") ||
-  ["application/json", "application/yaml", "application/xml", "image/svg+xml"].includes(mediaType);
+  mediaType.startsWith("text/") || ["application/json", "application/yaml", "application/xml", "image/svg+xml"].includes(mediaType);
 
 const decodeTreeFile = (content: string, encoding: "utf8" | "base64"): Uint8Array => {
   if (encoding === "utf8") return new TextEncoder().encode(content);
@@ -135,16 +134,14 @@ const isSkillVisibleTo = async (skill: AiSkill, user: User): Promise<boolean> =>
 
 export const createAiSkillsRoutes = () => {
   /** Load skill + user, enforcing visibility; managed=true additionally requires manage rights. */
-  const loadSkill = async (
-    c: Context<AuthContext>,
-    options?: { manage?: boolean },
-  ): Promise<{ skill: AiSkill; user: User } | Response> => {
+  const loadSkill = async (c: Context<AuthContext>, options?: { manage?: boolean }): Promise<{ skill: AiSkill; user: User } | Response> => {
     const user = requestUser(c);
     if (!user) return (await respond(c, fail(err.forbidden("Skills require a user-backed actor")))) as unknown as Response;
     const skill = await aiSkillStore.get(c.req.param("skillId") ?? "");
     if (!skill) return (await respond(c, fail(err.notFound("Skill")))) as unknown as Response;
     if (options?.manage) {
-      if (!canManageSkill(skill, user)) return (await respond(c, fail(err.forbidden("You cannot manage this skill")))) as unknown as Response;
+      if (!canManageSkill(skill, user))
+        return (await respond(c, fail(err.forbidden("You cannot manage this skill")))) as unknown as Response;
     } else if (!(await isSkillVisibleTo(skill, user)) || (!skill.enabled && !canManageSkill(skill, user))) {
       // Admin-disabled skills are fully gone for users — not "visible but off".
       return (await respond(c, fail(err.notFound("Skill")))) as unknown as Response;
@@ -320,7 +317,8 @@ export const createAiSkillsRoutes = () => {
         const input = c.req.valid("json");
         const path = normalizeAiFilePath(input.path);
         if (!path) return respond(c, fail(err.badInput("Invalid file path")));
-        const bytes = input.encoding === "base64" ? new Uint8Array(Buffer.from(input.content, "base64")) : new TextEncoder().encode(input.content);
+        const bytes =
+          input.encoding === "base64" ? new Uint8Array(Buffer.from(input.content, "base64")) : new TextEncoder().encode(input.content);
         try {
           await aiSkillStore.writeFile({
             skillId: loaded.skill.id,

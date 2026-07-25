@@ -70,7 +70,7 @@
     "@tailwindcss/typography": "^0.5.19",
     "@valentinkolb/nessi": "^0.9.1",
     "@valentinkolb/ssr": "0.11.0",
-    "@valentinkolb/stdlib": "0.15.0",
+    "@valentinkolb/stdlib": "0.16.0",
     "@valentinkolb/sync": "^5.5.2",
     "bun-plugin-tailwind": "^0.1.2",
     "hono-openapi": "^1.1.2",
