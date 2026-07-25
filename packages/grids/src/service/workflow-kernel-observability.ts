@@ -102,6 +102,23 @@ export const listWorkflowRunsPage = async (params: {
   };
 };
 
+// Document runs used to be persisted into the step outcome in full, including
+// `templateSnapshot` and `renderData` — the rendered record content. Step
+// outcomes are readable with workflow "read" alone, so those keys are stripped
+// on the way out. New runs already persist only the document summary; this
+// covers rows written before that changed.
+const DOCUMENT_PAYLOAD_KEYS = ["templateSnapshot", "renderData"] as const;
+
+const redactStepOutcome = (outcome: GridsWorkflowStepRun["outcome"]): GridsWorkflowStepRun["outcome"] => {
+  if (!outcome || typeof outcome !== "object" || Array.isArray(outcome)) return outcome;
+  const output = (outcome as { output?: unknown }).output;
+  if (!output || typeof output !== "object" || Array.isArray(output)) return outcome;
+  if (!DOCUMENT_PAYLOAD_KEYS.some((key) => key in output)) return outcome;
+  const redacted = { ...(output as Record<string, unknown>) };
+  for (const key of DOCUMENT_PAYLOAD_KEYS) delete redacted[key];
+  return { ...(outcome as Record<string, unknown>), output: redacted } as GridsWorkflowStepRun["outcome"];
+};
+
 const mapStepRun = (row: DbRow): GridsWorkflowStepRun => ({
   id: row.id as string,
   runId: row.run_id as string,
@@ -111,7 +128,7 @@ const mapStepRun = (row: DbRow): GridsWorkflowStepRun => ({
   kind: row.kind as string,
   action: (row.action as string | null) ?? null,
   status: row.status as GridsWorkflowStepRun["status"],
-  outcome: parseJsonbRow<GridsWorkflowStepRun["outcome"]>(row.outcome, null),
+  outcome: redactStepOutcome(parseJsonbRow<GridsWorkflowStepRun["outcome"]>(row.outcome, null)),
   executionGeneration: Number(row.execution_generation),
   startedAt: row.started_at ? toIsoString(row.started_at as Date | string) : null,
   finishedAt: row.finished_at ? toIsoString(row.finished_at as Date | string) : null,

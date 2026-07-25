@@ -2,12 +2,18 @@ import type { RecordQuery } from "../../../contracts";
 
 type BulkSelectionRunPayload = { recordIds: string[] } | { query: RecordQuery };
 
+// Projects a records query down to the row shape the bulk launcher accepts.
+// `includeDeleted` / `deletedOnly` are deliberately forwarded rather than
+// dropped: the server rejects them, and silently stripping them would run the
+// workflow against live records instead of the deleted ones on screen.
 export const bulkSelectionQuery = (query: RecordQuery): RecordQuery => ({
   ...(query.filter ? { filter: query.filter } : {}),
   ...(query.search ? { search: query.search } : {}),
   ...(query.recordMeta ? { recordMeta: query.recordMeta } : {}),
   ...(query.sort ? { sort: query.sort } : {}),
   ...(query.limit ? { limit: query.limit } : {}),
+  ...(query.includeDeleted ? { includeDeleted: query.includeDeleted } : {}),
+  ...(query.deletedOnly ? { deletedOnly: query.deletedOnly } : {}),
 });
 
 export const bulkSelectionRunPayload = (selectedRecordIds: readonly string[], query: RecordQuery): BulkSelectionRunPayload => {

@@ -76,6 +76,10 @@ export default function WorkflowButtonWidget(props: Props) {
     let refreshInFlight = false;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     let pollFailures = 0;
+    // The poll is a fallback for the live stream, not a companion to it. Without
+    // this a non-terminal run — `waiting` can last for hours — keeps polling for
+    // the lifetime of the dashboard tab even while the stream is healthy.
+    let streamReady = false;
     let events: ReturnType<typeof createWorkflowRunEventsProvider> | null = null;
     const stop = () => {
       if (stopped) return;
@@ -91,7 +95,8 @@ export default function WorkflowButtonWidget(props: Props) {
       if (isTerminalWorkflowRunStatus(status)) stop();
     };
     const scheduleRefresh = () => {
-      if (stopped || fallbackTimer || pollFailures >= MAX_STATUS_POLL_FAILURES || document.visibilityState !== "visible") return;
+      if (stopped || streamReady || fallbackTimer) return;
+      if (pollFailures >= MAX_STATUS_POLL_FAILURES || document.visibilityState !== "visible") return;
       fallbackTimer = setTimeout(() => {
         fallbackTimer = null;
         void refresh();
@@ -135,9 +140,20 @@ export default function WorkflowButtonWidget(props: Props) {
         if (event.run.id !== runId) return;
         applyStatus(event.run.status);
       },
-      onReady: () => void refresh(),
-      onError: scheduleRefresh,
-      onFatal: scheduleRefresh,
+      onReady: () => {
+        streamReady = true;
+        if (fallbackTimer) clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+        void refresh();
+      },
+      onError: () => {
+        streamReady = false;
+        scheduleRefresh();
+      },
+      onFatal: () => {
+        streamReady = false;
+        scheduleRefresh();
+      },
     });
     events.connect();
     void refresh();

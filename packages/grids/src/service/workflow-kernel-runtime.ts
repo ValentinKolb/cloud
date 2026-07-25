@@ -681,8 +681,12 @@ export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
   );
   const workflows = await listScheduledWorkflows();
   await registerWorkflowSchedules(workflows);
+  // Snapshot the registrations BEFORE deriving the active set. A workflow another
+  // pod enables in between then lands in `activeIds` (kept) rather than only in
+  // `registered` (deleted). The reverse order drops a just-registered schedule.
+  const registered = await workflowScheduler.list();
   const activeIds = new Set((await listScheduledWorkflows()).map(workflowScheduleId));
-  for (const item of await workflowScheduler.list()) {
+  for (const item of registered) {
     if (!item.id.startsWith(SCHEDULE_PREFIX) || activeIds.has(item.id)) continue;
     await workflowScheduler.delete({ id: item.id });
   }

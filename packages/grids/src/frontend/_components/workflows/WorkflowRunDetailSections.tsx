@@ -9,6 +9,7 @@ import {
   formatWorkflowRunDuration as formatDuration,
   workflowRunStatusClass as statusClass,
   workflowStepErrorMessage,
+  workflowStepIssueReason,
   workflowStepOutcomeSummary,
   workflowStepPlannedEffects,
 } from "./workflow-display";
@@ -111,6 +112,7 @@ export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; 
           {(step) => {
             const stepError = () => workflowStepErrorMessage(step.outcome);
             const outcomeSummary = () => workflowStepOutcomeSummary(step.outcome);
+            const unresolved = () => workflowStepIssueReason(step.outcome) !== null;
             return (
               <div class="grid grid-cols-[auto_1fr_auto] items-start gap-2 py-1 text-xs">
                 <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
@@ -123,7 +125,11 @@ export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; 
                     : "-"}
                 </span>
                 <Show when={stepError()}>{(message) => <p class="col-span-3 text-red-600 dark:text-red-400">{message()}</p>}</Show>
-                <Show when={outcomeSummary()}>{(message) => <p class="col-span-3 text-dimmed">{message()}</p>}</Show>
+                <Show when={outcomeSummary()}>
+                  {(message) => (
+                    <p class={`col-span-3 ${unresolved() ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}>{message()}</p>
+                  )}
+                </Show>
                 <For each={step.action ? workflowStepPlannedEffects(step.outcome) : []}>
                   {(effect) => (
                     <p class="col-span-3 pl-2 text-primary">

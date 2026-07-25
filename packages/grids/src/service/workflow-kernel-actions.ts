@@ -27,6 +27,7 @@ import { createWorkflowNotificationSender, type WorkflowNotificationSender } fro
 import type { GridsWorkflow, GridsWorkflowPrincipal } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
 import { logAudit, type SqlClient } from "./audit";
+import { summarizeDocumentRun } from "./document-mappers";
 import {
   buildTemplateAppData,
   buildTemplateBusinessData,
@@ -1239,7 +1240,11 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
                 },
               },
             });
-            const output = toJsonValue(run);
+            // Persist only the document summary. The full run carries
+            // `templateSnapshot` and `renderData` — the rendered record content —
+            // and step outcomes are readable with workflow "read" alone, without
+            // the table/template grants the document itself requires.
+            const output = toJsonValue(summarizeDocumentRun(run));
             return output;
           },
         );

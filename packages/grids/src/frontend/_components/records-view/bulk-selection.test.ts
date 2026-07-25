@@ -31,6 +31,13 @@ describe("records bulk selection helpers", () => {
     });
   });
 
+  test("forwards deleted-record flags so the server still rejects them", () => {
+    // Stripping these client-side would silently retarget the run from the
+    // deleted records on screen to the live ones.
+    expect(bulkSelectionQuery({ limit: 50, deletedOnly: true } as never)).toEqual({ limit: 50, deletedOnly: true });
+    expect(bulkSelectionQuery({ limit: 50, includeDeleted: true } as never)).toEqual({ limit: 50, includeDeleted: true });
+  });
+
   test("prunes selections to the visible loaded records", () => {
     const pruned = pruneBulkSelection(new Set(["rec-a", "rec-b", "rec-c"]), new Set(["rec-b", "rec-c", "rec-d"]));
     expect([...pruned]).toEqual(["rec-b", "rec-c"]);

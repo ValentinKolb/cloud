@@ -531,6 +531,47 @@ describe("Grids workflow kernel action ports", () => {
     });
   });
 
+  test("persists only the document summary as the step output", async () => {
+    // Step outcomes are readable with workflow "read" alone, so the rendered
+    // record content must never reach them.
+    const generatedRun = {
+      id: "00000000-0000-4000-8000-00000000000a",
+      shortId: "docaa",
+      templateId: TEMPLATE_ID,
+      workflowRunId: "00000000-0000-4000-8000-00000000000b",
+      snapshotId: "00000000-0000-4000-8000-00000000000c",
+      baseId: BASE_ID,
+      tableId: TABLE_ID,
+      recordId: RECORD_ID,
+      documentNumber: "AGR-20260725-1",
+      filename: "agreement.pdf",
+      tags: ["agreement"],
+      templateSnapshot: { html: "<p>{{ record.data.iban }}</p>" },
+      renderData: { record: { data: { iban: "DE00 1234 5678" } } },
+      generatedBy: null,
+      generatedAt: "2026-07-25T00:00:00.000Z",
+    };
+    const services = {
+      ...commonServices(),
+      getDocumentTemplate: mock(async () => ({ id: TEMPLATE_ID, tableId: TABLE_ID, name: "Agreement", enabled: true }) as DocumentTemplate),
+      generateDocument: mock(async () => ({ ok: true as const, data: generatedRun })),
+    };
+    const ports = createGridsWorkflowActionPorts({ workflow, services, effectIntents: executingIntents() });
+    const step = actionStep("generateDocument", { template: "Agreement", record: "inputs.item", saveAs: "agreement" }, ["steps", 0]);
+    const ctx = context("execute", step, {
+      references: { "inputs.item": { kind: "record", tableId: TABLE_ID, recordId: RECORD_ID } },
+      plan: boundPlan({ "steps.0.generateDocument.template": TEMPLATE_ID }),
+    });
+
+    const outcome = await ports.execute.get("generateDocument")!.execute(ctx.value, step);
+
+    const output = (outcome as { output?: Record<string, unknown> }).output ?? {};
+    expect(output).toMatchObject({ id: generatedRun.id, filename: "agreement.pdf", documentNumber: "AGR-20260725-1" });
+    expect(output).not.toHaveProperty("renderData");
+    expect(output).not.toHaveProperty("templateSnapshot");
+    expect(JSON.stringify(output)).not.toContain("DE00 1234 5678");
+  });
+
   test("does not blindly retry an intent whose external outcome is unknown", async () => {
     const send = mock(async () => ({ ok: true as const, data: { recipients: [] } }));
     const prepare = mock(async () => ({

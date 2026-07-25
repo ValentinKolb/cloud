@@ -1337,6 +1337,7 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
         count(*) FILTER (WHERE status = 'running')::int AS running,
         count(*) FILTER (WHERE status = 'waiting')::int AS waiting,
         count(*) FILTER (WHERE status = 'needs_attention')::int AS needs_attention,
+        count(*) FILTER (WHERE status = 'needs_attention' AND finished_at >= now() - interval '24 hours')::int AS needs_attention_recent,
         count(*) FILTER (WHERE status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < now()))::int AS stale_running,
         COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE status = 'queued'))), 0)::float AS oldest_queued_age_seconds
       FROM grids.workflow_runs
@@ -1346,6 +1347,7 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
         count(*) FILTER (WHERE status = 'pending')::int AS pending,
         count(*) FILTER (WHERE status = 'executing')::int AS executing,
         count(*) FILTER (WHERE status = 'needs_attention')::int AS needs_attention,
+        count(*) FILTER (WHERE status = 'needs_attention' AND updated_at >= now() - interval '24 hours')::int AS needs_attention_recent,
         COALESCE(EXTRACT(EPOCH FROM (now() - min(updated_at) FILTER (WHERE status IN ('pending', 'executing')))), 0)::float AS oldest_active_age_seconds
       FROM grids.workflow_effect_intents
     ), federation AS (
@@ -1356,12 +1358,18 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
       FROM grids.workflow_email_deliveries
     )
     SELECT
+      -- Needs-attention is terminal and has no acknowledge path, so an unbounded
+      -- count would pin the status to 'error' forever after a single incident.
+      -- Recent ones raise 'error'; older unresolved ones stay visible as 'warn'
+      -- and in the full counts below, which are the operator's worklist.
       CASE
-        WHEN outbox.dead > 0 OR workflow_runs.needs_attention > 0 OR workflow_runs.stale_running > 0 OR effects.needs_attention > 0
+        WHEN outbox.dead > 0 OR workflow_runs.needs_attention_recent > 0 OR workflow_runs.stale_running > 0
+          OR effects.needs_attention_recent > 0
           THEN 'error'
         WHEN outbox.failed > 0 OR outbox.oldest_active_age_seconds > 60
           OR workflow_runs.oldest_queued_age_seconds > 60 OR effects.oldest_active_age_seconds > 300
           OR federation.degraded > 0 OR email_deliveries.failed_24h > 0
+          OR workflow_runs.needs_attention > 0 OR effects.needs_attention > 0
           THEN 'warn'
         ELSE 'ok'
       END AS status,

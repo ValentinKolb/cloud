@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isTerminalWorkflowRunStatus,
   workflowStepErrorMessage,
+  workflowStepIssueReason,
   workflowStepOutcomeSummary,
   workflowStepPlannedEffects,
 } from "./workflow-display";
@@ -43,6 +44,19 @@ describe("workflow step outcomes", () => {
   test("describes waiting dependencies and selected control-flow branches", () => {
     expect(workflowStepOutcomeSummary({ state: "waiting", dependency: { kind: "approval", key: "loan-42" } })).toBe("Waiting for approval");
     expect(workflowStepOutcomeSummary({ state: "completed", control: { kind: "if", branches: ["then"] } })).toBe("if: then");
+  });
+
+  test("surfaces why a planned branch could not be evaluated", () => {
+    // Both branches are planned when the condition is indeterminate, and the
+    // step still persists as "succeeded" — the reason is the only signal.
+    const outcome = {
+      state: "planned",
+      control: { kind: "if", branches: ["then", "else"] },
+      issues: [{ state: "indeterminate", reason: "Condition depends on a value only available at run time." }],
+    };
+    expect(workflowStepIssueReason(outcome)).toBe("Condition depends on a value only available at run time.");
+    expect(workflowStepOutcomeSummary(outcome)).toBe("if: then, else — Condition depends on a value only available at run time.");
+    expect(workflowStepIssueReason({ state: "planned", control: { kind: "if", branches: ["then"] } })).toBeNull();
   });
 
   test("describes dry-run effects without exposing raw payloads", () => {

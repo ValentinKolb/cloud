@@ -45,16 +45,33 @@ type JsonRecord = Record<string, unknown>;
 const objectValue = (value: unknown): JsonRecord | null =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 
+// A dry run that cannot evaluate a branch condition plans BOTH branches and
+// records why on the control step's `issues`. Those steps persist as
+// "succeeded", so without this the panel shows mutually exclusive branches as
+// green with no hint that only one of them can actually run.
+export const workflowStepIssueReason = (outcome: unknown): string | null => {
+  const value = objectValue(outcome);
+  if (!value || !Array.isArray(value.issues)) return null;
+  const issues = value.issues.map(objectValue).filter((issue): issue is JsonRecord => issue !== null);
+  const issue = issues.find((candidate) => candidate.state === "indeterminate") ?? issues[0];
+  if (!issue) return null;
+  if (typeof issue.reason === "string" && issue.reason.trim()) return issue.reason;
+  return typeof issue.state === "string" ? String(issue.state).replaceAll("_", " ") : null;
+};
+
 export const workflowStepOutcomeSummary = (outcome: unknown): string | null => {
   const value = objectValue(outcome);
   if (!value || typeof value.state !== "string") return null;
   const stateSummary = workflowStateSummary(value);
   if (stateSummary) return stateSummary;
+  const issueReason = workflowStepIssueReason(value);
   const control = objectValue(value.control);
-  if (control && typeof control.kind === "string" && Array.isArray(control.branches)) {
-    return `${control.kind}: ${control.branches.map(String).join(", ")}`;
-  }
-  return null;
+  const controlSummary =
+    control && typeof control.kind === "string" && Array.isArray(control.branches)
+      ? `${control.kind}: ${control.branches.map(String).join(", ")}`
+      : null;
+  if (issueReason) return controlSummary ? `${controlSummary} — ${issueReason}` : issueReason;
+  return controlSummary;
 };
 
 const workflowStateSummary = (value: JsonRecord): string | null => {
