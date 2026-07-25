@@ -13,6 +13,7 @@
 import { type SQL, sql } from "bun";
 import type { WorkflowJsonValue } from "../contracts";
 import { createWorkflowRun } from "./runs";
+import { withTransaction } from "./transaction";
 
 export type WorkflowEventInput = {
   appId: string;
@@ -151,7 +152,7 @@ export const emitWorkflowEvent = async (
   const context = event.context ?? {};
   const authorization = event.authorization ?? {};
 
-  return db.begin(async (tx) => {
+  return withTransaction(options.db, async (tx) => {
     const inserted = await tx<{ id: string }[]>`
       INSERT INTO workflows.event (
         app_id, scope_id, type, data, context, authorization_snapshot, target_workflow_id, dedupe_key, occurred_at
@@ -222,7 +223,7 @@ export const dispatchPendingWorkflowEvents = async (
   let failed = 0;
   for (const { id } of pending) {
     try {
-      await db.begin(async (tx) => {
+      await withTransaction(options.db, async (tx) => {
         const [row] = await tx<
           {
             id: string;

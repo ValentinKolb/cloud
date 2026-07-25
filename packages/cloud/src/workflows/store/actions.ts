@@ -25,6 +25,7 @@ import type {
 } from "../runtime/ports";
 import { budgetError, budgetRootRunId, chargeWorkflowEffectBudget } from "./budget";
 import { beginWorkflowEffect, readWorkflowEffect, recordWorkflowEffect, settleWorkflowEffect } from "./runs";
+import { withTransaction } from "./transaction";
 
 /**
  * The key an idempotent effect deduplicates on.
@@ -140,27 +141,25 @@ const runDeclaredAction = async (
       }
     }
 
-    return (options.db ?? sql)
-      .begin(async (tx) => {
-        const txCtx = actionContext(ctx, effectKey, tx);
-        // Checked on the transaction's own handle: access can be revoked between
-        // queueing and running, and a check on another connection is checking a
-        // world this write will not see.
-        if (action.authorize && !(await action.authorize(txCtx, config as never))) return denied();
+    return withTransaction(options.db, async (tx) => {
+      const txCtx = actionContext(ctx, effectKey, tx);
+      // Checked on the transaction's own handle: access can be revoked between
+      // queueing and running, and a check on another connection is checking a
+      // world this write will not see.
+      if (action.authorize && !(await action.authorize(txCtx, config as never))) return denied();
 
-        const result = await action.run(txCtx, config as never);
-        if (result.state !== "succeeded") {
-          // Let the transaction unwind: the effect did not happen.
-          throw new WorkflowTransactionalFailure(result.state === "failed" ? result.message : result.message);
-        }
-        await recordWorkflowEffect(tx, journalStep, effectKey, (result.output ?? null) as WorkflowJsonValue);
-        return { state: "completed", output: (result.output ?? null) as WorkflowJsonValue } satisfies WorkflowStepOutcome;
-      })
-      .catch((error) => {
-        if (error instanceof WorkflowTransactionalFailure)
-          return { state: "failed", error: asError(error.message) } satisfies WorkflowStepOutcome;
-        throw error;
-      });
+      const result = await action.run(txCtx, config as never);
+      if (result.state !== "succeeded") {
+        // Let the transaction unwind: the effect did not happen.
+        throw new WorkflowTransactionalFailure(result.state === "failed" ? result.message : result.message);
+      }
+      await recordWorkflowEffect(tx, journalStep, effectKey, (result.output ?? null) as WorkflowJsonValue);
+      return { state: "completed", output: (result.output ?? null) as WorkflowJsonValue } satisfies WorkflowStepOutcome;
+    }).catch((error) => {
+      if (error instanceof WorkflowTransactionalFailure)
+        return { state: "failed", error: asError(error.message) } satisfies WorkflowStepOutcome;
+      throw error;
+    });
   }
 
   if (action.effect !== "pure" && action.plan) {

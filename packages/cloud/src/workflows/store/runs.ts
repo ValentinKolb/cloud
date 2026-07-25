@@ -33,6 +33,7 @@ import type {
   WorkflowRuntimeStepIdentity,
   WorkflowRuntimeStepResult,
 } from "../runtime/ports";
+import { withTransaction } from "./transaction";
 
 /** How long a claim survives without a heartbeat. */
 export const WORKFLOW_RUN_LEASE_MS = 120_000;
@@ -543,7 +544,7 @@ const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort 
    * recorded dependency is one nothing knows how to wake.
    */
   const parkStep = async (step: WorkflowRuntimeStepIdentity, dependency: WorkflowDependency): Promise<void> => {
-    await db.begin(async (tx) => {
+    await withTransaction(options.db, async (tx) => {
       const rows = await tx<{ run_id: string }[]>`
         UPDATE workflows.step_outcome AS s
         SET state = 'waiting', outcome = NULL, dependency = ${dependency}, finished_at = NULL, updated_at = now()

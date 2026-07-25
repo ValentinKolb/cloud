@@ -40,3 +40,23 @@ export type {
   WorkflowTriggerDescriptor,
 } from "./contracts";
 export { workflowPathKey } from "./contracts";
+export type {
+  ErasedWorkflowAction,
+  FromFieldSchema,
+  WorkflowActionContext,
+  WorkflowActionDefinition,
+  WorkflowActionMap,
+  WorkflowActionResult,
+  WorkflowEffectClass,
+  WorkflowEventDefinition,
+  WorkflowEventMap,
+  WorkflowModule,
+  WorkflowPlannedEffect,
+  WorkflowReconcileResult,
+} from "./definition";
+export {
+  isReplayable,
+  LANGUAGE_EFFECT,
+  workflowAction,
+  workflowEvent,
+} from "./definition";

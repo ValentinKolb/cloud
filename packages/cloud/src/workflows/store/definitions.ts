@@ -11,6 +11,7 @@
  */
 import { type SQL, sql } from "bun";
 import type { WorkflowBoundPlan, WorkflowDiagnostic, WorkflowJsonValue } from "../contracts";
+import { withTransaction } from "./transaction";
 
 export type WorkflowAuthor = { kind: "user" | "service_account"; id: string } | { kind: "system"; id?: undefined };
 
@@ -182,7 +183,7 @@ export type PublishWorkflowVersion = {
  */
 export const publishWorkflowVersion = async (input: PublishWorkflowVersion, options: { db?: SQL } = {}): Promise<WorkflowVersionRecord> => {
   const db = options.db ?? sql;
-  return db.begin(async (tx) => {
+  return withTransaction(options.db, async (tx) => {
     // Serialise concurrent publishes of the same workflow, so two of them
     // cannot claim the same revision number or interleave their activations.
     const [current] = await tx<{ id: string }[]>`SELECT id FROM workflows.workflow WHERE id = ${input.workflowId}::uuid FOR UPDATE`;

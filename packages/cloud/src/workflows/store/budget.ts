@@ -17,6 +17,7 @@
  * do, it still cannot exceed what was approved.
  */
 import { type SQL, sql } from "bun";
+import { withTransaction } from "./transaction";
 
 /** Caps keyed by dimension — `{ emails: 100, httpRequests: 50 }`. */
 export type WorkflowEffectBudget = Record<string, number>;
@@ -85,7 +86,7 @@ export const chargeWorkflowEffectBudget = async (
   if (Object.keys(charge).length === 0) return { state: "ok", used: {} };
   const db = options.db ?? sql;
 
-  return db.begin(async (tx) => {
+  return withTransaction(options.db, async (tx) => {
     const [row] = await tx<{ effects_used: WorkflowEffectBudget; effect_budget: WorkflowEffectBudget }[]>`
       SELECT r.effects_used, v.effect_budget
       FROM workflows.run AS r
