@@ -14,12 +14,6 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { notificationsService } from "./service";
 
-const SendNotificationSchema = z.object({
-  userId: z.uuid().describe("Target user's database ID"),
-  subject: z.string().min(1).describe("Notification subject"),
-  content: z.string().optional().describe("Plain text content"),
-  rawHtml: z.string().optional().describe("HTML content (takes precedence over content)"),
-});
 
 const UpdateNotificationSchema = z.object({
   subject: z.string().min(1).optional().describe("Notification subject"),
@@ -230,43 +224,6 @@ const app = new Hono<AuthContext>()
       }
 
       return respond(c, ok(toNotificationDto(notificationCheck.notification)));
-    },
-  )
-  // Send notification to user (admin only — non-admin users have no
-  // legitimate need to send arbitrary HTML email to other users by UUID).
-  .post(
-    "/send",
-    describeRoute({
-      tags: ["Notifications"],
-      summary: "Send notification to user",
-      description: "Send a notification to a user by their database ID. Admin only.",
-      ...requiresAdmin,
-      responses: {
-        200: jsonResponse(MessageResponseSchema, "Notification sent"),
-        400: jsonResponse(ErrorResponseSchema, "Failed to send notification"),
-        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
-      },
-    }),
-    auth.requireRole("admin"),
-    v("json", SendNotificationSchema),
-    async (c) => {
-      const user = requireUserBackedActor(c);
-      if (!user.ok) return respond(c, user);
-
-      const { userId, subject, content, rawHtml } = c.req.valid("json");
-
-      return respond(c, async () => {
-        const result = await notificationsService.notification.sendToUser({
-          userId,
-          subject,
-          content,
-          rawHtml,
-          sentBy: user.data.id,
-        });
-        if (!result.ok) return result;
-        return ok({ message: "Notification sent" });
-      });
     },
   )
   // Resend notification

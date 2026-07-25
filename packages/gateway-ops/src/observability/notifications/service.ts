@@ -15,10 +15,6 @@ const mapNotificationMutationError = (message: string) => {
 /**
  * Translates send-to-user failures into domain-specific API errors.
  */
-const mapSendToUserError = (message: string) => {
-  if (message === "User not found") return err.notFound("User");
-  return err.badInput(message);
-};
 
 export const notificationsService = {
   delivery: notifications.observability.deliveries,
@@ -60,11 +56,6 @@ export const notificationsService = {
         isAdmin: config.access.isAdmin,
         search: config.search,
       }),
-    sendToUser: async (config: { userId: string; subject: string; content?: string; rawHtml?: string; sentBy: string }) => {
-      const result = await notifications.sendToUser(config);
-      if (!result.ok) return fail(mapSendToUserError(result.error));
-      return ok({ id: result.id });
-    },
     resend: async (config: { id: string }) => {
       const result = await notifications.resend(config.id);
       if (!result.ok) return fail(mapNotificationMutationError(result.error));
