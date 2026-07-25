@@ -300,6 +300,27 @@ refreshCurrentPath();            // window.location.assign(currentPathWithQuery(
 
 For submit-driven search, `SearchBar` from `@valentinkolb/cloud/ssr/islands` reads the initial value from the URL and navigates on submit. It deliberately commits on submit — if nearby search in the same product updates while typing, do not make users learn two models; use the enhanced route-state pattern instead.
 
+Do not hand-roll the parse/build/clear triple. `createUrlFilter` from `@valentinkolb/cloud/ssr` owns it, including the pagination base URL that eight pages previously derived by hand:
+
+```typescript
+import { createUrlFilter, flag, oneOf, page, text } from "@valentinkolb/cloud/ssr";
+
+export const routeFilter = createUrlFilter("/admin/observability/telemetry", {
+  range: oneOf("range", ["1h", "24h", "7d"] as const, "24h"),
+  search: text("search"),
+  errorsOnly: flag("errors"),
+  page: page(),
+});
+
+const state = routeFilter.parse(new URL(c.req.url));      // in the page
+routeFilter.build(state, { range: "7d" });                 // patch one field
+routeFilter.paginationBase(state, "page");                 // always ends in `page=`
+routeFilter.isActive(state, ["range"]);                    // a window is a scope, not a filter
+routeFilter.clear(state, ["range"]);                       // keep the scope, drop the filters
+```
+
+Field values equal to their fallback are omitted, so the common URL stays clean, and `oneOf` rejects hand-edited values before they can reach SQL as an unvalidated interval or `ORDER BY`.
+
 Conventions: filter, search, sort, and group changes use `replace`, reset `page` to `1`, usually clear the selected detail id, and use `scroll="preserve"`. Pagination may use `push` so browser back steps through pages. Filter chips commit on click, not on dropdown close.
 
 Search inputs must keep focus while typing. Keep the visible value local to the search component, debounce the parent commit (200 ms is the default for enhanced route state), and never remount or re-key the input on route-state updates. Show a spinner in `TextInput`'s `suffix` slot while a commit is pending.

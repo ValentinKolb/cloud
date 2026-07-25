@@ -38,6 +38,37 @@ export type PostgresDiagnostics = {
   warnings: DiagnosticWarning[];
 };
 
+export type PostgresSession = {
+  pid: number;
+  application: string | null;
+  user: string | null;
+  state: string | null;
+  waitEventType: string | null;
+  waitEvent: string | null;
+  queryAgeSeconds: number | null;
+  transactionAgeSeconds: number | null;
+  blockedBy: number[];
+  query: string | null;
+};
+
+export type PostgresIndexDiagnostic = {
+  schema: string;
+  table: string;
+  name: string;
+  sizeBytes: number;
+  scans: number;
+  isUnique: boolean;
+  isPrimary: boolean;
+};
+
+/** Sessions report ages rather than measured durations. */
+const formatSeconds = (seconds: number | null): string => {
+  if (seconds === null || !Number.isFinite(seconds)) return "-";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 3600)}h`;
+};
+
 export type RedisRuntime = {
   usedMemoryBytes: number | null;
   maxMemoryBytes: number | null;
@@ -188,6 +219,67 @@ export const dataCommands = [
       ]);
     },
   }),
+  command("postgres sessions", {
+    summary: "List backend sessions, blocked and longest-running first",
+    description:
+      "Answers who is blocking and who holds the idle connections — questions the aggregate connection count can raise but not resolve. Sessions reporting no application_name show as 'unnamed'; that is a finding, not a gap in the output.",
+    examples: ["cld admin postgres sessions --json", "cld admin postgres sessions --blocked"],
+    flags: {
+      blocked: flag.boolean({ description: "Only sessions waiting on another session" }),
+      idle: flag.boolean({ description: "Include plainly idle sessions" }),
+    },
+    run: async ({ ctx, flags }) => {
+      const raw = await apiGet<{ items: PostgresSession[] }>(ctx, "/api/gateway/data/postgres/sessions");
+      const items = raw.items
+        .filter((session) => !flags.blocked || session.blockedBy.length > 0)
+        .filter((session) => flags.idle || session.state !== "idle" || session.blockedBy.length > 0);
+      printJsonOrTable(
+        ctx,
+        { items },
+        items.map((session) => ({
+          pid: session.pid,
+          state: session.blockedBy.length > 0 ? `blocked by ${session.blockedBy.join(",")}` : (session.state ?? "-"),
+          application: session.application ?? "unnamed",
+          waiting: session.waitEvent ? `${session.waitEventType}: ${session.waitEvent}` : "-",
+          txAge: formatSeconds(session.transactionAgeSeconds),
+          query: truncate(session.query, 60) ?? "-",
+        })),
+        [
+          { key: "pid", label: "PID" },
+          { key: "state", label: "State" },
+          { key: "application", label: "Application" },
+          { key: "waiting", label: "Waiting on" },
+          { key: "txAge", label: "Txn age" },
+          { key: "query", label: "Statement" },
+        ],
+      );
+    },
+  }),
+
+  command("postgres indexes", {
+    summary: "List the largest indexes with their scan counts",
+    description:
+      "Index bulk is invisible on a per-table total size. Scans are cumulative since the last statistics reset, so zero means 'not used since then' — not that the index is unnecessary.",
+    examples: ["cld admin postgres indexes --json", "cld admin postgres indexes --unused"],
+    flags: { unused: flag.boolean({ description: "Only indexes never scanned since the last statistics reset" }) },
+    run: async ({ ctx, flags }) => {
+      const raw = await apiGet<{ items: PostgresIndexDiagnostic[] }>(ctx, "/api/gateway/data/postgres/indexes");
+      const items = raw.items.filter((index) => !flags.unused || (index.scans === 0 && !index.isPrimary));
+      printJsonOrTable(
+        ctx,
+        { items },
+        items.map((index) => ({
+          index: index.name,
+          table: `${index.schema}.${index.table}`,
+          kind: index.isPrimary ? "primary" : index.isUnique ? "unique" : "index",
+          size: formatBytes(index.sizeBytes),
+          scans: index.scans,
+        })),
+        [{ key: "index" }, { key: "table" }, { key: "kind" }, { key: "size" }, { key: "scans" }],
+      );
+    },
+  }),
+
   command("redis summary", {
     summary: "Show Redis diagnostic summary",
     run: async ({ ctx }) => {

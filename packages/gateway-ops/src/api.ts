@@ -20,7 +20,13 @@ import {
   updateHealthWebhook,
 } from "./health-webhooks";
 import { updateHealthSchedule } from "./lifecycle";
-import { getDataDiagnostics, getPostgresDiagnostics, getRedisDiagnostics } from "./observability/data/service";
+import {
+  getDataDiagnostics,
+  getPostgresDiagnostics,
+  getRedisDiagnostics,
+  listPostgresIndexes,
+  listPostgresSessions,
+} from "./observability/data/service";
 import { metricsApiRoutes } from "./observability/metrics/api";
 import { TELEMETRY_RANGES, type TelemetryRange } from "./observability/telemetry/contracts";
 import { getTelemetryPrefixTotals } from "./observability/telemetry/service";
@@ -154,6 +160,8 @@ export const apiRoutes = new Hono<AuthContext>()
   .get("/data", async (c) => respond(c, ok(await getDataDiagnostics())))
   .get("/data/postgres", async (c) => respond(c, ok(await getPostgresDiagnostics())))
   .get("/data/redis", async (c) => respond(c, ok(await getRedisDiagnostics())))
+  .get("/data/postgres/sessions", async (c) => respond(c, ok({ items: await listPostgresSessions() })))
+  .get("/data/postgres/indexes", async (c) => respond(c, ok({ items: await listPostgresIndexes() })))
   .get("/telemetry/summary", v("query", TelemetrySummaryQuerySchema), async (c) => {
     const { hours } = c.req.valid("query");
     return respond(c, ok(await getTelemetrySummary(hours)));

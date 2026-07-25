@@ -155,6 +155,19 @@ const columns: DataTableColumn<Item>[] = [
 
 `DataTableProps<T>` also carries: `getRowId`, `selectedRowId`, `rowClass`, `hoverRows`, `onRowClick`, `onRowDoubleClick`, `renderCell`, `renderHeader`, `footer`, `hasMore`, `loadingMore`, `onLoadMore`, `empty`, `density` (`"compact" | "normal"`), `stickyHeader`, `highlightColumns`, `verticalAlign`, `cellContentClass`, `fillHeight`, `class`, `tableClass`, `scrollPreserveKey`.
 
+**Sorting is link-based**, because these tables are server-rendered and the order belongs in the URL:
+
+```tsx
+<DataTable
+  rows={rows}
+  columns={columns}                                    // mark columns `sortable: true`
+  sort={{ key: filter.sort, direction: "desc" }}
+  sortHref={(next) => filter.build(state, { sort: next.key })}
+/>
+```
+
+Set `sortable: "errorRate"` when the server's sort key differs from the column id — one column often shows a rate while another sorts by the count behind it. Clicking the active column flips its direction; inactive columns keep a dimmed arrow so the row reads as sortable. Never sort in the browser: the client only has the rows it was already given.
+
 Set `highlightColumns={false}` when the design calls for row-only hover. Default cell rendering turns `null`/`undefined`/`""` into an em dash, `Date` into a locale string, and booleans into Yes/No.
 
 ### StatGrid and StatCell
@@ -172,6 +185,71 @@ Set `highlightColumns={false}` when the design calls for row-only hover. Default
 `StatCell`: `label`, `value` (string, number, or JSX), `sub?`, `valueClass?` (override the default tone for warning/error/success), `accent?`, `href?` (makes the whole cell a link), `title?`, and an optional numeric array for an inline sparkline.
 
 Every stat needs context — a range, unit, denominator, or subtitle. A bare number is not a stat.
+
+### DataPanel
+
+The container around records: heading, count, search and filter slots, the rows, and the states that replace them. Reach for it before assembling `section.paper` + heading + toolbar by hand.
+
+```tsx
+<DataPanel
+  title="Routes"
+  subtitle={`${rows.length} of ${total} routes`}      // the relationship informs, a bare count does not
+  actions={<RangePicker label={null} value={filter.range} options={rangeOptions} />}
+  search={<SearchBar action={PATH} value={filter.search} ariaLabel="Search routes" />}
+  filters={<RouteFilterBar filter={filter} />}
+  error={loadError}                                    // takes precedence over empty
+  isEmpty={rows.length === 0}
+  empty="No route produced traffic in this window."
+  footer={<Pagination currentPage={page} totalPages={pages} baseUrl={base} />}
+>
+  <DataTable rows={rows} columns={columns} />
+</DataPanel>
+```
+
+`search` is a **slot**, not a built-in: `SearchBar` is an island and the kit must not re-export islands. `error` and `isEmpty` are separate on purpose — "could not read this" and "there is nothing here" call for different responses, and collapsing them is how a failed load ends up looking like an empty result.
+
+`DataPanel` frames **records**; `StatGrid` summarises **metrics**. Both compose `PanelHeader`, so their titles match. Use `PanelHeader` directly only when building a new panel-shaped surface.
+
+### StatusBadge
+
+One vocabulary for health across every surface. `tone` carries the meaning, `label` the domain wording — "failed", "offline" and "error" are all `error`.
+
+```tsx
+<StatusBadge tone="ok" label="Online" />
+<StatusBadge tone="degraded" label="Degraded" title="Postgres diagnostics unavailable" />
+<StatusBadge tone="warn" label="Overdue" variant="dot" />     // dense tables
+<StatusBadge tone="neutral" label="Disabled" variant="text" />
+```
+
+Tones: `ok`, `warn`, `error`, `degraded`, `running`, `neutral`. `degraded` is deliberately distinct from `error` — the check ran, but its backing source is unreachable, which previously rendered as healthy.
+
+Never hand-roll a status pill. The colour language is something operators learn, and a second dialect of it costs them accuracy.
+
+### NoticeCard
+
+A finding the page keeps visible — between a toast and an empty state.
+
+```tsx
+<NoticeCard.Grid items={diagnostics.warnings}>
+  {(warning) => <NoticeCard tone={warning.tone} title={warning.title} detail={warning.detail} />}
+</NoticeCard.Grid>
+```
+
+Tones are `info`, `warn`, `error`. Pass the real one: an unreachable backend is `error`. `NoticeCard.Grid` picks its column count from how many notices there are and renders nothing when there are none.
+
+### RangePicker
+
+The time window for observability surfaces. Renders links, so it works without hydration and the window stays shareable.
+
+```tsx
+<RangePicker
+  label="Window"
+  value={filter.range}
+  options={RANGES.map((range) => ({ value: range, href: filter.build(state, { range }) }))}
+/>
+```
+
+The caller supplies each `href` — that is what keeps the page's other filters intact — and owns the vocabulary, because traces think in `10m–30d` and request telemetry in `1h–30d`.
 
 ### Placeholder and ProgressBar
 

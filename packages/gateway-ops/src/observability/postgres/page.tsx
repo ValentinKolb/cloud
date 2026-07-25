@@ -1,28 +1,33 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { formatBytes, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataPanel, DataTable, type DataTableColumn, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
+
+/** Seconds to a compact age; sessions report ages, not durations. */
+const formatSeconds = (seconds: number | null): string => {
+  if (seconds === null || !Number.isFinite(seconds)) return "—";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 3600)}h`;
+};
+
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { gatewayOpsHelp } from "../../help";
-import { getPostgresDiagnostics, type PostgresExtensionDiagnostic, type PostgresTableDiagnostic } from "../data/service";
+import {
+  getPostgresDiagnostics,
+  listPostgresIndexes,
+  listPostgresSessions,
+  type PostgresExtensionDiagnostic,
+  type PostgresIndexDiagnostic,
+  type PostgresSession,
+  type PostgresTableDiagnostic,
+} from "../data/service";
 import PostgresDataFilters from "./_components/PostgresDataFilters.island";
 
 const numberFormat = new Intl.NumberFormat("de-DE");
-const formatNumber = (value: number): string => numberFormat.format(Math.round(value));
-
-const formatBytes = (bytes: number): string => {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
-};
 
 const formatDate = (value: string | null): string => {
   if (!value) return "-";
@@ -69,7 +74,31 @@ export default ssr<AuthContext>(async (c) => {
   const search = url.searchParams.get("search")?.trim() ?? "";
   const selectedSchema = url.searchParams.get("schema")?.trim() || "all";
   const selectedSort = url.searchParams.get("sort")?.trim() || "size-desc";
-  const diagnostics = await getPostgresDiagnostics();
+  const [diagnostics, sessions, indexes] = await Promise.all([getPostgresDiagnostics(), listPostgresSessions(), listPostgresIndexes()]);
+  const blockedSessions = sessions.filter((session) => session.blockedBy.length > 0);
+  const unnamedSessions = sessions.filter((session) => !session.application).length;
+  // Cumulative since the last statistics reset, so this is "not used since
+  // then" rather than a claim that the index is unnecessary.
+  const unusedIndexBytes = indexes
+    .filter((index) => index.scans === 0 && !index.isPrimary)
+    .reduce((sum, index) => sum + index.sizeBytes, 0);
+
+  const sessionColumns: DataTableColumn<PostgresSession>[] = [
+    { id: "pid", header: "PID", cellClass: "tabular-nums" },
+    { id: "state", header: "State" },
+    { id: "application", header: "Application" },
+    { id: "wait", header: "Waiting on" },
+    { id: "txAge", header: "Transaction", subtitle: "age", align: "right" },
+    { id: "queryAge", header: "Query", subtitle: "age", align: "right" },
+    { id: "query", header: "Statement", cellClass: "max-w-[320px]" },
+  ];
+
+  const indexColumns: DataTableColumn<PostgresIndexDiagnostic>[] = [
+    { id: "index", header: "Index", cellClass: "min-w-[240px]" },
+    { id: "kind", header: "Kind" },
+    { id: "size", header: "Size", align: "right" },
+    { id: "scans", header: "Scans", subtitle: "since reset", align: "right" },
+  ];
   const hasCriticalWarning = diagnostics.warnings.some((warning) => warning.tone === "red");
   const searchNeedle = normalize(search);
   const schemas = diagnostics.schemaRows.map((row) => row.schema).sort((a, b) => a.localeCompare(b));
@@ -228,23 +257,95 @@ export default ssr<AuthContext>(async (c) => {
           </section>
         ) : null}
 
-        <section class="grid gap-2 xl:grid-cols-3">
-          <article class="paper p-3">
-            <h2 class="text-xs font-semibold text-primary">Size by schema</h2>
-            <p class="text-[10px] text-dimmed">Top schemas by total relation size.</p>
-            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaChartData} yFormat="bytes" />
-          </article>
-          <article class="paper p-3">
-            <h2 class="text-xs font-semibold text-primary">Largest tables</h2>
-            <p class="text-[10px] text-dimmed">Top 10 by relation size.</p>
-            <ObservabilityChart kind="donut" class="mt-2 h-64 text-dimmed" data={tableChartData} legend />
-          </article>
-          <article class="paper p-3">
-            <h2 class="text-xs font-semibold text-primary">Rows by schema</h2>
-            <p class="text-[10px] text-dimmed">Planner row estimates by schema.</p>
-            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaRowsChartData} yFormat="number" />
-          </article>
-        </section>
+        <DataPanel
+          title="Sessions"
+          subtitle={
+            sessions.length === 0
+              ? "No client backends reported"
+              : `${sessions.length} client backends · ${blockedSessions.length} blocked · ${unnamedSessions} unnamed`
+          }
+          isEmpty={sessions.length === 0}
+          empty="No client backends are connected."
+        >
+          <DataTable
+            rows={sessions}
+            columns={sessionColumns}
+            getRowId={(session) => String(session.pid)}
+            density="compact"
+            class="max-h-[26rem] overflow-auto"
+            renderCell={({ row, col, value, render }) => {
+              if (col.id === "state")
+                return (
+                  <StatusBadge
+                    tone={row.blockedBy.length > 0 ? "error" : row.state === "active" ? "running" : "neutral"}
+                    label={row.blockedBy.length > 0 ? `blocked by ${row.blockedBy.join(", ")}` : (row.state ?? "unknown")}
+                    variant="dot"
+                  />
+                );
+              if (col.id === "application")
+                return row.application ? (
+                  <span class="text-[10px] text-dimmed">{row.application}</span>
+                ) : (
+                  // Cloud does not set application_name yet, so an unattributable
+                  // connection is the finding rather than a rendering gap.
+                  <span class="text-[10px] text-amber-600 dark:text-amber-400" title="Connection does not report an application_name">
+                    unnamed
+                  </span>
+                );
+              if (col.id === "txAge")
+                return <span class="text-[10px] tabular-nums text-dimmed">{formatSeconds(row.transactionAgeSeconds)}</span>;
+              if (col.id === "queryAge")
+                return <span class="text-[10px] tabular-nums text-dimmed">{formatSeconds(row.queryAgeSeconds)}</span>;
+              if (col.id === "wait")
+                return <span class="text-[10px] text-dimmed">{row.waitEvent ? `${row.waitEventType}: ${row.waitEvent}` : "—"}</span>;
+              if (col.id === "query")
+                return (
+                  <code class="block truncate text-[10px] text-dimmed" title={row.query ?? undefined}>
+                    {row.query ?? "—"}
+                  </code>
+                );
+              return render(value);
+            }}
+          />
+        </DataPanel>
+
+        <DataPanel
+          title="Indexes"
+          subtitle={`Largest ${indexes.length} by size · ${formatBytes(unusedIndexBytes)} in indexes not scanned since the last statistics reset`}
+          isEmpty={indexes.length === 0}
+          empty="No user indexes reported."
+        >
+          <DataTable
+            rows={indexes}
+            columns={indexColumns}
+            getRowId={(index) => `${index.schema}.${index.name}`}
+            density="compact"
+            class="max-h-[26rem] overflow-auto"
+            renderCell={({ row, col, value, render }) => {
+              if (col.id === "index")
+                return (
+                  <div class="min-w-0">
+                    <code class="block truncate text-[10px] text-primary">{row.name}</code>
+                    <span class="text-[9px] text-dimmed">
+                      {row.schema}.{row.table}
+                    </span>
+                  </div>
+                );
+              if (col.id === "size") return <span class="text-[10px] tabular-nums text-dimmed">{formatBytes(row.sizeBytes)}</span>;
+              if (col.id === "scans")
+                return (
+                  <span
+                    class={`text-[10px] tabular-nums ${row.scans === 0 && !row.isPrimary ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}
+                  >
+                    {formatNumber(row.scans)}
+                  </span>
+                );
+              if (col.id === "kind")
+                return <span class="text-[10px] text-dimmed">{row.isPrimary ? "primary" : row.isUnique ? "unique" : "index"}</span>;
+              return render(value);
+            }}
+          />
+        </DataPanel>
 
         <section class="paper overflow-hidden">
           <div class="flex flex-col gap-2 px-3 py-2">
@@ -332,6 +433,23 @@ export default ssr<AuthContext>(async (c) => {
               return render(value);
             }}
           />
+        </section>
+        <section class="grid gap-2 xl:grid-cols-3">
+          <article class="paper p-3">
+            <h2 class="text-xs font-semibold text-primary">Size by schema</h2>
+            <p class="text-[10px] text-dimmed">Top schemas by total relation size.</p>
+            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaChartData} yFormat="bytes" />
+          </article>
+          <article class="paper p-3">
+            <h2 class="text-xs font-semibold text-primary">Largest tables</h2>
+            <p class="text-[10px] text-dimmed">Top 10 by relation size.</p>
+            <ObservabilityChart kind="donut" class="mt-2 h-64 text-dimmed" data={tableChartData} legend />
+          </article>
+          <article class="paper p-3">
+            <h2 class="text-xs font-semibold text-primary">Rows by schema</h2>
+            <p class="text-[10px] text-dimmed">Planner row estimates by schema.</p>
+            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaRowsChartData} yFormat="number" />
+          </article>
         </section>
       </div>
     </AdminLayout>
