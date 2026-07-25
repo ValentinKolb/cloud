@@ -152,7 +152,7 @@ const moveAction = messageAction(
     return bound ?? (step.config.folder === undefined ? undefined : context.evaluate(step.config.folder));
   },
 );
-const folderAction = (action: "copyMessage" | "archiveMessage" | "trashMessage", category: PlannedEffect["category"]) =>
+const folderAction = (action: "copyMessage" | "archiveMessage" | "trashMessage" | "junkMessage", category: PlannedEffect["category"]) =>
   messageAction(
     category,
     (message, value) => applyMailMessageTransition(message, action, value),
@@ -220,6 +220,7 @@ const planners = new Map<string, WorkflowDryRunActionHandler>([
   ["copyMessage", folderAction("copyMessage", "copy")],
   ["archiveMessage", folderAction("archiveMessage", "move")],
   ["trashMessage", folderAction("trashMessage", "move")],
+  ["junkMessage", folderAction("junkMessage", "move")],
   ["addFlag", flagAction(true)],
   ["removeFlag", flagAction(false)],
   ["assignConversation", assignAction],
@@ -282,7 +283,7 @@ export const workflowEffectBudgetExceeded = (
   targetCount: number,
   budget: WorkflowEffectBudget,
 ): boolean => {
-  const moves = (counts.moveMessage ?? 0) + (counts.archiveMessage ?? 0) + (counts.trashMessage ?? 0);
+  const moves = (counts.moveMessage ?? 0) + (counts.archiveMessage ?? 0) + (counts.trashMessage ?? 0) + (counts.junkMessage ?? 0);
   const copies = counts.copyMessage ?? 0;
   const flags = (counts.addFlag ?? 0) + (counts.removeFlag ?? 0);
   const keywords = (counts.addKeyword ?? 0) + (counts.removeKeyword ?? 0);

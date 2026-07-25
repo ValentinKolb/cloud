@@ -10,6 +10,7 @@ import {
   createDraftAttachmentUploadSchema,
   createLocalTagSchema,
   createSenderIdentityInputSchema,
+  createSenderRuleSchema,
   createWorkflowInputSchema,
   createWorkflowVersionInputSchema,
   deactivateWorkflowInputSchema,
@@ -167,6 +168,54 @@ describe("automatic reply configuration contracts", () => {
       }).success,
     ).toBe(true);
     expect(updateAutomaticReplyConfigurationSchema.safeParse({ expectedRevision: 1, ...configuration, body: "  " }).success).toBe(false);
+  });
+});
+
+describe("sender rule contracts", () => {
+  test("accepts sender and domain matches with one supported action", () => {
+    expect(
+      createSenderRuleSchema.safeParse({
+        name: "Block noisy sender",
+        matchKind: "sender",
+        matchValue: "News@Example.COM",
+        action: { kind: "junk" },
+      }).success,
+    ).toBe(true);
+    expect(
+      createSenderRuleSchema.safeParse({
+        name: "Mark domain as read",
+        matchKind: "domain",
+        matchValue: "sub.example.com",
+        action: { kind: "mark_read" },
+      }).success,
+    ).toBe(true);
+  });
+
+  test("rejects malformed match values and unsupported action payloads", () => {
+    expect(
+      createSenderRuleSchema.safeParse({
+        name: "Bad sender",
+        matchKind: "sender",
+        matchValue: "example.com",
+        action: { kind: "junk" },
+      }).success,
+    ).toBe(false);
+    expect(
+      createSenderRuleSchema.safeParse({
+        name: "Bad domain",
+        matchKind: "domain",
+        matchValue: "person@example.com",
+        action: { kind: "junk" },
+      }).success,
+    ).toBe(false);
+    expect(
+      createSenderRuleSchema.safeParse({
+        name: "Unsafe action",
+        matchKind: "sender",
+        matchValue: "person@example.com",
+        action: { kind: "execute", command: "rm -rf /" },
+      }).success,
+    ).toBe(false);
   });
 });
 

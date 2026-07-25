@@ -179,21 +179,38 @@ const messageTransition = async (
   step: WorkflowActionStep,
 ): Promise<{
   message: JsonObject;
-  action: "addKeyword" | "removeKeyword" | "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage" | "addFlag" | "removeFlag";
+  action:
+    | "addKeyword"
+    | "removeKeyword"
+    | "moveMessage"
+    | "copyMessage"
+    | "archiveMessage"
+    | "trashMessage"
+    | "junkMessage"
+    | "addFlag"
+    | "removeFlag";
   value: WorkflowJsonValue;
 }> => {
   if (
-    !["addKeyword", "removeKeyword", "moveMessage", "copyMessage", "archiveMessage", "trashMessage", "addFlag", "removeFlag"].includes(
-      step.action,
-    )
+    ![
+      "addKeyword",
+      "removeKeyword",
+      "moveMessage",
+      "copyMessage",
+      "archiveMessage",
+      "trashMessage",
+      "junkMessage",
+      "addFlag",
+      "removeFlag",
+    ].includes(step.action)
   ) {
     throw new Error(`Unsupported message transition ${step.action}`);
   }
   const message = objectValue(await referenceOrValue(context, step.config.message), "message");
-  if (["moveMessage", "copyMessage", "archiveMessage", "trashMessage"].includes(step.action)) {
+  if (["moveMessage", "copyMessage", "archiveMessage", "trashMessage", "junkMessage"].includes(step.action)) {
     return {
       message,
-      action: step.action as "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage",
+      action: step.action as "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage" | "junkMessage",
       value: textValue(actionBinding(context, step, "folder") ?? (await referenceOrValue(context, step.config.folder)), "folder"),
     };
   }
@@ -250,7 +267,7 @@ const commandInput = async (
   const folderId = textValue(message.folderId, "message.folderId");
   const idempotencyKey = `workflow:${options.targetId}:${sha256Text(context.step.key).slice(0, 40)}`;
   const expectedRemoteState = remoteState(options.preconditions);
-  if (["moveMessage", "copyMessage", "archiveMessage", "trashMessage"].includes(step.action)) {
+  if (["moveMessage", "copyMessage", "archiveMessage", "trashMessage", "junkMessage"].includes(step.action)) {
     const destinationFolderId = textValue(
       actionBinding(context, step, "folder") ?? (await referenceOrValue(context, step.config.folder)),
       "folder",
@@ -289,9 +306,17 @@ const plannedEffect = async (
   options: MailWorkflowRuntimeActionOptions,
 ): Promise<WorkflowPlanningOutcome> => {
   if (
-    ["addKeyword", "removeKeyword", "moveMessage", "copyMessage", "archiveMessage", "trashMessage", "addFlag", "removeFlag"].includes(
-      step.action,
-    )
+    [
+      "addKeyword",
+      "removeKeyword",
+      "moveMessage",
+      "copyMessage",
+      "archiveMessage",
+      "trashMessage",
+      "junkMessage",
+      "addFlag",
+      "removeFlag",
+    ].includes(step.action)
   ) {
     return { state: "planned", effects: [{ kind: "mail.command", input: await commandInput(context, step, options) }] };
   }
@@ -363,9 +388,17 @@ export const createMailWorkflowActionPorts = (
         };
       }
       if (
-        ["addKeyword", "removeKeyword", "moveMessage", "copyMessage", "archiveMessage", "trashMessage", "addFlag", "removeFlag"].includes(
-          step.action,
-        )
+        [
+          "addKeyword",
+          "removeKeyword",
+          "moveMessage",
+          "copyMessage",
+          "archiveMessage",
+          "trashMessage",
+          "junkMessage",
+          "addFlag",
+          "removeFlag",
+        ].includes(step.action)
       ) {
         const transition = await messageTransition(context, step);
         if (!mailMessageTransitionChanges(transition.message, transition.action, transition.value)) {
@@ -882,9 +915,17 @@ export const createMailWorkflowActionPorts = (
     }
     if (outcome.output.applied !== true) return;
     if (
-      ["addKeyword", "removeKeyword", "moveMessage", "copyMessage", "archiveMessage", "trashMessage", "addFlag", "removeFlag"].includes(
-        step.action,
-      )
+      [
+        "addKeyword",
+        "removeKeyword",
+        "moveMessage",
+        "copyMessage",
+        "archiveMessage",
+        "trashMessage",
+        "junkMessage",
+        "addFlag",
+        "removeFlag",
+      ].includes(step.action)
     ) {
       const transition = await messageTransition(context, step);
       applyMailMessageTransition(transition.message, transition.action, transition.value);
@@ -910,6 +951,7 @@ export const createMailWorkflowActionPorts = (
           "copyMessage",
           "archiveMessage",
           "trashMessage",
+          "junkMessage",
           "addFlag",
           "removeFlag",
           "assignConversation",
@@ -935,6 +977,7 @@ export const createMailWorkflowActionPorts = (
           "copyMessage",
           "archiveMessage",
           "trashMessage",
+          "junkMessage",
           "addFlag",
           "removeFlag",
           "assignConversation",

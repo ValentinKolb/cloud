@@ -34,6 +34,8 @@ export type FrozenMailMessage = {
   bodyAvailable: boolean;
   attachmentsAvailable: boolean;
   sender: FrozenMailAddress[];
+  fromAddress: string;
+  fromDomain: string;
   recipients: FrozenMailAddress[];
   attachments: FrozenMailAttachment[];
   hasAttachments: boolean;
@@ -229,6 +231,13 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
   const flags = normalizeWorkflowFlags(row.flags ?? []);
   const keywords = [...(row.keywords ?? [])].sort();
   const attachments = parseJson(row.attachments);
+  const sender = parseJson<FrozenMailAddress[]>(row.sender);
+  const fromAddress =
+    sender
+      .find((address) => address.role === "from")
+      ?.email.trim()
+      .toLowerCase() ?? "";
+  const fromDomain = fromAddress.includes("@") ? fromAddress.slice(fromAddress.lastIndexOf("@") + 1) : "";
   const conversation =
     row.conversation_id && row.collaboration_revision != null && row.work_status && row.latest_message_at
       ? {
@@ -252,7 +261,9 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
       bodyHtml: row.sanitized_html ?? "",
       bodyAvailable: row.hydration_status === "body" || row.hydration_status === "complete",
       attachmentsAvailable: row.hydration_status === "complete",
-      sender: parseJson(row.sender),
+      sender,
+      fromAddress,
+      fromDomain,
       recipients: parseJson(row.recipients),
       attachments,
       hasAttachments: attachments.length > 0,

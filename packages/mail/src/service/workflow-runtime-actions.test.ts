@@ -19,6 +19,7 @@ describe("Mail workflow runtime action ports", () => {
       "copyMessage",
       "archiveMessage",
       "trashMessage",
+      "junkMessage",
       "addFlag",
       "removeFlag",
       "assignConversation",

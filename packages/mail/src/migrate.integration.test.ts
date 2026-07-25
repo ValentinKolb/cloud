@@ -7,6 +7,59 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("installs managed sender rules once with soft-delete invariants", async () => {
+    await migrate();
+    await migrate();
+    const [shape] = await sql<
+      {
+        applied_count: number;
+        table_present: boolean;
+        deleted_at_present: boolean;
+        active_name_index_present: boolean;
+        touch_trigger_present: boolean;
+        workflow_mailbox_fk_present: boolean;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 92 AND name = 'managed_sender_rules_hardening'
+        ) AS applied_count,
+        to_regclass('mail.sender_rules') IS NOT NULL AS table_present,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'sender_rules'
+            AND column_name = 'deleted_at'
+        ) AS deleted_at_present,
+        to_regclass('mail.sender_rules_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
+        EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgrelid = 'mail.sender_rules'::regclass
+            AND tgname = 'sender_rules_touch_updated_at'
+            AND NOT tgisinternal
+        ) AS touch_trigger_present,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'mail.sender_rules'::regclass
+            AND contype = 'f'
+            AND pg_get_constraintdef(oid) LIKE '%(workflow_id, mailbox_id)%'
+        ) AS workflow_mailbox_fk_present
+    `;
+    expect(shape).toEqual({
+      applied_count: 1,
+      table_present: true,
+      deleted_at_present: true,
+      active_name_index_present: true,
+      touch_trigger_present: true,
+      workflow_mailbox_fk_present: true,
+    });
+  });
+
   test("installs composer safety and idempotent message reuse once", async () => {
     await migrate();
     await migrate();

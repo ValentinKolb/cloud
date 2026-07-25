@@ -165,6 +165,14 @@ export const mailWorkflowManifest: WorkflowLanguageManifest = {
       config: object({ message: messageReference }),
     },
     {
+      kind: "junkMessage",
+      label: "Mark message as spam",
+      description: "Moves a message to the mailbox junk folder through the durable command journal.",
+      effect: "durable-intent",
+      dryRun: "validate",
+      config: object({ message: messageReference }),
+    },
+    {
       kind: "addFlag",
       label: "Add flag",
       description: "Adds a standard message flag through the durable command journal.",

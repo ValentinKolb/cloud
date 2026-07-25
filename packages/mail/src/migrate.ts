@@ -4733,6 +4733,67 @@ const addDraftDerivationIdempotency = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addManagedSenderRules = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.sender_rules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      workflow_id UUID NOT NULL,
+      name TEXT NOT NULL CHECK (name = btrim(name) AND char_length(name) BETWEEN 1 AND 120),
+      normalized_name TEXT NOT NULL CHECK (
+        normalized_name = lower(regexp_replace(btrim(name), '\\s+', ' ', 'g'))
+        AND char_length(normalized_name) BETWEEN 1 AND 120
+      ),
+      match_kind TEXT NOT NULL CHECK (match_kind IN ('sender', 'domain')),
+      match_value TEXT NOT NULL CHECK (
+        match_value = lower(btrim(match_value))
+        AND char_length(match_value) BETWEEN 1 AND 320
+      ),
+      action JSONB NOT NULL CHECK (
+        jsonb_typeof(action) = 'object'
+        AND action ? 'kind'
+        AND action->>'kind' IN ('junk', 'trash', 'mark_read', 'add_keyword')
+      ),
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+      created_by_actor_kind TEXT NOT NULL CHECK (created_by_actor_kind IN ('user', 'service_account')),
+      created_by_actor_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      deleted_at TIMESTAMPTZ,
+      FOREIGN KEY (workflow_id, mailbox_id)
+        REFERENCES mail.workflows(id, mailbox_id) ON DELETE CASCADE,
+      UNIQUE (workflow_id)
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX sender_rules_mailbox_name_idx
+    ON mail.sender_rules (mailbox_id, normalized_name)
+    WHERE deleted_at IS NULL
+  `;
+  await db`
+    CREATE INDEX sender_rules_mailbox_idx
+    ON mail.sender_rules (mailbox_id, enabled DESC, normalized_name, id)
+  `;
+  await db`
+    CREATE TRIGGER sender_rules_touch_updated_at
+    BEFORE UPDATE ON mail.sender_rules
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+};
+
+const hardenManagedSenderRules = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.sender_rules
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS sender_rules_mailbox_name_idx
+    ON mail.sender_rules (mailbox_id, normalized_name)
+    WHERE deleted_at IS NULL
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4823,6 +4884,8 @@ const migrations: readonly MailMigration[] = [
   { version: 88, name: "identity_delivery_options", run: addIdentityDeliveryOptions },
   { version: 89, name: "composer_safety_message_reuse", run: addComposerSafetyAndMessageReuse },
   { version: 90, name: "draft_derivation_idempotency", run: addDraftDerivationIdempotency },
+  { version: 91, name: "managed_sender_rules", run: addManagedSenderRules },
+  { version: 92, name: "managed_sender_rules_hardening", run: hardenManagedSenderRules },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

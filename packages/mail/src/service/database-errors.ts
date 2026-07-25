@@ -1,5 +1,20 @@
 type ErrorWriter = (message: string, metadata?: Record<string, unknown>) => void;
 
+export const databaseErrorCode = (error: unknown): string | null => {
+  let current = error;
+  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+    const value = current as { code?: unknown; errno?: unknown; sqlState?: unknown; cause?: unknown };
+    for (const candidate of [value.errno, value.sqlState, value.code]) {
+      if (typeof candidate === "string" || typeof candidate === "number") {
+        const code = String(candidate);
+        if (/^\d{5}$/.test(code)) return code;
+      }
+    }
+    current = value.cause;
+  }
+  return null;
+};
+
 export const logDatabaseFailure = (
   write: ErrorWriter,
   operation: string,

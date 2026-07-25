@@ -347,9 +347,15 @@ const rejectManagedWorkflowMutation = async (mailboxId: string, workflowId: stri
       SELECT 1
       FROM mail.automatic_reply_configurations
       WHERE mailbox_id = ${mailboxId}::uuid AND workflow_id = ${workflowId}::uuid
+      UNION ALL
+      SELECT 1
+      FROM mail.sender_rules
+      WHERE mailbox_id = ${mailboxId}::uuid
+        AND workflow_id = ${workflowId}::uuid
+        AND deleted_at IS NULL
     ) AS exists
   `;
-  return managed?.exists ? fail(err.conflict("Managed automatic replies must be changed from Automations")) : ok();
+  return managed?.exists ? fail(err.conflict("Managed workflows must be changed from their guided Mail settings")) : ok();
 };
 
 const rejectManagedWorkflowRead = async (mailboxId: string, workflowId: string, db: SqlClient = sql): Promise<Result<void>> => {
@@ -358,6 +364,11 @@ const rejectManagedWorkflowRead = async (mailboxId: string, workflowId: string, 
       SELECT 1
       FROM mail.automatic_reply_configurations
       WHERE mailbox_id = ${mailboxId}::uuid AND workflow_id = ${workflowId}::uuid
+      UNION ALL
+      SELECT 1
+      FROM mail.sender_rules
+      WHERE mailbox_id = ${mailboxId}::uuid
+        AND workflow_id = ${workflowId}::uuid
     ) AS exists
   `;
   return managed?.exists ? fail(err.notFound("Workflow")) : ok();
@@ -493,6 +504,12 @@ export const listWorkflows = async (context: MailRequestContext, mailboxId: stri
         FROM mail.automatic_reply_configurations configuration
         WHERE configuration.mailbox_id = workflow.mailbox_id
           AND configuration.workflow_id = workflow.id
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM mail.sender_rules rule
+        WHERE rule.mailbox_id = workflow.mailbox_id
+          AND rule.workflow_id = workflow.id
       )
     ORDER BY workflow.priority, lower(workflow.name), workflow.id
     LIMIT 200

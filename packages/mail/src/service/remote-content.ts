@@ -1,11 +1,11 @@
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { domainToASCII } from "node:url";
 import { audit } from "@valentinkolb/cloud/services";
 import { toPgUuidArray } from "@valentinkolb/cloud/services/postgres";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { RemoteContentRuleInput, RemoteContentRuleScope } from "../contracts";
+import { normalizeEmailAddress, normalizeEmailDomain } from "./address-normalization";
 import { auditActorFromRequest, type MailRequestContext, userBackedActor } from "./auth";
 import { createPinnedLookup, resolvePublicEndpoint } from "./connectors/endpoint-policy";
 import { resolveMailExecution } from "./execution";
@@ -76,45 +76,12 @@ const personalPrincipal = (context: MailRequestContext): PersonalPrincipal => {
   throw new Error("Mail request actor has no personal principal");
 };
 
-const normalizeSender = (value: string): string | null => {
-  const normalized = value.trim().toLowerCase();
-  const separator = normalized.lastIndexOf("@");
-  if (
-    normalized.length < 3 ||
-    normalized.length > 320 ||
-    separator < 1 ||
-    separator === normalized.length - 1 ||
-    normalized.includes(" ")
-  ) {
-    return null;
-  }
-  const domain = normalizeDomain(normalized.slice(separator + 1));
-  return domain ? `${normalized.slice(0, separator)}@${domain}` : null;
-};
-
-const normalizeDomain = (value: string): string | null => {
-  const trimmed = value.trim().replace(/\.$/u, "").toLowerCase();
-  if (!trimmed || trimmed.length > 253 || trimmed.includes("@")) return null;
-  const ascii = domainToASCII(trimmed);
-  if (
-    !ascii ||
-    ascii.length > 253 ||
-    ascii.split(".").some((label) => label.length < 1 || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u.test(label))
-  ) {
-    return null;
-  }
-  return ascii;
-};
-
 export const normalizeRemoteContentRule = (input: RemoteContentRuleInput): Result<{ scope: RemoteContentRuleScope; value: string }> => {
-  const value = input.scope === "sender" ? normalizeSender(input.value) : normalizeDomain(input.value);
+  const value = input.scope === "sender" ? normalizeEmailAddress(input.value) : normalizeEmailDomain(input.value);
   return value ? ok({ scope: input.scope, value }) : fail(err.badInput(`Invalid remote-content ${input.scope}`));
 };
 
-const listRulesForPrincipal = async (
-  mailboxId: string,
-  principal: PersonalPrincipal,
-): Promise<RemoteContentRuleRow[]> =>
+const listRulesForPrincipal = async (mailboxId: string, principal: PersonalPrincipal): Promise<RemoteContentRuleRow[]> =>
   sql<RemoteContentRuleRow[]>`
     SELECT id, mailbox_id, scope, value, created_at
     FROM mail.remote_content_rules
@@ -124,10 +91,7 @@ const listRulesForPrincipal = async (
     ORDER BY scope, value, id
   `;
 
-export const listRemoteContentRules = async (
-  context: MailRequestContext,
-  mailboxId: string,
-): Promise<Result<RemoteContentRule[]>> => {
+export const listRemoteContentRules = async (context: MailRequestContext, mailboxId: string): Promise<Result<RemoteContentRule[]>> => {
   const access = await resolveMailExecution({ mailboxId, operation: "actorRead", context });
   if (!access.ok) return access;
   return ok((await listRulesForPrincipal(mailboxId, personalPrincipal(context))).map(mapRule));
@@ -261,10 +225,11 @@ export const resolveMessagesRemoteContent = async (params: {
   const senders = new Set(rules.filter((rule) => rule.scope === "sender").map((rule) => rule.value));
   const domains = new Set(rules.filter((rule) => rule.scope === "domain").map((rule) => rule.value));
   for (const message of params.messages) {
-    const normalizedSenders = [...new Set(message.from.map((address) => normalizeSender(address.address)).filter((value) => value !== null))];
+    const normalizedSenders = [
+      ...new Set(message.from.map((address) => normalizeEmailAddress(address.address)).filter((value) => value !== null)),
+    ];
     const allowedByRule =
-      normalizedSenders.length > 0 &&
-      normalizedSenders.every((sender) => senders.has(sender) || domains.has(senderDomain(sender) ?? ""));
+      normalizedSenders.length > 0 && normalizedSenders.every((sender) => senders.has(sender) || domains.has(senderDomain(sender) ?? ""));
     const sender = normalizedSenders.length === 1 ? normalizedSenders[0]! : null;
     result.set(message.id, {
       imageIds: imagesByMessage.get(message.id) ?? [],
@@ -303,13 +268,26 @@ const imageContentType = (value: string | undefined): string | null => {
 export const matchesRemoteImageSignature = (contentType: string, bytes: Uint8Array): boolean => {
   if (contentType === "image/jpeg") return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   if (contentType === "image/png")
-    return bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][index]);
+    return (
+      bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][index])
+    );
   if (contentType === "image/gif")
-    return bytes.length >= 6 && (new TextDecoder().decode(bytes.slice(0, 6)) === "GIF87a" || new TextDecoder().decode(bytes.slice(0, 6)) === "GIF89a");
+    return (
+      bytes.length >= 6 &&
+      (new TextDecoder().decode(bytes.slice(0, 6)) === "GIF87a" || new TextDecoder().decode(bytes.slice(0, 6)) === "GIF89a")
+    );
   if (contentType === "image/webp")
-    return bytes.length >= 12 && new TextDecoder().decode(bytes.slice(0, 4)) === "RIFF" && new TextDecoder().decode(bytes.slice(8, 12)) === "WEBP";
+    return (
+      bytes.length >= 12 &&
+      new TextDecoder().decode(bytes.slice(0, 4)) === "RIFF" &&
+      new TextDecoder().decode(bytes.slice(8, 12)) === "WEBP"
+    );
   if (contentType === "image/avif")
-    return bytes.length >= 12 && new TextDecoder().decode(bytes.slice(4, 8)) === "ftyp" && /^avi[fs]$/u.test(new TextDecoder().decode(bytes.slice(8, 12)));
+    return (
+      bytes.length >= 12 &&
+      new TextDecoder().decode(bytes.slice(4, 8)) === "ftyp" &&
+      /^avi[fs]$/u.test(new TextDecoder().decode(bytes.slice(8, 12)))
+    );
   return false;
 };
 
@@ -323,11 +301,14 @@ const requestRemoteImage = async (
   const remainingMs = deadline - Date.now();
   if (remainingMs <= 0) throw new Error("Remote image request timed out");
   const port = url.port ? Number(url.port) : secure ? 443 : 80;
-  const endpoint = await resolvePublicEndpoint({
-    host: url.hostname,
-    port,
-    tlsMode: secure ? "implicit" : "starttls",
-  }, Math.min(5_000, remainingMs));
+  const endpoint = await resolvePublicEndpoint(
+    {
+      host: url.hostname,
+      port,
+      tlsMode: secure ? "implicit" : "starttls",
+    },
+    Math.min(5_000, remainingMs),
+  );
   return new Promise<RemoteImagePayload>((resolve, reject) => {
     let settled = false;
     let totalTimeout: ReturnType<typeof setTimeout> | undefined;

@@ -24,11 +24,20 @@ export const createMailWorkflowProjectedState = (
 
 export const applyMailMessageTransition = (
   message: MailWorkflowProjectedObject,
-  action: "addKeyword" | "removeKeyword" | "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage" | "addFlag" | "removeFlag",
+  action:
+    | "addKeyword"
+    | "removeKeyword"
+    | "moveMessage"
+    | "copyMessage"
+    | "archiveMessage"
+    | "trashMessage"
+    | "junkMessage"
+    | "addFlag"
+    | "removeFlag",
   value: WorkflowJsonValue,
 ): boolean => {
   if (action === "copyMessage") return true;
-  if (action === "moveMessage" || action === "archiveMessage" || action === "trashMessage") {
+  if (action === "moveMessage" || action === "archiveMessage" || action === "trashMessage" || action === "junkMessage") {
     if (typeof value !== "string" || message.folderId === value) return false;
     message.folderId = value;
     return true;
@@ -66,7 +75,16 @@ export const applyMailConversationTransition = (
 
 export const mailMessageTransitionChanges = (
   message: MailWorkflowProjectedObject,
-  action: "addKeyword" | "removeKeyword" | "moveMessage" | "copyMessage" | "archiveMessage" | "trashMessage" | "addFlag" | "removeFlag",
+  action:
+    | "addKeyword"
+    | "removeKeyword"
+    | "moveMessage"
+    | "copyMessage"
+    | "archiveMessage"
+    | "trashMessage"
+    | "junkMessage"
+    | "addFlag"
+    | "removeFlag",
   value: WorkflowJsonValue,
 ): boolean => applyMailMessageTransition(structuredClone(message), action, value);
 

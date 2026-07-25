@@ -15,6 +15,8 @@ const source: FrozenMailWorkflowSource = {
     messageId: "20000000-0000-4000-8000-000000000001",
     conversationId: "20000000-0000-4000-8000-000000000003",
     subject: "Invoice",
+    fromAddress: "sender@example.test",
+    fromDomain: "example.test",
     body: "Attached invoice",
     bodyText: "Attached invoice",
     bodyHtml: "<p>Attached invoice</p>",

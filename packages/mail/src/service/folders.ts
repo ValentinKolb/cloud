@@ -1,7 +1,8 @@
 import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { configurableFolderRoleSchema, type ConfigurableFolderRole, type FolderRole } from "../contracts";
+import { z } from "zod";
+import { type ConfigurableFolderRole, configurableFolderRoleSchema, type FolderRole } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { publishMailMailboxEvent } from "./events";
@@ -11,7 +12,7 @@ type SqlClient = typeof sql;
 
 export type ResolvedRoleFolder = {
   id: string;
-  role: ConfigurableFolderRole;
+  role: ConfigurableFolderRole | "inbox";
   providerRole: FolderRole;
   configured: boolean;
 };
@@ -273,10 +274,10 @@ export const dismissUnavailableFolder = async (params: {
 
 export const resolveRoleFolder = async (
   mailboxId: string,
-  role: ConfigurableFolderRole,
+  role: ConfigurableFolderRole | "inbox",
   db: SqlClient = sql,
 ): Promise<Result<ResolvedRoleFolder>> => {
-  const parsedRole = configurableFolderRoleSchema.safeParse(role);
+  const parsedRole = z.union([configurableFolderRoleSchema, z.literal("inbox")]).safeParse(role);
   if (!parsedRole.success) return fail(err.badInput("Unsupported configurable folder role"));
   const rows = await db<{ id: string; provider_role: FolderRole; configured: boolean }[]>`
     WITH configured AS (

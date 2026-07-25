@@ -92,6 +92,8 @@ const mailValueDescriptors: Record<string, WorkflowValuePathDescriptor> = {
       conversationId: textValue,
       subject: textValue,
       sender: { kind: "array", type: "core.array", items: mailAddress },
+      fromAddress: textValue,
+      fromDomain: textValue,
       recipients: { kind: "array", type: "core.array", items: mailAddress },
       body: textValue,
       bodyText: textValue,
@@ -407,9 +409,9 @@ const bindAction = (
   } else if (step.action === "moveMessage" || step.action === "copyMessage") {
     bindProviderTarget();
     bindCatalogValue(config.folder, context.catalog.folders, "folder", [...path, "folder"], scope, context);
-  } else if (step.action === "archiveMessage" || step.action === "trashMessage") {
+  } else if (step.action === "archiveMessage" || step.action === "trashMessage" || step.action === "junkMessage") {
     bindProviderTarget();
-    const role = step.action === "archiveMessage" ? "archive" : "trash";
+    const role = step.action === "archiveMessage" ? "archive" : step.action === "trashMessage" ? "trash" : "junk";
     const matches = [...new Map([...context.catalog.folders.refs.values()].map((folder) => [folder.id, folder])).values()].filter(
       (folder) => folder.role === role,
     );
