@@ -9,7 +9,18 @@ type Violation = {
 const workspaceRoot = join(import.meta.dir, "..");
 const skillsRoot = join(workspaceRoot, "skills");
 
-const expectedSkills = ["cloud", "cloud-app", "cloud-cli", "cloud-desktop-app", "cloud-dev", "cloud-ops"] as const;
+const expectedSkills = ["cloud-cli", "cloud-dev"] as const;
+
+/**
+ * SKILL.md is a router, not a manual. The old cloud-app skill grew to 1064
+ * lines and duplicated ~74% of its own references, which suppressed the very
+ * reference reads its pointers asked for. This ceiling is the guard against
+ * that regression.
+ */
+const MAX_SKILL_LINES = 260;
+
+/** Paths in documentation examples that intentionally do not exist on disk. */
+const isPlaceholderPath = (path: string): boolean => /^packages\/(my-app|<)/.test(path);
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
 
@@ -58,6 +69,28 @@ const parseFrontmatter = (source: string): Record<string, string> | null => {
   }
 
   return fields;
+};
+
+/**
+ * Reference file names a document points at. Both link styles are in use:
+ * a backticked bare name (`backend.md`) and a markdown link that may carry a
+ * directory prefix ([Account](references/account.md)).
+ */
+const referencedDocs = (source: string): string[] => {
+  const names = new Set<string>();
+  for (const match of source.matchAll(/[`(](?:\.?\/?references\/)?([a-z0-9-]+\.md)[`)]/g)) {
+    names.add(match[1]);
+  }
+  return [...names];
+};
+
+/** Repo-relative packages/* paths cited as evidence in a document. */
+const citedRepoPaths = (source: string): string[] => {
+  const paths = new Set<string>();
+  for (const match of source.matchAll(/packages\/[a-zA-Z0-9._/-]+/g)) {
+    paths.add(match[0].replace(/[.,)`]+$/, ""));
+  }
+  return [...paths];
 };
 
 const violations: Violation[] = [];
@@ -138,18 +171,81 @@ for (const skill of expectedSkills) {
     });
   }
 
+  const skillLines = skillSource.split("\n").length;
+  if (skillLines > MAX_SKILL_LINES) {
+    violations.push({
+      file: skillMd,
+      message: `SKILL.md is ${skillLines} lines (max ${MAX_SKILL_LINES}). It routes to references; move detail into one.`,
+    });
+  }
+
   const referencesDir = join(skillDir, "references");
   if (!isDirectory(referencesDir)) {
     violations.push({
       file: referencesDir,
       message: "Missing references directory.",
     });
-  } else {
-    const hasReferenceFile = readdirSync(referencesDir).some((entry) => statSync(join(referencesDir, entry)).isFile());
-    if (!hasReferenceFile) {
+    continue;
+  }
+
+  const referenceFiles = readdirSync(referencesDir).filter(
+    (entry) => entry.endsWith(".md") && statSync(join(referencesDir, entry)).isFile(),
+  );
+  if (referenceFiles.length === 0) {
+    violations.push({
+      file: referencesDir,
+      message: "references directory must contain at least one file.",
+    });
+    continue;
+  }
+
+  const docs = new Map<string, string>([["SKILL.md", skillSource]]);
+  for (const entry of referenceFiles) {
+    docs.set(entry, readFileSync(join(referencesDir, entry), "utf8"));
+  }
+
+  // Every reference must be reachable from SKILL.md. Multi-hop is fine — a
+  // reference may legitimately be linked only from another reference.
+  const reachable = new Set<string>();
+  const queue = ["SKILL.md"];
+  while (queue.length > 0) {
+    const current = queue.shift() as string;
+    for (const name of referencedDocs(docs.get(current) ?? "")) {
+      if (!docs.has(name) || reachable.has(name)) continue;
+      reachable.add(name);
+      queue.push(name);
+    }
+  }
+
+  for (const entry of referenceFiles) {
+    if (!reachable.has(entry)) {
       violations.push({
-        file: referencesDir,
-        message: "references directory must contain at least one file.",
+        file: join(referencesDir, entry),
+        message: "Orphan reference: not reachable from SKILL.md. Link it or delete it.",
+      });
+    }
+  }
+
+  for (const [name, source] of docs) {
+    const file = name === "SKILL.md" ? skillMd : join(referencesDir, name);
+
+    for (const target of referencedDocs(source)) {
+      // Ignore names that are not this skill's own references (e.g. *.help.md
+      // examples in prose); only flag a miss that looks like a sibling doc.
+      if (docs.has(target) || !/^[a-z-]+\.md$/.test(target)) continue;
+      if (referenceFiles.includes(target)) continue;
+      violations.push({
+        file,
+        message: `References '${target}', which does not exist in references/.`,
+      });
+    }
+
+    for (const cited of citedRepoPaths(source)) {
+      if (isPlaceholderPath(cited)) continue;
+      if (existsSync(join(workspaceRoot, cited))) continue;
+      violations.push({
+        file,
+        message: `Cites '${cited}', which does not exist. Fix or remove the path.`,
       });
     }
   }
@@ -163,4 +259,4 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log("Skills check passed.");
+console.log(`Skills check passed (${expectedSkills.length} skills).`);

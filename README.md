@@ -125,10 +125,8 @@ Dev admin login: open `/auth/login?method=admin` and paste `dev-admin` into the 
 bunx skills add github.com/ValentinKolb/cloud
 ```
 
-- [`cloud`](skills/cloud/SKILL.md) — architecture overview
-- [`cloud-app`](skills/cloud-app/SKILL.md) — building apps (frontend + backend reference)
-- [`cloud-desktop-app`](skills/cloud-desktop-app/SKILL.md) — building native desktop apps
-- [`cloud-ops`](skills/cloud-ops/SKILL.md) — dev, deploy, compose
+- [`cloud-dev`](skills/cloud-dev/SKILL.md) — building on the platform: architecture, backend, frontend, UI, design, ops
+- [`cloud-cli`](skills/cloud-cli/SKILL.md) — using a Cloud instance from the terminal with `cld`
 
 ## License
 
