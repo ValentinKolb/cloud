@@ -18,7 +18,7 @@ import type { WorkflowJsonValue, WorkflowStepOutcome } from "../contracts";
 import { type ErasedWorkflowAction, LANGUAGE_EFFECT, type WorkflowActionMap } from "../definition";
 import type { WorkflowActionStep, WorkflowExecuteActionContext, WorkflowExecuteActionPort } from "../runtime/ports";
 import { budgetError, budgetRootRunId, chargeWorkflowEffectBudget } from "./budget";
-import { beginWorkflowEffect, settleWorkflowEffect } from "./runs";
+import { beginWorkflowEffect, readWorkflowEffect, settleWorkflowEffect } from "./runs";
 
 /**
  * The key an idempotent effect deduplicates on.
@@ -78,8 +78,38 @@ const runDeclaredAction = async (
   const journalStep = { runId: ctx.run.runId, key: ctx.step.key, executionGeneration: ctx.run.executionGeneration };
   const effectKey = workflowEffectKey(ctx.run.runId, ctx.step.key);
 
+  /*
+   * An earlier attempt of this step may have escaped without telling us how it
+   * ended. Re-running is how the same message goes out twice, so ask the
+   * external system instead — that is the entire reason `reconcile` is
+   * mandatory for this class.
+   *
+   * Only ambiguous actions need it. A transactional effect was undone by the
+   * crash that interrupted it, and an idempotent one is safe to repeat under
+   * the same key.
+   */
+  if (action.effect === "ambiguous" && action.reconcile) {
+    const prior = await readWorkflowEffect(journalStep, { db: options.db });
+    if (prior && (prior.state === "executing" || prior.state === "ambiguous")) {
+      const verdict = await action.reconcile(actionContext(ctx, prior.key), prior.key);
+      if (verdict.state === "succeeded") {
+        await settleWorkflowEffect(journalStep, "succeeded", { db: options.db });
+        return { state: "completed", output: (verdict.output ?? null) as WorkflowJsonValue };
+      }
+      if (verdict.state === "failed") {
+        await settleWorkflowEffect(journalStep, "failed", { db: options.db });
+        return { state: "failed", error: asError(verdict.message) };
+      }
+      // Still unknown. A human decides; nothing is repeated on their behalf.
+      await settleWorkflowEffect(journalStep, "ambiguous", { db: options.db });
+      return { state: "needs_attention", error: asError(verdict.message) };
+    }
+  }
+
   if (action.effect !== "pure" && action.plan) {
     const planned = await action.plan(actionContext(ctx, effectKey), config as never);
+    // Charged per attempt. A replayed in-flight step charges twice, which is
+    // conservative — it can only refuse more, never permit more.
     if (options.budget !== false && planned.consumes && Object.keys(planned.consumes).length > 0) {
       const root = await budgetRootRunId(ctx.run.runId, { db: options.db });
       const charge = await chargeWorkflowEffectBudget(root, planned.consumes, { db: options.db });

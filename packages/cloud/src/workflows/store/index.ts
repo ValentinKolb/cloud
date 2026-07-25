@@ -64,6 +64,7 @@ export {
   isWorkflowEffectReplayable,
   listClaimableWorkflowRunIds,
   type NewWorkflowRun,
+  readWorkflowEffect,
   releaseWorkflowRun,
   renewWorkflowRunLease,
   requestWorkflowRunCancel,

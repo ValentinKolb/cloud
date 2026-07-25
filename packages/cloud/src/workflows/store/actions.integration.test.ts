@@ -14,6 +14,7 @@ import { createWorkflowActionPort } from "./actions";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
 import { getWorkflowRun } from "./observability";
+import { beginWorkflowEffect, claimWorkflowRun, createWorkflowRuntimeRepository } from "./runs";
 import { runOneWorkflow } from "./worker";
 
 let readiness: Promise<boolean> | null = null;
@@ -153,6 +154,110 @@ describe("declared actions", () => {
     const detail = await getWorkflowRun(runId);
     expect(detail?.state).toBe("needs_attention");
     expect(await effectRow(runId)).toMatchObject({ effect_state: "ambiguous" });
+  });
+
+  test("an effect that escaped is reconciled, never repeated", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.escaped");
+
+    // A previous attempt marked the effect and died before settling it — the
+    // message may already have gone out.
+    const claim = await claimWorkflowRun({ worker: "w0", runId });
+    const journal = createWorkflowRuntimeRepository();
+    const sending = {
+      runId,
+      executionGeneration: claim!.executionGeneration,
+      mode: "execute" as const,
+      workflowId: "unused",
+      sourceHash: "unused",
+      idempotencyKey: "unused",
+      key: "steps.0",
+      sourcePath: ["steps", 0],
+      iterationPath: [],
+      path: ["steps", 0],
+      kind: "action" as const,
+      action: "probe.escaped",
+    };
+    await journal.startStep(sending);
+    await beginWorkflowEffect(sending, `workflow:${runId}:step:steps.0`);
+    await sql`
+      UPDATE workflows.run SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL, retry_after = NULL WHERE id = ${runId}::uuid
+    `;
+
+    let ran = false;
+    let reconciled = false;
+    const actions = {
+      "probe.escaped": workflowAction.ambiguous({
+        label: "Send",
+        description: "Sends.",
+        config: CONFIG,
+        run: async () => {
+          ran = true;
+          return { state: "succeeded", output: { id: "second-send" } };
+        },
+        plan: async () => ({ summary: "send" }),
+        reconcile: async () => {
+          reconciled = true;
+          return { state: "succeeded", output: { id: "first-send" } };
+        },
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+
+    // The provider is asked, not asked again to send.
+    expect(reconciled).toBe(true);
+    expect(ran).toBe(false);
+    expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
+    expect(await effectRow(runId)).toMatchObject({ effect_state: "succeeded" });
+  });
+
+  test("an escaped effect nobody can resolve waits for a human", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.unknowable");
+
+    const claim = await claimWorkflowRun({ worker: "w0", runId });
+    const journal = createWorkflowRuntimeRepository();
+    const sending = {
+      runId,
+      executionGeneration: claim!.executionGeneration,
+      mode: "execute" as const,
+      workflowId: "unused",
+      sourceHash: "unused",
+      idempotencyKey: "unused",
+      key: "steps.0",
+      sourcePath: ["steps", 0],
+      iterationPath: [],
+      path: ["steps", 0],
+      kind: "action" as const,
+      action: "probe.unknowable",
+    };
+    await journal.startStep(sending);
+    await beginWorkflowEffect(sending, `workflow:${runId}:step:steps.0`);
+    await sql`
+      UPDATE workflows.run SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL, retry_after = NULL WHERE id = ${runId}::uuid
+    `;
+
+    let ran = false;
+    const actions = {
+      "probe.unknowable": workflowAction.ambiguous({
+        label: "Send",
+        description: "Sends.",
+        config: CONFIG,
+        run: async () => {
+          ran = true;
+          return { state: "succeeded", output: null };
+        },
+        plan: async () => ({ summary: "send" }),
+        reconcile: async () => ({ state: "unknown", message: "provider has no record either way" }),
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+
+    // Nothing is repeated on a human's behalf.
+    expect(ran).toBe(false);
+    expect((await getWorkflowRun(runId))?.state).toBe("needs_attention");
   });
 
   test("the budget is charged from the same hook a dry run reads", async () => {

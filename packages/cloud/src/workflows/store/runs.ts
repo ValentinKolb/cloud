@@ -666,6 +666,18 @@ export const settleWorkflowEffect = async (
   `;
 };
 
+/** What an earlier attempt recorded about this step's effect, if anything. */
+export const readWorkflowEffect = async (
+  step: { runId: string; key: string },
+  options: { db?: SQL } = {},
+): Promise<{ key: string; state: string } | null> => {
+  const db = options.db ?? sql;
+  const [row] = await db<{ effect_key: string | null; effect_state: string | null }[]>`
+    SELECT effect_key, effect_state FROM workflows.step_outcome WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key}
+  `;
+  return row?.effect_key && row.effect_state ? { key: row.effect_key, state: row.effect_state } : null;
+};
+
 /**
  * Whether a replay may re-run this step's effect.
  *
