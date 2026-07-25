@@ -83,6 +83,16 @@ export type NotebookWorkspaceEvent =
       scopes: NotebookWorkspaceInvalidationScope[];
     };
 
+/**
+ * Whether an event means somebody's access to the notebook may have changed.
+ *
+ * Live sockets re-evaluate their own access when this is true, so widening it
+ * costs a database round trip per event and narrowing it lets a withdrawn grant
+ * survive until the backstop timer fires.
+ */
+export const isPermissionInvalidation = (event: NotebookWorkspaceEvent): boolean =>
+  event.type === "workspace.invalidated" && event.scopes.includes("permissions");
+
 export const notebooksWorkspace = {
   wsType: NOTEBOOKS_WORKSPACE_WS_TYPE,
   streamCursorPattern: STREAM_CURSOR_PATTERN,

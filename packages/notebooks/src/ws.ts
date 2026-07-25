@@ -6,7 +6,7 @@ import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
-import { notebooksWorkspace } from "./lib/workspace-events";
+import { isPermissionInvalidation, notebooksWorkspace } from "./lib/workspace-events";
 import { notebooksYjs } from "./lib/yjs";
 import { notebooksService } from "./service";
 import { PRESENCE_HEARTBEAT_INTERVAL_MS } from "./service/presence";
@@ -37,6 +37,11 @@ type NotebooksYjsErrorPayload = {
 };
 
 const SNAPSHOT_INTERVAL_MS = 8_000;
+/**
+ * Backstop only. Permission edits publish a `workspace.invalidated` event and
+ * are acted on the moment it arrives; this timer exists for the changes that
+ * publish nothing — FreeIPA group sync, account expiry, credential revocation.
+ */
 const ACCESS_REFRESH_INTERVAL_MS = 10_000;
 const NOTIFY_BATCH_SIZE = 100;
 const NOTIFY_BATCH_MAX_BYTES = 256_000;
@@ -116,6 +121,9 @@ type WsContext = {
   snapshotInterval: ReturnType<typeof setInterval> | null;
   presenceHeartbeatInterval: ReturnType<typeof setInterval> | null;
   accessRefreshTimeout: ReturnType<typeof setTimeout> | null;
+  /** Notebook owning the joined note — the tenant of its permission events. */
+  noteNotebookId: string | null;
+  noteAccessWatchAbort: AbortController | null;
   workspaceNotebookId: string | null;
   workspaceAbort: AbortController | null;
   workspaceAccessRefreshTimeout: ReturnType<typeof setTimeout> | null;
@@ -139,6 +147,8 @@ type AccessEvaluation = {
    *  a short-id). Set when `ok` is true so callers can store it in
    *  `WsContext.noteId` for the rest of the session. */
   resolvedNoteId?: string;
+  /** Notebook the note belongs to; the tenant its permission events are published on. */
+  notebookId?: string;
   canWrite?: boolean;
 };
 
@@ -162,6 +172,8 @@ const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | 
   sessionToken,
   user: null,
   noteId: null,
+  noteNotebookId: null,
+  noteAccessWatchAbort: null,
   wireNoteId: null,
   canWrite: false,
   peerId: crypto.randomUUID(),
@@ -215,6 +227,11 @@ const stopPresenceHeartbeat = (ctx: WsContext) => {
 const stopAccessRefresh = (ctx: WsContext) => {
   if (ctx.accessRefreshTimeout) clearTimeout(ctx.accessRefreshTimeout);
   ctx.accessRefreshTimeout = null;
+};
+
+const stopNoteAccessWatch = (ctx: WsContext) => {
+  if (ctx.noteAccessWatchAbort) ctx.noteAccessWatchAbort.abort();
+  ctx.noteAccessWatchAbort = null;
 };
 
 const stopWorkspaceStream = (ctx: WsContext) => {
@@ -393,6 +410,7 @@ const leaveCurrentNote = async (ctx: WsContext) => {
   const noteId = ctx.noteId;
   await queueSnapshotIfNeeded(ctx, "unload");
   stopAccessRefresh(ctx);
+  stopNoteAccessWatch(ctx);
   stopSnapshotScheduler(ctx);
   stopPresenceHeartbeat(ctx);
   stopLiveStream(ctx);
@@ -414,6 +432,7 @@ const leaveCurrentNote = async (ctx: WsContext) => {
     }
   }
   ctx.noteId = null;
+  ctx.noteNotebookId = null;
   ctx.canWrite = false;
   ctx.dirty = false;
   ctx.lastPublishedCursor = null;
@@ -501,6 +520,7 @@ const evaluateAccess = async (
   return {
     ok: true,
     resolvedNoteId: note.id,
+    notebookId: note.notebookId,
     canWrite,
   };
 };
@@ -592,32 +612,64 @@ const refreshWorkspaceAccess = async (ctx: WsContext): Promise<AccessEvaluation>
   return access;
 };
 
+/** Re-evaluate the joined note's access. Returns false once the socket is done for. */
+const revalidateNoteAccess = async (ctx: WsContext): Promise<boolean> => {
+  if (ctx.phase !== "joined") return false;
+  try {
+    const access = await refreshJoinedAccess(ctx);
+    if (access.ok) return true;
+    await fatal(
+      ctx,
+      access.code ?? ERROR_CODE.internalError,
+      access.message ?? "Access refresh failed",
+      access.noteId ?? ctx.noteId ?? undefined,
+    );
+    return false;
+  } catch (error) {
+    log.error("Access refresh failed", {
+      noteId: ctx.noteId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await fatal(ctx, ERROR_CODE.internalError, "Access refresh failed", ctx.noteId ?? undefined);
+    return false;
+  }
+};
+
 const startAccessRefresh = (ctx: WsContext) => {
   stopAccessRefresh(ctx);
   if (ctx.phase !== "joined" || !ctx.noteId) return;
 
   ctx.accessRefreshTimeout = setTimeout(async () => {
-    if (ctx.phase !== "joined") return;
-    try {
-      const access = await refreshJoinedAccess(ctx);
-      if (!access.ok) {
-        await fatal(
-          ctx,
-          access.code ?? ERROR_CODE.internalError,
-          access.message ?? "Access refresh failed",
-          access.noteId ?? ctx.noteId ?? undefined,
-        );
-        return;
-      }
-      startAccessRefresh(ctx);
-    } catch (error) {
-      log.error("Access refresh failed", {
-        noteId: ctx.noteId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      await fatal(ctx, ERROR_CODE.internalError, "Access refresh failed", ctx.noteId ?? undefined);
-    }
+    if (await revalidateNoteAccess(ctx)) startAccessRefresh(ctx);
   }, ACCESS_REFRESH_INTERVAL_MS);
+};
+
+/** Re-evaluate the joined workspace's access. Returns false once it has been left. */
+const revalidateWorkspaceAccess = async (ctx: WsContext): Promise<boolean> => {
+  if (!ctx.workspaceNotebookId) return false;
+  try {
+    const access = await refreshWorkspaceAccess(ctx);
+    if (access.ok) return true;
+    send(ctx.socket, WORKSPACE_WS_TYPE.revoked, {
+      notebookId: ctx.workspaceNotebookId,
+      code: access.code ?? ERROR_CODE.accessRevoked,
+      message: access.message ?? "Workspace access revoked",
+    });
+    leaveCurrentWorkspace(ctx);
+    return false;
+  } catch (error) {
+    log.error("Workspace access refresh failed", {
+      notebookId: ctx.workspaceNotebookId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    send(ctx.socket, WORKSPACE_WS_TYPE.error, {
+      notebookId: ctx.workspaceNotebookId,
+      code: ERROR_CODE.internalError,
+      message: "Workspace access refresh failed",
+    });
+    leaveCurrentWorkspace(ctx);
+    return false;
+  }
 };
 
 const startWorkspaceAccessRefresh = (ctx: WsContext) => {
@@ -625,30 +677,7 @@ const startWorkspaceAccessRefresh = (ctx: WsContext) => {
   if (!ctx.workspaceNotebookId) return;
 
   ctx.workspaceAccessRefreshTimeout = setTimeout(async () => {
-    try {
-      const access = await refreshWorkspaceAccess(ctx);
-      if (!access.ok) {
-        send(ctx.socket, WORKSPACE_WS_TYPE.revoked, {
-          notebookId: ctx.workspaceNotebookId,
-          code: access.code ?? ERROR_CODE.accessRevoked,
-          message: access.message ?? "Workspace access revoked",
-        });
-        leaveCurrentWorkspace(ctx);
-        return;
-      }
-      startWorkspaceAccessRefresh(ctx);
-    } catch (error) {
-      log.error("Workspace access refresh failed", {
-        notebookId: ctx.workspaceNotebookId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      send(ctx.socket, WORKSPACE_WS_TYPE.error, {
-        notebookId: ctx.workspaceNotebookId,
-        code: ERROR_CODE.internalError,
-        message: "Workspace access refresh failed",
-      });
-      leaveCurrentWorkspace(ctx);
-    }
+    if (await revalidateWorkspaceAccess(ctx)) startWorkspaceAccessRefresh(ctx);
   }, ACCESS_REFRESH_INTERVAL_MS);
 };
 
@@ -914,6 +943,41 @@ const startLiveStream = (
   })();
 };
 
+/**
+ * Watch the owning notebook's permission events for the joined note.
+ *
+ * Without this a withdrawn grant kept streaming document content, and kept
+ * accepting edits, until the backstop timer next fired. The events are already
+ * published by every notebook access mutation, so reacting to them costs one
+ * subscription and closes the window to a round trip.
+ */
+const startNoteAccessWatch = (ctx: WsContext, notebookId: string) => {
+  stopNoteAccessWatch(ctx);
+  const abort = new AbortController();
+  ctx.noteAccessWatchAbort = abort;
+
+  void (async () => {
+    try {
+      for await (const event of notebooksService.workspaceEvents.live({ notebookId, signal: abort.signal })) {
+        if (abort.signal.aborted || ctx.noteNotebookId !== notebookId) break;
+        if (!isPermissionInvalidation(event.data)) continue;
+        if (!(await revalidateNoteAccess(ctx))) break;
+      }
+    } catch (error) {
+      if (abort.signal.aborted) return;
+      // Losing the watch would silently drop back to timer-only revocation, so
+      // it is reported rather than swallowed. The timer still covers the note.
+      log.error("Note access watch failed", {
+        noteId: ctx.noteId,
+        notebookId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      if (ctx.noteAccessWatchAbort === abort) ctx.noteAccessWatchAbort = null;
+    }
+  })();
+};
+
 const startWorkspaceStream = (ctx: WsContext, notebookId: string, afterCursor: string | null) => {
   stopWorkspaceStream(ctx);
   const abort = new AbortController();
@@ -933,6 +997,9 @@ const startWorkspaceStream = (ctx: WsContext, notebookId: string, afterCursor: s
           cursor: event.cursor,
           event: event.data,
         });
+        // The client was told; now re-check on the server, which is the side
+        // that decides. Previously this event was forwarded and nothing else.
+        if (isPermissionInvalidation(event.data) && !(await revalidateWorkspaceAccess(ctx))) break;
       }
     } catch (error) {
       if (!abort.signal.aborted) {
@@ -1007,6 +1074,7 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
   ctx.phase = "joined";
   ctx.user = user;
   ctx.noteId = dbNoteId;
+  ctx.noteNotebookId = access.notebookId ?? null;
   ctx.wireNoteId = dbNoteId; // converged
   ctx.canWrite = access.canWrite ?? false;
 
@@ -1051,6 +1119,7 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
     send(ctx.socket, WS_TYPE.replayReady, { noteId: dbNoteId });
   });
   startAccessRefresh(ctx);
+  if (ctx.noteNotebookId) startNoteAccessWatch(ctx, ctx.noteNotebookId);
   log.debug("Replay stream started", {
     noteId: dbNoteId,
     peerId: ctx.peerId,

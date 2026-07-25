@@ -478,6 +478,12 @@ Each app owns `/api/<app>/ws`. The gateway already proxies upgrades and forwards
 - Abort `topic.live()` and permission timers on socket close.
 - Treat a failed `socket.send()` as backpressure and close with `1013`. Use `1012` for a recoverable restart — the browser helper reconnects.
 
+**Authorizing once at connect time is not authorizing.** A socket or SSE stream can outlive the grant that opened it by hours, so a connection that checks access only on connect keeps delivering content, and keeps accepting writes, long after the grant is gone.
+
+Re-check on the **event**, and keep a timer only as a backstop. If the app already publishes an invalidation when permissions change, subscribe to it and re-evaluate the moment it arrives — that closes the window to a round trip. The timer still earns its place for the changes that publish nothing: group membership from directory sync, account expiry, credential revocation. Say which is which in a comment, or the next reader will assume the timer is the whole story.
+
+Fail closed: a re-check that throws is not a pass.
+
 **Read the session from the upgrade request, never from the client.** Take the context parameter — `upgradeWebSocket((c) => …)` — and call `auth.session.getToken(c)`. Same-origin browser sockets send the session cookie and the gateway forwards it on upgrade.
 
 A route that skips the context parameter has no way to reach the session, and the tempting fix — having the client send the token in its first message — means handing the browser an `httpOnly` credential. Serialise that into an island prop and the full session token lands in the page HTML. That is account takeover, and it has happened here once.
