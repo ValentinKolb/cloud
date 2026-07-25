@@ -1340,6 +1340,7 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
         count(*) FILTER (WHERE status = 'running' AND (lease_expires_at IS NULL OR lease_expires_at < now()))::int AS stale_running,
         COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE status = 'queued'))), 0)::float AS oldest_queued_age_seconds
       FROM grids.workflow_runs
+      WHERE mode = 'execute'
     ), effects AS (
       SELECT
         count(*) FILTER (WHERE status = 'pending')::int AS pending,

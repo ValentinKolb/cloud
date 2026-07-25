@@ -60,16 +60,19 @@ export const printJsonOrTable = <TRow extends Record<string, unknown>>(
   columns: Parameters<CloudCliContext["table"]>[1],
 ) => {
   if (ctx.options.output === "json") ctx.json(value);
+  else if (ctx.options.output === "jsonl") rows.forEach((row) => ctx.jsonLine(row));
   else ctx.table(rows, columns);
 };
 
 export const printJsonOrMessage = (ctx: CloudCliContext, value: unknown, message: string) => {
   if (ctx.options.output === "json") ctx.json(value);
+  else if (ctx.options.output === "jsonl") ctx.jsonLine(value);
   else ctx.print(message);
 };
 
 export const printReference = (ctx: CloudCliContext, value: unknown, text: string) => {
   if (ctx.options.output === "json") ctx.json(value);
+  else if (ctx.options.output === "jsonl") ctx.jsonLine(value);
   else ctx.print(text);
 };
 

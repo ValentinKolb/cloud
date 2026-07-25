@@ -333,6 +333,15 @@ export default function WorkflowsPage(props: Props) {
     onError: (error) => setEmailLoadError(error.message),
   });
 
+  let statsRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleStatsRefresh = () => {
+    if (statsRefreshTimer) clearTimeout(statsRefreshTimer);
+    statsRefreshTimer = setTimeout(() => {
+      statsRefreshTimer = undefined;
+      statsMut.mutate();
+    }, 250);
+  };
+
   let appliedRunUpdate = "";
   createEffect(() => {
     const update = props.runUpdate;
@@ -344,9 +353,13 @@ export default function WorkflowsPage(props: Props) {
     setRuns((current) => reconcileWorkflowRunList(current, update, currentRunFilter(), true));
 
     if (isTerminalWorkflowRunStatus(update.status)) {
-      statsMut.mutate();
+      scheduleStatsRefresh();
       if (emailActivityOpen()) emailDeliveriesMut.mutate();
     }
+  });
+
+  onCleanup(() => {
+    if (statsRefreshTimer) clearTimeout(statsRefreshTimer);
   });
 
   const loadMoreEmailDeliveriesMut = mutations.create<void, void>({
@@ -411,16 +424,16 @@ export default function WorkflowsPage(props: Props) {
     channel: runChannel(),
   });
 
-  const pushUrlState = (state: WorkflowUrlState) => {
+  const replaceUrlState = (state: WorkflowUrlState) => {
     const href = workflowUrlStateHref(new URL(window.location.href), state);
-    window.history.pushState(window.history.state, "", href);
+    window.history.replaceState(window.history.state, "", href);
   };
 
   const changeStatsWindow = (value: string[]) => {
     const next = (value[0] as WorkflowRunStatsWindow | undefined) ?? "24h";
     if (next === statsWindow()) return;
     setStatsWindow(next);
-    pushUrlState(currentUrlState());
+    replaceUrlState(currentUrlState());
     statsMut.mutate();
   };
 
@@ -428,7 +441,7 @@ export default function WorkflowsPage(props: Props) {
     const next = (value[0] as WorkflowRunStatusFilter | undefined) ?? "all";
     if (next === runStatus()) return;
     setRunStatus(next);
-    pushUrlState(currentUrlState());
+    replaceUrlState(currentUrlState());
     runsMut.mutate();
   };
 
@@ -436,7 +449,7 @@ export default function WorkflowsPage(props: Props) {
     const next = (value[0] as WorkflowRunChannelFilter | undefined) ?? "all";
     if (next === runChannel()) return;
     setRunChannel(next);
-    pushUrlState(currentUrlState());
+    replaceUrlState(currentUrlState());
     runsMut.mutate();
   };
 
@@ -752,11 +765,7 @@ export default function WorkflowsPage(props: Props) {
                 }
               />
               <StatCell label="Runs" value={activeStats()?.total ?? 0} accent={{ tone: "zinc", icon: "ti ti-list" }} />
-              <StatCell
-                label="Active"
-                value={(activeStats()?.running ?? 0) + (activeStats()?.queued ?? 0) + (activeStats()?.waiting ?? 0)}
-                accent={{ tone: "blue", icon: "ti ti-player-play" }}
-              />
+              <StatCell label="Active" value={activeStats()?.active ?? 0} accent={{ tone: "blue", icon: "ti ti-player-play" }} />
               <StatCell
                 label="Error rate"
                 value={formatPercent(activeStats()?.errorRate ?? 0)}

@@ -1,17 +1,19 @@
 import { z } from "zod";
 import type { Workflow } from "../../../service";
 import { gridsService } from "../../../service";
+import type { DocumentRunReadAuthorizer } from "../../../service/document-browse";
 import type { ExpansionViewer } from "../../../service/relation-access";
 import { buildRelationLabelCacheForIds } from "../../../service/relation-labels";
 import {
   getWorkflowRunProvenance,
   getWorkflowRunStats,
   listWorkflowRunsPage,
-  listWorkflowStepRuns,
+  listWorkflowStepRunsPage,
 } from "../../../service/workflow-kernel-observability";
 import { getWorkflowTriggerRuntimeState } from "../../../service/workflow-kernel-runtime";
 import type { GridsWorkflowRun } from "../../../workflows/contracts";
 import { parseWorkflowUrlState } from "../workflows/workflow-url-state";
+import { documentTemplateLevelForUser, tableLevelForUser } from "./workspace-state-access";
 import { buildViewer, okState } from "./workspace-state-helpers";
 import type { GridsWorkspaceState, WorkspaceCommon, WorkspaceWorkflowRunDetail } from "./workspace-state-model";
 
@@ -56,11 +58,11 @@ const workflowRunInputLabels = async (
 
 export const loadWorkflowRunDetail = async (
   run: GridsWorkflowRun,
-  options: { workflow?: Workflow | null; viewer?: ExpansionViewer } = {},
+  options: { canReadDocument: DocumentRunReadAuthorizer; workflow?: Workflow | null; viewer?: ExpansionViewer },
 ): Promise<WorkspaceWorkflowRunDetail> => {
-  const [steps, documents, provenance, inputLabels] = await Promise.all([
-    listWorkflowStepRuns(run.id),
-    gridsService.document.listRunsForWorkflowRun(run.id, { limit: RUN_DOCUMENT_LIMIT }),
+  const [stepPage, documents, provenance, inputLabels] = await Promise.all([
+    listWorkflowStepRunsPage(run.id),
+    gridsService.document.listRunsForWorkflowRun(run.id, { limit: RUN_DOCUMENT_LIMIT }, options.canReadDocument),
     getWorkflowRunProvenance(run.id),
     workflowRunInputLabels(run, options.workflow ?? null, options.viewer),
   ]);
@@ -68,7 +70,8 @@ export const loadWorkflowRunDetail = async (
     run,
     inputLabels,
     provenance,
-    steps,
+    steps: stepPage.items,
+    stepsTruncated: stepPage.truncated,
     documents: {
       items: documents.items,
       total: documents.total ?? documents.items.length,
@@ -82,14 +85,25 @@ const loadSelectedRun = async (
   selectedRunId: string | null,
   workflows: Workflow[],
   viewer: ExpansionViewer,
+  canReadDocument: DocumentRunReadAuthorizer,
 ): Promise<WorkspaceWorkflowRunDetail | null> => {
   if (!selectedRunId || !z.string().uuid().safeParse(selectedRunId).success) return null;
   const run = await gridsService.workflow.getRun(selectedRunId);
   if (!run?.workflowId) return null;
   const workflow = workflows.find((item) => item.id === run.workflowId);
   if (!workflow) return null;
-  return loadWorkflowRunDetail(run, { workflow, viewer });
+  return loadWorkflowRunDetail(run, { canReadDocument, workflow, viewer });
 };
+
+const workflowRunDocumentAuthorizer =
+  (common: WorkspaceCommon): DocumentRunReadAuthorizer =>
+  async (run) => {
+    if (run.baseId !== common.base.id) return false;
+    const level = run.templateId
+      ? await documentTemplateLevelForUser(common.params.user, run.baseId, run.tableId, run.templateId)
+      : await tableLevelForUser(common.params.user, run.baseId, run.tableId);
+    return gridsService.permission.hasAtLeast(level, "read");
+  };
 
 export const loadWorkflowState = async (
   common: WorkspaceCommon,
@@ -131,7 +145,7 @@ export const loadWorkflowState = async (
     }),
     activeWorkflow ? gridsService.workflow.launcher.list(activeWorkflow.id) : Promise.resolve([]),
     activeWorkflow ? getWorkflowTriggerRuntimeState(activeWorkflow) : Promise.resolve(null),
-    loadSelectedRun(selectedRunId, common.catalog.workflows, buildViewer(common.params.user)),
+    loadSelectedRun(selectedRunId, common.catalog.workflows, buildViewer(common.params.user), workflowRunDocumentAuthorizer(common)),
   ]);
   return okState(
     common,

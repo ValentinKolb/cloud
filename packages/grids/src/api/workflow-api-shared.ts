@@ -7,9 +7,10 @@ import { get as getBase } from "../service/bases";
 import { listTemplatesForTable } from "../service/document-templates";
 import { listForBase as listEmailTemplatesForBase } from "../service/email-templates";
 import { listByTable as listFieldsByTable } from "../service/field-read";
+import { hasAtLeast, loadBaseWorkflowGrantsForSubject, resolveEffectivePermission } from "../service/permission-resolver";
 import { listByBase as listTablesByBase } from "../service/tables";
 import { buildWorkflowCatalog, type WorkflowCatalog, type WorkflowCatalogEntry } from "../service/workflow-catalog";
-import { listWorkflows } from "../service/workflow-kernel-store";
+import { listWorkflowScopes, listWorkflows } from "../service/workflow-kernel-store";
 import { bindGridsWorkflow } from "../workflows/binder";
 import {
   GRIDS_WORKFLOW_CHANNELS,
@@ -19,7 +20,14 @@ import {
   WorkflowDiagnosticSchema,
 } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
-import { currentWorkflowPrincipal, gateAt } from "./permissions";
+import {
+  currentAccessSubject,
+  currentCredentialPermission,
+  currentResourceBoundBaseId,
+  currentWorkflowPrincipal,
+  gateAt,
+  minPermission,
+} from "./permissions";
 
 export const WorkflowValidateSchema = z.object({ source: z.string().min(1).max(200_000) });
 
@@ -77,12 +85,38 @@ export const canReadWorkflow = async (c: Context<AuthContext>, workflow: { baseI
   return gate.ok;
 };
 
+const readableWorkflowIds = async (
+  c: Context<AuthContext>,
+  baseId: string,
+  workflows: Array<{ id: string; baseId: string }>,
+): Promise<Set<string>> => {
+  const boundBaseId = currentResourceBoundBaseId(c);
+  if (boundBaseId !== undefined && boundBaseId !== baseId) return new Set();
+  const grants = await loadBaseWorkflowGrantsForSubject({ baseId, subject: currentAccessSubject(c) });
+  const credentialLevel = currentCredentialPermission(c);
+  return new Set(
+    workflows
+      .filter((workflow) => {
+        const level = minPermission(resolveEffectivePermission(grants, { baseId, workflowId: workflow.id }), credentialLevel);
+        return hasAtLeast(level, "read");
+      })
+      .map((workflow) => workflow.id),
+  );
+};
+
 export const visibleWorkflowsForBase = async (c: Context<AuthContext>, baseId: string, options: { includeDeleted?: boolean } = {}) => {
-  const visible = [];
-  for (const workflow of await listWorkflows(baseId, false, options.includeDeleted)) {
-    if (await canReadWorkflow(c, workflow)) visible.push(workflow);
-  }
-  return visible;
+  const workflows = await listWorkflows(baseId, false, options.includeDeleted);
+  const visibleIds = await readableWorkflowIds(c, baseId, workflows);
+  return workflows.filter((workflow) => visibleIds.has(workflow.id));
+};
+
+export const visibleWorkflowIdsForBase = async (
+  c: Context<AuthContext>,
+  baseId: string,
+  options: { includeDeleted?: boolean } = {},
+): Promise<string[]> => {
+  const workflows = await listWorkflowScopes(baseId, options.includeDeleted);
+  return [...(await readableWorkflowIds(c, baseId, workflows))];
 };
 
 type WorkflowCatalogDeps = {

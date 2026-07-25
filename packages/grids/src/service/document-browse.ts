@@ -24,6 +24,50 @@ type DocumentRunBrowsePage = {
   nextCursor?: string | null;
 };
 
+export type DocumentRunReadAuthorizer = (run: Pick<DocumentRun, "baseId" | "tableId" | "templateId">) => Promise<boolean>;
+
+type WorkflowRunDocumentScope = {
+  tableId: string;
+  templateId: string | null;
+};
+
+export const loadReadableWorkflowRunDocumentScopes = async (
+  workflowRunId: string,
+  canRead: DocumentRunReadAuthorizer,
+): Promise<WorkflowRunDocumentScope[]> => {
+  const scopes = await sql<Array<{ base_id: string; table_id: string; template_id: string | null }>>`
+    SELECT DISTINCT base_id, table_id, template_id
+    FROM grids.document_runs
+    WHERE workflow_run_id = ${workflowRunId}::uuid
+  `;
+  return (
+    await Promise.all(
+      scopes.map(async (scope) => ({
+        tableId: scope.table_id,
+        templateId: scope.template_id,
+        allowed: await canRead({
+          baseId: scope.base_id,
+          tableId: scope.table_id,
+          templateId: scope.template_id,
+        }),
+      })),
+    )
+  )
+    .filter((scope) => scope.allowed)
+    .map(({ tableId, templateId }) => ({ tableId, templateId }));
+};
+
+export const workflowRunDocumentAccessWhere = (allowed: WorkflowRunDocumentScope[]) => {
+  if (allowed.length === 0) return sql`FALSE`;
+  return allowed
+    .map((scope) =>
+      scope.templateId
+        ? sql`(table_id = ${scope.tableId}::uuid AND template_id = ${scope.templateId}::uuid)`
+        : sql`(table_id = ${scope.tableId}::uuid AND template_id IS NULL)`,
+    )
+    .reduce((where, scope) => sql`${where} OR ${scope}`);
+};
+
 export const listRunsForRecord = async (tableId: string, recordId: string, limit = 100): Promise<DocumentRun[]> => {
   const cap = Math.min(Math.max(limit, 1), 500);
   const rows = await sql<DocumentDbRow[]>`
@@ -37,18 +81,22 @@ export const listRunsForRecord = async (tableId: string, recordId: string, limit
 
 export const listRunsForWorkflowRun = async (
   workflowRunId: string,
-  params: { limit?: number; offset?: number } = {},
+  params: { limit?: number; offset?: number },
+  canRead: DocumentRunReadAuthorizer,
 ): Promise<DocumentRunSummaryList> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const offset = Math.max(params.offset ?? 0, 0);
+  const accessWhere = workflowRunDocumentAccessWhere(await loadReadableWorkflowRunDocumentScopes(workflowRunId, canRead));
   const [{ count } = { count: 0 }] = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count
     FROM grids.document_runs
     WHERE workflow_run_id = ${workflowRunId}::uuid
+      AND (${accessWhere})
   `;
   const rows = await sql<DocumentDbRow[]>`
     SELECT * FROM grids.document_runs
     WHERE workflow_run_id = ${workflowRunId}::uuid
+      AND (${accessWhere})
     ORDER BY generated_at DESC, id DESC
     LIMIT ${limit}
     OFFSET ${offset}

@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
-import { createWorkflow, listWorkflowRevisions, restoreWorkflowRevision, updateWorkflow } from "./workflow-kernel-store";
+import {
+  createWorkflow,
+  getWorkflowRevision,
+  listWorkflowRevisions,
+  restoreWorkflowRevision,
+  updateWorkflow,
+} from "./workflow-kernel-store";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -160,12 +166,21 @@ steps:
       const restored = await restoreWorkflowRevision(created.data.id, 1, null, updated.data.revision);
       expect(restored.ok).toBe(true);
       if (!restored.ok) return;
-      expect(restored.data).toMatchObject({ revision: 3, name: "Original", enabled: false });
+      expect(restored.data).toMatchObject({ revision: 3, name: "Original", enabled: true });
       expect(restored.data.source).toContain("message: Original");
 
       const afterRestore = await listWorkflowRevisions(created.data.id);
       expect(afterRestore.items.map((revision) => revision.revision)).toEqual([3, 2, 1]);
-      expect(afterRestore.items[0]?.source).toBe(afterRestore.items[2]?.source);
+      const [latest, original] = await Promise.all([getWorkflowRevision(created.data.id, 3), getWorkflowRevision(created.data.id, 1)]);
+      expect(latest?.source).toBe(original?.source);
+
+      const disabled = await updateWorkflow(created.data.id, { enabled: false }, null, restored.data.revision);
+      expect(disabled.ok).toBe(true);
+      if (!disabled.ok) return;
+      const restoredEnabledSnapshot = await restoreWorkflowRevision(created.data.id, 2, null, disabled.data.revision);
+      expect(restoredEnabledSnapshot.ok).toBe(true);
+      if (!restoredEnabledSnapshot.ok) return;
+      expect(restoredEnabledSnapshot.data).toMatchObject({ revision: 5, name: "Updated", enabled: false });
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }

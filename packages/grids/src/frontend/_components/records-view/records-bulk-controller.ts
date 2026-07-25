@@ -79,6 +79,7 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
       clear();
       toast.success(`${run.launcherName} queued for ${run.targetLabel}.`, {
         title: "Workflow queued",
+        duration: 10_000,
         action: {
           label: "Open run",
           href: `/app/grids/${encodeURIComponent(options.baseShortId)}/workflows/${encodeURIComponent(
@@ -94,7 +95,7 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
     const selectedRecordIds = [...selectedIds()];
     if (selectedRecordIds.length === 0) {
       const confirmed = await prompts.confirm(
-        `Run "${launcher.name}" for every record matching the current query? Up to 10,000 records may be included.`,
+        `Run "${launcher.name}" for every record matching the current query? The server resolves the complete result set and stops without running if more than 10,000 records match.`,
         {
           title: "Run for current query",
           icon: "ti ti-list-check",

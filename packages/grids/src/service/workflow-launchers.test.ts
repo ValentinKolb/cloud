@@ -12,6 +12,30 @@ const workflow = {
 } as GridsWorkflow;
 
 describe("workflow launcher validation", () => {
+  test("rejects launchers that cannot supply another required input", () => {
+    const scannerWorkflow = {
+      plan: {
+        inputs: [
+          { name: "record", type: "record", config: { required: true } },
+          { name: "confirm", type: "boolean", config: { required: true } },
+        ],
+      },
+    } as unknown as GridsWorkflow;
+
+    expect(
+      validateLauncherConfig(scannerWorkflow, {
+        kind: "scanner",
+        input: "record",
+        resolve: { by: "scanCode" },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        code: "launcher.input.unsupplied",
+        message: 'scanner run option cannot supply required workflow input "confirm"',
+      }),
+    ]);
+  });
+
   test("requires complete type-safe dashboard input bindings", () => {
     expect(validateLauncherConfig(workflow, { kind: "dashboard", inputMode: "fixed", inputBindings: { count: "many" } })).toEqual([
       expect.objectContaining({ code: "launcher.input.invalid", message: 'Workflow input "message" is required' }),

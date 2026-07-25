@@ -83,6 +83,7 @@ export function WorkflowRunDetailPanel(props: {
   const [run, setRun] = createSignal<GridsWorkflowRun | null>(props.initialDetail?.run ?? null);
   const [inputLabels, setInputLabels] = createSignal(props.initialDetail?.inputLabels ?? {});
   const [steps, setSteps] = createSignal<GridsWorkflowStepRun[]>(props.initialDetail?.steps ?? []);
+  const [stepsTruncated, setStepsTruncated] = createSignal(props.initialDetail?.stepsTruncated ?? false);
   const [documents, setDocuments] = createSignal<WorkflowRunDocumentsState>({
     items: props.initialDetail?.documents.items ?? [],
     total: props.initialDetail?.documents.total ?? 0,
@@ -199,6 +200,7 @@ export function WorkflowRunDetailPanel(props: {
       setInputLabels(detail.inputLabels);
       setProvenance(detail.provenance);
       setSteps(detail.steps);
+      setStepsTruncated(detail.stepsTruncated);
       setDocuments((current) => mergeRefreshedWorkflowRunDocuments(current, detail.documents));
     },
   });
@@ -266,7 +268,13 @@ export function WorkflowRunDetailPanel(props: {
     };
     const startFallback = () => {
       if (fallbackTimer || document.visibilityState !== "visible") return;
-      fallbackTimer = setInterval(refreshSelectedRun, 2500);
+      fallbackTimer = setInterval(() => {
+        if (run() && isTerminalWorkflowRunStatus(run()!.status)) {
+          stopFallback();
+          return;
+        }
+        refreshSelectedRun();
+      }, 10_000);
     };
     const syncVisibility = () => {
       if (document.visibilityState !== "visible") {
@@ -283,14 +291,24 @@ export function WorkflowRunDetailPanel(props: {
           workflowId,
           onReady: () => {
             streamReady = true;
-            stopFallback();
             refreshSelectedRun();
           },
           onEvent: (event) => {
             if (event.run.id !== runId) return;
             setRun((current) => (current?.id === runId ? { ...current, ...event.run } : current));
-            setSteps(event.steps);
-            if (isTerminalWorkflowRunStatus(event.run.status)) refreshSelectedRun();
+            if (event.steps.length > 0) {
+              setSteps((current) => {
+                const next = new Map(current.map((step) => [step.key, step]));
+                for (const step of event.steps) next.set(step.key, step);
+                return [...next.values()].sort(
+                  (left, right) => Date.parse(left.startedAt ?? "") - Date.parse(right.startedAt ?? "") || left.id.localeCompare(right.id),
+                );
+              });
+            }
+            if (isTerminalWorkflowRunStatus(event.run.status)) {
+              stopFallback();
+              refreshSelectedRun();
+            }
           },
           onError: () => {
             streamReady = false;
@@ -520,7 +538,7 @@ export function WorkflowRunDetailPanel(props: {
                 onInspectRevision={() => void inspectRevision()}
               />
               <WorkflowRunInputsSection inputs={inputRows()} />
-              <WorkflowRunStepsSection steps={steps()} loading={loadMut.loading()} />
+              <WorkflowRunStepsSection steps={steps()} truncated={stepsTruncated()} loading={loadMut.loading()} />
               <WorkflowRunDocumentsSection
                 documents={documents()}
                 downloadingDocumentId={downloadingDocumentId()}

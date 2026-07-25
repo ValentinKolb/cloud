@@ -3,7 +3,13 @@ import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { bindGridsWorkflow } from "../workflows/binder";
-import type { CreateGridsWorkflowInput, GridsWorkflow, GridsWorkflowRevision, UpdateGridsWorkflowInput } from "../workflows/contracts";
+import type {
+  CreateGridsWorkflowInput,
+  GridsWorkflow,
+  GridsWorkflowRevision,
+  GridsWorkflowRevisionSummary,
+  UpdateGridsWorkflowInput,
+} from "../workflows/contracts";
 import { GridsWorkflowRevisionSchema, GridsWorkflowSchema } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
 import { logAudit, type SqlClient } from "./audit";
@@ -39,7 +45,7 @@ const mapWorkflow = (row: DbRow): GridsWorkflow => {
     createdAt: (row.created_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
   });
-  if (!parsed.success) throw err.internal("stored workflow is invalid");
+  if (!parsed.success) throw new Error("stored workflow is invalid");
   return parsed.data;
 };
 
@@ -51,6 +57,19 @@ const selectColumns = sql`
 const revisionColumns = sql`
   workflow_id, revision, name, description, source, plan, diagnostics, enabled, position, actor_user_id, created_at
 `;
+
+const revisionSummaryColumns = sql`
+  workflow_id, revision, name, enabled, actor_user_id, created_at
+`;
+
+const mapWorkflowRevisionSummary = (row: DbRow): GridsWorkflowRevisionSummary => ({
+  workflowId: row.workflow_id as string,
+  revision: Number(row.revision),
+  name: row.name as string,
+  enabled: Boolean(row.enabled),
+  actorUserId: (row.actor_user_id as string | null) ?? null,
+  createdAt: (row.created_at as Date).toISOString(),
+});
 
 const mapWorkflowRevision = (row: DbRow): GridsWorkflowRevision => {
   const parsed = GridsWorkflowRevisionSchema.safeParse({
@@ -66,7 +85,7 @@ const mapWorkflowRevision = (row: DbRow): GridsWorkflowRevision => {
     actorUserId: row.actor_user_id ?? null,
     createdAt: (row.created_at as Date).toISOString(),
   });
-  if (!parsed.success) throw err.internal("stored workflow revision is invalid");
+  if (!parsed.success) throw new Error("stored workflow revision is invalid");
   return parsed.data;
 };
 
@@ -152,6 +171,17 @@ export const listWorkflows = async (baseId: string, enabledOnly = false, include
   return rows.map(mapWorkflow);
 };
 
+export const listWorkflowScopes = async (baseId: string, includeDeleted = false): Promise<Array<Pick<GridsWorkflow, "id" | "baseId">>> => {
+  const rows = await sql<Array<{ id: string; base_id: string }>>`
+    SELECT id::text AS id, base_id::text AS base_id
+    FROM grids.workflows
+    WHERE base_id = ${baseId}::uuid
+      AND (${includeDeleted} = TRUE OR deleted_at IS NULL)
+    ORDER BY position, created_at, id
+  `;
+  return rows.map((row) => ({ id: row.id, baseId: row.base_id }));
+};
+
 export const listScheduledWorkflows = async (): Promise<GridsWorkflow[]> => {
   const rows = await sql<DbRow[]>`
     SELECT ${selectColumns}
@@ -203,32 +233,37 @@ export const createWorkflow = async (
 ): Promise<Result<GridsWorkflow>> => {
   const plan = await compileAndBind(baseId, input.source);
   if (!plan.ok) return plan;
-  const workflow = await sql.begin(async (tx) => {
+  const workflow = await sql.begin(async (tx): Promise<Result<GridsWorkflow>> => {
     await lockWorkflowCatalogMutation(baseId, tx);
-    await assertWorkflowEmailTemplatesAvailable(baseId, plan.data, tx);
-    const row = await insertWithShortId(async (shortId) => {
-      const [inserted] = await tx<DbRow[]>`
-        INSERT INTO grids.workflows (
-          short_id, base_id, name, description, source, plan, diagnostics, enabled, position,
-          record_event_active_since, owner_user_id
-        ) VALUES (
-          ${shortId},
-          ${baseId}::uuid,
-          ${input.name.trim()},
-          ${input.description ?? null},
-          ${input.source},
-          ${plan.data}::jsonb,
-          '[]'::jsonb,
-          ${input.enabled ?? false},
-          ${input.position ?? 0},
-          ${input.enabled && hasRecordEventTrigger(plan.data) ? sql`now()` : null},
-          ${actorId}::uuid
-        )
-        RETURNING ${selectColumns}
-      `;
-      if (!inserted) throw err.internal("workflow insert failed");
-      return inserted;
-    }, "idx_grids_workflows_short_id");
+    const available = await assertWorkflowEmailTemplatesAvailable(baseId, plan.data, tx);
+    if (!available.ok) return fail(available.error);
+    const row = await insertWithShortId(
+      (shortId) =>
+        tx.savepoint(async (sp) => {
+          const [inserted] = await sp<DbRow[]>`
+            INSERT INTO grids.workflows (
+              short_id, base_id, name, description, source, plan, diagnostics, enabled, position,
+              record_event_active_since, owner_user_id
+            ) VALUES (
+              ${shortId},
+              ${baseId}::uuid,
+              ${input.name.trim()},
+              ${input.description ?? null},
+              ${input.source},
+              ${plan.data}::jsonb,
+              '[]'::jsonb,
+              ${input.enabled ?? false},
+              ${input.position ?? 0},
+              ${input.enabled && hasRecordEventTrigger(plan.data) ? sql`now()` : null},
+              ${actorId}::uuid
+            )
+            RETURNING ${selectColumns}
+          `;
+          if (!inserted) throw new Error("workflow insert failed");
+          return inserted;
+        }),
+      "idx_grids_workflows_short_id",
+    );
     const created = mapWorkflow(row);
     await insertWorkflowRevision(created, actorId, tx);
     await logAudit(
@@ -240,10 +275,11 @@ export const createWorkflow = async (
       },
       tx,
     );
-    return created;
+    return ok(created);
   });
-  await metadataEvent("workflow.created", workflow, actorId);
-  return ok(workflow);
+  if (!workflow.ok) return workflow;
+  await metadataEvent("workflow.created", workflow.data, actorId);
+  return workflow;
 };
 
 export const updateWorkflow = async (
@@ -251,6 +287,7 @@ export const updateWorkflow = async (
   input: UpdateGridsWorkflowInput,
   actorId: string | null,
   expectedRevision: number,
+  audit: { action?: "workflow.updated" | "workflow.revision.restored"; restoredRevision?: number } = {},
 ): Promise<Result<GridsWorkflow>> => {
   const existing = await getWorkflow(id);
   if (!existing) return fail(err.notFound("workflow"));
@@ -264,9 +301,12 @@ export const updateWorkflow = async (
   const recordEventActivationChanged =
     !existing.enabled || JSON.stringify(recordEventTriggers(existing.plan)) !== JSON.stringify(recordEventTriggers(plan.data));
 
-  const updated = await sql.begin(async (tx): Promise<GridsWorkflow | null> => {
+  const updated = await sql.begin(async (tx): Promise<Result<GridsWorkflow>> => {
     await lockWorkflowCatalogMutation(existing.baseId, tx);
-    await assertWorkflowEmailTemplatesAvailable(existing.baseId, plan.data, tx);
+    if (input.source !== undefined || activating) {
+      const available = await assertWorkflowEmailTemplatesAvailable(existing.baseId, plan.data, tx);
+      if (!available.ok) return fail(available.error);
+    }
     const [row] = await tx<DbRow[]>`
       UPDATE grids.workflows
       SET name = ${input.name?.trim() ?? existing.name},
@@ -284,7 +324,7 @@ export const updateWorkflow = async (
       WHERE id = ${id}::uuid AND deleted_at IS NULL AND revision = ${expectedRevision}
       RETURNING ${selectColumns}
     `;
-    if (!row) return null;
+    if (!row) return fail(revisionConflict());
     const workflow = mapWorkflow(row);
     await insertWorkflowRevision(workflow, actorId, tx);
     if (input.source === undefined) {
@@ -301,7 +341,7 @@ export const updateWorkflow = async (
             diagnostics = ${[
               {
                 code: "launcher.revalidate",
-                message: "Workflow changed. Review this launcher before enabling it again.",
+                message: "Workflow changed. Review this run option before enabling it again.",
                 severity: "warning",
                 path: [],
               },
@@ -314,38 +354,39 @@ export const updateWorkflow = async (
       {
         baseId: existing.baseId,
         userId: actorId,
-        action: "workflow.updated",
+        action: audit.action ?? "workflow.updated",
         diff: {
           workflow: {
             old: { id: existing.id, name: existing.name, enabled: existing.enabled, revision: existing.revision },
             new: { id: workflow.id, name: workflow.name, enabled: workflow.enabled, revision: workflow.revision },
           },
+          ...(audit.restoredRevision === undefined ? {} : { restoredRevision: { old: null, new: audit.restoredRevision } }),
         },
       },
       tx,
     );
-    return workflow;
+    return ok(workflow);
   });
-  if (!updated) return fail(revisionConflict());
-  await metadataEvent("workflow.updated", updated, actorId);
-  return ok(updated);
+  if (!updated.ok) return updated;
+  await metadataEvent("workflow.updated", updated.data, actorId);
+  return updated;
 };
 
 export const listWorkflowRevisions = async (
   workflowId: string,
   beforeRevision: number | null = null,
   limit = 50,
-): Promise<{ items: GridsWorkflowRevision[]; nextRevision: number | null }> => {
+): Promise<{ items: GridsWorkflowRevisionSummary[]; nextRevision: number | null }> => {
   const pageSize = Math.min(Math.max(limit, 1), 100);
   const rows = await sql<DbRow[]>`
-    SELECT ${revisionColumns}
+    SELECT ${revisionSummaryColumns}
     FROM grids.workflow_revisions
     WHERE workflow_id = ${workflowId}::uuid
       AND (${beforeRevision}::int IS NULL OR revision < ${beforeRevision}::int)
     ORDER BY revision DESC
     LIMIT ${pageSize + 1}
   `;
-  const items = rows.slice(0, pageSize).map(mapWorkflowRevision);
+  const items = rows.slice(0, pageSize).map(mapWorkflowRevisionSummary);
   return {
     items,
     nextRevision: rows.length > pageSize && items.length > 0 ? items[items.length - 1]!.revision : null,
@@ -382,11 +423,12 @@ export const restoreWorkflowRevision = async (
       name: snapshot.name as string,
       description: (snapshot.description as string | null) ?? null,
       source: snapshot.source as string,
-      enabled: Boolean(snapshot.enabled),
+      enabled: existing.enabled,
       position: Number(snapshot.position),
     },
     actorId,
     expectedRevision,
+    { action: "workflow.revision.restored", restoredRevision: revision },
   );
 };
 
@@ -394,11 +436,14 @@ export const removeWorkflow = async (id: string, actorId: string | null): Promis
   const existing = await getWorkflow(id);
   if (!existing) return fail(err.notFound("workflow"));
   await sql.begin(async (tx) => {
-    await tx`
+    const [row] = await tx<DbRow[]>`
       UPDATE grids.workflows
       SET deleted_at = now(), enabled = FALSE, record_event_active_since = NULL
       WHERE id = ${id}::uuid AND deleted_at IS NULL
+      RETURNING ${selectColumns}
     `;
+    if (!row) return;
+    await insertWorkflowRevision(mapWorkflow(row), actorId, tx);
     await logAudit(
       {
         baseId: existing.baseId,

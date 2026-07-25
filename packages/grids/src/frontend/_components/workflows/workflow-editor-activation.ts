@@ -23,5 +23,7 @@ export const shouldConfirmAutomaticTriggers = (
   const nextTriggers = automaticTriggerSummary(nextPlan);
   if (!nextTriggers) return false;
   if (!workflow?.enabled) return true;
-  return nextTriggers !== automaticTriggerSummary(workflow.plan);
+  const automaticTriggers = (plan: WorkflowBoundPlan) =>
+    plan.triggers.filter((trigger) => trigger.kind === "schedule" || trigger.kind === "recordEvent");
+  return JSON.stringify(automaticTriggers(nextPlan)) !== JSON.stringify(automaticTriggers(workflow.plan));
 };

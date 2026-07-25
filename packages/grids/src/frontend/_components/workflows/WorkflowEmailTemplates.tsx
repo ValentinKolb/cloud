@@ -275,10 +275,6 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
 export function EmailTemplateManager(props: { baseId: string; onChanged: () => void; onClose: () => void }) {
   const [templates, setTemplates] = createSignal<EmailTemplate[]>([]);
   const [dependencies, setDependencies] = createSignal<EmailTemplateDependencyMap>({});
-  const sortedTemplates = createMemo(() =>
-    [...templates()].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
-  );
-
   const loadMut = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
       const [templatesRes, dependenciesRes] = await Promise.all([
@@ -362,7 +358,7 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
       <PanelDialog.Body scrollPreserveKey="grids-email-template-manager">
         <section class="paper flex flex-col gap-1 overflow-hidden p-1">
           <For
-            each={sortedTemplates()}
+            each={templates()}
             fallback={
               <Placeholder align="left" class="py-8">
                 {loadMut.loading() ? "Loading email templates..." : "No email templates yet."}

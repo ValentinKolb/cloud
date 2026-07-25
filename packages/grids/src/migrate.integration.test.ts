@@ -43,7 +43,7 @@ describe("grids schema migration", () => {
           WHERE table_schema = 'grids'
             AND table_type = 'BASE TABLE'
         `;
-        expect(row?.tableCount).toBe(36);
+        expect(row?.tableCount).toBe(37);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -315,6 +315,13 @@ describe("grids schema migration", () => {
           VALUES (${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, 'Old workflow', 'steps: []', '{}'::jsonb)
         `;
         await database`
+          INSERT INTO grids.workflow_revisions (
+            workflow_id, revision, name, source, plan, diagnostics, enabled, position
+          ) VALUES (
+            ${workflowId}::uuid, 1, 'Old workflow', 'steps: []', '{}'::jsonb, '[]'::jsonb, FALSE, 0
+          )
+        `;
+        await database`
           INSERT INTO grids.workflow_runs (
             id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
             inputs, context, workflow_plan, status, occurred_at
@@ -345,7 +352,24 @@ describe("grids schema migration", () => {
           FROM grids.document_runs
           WHERE id = ${documentRunId}::uuid
         `;
+        const [revisionState] = await database<Array<{ foreignKeys: number; orphaned: number }>>`
+          SELECT
+            (
+              SELECT count(*)::int
+              FROM pg_constraint
+              WHERE conrelid = 'grids.workflow_revisions'::regclass
+                AND confrelid = 'grids.workflows'::regclass
+                AND contype = 'f'
+            ) AS "foreignKeys",
+            (
+              SELECT count(*)::int
+              FROM grids.workflow_revisions revision
+              LEFT JOIN grids.workflows workflow ON workflow.id = revision.workflow_id
+              WHERE workflow.id IS NULL
+            ) AS orphaned
+        `;
         expect(document).toEqual({ workflowRunId: null });
+        expect(revisionState).toEqual({ foreignKeys: 1, orphaned: 0 });
       });
     },
     30_000,

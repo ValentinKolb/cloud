@@ -197,7 +197,6 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         responses: {
           200: jsonResponse(WorkflowTriggerRuntimeStateSchema, "Automatic trigger runtime state"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow id"),
-          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
@@ -205,9 +204,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         const workflowId = uuidParam(c, "workflowId");
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const workflow = await dependencies.getWorkflow(workflowId);
-        if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "read");
-        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        if (!workflow || !(await canReadWorkflow(c, workflow))) return c.json({ message: "Workflow not found" }, 404);
         return c.json(await dependencies.getWorkflowTriggerRuntimeState(workflow));
       },
     )
@@ -256,7 +253,6 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         responses: {
           200: jsonResponse(GridsWorkflowRevisionListSchema, "Workflow revisions"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow id or query"),
-          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
@@ -271,9 +267,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         const workflowId = uuidParam(c, "workflowId");
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const workflow = await dependencies.getWorkflow(workflowId, true);
-        if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "read");
-        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        if (!workflow || !(await canReadWorkflow(c, workflow))) return c.json({ message: "Workflow not found" }, 404);
         const query = c.req.valid("query");
         return c.json(await dependencies.listWorkflowRevisions(workflowId, query.beforeRevision ?? null, query.limit));
       },
@@ -314,7 +308,6 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
         responses: {
           200: jsonResponse(GridsWorkflowRevisionSchema, "Workflow revision"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow or revision"),
-          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
@@ -325,9 +318,7 @@ export const createWorkflowCatalogRoutes = (overrides: Partial<WorkflowCatalogRo
           return c.json({ message: "Invalid workflow revision" }, 400);
         }
         const workflow = await dependencies.getWorkflow(workflowId, true);
-        if (!workflow) return c.json({ message: "Workflow not found" }, 404);
-        const gate = await gateAt(c, { baseId: workflow.baseId, workflowId }, "read");
-        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        if (!workflow || !(await canReadWorkflow(c, workflow))) return c.json({ message: "Workflow not found" }, 404);
         const snapshot = await dependencies.getWorkflowRevision(workflowId, revision);
         return snapshot ? c.json(snapshot) : c.json({ message: "Workflow revision not found" }, 404);
       },

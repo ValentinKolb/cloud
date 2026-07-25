@@ -170,6 +170,7 @@ export type WorkspaceWorkflowRunDetail = {
     launcherName: string | null;
   };
   steps: GridsWorkflowStepRun[];
+  stepsTruncated: boolean;
   documents: {
     items: DocumentRunSummary[];
     total: number;

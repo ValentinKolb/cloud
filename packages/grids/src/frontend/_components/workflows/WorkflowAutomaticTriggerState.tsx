@@ -1,13 +1,25 @@
 import { For, Show } from "solid-js";
 import type { Table } from "../../../service";
 import type { WorkflowTriggerRuntimeState } from "../../../workflows/contracts";
-import { formatWorkflowRunDate as formatDate } from "./workflow-display";
 
 const scheduleStateLabel: Record<NonNullable<WorkflowTriggerRuntimeState["schedule"]>["state"], string> = {
   paused: "Paused",
   pending: "Reconciling",
   reconciled: "Scheduled",
   degraded: "Needs attention",
+};
+
+const formatScheduledRun = (value: string, timezone: string): string => {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: timezone,
+      timeZoneName: "short",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
 };
 
 export function WorkflowAutomaticTriggerState(props: { state: WorkflowTriggerRuntimeState; tables: Table[] }) {
@@ -24,7 +36,7 @@ export function WorkflowAutomaticTriggerState(props: { state: WorkflowTriggerRun
             </div>
             <p class="mt-1 text-xs text-dimmed">
               <span class="font-mono">{schedule().cron}</span> · {schedule().timezone}
-              <Show when={schedule().nextRunAt}>{(next) => <> · Next {formatDate(next())}</>}</Show>
+              <Show when={schedule().nextRunAt}>{(next) => <> · Next {formatScheduledRun(next(), schedule().timezone)}</>}</Show>
             </p>
             <Show when={schedule().problem}>{(problem) => <p class="mt-1 text-xs text-red-600 dark:text-red-400">{problem()}</p>}</Show>
           </div>

@@ -17,6 +17,8 @@ export const resolveBaseLevel = (user: AuthUser, baseId: string) => resolveLevel
 
 export const workflowLevelForUser = (user: AuthUser, baseId: string, workflowId: string) => resolveLevel(user, { baseId, workflowId });
 
+export const tableLevelForUser = (user: AuthUser, baseId: string, tableId: string) => resolveLevel(user, { baseId, tableId });
+
 export const viewLevelForUser = (user: AuthUser, baseId: string, tableId: string, viewId: string) =>
   resolveLevel(user, { baseId, tableId, viewId });
 

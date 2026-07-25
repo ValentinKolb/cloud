@@ -3,7 +3,7 @@ import type { WorkflowInvocationReceipt } from "@valentinkolb/cloud/workflows";
 import type { DocumentRunSummaryList, EmailTemplate } from "../contracts";
 import {
   type GridsWorkflowLauncher,
-  type GridsWorkflowRevision,
+  type GridsWorkflowRevisionSummary,
   WORKFLOW_REVISION_HEADER,
   type GridsWorkflow as Workflow,
   type WorkflowAutocompleteResponse,
@@ -396,7 +396,7 @@ export const workflowCommands = [
     },
     async run({ ctx, args, flags }) {
       const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
-      const payload = await readApi<{ items: GridsWorkflowRevision[]; nextRevision: number | null }>(
+      const payload = await readApi<{ items: GridsWorkflowRevisionSummary[]; nextRevision: number | null }>(
         ctx,
         `/workflows/${encodeURIComponent(workflow.id)}/revisions${queryString({
           beforeRevision: flags.beforeRevision,

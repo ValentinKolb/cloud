@@ -168,7 +168,7 @@ function LauncherEditor(props: {
           <Show when={kind() !== "dashboard"}>
             <SelectInput
               label={kind() === "scanner" ? "Record input" : "Record-list input"}
-              description="The launcher supplies this workflow input."
+              description="The run option supplies this workflow input."
               required
               options={inputOptions()}
               value={input}
@@ -177,7 +177,7 @@ function LauncherEditor(props: {
             <Show when={missingRequiredInputs().length > 0}>
               <div class="info-block-danger text-sm" role="alert">
                 This surface cannot supply the required {missingRequiredInputs().length === 1 ? "input" : "inputs"}:{" "}
-                {missingRequiredInputs().join(", ")}. Use a dashboard launcher or make the inputs optional.
+                {missingRequiredInputs().join(", ")}. Use a dashboard run option or make the inputs optional.
               </div>
             </Show>
           </Show>
@@ -298,21 +298,23 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
     onError: (error) => prompts.error(error.message),
   });
 
-  const removeMut = mutations.create<void, GridsWorkflowLauncher>({
+  const removeMut = mutations.create<boolean, GridsWorkflowLauncher>({
     mutation: async (launcher, { abortSignal }) => {
       const confirmed = await prompts.confirm(`Delete run option "${launcher.name}"?`, {
         title: "Delete run option?",
         variant: "danger",
         confirmText: "Delete",
       });
-      if (!confirmed) return;
+      if (!confirmed) return false;
       const res = await workflowLauncherApi.launchers[":launcherId"].$delete(
         { param: { launcherId: launcher.id } },
         { init: { signal: abortSignal } },
       );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not delete run option."));
+      return true;
     },
-    onSuccess: () => {
+    onSuccess: (deleted) => {
+      if (!deleted) return;
       loadMut.mutate();
       props.onChanged();
     },

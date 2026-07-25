@@ -23,7 +23,7 @@ const selectColumns = sql`
 
 const mapLauncher = (row: DbRow): GridsWorkflowLauncher => {
   const config = GridsWorkflowLauncherConfigSchema.safeParse(parseJsonbRow(row.config, null));
-  if (!config.success) throw err.internal("stored workflow launcher config is invalid");
+  if (!config.success) throw new Error("Stored workflow launcher config is invalid.");
   return {
     id: row.id as string,
     shortId: row.short_id as string,
@@ -54,6 +54,16 @@ export const validateLauncherConfig = (workflow: GridsWorkflow, config: GridsWor
     if (!input) add("launcher.input.unknown", `Unknown workflow input "${config.input}"`, ["config", "input"]);
     else if (input.type !== expected) {
       add("launcher.input.type", `${config.kind} requires a ${expected} input`, ["config", "input"]);
+    }
+    for (const candidate of workflow.plan.inputs) {
+      if (candidate.name === config.input) continue;
+      const message = workflowInputShapeError(candidate, undefined);
+      if (message) {
+        add("launcher.input.unsupplied", `${config.kind} run option cannot supply required workflow input "${candidate.name}"`, [
+          "config",
+          "input",
+        ]);
+      }
     }
   }
   if (config.kind === "scanner" && config.resolve.by === "field" && !config.resolve.field) {
@@ -106,19 +116,23 @@ export const createLauncher = async (
   const diagnostics = validateLauncherConfig(workflow, input.config);
   if (diagnostics.length > 0) return fail(err.badInput(diagnostics.map((item) => item.message).join("; ")));
   const launcher = await sql.begin(async (tx) => {
-    const row = await insertWithShortId(async (shortId) => {
-      const [inserted] = await tx<DbRow[]>`
-        INSERT INTO grids.workflow_launchers (
-          short_id, base_id, workflow_id, name, kind, config, enabled, validated_revision, diagnostics
-        ) VALUES (
-          ${shortId}, ${workflow.baseId}::uuid, ${workflow.id}::uuid, ${input.name.trim()}, ${input.config.kind},
-          ${input.config}::jsonb, ${input.enabled ?? true}, ${workflow.revision}, '[]'::jsonb
-        )
-        RETURNING ${selectColumns}
-      `;
-      if (!inserted) throw err.internal("workflow launcher insert failed");
-      return inserted;
-    }, "idx_grids_workflow_launchers_short_id");
+    const row = await insertWithShortId(
+      (shortId) =>
+        tx.savepoint(async (sp) => {
+          const [inserted] = await sp<DbRow[]>`
+            INSERT INTO grids.workflow_launchers (
+              short_id, base_id, workflow_id, name, kind, config, enabled, validated_revision, diagnostics
+            ) VALUES (
+              ${shortId}, ${workflow.baseId}::uuid, ${workflow.id}::uuid, ${input.name.trim()}, ${input.config.kind},
+              ${input.config}::jsonb, ${input.enabled ?? true}, ${workflow.revision}, '[]'::jsonb
+            )
+            RETURNING ${selectColumns}
+          `;
+          if (!inserted) throw new Error("workflow run option insert failed");
+          return inserted;
+        }),
+      "idx_grids_workflow_launchers_short_id",
+    );
     const created = mapLauncher(row);
     await logAudit(
       {

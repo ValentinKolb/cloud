@@ -39,6 +39,7 @@ describe("workflow run statistics integration", () => {
           (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'stats-a-2', 'a2', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '4 minutes', now() - interval '4 minutes', now() - interval '4 minutes', now() - interval '4 minutes' + interval '3 seconds'),
           (${uuid()}::uuid, ${workflowBId}::uuid, ${baseId}::uuid, 1, 'execute', 'api', 'stats-b-1', 'b1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'running', now() - interval '3 minutes', now() - interval '3 minutes', now() - interval '3 minutes', NULL),
           (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'schedule', 'stats-a-3', 'a3', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours' + interval '2 seconds'),
+          (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'execute', 'schedule', 'stats-a-4', 'a4', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'waiting', now() - interval '2 hours', now() - interval '2 hours', now() - interval '2 hours', NULL),
           (${uuid()}::uuid, ${workflowAId}::uuid, ${baseId}::uuid, 1, 'dryRun', 'api', 'stats-preview', 'preview', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, 'failed', now() - interval '2 minutes', now() - interval '2 minutes', now() - interval '2 minutes', now() - interval '2 minutes' + interval '10 seconds')
       `;
 
@@ -47,6 +48,7 @@ describe("workflow run statistics integration", () => {
       expect(stats).toMatchObject({
         window: "1h",
         total: 3,
+        active: 2,
         queued: 0,
         running: 1,
         waiting: 0,
@@ -64,6 +66,7 @@ describe("workflow run statistics integration", () => {
       expect(stats.byWorkflow.find((row) => row.workflowId === workflowBId)).toMatchObject({
         workflowId: workflowBId,
         total: 1,
+        active: 1,
         running: 1,
         avgDurationMs: null,
         p99DurationMs: null,
@@ -72,6 +75,7 @@ describe("workflow run statistics integration", () => {
       expect(stats.byWorkflow.find((row) => row.workflowId === workflowAId)).toMatchObject({
         workflowId: workflowAId,
         total: 2,
+        active: 1,
         succeeded: 1,
         failed: 1,
         avgDurationMs: 2000,
@@ -87,6 +91,7 @@ describe("workflow run statistics integration", () => {
     expect(await getWorkflowRunStats(uuid(), [], { window: "7d" })).toEqual({
       window: "7d",
       total: 0,
+      active: 0,
       queued: 0,
       running: 0,
       waiting: 0,

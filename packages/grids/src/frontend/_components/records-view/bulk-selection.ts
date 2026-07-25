@@ -2,9 +2,17 @@ import type { RecordQuery } from "../../../contracts";
 
 type BulkSelectionRunPayload = { recordIds: string[] } | { query: RecordQuery };
 
+export const bulkSelectionQuery = (query: RecordQuery): RecordQuery => ({
+  ...(query.filter ? { filter: query.filter } : {}),
+  ...(query.search ? { search: query.search } : {}),
+  ...(query.recordMeta ? { recordMeta: query.recordMeta } : {}),
+  ...(query.sort ? { sort: query.sort } : {}),
+  ...(query.limit ? { limit: query.limit } : {}),
+});
+
 export const bulkSelectionRunPayload = (selectedRecordIds: readonly string[], query: RecordQuery): BulkSelectionRunPayload => {
   const uniqueIds = [...new Set(selectedRecordIds)];
-  return uniqueIds.length > 0 ? { recordIds: uniqueIds } : { query };
+  return uniqueIds.length > 0 ? { recordIds: uniqueIds } : { query: bulkSelectionQuery(query) };
 };
 
 export const pruneBulkSelection = (selectedRecordIds: ReadonlySet<string>, visibleRecordIds: ReadonlySet<string>): Set<string> => {

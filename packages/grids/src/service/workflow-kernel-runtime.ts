@@ -372,9 +372,8 @@ export const processWorkflowRun = async (
   if (result.state === "released" || result.state === "retry") throw result.error;
   const persisted = await getWorkflowRun(runId);
   if (persisted?.status === "waiting") return { runId, status: "waiting" };
-  throw workflowConflict(
-    result.state === "canceled" ? (result.message ?? "Workflow run was canceled.") : "Workflow run lost its execution lease.",
-  );
+  if (result.state === "canceled") return { runId, status: "canceled" };
+  throw workflowConflict("Workflow run lost its execution lease.");
 };
 
 const workflowJob = job<WorkflowJobInput, WorkflowJobResult>({
@@ -534,12 +533,12 @@ const scheduleRuntimeState = (
       problem: "The schedule is waiting for runtime reconciliation.",
     };
   }
-  if (registered.lastError) {
+  if (registered.failureCount > 0) {
     return {
       ...schedule,
       state: "degraded",
       nextRunAt: null,
-      problem: registered.lastError,
+      problem: registered.lastError ?? "The last scheduled run failed.",
     };
   }
   return {
@@ -554,7 +553,10 @@ const recordEventRuntimeStates = (workflow: Pick<GridsWorkflow, "enabled" | "pla
   workflow.plan.triggers
     .filter((trigger) => trigger.kind === "recordEvent")
     .map((trigger) => ({
-      tableId: typeof trigger.config.table === "string" ? trigger.config.table : null,
+      tableId:
+        typeof workflow.plan.bindings["triggers.recordEvent.table"] === "string"
+          ? workflow.plan.bindings["triggers.recordEvent.table"]
+          : null,
       event: typeof trigger.config.event === "string" ? trigger.config.event : "updated",
       hasFilter: trigger.config.filter !== undefined && trigger.config.filter !== null,
       state: workflow.enabled ? "active" : "paused",
@@ -607,7 +609,7 @@ const registerSchedule = async (workflowId: string): Promise<void> => {
       if (!current?.enabled) return { runId: "", status: "disabled" };
       const currentTrigger = current.plan.triggers.find((item) => item.kind === "schedule");
       if (!currentTrigger) return { runId: "", status: "removed" };
-      if (current.revision !== workflow.revision || !workflowScheduleMatches(current, schedule)) {
+      if (!workflowScheduleMatches(current, schedule)) {
         // Registration is intentionally left to the external reconcile loop. Mutating this schedule inside its callback races its own persistence.
         return { runId: "", status: "stale" };
       }
@@ -678,8 +680,8 @@ export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
     ),
   );
   const workflows = await listScheduledWorkflows();
-  const activeIds = new Set(workflows.map(workflowScheduleId));
   await registerWorkflowSchedules(workflows);
+  const activeIds = new Set((await listScheduledWorkflows()).map(workflowScheduleId));
   for (const item of await workflowScheduler.list()) {
     if (!item.id.startsWith(SCHEDULE_PREFIX) || activeIds.has(item.id)) continue;
     await workflowScheduler.delete({ id: item.id });

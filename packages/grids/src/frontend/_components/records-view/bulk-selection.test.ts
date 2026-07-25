@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  bulkSelectionQuery,
   bulkSelectionRunPayload,
   bulkWorkflowActionLabel,
   bulkWorkflowTargetLabel,
@@ -15,8 +16,19 @@ describe("records bulk selection helpers", () => {
   });
 
   test("falls back to the current query when no rows are selected", () => {
-    const query = { limit: 50, search: { q: "audio", fieldIds: [] } };
-    expect(bulkSelectionRunPayload([], query)).toEqual({ query });
+    const query = {
+      limit: 50,
+      search: { q: "audio", fieldIds: [] },
+      groupBy: [{ field: "Status" }],
+      aggregations: [{ function: "count", alias: "records" }],
+    } as never;
+    expect(bulkSelectionRunPayload([], query)).toEqual({
+      query: { limit: 50, search: { q: "audio", fieldIds: [] } },
+    });
+    expect(bulkSelectionQuery(query)).toEqual({
+      limit: 50,
+      search: { q: "audio", fieldIds: [] },
+    });
   });
 
   test("prunes selections to the visible loaded records", () => {

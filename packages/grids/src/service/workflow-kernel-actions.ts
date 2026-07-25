@@ -1268,8 +1268,19 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
             if (typeof value === "string" && value.trim()) tags.push(value.trim());
           }
         }
+        const output = toJsonValue({
+          kind: "documentRun",
+          id: `dry-run:${context.step.key}`,
+          baseId: options.workflow.baseId,
+          tableId: template.tableId,
+          templateId: template.id,
+          recordId: record.recordId,
+          planned: true,
+        });
+        saveAs(context, step, output);
         return {
           state: "planned",
+          output,
           effects: [
             effectDescription(context, step.action, {
               templateId: template.id,
@@ -1375,10 +1386,32 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
         const value = await context.resolveReference(reference, [...actionPath(step), "document"]);
         const runId = value && typeof value === "object" && !Array.isArray(value) && typeof value.id === "string" ? value.id : null;
         if (!runId) throw actionError("WORKFLOW_VALUE_INVALID", "createDocumentLink.document must resolve to a document");
-        const run = await services.getDocumentRun(runId);
+        const plannedRun =
+          value &&
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          value.planned === true &&
+          value.baseId === options.workflow.baseId &&
+          typeof value.tableId === "string" &&
+          typeof value.recordId === "string"
+            ? {
+                id: runId,
+                baseId: value.baseId,
+                tableId: value.tableId,
+                templateId: typeof value.templateId === "string" ? value.templateId : null,
+                recordId: value.recordId,
+              }
+            : null;
+        const run = plannedRun ?? (await services.getDocumentRun(runId));
         if (!run || run.baseId !== options.workflow.baseId) throw actionError("NOT_FOUND", "Generated document is no longer available");
         await currentTable(services, options, run.tableId);
-        await requirePermission(services, options, context, { tableId: run.tableId }, "write");
+        await requirePermission(
+          services,
+          options,
+          context,
+          { tableId: run.tableId, ...(run.templateId ? { documentTemplateId: run.templateId } : {}) },
+          "write",
+        );
         const commentValue =
           step.config.comment === undefined ? null : await context.evaluate(step.config.comment, [...actionPath(step), "comment"]);
         const expiresIn =
@@ -1388,8 +1421,18 @@ export const createGridsWorkflowActionPorts = (options: CreateGridsWorkflowActio
           step.config.expiresIn === "90d"
             ? step.config.expiresIn
             : "30d";
+        const output = toJsonValue({
+          kind: "documentLink",
+          id: `dry-run:${context.step.key}`,
+          documentRunId: run.id,
+          url: `https://example.invalid/grids-document-link/${encodeURIComponent(context.step.key)}`,
+          expiresIn,
+          planned: true,
+        });
+        saveAs(context, step, output);
         return {
           state: "planned",
+          output,
           effects: [
             effectDescription(context, step.action, {
               documentRunId: run.id,

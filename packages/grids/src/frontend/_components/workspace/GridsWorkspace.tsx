@@ -43,6 +43,10 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
       break;
     case "workflows":
       catalog.tables = state.catalog.tables;
+      catalog.workflows = state.catalog.workflows;
+      catalog.workflowLevels = Object.fromEntries(
+        state.catalog.workflows.map((workflow) => [workflow.id, state.catalog.workflowLevels[workflow.id] ?? "none"]),
+      );
       break;
     case "query":
       catalog.tables = state.catalog.tables;

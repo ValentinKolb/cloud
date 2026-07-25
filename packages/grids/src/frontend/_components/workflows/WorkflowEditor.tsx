@@ -56,6 +56,8 @@ class WorkflowConflictError extends Error {
   }
 }
 
+class WorkflowDiagnosticsError extends Error {}
+
 const workflowHighlight = highlight.compile(
   [
     { kind: "placeholder", match: /\$\{\{\s*[^{}]+?\s*\}\}/ },
@@ -142,6 +144,8 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   const [enabled, setEnabled] = createSignal(initialDraft.enabled);
   const [source, setSource] = createSignal(initialDraft.source);
   const [revision, setRevision] = createSignal(initialDraft.revision);
+  const [persistedPlan, setPersistedPlan] = createSignal(props.workflow?.plan);
+  const [persistedEnabled, setPersistedEnabled] = createSignal(props.workflow?.enabled ?? false);
   const [diagnostics, setDiagnostics] = createSignal<WorkflowDiagnostic[]>([]);
   const [validating, setValidating] = createSignal(false);
   const [confirmingTriggers, setConfirmingTriggers] = createSignal(false);
@@ -208,7 +212,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     validationAbort?.abort();
   });
 
-  const replaceDraft = (draft: WorkflowEditorDraft) => {
+  const replaceDraft = (draft: WorkflowEditorDraft, plan?: WorkflowBoundPlan) => {
     cleanDraft = draft;
     setName(draft.name);
     setPersistedName(draft.name);
@@ -216,6 +220,8 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     setEnabled(draft.enabled);
     setSource(draft.source);
     setRevision(draft.revision);
+    setPersistedEnabled(draft.enabled);
+    if (plan) setPersistedPlan(plan);
   };
 
   const reloadWorkflow = async () => {
@@ -223,7 +229,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     const response = await workflowEditorApi[":workflowId"].$get({ param: { workflowId: props.workflow.id } });
     if (!response.ok) throw new Error(await errorMessage(response, "Could not reload workflow."));
     const latest = (await response.json()) as Workflow;
-    replaceDraft(workflowEditorDraft(latest, defaultSource(props.tables[0])));
+    replaceDraft(workflowEditorDraft(latest, defaultSource(props.tables[0])), latest.plan);
     props.onChanged(latest);
     toast.success("Loaded the latest workflow version");
   };
@@ -276,6 +282,54 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     onError: (error) => void handleSaveError(error),
   });
 
+  const triggerValidationMut = mutations.create<
+    { plan: WorkflowBoundPlan; source: string; enabled: boolean },
+    { source: string; enabled: boolean }
+  >({
+    mutation: async ({ source, enabled }, { abortSignal }) => {
+      const response = await workflowEditorApi["by-base"][":baseId"].validate.$post(
+        { param: { baseId: props.baseId }, json: { source } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not validate workflow triggers."));
+      const validation = (await response.json()) as { ok: boolean; plan?: WorkflowBoundPlan; diagnostics?: WorkflowDiagnostic[] };
+      if (!validation.ok || !validation.plan) {
+        setDiagnostics(validation.diagnostics ?? [editorDiagnostic("Workflow source is invalid.")]);
+        throw new WorkflowDiagnosticsError();
+      }
+      return { plan: validation.plan, source, enabled };
+    },
+    onSuccess: async ({ plan, source: validatedSource, enabled: validatedEnabled }) => {
+      setConfirmingTriggers(true);
+      try {
+        const summary = automaticTriggerSummary(plan);
+        const currentPlan = persistedPlan();
+        const persistedWorkflow = currentPlan ? { enabled: persistedEnabled(), plan: currentPlan } : undefined;
+        if (summary && shouldConfirmAutomaticTriggers(persistedWorkflow, plan, validatedEnabled)) {
+          const confirmed = await prompts.confirm(
+            `Saving this workflow activates these automatic triggers:\n\n${summary}\n\nFuture matching events or schedule slots can start runs.`,
+            {
+              title: "Activate automatic triggers?",
+              icon: "ti ti-bolt",
+              confirmText: "Activate triggers",
+            },
+          );
+          if (!confirmed) return;
+        }
+        if (source() !== validatedSource || enabled() !== validatedEnabled) {
+          await prompts.error("The workflow changed during validation. Review it and save again.");
+          return;
+        }
+        saveMut.mutate();
+      } finally {
+        setConfirmingTriggers(false);
+      }
+    },
+    onError: (error) => {
+      if (!(error instanceof WorkflowDiagnosticsError)) void prompts.error(error.message);
+    },
+  });
+
   const deleteMut = mutations.create<{ deleted: boolean }, Workflow>({
     mutation: async (workflow, { abortSignal }) => {
       const confirmed = await prompts.confirm(`Delete "${persistedName() || workflow.name}"?`, {
@@ -305,50 +359,16 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     diagnostics().length === 0 &&
     !validating() &&
     !confirmingTriggers() &&
+    !triggerValidationMut.loading() &&
     !saveMut.loading();
 
-  const saveWorkflow = async () => {
-    if (confirmingTriggers()) return;
+  const saveWorkflow = () => {
+    if (confirmingTriggers() || triggerValidationMut.loading()) return;
     const sourceToSave = source();
     const enabledToSave = enabled();
-    setConfirmingTriggers(true);
-    try {
-      const automaticTriggersMayChange = enabledToSave && (!props.workflow?.enabled || sourceToSave !== cleanDraft.source);
-      if (automaticTriggersMayChange) {
-        const response = await workflowEditorApi["by-base"][":baseId"].validate.$post({
-          param: { baseId: props.baseId },
-          json: { source: sourceToSave },
-        });
-        if (!response.ok) {
-          await prompts.error(await errorMessage(response, "Could not validate workflow triggers."));
-          return;
-        }
-        const validation = (await response.json()) as { ok: boolean; plan?: WorkflowBoundPlan; diagnostics?: WorkflowDiagnostic[] };
-        if (!validation.ok || !validation.plan) {
-          setDiagnostics(validation.diagnostics ?? [editorDiagnostic("Workflow source is invalid.")]);
-          return;
-        }
-        const summary = automaticTriggerSummary(validation.plan);
-        if (summary && shouldConfirmAutomaticTriggers(props.workflow, validation.plan, enabledToSave)) {
-          const confirmed = await prompts.confirm(
-            `Saving this workflow activates these automatic triggers:\n\n${summary}\n\nFuture matching events or schedule slots can start runs.`,
-            {
-              title: "Activate automatic triggers?",
-              icon: "ti ti-bolt",
-              confirmText: "Activate triggers",
-            },
-          );
-          if (!confirmed) return;
-        }
-      }
-      if (source() !== sourceToSave || enabled() !== enabledToSave) {
-        await prompts.error("The workflow changed during validation. Review it and save again.");
-        return;
-      }
-      saveMut.mutate();
-    } finally {
-      setConfirmingTriggers(false);
-    }
+    const automaticTriggersMayChange = enabledToSave && (!props.workflow?.enabled || sourceToSave !== cleanDraft.source);
+    if (automaticTriggersMayChange) triggerValidationMut.mutate({ source: sourceToSave, enabled: enabledToSave });
+    else saveMut.mutate();
   };
 
   return (

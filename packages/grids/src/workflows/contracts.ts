@@ -106,6 +106,11 @@ export type GridsWorkflowRevision = {
   createdAt: string;
 };
 
+export type GridsWorkflowRevisionSummary = Pick<
+  GridsWorkflowRevision,
+  "workflowId" | "revision" | "name" | "enabled" | "actorUserId" | "createdAt"
+>;
+
 export type WorkflowTriggerRuntimeState = {
   schedule: {
     cron: string;
@@ -277,8 +282,17 @@ export const GridsWorkflowRevisionSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
+export const GridsWorkflowRevisionSummarySchema = GridsWorkflowRevisionSchema.pick({
+  workflowId: true,
+  revision: true,
+  name: true,
+  enabled: true,
+  actorUserId: true,
+  createdAt: true,
+});
+
 export const GridsWorkflowRevisionListSchema = z.object({
-  items: z.array(GridsWorkflowRevisionSchema),
+  items: z.array(GridsWorkflowRevisionSummarySchema),
   nextRevision: z.number().int().positive().nullable(),
 });
 
@@ -466,7 +480,10 @@ export const GridsWorkflowStepRunSchema = z.object({
   finishedAt: z.string().datetime().nullable(),
 });
 
-export const GridsWorkflowStepRunListSchema = z.object({ items: z.array(GridsWorkflowStepRunSchema) });
+export const GridsWorkflowStepRunListSchema = z.object({
+  items: z.array(GridsWorkflowStepRunSchema),
+  truncated: z.boolean(),
+});
 
 export const GridsWorkflowEmailDeliverySchema = z.object({
   id: z.string().uuid(),
@@ -499,6 +516,7 @@ export type GridsWorkflowRunStatsWindow = z.infer<typeof GridsWorkflowRunStatsWi
 
 const GridsWorkflowRunStatsCountsSchema = z.object({
   total: z.number().int().nonnegative(),
+  active: z.number().int().nonnegative(),
   queued: z.number().int().nonnegative(),
   running: z.number().int().nonnegative(),
   waiting: z.number().int().nonnegative(),

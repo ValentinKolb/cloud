@@ -10,6 +10,8 @@ type Fixture = {
   templateId: string;
   snapshotId: string;
   recordId: string;
+  workflowId: string;
+  workflowRunId: string;
   runIds: string[];
 };
 
@@ -23,6 +25,8 @@ const insertFixture = async (): Promise<Fixture> => {
   const templateId = testUuid();
   const snapshotId = testUuid();
   const recordId = testUuid();
+  const workflowId = testUuid();
+  const workflowRunId = testUuid();
   const runIds = Array.from({ length: 5 }, () => testUuid());
 
   await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Document browse')`;
@@ -38,6 +42,19 @@ const insertFixture = async (): Promise<Fixture> => {
     INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
     VALUES (${snapshotId}::uuid, ${baseId}::uuid, ${tableId}::uuid, ${recordId}::uuid, '{}'::jsonb, '{}'::jsonb)
   `;
+  await sql`
+    INSERT INTO grids.workflows (id, short_id, base_id, name, source, plan, enabled)
+    VALUES (${workflowId}::uuid, ${testShortId("W")}, ${baseId}::uuid, 'Invoice workflow', 'steps: []', '{}'::jsonb, TRUE)
+  `;
+  await sql`
+    INSERT INTO grids.workflow_runs (
+      id, workflow_id, base_id, workflow_revision, mode, channel, idempotency_key, request_fingerprint,
+      workflow_plan, status, occurred_at
+    ) VALUES (
+      ${workflowRunId}::uuid, ${workflowId}::uuid, ${baseId}::uuid, 1, 'execute', 'api',
+      'document-browse-workflow', 'document-browse-workflow', '{}'::jsonb, 'succeeded', now()
+    )
+  `;
 
   const rows = [
     { id: runIds[0]!, number: "INV-100", filename: "100%_done\\final.pdf", tags: ["customer", "paid"], at: "2025-12-31T23:30:00.000Z" },
@@ -50,15 +67,15 @@ const insertFixture = async (): Promise<Fixture> => {
     await sql`
       INSERT INTO grids.document_runs (
         id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
-        document_number, filename, tags, template_snapshot, render_data, generated_at
+        workflow_run_id, document_number, filename, tags, template_snapshot, render_data, generated_at
       ) VALUES (
         ${row.id}::uuid, ${testShortId("R")}, ${templateId}::uuid, ${snapshotId}::uuid, ${baseId}::uuid,
-        ${tableId}::uuid, ${recordId}::uuid, ${row.number}, ${row.filename}, ${sql.array(row.tags, "TEXT")},
+        ${tableId}::uuid, ${recordId}::uuid, ${workflowRunId}::uuid, ${row.number}, ${row.filename}, ${sql.array(row.tags, "TEXT")},
         '{}'::jsonb, '{}'::jsonb, ${row.at}::timestamptz
       )
     `;
   }
-  return { baseId, tableId, templateId, snapshotId, recordId, runIds };
+  return { baseId, tableId, templateId, snapshotId, recordId, workflowId, workflowRunId, runIds };
 };
 
 const cleanupFixture = async (fixture: Fixture): Promise<void> => {
@@ -129,12 +146,24 @@ describe("document browsing integration", () => {
     }
   });
 
-  postgresTest("lists record runs and empty workflow pages without crossing scopes", async () => {
+  postgresTest("lists record and workflow runs without crossing scopes", async () => {
     const fixture = await insertFixture();
     try {
       expect(await listRunsForRecord(fixture.tableId, fixture.recordId, 1_000)).toHaveLength(5);
       expect(await listRunsForRecord(fixture.tableId, testUuid())).toEqual([]);
-      expect(await listRunsForWorkflowRun(testUuid(), { limit: 0, offset: -1 })).toEqual({
+      expect(await listRunsForWorkflowRun(fixture.workflowRunId, { limit: 10 }, async () => true)).toMatchObject({
+        total: 5,
+        items: expect.arrayContaining(fixture.runIds.map((id) => expect.objectContaining({ id }))),
+      });
+      expect(await listRunsForWorkflowRun(fixture.workflowRunId, { limit: 10 }, async () => false)).toEqual({
+        items: [],
+        total: 0,
+        limit: 10,
+        offset: 0,
+        hasMore: false,
+        nextOffset: null,
+      });
+      expect(await listRunsForWorkflowRun(testUuid(), { limit: 0, offset: -1 }, async () => true)).toEqual({
         items: [],
         total: 0,
         limit: 1,

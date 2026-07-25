@@ -31,7 +31,7 @@ import type { SqlClient } from "./audit";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { workflowConflict } from "./workflow-errors";
-import { listWorkflowStepRuns } from "./workflow-kernel-observability";
+import { getWorkflowStepRun } from "./workflow-kernel-observability";
 import { notifyWorkflowRunEvent } from "./workflow-run-events";
 
 type DbRow = Record<string, unknown>;
@@ -413,9 +413,8 @@ export const listExpiredWaitingWorkflowRuns = async (limit = 200): Promise<Expir
     SELECT id::text AS id, result->'dependency' AS dependency
     FROM grids.workflow_runs
     WHERE status = 'waiting'
-      AND result #>> '{dependency,deadline}' IS NOT NULL
-      AND (result #>> '{dependency,deadline}')::timestamptz <= now()
-    ORDER BY created_at, id
+      AND waiting_deadline <= now()
+    ORDER BY waiting_deadline, id
     LIMIT ${Math.max(1, Math.min(limit, 1000))}
   `;
   return rows.map((row) => ({ runId: row.id, dependency: parseJsonbRow<WorkflowDependency>(row.dependency, { kind: "", key: "" }) }));
@@ -424,7 +423,13 @@ export const listExpiredWaitingWorkflowRuns = async (limit = 200): Promise<Expir
 export const resumeWaitingWorkflowRun = async (runId: string, dependency?: WorkflowDependency): Promise<boolean> => {
   const rows = await sql`
     UPDATE grids.workflow_runs
-    SET status = 'queued', result = NULL, error = NULL, result_message = NULL, heartbeat_at = now(), lease_expires_at = NULL
+    SET status = 'queued',
+        result = NULL,
+        error = NULL,
+        result_message = NULL,
+        heartbeat_at = now(),
+        lease_expires_at = NULL,
+        waiting_deadline = NULL
     WHERE id = ${runId}::uuid
       AND status = 'waiting'
       AND (${dependency === undefined} OR result->'dependency' = ${dependency ?? null}::jsonb)
@@ -464,6 +469,7 @@ export const cancelWorkflowRun = async (runId: string, actorUserId: string | nul
           result_message = 'Canceled by a user.',
           heartbeat_at = now(),
           lease_expires_at = NULL,
+          waiting_deadline = NULL,
           finished_at = now()
       WHERE id = ${runId}::uuid
         AND status IN ('queued', 'running', 'waiting')
@@ -480,6 +486,21 @@ export const cancelWorkflowRun = async (runId: string, actorUserId: string | nul
           finished_at = now()
       WHERE run_id = ${runId}::uuid
         AND status IN ('running', 'waiting')
+    `;
+    await tx`
+      UPDATE grids.workflow_effect_intents
+      SET status = CASE
+            WHEN status = 'executing' AND effect_started_at IS NOT NULL THEN 'needs_attention'
+            ELSE 'failed'
+          END,
+          error = CASE
+            WHEN status = 'executing' AND effect_started_at IS NOT NULL
+              THEN ${{ code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN", message: "The run was canceled while an external effect may have been in progress.", retryable: false }}::jsonb
+            ELSE ${{ code: "WORKFLOW_RUN_CANCELED", message: "The run was canceled before the effect completed.", retryable: false }}::jsonb
+          END,
+          updated_at = now()
+      WHERE run_id = ${runId}::uuid
+        AND status IN ('pending', 'executing')
     `;
     await logAudit(
       {
@@ -514,10 +535,11 @@ const eventScope = (authorization: GridsWorkflowAuthorization | null): WorkflowR
     ? { kind: "dashboard-widget", dashboardId: authorization.dashboardId, dashboardWidgetId: authorization.dashboardWidgetId }
     : { kind: "workflow" };
 
-const notifyPersistedWorkflowRun = async (runId: string, transitionId: string): Promise<void> => {
+const notifyPersistedWorkflowRun = async (runId: string, transitionId: string, stepKey?: string): Promise<void> => {
   const [run, authorization] = await Promise.all([getWorkflowRun(runId), getWorkflowRunAuthorization(runId)]);
   if (!run) return;
-  await notifyWorkflowRunEvent(run, await listWorkflowStepRuns(runId), eventScope(authorization), transitionId);
+  const step = stepKey ? await getWorkflowStepRun(runId, stepKey) : null;
+  await notifyWorkflowRunEvent(run, step ? [step] : [], eventScope(authorization), transitionId);
 };
 
 export const getActiveWorkflowStepRunId = async (
@@ -694,7 +716,7 @@ export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepository
       RETURNING id
     `;
     if (rows.length === 0) throw workflowConflict(`Workflow step "${step.key}" cannot be started.`);
-    await notifyPersistedWorkflowRun(step.runId, `step:${step.key}:${step.executionGeneration}:running`);
+    await notifyPersistedWorkflowRun(step.runId, `step:${step.key}:${step.executionGeneration}:running`, step.key);
   }
 
   async finishStep(step: WorkflowRuntimeStepIdentity, result: WorkflowRuntimeStepResult): Promise<void> {
@@ -717,7 +739,7 @@ export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepository
       RETURNING step_run.id
     `;
     if (rows.length === 0) throw workflowConflict(`Workflow step "${step.key}" lost its execution lease.`);
-    await notifyPersistedWorkflowRun(step.runId, `step:${step.key}:${step.executionGeneration}:${resultStatus(result)}`);
+    await notifyPersistedWorkflowRun(step.runId, `step:${step.key}:${step.executionGeneration}:${resultStatus(result)}`, step.key);
   }
 
   async parkStep(step: WorkflowRuntimeStepIdentity, dependency: WorkflowDependency): Promise<void> {
@@ -757,6 +779,7 @@ export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepository
             result_message = NULL,
             heartbeat_at = now(),
             lease_expires_at = NULL,
+            waiting_deadline = ${dependency.deadline ?? null}::timestamptz,
             finished_at = NULL
         WHERE id = ${step.runId}::uuid
           AND status = 'running'
@@ -765,7 +788,7 @@ export class GridsWorkflowRuntimeRepository implements WorkflowRuntimeRepository
       `;
       if (runRows.length === 0) throw workflowConflict("Workflow run lost its execution lease.");
     });
-    await notifyPersistedWorkflowRun(step.runId, `step:${step.key}:${step.executionGeneration}:waiting`);
+    await notifyPersistedWorkflowRun(step.runId, `step:${step.key}:${step.executionGeneration}:waiting`, step.key);
   }
 }
 
@@ -788,6 +811,7 @@ export const finishWorkflowRun = async (
           result_message = ${input.resultMessage ?? null},
           heartbeat_at = now(),
           lease_expires_at = NULL,
+          waiting_deadline = NULL,
           finished_at = CASE WHEN ${input.status} = 'waiting' THEN NULL ELSE now() END
       WHERE id = ${run.runId}::uuid
         AND execution_generation = ${run.executionGeneration}
@@ -797,11 +821,19 @@ export const finishWorkflowRun = async (
     `;
     if (!row) return false;
     if (input.status !== "waiting") {
+      const auditAction =
+        input.status === "succeeded"
+          ? "workflow.run.succeeded"
+          : input.status === "canceled"
+            ? "workflow.run.canceled"
+            : input.status === "needs_attention"
+              ? "workflow.run.needs_attention"
+              : "workflow.run.failed";
       await logAudit(
         {
           baseId: row.base_id as string,
           userId: (row.actor_user_id as string | null) ?? null,
-          action: input.status === "succeeded" ? "workflow.run.succeeded" : "workflow.run.failed",
+          action: auditAction,
           diff: {
             workflowRun: {
               old: null,

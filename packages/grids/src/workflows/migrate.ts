@@ -28,6 +28,7 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
     DROP TABLE IF EXISTS grids.workflow_runs CASCADE;
     DROP TABLE IF EXISTS grids.workflow_launchers CASCADE;
     DROP TABLE IF EXISTS grids.workflow_access CASCADE;
+    DROP TABLE IF EXISTS grids.workflow_revisions CASCADE;
     DROP TABLE IF EXISTS grids.workflows CASCADE;
     DROP FUNCTION IF EXISTS grids.populate_workflow_run_snapshots();
     DROP FUNCTION IF EXISTS grids.bump_workflow_revision();
@@ -92,10 +93,7 @@ const migrateDefinitions = async (sql: SQL): Promise<void> => {
       CONSTRAINT workflow_revisions_diagnostics_array_chk CHECK (jsonb_typeof(diagnostics) = 'array')
     )
   `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_workflow_revisions_history
-    ON grids.workflow_revisions(workflow_id, revision DESC)
-  `.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_workflow_revisions_history`.simple();
   await sql`
     INSERT INTO grids.workflow_revisions (
       workflow_id, revision, name, description, source, plan, diagnostics, enabled, position, actor_user_id, created_at
@@ -205,6 +203,7 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
       started_at TIMESTAMPTZ,
       heartbeat_at TIMESTAMPTZ,
       lease_expires_at TIMESTAMPTZ,
+      waiting_deadline TIMESTAMPTZ,
       execution_generation INT NOT NULL DEFAULT 0 CHECK (execution_generation >= 0),
       queue_attempts INT NOT NULL DEFAULT 0 CHECK (queue_attempts >= 0),
       last_queue_attempt_at TIMESTAMPTZ,
@@ -222,6 +221,14 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_resource_type TEXT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS credential_resource_id TEXT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS execution_clock_at TIMESTAMPTZ NOT NULL DEFAULT now()`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS waiting_deadline TIMESTAMPTZ`.simple();
+  await sql`
+    UPDATE grids.workflow_runs
+    SET waiting_deadline = (result #>> '{dependency,deadline}')::timestamptz
+    WHERE status = 'waiting'
+      AND waiting_deadline IS NULL
+      AND result #>> '{dependency,deadline}' IS NOT NULL
+  `.simple();
   await sql`
     DO $$
     BEGIN
@@ -290,6 +297,11 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
     ON grids.workflow_runs(workflow_id, created_at DESC, id DESC) WHERE workflow_id IS NOT NULL
   `.simple();
   await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_filtered
+    ON grids.workflow_runs(workflow_id, status, mode, channel, created_at DESC, id DESC)
+    WHERE workflow_id IS NOT NULL
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_base
     ON grids.workflow_runs(base_id, created_at DESC, id DESC)
   `.simple();
@@ -297,6 +309,12 @@ const migrateRuns = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_recovery
     ON grids.workflow_runs(status, lease_expires_at, last_queue_attempt_at, created_at)
     WHERE status IN ('queued', 'running')
+  `.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_workflow_runs_waiting`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_waiting_deadline
+    ON grids.workflow_runs(waiting_deadline, id)
+    WHERE status = 'waiting' AND waiting_deadline IS NOT NULL
   `.simple();
 
   await sql`

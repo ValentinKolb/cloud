@@ -45,7 +45,8 @@ type DashboardWorkflowRunsApi = {
 };
 
 const dashboardWorkflowRunsApi = apiClient.dashboards as unknown as DashboardWorkflowRunsApi;
-const RUN_STATUS_POLL_MS = 2_000;
+const RUN_STATUS_POLL_MS = 10_000;
+const MAX_STATUS_POLL_FAILURES = 3;
 
 export default function WorkflowButtonWidget(props: Props) {
   const [running, setRunning] = createSignal(false);
@@ -73,36 +74,59 @@ export default function WorkflowButtonWidget(props: Props) {
     if (!runId || !d) return;
     let stopped = false;
     let refreshInFlight = false;
-    let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollFailures = 0;
     let events: ReturnType<typeof createWorkflowRunEventsProvider> | null = null;
     const stop = () => {
       if (stopped) return;
       stopped = true;
-      if (fallbackTimer) clearInterval(fallbackTimer);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
       fallbackTimer = null;
       events?.dispose();
       events = null;
     };
     const applyStatus = (status: GridsWorkflowRun["status"]) => {
+      pollFailures = 0;
       setLaunchedRunStatus(status);
       if (isTerminalWorkflowRunStatus(status)) stop();
     };
+    const scheduleRefresh = () => {
+      if (stopped || fallbackTimer || pollFailures >= MAX_STATUS_POLL_FAILURES || document.visibilityState !== "visible") return;
+      fallbackTimer = setTimeout(() => {
+        fallbackTimer = null;
+        void refresh();
+      }, RUN_STATUS_POLL_MS);
+    };
     const refresh = async () => {
-      if (stopped || refreshInFlight) return;
+      if (stopped || refreshInFlight || document.visibilityState !== "visible") return;
       refreshInFlight = true;
       try {
         const response = await dashboardWorkflowRunsApi[":dashboardId"].widgets[":widgetId"].runs[":runId"].$get({
           param: { dashboardId: props.dashboardId, widgetId: props.widget.id, runId },
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          pollFailures += 1;
+          return;
+        }
         const payload = (await response.json()) as { run: Pick<GridsWorkflowRun, "id" | "status"> };
         if (payload.run.id === runId) applyStatus(payload.run.status);
       } catch {
-        // Live events or the next poll can recover a transient status request.
+        pollFailures += 1;
       } finally {
         refreshInFlight = false;
+        scheduleRefresh();
       }
     };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        pollFailures = 0;
+        void refresh();
+      } else if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     events = createWorkflowRunEventsProvider({
       workflowId: d.workflowId,
       dashboardId: props.dashboardId,
@@ -111,11 +135,16 @@ export default function WorkflowButtonWidget(props: Props) {
         if (event.run.id !== runId) return;
         applyStatus(event.run.status);
       },
+      onReady: () => void refresh(),
+      onError: scheduleRefresh,
+      onFatal: scheduleRefresh,
     });
     events.connect();
-    fallbackTimer = setInterval(() => void refresh(), RUN_STATUS_POLL_MS);
     void refresh();
-    onCleanup(stop);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stop();
+    });
   });
 
   const openScanner = () => {
@@ -180,7 +209,7 @@ export default function WorkflowButtonWidget(props: Props) {
       }
       const res = await apiClient.dashboards[":dashboardId"].widgets[":widgetId"].run.$post({
         param: { dashboardId: props.dashboardId, widgetId: props.widget.id },
-        json: { inputs },
+        json: { inputs, operationId: crypto.randomUUID() },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Workflow could not be started"));
       const receipt = (await res.json()) as Pick<GridsWorkflowRun, "id" | "status">;
@@ -188,6 +217,7 @@ export default function WorkflowButtonWidget(props: Props) {
       setLaunchedRunStatus(receipt.status);
       toast.success("Workflow started", {
         action: runHref() ? { label: "Open run", href: runHref()! } : undefined,
+        duration: runHref() ? 10_000 : undefined,
       });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Workflow could not be started");

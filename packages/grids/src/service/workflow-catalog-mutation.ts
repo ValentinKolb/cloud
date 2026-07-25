@@ -1,6 +1,6 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
-import { err } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import type { SqlClient } from "./audit";
 
 export const lockWorkflowCatalogMutation = async (baseId: string, client: SqlClient): Promise<void> => {
@@ -11,7 +11,7 @@ export const assertWorkflowEmailTemplatesAvailable = async (
   baseId: string,
   plan: Pick<WorkflowBoundPlan, "bindings">,
   client: SqlClient,
-): Promise<void> => {
+): Promise<Result<void>> => {
   const templateIds = [
     ...new Set(
       Object.entries(plan.bindings)
@@ -19,7 +19,7 @@ export const assertWorkflowEmailTemplatesAvailable = async (
         .map(([, value]) => value as string),
     ),
   ];
-  if (templateIds.length === 0) return;
+  if (templateIds.length === 0) return ok();
   const [row] = await client<Array<{ count: number }>>`
     SELECT count(*)::int AS count
     FROM grids.email_templates
@@ -28,6 +28,7 @@ export const assertWorkflowEmailTemplatesAvailable = async (
       AND deleted_at IS NULL
   `;
   if (Number(row?.count ?? 0) !== templateIds.length) {
-    throw err.badInput("A referenced email template is no longer available. Validate the workflow and save it again.");
+    return fail(err.badInput("A referenced email template is no longer available. Validate the workflow and save it again."));
   }
+  return ok();
 };

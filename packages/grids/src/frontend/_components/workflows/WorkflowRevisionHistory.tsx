@@ -3,11 +3,11 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Workflow } from "../../../service";
-import type { GridsWorkflowRevision } from "../../../workflows/contracts";
+import type { GridsWorkflowRevision, GridsWorkflowRevisionSummary } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { formatWorkflowRunDate } from "./workflow-display";
 
-type RevisionPage = { items: GridsWorkflowRevision[]; nextRevision: number | null };
+type RevisionPage = { items: GridsWorkflowRevisionSummary[]; nextRevision: number | null };
 
 const revisionApi = apiClient.workflows as unknown as {
   [":workflowId"]: {
@@ -36,7 +36,7 @@ export function WorkflowRevisionHistory(props: {
   onChanged: (workflow: Workflow) => void;
   onClose: () => void;
 }) {
-  const [items, setItems] = createSignal<GridsWorkflowRevision[]>([]);
+  const [items, setItems] = createSignal<GridsWorkflowRevisionSummary[]>([]);
   const [selected, setSelected] = createSignal<GridsWorkflowRevision | null>(null);
   const [nextRevision, setNextRevision] = createSignal<number | null>(null);
 
@@ -60,7 +60,7 @@ export function WorkflowRevisionHistory(props: {
     onSuccess: ({ page, append }) => {
       setItems((current) => (append ? [...current, ...page.items] : page.items));
       setNextRevision(page.nextRevision);
-      if (!selected() && !props.initialRevision) setSelected(page.items[0] ?? null);
+      if (!selected() && !props.initialRevision && page.items[0]) loadRevisionMut.mutate(page.items[0].revision);
     },
   });
 
@@ -76,7 +76,7 @@ export function WorkflowRevisionHistory(props: {
     onSuccess: setSelected,
   });
 
-  const restoreMut = mutations.create<Workflow, GridsWorkflowRevision>({
+  const restoreMut = mutations.create<{ workflow: Workflow; restoredRevision: number }, GridsWorkflowRevision>({
     mutation: async (revision, { abortSignal }) => {
       const response = await revisionApi[":workflowId"].revisions[":revision"].restore.$post(
         {
@@ -86,10 +86,13 @@ export function WorkflowRevisionHistory(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not restore workflow revision."));
-      return response.json();
+      return {
+        workflow: (await response.json()) as Workflow,
+        restoredRevision: revision.revision,
+      };
     },
-    onSuccess: (workflow) => {
-      toast.success(`Restored revision ${selected()?.revision ?? ""}`);
+    onSuccess: ({ workflow, restoredRevision }) => {
+      toast.success(`Restored revision ${restoredRevision}`);
       props.onChanged(workflow);
       props.onClose();
     },
@@ -134,7 +137,8 @@ export function WorkflowRevisionHistory(props: {
                   class={`flex w-full items-start justify-between gap-2 rounded-md p-2 text-left text-xs hover:bg-[var(--ui-surface-subtle)] ${
                     selected()?.revision === revision.revision ? "bg-[var(--ui-surface-subtle)]" : ""
                   }`}
-                  onClick={() => setSelected(revision)}
+                  disabled={loadRevisionMut.loading() || restoreMut.loading()}
+                  onClick={() => loadRevisionMut.mutate(revision.revision)}
                 >
                   <span>
                     <strong class="block text-primary">Revision {revision.revision}</strong>
@@ -155,23 +159,31 @@ export function WorkflowRevisionHistory(props: {
               </button>
             </Show>
           </nav>
+          <Show when={loadMut.error()}>
+            {(error) => (
+              <div class="info-block-danger text-sm md:col-span-2" role="alert">
+                <span>{error().message}</span>
+                <button type="button" class="btn-simple btn-sm" onClick={() => loadMut.mutate({ append: false })}>
+                  <i class="ti ti-refresh" /> Retry history
+                </button>
+              </div>
+            )}
+          </Show>
           <Show
             when={selected()}
             fallback={
               <Placeholder
                 surface="paper"
-                state={
-                  loadRevisionMut.loading() || loadMut.loading()
-                    ? "loading"
-                    : loadRevisionMut.error() || loadMut.error()
-                      ? "error"
-                      : "empty"
-                }
-                title={loadRevisionMut.error() || loadMut.error() ? "Could not load workflow history" : "Select a revision"}
-                description={loadRevisionMut.error()?.message ?? loadMut.error()?.message}
+                state={loadRevisionMut.loading() || loadMut.loading() ? "loading" : loadRevisionMut.error() ? "error" : "empty"}
+                title={loadRevisionMut.error() ? "Could not load workflow revision" : "Select a revision"}
+                description={loadRevisionMut.error()?.message}
                 action={
-                  loadRevisionMut.error() || loadMut.error() ? (
-                    <button type="button" class="btn-input btn-input-sm" onClick={() => loadMut.mutate({ append: false })}>
+                  loadRevisionMut.error() ? (
+                    <button
+                      type="button"
+                      class="btn-input btn-input-sm"
+                      onClick={() => loadRevisionMut.mutate(props.initialRevision ?? items()[0]?.revision ?? props.workflow.revision)}
+                    >
                       <i class="ti ti-refresh" /> Retry
                     </button>
                   ) : undefined

@@ -11,6 +11,7 @@ import {
 } from "../contracts";
 import { gridsService } from "../service";
 import { currentActorUserId, gateAt } from "./permissions";
+import { uuidParam } from "./route-params";
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -22,11 +23,13 @@ const app = new Hono<AuthContext>()
       summary: "List email templates for a base",
       responses: {
         200: jsonResponse(EmailTemplateListSchema, "Email templates"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid base id"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId")!;
+      const baseId = uuidParam(c, "baseId");
+      if (!baseId) return c.json({ message: "Invalid base id" }, 400);
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(await gridsService.emailTemplate.listForBase(baseId));
@@ -40,11 +43,13 @@ const app = new Hono<AuthContext>()
       summary: "List workflow dependencies for email templates",
       responses: {
         200: jsonResponse(EmailTemplateDependencyMapSchema, "Email template dependencies"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid base id"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId")!;
+      const baseId = uuidParam(c, "baseId");
+      if (!baseId) return c.json({ message: "Invalid base id" }, 400);
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(await gridsService.emailTemplate.listDependenciesForBase(baseId));
@@ -64,7 +69,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateEmailTemplateSchema),
     async (c) => {
-      const baseId = c.req.param("baseId")!;
+      const baseId = uuidParam(c, "baseId");
+      if (!baseId) return c.json({ message: "Invalid base id" }, 400);
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.emailTemplate.create(baseId, c.req.valid("json"), currentActorUserId(c)), 201);

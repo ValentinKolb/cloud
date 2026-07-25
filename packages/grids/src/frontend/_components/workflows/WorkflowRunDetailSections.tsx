@@ -95,7 +95,7 @@ export function WorkflowRunInputsSection(props: { inputs: WorkflowRunInputRow[] 
   );
 }
 
-export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; loading: boolean }) {
+export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; truncated: boolean; loading: boolean }) {
   return (
     <section class="detail-section">
       <h3 class="detail-section-label">Steps</h3>
@@ -124,7 +124,7 @@ export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; 
                 </span>
                 <Show when={stepError()}>{(message) => <p class="col-span-3 text-red-600 dark:text-red-400">{message()}</p>}</Show>
                 <Show when={outcomeSummary()}>{(message) => <p class="col-span-3 text-dimmed">{message()}</p>}</Show>
-                <For each={workflowStepPlannedEffects(step.outcome)}>
+                <For each={step.action ? workflowStepPlannedEffects(step.outcome) : []}>
                   {(effect) => (
                     <p class="col-span-3 pl-2 text-primary">
                       <span class="font-medium capitalize">{effect.title}</span>
@@ -139,6 +139,9 @@ export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; 
             );
           }}
         </For>
+        <Show when={props.truncated}>
+          <p class="text-xs text-dimmed">Showing the first 500 steps. Additional steps are not shown in this panel.</p>
+        </Show>
       </div>
     </section>
   );

@@ -6,7 +6,7 @@ import type {
   WorkflowExecuteActionContext,
   WorkflowVariableScope,
 } from "@valentinkolb/cloud/workflows/runtime";
-import type { EmailTemplate, GridRecord, Table } from "../contracts";
+import type { DocumentTemplate, EmailTemplate, GridRecord, Table } from "../contracts";
 import { createGridsWorkflowActionPorts, type GridsWorkflowEffectIntentPort, gridsWorkflowActionEffect } from "./workflow-kernel-actions";
 
 const BASE_ID = "00000000-0000-4000-8000-000000000001";
@@ -75,6 +75,7 @@ const actionStep = (
 type ContextOptions = {
   plan?: WorkflowBoundPlan;
   references?: Record<string, WorkflowJsonValue>;
+  variables?: Variables;
   evaluate?: (value: WorkflowJsonValue, path?: Array<string | number>) => Promise<WorkflowJsonValue>;
   resolveReference?: (reference: string, path?: Array<string | number>) => Promise<WorkflowJsonValue | undefined>;
 };
@@ -88,7 +89,7 @@ const context = <Mode extends "execute" | "dryRun">(
   variables: Variables;
   heartbeat: ReturnType<typeof mock>;
 } => {
-  const variables = new Variables();
+  const variables = options.variables ?? new Variables();
   const heartbeat = mock(async () => undefined);
   const invocation = {
     workflowId: WORKFLOW_ID,
@@ -464,6 +465,70 @@ describe("Grids workflow kernel action ports", () => {
     expect(intents.prepare).not.toHaveBeenCalled();
     expect(intents.executeTransactional).not.toHaveBeenCalled();
     expect(createCtx.variables.get("created")).toMatchObject({ kind: "record", tableId: TABLE_ID, planned: true });
+  });
+
+  test("dry-run composes generated documents, public links, and email data", async () => {
+    const variables = new Variables();
+    const services = {
+      ...commonServices(),
+      getDocumentTemplate: mock(
+        async () =>
+          ({
+            id: TEMPLATE_ID,
+            tableId: TABLE_ID,
+            name: "Agreement",
+            enabled: true,
+          }) as DocumentTemplate,
+      ),
+      getDocumentRun: mock(async () => null),
+      getEmailTemplate: mock(async () => emailTemplate),
+    };
+    const ports = createGridsWorkflowActionPorts({ workflow, services, effectIntents: executingIntents() });
+    const documentStep = actionStep("generateDocument", { template: "Agreement", record: "inputs.item", saveAs: "agreement" }, [
+      "steps",
+      0,
+    ]);
+    const documentCtx = context("dryRun", documentStep, {
+      variables,
+      references: { "inputs.item": { kind: "record", tableId: TABLE_ID, recordId: RECORD_ID } },
+      plan: boundPlan({ "steps.0.generateDocument.template": TEMPLATE_ID }),
+    });
+    const documentOutcome = await ports.dryRun.get("generateDocument")!.plan(documentCtx.value, documentStep);
+
+    const linkStep = actionStep("createDocumentLink", { document: "agreement", expiresIn: "7d", saveAs: "agreementLink" }, ["steps", 1]);
+    const linkCtx = context("dryRun", linkStep, {
+      variables,
+      resolveReference: async (reference) => variables.get(reference),
+    });
+    const linkOutcome = await ports.dryRun.get("createDocumentLink")!.plan(linkCtx.value, linkStep);
+
+    const emailStep = actionStep(
+      "sendEmail",
+      {
+        template: "Notice",
+        to: [{ email: "ada@example.test" }],
+        data: { downloadUrl: "agreementLink.url" },
+      },
+      ["steps", 2],
+    );
+    const emailCtx = context("dryRun", emailStep, {
+      variables,
+      plan: boundPlan({ "steps.2.sendEmail.template": TEMPLATE_ID }),
+      evaluate: async (value) => {
+        if (value !== "agreementLink.url") return value;
+        const link = variables.get("agreementLink");
+        return link && typeof link === "object" && !Array.isArray(link) ? (link.url ?? null) : null;
+      },
+    });
+    const emailOutcome = await ports.dryRun.get("sendEmail")!.plan(emailCtx.value, emailStep);
+
+    expect(documentOutcome).toMatchObject({ state: "planned", output: { kind: "documentRun", planned: true } });
+    expect(linkOutcome).toMatchObject({ state: "planned", output: { kind: "documentLink", planned: true, expiresIn: "7d" } });
+    expect(emailOutcome).toMatchObject({ state: "planned", effects: [{ action: "sendEmail", recipientCount: 1 }] });
+    expect(services.getDocumentRun).not.toHaveBeenCalled();
+    expect(variables.get("agreementLink")).toMatchObject({
+      url: expect.stringContaining("https://example.invalid/grids-document-link/"),
+    });
   });
 
   test("does not blindly retry an intent whose external outcome is unknown", async () => {

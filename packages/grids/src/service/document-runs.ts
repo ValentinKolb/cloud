@@ -3,6 +3,7 @@ import { type DateContext, err, fail, ok, type Result, type ServiceError } from 
 import { sql } from "bun";
 import type { DocumentRun, DocumentTemplate, RecordSnapshot, UpdateDocumentRunMetadataInput } from "../contracts";
 import { logAudit } from "./audit";
+import { type DocumentRunReadAuthorizer, loadReadableWorkflowRunDocumentScopes, workflowRunDocumentAccessWhere } from "./document-browse";
 import { type DocumentDbRow, mapDocumentRun } from "./document-mappers";
 import { buildDocumentRunRenderData, buildLiveRenderData, renderRunPdf } from "./document-rendering";
 import { normalizeDocumentTags, safePdfFilename } from "./document-run-values";
@@ -301,11 +302,14 @@ export const updateRunMetadata = async (
 
 export const renderWorkflowRunPdf = async (
   workflowRunId: string,
+  canRead: DocumentRunReadAuthorizer,
 ): Promise<Result<RenderHtmlToPdfResult & { filename: string; documentCount: number }>> => {
+  const accessWhere = workflowRunDocumentAccessWhere(await loadReadableWorkflowRunDocumentScopes(workflowRunId, canRead));
   const [{ count } = { count: 0 }] = await sql<{ count: number }[]>`
     SELECT count(*)::int AS count
     FROM grids.document_runs
     WHERE workflow_run_id = ${workflowRunId}::uuid
+      AND (${accessWhere})
   `;
   const total = count ?? 0;
   if (total === 0) return fail(err.badInput("Workflow run did not generate any documents."));
@@ -316,6 +320,7 @@ export const renderWorkflowRunPdf = async (
   const rows = await sql<DocumentDbRow[]>`
     SELECT * FROM grids.document_runs
     WHERE workflow_run_id = ${workflowRunId}::uuid
+      AND (${accessWhere})
     ORDER BY generated_at ASC, id ASC
   `;
   const runs = rows.map(mapDocumentRun);

@@ -161,7 +161,22 @@ export const createWorkspaceApi = (
       if (!access.ok) return c.json({ message: "Workflow run not found" }, 404);
       const loadWorkflowDetail = deps.loadWorkflowDetail ?? loadWorkflowRunDetail;
       const workflow = await (deps.getWorkflow ?? gridsService.workflow.get)(run.workflowId, true);
-      return c.json(await loadWorkflowDetail(run, { workflow, viewer: (deps.viewer ?? currentActorViewer)(c) }));
+      return c.json(
+        await loadWorkflowDetail(run, {
+          canReadDocument: async (document) =>
+            (
+              await gate(
+                c,
+                document.templateId
+                  ? { baseId: document.baseId, tableId: document.tableId, documentTemplateId: document.templateId }
+                  : { baseId: document.baseId, tableId: document.tableId },
+                "read",
+              )
+            ).ok,
+          workflow,
+          viewer: (deps.viewer ?? currentActorViewer)(c),
+        }),
+      );
     });
 };
 

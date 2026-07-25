@@ -294,6 +294,50 @@ export const loadBaseTableGrantsForSubject = async (
   }));
 };
 
+export const loadBaseWorkflowGrantsForSubject = async (
+  params: { baseId: string; subject: AccessSubject | null },
+  db: typeof sql = sql,
+): Promise<Grant[]> => {
+  const tierExpr = sql`CASE
+    WHEN a.service_account_id IS NOT NULL THEN 'serviceAccount'
+    WHEN a.user_id IS NOT NULL THEN 'user'
+    WHEN a.group_id IS NOT NULL THEN 'group'
+    WHEN a.authenticated_only = TRUE THEN 'authenticated'
+    ELSE 'public'
+  END`;
+  const principalMatch = buildAccessPrincipalCondition({
+    subject: params.subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+
+  const rows = await db<DbRow[]>`
+    SELECT 'base'::text AS resource_type, ba.base_id::text AS resource_id, a.permission AS level, ${tierExpr} AS principal_tier
+    FROM grids.base_access ba
+    JOIN auth.access a ON a.id = ba.access_id
+    WHERE ba.base_id = ${params.baseId}::uuid AND ${principalMatch}
+
+    UNION ALL
+
+    SELECT 'workflow'::text, wa.workflow_id::text, a.permission, ${tierExpr}
+    FROM grids.workflow_access wa
+    JOIN grids.workflows w ON w.id = wa.workflow_id
+    JOIN auth.access a ON a.id = wa.access_id
+    WHERE w.base_id = ${params.baseId}::uuid AND ${principalMatch}
+  `;
+
+  return rows.map((row) => ({
+    resourceType: row.resource_type as ResourceType,
+    resourceId: row.resource_id as string,
+    principalTier: row.principal_tier as PrincipalTier,
+    level: row.level as PermissionLevel,
+  }));
+};
+
 /**
  * Compatibility adapter for existing Grids callers. Caller-provided group ids
  * are deliberately ignored; nested membership is resolved by Cloud from the

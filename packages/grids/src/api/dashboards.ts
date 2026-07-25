@@ -62,6 +62,7 @@ const DashboardWorkflowInvocationResponseSchema = z.object({
 const DashboardWorkflowRunSchema = z
   .object({
     inputs: z.record(z.string(), z.json()).default({}),
+    operationId: z.string().trim().min(1).max(120),
   })
   .strict();
 
@@ -412,7 +413,7 @@ export const createDashboardsApi = (
         if (launcher.config.kind !== "dashboard") return c.json({ message: "Workflow launcher is not a dashboard launcher" }, 400);
         const result = await invokeDashboard({
           launcherId: launcher.id,
-          operationId: Bun.randomUUIDv7(),
+          operationId: c.req.valid("json").operationId,
           mode: "execute",
           expectedRevision: launcher.validatedRevision,
           principal: currentWorkflowPrincipal(c),

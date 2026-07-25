@@ -235,8 +235,21 @@ describe("Grids workspace workflow run detail", () => {
   });
 
   test("returns one composed payload for a readable workflow run", async () => {
-    const detail = { run, inputLabels: {}, steps: [], documents: { items: [], total: 0, hasMore: false, nextOffset: null } };
-    let loadedOptions: { workflow?: { id: string } | null; viewer?: { userId: string | null } } | undefined;
+    const detail = {
+      run,
+      inputLabels: {},
+      provenance: { workflowName: null, actorLabel: null, serviceAccountLabel: null, launcherName: null },
+      steps: [],
+      stepsTruncated: false,
+      documents: { items: [], total: 0, hasMore: false, nextOffset: null },
+    };
+    let loadedOptions:
+      | {
+          canReadDocument: (document: { baseId: string; tableId: string; templateId: string | null }) => Promise<boolean>;
+          workflow?: { id: string } | null;
+          viewer?: { userId: string | null };
+        }
+      | undefined;
     const app = createWorkspaceApi({
       requireAuthenticated: authenticated,
       getWorkflowRun: async () => run,
@@ -254,5 +267,12 @@ describe("Grids workspace workflow run detail", () => {
     expect(await response.json()).toEqual(detail);
     expect(loadedOptions?.workflow?.id).toBe(workflowId);
     expect(loadedOptions?.viewer?.userId).toBe(user.id);
+    expect(
+      await loadedOptions?.canReadDocument({
+        baseId,
+        tableId,
+        templateId: null,
+      }),
+    ).toBe(true);
   });
 });

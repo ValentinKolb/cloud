@@ -15,6 +15,7 @@ type RunCursor = { createdAt: string; id: string };
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
+const MAX_DETAIL_STEPS = 500;
 const DEFAULT_STATS_WINDOW: GridsWorkflowRunStatsWindow = "24h";
 const STATS_WINDOW_SECONDS: Record<GridsWorkflowRunStatsWindow, number> = {
   "10m": 10 * 60,
@@ -26,8 +27,6 @@ const STATS_WINDOW_SECONDS: Record<GridsWorkflowRunStatsWindow, number> = {
 };
 
 const toIsoString = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
-
-const encodeCursor = (value: { createdAt: string; id: string }): string => `${value.createdAt}|${value.id}`;
 
 const parseCursor = (cursor: string | null | undefined): RunCursor | null => {
   if (!cursor) return null;
@@ -84,7 +83,7 @@ export const listWorkflowRunsPage = async (params: {
   const channelClause = params.channel ? sql`AND channel = ${params.channel}` : sql``;
   const cursorClause = cursor ? sql`AND (created_at, id) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)` : sql``;
   const rows = await sql<DbRow[]>`
-    SELECT ${runColumns}
+    SELECT ${runColumns}, (created_at::text || '|' || id::text) AS cursor_token
     FROM grids.workflow_runs
     WHERE base_id = ${params.baseId}::uuid
       AND workflow_id = ANY(${workflowIds}::uuid[])
@@ -96,36 +95,56 @@ export const listWorkflowRunsPage = async (params: {
     ORDER BY created_at DESC, id DESC
     LIMIT ${cap + 1}
   `;
-  const mapped = rows.map(mapRun);
-  const items = mapped.slice(0, cap);
+  const items = rows.slice(0, cap).map(mapRun);
   return {
     items,
-    nextCursor: mapped.length > cap && items.length > 0 ? encodeCursor(items[items.length - 1]!) : null,
+    nextCursor: rows.length > cap ? String(rows[cap - 1]?.cursor_token ?? "") || null : null,
   };
 };
 
-export const listWorkflowStepRuns = async (runId: string): Promise<GridsWorkflowStepRun[]> => {
+const mapStepRun = (row: DbRow): GridsWorkflowStepRun => ({
+  id: row.id as string,
+  runId: row.run_id as string,
+  key: row.step_key as string,
+  sourcePath: parseJsonbRow<Array<string | number>>(row.source_path, []),
+  iterationPath: parseJsonbRow<number[]>(row.iteration_path, []),
+  kind: row.kind as string,
+  action: (row.action as string | null) ?? null,
+  status: row.status as GridsWorkflowStepRun["status"],
+  outcome: parseJsonbRow<GridsWorkflowStepRun["outcome"]>(row.outcome, null),
+  executionGeneration: Number(row.execution_generation),
+  startedAt: row.started_at ? toIsoString(row.started_at as Date | string) : null,
+  finishedAt: row.finished_at ? toIsoString(row.finished_at as Date | string) : null,
+});
+
+const stepRunColumns = sql`
+  id, run_id, step_key, source_path, to_json(iteration_path) AS iteration_path, kind, action,
+  status, outcome, execution_generation, started_at, finished_at
+`;
+
+export const listWorkflowStepRunsPage = async (runId: string): Promise<{ items: GridsWorkflowStepRun[]; truncated: boolean }> => {
   const rows = await sql<DbRow[]>`
-    SELECT id, run_id, step_key, source_path, to_json(iteration_path) AS iteration_path, kind, action,
-           status, outcome, execution_generation, started_at, finished_at
+    SELECT ${stepRunColumns}
     FROM grids.workflow_step_runs
     WHERE run_id = ${runId}::uuid
     ORDER BY started_at, id
+    LIMIT ${MAX_DETAIL_STEPS + 1}
   `;
-  return rows.map((row) => ({
-    id: row.id as string,
-    runId: row.run_id as string,
-    key: row.step_key as string,
-    sourcePath: parseJsonbRow<Array<string | number>>(row.source_path, []),
-    iterationPath: parseJsonbRow<number[]>(row.iteration_path, []),
-    kind: row.kind as string,
-    action: (row.action as string | null) ?? null,
-    status: row.status as GridsWorkflowStepRun["status"],
-    outcome: parseJsonbRow<GridsWorkflowStepRun["outcome"]>(row.outcome, null),
-    executionGeneration: Number(row.execution_generation),
-    startedAt: row.started_at ? toIsoString(row.started_at as Date | string) : null,
-    finishedAt: row.finished_at ? toIsoString(row.finished_at as Date | string) : null,
-  }));
+  return {
+    items: rows.slice(0, MAX_DETAIL_STEPS).map(mapStepRun),
+    truncated: rows.length > MAX_DETAIL_STEPS,
+  };
+};
+
+export const listWorkflowStepRuns = async (runId: string): Promise<GridsWorkflowStepRun[]> => (await listWorkflowStepRunsPage(runId)).items;
+
+export const getWorkflowStepRun = async (runId: string, stepKey: string): Promise<GridsWorkflowStepRun | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT ${stepRunColumns}
+    FROM grids.workflow_step_runs
+    WHERE run_id = ${runId}::uuid AND step_key = ${stepKey}
+  `;
+  return row ? mapStepRun(row) : null;
 };
 
 export type WorkflowRunProvenance = {
@@ -177,6 +196,7 @@ type DeliveryRow = {
   subject: string | null;
   error: string | null;
   created_at: Date | string;
+  cursor_token: string;
 };
 
 const mapDelivery = (row: DeliveryRow): GridsWorkflowEmailDelivery => ({
@@ -224,7 +244,8 @@ export const listWorkflowEmailDeliveriesPage = async (params: {
            END AS status,
            delivery.subject,
            COALESCE(delivery.error, notification_state.error) AS error,
-           delivery.created_at
+           delivery.created_at,
+           (delivery.created_at::text || '|' || delivery.id::text) AS cursor_token
     FROM grids.workflow_email_deliveries delivery
     LEFT JOIN LATERAL (
       SELECT
@@ -245,16 +266,16 @@ export const listWorkflowEmailDeliveriesPage = async (params: {
     ORDER BY delivery.created_at DESC, delivery.id DESC
     LIMIT ${cap + 1}
   `;
-  const mapped = rows.map(mapDelivery);
-  const items = mapped.slice(0, cap);
+  const items = rows.slice(0, cap).map(mapDelivery);
   return {
     items,
-    nextCursor: mapped.length > cap && items.length > 0 ? encodeCursor(items[items.length - 1]!) : null,
+    nextCursor: rows.length > cap ? (rows[cap - 1]?.cursor_token ?? null) : null,
   };
 };
 
 type StatsSqlRow = {
   total: number | string;
+  active: number | string;
   queued: number | string;
   running: number | string;
   waiting: number | string;
@@ -286,6 +307,7 @@ const statsCounts = (row: StatsSqlRow | undefined) => {
   const needsAttention = count(row?.needs_attention);
   return {
     total,
+    active: count(row?.active),
     queued: count(row?.queued),
     running: count(row?.running),
     waiting: count(row?.waiting),
@@ -322,6 +344,15 @@ export const getWorkflowRunStats = async (
         AND mode = 'execute'
         AND created_at >= now() - (${windowSeconds} * interval '1 second')
     ),
+    active AS (
+      SELECT workflow_id::text AS workflow_id, count(*)::int AS active
+      FROM grids.workflow_runs
+      WHERE base_id = ${baseId}::uuid
+        AND workflow_id = ANY(${ids}::uuid[])
+        AND mode = 'execute'
+        AND status IN ('queued', 'running', 'waiting')
+      GROUP BY workflow_id
+    ),
     failed_24h AS (
       SELECT count(*)::int AS failed_last_24h
       FROM grids.workflow_runs
@@ -351,9 +382,10 @@ export const getWorkflowRunStats = async (
       FROM filtered
       ORDER BY workflow_id, created_at DESC, id DESC
     ),
-    per_workflow AS (
+    window_per_workflow AS (
       SELECT f.workflow_id,
              count(*)::int AS total,
+             0::int AS active,
              count(*) FILTER (WHERE f.status = 'queued')::int AS queued,
              count(*) FILTER (WHERE f.status = 'running')::int AS running,
              count(*) FILTER (WHERE f.status = 'waiting')::int AS waiting,
@@ -369,8 +401,28 @@ export const getWorkflowRunStats = async (
       FROM filtered f
       JOIN latest ON latest.workflow_id = f.workflow_id
       GROUP BY f.workflow_id, latest.latest_status
+    ),
+    per_workflow AS (
+      SELECT COALESCE(windowed.workflow_id, active.workflow_id) AS workflow_id,
+             COALESCE(windowed.total, 0)::int AS total,
+             COALESCE(active.active, 0)::int AS active,
+             COALESCE(windowed.queued, 0)::int AS queued,
+             COALESCE(windowed.running, 0)::int AS running,
+             COALESCE(windowed.waiting, 0)::int AS waiting,
+             COALESCE(windowed.succeeded, 0)::int AS succeeded,
+             COALESCE(windowed.failed, 0)::int AS failed,
+             COALESCE(windowed.canceled, 0)::int AS canceled,
+             COALESCE(windowed.needs_attention, 0)::int AS needs_attention,
+             windowed.avg_duration_ms,
+             windowed.p99_duration_ms,
+             windowed.last_run_at,
+             windowed.latest_status
+      FROM window_per_workflow windowed
+      FULL JOIN active ON active.workflow_id = windowed.workflow_id
     )
-    SELECT overall.*, failed_24h.failed_last_24h,
+    SELECT overall.*,
+           COALESCE((SELECT sum(active.active)::int FROM active), 0)::int AS active,
+           failed_24h.failed_last_24h,
            COALESCE((SELECT jsonb_agg(to_jsonb(per_workflow) ORDER BY per_workflow.last_run_at DESC, per_workflow.workflow_id)
                      FROM per_workflow), '[]'::jsonb) AS by_workflow
     FROM overall

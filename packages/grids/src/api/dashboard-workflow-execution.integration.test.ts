@@ -324,7 +324,10 @@ describe("dashboard-scoped workflow execution", () => {
       }),
     );
 
-    const response = await app.request(`/api/dashboards/${dashboardId}/widgets/${widgetId}/run`, jsonPost({ inputs: {} }));
+    const response = await app.request(
+      `/api/dashboards/${dashboardId}/widgets/${widgetId}/run`,
+      jsonPost({ operationId: "delegated-dashboard-run", inputs: {} }),
+    );
 
     expect(response.status).toBe(200);
     expect(invokeDashboardLauncher).toHaveBeenCalledTimes(1);
@@ -426,7 +429,7 @@ describe("dashboard-scoped workflow execution", () => {
 
     const runResponse = await app.request(
       `/api/dashboards/${dashboardId}/widgets/${widgetId}/run`,
-      jsonPost({ inputs: { message: "Run report" } }),
+      jsonPost({ operationId: "prompt-dashboard-run", inputs: { message: "Run report" } }),
     );
     expect(runResponse.status).toBe(200);
     expect(invokeDashboardLauncher).toHaveBeenCalledWith(
@@ -545,7 +548,7 @@ describe("dashboard-scoped workflow execution", () => {
 
       const dashboardRun = await app.request(
         `/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/run`,
-        jsonPost({ inputs: {} }),
+        jsonPost({ operationId: "dashboard-reader-run", inputs: {} }),
       );
       expect(dashboardRun.status).toBe(200);
       const body = (await dashboardRun.json()) as {
@@ -557,6 +560,21 @@ describe("dashboard-scoped workflow execution", () => {
       expect(body.workflowId).toBe(fixture.workflowId);
       expect(body.launcherId).toBe(fixture.launcherId);
       expect(body.channel).toBe("dashboard");
+
+      const retry = await app.request(
+        `/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/run`,
+        jsonPost({ operationId: "dashboard-reader-run", inputs: {} }),
+      );
+      expect(retry.status).toBe(200);
+      expect((await retry.json()).id).toBe(body.id);
+      const [countRow] = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count
+        FROM grids.workflow_runs
+        WHERE launcher_id = ${fixture.launcherId}::uuid
+          AND idempotency_key = ${`launcher:${fixture.launcherId}:dashboard-reader-run`}
+      `;
+      expect(countRow?.count).toBe(1);
+
       expect(await waitForRunCompletion(body.id)).toBe("succeeded");
       await sql`
         UPDATE grids.workflow_runs

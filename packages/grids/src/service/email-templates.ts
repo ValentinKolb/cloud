@@ -252,11 +252,13 @@ export const remove = async (templateId: string, actorId: string | null): Promis
     await lockWorkflowCatalogMutation(existing.baseId, tx);
     const dependencies = (await listDependenciesForBase(existing.baseId, tx))[templateId] ?? [];
     if (dependencies.length > 0) {
-      return fail(
-        err.conflict(
-          `Email template is used by ${dependencies.length === 1 ? `workflow "${dependencies[0]!.workflowName}"` : `${dependencies.length} workflows`}.`,
-        ),
-      );
+      return fail({
+        code: "CONFLICT",
+        status: 409,
+        message: `Email template is used by ${
+          dependencies.length === 1 ? `workflow "${dependencies[0]!.workflowName}"` : `${dependencies.length} workflows`
+        }.`,
+      });
     }
     const updated = await tx`
       UPDATE grids.email_templates

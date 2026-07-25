@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { type Grant, hasAtLeast, resolveEffectivePermission } from "./permission-resolver";
+import type { SQL } from "bun";
+import { type Grant, hasAtLeast, loadBaseWorkflowGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 
 const baseId = "base-1";
 const tableId = "table-1";
@@ -183,5 +184,24 @@ describe("hasAtLeast", () => {
     expect(hasAtLeast("write", "admin")).toBe(false);
     expect(hasAtLeast("read", "read")).toBe(true);
     expect(hasAtLeast("none", "read")).toBe(false);
+  });
+});
+
+describe("loadBaseWorkflowGrantsForSubject", () => {
+  test("loads base and workflow grants in one database query", async () => {
+    let calls = 0;
+    const db = (async () => {
+      calls += 1;
+      return [
+        { resource_type: "base", resource_id: baseId, level: "read", principal_tier: "user" },
+        { resource_type: "workflow", resource_id: workflowId, level: "none", principal_tier: "user" },
+      ];
+    }) as unknown as SQL;
+
+    const grants = await loadBaseWorkflowGrantsForSubject({ baseId, subject: { type: "user", userId: "user-1" } }, db);
+
+    expect(calls).toBe(1);
+    expect(resolveEffectivePermission(grants, { baseId })).toBe("read");
+    expect(resolveEffectivePermission(grants, { baseId, workflowId })).toBe("none");
   });
 });

@@ -46,6 +46,13 @@ describe("workflow run materialization", () => {
           run_id, step_key, source_path, iteration_path, kind, action, mode, status, execution_generation
         ) VALUES (${runId}::uuid, 'steps.0', '["steps",0]'::jsonb, '{}'::int[], 'action', 'wait', 'execute', 'running', 7)
       `;
+      await sql`
+        INSERT INTO grids.workflow_effect_intents (
+          run_id, step_key, effect_kind, idempotency_key, status, request, execution_generation, effect_started_at
+        ) VALUES
+          (${runId}::uuid, 'steps.0', 'transactional', 'cancel-pending', 'pending', '{}'::jsonb, 7, NULL),
+          (${runId}::uuid, 'steps.0', 'durable-intent', 'cancel-started', 'executing', '{}'::jsonb, 7, now())
+      `;
 
       const canceled = await cancelWorkflowRun(runId, null);
       expect(canceled?.status).toBe("canceled");
@@ -70,8 +77,26 @@ describe("workflow run materialization", () => {
       const [storedStep] = await sql<Array<{ status: string; outcome: unknown }>>`
         SELECT status, outcome FROM grids.workflow_step_runs WHERE run_id = ${runId}::uuid
       `;
+      const intents = await sql<Array<{ idempotency_key: string; status: string; error: { code?: string } | null }>>`
+        SELECT idempotency_key, status, error
+        FROM grids.workflow_effect_intents
+        WHERE run_id = ${runId}::uuid
+        ORDER BY idempotency_key
+      `;
       expect(storedRun).toEqual({ status: "canceled", lease_expires_at: null });
       expect(storedStep).toMatchObject({ status: "canceled", outcome: { state: "terminal", status: "canceled" } });
+      expect(intents).toEqual([
+        {
+          idempotency_key: "cancel-pending",
+          status: "failed",
+          error: expect.objectContaining({ code: "WORKFLOW_RUN_CANCELED" }),
+        },
+        {
+          idempotency_key: "cancel-started",
+          status: "needs_attention",
+          error: expect.objectContaining({ code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN" }),
+        },
+      ]);
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }
@@ -388,13 +413,14 @@ describe("workflow run materialization", () => {
 
       await repository.parkStep(stepIdentity, dependency);
 
-      const [run] = await sql<Array<{ status: string; result: unknown; lease_expires_at: Date | null }>>`
-        SELECT status, result, lease_expires_at FROM grids.workflow_runs WHERE id = ${runId}::uuid
+      const [run] = await sql<Array<{ status: string; result: unknown; lease_expires_at: Date | null; waiting_deadline: Date | null }>>`
+        SELECT status, result, lease_expires_at, waiting_deadline FROM grids.workflow_runs WHERE id = ${runId}::uuid
       `;
       const [step] = await sql<Array<{ status: string; outcome: unknown; finished_at: Date | null }>>`
         SELECT status, outcome, finished_at FROM grids.workflow_step_runs WHERE run_id = ${runId}::uuid AND step_key = 'steps.0'
       `;
       expect(run).toMatchObject({ status: "waiting", result: { dependency }, lease_expires_at: null });
+      expect(run?.waiting_deadline?.toISOString()).toBe(dependency.deadline);
       expect(step).toMatchObject({ status: "waiting", outcome: { state: "waiting", dependency }, finished_at: null });
 
       const expired = (await listExpiredWaitingWorkflowRuns()).find((item) => item.runId === runId);
@@ -408,10 +434,10 @@ describe("workflow run materialization", () => {
       expect(await resumeWaitingWorkflowRun(runId, expired!.dependency)).toBe(false);
       expect(await resumeWaitingWorkflowRun(runId, nextDependency)).toBe(true);
       expect(await resumeWaitingWorkflowRun(runId, nextDependency)).toBe(false);
-      const [resumed] = await sql<Array<{ status: string; result: unknown }>>`
-        SELECT status, result FROM grids.workflow_runs WHERE id = ${runId}::uuid
+      const [resumed] = await sql<Array<{ status: string; result: unknown; waiting_deadline: Date | null }>>`
+        SELECT status, result, waiting_deadline FROM grids.workflow_runs WHERE id = ${runId}::uuid
       `;
-      expect(resumed).toMatchObject({ status: "queued", result: null });
+      expect(resumed).toMatchObject({ status: "queued", result: null, waiting_deadline: null });
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }
