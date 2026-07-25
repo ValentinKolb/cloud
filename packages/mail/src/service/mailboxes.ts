@@ -15,6 +15,7 @@ import {
   getMailboxPermission,
   isCurrentActorActive,
   isCurrentPlatformAdmin,
+  mailboxAccessPrincipalCondition,
   requireMailboxLifecycleAdmin,
   requireMailboxPermission,
 } from "./access";
@@ -269,21 +270,7 @@ export const listDeletedMailboxes = async (
     return ok(deletedMailboxPage(rows, boundedLimit));
   }
 
-  const userId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
-  const serviceAccountId = context.accessSubject.type === "service_account" ? context.accessSubject.serviceAccountId : null;
   const rows = await sql<DbMailbox[]>`
-    WITH RECURSIVE subject_groups(group_id, path) AS (
-      SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
-      FROM auth.user_groups_v2 ug
-      WHERE ug.user_id = ${userId}::uuid
-
-      UNION ALL
-
-      SELECT gg.parent_group_id, sg.path || gg.parent_group_id
-      FROM auth.group_groups_v2 gg
-      JOIN subject_groups sg ON sg.group_id = gg.child_group_id
-      WHERE NOT gg.parent_group_id = ANY(sg.path)
-    )
     SELECT DISTINCT ${mailboxColumns}
     FROM mail.mailboxes m
     JOIN mail.mailbox_access ma ON ma.mailbox_id = m.id
@@ -297,11 +284,7 @@ export const listDeletedMailboxes = async (
           m.id
         ) < (${cursor.data?.deletedAtMicros ?? null}::bigint, ${cursor.data?.id ?? null}::uuid)
       )
-      AND (
-        a.user_id = ${userId}::uuid
-        OR a.service_account_id = ${serviceAccountId}::uuid
-        OR a.group_id IN (SELECT group_id FROM subject_groups)
-      )
+      AND ${mailboxAccessPrincipalCondition(context.accessSubject)}
     ORDER BY m.deleted_at DESC, m.id DESC
     LIMIT ${boundedLimit + 1}
   `;
@@ -325,29 +308,14 @@ export const listMailboxes = async (
     return permission === "none" ? ok([]) : ok([{ ...mailbox.data, permission }]);
   }
 
-  const userId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
-  const serviceAccountId = context.accessSubject.type === "service_account" ? context.accessSubject.serviceAccountId : null;
   const rows = await sql<(DbMailbox & { permission: PermissionLevel })[]>`
-    WITH RECURSIVE subject_groups(group_id, path) AS (
-      SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
-      FROM auth.user_groups_v2 ug
-      WHERE ug.user_id = ${userId}::uuid
-
-      UNION ALL
-
-      SELECT gg.parent_group_id, sg.path || gg.parent_group_id
-      FROM auth.group_groups_v2 gg
-      JOIN subject_groups sg ON sg.group_id = gg.child_group_id
-      WHERE NOT gg.parent_group_id = ANY(sg.path)
-    ), ranked AS (
+    WITH ranked AS (
       SELECT
         ma.mailbox_id,
         max(CASE a.permission WHEN 'admin' THEN 3 WHEN 'write' THEN 2 WHEN 'read' THEN 1 ELSE 0 END) AS permission_rank
       FROM mail.mailbox_access ma
       JOIN auth.access a ON a.id = ma.access_id
-      WHERE a.user_id = ${userId}::uuid
-        OR a.service_account_id = ${serviceAccountId}::uuid
-        OR a.group_id IN (SELECT group_id FROM subject_groups)
+      WHERE ${mailboxAccessPrincipalCondition(context.accessSubject)}
       GROUP BY ma.mailbox_id
     )
     SELECT

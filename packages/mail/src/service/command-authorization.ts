@@ -1,5 +1,7 @@
+import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { mailboxAccessPrincipalCondition } from "./access";
 
 type SqlClient = typeof sql;
 
@@ -97,30 +99,19 @@ const accessSubjectIsActive = async (command: StoredCommandAuthorization, db: Sq
 };
 
 const loadMailboxGrant = async (command: StoredCommandAuthorization, db: SqlClient): Promise<string | null> => {
-  const userId = command.access_subject_kind === "user" ? command.access_subject_id : null;
-  const serviceAccountId = command.access_subject_kind === "service_account" ? command.access_subject_id : null;
+  // A stored command without a subject id matches nothing but a public grant,
+  // which is what a null subject already means to the shared predicate.
+  const subject: AccessSubject | null = !command.access_subject_id
+    ? null
+    : command.access_subject_kind === "user"
+      ? { type: "user", userId: command.access_subject_id }
+      : { type: "service_account", serviceAccountId: command.access_subject_id };
   const [grant] = await db<{ permission: string }[]>`
-    WITH RECURSIVE subject_groups(group_id, path) AS (
-      SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
-      FROM auth.user_groups_v2 ug
-      WHERE ug.user_id = ${userId}::uuid
-
-      UNION ALL
-
-      SELECT gg.parent_group_id, sg.path || gg.parent_group_id
-      FROM auth.group_groups_v2 gg
-      JOIN subject_groups sg ON sg.group_id = gg.child_group_id
-      WHERE NOT gg.parent_group_id = ANY(sg.path)
-    )
     SELECT a.permission
     FROM mail.mailbox_access ma
     JOIN auth.access a ON a.id = ma.access_id
     WHERE ma.mailbox_id = ${command.mailbox_id}::uuid
-      AND (
-        a.user_id = ${userId}::uuid
-        OR a.service_account_id = ${serviceAccountId}::uuid
-        OR a.group_id IN (SELECT group_id FROM subject_groups)
-      )
+      AND ${mailboxAccessPrincipalCondition(subject)}
     ORDER BY CASE a.permission
       WHEN 'admin' THEN 3
       WHEN 'write' THEN 2

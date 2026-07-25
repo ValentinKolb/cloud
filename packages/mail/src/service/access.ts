@@ -1,5 +1,7 @@
 import {
   type AccessEntry,
+  type AccessSubject,
+  buildAccessPrincipalCondition,
   createAccess,
   deleteAccess,
   hasPermission,
@@ -14,6 +16,28 @@ import { sql } from "bun";
 import { auditActorFromRequest, capByCredentialScopes, isResourceBoundToMailbox, type MailRequestContext, userBackedActor } from "./auth";
 
 type SqlClient = typeof sql;
+
+/**
+ * Matches an `auth.access` row (aliased `a`) against the subject making the
+ * request.
+ *
+ * Mail used to spell this out per query as a recursive group CTE plus three
+ * `OR`ed columns. That covered direct user, service-account and group grants
+ * and silently ignored the other two principal tiers the platform supports, so
+ * a mailbox shared with every authenticated user was invisible to everybody.
+ * The shared builder covers all five tiers and resolves nested membership from
+ * the subject, which is the only trustworthy source.
+ */
+export const mailboxAccessPrincipalCondition = (subject: AccessSubject | null) =>
+  buildAccessPrincipalCondition({
+    subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
 
 type DbAccess = {
   id: string;
@@ -159,30 +183,12 @@ const getMailboxPermissionForLifecycle = async (
   `;
   if (mailbox?.exists !== true) return "none";
 
-  const userId = context.accessSubject.type === "user" ? context.accessSubject.userId : null;
-  const serviceAccountId = context.accessSubject.type === "service_account" ? context.accessSubject.serviceAccountId : null;
   const [row] = await db<{ permission: PermissionLevel }[]>`
-      WITH RECURSIVE subject_groups(group_id, path) AS (
-        SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
-        FROM auth.user_groups_v2 ug
-        WHERE ug.user_id = ${userId}::uuid
-
-        UNION ALL
-
-        SELECT gg.parent_group_id, sg.path || gg.parent_group_id
-        FROM auth.group_groups_v2 gg
-        JOIN subject_groups sg ON sg.group_id = gg.child_group_id
-        WHERE NOT gg.parent_group_id = ANY(sg.path)
-      )
       SELECT a.permission
       FROM mail.mailbox_access ma
       JOIN auth.access a ON a.id = ma.access_id
       WHERE ma.mailbox_id = ${mailboxId}::uuid
-        AND (
-          a.user_id = ${userId}::uuid
-          OR a.service_account_id = ${serviceAccountId}::uuid
-          OR a.group_id IN (SELECT group_id FROM subject_groups)
-        )
+        AND ${mailboxAccessPrincipalCondition(context.accessSubject)}
       ORDER BY CASE a.permission
         WHEN 'admin' THEN 3
         WHEN 'write' THEN 2
