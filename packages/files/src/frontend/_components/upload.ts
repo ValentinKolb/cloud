@@ -35,6 +35,7 @@ const MAX_CONCURRENT_FILES = 3;
 
 type UploadStartResponse = {
   uploadId: string;
+  uploadTicket: string;
   totalChunks: number;
   chunkSize: number;
   uploadedChunks: number[];
@@ -53,6 +54,7 @@ const isUploadStartResponse = (value: unknown): value is UploadStartResponse => 
   if (!isObject(value)) return false;
   return (
     typeof value["uploadId"] === "string" &&
+    typeof value["uploadTicket"] === "string" &&
     typeof value["totalChunks"] === "number" &&
     typeof value["chunkSize"] === "number" &&
     Array.isArray(value["uploadedChunks"]) &&
@@ -131,7 +133,7 @@ export function createUploadManager() {
       if (!isUploadStartResponse(uploadData)) {
         throw new Error("Failed to start upload");
       }
-      const { uploadId } = uploadData;
+      const { uploadId, uploadTicket } = uploadData;
 
       await upload.sendAll({
         retries: 3,
@@ -141,7 +143,10 @@ export function createUploadManager() {
 
           const chunkRes = await fetch(`/api/files/${baseType}/${baseId}/upload/${uploadId}?index=${index}`, {
             method: "PUT",
-            headers: { "x-chunk-checksum": await upload.hash({ data }) },
+            headers: {
+              "x-chunk-checksum": await upload.hash({ data }),
+              "x-upload-ticket": uploadTicket,
+            },
             body: data,
             signal,
           });

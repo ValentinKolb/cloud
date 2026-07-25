@@ -30,6 +30,7 @@ import {
   UploadIdParamSchema,
 } from "@/contracts";
 import { filesService } from "../service";
+import { signUploadTicket, verifyUploadTicket } from "../service/upload-ticket";
 
 /**
  * Resolves the requested file base and verifies access for the current user before running file operations.
@@ -539,6 +540,7 @@ const app = new Hono<AuthContext>()
     v("json", ChunkedUploadStartSchema),
     async (c) => {
       const { path } = c.req.valid("query");
+      const { baseType, baseId } = c.req.valid("param");
       const body = c.req.valid("json");
 
       const { base, error } = await requireBaseAccess(c);
@@ -552,8 +554,17 @@ const app = new Hono<AuthContext>()
         checksum: body.checksum,
         chunkSize: body.chunkSize,
       });
+      if (!result.ok) return respond(c, result);
 
-      return respond(c, result);
+      // The base is authorized here and nowhere else in the chunk loop, so the
+      // ticket is issued now and re-checked on every chunk.
+      return respond(c, {
+        ok: true,
+        data: {
+          ...result.data,
+          uploadTicket: signUploadTicket({ uploadId: result.data.uploadId, baseType, baseId }),
+        },
+      });
     },
   )
 
@@ -578,13 +589,23 @@ const app = new Hono<AuthContext>()
     v("query", ChunkedUploadChunkQuerySchema),
     v("header", ChunkHeaderSchema),
     async (c) => {
-      const { uploadId } = c.req.valid("param");
+      const { uploadId, baseType, baseId } = c.req.valid("param");
       const { index } = c.req.valid("query");
-      const checksum = c.req.valid("header")["x-chunk-checksum"];
+      const headers = c.req.valid("header");
+      const checksum = headers["x-chunk-checksum"];
 
-      // Verify access to the base (upload session is tied to a base)
+      // Two separate questions. First: may the caller write to the base named
+      // in the URL?
       const { base, error } = await requireBaseAccess(c);
       if (error || !base) return error!;
+
+      // Second: does this upload session actually belong to that base? Filegate
+      // derives the upload id from the target path, so it is guessable — without
+      // this check a caller could point their own base at somebody else's
+      // in-flight session and write chunks into it.
+      if (!verifyUploadTicket({ uploadId, baseType, baseId, ticket: headers["x-upload-ticket"] })) {
+        return respond(c, { ok: false, error: "Upload session does not belong to this base", status: 403 });
+      }
 
       const body = await c.req.blob();
       const result = await filesService.upload.chunk({

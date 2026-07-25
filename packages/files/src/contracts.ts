@@ -49,6 +49,7 @@ export const UploadHeaderSchema = z.object({
 
 export const ChunkHeaderSchema = z.object({
   "x-chunk-checksum": z.string().regex(SHA256_CHECKSUM_REGEX).optional(),
+  "x-upload-ticket": z.string().describe("Ticket issued when the upload session was started"),
 });
 
 // Local Zod schemas for OpenAPI documentation (compatible with Filegate types)
@@ -158,12 +159,16 @@ export type ChunkedUploadStart = z.infer<typeof ChunkedUploadStartSchema>;
 // Response schema for chunked upload start (OpenAPI documentation)
 export const ChunkedUploadStartResponseSchema = z.object({
   uploadId: z.string().describe("Unique upload session ID"),
+  uploadTicket: z.string().describe("Proof that this session belongs to the authorized base; send as x-upload-ticket"),
   totalChunks: z.number().describe("Total number of chunks expected"),
   chunkSize: z.number().describe("Size of each chunk"),
   uploadedChunks: z.array(z.number()).describe("Already uploaded chunk indices (for resume)"),
   completed: z.literal(false),
 });
 export type ChunkedUploadStartResponse = z.infer<typeof ChunkedUploadStartResponseSchema>;
+
+/** What filegate reports back; the API layer adds the ticket on top. */
+export type ChunkedUploadSession = Omit<ChunkedUploadStartResponse, "uploadTicket">;
 
 // Query schema for uploading a chunk
 export const ChunkedUploadChunkQuerySchema = z.object({

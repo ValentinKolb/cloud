@@ -6,7 +6,7 @@ import type {
   FileInfoResponse,
   MutationResult,
   SearchResult,
-  ChunkedUploadStartResponse,
+  ChunkedUploadSession,
   ChunkedUploadResponse,
   MoveTargetResult,
   TransferResult,
@@ -461,7 +461,7 @@ export const chunkedUploadStart = async (params: {
   size: number;
   checksum: string;
   chunkSize: number;
-}): Promise<MutationResult<ChunkedUploadStartResponse>> => {
+}): Promise<MutationResult<ChunkedUploadSession>> => {
   const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
