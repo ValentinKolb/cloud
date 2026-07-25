@@ -66,7 +66,8 @@ describe("admin CLI", () => {
               appId: "contacts",
               count: 12,
               errors: 1,
-              lastSeen: "2026-06-29T09:59:00.000Z",
+              slow: 2,
+              avgDurationMs: 18.5,
             },
           ],
         }),
@@ -75,17 +76,20 @@ describe("admin CLI", () => {
 
     await adminCli.run(ctx);
 
-    expect(calls[0]?.path).toBe("/api/gateway/routes?search=api&app=contacts&errors=true&sort=errors");
+    // The default traffic window is part of the request now; route counts are
+    // windowed rather than cumulative since the router booted.
+    expect(calls[0]?.path).toBe("/api/gateway/routes?search=api&app=contacts&errors=true&sort=errors&range=24h");
     expect(tables[0]).toEqual([
       {
         prefix: "/app/contacts",
         app: "contacts",
         requests: 12,
         errors: 1,
-        lastSeen: "2026-06-29T09:59:00.000Z",
+        slow: 2,
+        avgMs: "19ms",
       },
     ]);
-    expect(tableColumns[0]?.map((column) => column.key)).toEqual(["prefix", "app", "requests", "errors", "lastSeen"]);
+    expect(tableColumns[0]?.map((column) => column.key)).toEqual(["prefix", "app", "requests", "errors", "slow", "avgMs"]);
   });
 
   test("reads raw Prometheus metrics", async () => {
