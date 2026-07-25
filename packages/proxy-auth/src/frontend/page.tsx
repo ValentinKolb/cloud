@@ -1,5 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
+import { formatDate } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { proxyAuthHelp } from "@/help";
@@ -13,14 +14,6 @@ export default ssr<AuthContext>(async (c) => {
   const { items: clients } = await proxyAuthService.client.list();
   const rawAppUrl = await get<string>("app.url");
   const baseUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
-
-  const formatDate = (dateStr: string) => {
-    return new Intl.DateTimeFormat("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }).format(new Date(dateStr));
-  };
 
   const totalAllowedGroups = clients.reduce((sum, c) => sum + c.allowedGroups.length, 0);
   const clientsWithoutGroups = clients.filter((c) => c.allowedGroups.length === 0).length;
