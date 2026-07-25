@@ -1,6 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { spacesService } from "@/service";
 import { ssr } from "../config";
 import { spacesHelp } from "../help";

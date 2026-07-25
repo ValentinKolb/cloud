@@ -10,7 +10,7 @@ import { Avatar, DataTable, type DataTableColumn, Placeholder } from "@valentink
 import { dates } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js/jsx-runtime";
 import type { BaseGroup } from "@/contracts";
-import { expectUserBackedActor } from "@/shared/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../config";
 import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";

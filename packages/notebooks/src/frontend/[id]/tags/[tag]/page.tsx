@@ -11,7 +11,7 @@ import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { AppWorkspace, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { notebookHelp } from "@/help";
 import { notebooksService } from "@/service";
 import { ssr } from "../../../../config";

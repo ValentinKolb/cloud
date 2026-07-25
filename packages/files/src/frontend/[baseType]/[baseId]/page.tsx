@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import type { DirectoryListing, FileBaseInfo, FileInfo } from "@/contracts";
 import { filesService } from "@/service";
 import { ssr } from "../../../config";

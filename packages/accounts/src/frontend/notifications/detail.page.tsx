@@ -11,7 +11,7 @@ import { formatNumber } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Avatar, DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
-import { expectUserBackedActor } from "@/shared/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import NotificationBatchActions from "./NotificationBatchActions.island";

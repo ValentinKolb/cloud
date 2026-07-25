@@ -1,5 +1,4 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
-import { getSearchUser } from "./actor";
 import { filesService } from "./service";
 
 const SEARCH_TAGS = ["file", "folder", "directory", "image", "excel", "pdf"] as const;
@@ -63,7 +62,7 @@ const TAG_FILTERS: Record<string, (f: FileLike) => boolean> = {
 };
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = getSearchUser(input.ctx);
+  const user = input.user;
   if (!supportsFilesApp(user)) return [];
 
   const tagPredicates = input.tags.map((t) => TAG_FILTERS[t]).filter((p): p is (f: FileLike) => boolean => Boolean(p));

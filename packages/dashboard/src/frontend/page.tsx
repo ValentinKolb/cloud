@@ -7,7 +7,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { Placeholder, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { dashboardHelp } from "@/help";
 import { ssr } from "../config";
 import { dashboardSettingsService } from "../service";

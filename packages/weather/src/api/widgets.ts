@@ -2,7 +2,7 @@ import type { WidgetBlock, WidgetListItem, WidgetResponse } from "@valentinkolb/
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { logger, weatherService } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
-import { getUserBackedActor } from "../actor";
+import { getUserBackedActor } from "@valentinkolb/cloud/server";
 
 const log = logger("weather");
 

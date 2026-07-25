@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import type { FileBaseInfo, FileInfo, SearchResult } from "@/contracts";
 import { filesService } from "@/service";
 import { ssr } from "../../config";

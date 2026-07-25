@@ -1,4 +1,5 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import { pulseHelp } from "../help";
@@ -7,7 +8,7 @@ import PulseLayoutHelp from "./PulseLayoutHelp.island";
 import PulseOverview from "./PulseOverview.island";
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const url = new URL(c.req.raw.url);
   const [basesResult, capabilitiesResult] = await Promise.all([pulseService.base.list(user), pulseService.capabilities()]);
   const bases = basesResult.ok ? basesResult.data : [];

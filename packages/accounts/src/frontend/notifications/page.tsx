@@ -4,7 +4,7 @@ import { formatNumber } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
-import { expectUserBackedActor } from "@/shared/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import NewNotificationBatch from "./NewNotificationBatch.island";

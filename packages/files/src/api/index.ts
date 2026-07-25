@@ -2,7 +2,7 @@ import { type AuthContext, auth, jsonResponse, requiresIpaUser, respond, v } fro
 import { err, fail, ok } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import {
   ChunkHeaderSchema,
   ChunkedUploadChunkQuerySchema,

@@ -1,6 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import { renderFilesBasePage } from "../[baseType]/[baseId]/page";
 import { decodeHomeSegments, filePageUrl } from "../url";

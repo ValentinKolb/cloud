@@ -1,4 +1,5 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../config";
 import { pulseHelp } from "../../../help";
 import { pulseService } from "../../../service";
@@ -7,7 +8,7 @@ import { readReferenceTab } from "../../query-reference-tabs";
 
 export default ssr<AuthContext>(async (c) => {
   c.get("page").title = "Pulse query reference";
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const baseId = c.req.param("baseId") ?? "";
   const includeDashboardDsl = c.req.query("dashboardDsl") === "1";
   const initialTab = readReferenceTab(c.req.query("tab") ?? null, includeDashboardDsl);
@@ -29,7 +30,9 @@ export default ssr<AuthContext>(async (c) => {
     pulseService.query.fields(baseResult.data.id, user, { limit: 500 }),
   ]);
   const metrics = metricsResult.ok ? metricsResult.data : [];
-  const seriesResults = await Promise.all(metrics.map((metric) => pulseService.query.series(baseResult.data.id, user, { metric: metric.name })));
+  const seriesResults = await Promise.all(
+    metrics.map((metric) => pulseService.query.series(baseResult.data.id, user, { metric: metric.name })),
+  );
   const series = seriesResults.flatMap((result) => (result.ok ? result.data : []));
 
   return () => (

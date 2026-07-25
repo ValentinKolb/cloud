@@ -84,26 +84,25 @@ type AccessSubject =
 ```typescript
 const actor = c.get("actor");                 // which credential acted
 const accessSubject = c.get("accessSubject"); // whose grants to check
-const user = c.get("user");                   // compatibility: user + delegated only
 const token = c.get("sessionToken");          // browser session token, if cookie/session auth
 ```
 
-### `c.get("user")` is the legacy path
+### There is no `c.get("user")`
 
-Before service accounts existed, the middleware resolved a request to one thing: a `User`. That path still exists for compatibility, and it is why old code keeps working — but it cannot express a caller that has no user.
+Before service accounts existed, the middleware resolved a request to one thing: a `User`. That variable is gone from app code — `check:boundaries` fails on it — because it cannot express a caller that has no user, and because it was typed `User` while being `undefined` for a resource-bound principal. Code written against it compiled, passed review, and silently excluded every API key.
 
-> **The `user` context variable is declared `User`, but it is `User | undefined` in practice.** A resource-bound service account has no user at all, so `c.get("user")` is `undefined` while TypeScript insists it is not. The framework guards this internally before calling into search providers. Nothing warns you.
->
-> That is the whole problem: a permission check written against `c.get("user")` **compiles, passes review, and silently rejects every API key and OAuth service token** — or worse, dereferences `undefined` in production.
+When a feature genuinely needs the user — roles, display name, avatar — derive it **from the actor**:
 
-**Default to `actor` and `accessSubject` for anything that makes a decision.** Reach for `c.get("user")` only when both of these hold:
+```typescript
+import { expectUserBackedActor, userFromActor } from "@valentinkolb/cloud/server";
 
-- the route is explicitly gated to a user-backed role (`auth.requireRole("user")`, `"admin"`, …), **and**
-- the feature is genuinely personal — profile data, roles, ownership changes, personal catalogs, Global Search.
+const user = expectUserBackedActor(c);   // throws; for routes already gated to a user-backed role
+const maybe = userFromActor(c.get("actor")); // User | null
+```
 
-Those are the surfaces that *must* stay user-backed. Everywhere else — resource reads and writes, listings, settings, sharing, exports — has to work for a user, a user-bound key, and a resource-bound principal alike, which means `accessSubject`.
+The user stays reachable. What is no longer possible is reaching it *without* the credential context — which is what silently disabled a scope cap in one app and pushed a session token into page HTML in another.
 
-Never invent a fake user for a resource-bound service account to make an old signature fit. That is precisely the bug this model exists to prevent; pass `actor` and `accessSubject` into the service instead and widen the signature.
+**For authorization, do not derive a user at all.** Pass `c.get("accessSubject")` into the shared access helpers: it already normalises a user-bound credential to its user, which is the whole point. A user-bound API key **is** that user and must behave identically everywhere.
 
 The same split runs through the whole API surface. When a helper offers both shapes, the one taking `subject`/`accessSubject` is the current one — see `getEffectivePermission` below, whose `userId`, `serviceAccountId`, and `userGroups` parameters are all deprecated.
 

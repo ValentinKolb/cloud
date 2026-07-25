@@ -4,7 +4,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { getUserBackedActor } from "../actor";
+import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { CurrentWeatherSchema, WeatherDataSchema } from "../contracts";
 import { weatherHelp } from "../help";
 import { weatherSettingsRouter } from "./settings";

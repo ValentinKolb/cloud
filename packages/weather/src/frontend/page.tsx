@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppOverview } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { weatherHelp } from "@/help";
 import { ssr } from "../config";
 import WeatherLayoutHelp from "./_components/help/WeatherLayoutHelp.island";

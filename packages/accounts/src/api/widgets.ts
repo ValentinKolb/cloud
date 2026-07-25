@@ -3,7 +3,7 @@ import { hasRole } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { accountsAppService } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
-import { getUserBackedActor } from "@/shared/actor";
+import { getUserBackedActor } from "@valentinkolb/cloud/server";
 
 /**
  * Admin queue widget — pending account requests + accounts expiring soon.

@@ -2,12 +2,10 @@ import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contra
 import { type MailRequestContext, mailboxes, search } from "./service";
 
 const runSearch = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = input.ctx.get("user");
-  if (!user?.roles.includes("user") || !input.query.trim()) return [];
-  const context: MailRequestContext = {
-    actor: { kind: "user", user },
-    accessSubject: { type: "user", userId: user.id },
-  };
+  if (!input.user.roles.includes("user") || !input.query.trim()) return [];
+  // Carry the real actor through: rebuilding it as kind:"user" would drop the
+  // credential context and silently disable the scope cap.
+  const context: MailRequestContext = { actor: input.actor, accessSubject: input.accessSubject };
   const mailboxResult = await mailboxes.listMailboxes(context, 20);
   if (!mailboxResult.ok) return [];
   const pages: Array<{

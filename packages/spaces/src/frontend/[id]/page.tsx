@@ -1,7 +1,7 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Placeholder } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import { spacesHelp } from "../../help";
 import SpacesLayoutHelp from "../_components/help/SpacesLayoutHelp.island";

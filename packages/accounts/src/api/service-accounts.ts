@@ -12,7 +12,7 @@ import {
   PaginationResponseSchema,
   parsePagination,
 } from "@/contracts";
-import { expectUserBackedActor } from "@/shared/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 
 const ServiceAccountKindSchema = z.enum(["user_delegated", "resource_bound"]);
 const CredentialStatusSchema = z.enum(["active", "revoked"]);

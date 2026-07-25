@@ -4,7 +4,7 @@ import { canManageGroup, getDefaultGroupScope, isAdminUser } from "@valentinkolb
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js/jsx-runtime";
 import { createPagination } from "@/contracts";
-import { expectUserBackedActor } from "@/shared/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../config";
 import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";

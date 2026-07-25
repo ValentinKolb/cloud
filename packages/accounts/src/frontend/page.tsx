@@ -4,7 +4,7 @@ import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Avatar, LinkCard, LogEntriesTable, ProgressBar, StatCell } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
-import { expectUserBackedActor } from "@/shared/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../config";
 import AccountsWorkspace from "./AccountsWorkspace";
 import AdminOperations from "./dashboard/AdminOperations.island";

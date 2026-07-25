@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { weatherHelp } from "@/help";
 import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";

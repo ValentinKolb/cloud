@@ -1,4 +1,4 @@
-import type { Role, User } from "./shared";
+import type { AccessSubject, RequestActor, Role, User } from "./shared";
 import type { DashboardWidgetPresentation } from "./widgets";
 
 /**
@@ -123,15 +123,20 @@ export type AppLifecycle = {
 
 export type SearchPriority = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
-export type AppSearchContext = {
-  get: <K extends "user" | "sessionToken">(key: K) => K extends "user" ? User : string;
-};
-
 export type AppSearchInput = {
   query: string;
   tags: string[];
   limit: number;
-  ctx: AppSearchContext;
+  /**
+   * The acting user. Non-optional because Core rejects any actor without one
+   * before provider fanout — search is user-backed, and a user-bound API key
+   * is simply that user.
+   */
+  user: User;
+  /** The credential that acted. Use it only when provenance genuinely matters. */
+  actor: RequestActor;
+  /** Whose grants to check. Pass this into the shared access helpers. */
+  accessSubject: AccessSubject;
 };
 
 export type AppSearchMetadataEntry = {

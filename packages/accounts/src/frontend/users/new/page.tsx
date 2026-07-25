@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { expectUserBackedActor } from "@/shared/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../config";
 import AccountsWorkspace from "../../AccountsWorkspace";
 import DenyRequest from "../DenyRequest.island";

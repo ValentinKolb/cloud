@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { CalendarView, ResourceApiKey } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import { venueHelp } from "../../help";
 import { venueService } from "../../service";

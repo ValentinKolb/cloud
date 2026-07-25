@@ -2,7 +2,7 @@ import type { WidgetBlock, WidgetListItem, WidgetResponse, WidgetTone } from "@v
 import { type AuthContext, auth, getDateConfig } from "@valentinkolb/cloud/server";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
-import { getUserBackedActor } from "@/actor";
+import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { buildSpaceItemHref } from "../routes";
 import { spacesService } from "../service";
 

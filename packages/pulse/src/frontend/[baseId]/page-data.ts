@@ -1,4 +1,4 @@
-import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
+import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { get as getSetting } from "@valentinkolb/cloud/services";
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
@@ -340,7 +340,7 @@ const loadResourceInitialData = async (
 };
 
 export async function loadPulseWorkspacePageData<T extends AuthContext>(c: PulseWorkspacePageContext<T>): Promise<PulseWorkspacePageData> {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const url = new URL(c.req.raw.url);
   const baseId = c.req.param("baseId") ?? "";
   const [basesResult, baseResult, capabilitiesResult] = await Promise.all([

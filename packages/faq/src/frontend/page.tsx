@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
-import { getUserBackedActor } from "@/actor";
+import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { faqHelp } from "@/help";
 import { ssr } from "../config";
 import { faqService } from "../service";

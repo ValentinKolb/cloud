@@ -1,5 +1,4 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
-import { getSearchUser } from "@/actor";
 import { buildSpaceItemHref } from "./routes";
 import type { ItemAcrossKind } from "./service";
 import { spacesService } from "./service";
@@ -20,7 +19,7 @@ const SEARCH_TAG_HELP = [
 ] as const;
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = getSearchUser(input.ctx);
+  const user = input.user;
   if (!user.roles.includes("user")) return [];
 
   const tags = new Set(input.tags);

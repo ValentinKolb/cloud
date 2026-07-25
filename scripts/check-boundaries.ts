@@ -226,6 +226,44 @@ const checkCliOutputModes = (): Violation[] => {
 
 violations.push(...checkCliOutputModes());
 
+/**
+ * `c.get("user")` is the pre-service-account path. It is typed `User` but is
+ * `undefined` for a resource-bound principal, so a check written against it
+ * compiles, passes review, and silently excludes API keys and OAuth service
+ * tokens — or dereferences undefined in production.
+ *
+ * Apps read `c.get("actor")` and `c.get("accessSubject")` instead. When a
+ * feature genuinely needs the user — roles, display name — derive it from the
+ * actor with `expectUserBackedActor` / `userFromActor`.
+ */
+const checkActorUsage = (): Violation[] => {
+  const violations: Violation[] = [];
+
+  for (const appName of APP_PACKAGE_NAMES) {
+    // core owns the auth surface and the personal /me pages — it is the
+    // compatibility layer this rule exists to keep everyone else out of.
+    if (appName === "core") continue;
+
+    for (const file of readFiles(join(workspaceRoot, "packages", appName, "src"))) {
+      if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
+      const lines = readFileSync(file, "utf8").split("\n");
+      lines.forEach((line, index) => {
+        if (!line.includes('get("user")')) return;
+        violations.push({
+          file,
+          line: index + 1,
+          specifier: 'c.get("user")',
+          message: "Apps authorize through actor/accessSubject. For the acting user use expectUserBackedActor from @valentinkolb/cloud/server.",
+        });
+      });
+    }
+  }
+
+  return violations;
+};
+
+violations.push(...checkActorUsage());
+
 if (violations.length > 0) {
   console.error("Boundary check failed:\n");
   for (const violation of violations) {

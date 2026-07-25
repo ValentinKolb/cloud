@@ -2,7 +2,7 @@ import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/clo
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { getUserBackedActor } from "../actor";
+import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { dashboardHelp } from "../help";
 import { dashboardSettingsService } from "../service";
 import {

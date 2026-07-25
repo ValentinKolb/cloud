@@ -371,3 +371,25 @@ export type SettingEntry = {
   min?: number;
   max?: number;
 };
+
+// ── Request model ───────────────────────────────────────────────────────────
+// `RequestActor` answers "which credential acted?", `AccessSubject` answers
+// "whose grants should be checked?". They differ for a user-bound credential:
+// the actor is a service account, the subject is its user.
+
+export type UserRequestActor = { kind: "user"; user: User };
+
+export type ServiceAccountRequestActor = {
+  kind: "service_account";
+  serviceAccount: ServiceAccount;
+  delegatedUser: User | null;
+  scopes: string[];
+  credentialId?: string | null;
+  credentialExpiresAt?: string | null;
+};
+
+export type RequestActor = UserRequestActor | ServiceAccountRequestActor;
+
+export type AccessSubject =
+  | { type: "user"; userId: string; delegatedByServiceAccountId?: string | null }
+  | { type: "service_account"; serviceAccountId: string };

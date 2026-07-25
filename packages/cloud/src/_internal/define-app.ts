@@ -10,17 +10,16 @@ import { createConfig as createSsrConfig } from "@valentinkolb/ssr";
 import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
+import { env } from "../config/env";
 import type {
   AppAdminNavigationGroup,
   AppAppearance,
   AppCapabilities,
   AppLifecycle,
   AppMeta,
-  AppSearchContext,
   CloudContext,
   WidgetEndpoint,
 } from "../contracts/app";
-import { env } from "../config/env";
 import { type BoundNotificationMap, bindNotificationDefinitions, type NotificationDefinitionMap } from "../contracts/notification-types";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
@@ -401,8 +400,14 @@ export const defineApp = <
           return c.json({ message: "Search providers require a user-backed actor", code: "FORBIDDEN" }, 403);
         }
         const body = await c.req.json<{ query: string; tags: string[]; limit: number }>();
-        const ctx: AppSearchContext = { get: (key) => c.get(key) as never };
-        const results = await searchRun({ query: body.query, tags: body.tags, limit: body.limit, ctx });
+        const results = await searchRun({
+          query: body.query,
+          tags: body.tags,
+          limit: body.limit,
+          user: c.get("user"),
+          actor: c.get("actor"),
+          accessSubject: c.get("accessSubject"),
+        });
         return c.json(results);
       });
     }

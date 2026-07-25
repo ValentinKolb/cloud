@@ -1,5 +1,4 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
-import { getSearchUser } from "@/actor";
 import { contactsService } from "./service";
 import { resolveContactName } from "./shared";
 
@@ -30,7 +29,7 @@ const FACET_OVERFETCH_MULTIPLIER = 5;
 const FACET_OVERFETCH_CAP = 200;
 
 const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = getSearchUser(input.ctx);
+  const user = input.user;
   if (!supportsContactsApp(user.roles)) return [];
 
   const tags = new Set(input.tags);

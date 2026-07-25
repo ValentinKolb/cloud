@@ -5,7 +5,7 @@ import { formatDateTime, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
-import { expectUserBackedActor } from "@/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import { gatewayOpsHelp } from "../../help";

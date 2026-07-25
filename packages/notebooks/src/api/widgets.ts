@@ -2,7 +2,7 @@ import type { WidgetListItem, WidgetResponse } from "@valentinkolb/cloud/contrac
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { dates } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
-import { getUserBackedActor } from "@/actor";
+import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { notebooksService } from "../service";
 
 const RECENT_LIMIT = 5;

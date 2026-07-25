@@ -1,5 +1,6 @@
 import { aiConversationStore, aiUserPrefs, listAiModels, loadAiStreamState, toPublicAiSettingsState } from "@valentinkolb/cloud/ai";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import { assistantHelp } from "../help";
@@ -8,7 +9,7 @@ import AssistantWorkspace from "./AssistantWorkspace.island";
 import { resolveInitialConversation } from "./initial-conversation";
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const url = new URL(c.req.raw.url);
   const requestedConversationId = url.searchParams.get("conversation") ?? undefined;
   const initialArtifactPath = url.searchParams.get("artifact");

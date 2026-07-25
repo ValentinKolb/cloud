@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { createPagination, ErrorResponseSchema, PaginationQuerySchema, PaginationResponseSchema, parsePagination } from "@/contracts";
-import { expectUserBackedActor } from "@/shared/actor";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 
 const BatchStatusSchema = z.enum(["draft", "ready", "running", "completed", "completed_with_errors", "failed", "cancelled"]);
 const RecipientStatusSchema = z.enum(["pending", "sending", "sent", "skipped", "error"]);
