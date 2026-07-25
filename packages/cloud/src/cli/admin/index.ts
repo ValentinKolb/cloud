@@ -10,12 +10,12 @@ import { dataCommands } from "./data";
 import { gatewayCommands } from "./gateway";
 import { instanceCommands } from "./instance";
 import { jobCommands } from "./jobs";
-import { workflowCommands } from "./workflows";
 import { logCommands } from "./logs";
 import { metricsCommands } from "./metrics";
 import { notificationCommands } from "./notifications";
 import { telemetryCommands } from "./telemetry";
 import { webhookCommands } from "./webhooks";
+import { workflowCommands } from "./workflows";
 
 export default defineCliCommands({
   name: "admin",
