@@ -72,6 +72,23 @@ const actionContext = (ctx: WorkflowExecuteActionContext | WorkflowDryRunActionC
 /** Refused access is a failure of this step, not of the whole run. */
 const denied = (): WorkflowStepOutcome => ({ state: "failed", error: asError("not authorized to perform this action") });
 
+/**
+ * Stores a step's output under the name its config gives.
+ *
+ * A plan refers to an earlier step's result by name, so something has to put it
+ * there. Both apps did it inside every action — which meant every action also
+ * had to remember to do it again when a replay restored a recorded outcome, and
+ * an action that forgot produced a plan that silently resolved to nothing.
+ */
+const applySaveAs = (
+  ctx: { variables: { set(name: string, value: WorkflowJsonValue): void } },
+  step: WorkflowActionStep,
+  output: WorkflowJsonValue | undefined,
+): void => {
+  const name = step.config.saveAs;
+  if (typeof name === "string" && name && output !== undefined) ctx.variables.set(name, output);
+};
+
 export type WorkflowActionPortOptions = {
   /** Charged against the root of a fan-out, so children share one allowance. */
   budget?: boolean;
@@ -219,7 +236,16 @@ export const createWorkflowActionPort = (
   get: (name) => {
     const action = actions[name];
     if (!action) return undefined;
-    return { execute: (ctx, step) => runDeclaredAction(action, ctx, step, options) };
+    return {
+      execute: async (ctx, step) => {
+        const outcome = await runDeclaredAction(action, ctx, step, options);
+        if (outcome.state === "completed") applySaveAs(ctx, step, outcome.output);
+        return outcome;
+      },
+      // A restored outcome has to land in the same variable the first attempt
+      // would have written, or every step after it resolves to nothing.
+      restoreCompleted: (ctx, step, outcome) => applySaveAs(ctx, step, outcome.output),
+    };
   },
 });
 
@@ -257,20 +283,24 @@ export const createWorkflowDryRunPort = (actions: WorkflowActionMap): WorkflowDr
     const action = actions[name];
     if (!action) return undefined;
     return {
+      restoreCompleted: (ctx, step, outcome) => applySaveAs(ctx, step, outcome.output),
       plan: async (ctx: WorkflowDryRunActionContext, step: WorkflowActionStep) => {
         const config = await resolveConfig(ctx, step);
         const context = actionContext(ctx, workflowEffectKey(ctx.run.runId, ctx.step.key));
 
         if (action.effect === "pure") {
           const result = await action.run(context, config as never);
-          return result.state === "succeeded"
-            ? { state: "planned" as const, output: (result.output ?? null) as WorkflowJsonValue, effects: [] }
-            : { state: "terminal" as const, status: "failed" as const, message: result.message, effects: [] };
+          if (result.state !== "succeeded") {
+            return { state: "terminal" as const, status: "failed" as const, message: result.message, effects: [] };
+          }
+          applySaveAs(ctx, step, (result.output ?? undefined) as WorkflowJsonValue | undefined);
+          return { state: "planned" as const, output: (result.output ?? null) as WorkflowJsonValue, effects: [] };
         }
 
         if (!action.plan) return { state: "unsupported" as const, reason: `${name} cannot be planned` };
 
         const planned = await action.plan(context, config as never);
+        applySaveAs(ctx, step, (planned.output ?? undefined) as WorkflowJsonValue | undefined);
         return {
           state: "planned" as const,
           output: (planned.output ?? null) as WorkflowJsonValue,

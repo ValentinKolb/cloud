@@ -51,9 +51,14 @@ const plan = (actions: string[], steps: WorkflowIrStep[]): WorkflowBoundPlan => 
   bindings: {},
 });
 
-const step = (action: string): WorkflowIrStep => ({ kind: "action", action, config: { to: "a@b.c" }, sourcePath: ["steps", 0] });
+const step = (action: string, extra: Record<string, string> = {}): WorkflowIrStep => ({
+  kind: "action",
+  action,
+  config: { to: "a@b.c", ...extra },
+  sourcePath: ["steps", 0],
+});
 
-const queued = async (action: string, effectBudget: Record<string, number> = {}) => {
+const queued = async (action: string, effectBudget: Record<string, number> = {}, extraConfig: Record<string, string> = {}) => {
   const appId = `decl-${crypto.randomUUID().slice(0, 8)}`;
   const scopeId = `scope-${crypto.randomUUID()}`;
   const workflow = await createWorkflow({ appId, scopeId, key: "wf", name: "Declared", author: { kind: "system" } });
@@ -61,7 +66,7 @@ const queued = async (action: string, effectBudget: Record<string, number> = {})
     workflowId: workflow.id,
     source: "probe",
     sourceHash: hex(scopeId),
-    plan: plan([action], [step(action)]),
+    plan: plan([action], [step(action, extraConfig)]),
     languageId: "probe",
     languageVersion: 1,
     manifestHash: hex("manifest"),
@@ -70,7 +75,7 @@ const queued = async (action: string, effectBudget: Record<string, number> = {})
     activations: [{ key: "t0", eventType: "probe.declared" }],
   });
   const emission = await emitWorkflowEvent({ appId, scopeId, type: "probe.declared" }, { dispatch: "now" });
-  return { runId: emission.runIds[0]!, appId };
+  return { runId: emission.runIds[0]!, appId, workflowId: workflow.id };
 };
 
 const effectRow = async (runId: string) => {
@@ -393,6 +398,29 @@ describe("declared actions", () => {
     await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
     expect(seen.actor).toBeDefined();
     expect(seen.context).toBeDefined();
+  });
+
+  test("a step's output lands under the name its config gives", async () => {
+    if (!(await ready())) return;
+    const { runId, workflowId } = await queued("probe.saved", {}, { saveAs: "created" });
+
+    const actions = {
+      "probe.saved": workflowAction.pure({
+        label: "Make",
+        description: "Makes something.",
+        config: CONFIG,
+        run: async () => ({ state: "succeeded", output: { id: "made-1" } }),
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+
+    // Both apps did this inside every action, which meant every action also had
+    // to remember to redo it when a replay restored a recorded outcome.
+    const detail = await getWorkflowRun(runId);
+    expect(detail?.state).toBe("succeeded");
+    expect(JSON.stringify(detail?.steps[0]?.state)).toContain("completed");
+    expect(workflowId).toBeDefined();
   });
 
   test("an action the app never declared is a missing handler, not a crash", async () => {
