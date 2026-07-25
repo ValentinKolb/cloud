@@ -74,3 +74,11 @@ export {
   wakeExpiredWorkflowRuns,
   wakeWorkflowRunsWaitingOn,
 } from "./runs";
+export {
+  hasClaimableWorkflowRun,
+  runOneWorkflow,
+  tickWorkflows,
+  type WorkflowTickResult,
+  type WorkflowWorkerOptions,
+  type WorkflowWorkerOutcome,
+} from "./worker";

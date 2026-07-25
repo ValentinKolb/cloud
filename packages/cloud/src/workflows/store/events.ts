@@ -147,11 +147,14 @@ export const emitWorkflowEvent = async (
  */
 export const dispatchPendingWorkflowEvents = async (
   limit = 100,
-  options: { db?: SQL } = {},
+  options: { appId?: string; db?: SQL } = {},
 ): Promise<{ dispatched: number; failed: number }> => {
   const db = options.db ?? sql;
   const pending = await db<{ id: string }[]>`
-    SELECT id FROM workflows.event WHERE dispatched_at IS NULL ORDER BY occurred_at, id LIMIT ${limit}
+    SELECT id FROM workflows.event
+    WHERE dispatched_at IS NULL AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
+    ORDER BY occurred_at, id
+    LIMIT ${limit}
   `;
 
   let dispatched = 0;

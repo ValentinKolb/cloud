@@ -122,8 +122,9 @@ describe("workflow observability", () => {
 
   test("an effect that escaped is listed with its age", async () => {
     if (!(await ready())) return;
-    const { scopeId } = await listening("stranded-probe", "probe.stranded");
-    const emission = await emitWorkflowEvent({ appId: "stranded-probe", scopeId, type: "probe.stranded" }, { dispatch: "now" });
+    const appId = `stranded-${crypto.randomUUID().slice(0, 8)}`;
+    const { scopeId } = await listening(appId, "probe.stranded");
+    const emission = await emitWorkflowEvent({ appId, scopeId, type: "probe.stranded" }, { dispatch: "now" });
     const runId = emission.runIds[0]!;
 
     const claim = await claimWorkflowRun({ worker: "w1", runId });
@@ -132,7 +133,7 @@ describe("workflow observability", () => {
     await journal.startStep(sending);
     await beginWorkflowEffect(sending, `workflow:${runId}:step:send`);
 
-    const stranded = await listStrandedWorkflowEffects({ appId: "stranded-probe" });
+    const stranded = await listStrandedWorkflowEffects({ appId });
     expect(stranded).toHaveLength(1);
     expect(stranded[0]).toMatchObject({ runId, stepKey: "send", effectState: "executing", action: "probe.send" });
     expect(stranded[0]?.ageMs).toBeGreaterThanOrEqual(0);

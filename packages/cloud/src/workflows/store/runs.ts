@@ -24,6 +24,7 @@ import type {
   WorkflowCoordinatorPort,
   WorkflowCoordinatorReleaseState,
 } from "../runtime/coordinator";
+import { WorkflowLeaseLostError } from "../runtime/executor";
 import type {
   WorkflowHeartbeatOutcome,
   WorkflowRestoredStep,
@@ -241,6 +242,8 @@ export const countChildWorkflowRuns = async (
 export const claimWorkflowRun = async (options: {
   worker: string;
   runId?: string;
+  /** Restricts a worker to one app's runs, so a per-app process cannot drain another's. */
+  appId?: string;
   leaseMs?: number;
   db?: SQL;
 }): Promise<WorkflowRunClaim | null> => {
@@ -253,6 +256,7 @@ export const claimWorkflowRun = async (options: {
         AND claimable_at < now()
         AND cancel_requested_at IS NULL
         AND (${options.runId ?? null}::uuid IS NULL OR id = ${options.runId ?? null}::uuid)
+        AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
       ORDER BY claimable_at, created_at, id
       LIMIT 1
       FOR UPDATE SKIP LOCKED
@@ -390,6 +394,7 @@ export const requestWorkflowRunCancel = async (runId: string, options: { db?: SQ
 export const createWorkflowCoordinatorPort = (options: {
   worker: string;
   runId?: string;
+  appId?: string;
   leaseMs?: number;
 }): WorkflowCoordinatorPort<void, WorkflowRunClaim, WorkflowRunResult> => ({
   claim: () => claimWorkflowRun(options),
@@ -413,7 +418,7 @@ export const listClaimableWorkflowRunIds = async (limit: number, options: { db?:
 };
 
 /** Parked runs whose deadline has passed, so a dependency that never fires cannot strand them. */
-export const wakeExpiredWorkflowRuns = async (limit: number, options: { db?: SQL } = {}): Promise<string[]> => {
+export const wakeExpiredWorkflowRuns = async (limit: number, options: { appId?: string; db?: SQL } = {}): Promise<string[]> => {
   const db = options.db ?? sql;
   const rows = await db<{ id: string }[]>`
     UPDATE workflows.run
@@ -421,6 +426,7 @@ export const wakeExpiredWorkflowRuns = async (limit: number, options: { db?: SQL
     WHERE id IN (
       SELECT id FROM workflows.run
       WHERE state = 'waiting' AND wake_at IS NOT NULL AND wake_at <= now()
+        AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
       ORDER BY wake_at, id
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED
@@ -457,13 +463,15 @@ export const wakeWorkflowRunsWaitingOn = async (
 
 // ─── Journal ─────────────────────────────────────────────────────────────────
 
-/** Thrown when a step writes under a generation the run has moved past. */
-export class WorkflowLeaseLostError extends Error {
-  constructor(readonly runId: string) {
-    super(`workflow run ${runId} is no longer held by this worker`);
-    this.name = "WorkflowLeaseLostError";
-  }
-}
+/**
+ * Thrown when a step writes under a generation the run has moved past.
+ *
+ * Deliberately the executor's own class rather than a second one with the same
+ * name: the executor rethrows this and turns every *other* error into an action
+ * failure, so a private copy would have a lost lease recorded as a step that
+ * failed — on a run some other worker now owns.
+ */
+export { WorkflowLeaseLostError } from "../runtime/executor";
 
 /** The `state` column mirrors the outcome's own discriminant — no second vocabulary. */
 const stepState = (result: WorkflowRuntimeStepResult): string => result.outcome.state;
@@ -471,6 +479,13 @@ const stepState = (result: WorkflowRuntimeStepResult): string => result.outcome.
 const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort => {
   const db = options.db ?? sql;
 
+  /**
+   * Every journal write is fenced against the *run's* current generation, not
+   * the generation recorded on the step row. Matching the step's own value let
+   * a worker whose lease had lapsed still record an outcome, on a run someone
+   * else already owned — the step it had half-finished then looked complete to
+   * the worker that took over.
+   */
   const startStep = async (step: WorkflowRuntimeStepIdentity): Promise<void> => {
     const rows = await db<{ run_id: string }[]>`
       INSERT INTO workflows.step_outcome (
@@ -496,7 +511,7 @@ const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort 
           updated_at = now()
       RETURNING run_id
     `;
-    if (rows.length === 0) throw new WorkflowLeaseLostError(step.runId);
+    if (rows.length === 0) throw new WorkflowLeaseLostError();
   };
 
   /**
@@ -509,14 +524,17 @@ const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort 
   const parkStep = async (step: WorkflowRuntimeStepIdentity, dependency: WorkflowDependency): Promise<void> => {
     await db.begin(async (tx) => {
       const rows = await tx<{ run_id: string }[]>`
-        UPDATE workflows.step_outcome
+        UPDATE workflows.step_outcome AS s
         SET state = 'waiting', outcome = NULL, dependency = ${dependency}, finished_at = NULL, updated_at = now()
-        WHERE run_id = ${step.runId}::uuid
-          AND step_key = ${step.key}
-          AND execution_generation = ${step.executionGeneration}
-        RETURNING run_id
+        FROM workflows.run AS r
+        WHERE s.run_id = ${step.runId}::uuid
+          AND s.step_key = ${step.key}
+          AND r.id = s.run_id
+          AND r.state = 'running'
+          AND r.execution_generation = ${step.executionGeneration}
+        RETURNING s.run_id
       `;
-      if (rows.length === 0) throw new WorkflowLeaseLostError(step.runId);
+      if (rows.length === 0) throw new WorkflowLeaseLostError();
 
       const parked = await tx<{ id: string }[]>`
         UPDATE workflows.run
@@ -528,7 +546,7 @@ const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort 
         WHERE id = ${step.runId}::uuid AND execution_generation = ${step.executionGeneration} AND state = 'running'
         RETURNING id
       `;
-      if (parked.length === 0) throw new WorkflowLeaseLostError(step.runId);
+      if (parked.length === 0) throw new WorkflowLeaseLostError();
     });
   };
 
@@ -540,18 +558,21 @@ const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort 
       return;
     }
     const rows = await db<{ run_id: string }[]>`
-      UPDATE workflows.step_outcome
+      UPDATE workflows.step_outcome AS s
       SET state = ${stepState(result)},
           outcome = ${result},
           dependency = NULL,
           finished_at = now(),
           updated_at = now()
-      WHERE run_id = ${step.runId}::uuid
-        AND step_key = ${step.key}
-        AND execution_generation = ${step.executionGeneration}
-      RETURNING run_id
+      FROM workflows.run AS r
+      WHERE s.run_id = ${step.runId}::uuid
+        AND s.step_key = ${step.key}
+        AND r.id = s.run_id
+        AND r.state = 'running'
+        AND r.execution_generation = ${step.executionGeneration}
+      RETURNING s.run_id
     `;
-    if (rows.length === 0) throw new WorkflowLeaseLostError(step.runId);
+    if (rows.length === 0) throw new WorkflowLeaseLostError();
   };
 
   const restoreStepOutcome = async (step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null> => {
@@ -594,15 +615,20 @@ export const beginWorkflowEffect = async (
 ): Promise<void> => {
   const db = options.db ?? sql;
   const rows = await db<{ run_id: string }[]>`
-    UPDATE workflows.step_outcome
+    UPDATE workflows.step_outcome AS s
     SET effect_key = ${effectKey},
         effect_state = 'executing',
-        effect_started_at = COALESCE(effect_started_at, now()),
+        effect_started_at = COALESCE(s.effect_started_at, now()),
         updated_at = now()
-    WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key} AND execution_generation = ${step.executionGeneration}
-    RETURNING run_id
+    FROM workflows.run AS r
+    WHERE s.run_id = ${step.runId}::uuid
+      AND s.step_key = ${step.key}
+      AND r.id = s.run_id
+      AND r.state = 'running'
+      AND r.execution_generation = ${step.executionGeneration}
+    RETURNING s.run_id
   `;
-  if (rows.length === 0) throw new WorkflowLeaseLostError(step.runId);
+  if (rows.length === 0) throw new WorkflowLeaseLostError();
 };
 
 /** Settles an effect once its fate is known. `ambiguous` is a real answer, not a failure. */
