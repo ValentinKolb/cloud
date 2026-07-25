@@ -9,6 +9,7 @@ import gatewayPage from "./frontend/page";
 import { gatewayOpsHelp } from "./help";
 import { gatewayOpsLifecycle } from "./lifecycle";
 import alertsPage from "./observability/alerts/page";
+import observabilityOverviewPage from "./observability/page";
 import { runScheduleNowAction } from "./observability/jobs/actions";
 import jobsApiRoutes from "./observability/jobs/api";
 import jobsPage from "./observability/jobs/page";
@@ -44,6 +45,7 @@ const router = new Hono<AuthContext>()
   .get("/admin/gateway/help/:topic", auth.requireRole("admin", auth.redirectToLogin), ...helpPage)
   .get("/admin/gateway/apps", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
   .get("/admin/gateway/routes", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
+  .get("/admin/observability", auth.requireRole("admin", auth.redirectToLogin), ...observabilityOverviewPage)
   .get("/admin/observability/logs", auth.requireRole("admin", auth.redirectToLogin), ...logsPage)
   .get("/admin/observability/jobs", auth.requireRole("admin", auth.redirectToLogin), ...jobsPage)
   .post("/admin/observability/jobs/run-now", auth.requireRole("admin", auth.redirectToLogin), runScheduleNowAction)

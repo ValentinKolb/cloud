@@ -22,6 +22,7 @@ export const app = defineApp({
     {
       label: "Observability",
       links: [
+        { href: "/admin/observability", icon: "ti-stethoscope", label: "Overview" },
         { href: "/admin/observability/logs", icon: "ti-list-details", label: "Logs" },
         { href: "/admin/observability/jobs", icon: "ti-activity", label: "Jobs" },
         { href: "/admin/observability/telemetry", icon: "ti-chart-line", label: "Telemetry" },
