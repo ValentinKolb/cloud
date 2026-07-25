@@ -54,7 +54,6 @@ const ReplayRequestMessageSchema = z.object({
     // resolves the form against `notebooks.notes` and stores the
     // canonical UUID in `WsContext.noteId` for everything downstream.
     noteId: z.string().min(6).max(36),
-    sessionToken: z.string().min(1).optional(),
     fromCursor: z.string().regex(notebooksYjs.streamCursorPattern).nullable().optional(),
   }),
 });
@@ -85,7 +84,6 @@ const WorkspaceSubscribeMessageSchema = z.object({
   type: z.literal(WORKSPACE_WS_TYPE.subscribe),
   payload: z.object({
     notebookId: z.string().min(6).max(36),
-    sessionToken: z.string().min(1).optional(),
     fromCursor: z.string().regex(notebooksWorkspace.streamCursorPattern).nullable().optional(),
   }),
 });
@@ -158,10 +156,10 @@ type PushMessage = {
 
 const isWritablePermission = (permission: "none" | "read" | "write" | "admin"): boolean => permission === "write" || permission === "admin";
 
-const createContext = (socket: ServerWebSocket<unknown>): WsContext => ({
+const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | null): WsContext => ({
   socket,
   phase: "open",
-  sessionToken: null,
+  sessionToken,
   user: null,
   noteId: null,
   wireNoteId: null,
@@ -982,8 +980,6 @@ const ensureWritableNote = (ctx: WsContext, noteId: string): boolean => {
 };
 
 const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof ReplayRequestMessageSchema.shape.payload>) => {
-  if (payload.sessionToken) ctx.sessionToken = payload.sessionToken;
-
   const user = await resolveSessionUser(ctx.sessionToken);
   if (!user) {
     await fatal(ctx, ERROR_CODE.loginRequired, "Login required", payload.noteId);
@@ -1104,8 +1100,6 @@ const handleAwarenessPublish = async (ctx: WsContext, payload: z.infer<typeof Aw
 };
 
 const handleWorkspaceSubscribe = async (ctx: WsContext, payload: z.infer<typeof WorkspaceSubscribeMessageSchema.shape.payload>) => {
-  if (payload.sessionToken) ctx.sessionToken = payload.sessionToken;
-
   const user = await resolveSessionUser(ctx.sessionToken);
   if (!user) {
     send(ctx.socket, WORKSPACE_WS_TYPE.error, {
@@ -1184,14 +1178,18 @@ const handleClientMessage = async (ctx: WsContext, raw: string): Promise<void> =
 
 const app = new Hono().get(
   "/",
-  upgradeWebSocket(() => {
+  upgradeWebSocket((c) => {
+    // Read the session from the forwarded cookie. Never accept it from a
+    // client message: that would require handing the httpOnly token to the
+    // browser, which puts the full credential into the page HTML.
+    const sessionToken = auth.session.getToken(c);
     let ctx: WsContext | null = null;
     let processing: Promise<void> = Promise.resolve();
     let pendingMessages = 0;
 
     return {
       onOpen(_, ws) {
-        ctx = createContext(ws.raw as ServerWebSocket<unknown>);
+        ctx = createContext(ws.raw as ServerWebSocket<unknown>, sessionToken);
       },
 
       async onMessage(event) {

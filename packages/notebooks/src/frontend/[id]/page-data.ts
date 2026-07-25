@@ -1,5 +1,5 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, getDateConfig } from "@valentinkolb/cloud/server";
+import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
@@ -23,7 +23,6 @@ type NotebookPageContext = Context<AuthContext & { Variables: { page: Partial<Pa
 
 export async function loadNotebookPageData(c: NotebookPageContext) {
   const user = expectUserBackedActor(c);
-  const sessionToken = auth.session.getToken(c);
   const notebookIdOrShort = c.req.param("id")!;
 
   const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: notebookIdOrShort });
@@ -118,7 +117,6 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
   return {
     kind: "ok" as const,
     user,
-    sessionToken,
     notebook,
     tree,
     permission,

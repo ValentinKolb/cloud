@@ -47,7 +47,6 @@ export default ssr<AuthContext>(async (c) => {
 
   const {
     user,
-    sessionToken,
     notebook,
     tree,
     isSettingsMode,
@@ -89,7 +88,7 @@ export default ssr<AuthContext>(async (c) => {
       <AppWorkspace class="flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
         <NotebookLayoutHelp documents={notebookHelp.manifest} />
-        {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} sessionToken={sessionToken!} />}
+        {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} />}
 
         <NotebookSidebar ctx={ctx} />
 
@@ -131,7 +130,6 @@ export default ssr<AuthContext>(async (c) => {
                 noteParentId={selectedNote.parentId}
                 notebookName={notebook.name}
                 appUrl={appUrl}
-                sessionToken={sessionToken!}
                 userId={user.id}
                 displayName={user.displayName}
                 initialSnapshot={selectedNote.yjsSnapshot}

@@ -23,7 +23,6 @@ export type YjsProviderOptions = {
   awareness: awarenessProtocol.Awareness;
   noteId: string;
   appUrl: string;
-  sessionToken: string;
   initialCursor?: string | null;
   onConnectionChange?: (connected: boolean) => void;
   onPresenceChange?: (participants: NotebookPresenceParticipant[]) => void;
@@ -113,7 +112,6 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     sendJson(WS_TYPE.replayRequest, {
       noteId: activeNoteId,
       fromCursor,
-      sessionToken: opts.sessionToken,
     });
 
   const sendWorkspaceSubscribe = (): boolean => {
@@ -121,7 +119,6 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     return sendJson(WORKSPACE_WS_TYPE.subscribe, {
       notebookId: opts.workspace.notebookId,
       fromCursor: lastWorkspaceCursor,
-      sessionToken: opts.sessionToken,
     });
   };
 

@@ -12,6 +12,7 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { apiClient } from "@/api/client";
 import { extractNamedBlockSummaries, type NamedBlockSummary } from "../../../../lib/named-blocks";
+import { hasOnlyNavigatorQuery } from "../../../../lib/navigator-url";
 import { deriveNoteTitle } from "../../../../lib/note-title";
 import type { Backlink } from "../../../../service/links";
 import { editor } from "../../../lib/editor";
@@ -38,7 +39,6 @@ import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
 import { writeSettings } from "../settings/NotebookSettingsStore";
 import { WORKSPACE_EVENT } from "../sidebar/workspace-events";
-import { hasOnlyNavigatorQuery } from "../../../../lib/navigator-url";
 import type { Attachment, AttachmentRef } from "./attachments-client";
 import { formatBytes, insertAttachment, MAX_ATTACHMENT_SIZE_BYTES, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
@@ -69,7 +69,6 @@ type Props = {
   notebookName: string;
   // ---- end script-kit metadata
   appUrl: string;
-  sessionToken: string;
   userId: string;
   displayName: string;
   initialSnapshot: string | null;
@@ -411,7 +410,6 @@ function EditorInstance(props: Props) {
         awareness,
         noteId: props.noteId,
         appUrl: props.appUrl,
-        sessionToken: props.sessionToken,
         onConnectionChange: setConnected,
         // Forwards every presence update to the OnlineSection island via a
         // window event — the editor itself doesn't need to track participants

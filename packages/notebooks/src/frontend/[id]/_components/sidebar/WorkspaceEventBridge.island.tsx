@@ -6,7 +6,6 @@ import { WORKSPACE_EVENT } from "./workspace-events";
 type Props = {
   notebookId: string;
   appUrl: string;
-  sessionToken: string;
 };
 
 const resolveHttpBaseUrl = (raw: string): URL => {
@@ -36,7 +35,7 @@ export default function WorkspaceEventBridge(props: Props) {
         ws.send(
           JSON.stringify({
             type: notebooksWorkspace.wsType.subscribe,
-            payload: { notebookId: props.notebookId, fromCursor: lastCursor, sessionToken: props.sessionToken },
+            payload: { notebookId: props.notebookId, fromCursor: lastCursor },
           }),
         );
       };
