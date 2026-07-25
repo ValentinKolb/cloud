@@ -7,7 +7,12 @@ export const app = defineApp({
   name: "Gateway",
   icon: "ti ti-route-scan",
   description: "Admin console for gateway operations, observability, and notifications.",
-  appearance: { accent: "#b91c1c", background: { from: "#ef4444", to: "#f97316", angle: 135 } },
+  // Petrol rather than red: the console uses red for failures and amber for
+  // warnings throughout, so a red chrome carried the same hue as its own most
+  // urgent signal. Deep cyan stays clear of every status colour — the blue
+  // used for "running" is a much lighter tone — and reads as an instrument
+  // panel rather than an alarm.
+  appearance: { accent: "#155e75", background: { from: "#0e7490", to: "#155e75", angle: 135 } },
   basePath: "/admin/gateway",
   baseUrl: `http://app-gateway-ops:${port}`,
   adminHref: "/admin/gateway",
