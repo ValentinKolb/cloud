@@ -210,16 +210,25 @@ export const migrate = async (): Promise<void> => {
       authorization_snapshot JSONB NOT NULL CHECK (jsonb_typeof(authorization_snapshot) = 'object'),
       idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
       occurred_at TIMESTAMPTZ NOT NULL,
+      -- The fence. Every claim increments it, so a worker whose lease expired
+      -- writes with a stale generation and is rejected. A lease token would be
+      -- a second fence that can never disagree with this one.
       execution_generation BIGINT NOT NULL DEFAULT 0 CHECK (execution_generation >= 0),
+      attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
       lease_owner TEXT,
-      lease_token UUID,
       lease_expires_at TIMESTAMPTZ,
-      -- "Claimable from" as one orderable value: a queued run has never been
-      -- leased, an expired lease is claimable again. Asking that as
-      -- "lease_expires_at IS NULL OR lease_expires_at < now()" cannot be
-      -- answered by one index scan, and degrades to a full scan of every
-      -- unfinished run — measured, not assumed.
-      claimable_at TIMESTAMPTZ NOT NULL GENERATED ALWAYS AS (COALESCE(lease_expires_at, '-infinity'::timestamptz)) STORED,
+      -- Set when a worker gives up a lease without recording an outcome, so a
+      -- run that keeps dying cannot spin at full speed.
+      retry_after TIMESTAMPTZ,
+      -- When this run may next be picked up, as one orderable value: a queued
+      -- run has never been leased, an expired lease is claimable again, and a
+      -- released one waits out its backoff. Asking that as a disjunction over
+      -- two nullable columns cannot be answered by one index scan, and
+      -- degrades to a full scan of every unfinished run — measured, not
+      -- assumed.
+      claimable_at TIMESTAMPTZ NOT NULL GENERATED ALWAYS AS (
+        GREATEST(COALESCE(lease_expires_at, '-infinity'::timestamptz), COALESCE(retry_after, '-infinity'::timestamptz))
+      ) STORED,
       wake_at TIMESTAMPTZ,
       cancel_requested_at TIMESTAMPTZ,
       result JSONB,
@@ -230,10 +239,7 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       FOREIGN KEY (workflow_version_id, workflow_id) REFERENCES workflows.version(id, workflow_id) ON DELETE RESTRICT,
       CONSTRAINT run_parent_chk CHECK ((parent_run_id IS NULL) = (parent_step_key IS NULL)),
-      CONSTRAINT run_lease_chk CHECK (
-        (lease_owner IS NULL AND lease_token IS NULL AND lease_expires_at IS NULL)
-        OR (lease_owner IS NOT NULL AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL)
-      ),
+      CONSTRAINT run_lease_chk CHECK ((lease_owner IS NULL) = (lease_expires_at IS NULL)),
       UNIQUE (workflow_id, mode, idempotency_key)
     )
   `.simple();

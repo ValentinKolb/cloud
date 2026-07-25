@@ -1,0 +1,635 @@
+/**
+ * The kernel's run store.
+ *
+ * Grids and Mail each wrote their own version of this — 904 and 717 lines that
+ * agreed on almost everything and differed in the places that matter: Mail
+ * leased a target while Grids leased a run, Mail fenced with a generation *and*
+ * a token while Grids used the generation alone, and Mail's `heartbeat`
+ * silently ignored the run it was passed.
+ *
+ * Execution is "find the first step with no recorded outcome, run it, record
+ * it". Crash recovery is that same loop, which is why there is no separate
+ * recovery path below: a claim on a run whose lease expired resumes it, and
+ * the journal makes the steps that already happened free to skip.
+ *
+ * The fence is `execution_generation`. Every claim increments it, so a worker
+ * that lost its lease writes with a stale generation and every one of its
+ * updates matches zero rows. Nothing here trusts wall-clock ordering.
+ */
+import { type SQL, sql } from "bun";
+import type { WorkflowBoundPlan, WorkflowDependency, WorkflowInvocationMode, WorkflowJsonValue, WorkflowRunState } from "../contracts";
+import type {
+  WorkflowCoordinatorFinishState,
+  WorkflowCoordinatorLeaseState,
+  WorkflowCoordinatorPort,
+  WorkflowCoordinatorReleaseState,
+} from "../runtime/coordinator";
+import type {
+  WorkflowHeartbeatOutcome,
+  WorkflowRestoredStep,
+  WorkflowRuntimeRepositoryPort,
+  WorkflowRuntimeRunIdentity,
+  WorkflowRuntimeStepIdentity,
+  WorkflowRuntimeStepResult,
+} from "../runtime/ports";
+
+/** How long a claim survives without a heartbeat. */
+export const WORKFLOW_RUN_LEASE_MS = 120_000;
+
+/** How long a released run waits before it can be picked up again. */
+const RELEASE_BACKOFF_MS = 5_000;
+
+/** A run state that no longer moves on its own. */
+const TERMINAL_RUN_STATES: readonly WorkflowRunState[] = ["succeeded", "failed", "canceled", "needs_attention"];
+
+export type WorkflowRunClaim = {
+  runId: string;
+  executionGeneration: number;
+  mode: WorkflowInvocationMode;
+  workflowId: string;
+  workflowVersionId: string;
+  sourceHash: string;
+  idempotencyKey: string;
+  appId: string;
+  scopeId: string;
+  /** The pinned plan. Read from the version the run points at, never the workflow's current one. */
+  plan: WorkflowBoundPlan;
+  inputs: Record<string, WorkflowJsonValue>;
+  authorization: WorkflowJsonValue;
+  /**
+   * The event's logical time, not the worker's clock. A replay after a crash
+   * must see the same "now" the first attempt did, or a step reading the date
+   * stops being a function of its inputs.
+   */
+  occurredAt: Date;
+  parentRunId: string | null;
+  parentStepKey: string | null;
+  attempt: number;
+};
+
+/** The outcome a run settles into. `waiting` means it parked and will be woken. */
+export type WorkflowRunResult =
+  | { state: "succeeded"; result?: WorkflowJsonValue }
+  | { state: "failed"; error: WorkflowJsonValue }
+  | { state: "needs_attention"; error: WorkflowJsonValue }
+  | { state: "canceled"; message?: string }
+  | { state: "waiting" };
+
+type ClaimRow = {
+  id: string;
+  execution_generation: string;
+  mode: WorkflowInvocationMode;
+  workflow_id: string;
+  workflow_version_id: string;
+  source_hash: string;
+  idempotency_key: string;
+  app_id: string;
+  scope_id: string;
+  plan: WorkflowBoundPlan;
+  inputs: Record<string, WorkflowJsonValue>;
+  authorization_snapshot: WorkflowJsonValue;
+  occurred_at: Date;
+  parent_run_id: string | null;
+  parent_step_key: string | null;
+  attempt: number;
+};
+
+const toClaim = (row: ClaimRow): WorkflowRunClaim => ({
+  runId: row.id,
+  executionGeneration: Number(row.execution_generation),
+  mode: row.mode,
+  workflowId: row.workflow_id,
+  workflowVersionId: row.workflow_version_id,
+  sourceHash: row.source_hash,
+  idempotencyKey: row.idempotency_key,
+  appId: row.app_id,
+  scopeId: row.scope_id,
+  plan: row.plan,
+  inputs: row.inputs,
+  authorization: row.authorization_snapshot,
+  occurredAt: row.occurred_at,
+  parentRunId: row.parent_run_id,
+  parentStepKey: row.parent_step_key,
+  attempt: row.attempt,
+});
+
+/**
+ * Why an update matched no rows.
+ *
+ * The distinction is not cosmetic: a cancelled run must stop, a stale one must
+ * abandon its work silently because someone else already owns it, and treating
+ * either as the other either duplicates effects or strands runs.
+ */
+const diagnoseLostLease = async (
+  db: SQL,
+  runId: string,
+  executionGeneration: number,
+): Promise<{ state: "stale" } | { state: "canceled"; message?: string }> => {
+  const [row] = await db<{ state: WorkflowRunState; execution_generation: string; cancel_requested_at: Date | null }[]>`
+    SELECT state, execution_generation, cancel_requested_at FROM workflows.run WHERE id = ${runId}
+  `;
+  if (!row) return { state: "stale" };
+  const ours = Number(row.execution_generation) === executionGeneration;
+  if (ours && (row.cancel_requested_at !== null || row.state === "canceled")) return { state: "canceled" };
+  return { state: "stale" };
+};
+
+// ─── Creation ────────────────────────────────────────────────────────────────
+
+export type NewWorkflowRun = {
+  appId: string;
+  scopeId: string;
+  workflowId: string;
+  workflowVersionId: string;
+  mode: WorkflowInvocationMode;
+  authorization: WorkflowJsonValue;
+  idempotencyKey: string;
+  occurredAt: Date;
+  inputs?: Record<string, WorkflowJsonValue>;
+  eventId?: string;
+  /** Set together, or the run is not a child of anything. */
+  parentRunId?: string;
+  parentStepKey?: string;
+};
+
+/**
+ * Queues a run, or returns the existing one for the same idempotency key.
+ *
+ * Returning the existing id rather than raising is what lets a retried request
+ * — a webhook redelivery, a double-clicked button — be answered with the run it
+ * already started instead of starting a second one.
+ */
+export const createWorkflowRun = async (run: NewWorkflowRun, options: { db?: SQL } = {}): Promise<string> => {
+  const db = options.db ?? sql;
+  const [row] = await db<{ id: string }[]>`
+    INSERT INTO workflows.run (
+      app_id, scope_id, workflow_id, workflow_version_id, event_id, parent_run_id, parent_step_key,
+      mode, inputs, authorization_snapshot, idempotency_key, occurred_at
+    )
+    VALUES (
+      ${run.appId}, ${run.scopeId}, ${run.workflowId}::uuid, ${run.workflowVersionId}::uuid,
+      ${run.eventId ?? null}::uuid, ${run.parentRunId ?? null}::uuid, ${run.parentStepKey ?? null},
+      ${run.mode}, ${run.inputs ?? {}}, ${run.authorization},
+      ${run.idempotencyKey}, ${run.occurredAt}
+    )
+    ON CONFLICT (workflow_id, mode, idempotency_key) DO UPDATE SET updated_at = workflows.run.updated_at
+    RETURNING id
+  `;
+  if (!row) throw new Error("workflow run insert returned no row");
+  return row.id;
+};
+
+/**
+ * Fans out into child runs in one statement.
+ *
+ * A bulk operation over 10,000 records is 10,000 of these rather than rows in a
+ * targets table, so the parent's progress is a plain aggregate over its
+ * children and there is only one lease protocol to reason about.
+ */
+export const createChildWorkflowRuns = async (
+  parent: { runId: string; stepKey: string },
+  children: readonly NewWorkflowRun[],
+  options: { db?: SQL } = {},
+): Promise<number> => {
+  if (children.length === 0) return 0;
+  const db = options.db ?? sql;
+  const values = children.map((child) => ({
+    app_id: child.appId,
+    scope_id: child.scopeId,
+    workflow_id: child.workflowId,
+    workflow_version_id: child.workflowVersionId,
+    event_id: child.eventId ?? null,
+    parent_run_id: parent.runId,
+    parent_step_key: parent.stepKey,
+    mode: child.mode,
+    inputs: child.inputs ?? {},
+    authorization_snapshot: child.authorization,
+    idempotency_key: child.idempotencyKey,
+    occurred_at: child.occurredAt,
+  }));
+  const rows = await db<{ id: string }[]>`
+    INSERT INTO workflows.run ${db(values)}
+    ON CONFLICT (workflow_id, mode, idempotency_key) DO NOTHING
+    RETURNING id
+  `;
+  return rows.length;
+};
+
+/** How a parent's fan-out is doing, as one aggregate over the child index. */
+export const countChildWorkflowRuns = async (
+  parentRunId: string,
+  options: { db?: SQL } = {},
+): Promise<Record<WorkflowRunState, number>> => {
+  const db = options.db ?? sql;
+  const rows = await db<{ state: WorkflowRunState; count: string }[]>`
+    SELECT state, count(*) AS count FROM workflows.run WHERE parent_run_id = ${parentRunId}::uuid GROUP BY state
+  `;
+  const counts = { queued: 0, running: 0, waiting: 0, succeeded: 0, failed: 0, canceled: 0, needs_attention: 0 };
+  for (const row of rows) counts[row.state] = Number(row.count);
+  return counts;
+};
+
+// ─── Lifecycle ───────────────────────────────────────────────────────────────
+
+/**
+ * Takes the next claimable run, or a named one.
+ *
+ * `SKIP LOCKED` is what makes several workers safe to run against the same
+ * queue: they step over each other's candidates instead of serialising on the
+ * first row.
+ */
+export const claimWorkflowRun = async (options: {
+  worker: string;
+  runId?: string;
+  leaseMs?: number;
+  db?: SQL;
+}): Promise<WorkflowRunClaim | null> => {
+  const db = options.db ?? sql;
+  const leaseMs = options.leaseMs ?? WORKFLOW_RUN_LEASE_MS;
+  const rows = await db<ClaimRow[]>`
+    WITH candidate AS (
+      SELECT id FROM workflows.run
+      WHERE state IN ('queued', 'running')
+        AND claimable_at < now()
+        AND cancel_requested_at IS NULL
+        AND (${options.runId ?? null}::uuid IS NULL OR id = ${options.runId ?? null}::uuid)
+      ORDER BY claimable_at, created_at, id
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE workflows.run AS r
+    SET state = 'running',
+        execution_generation = r.execution_generation + 1,
+        attempt = r.attempt + 1,
+        lease_owner = ${options.worker},
+        lease_expires_at = now() + ${`${leaseMs} milliseconds`}::interval,
+        retry_after = NULL,
+        started_at = COALESCE(r.started_at, now()),
+        updated_at = now()
+    FROM candidate AS c
+    JOIN workflows.version AS v ON v.id = (SELECT workflow_version_id FROM workflows.run WHERE id = c.id)
+    WHERE r.id = c.id
+    RETURNING r.id, r.execution_generation, r.mode, r.workflow_id, r.workflow_version_id,
+              v.source_hash, r.idempotency_key, r.app_id, r.scope_id, v.plan,
+              r.inputs, r.authorization_snapshot, r.occurred_at, r.parent_run_id, r.parent_step_key, r.attempt
+  `;
+  const row = rows[0];
+  return row ? toClaim(row) : null;
+};
+
+/** Extends a lease. Returns why it could not be extended, rather than throwing. */
+export const renewWorkflowRunLease = async (
+  claim: { runId: string; executionGeneration: number },
+  options: { leaseMs?: number; db?: SQL } = {},
+): Promise<WorkflowCoordinatorLeaseState> => {
+  const db = options.db ?? sql;
+  const leaseMs = options.leaseMs ?? WORKFLOW_RUN_LEASE_MS;
+  const rows = await db<{ id: string }[]>`
+    UPDATE workflows.run
+    SET lease_expires_at = now() + ${`${leaseMs} milliseconds`}::interval, updated_at = now()
+    WHERE id = ${claim.runId}
+      AND execution_generation = ${claim.executionGeneration}
+      AND state = 'running'
+      AND cancel_requested_at IS NULL
+    RETURNING id
+  `;
+  if (rows.length > 0) return { state: "active" };
+  return diagnoseLostLease(db, claim.runId, claim.executionGeneration);
+};
+
+/**
+ * Records a run's outcome and drops the lease.
+ *
+ * A `waiting` result is the exception: the run parked itself in `parkStep`, so
+ * this only confirms it is where the executor believes it is. Writing the state
+ * a second time would clear the wake deadline the park just set.
+ */
+export const finishWorkflowRun = async (
+  claim: { runId: string; executionGeneration: number },
+  result: WorkflowRunResult,
+  options: { db?: SQL } = {},
+): Promise<WorkflowCoordinatorFinishState> => {
+  const db = options.db ?? sql;
+
+  if (result.state === "waiting") {
+    const [row] = await db<{ state: WorkflowRunState }[]>`
+      SELECT state FROM workflows.run WHERE id = ${claim.runId} AND execution_generation = ${claim.executionGeneration}
+    `;
+    if (row?.state === "waiting") return { state: "finished" };
+    return diagnoseLostLease(db, claim.runId, claim.executionGeneration);
+  }
+
+  const rows = await db<{ id: string }[]>`
+    UPDATE workflows.run
+    SET state = ${result.state},
+        result = ${result.state === "succeeded" ? (result.result ?? null) : null},
+        error = ${result.state === "failed" || result.state === "needs_attention" ? result.error : null},
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        retry_after = NULL,
+        wake_at = NULL,
+        finished_at = now(),
+        updated_at = now()
+    WHERE id = ${claim.runId}
+      AND execution_generation = ${claim.executionGeneration}
+      AND state IN ('running', 'waiting')
+    RETURNING id
+  `;
+  if (rows.length > 0) return { state: "finished" };
+  return diagnoseLostLease(db, claim.runId, claim.executionGeneration);
+};
+
+/**
+ * Gives up a lease without recording an outcome — the crash path.
+ *
+ * The run goes back to `queued` and the journal makes the resumed attempt skip
+ * whatever already completed. The backoff exists because a run that dies on
+ * every attempt would otherwise be re-claimed as fast as the dispatcher loops.
+ */
+export const releaseWorkflowRun = async (
+  claim: { runId: string; executionGeneration: number },
+  options: { backoffMs?: number; db?: SQL } = {},
+): Promise<WorkflowCoordinatorReleaseState> => {
+  const db = options.db ?? sql;
+  const backoffMs = options.backoffMs ?? RELEASE_BACKOFF_MS;
+  const rows = await db<{ retry_after: Date }[]>`
+    UPDATE workflows.run
+    SET state = 'queued',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        retry_after = now() + ${`${backoffMs} milliseconds`}::interval,
+        updated_at = now()
+    WHERE id = ${claim.runId}
+      AND execution_generation = ${claim.executionGeneration}
+      AND state = 'running'
+    RETURNING retry_after
+  `;
+  const row = rows[0];
+  if (row) return { state: "retry", retryAt: row.retry_after.toISOString() };
+  return diagnoseLostLease(db, claim.runId, claim.executionGeneration);
+};
+
+/** Asks a run to stop. The worker notices on its next heartbeat. */
+export const requestWorkflowRunCancel = async (runId: string, options: { db?: SQL } = {}): Promise<boolean> => {
+  const db = options.db ?? sql;
+  const rows = await db<{ id: string }[]>`
+    UPDATE workflows.run
+    SET cancel_requested_at = COALESCE(cancel_requested_at, now()),
+        state = CASE WHEN state = 'queued' THEN 'canceled' ELSE state END,
+        finished_at = CASE WHEN state = 'queued' THEN now() ELSE finished_at END,
+        lease_owner = CASE WHEN state = 'queued' THEN NULL ELSE lease_owner END,
+        lease_expires_at = CASE WHEN state = 'queued' THEN NULL ELSE lease_expires_at END,
+        updated_at = now()
+    WHERE id = ${runId} AND state NOT IN ${db(TERMINAL_RUN_STATES)}
+    RETURNING id
+  `;
+  return rows.length > 0;
+};
+
+/** The coordinator's view of the store, so `coordinateWorkflowExecution` drives it directly. */
+export const createWorkflowCoordinatorPort = (options: {
+  worker: string;
+  runId?: string;
+  leaseMs?: number;
+}): WorkflowCoordinatorPort<void, WorkflowRunClaim, WorkflowRunResult> => ({
+  claim: () => claimWorkflowRun(options),
+  renew: (claim) => renewWorkflowRunLease(claim, { leaseMs: options.leaseMs }),
+  finish: (claim, result) => finishWorkflowRun(claim, result),
+  release: (claim) => releaseWorkflowRun(claim),
+});
+
+// ─── Scans ───────────────────────────────────────────────────────────────────
+
+/** Runs a worker may pick up now, oldest first. */
+export const listClaimableWorkflowRunIds = async (limit: number, options: { db?: SQL } = {}): Promise<string[]> => {
+  const db = options.db ?? sql;
+  const rows = await db<{ id: string }[]>`
+    SELECT id FROM workflows.run
+    WHERE state IN ('queued', 'running') AND claimable_at < now() AND cancel_requested_at IS NULL
+    ORDER BY claimable_at, created_at, id
+    LIMIT ${limit}
+  `;
+  return rows.map((row) => row.id);
+};
+
+/** Parked runs whose deadline has passed, so a dependency that never fires cannot strand them. */
+export const wakeExpiredWorkflowRuns = async (limit: number, options: { db?: SQL } = {}): Promise<string[]> => {
+  const db = options.db ?? sql;
+  const rows = await db<{ id: string }[]>`
+    UPDATE workflows.run
+    SET state = 'queued', wake_at = NULL, updated_at = now()
+    WHERE id IN (
+      SELECT id FROM workflows.run
+      WHERE state = 'waiting' AND wake_at IS NOT NULL AND wake_at <= now()
+      ORDER BY wake_at, id
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id
+  `;
+  return rows.map((row) => row.id);
+};
+
+/** Re-queues every run parked on a dependency that has now been satisfied. */
+export const wakeWorkflowRunsWaitingOn = async (
+  dependency: { kind: string; key: string },
+  options: { limit?: number; db?: SQL } = {},
+): Promise<string[]> => {
+  const db = options.db ?? sql;
+  const rows = await db<{ id: string }[]>`
+    UPDATE workflows.run
+    SET state = 'queued', wake_at = NULL, updated_at = now()
+    WHERE id IN (
+      SELECT s.run_id FROM workflows.step_outcome AS s
+      JOIN workflows.run AS r ON r.id = s.run_id
+      WHERE s.state = 'waiting'
+        AND s.dependency ->> 'kind' = ${dependency.kind}
+        AND s.dependency ->> 'key' = ${dependency.key}
+        AND r.state = 'waiting'
+      ORDER BY s.run_id
+      LIMIT ${options.limit ?? 500}
+      FOR UPDATE OF r SKIP LOCKED
+    )
+    RETURNING id
+  `;
+  return rows.map((row) => row.id);
+};
+
+// ─── Journal ─────────────────────────────────────────────────────────────────
+
+/** Thrown when a step writes under a generation the run has moved past. */
+export class WorkflowLeaseLostError extends Error {
+  constructor(readonly runId: string) {
+    super(`workflow run ${runId} is no longer held by this worker`);
+    this.name = "WorkflowLeaseLostError";
+  }
+}
+
+/** The `state` column mirrors the outcome's own discriminant — no second vocabulary. */
+const stepState = (result: WorkflowRuntimeStepResult): string => result.outcome.state;
+
+const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort => {
+  const db = options.db ?? sql;
+
+  const startStep = async (step: WorkflowRuntimeStepIdentity): Promise<void> => {
+    const rows = await db<{ run_id: string }[]>`
+      INSERT INTO workflows.step_outcome (
+        run_id, step_key, source_path, iteration_path, kind, action, mode, state, execution_generation, attempt
+      )
+      SELECT ${step.runId}::uuid, ${step.key}, ${step.sourcePath}, ${step.iterationPath},
+             ${step.kind}, ${step.action ?? null}, ${step.mode}, 'running', ${step.executionGeneration}, 0
+      WHERE EXISTS (
+        SELECT 1 FROM workflows.run
+        WHERE id = ${step.runId}::uuid
+          AND state = 'running'
+          AND execution_generation = ${step.executionGeneration}
+          AND cancel_requested_at IS NULL
+      )
+      ON CONFLICT (run_id, step_key) DO UPDATE
+      SET state = 'running',
+          outcome = NULL,
+          dependency = NULL,
+          execution_generation = EXCLUDED.execution_generation,
+          attempt = workflows.step_outcome.attempt + 1,
+          started_at = now(),
+          finished_at = NULL,
+          updated_at = now()
+      RETURNING run_id
+    `;
+    if (rows.length === 0) throw new WorkflowLeaseLostError(step.runId);
+  };
+
+  /**
+   * Parks a step on something outside the run, and the run with it.
+   *
+   * Both happen in one transaction: a step marked waiting while its run stays
+   * `running` is a run nothing will ever wake, and a run marked waiting with no
+   * recorded dependency is one nothing knows how to wake.
+   */
+  const parkStep = async (step: WorkflowRuntimeStepIdentity, dependency: WorkflowDependency): Promise<void> => {
+    await db.begin(async (tx) => {
+      const rows = await tx<{ run_id: string }[]>`
+        UPDATE workflows.step_outcome
+        SET state = 'waiting', outcome = NULL, dependency = ${dependency}, finished_at = NULL, updated_at = now()
+        WHERE run_id = ${step.runId}::uuid
+          AND step_key = ${step.key}
+          AND execution_generation = ${step.executionGeneration}
+        RETURNING run_id
+      `;
+      if (rows.length === 0) throw new WorkflowLeaseLostError(step.runId);
+
+      const parked = await tx<{ id: string }[]>`
+        UPDATE workflows.run
+        SET state = 'waiting',
+            wake_at = ${dependency.deadline ?? null}::timestamptz,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            updated_at = now()
+        WHERE id = ${step.runId}::uuid AND execution_generation = ${step.executionGeneration} AND state = 'running'
+        RETURNING id
+      `;
+      if (parked.length === 0) throw new WorkflowLeaseLostError(step.runId);
+    });
+  };
+
+  const finishStep = async (step: WorkflowRuntimeStepIdentity, result: WorkflowRuntimeStepResult): Promise<void> => {
+    // The port's type admits a waiting outcome here; parking is the path that
+    // also stops the run, so route it there rather than writing half of it.
+    if (result.mode === "execute" && result.outcome.state === "waiting") {
+      await parkStep(step, result.outcome.dependency);
+      return;
+    }
+    const rows = await db<{ run_id: string }[]>`
+      UPDATE workflows.step_outcome
+      SET state = ${stepState(result)},
+          outcome = ${result},
+          dependency = NULL,
+          finished_at = now(),
+          updated_at = now()
+      WHERE run_id = ${step.runId}::uuid
+        AND step_key = ${step.key}
+        AND execution_generation = ${step.executionGeneration}
+      RETURNING run_id
+    `;
+    if (rows.length === 0) throw new WorkflowLeaseLostError(step.runId);
+  };
+
+  const restoreStepOutcome = async (step: WorkflowRuntimeStepIdentity): Promise<WorkflowRestoredStep | null> => {
+    const [row] = await db<{ outcome: WorkflowRestoredStep | null }[]>`
+      SELECT outcome FROM workflows.step_outcome
+      WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key} AND state NOT IN ('running', 'waiting')
+    `;
+    return row?.outcome ?? null;
+  };
+
+  const heartbeat = async (run: WorkflowRuntimeRunIdentity): Promise<WorkflowHeartbeatOutcome> =>
+    renewWorkflowRunLease({ runId: run.runId, executionGeneration: run.executionGeneration }, { db });
+
+  return { heartbeat, restoreStepOutcome, startStep, finishStep, parkStep };
+};
+
+/**
+ * The kernel's `WorkflowRuntimeRepositoryPort`.
+ *
+ * There is one of these now. Each app used to bring its own, which is how the
+ * two ended up storing different things under the same column name — Grids
+ * wrote the bare outcome and reconstructed the mode from a second column, Mail
+ * wrote the pair.
+ */
+export const createWorkflowRuntimeRepository = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort => stepJournal(options);
+
+// ─── Effects ─────────────────────────────────────────────────────────────────
+
+/**
+ * Marks an impure step as having started its effect.
+ *
+ * Written before the effect is attempted, so a crash in between leaves the
+ * evidence that something may have escaped. A step whose effect is left
+ * `executing` is exactly the queue a replay has to be careful with.
+ */
+export const beginWorkflowEffect = async (
+  step: { runId: string; key: string; executionGeneration: number },
+  effectKey: string,
+  options: { db?: SQL } = {},
+): Promise<void> => {
+  const db = options.db ?? sql;
+  const rows = await db<{ run_id: string }[]>`
+    UPDATE workflows.step_outcome
+    SET effect_key = ${effectKey},
+        effect_state = 'executing',
+        effect_started_at = COALESCE(effect_started_at, now()),
+        updated_at = now()
+    WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key} AND execution_generation = ${step.executionGeneration}
+    RETURNING run_id
+  `;
+  if (rows.length === 0) throw new WorkflowLeaseLostError(step.runId);
+};
+
+/** Settles an effect once its fate is known. `ambiguous` is a real answer, not a failure. */
+export const settleWorkflowEffect = async (
+  step: { runId: string; key: string },
+  state: "succeeded" | "ambiguous" | "failed",
+  options: { db?: SQL } = {},
+): Promise<void> => {
+  const db = options.db ?? sql;
+  await db`
+    UPDATE workflows.step_outcome
+    SET effect_state = ${state}, updated_at = now()
+    WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key} AND effect_key IS NOT NULL
+  `;
+};
+
+/**
+ * Whether a replay may re-run this step's effect.
+ *
+ * An effect left `executing` or `ambiguous` by an earlier attempt escaped
+ * without telling us whether it landed. Repeating it is how a workflow sends
+ * the same message twice, so the answer is no and a human decides.
+ */
+export const isWorkflowEffectReplayable = async (step: { runId: string; key: string }, options: { db?: SQL } = {}): Promise<boolean> => {
+  const db = options.db ?? sql;
+  const [row] = await db<{ effect_state: string | null }[]>`
+    SELECT effect_state FROM workflows.step_outcome WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key}
+  `;
+  return row?.effect_state !== "executing" && row?.effect_state !== "ambiguous";
+};

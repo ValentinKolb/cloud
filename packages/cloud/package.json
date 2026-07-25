@@ -52,6 +52,7 @@
     "./workflows": "./src/workflows/index.ts",
     "./workflows/language": "./src/workflows/language/index.ts",
     "./workflows/runtime": "./src/workflows/runtime/index.ts",
+    "./workflows/store": "./src/workflows/store/index.ts",
     "./workflows/testing": "./src/workflows/testing/index.ts",
     "./api": "./src/api/index.ts",
     "./clients/core": "./src/clients/core.ts",
