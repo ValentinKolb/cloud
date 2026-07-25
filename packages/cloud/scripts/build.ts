@@ -8,8 +8,9 @@
  *     # appDir defaults to packages/<APP_ID>, run from workspace root.
  *
  *   Standalone (npm consumer, see cloud-template):
- *     APP_ID=<id> APP_DIR=src bun run node_modules/@valentinkolb/cloud/scripts/build.ts
- *     # appDir = APP_DIR (resolved against cwd).
+ *     APP_ID=<id> APP_DIR=. bun run node_modules/@valentinkolb/cloud/scripts/build.ts
+ *     # appDir = APP_DIR (resolved against cwd) and must be the directory
+ *     # that CONTAINS src/, since entrypoints resolve to <appDir>/src/*.
  *
  * Output goes to <cwd>/dist:
  *   server.js            bundled Bun entry

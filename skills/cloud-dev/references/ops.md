@@ -91,7 +91,13 @@ Its compose pulls the prebuilt platform images from ghcr and builds only your ap
 
 **What your app needs from the platform at runtime.** The HTML template hard-codes `/public/fonts.css`, `/public/tabler-icons.css`, `/public/tabler-icons.woff2`, `/public/global.css`, and `/branding/favicon` — all served by the **`cloud-core`** container. Your app serves only `/public/<your-id>/*`. So a standalone app needs, in the same network: `cloud-core`, `cloud-gateway`, Postgres, and Redis. It cannot render correctly without core.
 
-> **Known gap:** the dev-time CSS/island preloader (`packages/cloud/scripts/preload.ts`) is hard-wired to the monorepo layout in several places, even though it ships in the npm tarball. cloud-template therefore carries its own equivalent. The production build script does support both shapes — see below.
+The dev-time preloader registers the SSR plugin and builds `app.css` in watch mode. It takes the same `APP_DIR` contract as the production build:
+
+```bash
+APP_ID=my-app APP_DIR=. bun run --preload=node_modules/@valentinkolb/cloud/scripts/preload.ts src/index.ts
+```
+
+`global.css`, the fonts, the icon webfont, and the branding logo are **not** built here — they come from the prebuilt core container.
 
 ## Build
 
