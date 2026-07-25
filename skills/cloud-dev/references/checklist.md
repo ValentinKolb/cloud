@@ -28,7 +28,7 @@ An app that disagrees with 1 or 2 is a bug in that app, not a pattern to copy. W
 - Routes return service `Result<T>` through `respond(...)` where the shared result model fits.
 - SSR pages repeat permission checks. They call services directly, so route middleware does not protect them.
 - Security-relevant mutations decide authorization in the **service layer** and record allowed/denied/failed outcomes through the audit service.
-- Permission-aware code uses `c.get("actor")` and `c.get("accessSubject")`, not only `c.get("user")`.
+- Nothing reads `c.get("user")` — `check:boundaries` fails on it. Authorization uses `c.get("accessSubject")`; where a feature needs the user for roles or display, it comes from `expectUserBackedActor(c)`.
 - Authorization passes `AccessSubject` into the shared access helpers. It never trusts `User.memberofGroupIds`, request-supplied group ids, or an app-local membership snapshot. Nested memberships must behave exactly like direct ones.
 - Resource-bound service accounts are checked against their exact `appId`/`resourceType`/`resourceId`; credential scopes cap the resolved permission rather than granting it. Collection and search endpoints fail closed or query only the bound resource.
 - Personal surfaces — profile, roles, ownership, personal catalogs, Global Search — require a real or delegated user. No synthetic user is invented for a resource-bound account.

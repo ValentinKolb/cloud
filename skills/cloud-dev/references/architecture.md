@@ -89,7 +89,7 @@ Likewise, app-specific admin groups are contributed through registry metadata (`
 
 Apps opt into platform-wide search by implementing `capabilities.search` in `app.start()`. The gateway aggregates results from every registered provider.
 
-Universal Search is **user-backed only**. It runs for browser sessions and for user-bound API keys, because both resolve to a real user — a user-bound key *is* that user, and must behave identically everywhere. Core rejects resource-bound service accounts before provider fanout, so a search provider may assume `ctx.get("user")` is present and must not add resource-service-account behaviour.
+Universal Search is **user-backed only**. It runs for browser sessions and for user-bound API keys, because both resolve to a real user — a user-bound key *is* that user, and must behave identically everywhere. Core rejects resource-bound service accounts before provider fanout, so `AppSearchInput.user` is non-optional and a provider must not add resource-service-account behaviour.
 
 ## You do not have to use the built-in stack
 

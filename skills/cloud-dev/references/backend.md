@@ -254,7 +254,7 @@ An SSE endpoint must send its first event immediately and then keepalives freque
 
 Route middleware is a page-level gate, not the authorization boundary. For security-relevant mutations, the **service** that performs the mutation makes the decision, and route checks remain defence in depth.
 
-**Design service signatures around `actor` and `accessSubject`, never around `User`.** A service that takes a `User` cannot serve a resource-bound API key or an OAuth service token, and `c.get("user")` is `undefined` for those despite its type. Widening such a signature later means touching every call site — take the pair from the start:
+**Design service signatures around `accessSubject`, never around `User` or a bare `userId`.** A service that takes a user cannot serve a resource-bound API key or an OAuth service token at all, and widening the signature later means touching every call site. Take the subject from the start:
 
 ```typescript
 const result = await myService.items.update({
@@ -324,9 +324,8 @@ capabilities: {
   search: {
     tags: ["items"],                 // optional filter tags the user can type
     help: "Search items by title",
-    run: async ({ query, tags, limit, ctx }): Promise<AppSearchResult[]> => {
-      const user = ctx.get("user");
-      const rows = await myService.items.search({ query, limit, userId: user.id });
+    run: async ({ query, tags, limit, user, accessSubject }): Promise<AppSearchResult[]> => {
+      const rows = await myService.items.search({ query, limit, accessSubject });
       return rows.map((row) => ({
         id: row.id,
         title: row.title,
@@ -347,7 +346,7 @@ Three rules the framework will not enforce for you:
 - **Respect `limit`.** Results from all apps are merged; an app that ignores it crowds out every other app.
 - **Honour `tags`** if you declared any, so a tag-filtered search does not silently return unfiltered results.
 
-Global Search is **user-backed only**. Core rejects resource-bound service accounts before provider fanout, so `ctx.get("user")` is safe to assume here — and this is the one place that assumption is correct. A user-bound key reaches search exactly like a session does, because it is the same user. Do not add resource-service-account handling to a search provider.
+`AppSearchInput` hands you `user`, `actor` and `accessSubject`. Authorize with `accessSubject`; `user` is there for roles and display, and is non-optional because Core rejects any actor without one before provider fanout. A user-bound key reaches search exactly like a session does, because it is the same user. Do not add resource-service-account handling to a search provider.
 
 ## Settings
 

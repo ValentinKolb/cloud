@@ -71,7 +71,7 @@ export default ssr<AuthContext>(async (c) => {
 
 Note what the page passes down: **`accessSubject`, not a user id.** Route middleware gates *who may reach the page*; the service still decides *what they may see*, and only the subject expresses that for a user, a user-bound key, and a resource-bound principal alike.
 
-`c.get("user")` is the legacy, pre-service-account path. It is safe **only** on a page explicitly gated to a user-backed role *and* serving a genuinely personal surface — `/me`, profile, personal catalogs. Everywhere else it will silently break for API keys and OAuth service tokens. The variable is typed `User` but is `undefined` for a resource-bound principal, so the compiler will not catch the mistake. See `auth.md`.
+There is no `c.get("user")` — `check:boundaries` fails on it, because it was typed `User` while being `undefined` for a resource-bound principal, so pages written against it compiled and silently broke for API keys. When a page needs the user for a display name or a role check, use `expectUserBackedActor(c)` from `@valentinkolb/cloud/server`. See `auth.md`.
 
 ### Routing
 

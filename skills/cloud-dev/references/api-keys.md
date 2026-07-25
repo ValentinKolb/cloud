@@ -58,7 +58,7 @@ return serviceAccountCredentials.createResourceApiToken({
 
 List existing keys with `serviceAccountCredentials.listOverview()`, filtered by `serviceAccountKind: "resource_bound"`, `credentialStatus: "active"`, and the app's `appId` / `resourceType` / `resourceId`.
 
-> The user object in steps 2 and 4 must be user-backed. Apps typically wrap that check in a small local helper — there is no framework-provided `expectUserBackedActor`; each app that wants one defines its own. Derive it from `c.get("actor")`.
+> The user object in steps 2 and 4 must be user-backed. Get it with `expectUserBackedActor(c)` from `@valentinkolb/cloud/server`, which derives it from the actor.
 
 ## What scopes do and do not do
 
