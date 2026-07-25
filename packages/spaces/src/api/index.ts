@@ -1015,12 +1015,13 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Spaces"],
       summary: "List assignable users",
-      description: "List concrete users that currently have effective access to this space and can be assigned to items.",
+      description:
+        "List concrete users that currently have effective access to this space and can be assigned to items. Requires write access, since this is the assignee picker's directory.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(SpaceAssignableUserListSchema, "Assignable users"),
         400: jsonResponse(ErrorResponseSchema, "Invalid query"),
-        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        403: jsonResponse(ErrorResponseSchema, "Write access required"),
         404: jsonResponse(ErrorResponseSchema, "Space not found"),
       },
     }),
@@ -1029,7 +1030,10 @@ const app = new Hono<AuthContext>()
       const spaceId = c.req.param("id") ?? "";
       const query = c.req.valid("query");
 
-      const { error } = await checkSpaceAccess(c, spaceId);
+      // This is the assignee picker's data source, so it needs the permission
+      // that assigning needs. Read access to a space's items is not a reason to
+      // be handed a searchable directory of everyone who can see it.
+      const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
       const excludeUserIds = parseUuidCsv(query.exclude_user_ids, "exclude_user_ids");
       if (!excludeUserIds.ok) return respond(c, excludeUserIds);
