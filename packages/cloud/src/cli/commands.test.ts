@@ -189,7 +189,8 @@ describe("CLI command builder", () => {
 
     // The runner reads global flags without consuming them, so they reach the
     // command parser. `cld admin logs list --jsonl` must behave like `--json`.
-    for (const flags of [{ json: true }, { jsonl: true }, { json: true, jsonl: true }]) {
+    const globalFlagCombinations: CloudCliFlags[] = [{ json: true }, { jsonl: true }, { json: true, jsonl: true }];
+    for (const flags of globalFlagCombinations) {
       await mod.run(createContext(["logs", "list"], flags).ctx);
     }
 
