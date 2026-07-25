@@ -179,6 +179,23 @@ describe("CLI command builder", () => {
     await expect(mod.run(createContext(["logs", "get", "1"], { nope: "x" }).ctx)).rejects.toThrow("Unknown flag");
   });
 
+  test("tolerates global output flags in the trailing position", async () => {
+    let ran = 0;
+    const mod = defineCliCommands({
+      name: "admin",
+      summary: "Admin commands",
+      commands: [command("logs list", { summary: "List logs", run: () => void (ran += 1) })],
+    });
+
+    // The runner reads global flags without consuming them, so they reach the
+    // command parser. `cld admin logs list --jsonl` must behave like `--json`.
+    for (const flags of [{ json: true }, { jsonl: true }, { json: true, jsonl: true }]) {
+      await mod.run(createContext(["logs", "list"], flags).ctx);
+    }
+
+    expect(ran).toBe(3);
+  });
+
   test("detects conflicting input sources", async () => {
     const mod = defineCliCommands({
       name: "admin",

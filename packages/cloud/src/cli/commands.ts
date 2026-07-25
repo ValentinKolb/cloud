@@ -364,7 +364,9 @@ const requireStringValue = (value: CloudCliFlagValue | undefined, label: string)
 
 const parseCommandFlags = (raw: Record<string, CloudCliFlagValue>, specs: CliFlagSpecs | undefined): Record<string, unknown> => {
   const parsed: Record<string, unknown> = {};
-  const allowed = new Set<string>(["json", "help", "h"]);
+  // Global flags survive into command flags (the runner reads them without
+  // consuming them), so every global boolean must be tolerated here.
+  const allowed = new Set<string>(["json", "jsonl", "help", "h"]);
 
   for (const [key, spec] of Object.entries(specs ?? {})) {
     for (const name of flagNames(key, spec)) allowed.add(name);
