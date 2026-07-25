@@ -12,7 +12,9 @@
 import { redis, sql } from "bun";
 import { decryptValue, encryptValue, getAppSecret } from "./crypto";
 import { getSettingLabel, SETTINGS, SETTINGS_MAP, type SettingDef, validateSettingValue } from "./defaults";
-import { bulkRead, deleteKey, readKey, writeKey } from "./store";
+import { bulkRead, deleteKey, invalidateSettingsCache, readKey, writeKey } from "./store";
+
+type SqlClient = typeof sql;
 
 type StoredRow = { key: string; value: string };
 type PendingRow = { key: string; value: unknown; rewrite: boolean; existed: boolean };
@@ -159,16 +161,21 @@ export async function get<T = unknown>(key: string): Promise<T> {
   return readKey(key) as Promise<T>;
 }
 
-export async function set(key: string, value: unknown): Promise<void> {
-  await writeKey(key, value);
+/**
+ * Write a setting. Pass `db` to run inside a caller's transaction — then the
+ * caller must also call `invalidateSettingsCache` once it commits.
+ */
+export async function set(key: string, value: unknown, db?: SqlClient): Promise<void> {
+  await writeKey(key, value, db);
 }
 
-export async function remove(key: string): Promise<void> {
-  await deleteKey(key);
+export async function remove(key: string, db?: SqlClient): Promise<void> {
+  await deleteKey(key, db);
 }
 
 import type { SettingEntry } from "../../contracts/shared";
 
+export { invalidateSettingsCache } from "./store";
 export type { SettingEntry } from "../../contracts/shared";
 
 export async function getAll(): Promise<SettingEntry[]> {

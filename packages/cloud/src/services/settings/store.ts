@@ -19,6 +19,20 @@ import { decryptValue, encryptValue } from "./crypto";
 import { SETTINGS, SETTINGS_MAP, type SettingDef, validateSettingValue } from "./defaults";
 
 const REDIS_KEY = (k: string) => `settings:${k}`;
+
+type SqlClient = typeof sql;
+
+/**
+ * Forget cached values so every container re-reads on next access.
+ *
+ * Separate from the write because ordering matters: dropping the cache while a
+ * transaction is still open lets another container miss, read the pre-commit
+ * row and cache *that* for the full TTL. Callers writing inside a transaction
+ * therefore invalidate after it commits.
+ */
+export const invalidateSettingsCache = async (keys: readonly string[]): Promise<void> => {
+  await Promise.all(keys.map((key) => redis.del(REDIS_KEY(key))));
+};
 const REDIS_TTL_SEC = 300;
 
 type StoredRow = { key: string; value: string };
@@ -201,26 +215,27 @@ export const deleteLegacyKeys = async (extraKnownKeys: readonly string[] = []): 
  * (createSettingsAPI) validates against the declared SettingDef before reaching
  * here. Direct callers must ensure the value matches the setting's kind.
  */
-export const writeKey = async (key: string, value: unknown): Promise<void> => {
+export const writeKey = async (key: string, value: unknown, db?: SqlClient): Promise<void> => {
   const def = SETTINGS_MAP.get(key);
   if (!def) throw new Error(`Unknown setting: ${key}`);
   const validated = validateSettingValue(def, value);
   if (!validated.ok) throw new Error(validated.error);
 
   const encrypted = await encryptValue(validated.value);
-  await sql`
+  await (db ?? sql)`
     INSERT INTO settings.entries (key, value, updated_at)
     VALUES (${key}, ${encrypted}, now())
     ON CONFLICT (key)
     DO UPDATE SET value = ${encrypted}, updated_at = now()
   `;
 
-  // Invalidate the cache so other containers re-read on next access.
-  await redis.del(REDIS_KEY(key));
+  // Passing a transaction means the caller owns invalidation, because the row
+  // is not visible to anyone else until they commit.
+  if (!db) await invalidateSettingsCache([key]);
 };
 
-/** Delete the DB row and invalidate Redis. */
-export const deleteKey = async (key: string): Promise<void> => {
-  await sql`DELETE FROM settings.entries WHERE key = ${key}`;
-  await redis.del(REDIS_KEY(key));
+/** Delete the DB row and invalidate Redis. See writeKey for the `db` contract. */
+export const deleteKey = async (key: string, db?: SqlClient): Promise<void> => {
+  await (db ?? sql)`DELETE FROM settings.entries WHERE key = ${key}`;
+  if (!db) await invalidateSettingsCache([key]);
 };

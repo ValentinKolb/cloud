@@ -151,10 +151,13 @@ const app = new Hono<AuthContext>()
 
     const fieldErrors: FieldErrors = {};
     try {
-      await sql.begin(async () => {
+      // Every write runs on the transaction's own connection, so a failure
+      // rolls the whole save back rather than leaving the keys ahead of it
+      // applied.
+      await sql.begin(async (tx) => {
         for (const [key, value] of Object.entries(finalValues)) {
           try {
-            await settings.set(key, value);
+            await settings.set(key, value, tx);
           } catch (error) {
             fieldErrors[key] = error instanceof Error ? error.message : `Failed to update ${key}`;
             throw error;
@@ -162,13 +165,16 @@ const app = new Hono<AuthContext>()
         }
         for (const key of resets) {
           try {
-            await settings.remove(key);
+            await settings.remove(key, tx);
           } catch (error) {
             fieldErrors[key] = error instanceof Error ? error.message : `Failed to reset ${key}`;
             throw error;
           }
         }
       });
+      // Only now: dropping the cache before the commit would let another
+      // container miss, read the pre-commit row and cache it for the full TTL.
+      await settings.invalidateSettingsCache(keys);
       if (aiSplit) await storeAiCredentials(aiSplit);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Save failed";
