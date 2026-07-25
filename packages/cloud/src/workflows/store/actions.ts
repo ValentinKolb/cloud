@@ -14,7 +14,7 @@
  * shape that cannot occur.
  */
 import { type SQL, sql } from "bun";
-import type { WorkflowJsonValue, WorkflowStepOutcome } from "../contracts";
+import { type WorkflowJsonValue, type WorkflowStepOutcome, workflowPathKey } from "../contracts";
 import { type ErasedWorkflowAction, LANGUAGE_EFFECT, type WorkflowActionMap } from "../definition";
 import type {
   WorkflowActionStep,
@@ -36,11 +36,23 @@ import { withTransaction } from "./transaction";
  */
 export const workflowEffectKey = (runId: string, stepKey: string): string => `workflow:${runId}:step:${stepKey}`;
 
-/** Unwinds a transactional action's transaction while keeping its message. */
-class WorkflowTransactionalFailure extends Error {}
+/** Unwinds a transactional action's transaction while keeping how it failed. */
+class WorkflowTransactionalFailure extends Error {
+  constructor(readonly failure: { message: string; code?: string; retryable?: boolean }) {
+    super(failure.message);
+  }
+}
 
-const asError = (message: string, retryable = false): Extract<WorkflowStepOutcome, { state: "failed" }>["error"] =>
-  ({ code: "WORKFLOW_ACTION_ERROR", message, retryable }) as Extract<WorkflowStepOutcome, { state: "failed" }>["error"];
+type StepError = Extract<WorkflowStepOutcome, { state: "failed" }>["error"];
+
+const asError = (message: string, retryable = false): StepError => ({ code: "WORKFLOW_ACTION_ERROR", message, retryable });
+
+/** Carries the action's own code and retryability into the run, where both are read. */
+const reportedError = (result: { message: string; code?: string; retryable?: boolean }): StepError => ({
+  code: result.code ?? "WORKFLOW_ACTION_ERROR",
+  message: result.message,
+  retryable: result.retryable ?? false,
+});
 
 /**
  * Resolves a step's written config into the values the implementation receives.
@@ -59,18 +71,36 @@ const resolveConfig = async (
 };
 
 /** The context an action implementation receives, built once per invocation. */
-const actionContext = (ctx: WorkflowExecuteActionContext | WorkflowDryRunActionContext, effectKey: string, tx?: SQL) => ({
-  runId: ctx.run.runId,
-  invocation: ctx.invocation,
-  effectKey,
-  ...(tx ? { tx } : {}),
-  heartbeat: async (): Promise<void> => {
-    await ctx.heartbeat();
-  },
-});
+const actionContext = (
+  ctx: WorkflowExecuteActionContext | WorkflowDryRunActionContext,
+  step: WorkflowActionStep,
+  effectKey: string,
+  tx?: SQL,
+) => {
+  // Both `binding` and `resolveReference` are relative to this step's own config,
+  // so an implementation names the key it wrote rather than reassembling the
+  // plan-wide path the compiler used.
+  const configPath = (path: Array<string | number>) => [...step.sourcePath, step.action, ...path];
+  return {
+    runId: ctx.run.runId,
+    stepKey: ctx.step.key,
+    invocation: ctx.invocation,
+    effectKey,
+    ...(tx ? { tx } : {}),
+    binding: (...path: Array<string | number>): WorkflowJsonValue | undefined => ctx.plan.bindings[workflowPathKey(configPath(path))],
+    resolveReference: (reference: string, ...path: Array<string | number>): Promise<WorkflowJsonValue | undefined> =>
+      ctx.resolveReference(reference, configPath(path)),
+    heartbeat: async (): Promise<void> => {
+      await ctx.heartbeat();
+    },
+  };
+};
 
 /** Refused access is a failure of this step, not of the whole run. */
-const denied = (): WorkflowStepOutcome => ({ state: "failed", error: asError("not authorized to perform this action") });
+const denied = (): WorkflowStepOutcome => ({
+  state: "failed",
+  error: { code: "FORBIDDEN", message: "not authorized to perform this action", retryable: false },
+});
 
 /**
  * Stores a step's output under the name its config gives.
@@ -89,10 +119,41 @@ const applySaveAs = (
   if (typeof name === "string" && name && output !== undefined) ctx.variables.set(name, output);
 };
 
+/** The step an effect belongs to. Its generation fences a stale worker's writes. */
+export type WorkflowEffectJournalStep = { runId: string; key: string; executionGeneration: number };
+
+/**
+ * Where the evidence that an effect happened is written.
+ *
+ * The kernel's own journal is the default and the destination. The seam exists
+ * because an app adopts declared actions before its runs live in
+ * `workflows.run`, and during that window the evidence has to land in the table
+ * that does hold its runs. The ordering guarantees are the port's, not the
+ * table's, so they hold either way.
+ */
+export type WorkflowEffectJournalPort = {
+  /** What an earlier attempt recorded about this step's effect, if anything. */
+  read(step: WorkflowEffectJournalStep): Promise<{ key: string; state: string; output: WorkflowJsonValue } | null>;
+  /** Marks an effect as started, before it is performed. */
+  begin(step: WorkflowEffectJournalStep, effectKey: string): Promise<void>;
+  /** Records a completed effect on the handle that performed it, so both commit together. */
+  record(tx: SQL, step: WorkflowEffectJournalStep, effectKey: string, output: WorkflowJsonValue): Promise<void>;
+  /** Settles an effect once its fate is known. `ambiguous` is a real answer, not a failure. */
+  settle(step: WorkflowEffectJournalStep, state: "succeeded" | "ambiguous" | "failed"): Promise<void>;
+};
+
+const kernelEffectJournal = (db?: SQL): WorkflowEffectJournalPort => ({
+  read: (step) => readWorkflowEffect(step, { ...(db ? { db } : {}) }),
+  begin: (step, effectKey) => beginWorkflowEffect(step, effectKey, { ...(db ? { db } : {}) }),
+  record: (tx, step, effectKey, output) => recordWorkflowEffect(tx, step, effectKey, output),
+  settle: (step, state) => settleWorkflowEffect(step, state, { ...(db ? { db } : {}) }),
+});
+
 export type WorkflowActionPortOptions = {
   /** Charged against the root of a fan-out, so children share one allowance. */
   budget?: boolean;
   db?: SQL;
+  journal?: WorkflowEffectJournalPort;
 };
 
 /**
@@ -112,6 +173,23 @@ const runDeclaredAction = async (
   const config = await resolveConfig(ctx, step);
   const journalStep = { runId: ctx.run.runId, key: ctx.step.key, executionGeneration: ctx.run.executionGeneration };
   const effectKey = workflowEffectKey(ctx.run.runId, ctx.step.key);
+  const journal = options.journal ?? kernelEffectJournal(options.db);
+
+  /**
+   * Asks the action what it would do, and charges the run for it.
+   *
+   * Only reached when there is a budget to charge: the answer is otherwise
+   * discarded, and `plan` is allowed to be expensive — an HTTP action resolves
+   * its target to check it is safe to call.
+   */
+  const charge = async (): Promise<Extract<WorkflowStepOutcome, { state: "failed" }> | null> => {
+    if (options.budget === false || !action.plan) return null;
+    const planned = await action.plan(actionContext(ctx, step, effectKey), config as never);
+    if (!planned.consumes || Object.keys(planned.consumes).length === 0) return null;
+    const root = await budgetRootRunId(ctx.run.runId, { ...(options.db ? { db: options.db } : {}) });
+    const charged = await chargeWorkflowEffectBudget(root, planned.consumes, { ...(options.db ? { db: options.db } : {}) });
+    return charged.state === "exceeded" ? { state: "failed", error: asError(budgetError(charged).message) } : null;
+  };
 
   /*
    * An earlier attempt of this step may have escaped without telling us how it
@@ -124,20 +202,20 @@ const runDeclaredAction = async (
    * the same key.
    */
   if (action.effect === "ambiguous" && action.reconcile) {
-    const prior = await readWorkflowEffect(journalStep, { db: options.db });
+    const prior = await journal.read(journalStep);
     if (prior && (prior.state === "executing" || prior.state === "ambiguous")) {
-      const verdict = await action.reconcile(actionContext(ctx, prior.key), prior.key);
+      const verdict = await action.reconcile(actionContext(ctx, step, prior.key), prior.key);
       if (verdict.state === "succeeded") {
-        await settleWorkflowEffect(journalStep, "succeeded", { db: options.db });
+        await journal.settle(journalStep, "succeeded");
         return { state: "completed", output: (verdict.output ?? null) as WorkflowJsonValue };
       }
       if (verdict.state === "failed") {
-        await settleWorkflowEffect(journalStep, "failed", { db: options.db });
-        return { state: "failed", error: asError(verdict.message) };
+        await journal.settle(journalStep, "failed");
+        return { state: "failed", error: reportedError(verdict) };
       }
       // Still unknown. A human decides; nothing is repeated on their behalf.
-      await settleWorkflowEffect(journalStep, "ambiguous", { db: options.db });
-      return { state: "needs_attention", error: asError(verdict.message) };
+      await journal.settle(journalStep, "ambiguous");
+      return { state: "needs_attention", error: reportedError(verdict) };
     }
   }
 
@@ -147,77 +225,59 @@ const runDeclaredAction = async (
    * recorded outcome and returns it instead of doing the work a second time.
    */
   if (action.effect === "transactional") {
-    const prior = await readWorkflowEffect(journalStep, { db: options.db });
+    const prior = await journal.read(journalStep);
     if (prior?.state === "succeeded") return { state: "completed", output: prior.output };
 
-    if (action.plan && options.budget !== false) {
-      const planned = await action.plan(actionContext(ctx, effectKey), config as never);
-      if (planned.consumes && Object.keys(planned.consumes).length > 0) {
-        const root = await budgetRootRunId(ctx.run.runId, { db: options.db });
-        const charge = await chargeWorkflowEffectBudget(root, planned.consumes, { db: options.db });
-        if (charge.state === "exceeded") return { state: "failed", error: asError(budgetError(charge).message) };
-      }
-    }
+    const overspent = await charge();
+    if (overspent) return overspent;
 
     return withTransaction(options.db, async (tx) => {
-      const txCtx = actionContext(ctx, effectKey, tx);
+      const txCtx = actionContext(ctx, step, effectKey, tx);
       // Checked on the transaction's own handle: access can be revoked between
       // queueing and running, and a check on another connection is checking a
       // world this write will not see.
       if (action.authorize && !(await action.authorize(txCtx, config as never))) return denied();
 
       const result = await action.run(txCtx, config as never);
-      if (result.state !== "succeeded") {
-        // Let the transaction unwind: the effect did not happen.
-        throw new WorkflowTransactionalFailure(result.state === "failed" ? result.message : result.message);
-      }
-      await recordWorkflowEffect(tx, journalStep, effectKey, (result.output ?? null) as WorkflowJsonValue);
+      // Let the transaction unwind: the effect did not happen.
+      if (result.state !== "succeeded") throw new WorkflowTransactionalFailure(result);
+      await journal.record(tx, journalStep, effectKey, (result.output ?? null) as WorkflowJsonValue);
       return { state: "completed", output: (result.output ?? null) as WorkflowJsonValue } satisfies WorkflowStepOutcome;
     }).catch((error) => {
       if (error instanceof WorkflowTransactionalFailure)
-        return { state: "failed", error: asError(error.message) } satisfies WorkflowStepOutcome;
+        return { state: "failed", error: reportedError(error.failure) } satisfies WorkflowStepOutcome;
       throw error;
     });
   }
 
-  if (action.effect !== "pure" && action.plan) {
-    const planned = await action.plan(actionContext(ctx, effectKey), config as never);
+  if (action.effect !== "pure") {
     // Charged per attempt. A replayed in-flight step charges twice, which is
     // conservative — it can only refuse more, never permit more.
-    if (options.budget !== false && planned.consumes && Object.keys(planned.consumes).length > 0) {
-      const root = await budgetRootRunId(ctx.run.runId, { db: options.db });
-      const charge = await chargeWorkflowEffectBudget(root, planned.consumes, { db: options.db });
-      if (charge.state === "exceeded") return { state: "failed", error: asError(budgetError(charge).message) };
-    }
+    const overspent = await charge();
+    if (overspent) return overspent;
   }
 
-  if (action.authorize && !(await action.authorize(actionContext(ctx, effectKey), config as never))) return denied();
+  if (action.authorize && !(await action.authorize(actionContext(ctx, step, effectKey), config as never))) return denied();
 
   // Only an ambiguous effect needs evidence that it started: the others are
   // either safe to repeat or undone by the crash that interrupted them.
-  if (action.effect === "ambiguous") await beginWorkflowEffect(journalStep, effectKey, { db: options.db });
+  if (action.effect === "ambiguous") await journal.begin(journalStep, effectKey);
 
-  const result = await action.run(actionContext(ctx, effectKey), config as never);
+  const result = await action.run(actionContext(ctx, step, effectKey), config as never);
 
   if (action.effect === "ambiguous") {
-    await settleWorkflowEffect(
-      journalStep,
-      result.state === "succeeded" ? "succeeded" : result.state === "failed" ? "failed" : "ambiguous",
-      {
-        db: options.db,
-      },
-    );
+    await journal.settle(journalStep, result.state === "succeeded" ? "succeeded" : result.state === "failed" ? "failed" : "ambiguous");
   }
 
   switch (result.state) {
     case "succeeded":
       return { state: "completed", output: (result.output ?? null) as WorkflowJsonValue };
     case "failed":
-      return { state: "failed", error: asError(result.message) };
+      return { state: "failed", error: reportedError(result) };
     case "ambiguous":
       // Not a failure: "the send may have gone through" needs a human, and
       // treating it as failure either loses messages or sends them twice.
-      return { state: "needs_attention", error: asError(result.message) };
+      return { state: "needs_attention", error: reportedError(result) };
   }
 };
 
@@ -256,9 +316,9 @@ export const createWorkflowActionPort = (
  * implementation used to be separate places that could disagree and only fail
  * at runtime.
  */
-export const workflowActionDescriptors = (actions: WorkflowActionMap, namespace: string) =>
+export const workflowActionDescriptors = (actions: WorkflowActionMap, namespace?: string) =>
   Object.entries(actions).map(([key, action]) => ({
-    kind: `${namespace}.${key}`,
+    kind: namespace ? `${namespace}.${key}` : key,
     label: action.label,
     description: action.description,
     config: action.config,
@@ -286,7 +346,7 @@ export const createWorkflowDryRunPort = (actions: WorkflowActionMap): WorkflowDr
       restoreCompleted: (ctx, step, outcome) => applySaveAs(ctx, step, outcome.output),
       plan: async (ctx: WorkflowDryRunActionContext, step: WorkflowActionStep) => {
         const config = await resolveConfig(ctx, step);
-        const context = actionContext(ctx, workflowEffectKey(ctx.run.runId, ctx.step.key));
+        const context = actionContext(ctx, step, workflowEffectKey(ctx.run.runId, ctx.step.key));
 
         if (action.effect === "pure") {
           const result = await action.run(context, config as never);

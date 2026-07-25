@@ -10,6 +10,8 @@ export {
   type WorkflowActionPortOptions,
   workflowActionDescriptors,
   workflowEffectKey,
+  type WorkflowEffectJournalPort,
+  type WorkflowEffectJournalStep,
 } from "./actions";
 export {
   budgetError,

@@ -35,7 +35,7 @@ const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest
 
 const CONFIG = { kind: "object", properties: { to: { kind: "string" } } } as const;
 
-const plan = (actions: string[], steps: WorkflowIrStep[]): WorkflowBoundPlan => ({
+const plan = (actions: string[], steps: WorkflowIrStep[], bindings: Record<string, string> = {}): WorkflowBoundPlan => ({
   schemaVersion: 2,
   languageId: "probe",
   languageVersion: 1,
@@ -48,7 +48,7 @@ const plan = (actions: string[], steps: WorkflowIrStep[]): WorkflowBoundPlan => 
   inputs: [],
   triggers: [],
   steps,
-  bindings: {},
+  bindings,
 });
 
 const step = (action: string, extra: Record<string, string> = {}): WorkflowIrStep => ({
@@ -58,7 +58,12 @@ const step = (action: string, extra: Record<string, string> = {}): WorkflowIrSte
   sourcePath: ["steps", 0],
 });
 
-const queued = async (action: string, effectBudget: Record<string, number> = {}, extraConfig: Record<string, string> = {}) => {
+const queued = async (
+  action: string,
+  effectBudget: Record<string, number> = {},
+  extraConfig: Record<string, string> = {},
+  bindings: Record<string, string> = {},
+) => {
   const appId = `decl-${crypto.randomUUID().slice(0, 8)}`;
   const scopeId = `scope-${crypto.randomUUID()}`;
   const workflow = await createWorkflow({ appId, scopeId, key: "wf", name: "Declared", author: { kind: "system" } });
@@ -66,7 +71,7 @@ const queued = async (action: string, effectBudget: Record<string, number> = {},
     workflowId: workflow.id,
     source: "probe",
     sourceHash: hex(scopeId),
-    plan: plan([action], [step(action, extraConfig)]),
+    plan: plan([action], [step(action, extraConfig)], bindings),
     languageId: "probe",
     languageVersion: 1,
     manifestHash: hex("manifest"),
@@ -421,6 +426,80 @@ describe("declared actions", () => {
     expect(detail?.state).toBe("succeeded");
     expect(JSON.stringify(detail?.steps[0]?.state)).toContain("completed");
     expect(workflowId).toBeDefined();
+  });
+
+  test("an action reads the identity the compiler pinned, not the name a person typed", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued(
+      "probe.bound",
+      {},
+      { table: "Invoices", record: "order" },
+      { "steps.0.probe.bound.table": "tbl-9f3", "steps.0.probe.bound.set.Status": "fld-77" },
+    );
+
+    const seen: Record<string, unknown> = {};
+    const actions = {
+      "probe.bound": workflowAction.pure({
+        label: "Bound",
+        description: "Reads its bindings.",
+        config: CONFIG,
+        run: async (ctx) => {
+          // The source says "Invoices"; publishing froze which table that was.
+          // Reading the name again here would follow a rename to another table.
+          seen.table = ctx.binding("table");
+          seen.field = ctx.binding("set", "Status");
+          seen.unbound = ctx.binding("nothing");
+          seen.stepKey = ctx.stepKey;
+          // A reference is not an expression, so it survives config resolution
+          // verbatim and the action decides what it must resolve to.
+          seen.reference = await ctx.resolveReference("inputs.missing", "record");
+          return { state: "succeeded", output: null };
+        },
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    expect(seen).toMatchObject({ table: "tbl-9f3", field: "fld-77", unbound: undefined, stepKey: "steps.0", reference: undefined });
+  });
+
+  test("a failed action keeps its own code, so the run says which failure it was", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.gone");
+
+    const actions = {
+      "probe.gone": workflowAction.idempotent({
+        label: "Gone",
+        description: "Refers to something deleted.",
+        config: CONFIG,
+        run: async () => ({ state: "failed", message: "email template is no longer available", code: "NOT_FOUND" }),
+        plan: async () => ({ summary: "send" }),
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    // "Deleted" and "not allowed" read identically as prose; the code is what
+    // tells the operator which one happened.
+    expect((await getWorkflowRun(runId))?.error).toMatchObject({ code: "NOT_FOUND", retryable: false });
+  });
+
+  test("an action that says the attempt failed, not the work, is retried", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.flaky");
+
+    const actions = {
+      "probe.flaky": workflowAction.idempotent({
+        label: "Flaky",
+        description: "Fails transiently.",
+        config: CONFIG,
+        run: async () => ({ state: "failed", message: "mail provider unavailable", code: "MAIL_UNAVAILABLE", retryable: true }),
+        plan: async () => ({ summary: "send" }),
+      }),
+    };
+
+    // Released rather than failed: a provider being briefly unreachable would
+    // otherwise cost a whole run.
+    expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) })).state).toBe("released");
+    expect((await getWorkflowRun(runId))?.state).toBe("queued");
   });
 
   test("an action the app never declared is a missing handler, not a crash", async () => {

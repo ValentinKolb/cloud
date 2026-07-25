@@ -107,6 +107,17 @@ export const isReplayable = (effect: WorkflowEffectClass): boolean => effect !==
 // ─── Action outcomes ─────────────────────────────────────────────────────────
 
 /**
+ * How a failure is described to the run.
+ *
+ * `code` is what an operator reads in the run view to tell "the template was
+ * deleted" from "you may not do this"; a message alone reads the same in both
+ * cases. `retryable` says the attempt failed, not the work — the runtime then
+ * retries the step instead of ending the run, and a mail provider being briefly
+ * unreachable stops costing a run.
+ */
+type WorkflowActionFailure = { message: string; code?: string; retryable?: boolean };
+
+/**
  * What an action reports back.
  *
  * `ambiguous` is a first-class result rather than a thrown error: "the send may
@@ -115,8 +126,8 @@ export const isReplayable = (effect: WorkflowEffectClass): boolean => effect !==
  */
 export type WorkflowActionResult<Output> =
   | { state: "succeeded"; output: Output }
-  | { state: "failed"; message: string }
-  | { state: "ambiguous"; message: string; evidence?: WorkflowJsonValue };
+  | ({ state: "failed" } & WorkflowActionFailure)
+  | ({ state: "ambiguous"; evidence?: WorkflowJsonValue } & WorkflowActionFailure);
 
 /** What a dry run reports: what *would* happen, without doing it. */
 export type WorkflowPlannedEffect = {
@@ -139,14 +150,16 @@ export type WorkflowPlannedEffect = {
 /** Result of asking an external system whether an ambiguous effect landed. */
 export type WorkflowReconcileResult<Output> =
   | { state: "succeeded"; output: Output }
-  | { state: "failed"; message: string }
-  | { state: "unknown"; message: string };
+  | ({ state: "failed" } & WorkflowActionFailure)
+  | ({ state: "unknown" } & WorkflowActionFailure);
 
 // ─── Action context ──────────────────────────────────────────────────────────
 
 export type WorkflowActionContext = {
   /** Identifies the run this step belongs to, for logging and correlation. */
   runId: string;
+  /** Identifies the step within the run. Stable across replays. */
+  stepKey: string;
   /**
    * What started this run: who it acts as, what it was given, and the app's own
    * context from the event.
@@ -157,6 +170,23 @@ export type WorkflowActionContext = {
    * the run to find out who it is.
    */
   invocation: WorkflowInvocation;
+  /**
+   * The identity the compiler pinned for a config path, relative to this step.
+   *
+   * A source names a table or a template by the name a person typed; publishing
+   * resolves that to an id and freezes it in the plan. Reading the name again at
+   * run time would follow a rename to a different object, which is the whole
+   * reason binding happens once, at publish.
+   */
+  binding(...path: Array<string | number>): WorkflowJsonValue | undefined;
+  /**
+   * Resolves a value reference the config names — `record: order` — to the value
+   * it stands for.
+   *
+   * Distinct from the resolved config: a reference is not an expression, so it
+   * survives config resolution verbatim and the action decides what it must be.
+   */
+  resolveReference(reference: string, ...path: Array<string | number>): Promise<WorkflowJsonValue | undefined>;
   /**
    * The transaction a transactional action runs in.
    *
