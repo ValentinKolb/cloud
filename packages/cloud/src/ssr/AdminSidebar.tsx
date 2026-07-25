@@ -1,36 +1,28 @@
 import { AppWorkspace } from "../ui";
+import { activeAdminHref } from "./admin-active-link";
 import { type AdminLink, buildAdminGroups } from "./admin-navigation";
 import type { RuntimeContext } from "./runtime";
 
-function isActive(currentPath: string, href: string): boolean {
-  const current = new URL(`http://admin.local${currentPath}`);
-  const target = new URL(`http://admin.local${href}`);
-  if (target.pathname === "/admin") return current.pathname === "/admin";
-  if (target.pathname === "/admin/settings") {
-    return current.pathname === "/admin/settings" && current.searchParams.get("tab") === target.searchParams.get("tab");
-  }
-  return current.pathname === target.pathname || current.pathname.startsWith(`${target.pathname}/`);
-}
-
-const AdminNavigation = (props: { currentPath: string; groups: ReturnType<typeof buildAdminGroups> }) => (
-  <>
-    {props.groups.map((group) => (
-      <AppWorkspace.SidebarSection title={group.label}>
-        {group.links.map((link: AdminLink) => (
-          <AppWorkspace.SidebarItem
-            href={link.href}
-            navigation="document"
-            active={isActive(props.currentPath, link.href)}
-            title={link.label}
-          >
-            <AppWorkspace.SidebarItemIcon icon={`ti ${link.icon}`} />
-            <AppWorkspace.SidebarItemLabel>{link.label}</AppWorkspace.SidebarItemLabel>
-          </AppWorkspace.SidebarItem>
-        ))}
-      </AppWorkspace.SidebarSection>
-    ))}
-  </>
-);
+const AdminNavigation = (props: { currentPath: string; groups: ReturnType<typeof buildAdminGroups> }) => {
+  const activeHref = activeAdminHref(
+    props.currentPath,
+    props.groups.flatMap((group) => group.links.map((link: AdminLink) => link.href)),
+  );
+  return (
+    <>
+      {props.groups.map((group) => (
+        <AppWorkspace.SidebarSection title={group.label}>
+          {group.links.map((link: AdminLink) => (
+            <AppWorkspace.SidebarItem href={link.href} navigation="document" active={link.href === activeHref} title={link.label}>
+              <AppWorkspace.SidebarItemIcon icon={`ti ${link.icon}`} />
+              <AppWorkspace.SidebarItemLabel>{link.label}</AppWorkspace.SidebarItemLabel>
+            </AppWorkspace.SidebarItem>
+          ))}
+        </AppWorkspace.SidebarSection>
+      ))}
+    </>
+  );
+};
 
 export default function AdminSidebar({ currentPath, apps }: { currentPath: string; apps: readonly RuntimeContext["apps"][number][] }) {
   const groups = buildAdminGroups(apps);

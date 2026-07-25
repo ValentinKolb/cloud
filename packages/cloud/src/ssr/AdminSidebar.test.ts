@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { RuntimeAppMeta } from "../contracts/app";
+import { activeAdminHref } from "./admin-active-link";
 import { buildAdminGroups } from "./admin-navigation";
 
 const app = (overrides: Partial<RuntimeAppMeta> = {}): RuntimeAppMeta => ({
@@ -55,5 +56,52 @@ describe("buildAdminGroups", () => {
     ]);
 
     expect(groups.map((group) => group.label)).toEqual(["General", "AI", "Settings"]);
+  });
+});
+
+describe("activeAdminHref", () => {
+  const observability = [
+    "/admin",
+    "/admin/observability",
+    "/admin/observability/logs",
+    "/admin/observability/telemetry",
+    "/admin/observability/jobs",
+  ];
+
+  it("lights the most specific link, not every ancestor", () => {
+    // The observability overview sits at the prefix of every sibling, so plain
+    // prefix matching left it highlighted next to the page actually open.
+    expect(activeAdminHref("/admin/observability/telemetry", observability)).toBe("/admin/observability/telemetry");
+  });
+
+  it("keeps the overview active on its own page", () => {
+    expect(activeAdminHref("/admin/observability", observability)).toBe("/admin/observability");
+  });
+
+  it("keeps a section link active on its sub-pages", () => {
+    expect(activeAdminHref("/admin/observability/telemetry/detail", observability)).toBe("/admin/observability/telemetry");
+  });
+
+  it("does not let the admin root swallow every page", () => {
+    expect(activeAdminHref("/admin/observability/jobs", observability)).toBe("/admin/observability/jobs");
+    expect(activeAdminHref("/admin", observability)).toBe("/admin");
+  });
+
+  it("ignores a query string on ordinary links", () => {
+    expect(activeAdminHref("/admin/observability/jobs?health=stuck", observability)).toBe("/admin/observability/jobs");
+  });
+
+  it("distinguishes settings tabs by query parameter", () => {
+    const settings = ["/admin/settings?tab=general", "/admin/settings?tab=mail"];
+    expect(activeAdminHref("/admin/settings?tab=mail", settings)).toBe("/admin/settings?tab=mail");
+  });
+
+  it("returns nothing when no link covers the path", () => {
+    expect(activeAdminHref("/admin/accounts", ["/admin/observability"])).toBeNull();
+  });
+
+  it("does not treat a shared name prefix as a match", () => {
+    // "/admin/observability-legacy" must not match "/admin/observability".
+    expect(activeAdminHref("/admin/observability-legacy", ["/admin/observability"])).toBeNull();
   });
 });
