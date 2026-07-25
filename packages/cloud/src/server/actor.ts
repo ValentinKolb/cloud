@@ -29,6 +29,20 @@ export const getUserBackedActor = <T extends AuthContext>(c: Context<T>): Acting
   userFromActor(c.get("actor") as RequestActor | undefined);
 
 /**
+ * Whether the request came from the user themselves rather than from a
+ * credential acting on their behalf.
+ *
+ * Almost nothing should ask this — treating a credential differently from a
+ * session is exactly the split the actor model exists to remove, and the
+ * answer here is *not* an authorization decision. The one legitimate use is
+ * an endpoint that manages authentication itself (passkeys, API keys, the
+ * password): a credential must not be able to mint the means to replace it,
+ * and no scope expresses that. For everything else, authorize from
+ * `accessSubject`.
+ */
+export const isDirectUserActor = (actor: RequestActor | undefined): boolean => actor?.kind === "user";
+
+/**
  * The acting user, or throw.
  *
  * Only for routes already gated to a user-backed role — the throw is a

@@ -106,6 +106,14 @@ The user stays reachable. What is no longer possible is reaching it *without* th
 
 The same split runs through the whole API surface. When a helper offers both shapes, the one taking `subject`/`accessSubject` is the current one — see `getEffectivePermission` below, whose `userId`, `serviceAccountId`, and `userGroups` parameters are all deprecated.
 
+### The one thing a credential may not do
+
+`isDirectUserActor(c.get("actor"))` answers whether the caller is the user themselves rather than a credential acting for them. Reach for it in exactly one situation: **an endpoint that manages how the account is authenticated** — passkeys, API keys, the password, account deletion.
+
+A personal API key acts as its user, so it passes every user-backed check. Without this gate it could enrol a passkey and become a full login, or mint further keys that survive revoking the leaked one. No scope in the vocabulary expresses "may add an authenticator", so the answer cannot come from scopes. Core gates the mutating `/api/me` authentication routes this way; reading them stays open.
+
+Anywhere else, asking this question re-creates the API-key/user split the actor model exists to remove. Authorize from `accessSubject`.
+
 ## Bearer token resolution
 
 Authentication resolves in a fixed order:

@@ -35,7 +35,7 @@ import {
   UserSchema,
   WebAuthnPasskeySchema,
 } from "../contracts";
-import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "../server";
+import { type AuthContext, auth, getUserBackedActor, isDirectUserActor, jsonResponse, rateLimit, requiresAuth, respond, v } from "../server";
 import {
   accountLifecycle,
   accountsAppService as accountsService,
@@ -54,9 +54,35 @@ const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
 });
 
 const requireUserBackedActor = createMiddleware<AuthContext>(async (c, next) => {
-  const user = c.get("user") as AuthContext["Variables"]["user"] | undefined;
-  if (!user) {
+  if (!getUserBackedActor(c)) {
     return c.json({ message: "Self-service endpoints require a user-backed actor", code: "FORBIDDEN" }, 403);
+  }
+  return next();
+});
+
+/**
+ * Guards the endpoints that manage how the account is authenticated: passkeys,
+ * API keys, the password, and account deletion.
+ *
+ * `requireUserBackedActor` is not enough for these. A personal API key acts as
+ * its user, so it passes that check — and could then enrol a passkey, which is
+ * a full account takeover, or mint further keys that outlive the revocation of
+ * the one that was leaked. No scope in the vocabulary means "may add an
+ * authenticator", so a credential must not reach these endpoints at all.
+ *
+ * A credential may still *read* its account's passkeys and keys; only the
+ * mutations are gated. Browser sessions and user-issued OAuth access tokens
+ * both resolve to a `user` actor and are unaffected.
+ */
+const requireDirectUserActor = createMiddleware<AuthContext>(async (c, next) => {
+  if (!isDirectUserActor(c.get("actor"))) {
+    return c.json(
+      {
+        message: "Credentials cannot manage account authentication. Sign in to change passkeys, API keys, or your password.",
+        code: "FORBIDDEN",
+      },
+      403,
+    );
   }
   return next();
 });
@@ -388,6 +414,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/passkeys/registration/start",
+    requireDirectUserActor,
     describeRoute({
       tags: ["Me"],
       summary: "Start passkey registration",
@@ -396,6 +423,7 @@ const app = new Hono<AuthContext>()
       responses: {
         200: jsonResponse(z.unknown(), "Passkey registration options"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Not permitted for API keys or other credentials"),
       },
     }),
     async (c) => respond(c, webauthn.beginRegistration({ user: c.get("user") })),
@@ -403,6 +431,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/passkeys/registration/verify",
+    requireDirectUserActor,
     describeRoute({
       tags: ["Me"],
       summary: "Verify passkey registration",
@@ -412,6 +441,7 @@ const app = new Hono<AuthContext>()
         201: jsonResponse(WebAuthnPasskeySchema, "Passkey created"),
         400: jsonResponse(ErrorResponseSchema, "Passkey registration failed"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Not permitted for API keys or other credentials"),
       },
     }),
     v("json", CreateWebAuthnPasskeySchema),
@@ -432,6 +462,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/passkeys/:id",
+    requireDirectUserActor,
     describeRoute({
       tags: ["Me"],
       summary: "Delete current user passkey",
@@ -440,6 +471,7 @@ const app = new Hono<AuthContext>()
       responses: {
         200: jsonResponse(MessageResponseSchema, "Passkey deleted"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Not permitted for API keys or other credentials"),
         404: jsonResponse(ErrorResponseSchema, "Passkey not found"),
       },
     }),
@@ -453,6 +485,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/api-keys",
+    requireDirectUserActor,
     describeRoute({
       tags: ["Me"],
       summary: "Create current user API key",
@@ -462,6 +495,7 @@ const app = new Hono<AuthContext>()
         201: jsonResponse(CreateUserApiKeyResponseSchema, "API key created"),
         400: jsonResponse(ErrorResponseSchema, "Failed to create API key"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Not permitted for API keys or other credentials"),
       },
     }),
     v("json", CreateUserApiKeySchema),
@@ -502,6 +536,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/api-keys/:id",
+    requireDirectUserActor,
     describeRoute({
       tags: ["Me"],
       summary: "Revoke current user API key",
@@ -510,6 +545,7 @@ const app = new Hono<AuthContext>()
       responses: {
         200: jsonResponse(MessageResponseSchema, "API key revoked"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Not permitted for API keys or other credentials"),
         404: jsonResponse(ErrorResponseSchema, "API key not found"),
       },
     }),
@@ -526,6 +562,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/password",
+    requireDirectUserActor,
     describeRoute({
       tags: ["Me"],
       summary: "Change current user password",
@@ -535,6 +572,7 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(MessageResponseSchema, "Password changed"),
         400: jsonResponse(ErrorResponseSchema, "Failed to change password"),
         401: jsonResponse(ErrorResponseSchema, "Current password is incorrect"),
+        403: jsonResponse(ErrorResponseSchema, "Not permitted for API keys or other credentials"),
       },
     }),
     v("json", ChangePasswordSchema),
@@ -573,6 +611,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/",
+    requireDirectUserActor,
     describeRoute({
       tags: ["Me"],
       summary: "Delete current user",
