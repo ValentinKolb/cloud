@@ -1,4 +1,4 @@
-import { type AiEnrichmentOverview, aiConversationStore } from "@valentinkolb/cloud/ai";
+import { type AiEnrichmentOverview, aiConversationStore, listAiCredentialProfileIds } from "@valentinkolb/cloud/ai";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { settingsService } from "@valentinkolb/cloud/services";
 import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
@@ -157,12 +157,16 @@ export default ssr<AuthContext>(async (c) => {
   let entries: SettingFieldDef[] = [];
   let legalInitial: LegalInitial | null = null;
   let aiEnrichmentOverview: AiEnrichmentOverview | null = null;
+  // Which profiles have a stored provider key. The keys themselves never leave
+  // the server, so the form shows presence instead of a value.
+  let aiCredentialProfileIds: string[] = [];
 
   if (tab.group) {
     entries = await buildEntries(tab.group);
     if (tab.id === "mail") entries = entries.filter((entry) => entry.kind !== "template");
     if (tab.id === "email-templates") entries = entries.filter((entry) => entry.kind === "template");
     if (tab.id === "ai-jobs") aiEnrichmentOverview = await aiConversationStore.getEnrichmentOverview();
+    if (tab.id === "ai-providers") aiCredentialProfileIds = await listAiCredentialProfileIds();
   } else if (tab.id === "legal") {
     entries = await buildEntries("legal");
     legalInitial = buildLegalInitial(entries);
@@ -182,6 +186,7 @@ export default ssr<AuthContext>(async (c) => {
             showTestPdfAction={tab.id === "pdf-rendering"}
             showLegacySettings={tab.id === "general"}
             aiEnrichmentOverview={aiEnrichmentOverview}
+            aiCredentialProfileIds={aiCredentialProfileIds}
             aiSection={aiSection}
             showAiJobsLink={showAiJobsLink}
           />

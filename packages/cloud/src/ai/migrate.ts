@@ -462,6 +462,33 @@ export const migrateCloudAi = async (): Promise<void> => {
     ON ai.skill_events(skill_id, created_at DESC, id DESC)
   `.simple();
 
+  // Provider API keys used to live inside the ai.model_profiles_json setting.
+  // A JSON setting is delivered to the admin UI in full, so every key rode
+  // along in the page payload; a per-profile row keeps them server-side and
+  // lets a deployment hold as many as it has profiles.
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.model_credentials (
+      profile_id TEXT PRIMARY KEY,
+      secret TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+
+  // One-time move of keys that were stored inside the profiles setting. Once
+  // the blob holds no apiKey the split yields nothing and this is a no-op, so
+  // it is safe to re-run. Dynamic imports keep the module free of store deps.
+  {
+    const { coreSettings } = await import("../services");
+    const { setAiCredential, splitAiProfileCredentials } = await import("./credentials");
+    const split = splitAiProfileCredentials((await coreSettings.get<string>("ai.model_profiles_json")) ?? "[]");
+    if (split && split.credentials.length > 0) {
+      for (const { profileId, secret } of split.credentials) await setAiCredential(profileId, secret);
+      await coreSettings.set("ai.model_profiles_json", split.profilesJson);
+      console.log(`  ✓ moved ${split.credentials.length} AI provider key(s) out of ai.model_profiles_json`);
+    }
+  }
+
   // Builtin skills ship as prepopulated workspace skills — seeded once, then
   // owned by admins like any other workspace skill (deletions stick).
   // Dynamic import keeps the migration module free of store dependencies.

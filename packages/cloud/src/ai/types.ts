@@ -40,9 +40,6 @@ export type AiModelProfile = {
   image?: string;
   capabilities: AiModelCapability[];
   dataBoundary: AiDataBoundary;
-  apiKey?: string;
-  /** Legacy: old profiles referenced global secret settings. New profiles store apiKey directly. */
-  credentialSetting?: string;
   baseURL?: string;
   contextWindow?: number;
   temperature?: number;

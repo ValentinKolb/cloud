@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { coreSettings } from "../services";
+import { getAiCredential } from "./credentials";
 import { AI_FIRECRAWL_API_KEY_SETTING_KEY } from "./firecrawl-tools";
 import { createAiProvider } from "./provider";
 import {
@@ -75,9 +76,6 @@ const ModelProfileSchema = z.object({
   dataBoundary: z.enum(DATA_BOUNDARY_INPUTS).optional(),
   // Legacy name accepted for stored profiles created before dataBoundary.
   dataPolicy: z.enum(DATA_BOUNDARY_INPUTS).optional(),
-  apiKey: z.string().trim().min(1).optional(),
-  // Legacy profiles may still point at a global secret setting. The admin UI no longer writes this.
-  credentialSetting: z.string().trim().min(1).optional(),
   baseURL: z.string().trim().url().optional(),
   contextWindow: z.number().int().positive().optional(),
   temperature: z.number().min(0).max(2).optional(),
@@ -163,7 +161,7 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   compactionPrompt?: string;
   maxToolResultChars?: unknown;
   firecrawlApiKey?: string;
-  readCredential?: (settingKey: string) => Promise<string | undefined>;
+  readCredential?: (profileId: string) => Promise<string | null | undefined>;
 }): Promise<AiSettingsState> => {
   const parsed = parseProfiles(input.profilesJson ?? "[]");
   const baseState = {
@@ -221,9 +219,7 @@ export const resolveAiSettingsStateFromRaw = async (input: {
     };
   }
 
-  const credential =
-    defaultProfile.apiKey?.trim() ||
-    (defaultProfile.credentialSetting ? await input.readCredential?.(defaultProfile.credentialSetting) : "");
+  const credential = await input.readCredential?.(defaultProfile.id);
   if (providerRequiresCredential(defaultProfile.provider)) {
     if (!credential?.trim()) {
       return {
@@ -268,7 +264,7 @@ export const readAiSettingsState = async (): Promise<AiSettingsState> => {
     compactionPrompt: compactionPrompt ?? "",
     maxToolResultChars,
     firecrawlApiKey: firecrawlApiKey ?? "",
-    readCredential: (settingKey) => coreSettings.get<string>(settingKey),
+    readCredential: getAiCredential,
   });
 };
 
@@ -321,7 +317,7 @@ export const resolveAiModel = async (
 
   const profile = selectAiModelProfile(state, policy, requestedModelId);
 
-  const credential = profile.apiKey?.trim() || (profile.credentialSetting ? await coreSettings.get<string>(profile.credentialSetting) : "");
+  const credential = await getAiCredential(profile.id);
   if (providerRequiresCredential(profile.provider) && !credential?.trim()) {
     throw Object.assign(new Error(`AI model "${profile.id}" is missing provider credentials.`), {
       aiError: {

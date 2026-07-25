@@ -38,7 +38,6 @@ const mockProfile = (): AiModelProfile => ({
   capabilities: ["streaming"],
   dataBoundary: "private",
   baseURL: `http://localhost:${mockServer?.port ?? 0}/v1`,
-  apiKey: "test",
 });
 
 /** Injected settings seam — no shared settings reads/writes anywhere in this suite. */

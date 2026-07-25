@@ -17,6 +17,7 @@ export {
   listActiveAiSkillHints,
 } from "./bash-tool";
 export { BUILTIN_AI_SKILLS, type BuiltinAiSkill, builtinAiSkillCommands, seedBuiltinAiSkills } from "./builtin-skills";
+export { listAiCredentialProfileIds } from "./credentials";
 export { parseAiSse } from "./client/transport";
 export {
   type CloudAiCardInput,

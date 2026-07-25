@@ -365,6 +365,17 @@ The snapshot's stability is deliberate: it is taken once and **will not change m
 
 Fall back to the async getter outside the request lifecycle: background jobs, lifecycle hooks, schedulers.
 
+### Secrets in settings
+
+Settings are encrypted at rest, but that is storage, not exposure. Only `kind: "secret"` is **redacted on read** — the admin API blanks the value and the form keeps the stored one by simply not sending a replacement. Every other kind is delivered to the admin UI in full, which means the page payload, the browser cache, devtools and any session recording.
+
+Two rules follow:
+
+- **Never put a credential inside a `text`, `template` or `json` setting.** It rides along in the payload, and the form then has to send it back to avoid dropping it while editing a neighbouring field — so the secret makes the round trip twice per save. A key nested in a JSON blob looks encrypted and is not protected at all.
+- **`kind: "secret"` only works for a fixed, known set of keys.** The registry is static: `SETTINGS_MAP` gates reads and writes, and registration happens at module load, so a key invented at runtime is unknown to every other container until it restarts. If the number of credentials grows with user data, settings are the wrong store — use an app table, encrypt with the same `APP_SECRET` helper, and never serialise it into a response. Cloud's AI model profiles work exactly this way: metadata in the setting, keys in `ai.model_credentials`, presence reported to the UI as a boolean.
+
+When a form edits both at once, split them **server-side** in the route. Do not teach the generic settings service about a specific key, and do not make the client merge a secret back into a payload — that is the same round trip in a different place.
+
 ### Timezones
 
 Store user-facing instants as UTC. Date-only values stay `YYYY-MM-DD`.

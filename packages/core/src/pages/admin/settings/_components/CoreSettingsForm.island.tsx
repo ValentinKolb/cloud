@@ -88,6 +88,8 @@ type Props = {
   showTestPdfAction?: boolean;
   showLegacySettings?: boolean;
   aiEnrichmentOverview?: AiEnrichmentOverview | null;
+  /** Profile ids with a stored provider key. The keys themselves stay server-side. */
+  aiCredentialProfileIds?: string[];
   /** Which slice of the AI settings this page shows (the AI sidebar group splits them). */
   aiSection?: "general" | "providers" | "jobs";
   showAiJobsLink?: boolean;
@@ -111,9 +113,12 @@ type AiModelProfileDraft = {
   tags?: string[];
   /** Small logo (data URL) shown in the admin card and the composer model picker. */
   image?: string;
+  /**
+   * Write-only. Set when the admin types a new key; the backend moves it into
+   * ai.model_credentials and never sends one back. Whether a profile already
+   * has a key comes from `credentialProfileIds`, not from here.
+   */
   apiKey?: string;
-  /** Legacy profile field; new profiles store apiKey directly. */
-  credentialSetting?: string;
   baseURL?: string;
   contextWindow?: number;
   temperature?: number;
@@ -427,6 +432,7 @@ export default function CoreSettingsForm(props: Props) {
               errorFor={(key) => fieldErrors()[key]}
               onChange={setDraft}
               enrichmentOverview={props.aiEnrichmentOverview ?? null}
+              credentialProfileIds={props.aiCredentialProfileIds ?? []}
               section={props.aiSection ?? "general"}
               showJobsLink={props.showAiJobsLink}
             />
@@ -728,7 +734,6 @@ const normalizeAiProfile = (value: unknown): AiModelProfileDraft | null => {
       ? normalizeDataBoundary(raw.dataBoundary, provider)
       : normalizeDataBoundary(raw.dataPolicy, provider),
     apiKey: typeof raw.apiKey === "string" && raw.apiKey.trim() ? raw.apiKey.trim() : undefined,
-    credentialSetting: typeof raw.credentialSetting === "string" && raw.credentialSetting.trim() ? raw.credentialSetting.trim() : undefined,
     baseURL: typeof raw.baseURL === "string" && raw.baseURL.trim() ? raw.baseURL.trim() : undefined,
     contextWindow:
       typeof raw.contextWindow === "number" && Number.isInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined,
@@ -887,6 +892,7 @@ function AiSettingsPanel(props: {
   errorFor: (key: string) => string | undefined;
   onChange: (key: string, value: unknown) => void;
   enrichmentOverview: AiEnrichmentOverview | null;
+  credentialProfileIds: string[];
   section: "general" | "providers" | "jobs";
   showJobsLink?: boolean;
 }) {
@@ -894,6 +900,9 @@ function AiSettingsPanel(props: {
   // Secret values are redacted server-side; valueSource tells whether a stored/env key exists.
   const firecrawlKeyConfigured = () => (entry(AI_FIRECRAWL_API_KEY_SETTING_KEY)?.valueSource ?? "default") !== "default";
   const profilesState = createMemo(() => parseAiProfiles(props.valueOf(AI_PROFILE_SETTING_KEY)));
+  // A key typed in this session counts as configured before the save lands.
+  const hasCredential = (profile: AiModelProfileDraft) =>
+    Boolean(profile.apiKey?.trim()) || props.credentialProfileIds.includes(profile.id);
   const profiles = () => profilesState().profiles;
   const defaultModelId = () => asString(props.valueOf(AI_DEFAULT_MODEL_SETTING_KEY));
   const maxToolResultChars = () => {
@@ -916,7 +925,7 @@ function AiSettingsPanel(props: {
   };
 
   const editProfile = async (profile: AiModelProfileDraft) => {
-    const result = await openAiProfileDialog({ profiles: profiles(), profile });
+    const result = await openAiProfileDialog({ profiles: profiles(), profile, hasCredential: hasCredential(profile) });
     if (!result) return;
 
     const nextProfiles = profiles().map((item) => (item.id === profile.id ? result : item));
@@ -1002,15 +1011,9 @@ function AiSettingsPanel(props: {
     }
     // Merge-by-id: exports never contain API keys — an import must not wipe
     // the keys of profiles that already exist under the same id.
-    const existingById = new Map(profiles().map((profile) => [profile.id, profile]));
-    const merged = parsed.profiles.map((profile) => {
-      if (profile.apiKey || profile.credentialSetting) return profile;
-      const existing = existingById.get(profile.id);
-      if (existing?.apiKey) return { ...profile, apiKey: existing.apiKey };
-      if (existing?.credentialSetting) return { ...profile, credentialSetting: existing.credentialSetting };
-      return profile;
-    });
-    setProfiles(merged);
+    // No merging here any more: keys live server-side, and a profile that keeps
+    // its id keeps its key because the import sends none.
+    setProfiles(parsed.profiles);
   };
 
   /** Download all profiles as JSON — API keys are never exported. */
@@ -1237,6 +1240,7 @@ function AiSettingsPanel(props: {
               {profiles().map((profile) => (
                 <AiProfileCard
                   profile={profile}
+                  hasCredential={() => hasCredential(profile)}
                   isDefault={() => profile.id === defaultModelId()}
                   onSetDefault={() => setDefaultModel(profile.id)}
                   onEdit={() => void editProfile(profile)}
@@ -1265,6 +1269,7 @@ const AI_PROMPT_TEMPLATE_VARIABLES: readonly TemplateVariable[] = [
 
 function AiProfileCard(props: {
   profile: AiModelProfileDraft;
+  hasCredential: () => boolean;
   isDefault: () => boolean;
   onSetDefault: () => void;
   onEdit: () => void;
@@ -1297,7 +1302,7 @@ function AiProfileCard(props: {
             >
               {props.profile.enabled ? "Enabled" : "Disabled"}
             </span>
-            <Show when={props.profile.apiKey}>
+            <Show when={props.hasCredential()}>
               <span class="rounded bg-cyan-100 px-1.5 py-0.5 text-[10px] font-medium text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">
                 Key configured
               </span>
@@ -1354,6 +1359,8 @@ function AiProfileCard(props: {
 async function openAiProfileDialog(input: {
   profiles: AiModelProfileDraft[];
   profile?: AiModelProfileDraft;
+  /** Whether a key is already stored for this profile — the value is never available here. */
+  hasCredential?: boolean;
 }): Promise<AiModelProfileDraft | undefined> {
   const initialProvider = input.profile?.provider ?? "openrouter";
   const initialProviderOption = providerOption(initialProvider);
@@ -1376,9 +1383,7 @@ async function openAiProfileDialog(input: {
 
     const currentProvider = () => providerOption(provider());
     const isCustomCompatible = () => provider() === "openai-compatible";
-    const existingApiKey = () => (input.profile?.provider === provider() ? input.profile.apiKey?.trim() || "" : "");
-    const existingCredentialSetting = () => (input.profile?.provider === provider() ? input.profile.credentialSetting?.trim() || "" : "");
-    const hasExistingCredential = () => Boolean(existingApiKey() || existingCredentialSetting());
+    const hasExistingCredential = () => Boolean(input.hasCredential) && input.profile?.provider === provider();
     const showApiKey = () => providerSupportsProfileKey(provider()) || hasExistingCredential();
 
     const chooseProvider = (next: string) => {
@@ -1438,20 +1443,11 @@ async function openAiProfileDialog(input: {
         dataBoundary: dataBoundary(),
       };
 
+      // Only a freshly typed key travels. An untouched field leaves the stored
+      // one alone, because the backend overwrites only what it is sent.
       const nextApiKey = apiKey().trim();
-      if (nextApiKey) {
-        nextProfile.apiKey = nextApiKey;
-        delete nextProfile.credentialSetting;
-      } else if (existingApiKey()) {
-        nextProfile.apiKey = existingApiKey();
-        delete nextProfile.credentialSetting;
-      } else if (existingCredentialSetting()) {
-        nextProfile.credentialSetting = existingCredentialSetting();
-        delete nextProfile.apiKey;
-      } else {
-        delete nextProfile.apiKey;
-        delete nextProfile.credentialSetting;
-      }
+      if (nextApiKey) nextProfile.apiKey = nextApiKey;
+      else delete nextProfile.apiKey;
 
       if (nextBaseURL) nextProfile.baseURL = nextBaseURL;
       else delete nextProfile.baseURL;
@@ -1565,14 +1561,14 @@ async function openAiProfileDialog(input: {
                 <TextInput
                   label={`${currentProvider().label} API key`}
                   description={
-                    input.profile
-                      ? "Leave empty to keep the key currently stored on this profile."
-                      : "Stored on this provider profile and used only when this profile is selected."
+                    hasExistingCredential()
+                      ? "A key is stored for this profile. Leave empty to keep it."
+                      : "Stored server-side for this profile and used only when this profile is selected."
                   }
                   password
                   value={apiKey}
                   onInput={setApiKey}
-                  placeholder={input.profile && existingApiKey() ? "Leave empty to keep current key" : "Provider API key"}
+                  placeholder={hasExistingCredential() ? "Leave empty to keep current key" : "Provider API key"}
                 />
               </PanelDialog.Section>
             </Show>

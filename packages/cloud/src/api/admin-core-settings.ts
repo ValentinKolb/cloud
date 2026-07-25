@@ -9,6 +9,7 @@ import { sql } from "bun";
 import { Hono } from "hono";
 import { z } from "zod";
 import { listApps } from "../_internal/registry";
+import { pruneAiCredentials, setAiCredential, splitAiProfileCredentials } from "../ai/credentials";
 import { enrichDirtyAiConversations } from "../ai/enrich";
 import { type AuthContext, auth, v } from "../server";
 import { settingsDeleteLegacyKeys, settingsListLegacyKeys } from "../services";
@@ -33,6 +34,29 @@ const TestEmailSchema = z.object({
 type FieldErrors = Record<string, string>;
 
 const isKnownSetting = (key: string): boolean => SETTINGS_MAP.has(key);
+
+const AI_PROFILES_KEY = "ai.model_profiles_json";
+
+/**
+ * Move provider keys out of the model-profiles value before it is stored.
+ *
+ * The admin form posts profiles as one value, and a newly typed key rides along
+ * on its profile. Keys must not land in the setting — it is a `text` setting and
+ * would be handed back to the browser in full — so they go to
+ * `ai.model_credentials` here and are stripped from what gets saved. A profile
+ * whose key field was left empty keeps whatever is already stored.
+ *
+ * Doing this in the route rather than the settings service keeps the generic
+ * store free of AI knowledge, and keeps the admin page at a single save request.
+ */
+const storeAiCredentials = async (rawValue: unknown): Promise<unknown> => {
+  const split = splitAiProfileCredentials(rawValue);
+  if (!split) return rawValue;
+  for (const { profileId, secret } of split.credentials) await setAiCredential(profileId, secret);
+  // A profile deleted in this save must not leave its key behind.
+  await pruneAiCredentials(split.profileIds);
+  return split.profilesJson;
+};
 const liveSettingKeys = async () => (await listApps()).flatMap((app) => [...(app.settingKeys ?? [])]);
 
 const app = new Hono<AuthContext>()
@@ -109,7 +133,7 @@ const app = new Hono<AuthContext>()
       await sql.begin(async () => {
         for (const [key, value] of Object.entries(updates)) {
           try {
-            await settings.set(key, value);
+            await settings.set(key, key === AI_PROFILES_KEY ? await storeAiCredentials(value) : value);
           } catch (error) {
             fieldErrors[key] = error instanceof Error ? error.message : `Failed to update ${key}`;
             throw error;

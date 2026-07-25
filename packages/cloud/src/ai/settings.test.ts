@@ -12,7 +12,6 @@ const profilesJson = (overrides: Array<Record<string, unknown>> = []) =>
       tags: ["chat", "fast", "hosted"],
       capabilities: ["streaming"],
       dataBoundary: "hosted",
-      apiKey: "secret",
       ...overrides[0],
     },
     ...overrides.slice(1),
@@ -22,6 +21,7 @@ const resolve = (input: {
   enabled?: boolean;
   defaultModelId?: string;
   profilesJson?: string;
+  /** Keyed by profile id, mirroring ai.model_credentials. */
   credentials?: Record<string, string>;
   firecrawlApiKey?: string;
 }) =>
@@ -30,7 +30,7 @@ const resolve = (input: {
     defaultModelId: input.defaultModelId ?? "openrouter-fast",
     profilesJson: input.profilesJson ?? profilesJson(),
     firecrawlApiKey: input.firecrawlApiKey,
-    readCredential: async (key) => input.credentials?.[key],
+    readCredential: async (profileId) => (input.credentials ?? { "openrouter-fast": "secret" })[profileId] ?? null,
   });
 
 describe("AI settings model registry", () => {
@@ -83,19 +83,19 @@ describe("AI settings model registry", () => {
   });
 
   test("rejects a default hosted model without provider credentials", async () => {
-    const state = await resolve({ profilesJson: profilesJson([{ apiKey: undefined }]) });
+    const state = await resolve({ credentials: {} });
 
     expect(state.ok).toBe(false);
     if (!state.ok) expect(state.error.code).toBe("missing_provider_credential");
   });
 
-  test("accepts legacy credential references when the setting has a value", async () => {
-    const state = await resolve({
-      profilesJson: profilesJson([{ apiKey: undefined, credentialSetting: "ai.openrouter_api_key" }]),
-      credentials: { "ai.openrouter_api_key": "secret" },
-    });
+  test("reads the credential from the store rather than the profile", async () => {
+    // The profile JSON never carries a key, so a state that resolves proves the
+    // lookup went to ai.model_credentials under the profile's id.
+    const state = await resolve({ credentials: { "openrouter-fast": "secret" } });
 
     expect(state.ok).toBe(true);
+    expect(JSON.stringify(state)).not.toContain("secret");
   });
 
   test("rejects model selection when the data boundary is not allowed", async () => {
@@ -118,7 +118,6 @@ describe("AI settings model registry", () => {
           tags: ["chat", "strong", "hosted"],
           capabilities: ["streaming"],
           dataBoundary: "hosted",
-          apiKey: "secret",
         },
       ]),
     });
@@ -147,7 +146,6 @@ describe("AI settings model registry", () => {
         {
           provider: "ollama",
           model: "llama3.1",
-          apiKey: undefined,
           dataBoundary: undefined,
           dataPolicy: "local",
         },
