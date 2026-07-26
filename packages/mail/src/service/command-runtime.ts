@@ -30,6 +30,7 @@ import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
+import { waitForMailProviderSlot } from "./provider-pacer";
 import { loadSenderIdentityTransportRuntime } from "./sender-identity-transports";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
@@ -1493,7 +1494,7 @@ const runFolderOperation = async (
           throw Object.assign(new Error("Remote mailbox operation lease was lost"), { code: "COMMAND_JOB_LEASE_LOST" });
         }
       },
-      work: async (assertHeartbeatActive) => {
+      work: async (assertHeartbeatActive, signal) => {
         const assertLeaseActive = async (): Promise<void> => {
           await assertHeartbeatActive();
           await assertJobLeaseActive();
@@ -1509,6 +1510,8 @@ const runFolderOperation = async (
             });
           }
         };
+        await waitForMailProviderSlot(operation.binding.remote_resource_id, signal);
+        await assertLeaseActive();
         if (claimed.previousState === "ambiguous") {
           await reconcileFolderOperation(command, operation, assertLeaseActive, assertAuthorized);
         } else {
@@ -1540,11 +1543,13 @@ const runMessageMutation = async (
           throw Object.assign(new Error("Remote mailbox operation lease was lost"), { code: "COMMAND_JOB_LEASE_LOST" });
         }
       },
-      work: async (assertMutexLeaseActive) => {
+      work: async (assertMutexLeaseActive, signal) => {
         const assertLeaseActive = async (): Promise<void> => {
           await assertJobLeaseActive();
           await assertMutexLeaseActive();
         };
+        await waitForMailProviderSlot(binding.remote_resource_id, signal);
+        await assertLeaseActive();
         if (claimed.previousState === "ambiguous") await reconcileMutation(claimed.command);
         else await executeFreshMutation(claimed.command, assertLeaseActive);
       },
@@ -2723,7 +2728,11 @@ export const executeOutboxSubmissionWithHeartbeat = async (
         }
         await heartbeat?.(loaded);
       },
-      work: (assertLeaseActive, signal) => runClaimedOutbox(outboxId, activeClaim, loaded, assertLeaseActive, signal),
+      work: async (assertLeaseActive, signal) => {
+        await waitForMailProviderSlot(remoteResourceId, signal);
+        await assertLeaseActive();
+        return runClaimedOutbox(outboxId, activeClaim, loaded, assertLeaseActive, signal);
+      },
     });
   } catch (error) {
     if (claim) {

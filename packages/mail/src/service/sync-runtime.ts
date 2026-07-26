@@ -10,7 +10,7 @@ import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
-import { type JobCtx, job, ratelimit, scheduler } from "@valentinkolb/sync";
+import { type JobCtx, job, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 import { cleanupPublicAttachmentLinks } from "./attachment-links";
@@ -39,10 +39,10 @@ import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isConcurrentCredentialRefresh, isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { cleanupProviderOAuthFlows } from "./provider-oauth-cleanup";
 import { mailProviderOperationMutex, withProviderOperationBarrier } from "./provider-operation-lock";
+import { waitForMailProviderSlot } from "./provider-pacer";
 import { cleanupMailRuntimeHistory } from "./runtime-history-retention";
 import { reconcileMailStorageUsage } from "./storage-observability";
 import { getWorkflowSnapshot, mailWorkflowEventContext } from "./workflow-data";
-import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
 const log = logger("mail:sync");
 const ENVELOPE_BATCH_SIZE = 200;
@@ -90,17 +90,7 @@ type SyncBatchResult = {
   removed: number;
 };
 
-const mailboxWorkBudget = ratelimit({ id: "mail:mailbox-provider-work", limit: 300, windowSecs: 60 });
 type SyncLock = NonNullable<Awaited<ReturnType<typeof mailProviderOperationMutex.acquire>>>;
-
-const consumeMailboxWorkBudget = async (remoteResourceId: string): Promise<void> => {
-  const result = await mailboxWorkBudget.check(remoteResourceId);
-  if (!result.limited) return;
-  throw Object.assign(new Error("Mail provider work is temporarily rate limited"), {
-    code: "MAIL_RATE_LIMITED",
-    retryAfterMs: result.resetIn,
-  });
-};
 
 const retryAfterMs = (error: unknown, fallback: number): number => {
   const value = Number((error as { retryAfterMs?: unknown } | null)?.retryAfterMs);
@@ -1213,7 +1203,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         const refreshedFolder = await loadSyncFolder(folderId);
         if (!refreshedFolder) return { hasMore: false, imported: 0, flagsUpdated: 0, removed: 0 };
         Object.assign(folder, refreshedFolder);
-        await consumeMailboxWorkBudget(folder.remote_resource_id);
+        await waitForMailProviderSlot(folder.remote_resource_id, signal);
         const execution = await resolveMailExecution({
           mailboxId: folder.mailbox_id,
           operation: "backgroundSync",
@@ -1445,7 +1435,7 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
             if (!transportFence) {
               throw Object.assign(new Error("Mailbox transport changed before hydration"), { code: "MAILBOX_TRANSPORT_CHANGED" });
             }
-            await consumeMailboxWorkBudget(message.remote_resource_id);
+            await waitForMailProviderSlot(message.remote_resource_id, signal);
             const candidates = await sql<{ id: string; uid: string | number; uid_validity: string | number }[]>`
         SELECT mc.id, rmr.uid, rmr.uid_validity
         FROM mail.message_contents mc
@@ -1499,12 +1489,6 @@ export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): P
                   hydrated ||= available;
                   await assertProviderLeaseActive();
                   await assertMailboxTransportFence(transportFence);
-                  if (available) {
-                    await publishMailWorkflowDependency({
-                      mailboxId: message.mailbox_id,
-                      dependency: { kind: "mail.hydration", key: source.key },
-                    });
-                  }
                   await assertProviderLeaseActive();
                   await assertMailboxTransportFence(transportFence);
                 } catch (error) {
@@ -1590,7 +1574,7 @@ export const executeBindingRediscovery = async (
         await jobHeartbeat();
       },
       work: async (_assertLeaseActive, signal) => {
-        await consumeMailboxWorkBudget(binding.remote_resource_id);
+        await waitForMailProviderSlot(binding.remote_resource_id, signal);
         return rediscoverProviderBinding({ bindingId, allowCredentialRevision, signal });
       },
     });
