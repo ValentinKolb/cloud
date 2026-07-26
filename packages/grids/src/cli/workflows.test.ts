@@ -365,9 +365,41 @@ describe("Grids workflow CLI", () => {
         kind: "action",
         action: "updateRecord",
         status: "unsupported",
-        generation: 2,
+        attempt: 2,
         outcome: '{"reason":"dry run"}',
       },
     ]);
+  });
+
+  test("describes step states with the step vocabulary and never the run's", async () => {
+    const steps = createContext(["workflow-runs", "steps"], { help: true });
+    await cli.run(steps.ctx);
+    const stepsHelp = steps.lines.join("\n");
+    for (const state of ["completed", "planned", "terminal", "unsupported", "indeterminate", "needs_attention"]) {
+      expect(stepsHelp).toContain(state);
+    }
+    // A run succeeds and is queued; a step does neither, and saying otherwise is
+    // what rendered a finished step as though it were still going.
+    expect(stepsHelp).not.toContain("succeeded");
+    expect(stepsHelp).not.toContain("queued");
+    expect(stepsHelp).toContain("ATTEMPT");
+
+    // The mirror image: --status filters runs, so it offers run states and no
+    // step-only word.
+    const runs = createContext(["workflow-runs", "list"], { help: true });
+    await cli.run(runs.ctx);
+    const runsHelp = runs.lines.join("\n");
+    expect(runsHelp).toContain("Values: queued, running, waiting, succeeded, failed, canceled, needs_attention.");
+    for (const state of ["planned", "terminal", "unsupported", "indeterminate"]) {
+      expect(runsHelp).not.toContain(state);
+    }
+  });
+
+  test("reports a cancel that the worker still has to honour", async () => {
+    const { ctx, lines } = createContext(["workflow-runs", "cancel", runId], { yes: true }, [
+      jsonResponse({ ...receipt, id: runId, status: "running" }),
+    ]);
+    await cli.run(ctx);
+    expect(lines).toEqual([`Requested cancellation of workflow run ${runId}; it is still running.`]);
   });
 });

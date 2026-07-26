@@ -217,7 +217,11 @@ export const workflowCommands = [
           "Workflows",
           "",
           "Workflow name and description are resource fields. YAML defines inputs, optional automatic triggers, and steps.",
-          "Direct, scanner, bulk, and dashboard invocation are API/CLI operations, not YAML triggers.",
+          "Everything that starts a run is an event: grids.invoked for a direct invocation, grids.launcherPressed for a",
+          "scanner, bulk, or dashboard launcher, grids.scheduleTick and grids.recordChanged for the YAML triggers below.",
+          "Only schedule and recordEvent are written in YAML; direct and launcher invocation are API/CLI operations.",
+          "A dry run is not an event: it is created against the workflow's newest version and plans its effects",
+          "instead of performing them.",
           "",
           "Top-level keys:",
           ...WORKFLOW_REFERENCE.language.topLevel.map((item) => `  ${item}`),
@@ -419,7 +423,7 @@ export const workflowCommands = [
           { key: "createdAt", label: "CREATED" },
         ],
       );
-      if (ctx.options.output !== "json" && payload.nextRevision) ctx.print(`next revision: ${payload.nextRevision}`);
+      if (ctx.options.output === "text" && payload.nextRevision) ctx.print(`next revision: ${payload.nextRevision}`);
     },
   }),
   command("workflows restore", {
@@ -469,10 +473,7 @@ export const workflowCommands = [
         `/workflows/by-base/${encodeURIComponent(base.id)}/validate`,
         jsonRequest("POST", { source }),
       );
-      if (ctx.options.output === "json") {
-        ctx.json(payload);
-        return payload.ok ? 0 : 1;
-      }
+      if (printStructured(ctx, payload)) return payload.ok ? 0 : 1;
       if (!payload.ok) {
         printDiagnostics(ctx, payload.diagnostics);
         return 1;
@@ -505,14 +506,14 @@ export const workflowCommands = [
   command("workflows invoke", {
     summary: "Invoke a workflow directly through the API",
     description:
-      "Invokes one workflow directly. Inputs must be a JSON object. Idempotency keys are scoped to this workflow and direct API channel; reuse the key only for the same revision, mode, actor, and inputs.",
+      "Records a grids.invoked event, which the workflow is always listening for. Inputs must be a JSON object. The idempotency key is scoped to this workflow: repeating it answers with the run it already started, and reusing it for a different mode, actor, or inputs is rejected as a conflict. A dry run is created against the workflow's newest version instead and plans its effects rather than performing them.",
     args: baseArgs,
     flags: {
       ...baseFlag,
       ...workflowFlag,
       mode: flag.enum(["execute", "dryRun"] as const, {
         default: "execute",
-        description: "Execution mode",
+        description: "execute performs the run; dryRun plans it",
       }),
       inputs: WORKFLOW_INPUTS_INPUT,
       idempotencyKey: flag.string({
@@ -639,17 +640,19 @@ export const workflowCommands = [
 export const workflowRunCommands = [
   command("workflow-runs list", {
     summary: "List workflow runs visible on a base",
+    description:
+      "Runs of this base's workflows, newest first. --status takes run states only — a run succeeds where a step completes, so see `workflow-runs steps` for the step vocabulary. Use `cld admin workflows` for the kernel-wide view across every app, the event that caused a run, and its effect budget.",
     args: baseArgs,
     flags: {
       ...baseFlag,
       ...workflowFlag,
       status: flag.enum(["queued", "running", "waiting", "succeeded", "failed", "canceled", "needs_attention"] as const, {
-        description: "Run status",
+        description: "Run state",
       }),
       channel: flag.enum(["api", "dashboard", "scanner", "bulk", "schedule", "recordEvent"] as const, {
-        description: "Invocation channel",
+        description: "What asked for the run",
       }),
-      mode: flag.enum(["execute", "dryRun"] as const, { description: "Execution mode" }),
+      mode: flag.enum(["execute", "dryRun"] as const, { description: "execute performs the run; dryRun plans it" }),
       cursor: flag.string({ description: "Pagination cursor" }),
       limit: flag.int({ min: 1, max: 200, description: "Maximum runs" }),
     },
@@ -677,11 +680,13 @@ export const workflowRunCommands = [
         { key: "createdAt", label: "CREATED" },
         { key: "runId", label: "ID" },
       ]);
-      if (ctx.options.output !== "json" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
+      if (ctx.options.output === "text" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
     },
   }),
   command("workflow-runs get", {
     summary: "Show a workflow run",
+    description:
+      "Grids' view of the run: which workflow and revision, what asked for it, and how it ended. `cld admin workflows show <run-id>` adds the kernel's side — the event that caused it, its effect budget, and any child runs.",
     args: { run: arg.required({ description: "Workflow run UUID" }) },
     async run({ ctx, args }) {
       const run = await readApi<WorkflowRun>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}`);
@@ -702,17 +707,27 @@ export const workflowRunCommands = [
     },
   }),
   command("workflow-runs cancel", {
-    summary: "Cancel an active workflow run",
+    summary: "Cancel a queued, running, or waiting workflow run",
+    description:
+      "A request, not a write: a queued run is canceled at once, while a running or waiting one stops when the worker holding it next checks in. It never undoes an effect that already happened.",
     args: { run: arg.required({ description: "Workflow run UUID" }) },
     flags: { yes: confirmFlag("Cancel this workflow run") },
     async run({ ctx, args, flags }) {
       if (!flags.yes) throw new Error("Pass --yes to cancel.");
       const run = await readApi<WorkflowRun>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}/cancel`, jsonRequest("POST", {}));
-      printJsonOrMessage(ctx, run, `Canceled workflow run ${run.id}.`);
+      printJsonOrMessage(
+        ctx,
+        run,
+        run.status === "canceled"
+          ? `Canceled workflow run ${run.id}.`
+          : `Requested cancellation of workflow run ${run.id}; it is still ${run.status}.`,
+      );
     },
   }),
   command("workflow-runs steps", {
     summary: "List workflow run steps",
+    description:
+      "A step has its own vocabulary, not the run's: STATUS is running, completed, waiting, failed, needs_attention, terminal, planned, unsupported, indeterminate, or canceled. A step completes where a run succeeds, and a dry run records planned steps. ATTEMPT counts re-runs of that one step and is 0 the first time.",
     args: { run: arg.required({ description: "Workflow run UUID" }) },
     async run({ ctx, args }) {
       const payload = await readApi<WorkflowStepRunListResponse>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}/steps`);
@@ -723,9 +738,10 @@ export const workflowRunCommands = [
         { key: "kind", label: "KIND" },
         { key: "action", label: "ACTION" },
         { key: "status", label: "STATUS" },
-        { key: "generation", label: "GENERATION" },
+        { key: "attempt", label: "ATTEMPT" },
         { key: "outcome", label: "OUTCOME" },
       ]);
+      if (ctx.options.output === "text" && payload.truncated) ctx.print(`showing the first ${payload.items.length} steps`);
     },
   }),
   command("workflow-runs documents", {
@@ -790,7 +806,7 @@ export const workflowEmailCommands = [
         { key: "recipients", label: "RECIPIENTS" },
         { key: "createdAt", label: "CREATED" },
       ]);
-      if (ctx.options.output !== "json" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
+      if (ctx.options.output === "text" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
     },
   }),
 ];

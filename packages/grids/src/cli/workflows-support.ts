@@ -14,7 +14,7 @@ import { compactId, exactMatch, readApi, requireRestArg } from "./runtime";
 
 export type WorkflowRunListResponse = { items: WorkflowRun[]; nextCursor?: string | null };
 
-export type WorkflowStepRunListResponse = { items: WorkflowStepRun[] };
+export type WorkflowStepRunListResponse = { items: WorkflowStepRun[]; truncated: boolean };
 
 export type WorkflowEmailDeliveryListResponse = { items: WorkflowEmailDelivery[]; nextCursor?: string | null };
 
@@ -266,6 +266,12 @@ export const workflowRunRows = (items: WorkflowRun[]) =>
     finishedAt: run.finishedAt ?? "-",
   }));
 
+/*
+ * A step's status is the kernel's step vocabulary, never the run's: a step
+ * `completed` or was `planned`, a run `succeeded`. `attempt` counts re-runs of
+ * this one step and is 0 on the first — it is not the run's lease generation,
+ * which Grids no longer keeps.
+ */
 export const workflowStepRows = (items: WorkflowStepRun[]) =>
   items.map((step) => ({
     key: step.key,
@@ -274,7 +280,7 @@ export const workflowStepRows = (items: WorkflowStepRun[]) =>
     kind: step.kind,
     action: step.action ?? "-",
     status: step.status,
-    generation: step.executionGeneration,
+    attempt: step.executionGeneration,
     outcome: step.outcome === null ? "" : JSON.stringify(step.outcome),
   }));
 
