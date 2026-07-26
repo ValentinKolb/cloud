@@ -81,6 +81,7 @@ export function WorkflowRunsView(props: CommonProps & { runs: WorkflowRunSummary
         columns={runColumns}
         getRowId={(run) => run.id}
         density="compact"
+        class="overflow-x-auto"
         renderCell={({ row, col, value, render }) => {
           if (col.id === "workflow")
             return (
@@ -125,6 +126,7 @@ export function WorkflowEffectsView(props: CommonProps & { effects: StrandedWork
         columns={effectColumns}
         getRowId={(effect) => `${effect.runId}:${effect.stepKey}`}
         density="compact"
+        class="overflow-x-auto"
         renderCell={({ row, col, value, render }) => {
           if (col.id === "workflow") return <span class="font-medium">{row.workflowName}</span>;
           if (col.id === "app") return <span class="text-secondary">{row.appId}</span>;
@@ -161,6 +163,7 @@ export function WorkflowEventsView(props: CommonProps & { events: UndispatchedWo
         columns={eventColumns}
         getRowId={(event) => event.id}
         density="compact"
+        class="overflow-x-auto"
         renderCell={({ row, col, value, render }) => {
           if (col.id === "type")
             return (

@@ -25,6 +25,7 @@ const RunSteps = (props: { steps: WorkflowStepSummary[] }) => (
     columns={columns}
     getRowId={(step) => step.stepKey}
     density="compact"
+    class="overflow-x-auto"
     renderCell={({ row, col, value, render }) => {
       if (col.id === "step") return <span class="font-mono text-xs">{row.stepKey}</span>;
       if (col.id === "action") return <span class="text-secondary">{row.action ?? row.kind}</span>;
