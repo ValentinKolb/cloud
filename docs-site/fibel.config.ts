@@ -7,7 +7,7 @@ const siteUrl = process.env.CLOUD_DOCS_SITE_URL?.replace(/\/+$/, "");
 export default defineFibel({
   title: "Cloud",
   description:
-    "Cloud is a self-hosted application platform for building and operating internal tools.",
+    "Cloud is an open-source, on-premises application platform for building and operating internal tools.",
   siteUrl,
   content: "docs",
   assets: "assets",

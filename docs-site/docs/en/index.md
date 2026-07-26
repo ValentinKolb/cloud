@@ -3,8 +3,8 @@ title: Cloud
 navTitle: Home
 section: Start
 order: 10
-description: A self-hosted application platform for internal software. Identity, product UI, data services, background work, and operations are shared; every application stays its own deployable service.
-tags: [cloud, platform, self-hosted]
+description: An open-source, on-premises application platform. Cloud provides shared identity, UI, data, automation, and operations while every application stays independent.
+tags: [cloud, platform, open-source, on-premises]
 updated: 2026-07-26
 ---
 
@@ -14,94 +14,93 @@ updated: 2026-07-26
   <section class="cloud-hero">
     <div class="cloud-shell cloud-hero-grid">
       <div class="cloud-hero-copy">
-        <h1>A self-hosted platform your applications register into.</h1>
-        <p class="cloud-lead">Cloud brings identity, permissions, product UI, data services, background work, and operations. An application registers at startup and keeps running as its own deployable HTTP service — no plugin runtime, and no application code inside the gateway.</p>
+        <h1>The open-source<br />application platform<br />that runs on<br />your infrastructure.</h1>
+        <p class="cloud-lead">Cloud gives every application identity, permissions, product UI, data, automation, and operations. Use the building blocks you need, run everything on premises, and keep each service independent.</p>
         <div class="cloud-actions">
           <a class="cloud-btn cloud-btn-primary" href="/en/overview">Read the developer overview</a>
           <a class="cloud-btn" href="https://github.com/ValentinKolb/cloud">Browse the source</a>
         </div>
         <p class="cloud-stack"><span>AGPL-3.0-or-later</span><span>Bun</span><span>Hono</span><span>SolidJS</span><span>Postgres</span><span>Valkey</span></p>
       </div>
-      <figure class="cloud-artifact cloud-routes">
-        <figcaption><span class="cloud-artifact-title">gateway route table</span><span class="cloud-dot" aria-hidden="true"></span><span class="cloud-artifact-note">rebuilt from the registry</span></figcaption>
-        <div class="cloud-table-scroll">
-        <table>
-          <thead><tr><th scope="col">prefix</th><th scope="col">upstream</th><th scope="col" class="cloud-num">inst</th><th class="cloud-row-tag"><span class="cloud-sr">note</span></th></tr></thead>
-          <tbody>
-            <tr><td>/app/mail</td><td>app-mail:3000</td><td class="cloud-num">1</td><td class="cloud-row-tag"></td></tr>
-            <tr><td>/app/notebooks</td><td>app-notebooks:3000</td><td class="cloud-num">3</td><td class="cloud-row-tag"></td></tr>
-            <tr><td>/app/grids</td><td>app-grids:3000</td><td class="cloud-num">1</td><td class="cloud-row-tag"></td></tr>
-            <tr><td>/admin/gateway</td><td>app-gateway-ops:3000</td><td class="cloud-num">1</td><td class="cloud-row-tag"></td></tr>
-            <tr class="cloud-row-yours"><td>/app/inventory</td><td>app-inventory:3000</td><td class="cloud-num">2</td><td class="cloud-row-tag">your app</td></tr>
-          </tbody>
-        </table>
-        </div>
-        <p class="cloud-artifact-foot">Every row is a separate container, started and scaled on its own. The applications that ship with Cloud are rows in the same table as yours.</p>
-      </figure>
+      <div class="cloud-artifact cloud-code cloud-hero-code">
+        <div class="cloud-code-head"><span class="cloud-artifact-title">src/config.ts</span><span class="cloud-artifact-note">one application contract</span></div>
+        <pre><code><i>import</i> { defineApp } <i>from</i> <u>"@valentinkolb/cloud"</u>;
+<i>export const</i> app = defineApp({
+  id: <u>"inventory"</u>,
+  name: <u>"Inventory"</u>,
+  icon: <u>"ti ti-package"</u>,
+  description:
+    <u>"Stock across teams and locations."</u>,
+  basePath: <u>"/app/inventory"</u>,
+  baseUrl: <u>"http://app-inventory:3000"</u>,
+  routes: [<u>"/api/inventory"</u>, <u>"/app/inventory"</u>],
+});
+<i>export const</i> { ssr, plugin } = app;</code></pre>
+      </div>
     </div>
   </section>
   <section class="cloud-dayone">
     <div class="cloud-shell">
       <div class="cloud-head">
-        <h2>What already runs on day one.</h2>
-        <p>Cloud is not a starter repository. The platform ships with working applications that cover the recurring needs of an organisation, and they use exactly the systems your own application uses.</p>
+        <h2>A working platform from day one.</h2>
+        <p>Cloud is more than a starter repository. It includes useful applications and the shared systems behind them. Your own applications can use the same platform building blocks.</p>
       </div>
       <div class="cloud-dayone-grid">
         <div class="cloud-apps">
           <div class="cloud-apps-group">
             <h3>Work</h3>
             <ul>
-              <li><b>Mail</b><code>mail</code><span>Search, organise, and collaborate on email.</span></li>
-              <li><b>Notebooks</b><code>notebooks</code><span>Collaborative notes with realtime sync.</span></li>
-              <li><b>Spaces</b><code>spaces</code><span>Boards, tasks, and events, published as iCal.</span></li>
-              <li><b>Grids</b><code>grids</code><span>Flexible tables: bases, fields, records, views, forms.</span></li>
-              <li><b>Files</b><code>files</code><span>Browse, upload, and move files across accessible bases.</span></li>
-              <li><b>Contacts</b><code>contacts</code><span>Contact books with structured addresses and directory projection.</span></li>
-              <li><b>Assistant</b><code>assistant</code><span>AI chat for writing, rewriting, and summarising.</span></li>
+              <li><b>Mail</b><span>Search, organise, and collaborate on email.</span></li>
+              <li><b>Notebooks</b><span>Collaborative notes with realtime sync.</span></li>
+              <li><b>Spaces</b><span>Boards, tasks, and events, published as iCal.</span></li>
+              <li><b>Grids</b><span>Flexible tables with fields, records, views, and forms.</span></li>
+              <li><b>Files</b><span>Browse, upload, and organise shared files.</span></li>
+              <li><b>Contacts</b><span>Shared contact books and directories.</span></li>
+              <li><b>Assistant</b><span>AI chat for writing, rewriting, and summarising.</span></li>
             </ul>
           </div>
           <div class="cloud-apps-group">
             <h3>Identity and access</h3>
             <ul>
-              <li><b>Core</b><code>core</code><span>Auth, sessions, search, admin, and platform services.</span></li>
-              <li><b>Accounts</b><code>accounts</code><span>Users, groups, and account requests.</span></li>
-              <li><b>OAuth</b><code>oauth</code><span>OAuth2 and OIDC clients, redirects, scopes, secrets.</span></li>
-              <li><b>Proxy Auth</b><code>proxy-auth</code><span>Forward-auth for services behind the reverse proxy.</span></li>
+              <li><b>Core</b><span>Sign-in, sessions, search, administration, and platform services.</span></li>
+              <li><b>Accounts</b><span>Users, groups, and account requests.</span></li>
+              <li><b>OAuth</b><span>Connect external applications through open standards.</span></li>
+              <li><b>Proxy Auth</b><span>Protect services that run behind the platform.</span></li>
             </ul>
           </div>
           <div class="cloud-apps-group">
             <h3>Operations</h3>
             <ul>
-              <li><b>Gateway</b><code>gateway-ops</code><span>Registry, routes, logs, telemetry, webhooks, notifications.</span></li>
-              <li><b>Pulse</b><code>pulse</code><span>Metrics, events, states, and realtime dashboards.</span></li>
-              <li><b>API Docs</b><code>api-docs</code><span>Every running app's OpenAPI spec, aggregated.</span></li>
-              <li><b>Dashboard</b><code>dashboard</code><span>User home built from widgets contributed by every app.</span></li>
+              <li><b>Gateway</b><span>Connect applications, routes, logs, webhooks, and notifications.</span></li>
+              <li><b>Pulse</b><span>Metrics, events, states, and realtime dashboards.</span></li>
+              <li><b>API Docs</b><span>One place for the APIs published by running applications.</span></li>
+              <li><b>Dashboard</b><span>A shared home assembled from application widgets.</span></li>
             </ul>
           </div>
         </div>
         <aside class="cloud-inherits">
-          <h3>What every one of them inherits</h3>
-          <p>These are runtime services and maintained contracts. An application adopts them individually; nothing is generated into your repository.</p>
+          <h3>Platform building blocks</h3>
+          <p>Use them together or adopt only what an application needs. Cloud does not generate or take ownership of your code.</p>
           <dl>
             <div>
               <dt>Identity</dt>
-              <dd>Authentication flows, browser sessions, actors, principals, roles, resource permissions, service accounts, API credentials, OAuth, passkeys.</dd>
+              <dd>Sign-in, sessions, accounts, roles, service identities, and resource permissions.</dd>
             </div>
             <div>
               <dt>Interface</dt>
-              <dd>SolidJS server rendering, islands, application shells, navigation, settings, universal search, admin surfaces, and the shared UI kit.</dd>
+              <dd>Application shells, navigation, settings, search, administration, and a shared UI kit.</dd>
             </div>
             <div>
               <dt>State</dt>
-              <dd>Postgres with optional app-owned schemas and migrations, Valkey for sessions, registry, cache, and distributed coordination.</dd>
+              <dd>Postgres foundations, caching, and app-owned schemas when an application needs durable data.</dd>
             </div>
             <div>
               <dt>Background</dt>
-              <dd>Jobs, durable queues, schedulers, topics, rate limits, mutexes, and durable workflows with retry, crash recovery, and effect journals.</dd>
+              <dd>Background jobs, queues, schedules, and durable workflows with retries and recovery.</dd>
             </div>
             <div>
               <dt>Evidence</dt>
-              <dd>Structured logging, tracing, request telemetry, health, metrics, typed notifications, email, and Web Push.</dd>
+              <dd>Logging, tracing, health, metrics, notifications, email, and Web Push.</dd>
             </div>
           </dl>
         </aside>
@@ -111,49 +110,40 @@ updated: 2026-07-26
   <section class="cloud-request">
     <div class="cloud-shell">
       <div class="cloud-head">
-        <h2>One request, end to end.</h2>
-        <p>Nothing about an application is compiled into the gateway. A request is authenticated by the platform, matched against prefixes published by running instances, and proxied to one of them.</p>
+        <h2>How an application fits in.</h2>
+        <p>Applications join the platform through a small contract. Cloud provides the shared context around them without turning independent services into plugins.</p>
       </div>
       <ol class="cloud-path">
         <li class="cloud-step">
-          <h3>Request arrives</h3>
+          <h3>Declare the application</h3>
           <div class="cloud-artifact cloud-mono-card">
-            <p class="cloud-req-line"><b>GET</b><code>/app/grids/api/records/42</code></p>
-            <dl><div><dt>cookie</dt><dd>cloud_session</dd></div><div><dt>upgrade</dt><dd>—</dd></div></dl>
+            <dl><div><dt>name</dt><dd>Inventory</dd></div><div><dt>path</dt><dd>/app/inventory</dd></div><div><dt>status</dt><dd>connected</dd></div></dl>
           </div>
-          <p class="cloud-step-note">WebSocket upgrades travel the same path. The gateway proxies both from the same prefix trie.</p>
+          <p class="cloud-step-note">The application tells Cloud where it lives and which platform features it contributes.</p>
         </li>
         <li class="cloud-step">
-          <h3>Identity resolves</h3>
+          <h3>Use shared capabilities</h3>
           <div class="cloud-artifact cloud-mono-card">
-            <dl><div><dt>actor</dt><dd>user:42</dd></div><div><dt>accessSubject</dt><dd>user:42</dd></div></dl>
-            <p class="cloud-grant"><span class="cloud-dot" aria-hidden="true"></span><code>grids.base:7</code><b>write</b></p>
+            <dl><div><dt>identity</dt><dd>ready</dd></div><div><dt>interface</dt><dd>ready</dd></div><div><dt>automation</dt><dd>opt in</dd></div></dl>
           </div>
-          <p class="cloud-step-note">A browser session and a user-bound API key resolve to the same access subject. Resource-bound service accounts stay distinct principals.</p>
+          <p class="cloud-step-note">Adopt authentication, UI, data, jobs, notifications, and operations together or one capability at a time.</p>
         </li>
         <li class="cloud-step">
-          <h3>Longest prefix wins</h3>
+          <h3>Operate independently</h3>
           <div class="cloud-artifact cloud-mono-card">
-            <p class="cloud-match"><code>/app/grids</code><b>→</b><code>app-grids:3000</code></p>
-            <dl><div><dt>instance</dt><dd>02 of 03</dd></div><div><dt>status</dt><dd>200</dd></div></dl>
+            <dl><div><dt>deployment</dt><dd>independent</dd></div><div><dt>instances</dt><dd>scale as needed</dd></div><div><dt>health</dt><dd>observed</dd></div></dl>
           </div>
-          <p class="cloud-step-note">Several instances of one application register under the same id. The gateway spreads traffic across whichever are currently alive.</p>
+          <p class="cloud-step-note">Release, scale, replace, or rewrite the service without rebuilding the rest of the platform.</p>
         </li>
       </ol>
-      <dl class="cloud-facts">
-        <div><dt>routing</dt><dd>longest prefix</dd></div>
-        <div><dt>heartbeat</dt><dd>every 60 s</dd></div>
-        <div><dt>entry expiry</dt><dd>after 180 s</dd></div>
-        <div><dt>transport</dt><dd>HTTP and WebSocket</dd></div>
-      </dl>
     </div>
   </section>
   <section class="cloud-boundary">
     <div class="cloud-shell cloud-boundary-grid">
       <div class="cloud-boundary-copy">
-        <h2>The Cloud packages are optional. The runtime contract is not.</h2>
-        <p>The TypeScript packages are the shortest path to full integration, but the gateway never loads application code and there is no plugin sandbox to live inside. A service that implements the registry entry and the HTTP contract is a first-class application, whatever it is written in.</p>
-        <p>Shared semantics stay shared for the applications that opt into them. Everything else is yours, including the decision to fork: the complete platform is self-hosted under the AGPL.</p>
+        <h2>Use the platform. Keep your choices.</h2>
+        <p>The TypeScript packages are the shortest path to full integration, but they are not a cage. Any service that speaks the platform's HTTP contract can become a first-class application, whatever it is written in.</p>
+        <p>Choose the shared capabilities that make sense and own everything else. Cloud is open source, runs on premises, and can be extended or forked without permission.</p>
       </div>
       <dl class="cloud-choices">
         <div><dt>Language</dt><dd><b>Bun and Hono</b><span>or any service that speaks HTTP</span></dd></div>
@@ -168,42 +158,35 @@ updated: 2026-07-26
   <section class="cloud-contract">
     <div class="cloud-shell cloud-contract-grid">
       <div class="cloud-contract-copy">
-        <h2>Registration is a declaration, not a framework.</h2>
-        <p><code>defineApp()</code> states what the platform must know to discover and present a service. The application keeps its own Hono router, middleware, pages, lifecycle hooks, and optional Postgres schema; Cloud injects nothing implicitly.</p>
-        <p>At startup <code>app.start()</code> writes the entry below into the registry and refreshes it every 60 seconds. When an instance stops answering, its entry expires after 180 seconds and the gateway drops it from the trie.</p>
+        <h2>Bring your own router.</h2>
+        <p><code>app.start()</code> connects the application's request handler to the registry, assets, lifecycle, and graceful shutdown. The request pipeline remains explicit.</p>
+        <p>Prefer another stack? Implement the open HTTP contract directly. Cloud coordinates applications; it never owns their domain logic.</p>
         <a class="cloud-link" href="/en/overview#the-app-contract">Read the complete app contract</a>
       </div>
       <div class="cloud-contract-stack">
         <div class="cloud-artifact cloud-code">
-          <div class="cloud-code-head"><span class="cloud-artifact-title">src/config.ts</span><span class="cloud-artifact-note">@valentinkolb/cloud</span></div>
-          <pre><code><i>import</i> { defineApp } <i>from</i> <u>"@valentinkolb/cloud"</u>;
-<i>export const</i> app = defineApp({
-  id: <u>"inventory"</u>,
-  name: <u>"Inventory"</u>,
-  basePath: <u>"/app/inventory"</u>,
-  baseUrl: <u>"http://app-inventory:3000"</u>,
-  routes: [<u>"/api/inventory"</u>, <u>"/app/inventory"</u>],
-  nav: { href: <u>"/app/inventory"</u>, section: <u>"primary"</u> },
-});
-<i>export const</i> { ssr, plugin } = app;</code></pre>
+          <div class="cloud-code-head"><span class="cloud-artifact-title">src/index.ts</span><span class="cloud-artifact-note">your request pipeline</span></div>
+          <pre><code><i>import</i> { middleware, <i>type</i> AuthContext } <i>from</i> <u>"@valentinkolb/cloud/server"</u>;
+<i>import</i> { Hono } <i>from</i> <u>"hono"</u>;
+<i>import</i> { app } <i>from</i> <u>"./config"</u>;
+<i>import</i> api <i>from</i> <u>"./api"</u>;
+<i>import</i> pages <i>from</i> <u>"./frontend"</u>;
+<i>const</i> router = <i>new</i> Hono&lt;AuthContext&gt;()
+  .use(<u>"*"</u>, middleware.runtime())
+  .use(<u>"*"</u>, middleware.settings())
+  .route(<u>"/api/inventory"</u>, api)
+  .route(<u>"/app/inventory"</u>, pages);
+<i>export default await</i> app.start({
+  fetch: router.fetch,
+});</code></pre>
         </div>
-        <figure class="cloud-artifact cloud-entry">
-          <figcaption><span class="cloud-artifact-title">registry entry</span><span class="cloud-dot" aria-hidden="true"></span><span class="cloud-artifact-note">live in Valkey</span></figcaption>
-          <dl>
-            <div><dt>id</dt><dd>inventory</dd></div>
-            <div><dt>baseUrl</dt><dd>http://app-inventory:3000</dd></div>
-            <div><dt>routes</dt><dd>/api/inventory /app/inventory</dd></div>
-            <div><dt>instance</dt><dd>02 of 02</dd></div>
-            <div><dt>ttl</dt><dd>180 s</dd></div>
-          </dl>
-        </figure>
       </div>
     </div>
   </section>
   <section class="cloud-cta">
     <div class="cloud-shell cloud-cta-grid">
       <h2>See how an application joins Cloud.</h2>
-      <p>Follow a request through the gateway, read the full <code>defineApp()</code> contract, and see which platform services application code can reach.</p>
+      <p>Read the application model, the complete <code>defineApp()</code> contract, and the technical details behind the platform.</p>
       <a class="cloud-btn cloud-btn-primary" href="/en/overview">Open the overview</a>
     </div>
   </section>

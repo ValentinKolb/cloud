@@ -10,7 +10,7 @@ updated: 2026-07-26
 
 # Platform overview
 
-Cloud is a self-hosted application platform for internal tools. It provides the
+Cloud is an open-source, on-premises application platform for internal tools. It provides the
 cross-cutting capabilities that applications otherwise implement separately:
 authentication, authorization, settings, notifications, logging, search,
 shared UI, administration, and service discovery.
@@ -49,16 +49,15 @@ below it is compiled in:
 | `/admin/gateway` | `app-gateway-ops:3000` | 1 |
 | `/app/inventory` | `app-inventory:3000` | 2 |
 
-Every upstream is a separate container that talks to Valkey for shared runtime
-state and, if it owns durable data, to Postgres.
-
-Each app runs in its own container. At startup it publishes a registry entry
+Every upstream is a separate container. At startup it publishes a registry entry
 containing its identity, internal base URL, declared routes, navigation
-metadata, and optional capabilities. The gateway observes the registry and
-builds an in-memory prefix trie for HTTP and WebSocket proxying.
+metadata, and optional capabilities, and it refreshes that entry every 60
+seconds. An entry that stops being refreshed expires after 180 seconds and the
+gateway drops it from the trie.
 
-This keeps the gateway independent from application code. Adding an app changes
-the app and the deployment configuration, not the gateway router.
+Upstreams reach Valkey for shared runtime state and, if they own durable data,
+Postgres. Adding an app therefore changes the app and the deployment
+configuration — never the gateway router.
 
 ## The app contract
 

@@ -6,10 +6,10 @@
    --------------------------------------------------------------------------- */
 
 @font-face {
-  font-family: "Bricolage Grotesque";
-  src: url("/assets/fonts/bricolage-grotesque-latin-wght-normal.woff2") format("woff2");
+  font-family: "Instrument Sans";
+  src: url("/assets/fonts/instrument-sans-latin-wght-normal.woff2") format("woff2");
   font-style: normal;
-  font-weight: 200 800;
+  font-weight: 400 700;
   font-display: swap;
 }
 
@@ -56,15 +56,19 @@
 /* --- palette ------------------------------------------------------------- */
 
 :root {
-  --c-canvas: #fbfaf8;
+  --c-canvas: #ffffff;
   --c-surface: #ffffff;
-  --c-sunken: #f3f1ec;
+  --c-sunken: #f5f7fa;
   --c-ink: #17171b;
   --c-ink-2: #45454d;
   --c-muted: #61616a;
   --c-faint: #6a6a73;
-  --c-line: #e4e0d9;
-  --c-line-2: #d2cec5;
+  --c-band: #f7f8fa;
+  --c-line: #e3e7ec;
+  --c-line-2: #cfd5dd;
+  --c-page-surface: #ffffff;
+  --c-band-surface: #f7f8fa;
+  --c-card-gradient: linear-gradient(135deg, #f0fdfa 0%, #f7fbff 48%, #eef5ff 100%);
   --c-accent: #1b5fd9;
   --c-accent-ink: #1550bd;
   --c-accent-soft: #e9f0fd;
@@ -76,24 +80,28 @@
   --c-gutter: 1.5rem;
   --c-sans: "IBM Plex Sans", "Aptos", "Segoe UI", sans-serif;
   --c-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --c-display: "Bricolage Grotesque", "IBM Plex Sans", sans-serif;
+  --c-display: "Instrument Sans", "IBM Plex Sans", sans-serif;
 }
 
 .dark {
   --c-canvas: #0e0f12;
-  --c-surface: #17191e;
+  --c-surface: #1c1f26;
   --c-sunken: #121419;
   --c-ink: #f1f2f5;
   --c-ink-2: #c2c5cd;
   --c-muted: #949aa4;
   --c-faint: #838994;
+  --c-band: #15181e;
   --c-line: #25282f;
   --c-line-2: #343841;
+  --c-page-surface: linear-gradient(135deg, #0e1114 0%, #0e0f12 48%, #111722 100%);
+  --c-band-surface: linear-gradient(135deg, #11191d 0%, #15181e 52%, #121925 100%);
+  --c-card-gradient: linear-gradient(135deg, #121a1e 0%, #141921 48%, #141c29 100%);
   --c-accent: #74abff;
   --c-accent-ink: #9cc4ff;
   --c-accent-soft: #172c4b;
   --c-live: #4cc38a;
-  --c-live-soft: #10261c;
+  --c-live-soft: #102019;
   --c-bevel: inset 0 1px 0 rgb(255 255 255 / 0.045);
   --c-recess: inset 0 1px 2px rgb(0 0 0 / 0.3);
 }
@@ -150,9 +158,19 @@
 }
 
 .cloud-site .fibel-topbar > div > a::after {
+  display: inline-block;
+  width: 4.9rem;
   font-size: 1.05rem;
   letter-spacing: -0.02em;
   content: "Cloud";
+}
+
+.cloud-site .fibel-topbar > div > a:hover::after,
+.cloud-site .fibel-topbar > div > a:focus-visible::after {
+  font-family: var(--c-mono);
+  font-size: 0.88rem;
+  letter-spacing: -0.03em;
+  content: "<Cloud />";
 }
 
 .cloud-site .fibel-topbar > div > a span {
@@ -184,18 +202,6 @@
 .cloud-site .fibel-prose a:not(.cloud-btn):not(.cloud-link) {
   color: var(--c-accent-ink);
   text-decoration-color: color-mix(in srgb, var(--c-accent) 40%, transparent);
-}
-
-/* Documentation pages sit in the same container as the header. */
-.cloud-site:not(.cloud-home-page) .fibel-app > div:first-of-type {
-  width: min(100% - (var(--c-gutter) * 2), var(--c-shell));
-  max-width: none;
-  margin-inline: auto;
-  padding-inline: 0;
-}
-
-.cloud-site:not(.cloud-home-page) main {
-  padding-inline: 0;
 }
 
 @media (min-width: 80rem) {
@@ -250,7 +256,7 @@
 }
 
 .cloud-home {
-  background: var(--c-canvas);
+  background: var(--c-page-surface);
   color: var(--c-ink);
 }
 
@@ -300,8 +306,8 @@
   padding: 0;
   color: var(--c-ink);
   font-family: var(--c-display);
-  font-weight: 500;
-  letter-spacing: -0.028em;
+  font-weight: 560;
+  letter-spacing: -0.025em;
 }
 
 .cloud-home h1 {
@@ -455,14 +461,6 @@
   margin-left: auto;
 }
 
-.cloud-dot {
-  width: 0.4rem;
-  height: 0.4rem;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--c-live);
-}
-
 .cloud-artifact dl {
   display: grid;
   margin: 0;
@@ -486,85 +484,41 @@
   text-align: right;
 }
 
-/* route table ------------------------------------------------------------- */
-
-.cloud-routes table,
-.cloud-routes thead,
-.cloud-routes tbody,
-.cloud-routes tr,
-.cloud-routes th,
-.cloud-routes td {
-  border: 0;
-  background: transparent;
-}
-
-.cloud-table-scroll {
-  overflow-x: auto;
-}
-
-.cloud-routes table {
-  display: table;
-  width: 100%;
-  margin: 0;
-  border-collapse: collapse;
-  font-size: inherit;
-}
-
-.cloud-routes th {
-  padding: 0.3rem 0.95rem 0.5rem;
-  color: var(--c-faint);
-  font-weight: 400;
-  text-align: left;
-}
-
-.cloud-routes td {
-  padding: 0.42rem 0.95rem;
-  border: 0;
-  color: var(--c-ink-2);
-  white-space: nowrap;
-}
-
-.cloud-routes tbody tr:nth-child(odd) td {
-  background: color-mix(in srgb, var(--c-ink) 3%, transparent);
-}
-
-.cloud-routes td:first-child {
-  color: var(--c-ink);
-}
-
-.cloud-num {
-  text-align: right !important;
-  font-variant-numeric: tabular-nums;
-}
-
-.cloud-routes .cloud-row-yours td {
-  background: var(--c-accent-soft);
-  color: var(--c-accent-ink);
-}
-
-/* The note column absorbs the slack so every row band reaches the panel edge. */
-.cloud-row-tag {
-  width: auto;
-  padding-left: 0.85rem !important;
-  color: var(--c-accent-ink) !important;
-  font-size: 0.72rem;
-}
-
-.cloud-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 .cloud-artifact-foot {
   padding: 0.85rem 0.95rem 0.95rem;
   color: var(--c-muted);
   font-family: var(--c-sans);
   font-size: 0.84rem;
   line-height: 1.55;
+}
+
+/* --- developer easter eggs ---------------------------------------------- */
+
+.cloud-shortcut-toast {
+  position: fixed;
+  z-index: 90;
+  bottom: max(1.25rem, env(safe-area-inset-bottom));
+  left: 50%;
+  max-width: calc(100vw - 2rem);
+  transform: translate(-50%, 0.35rem);
+  border: 1px solid var(--c-line-2);
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--c-ink);
+  box-shadow: var(--c-shadow-float, 0 0.8rem 2.5rem rgb(0 0 0 / 0.18));
+  color: var(--c-canvas);
+  font-family: var(--c-mono);
+  font-size: 0.74rem;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.cloud-shortcut-toast[data-visible="true"] {
+  transform: translate(-50%, 0);
+  opacity: 1;
 }
 
 /* --- hero ---------------------------------------------------------------- */
@@ -585,7 +539,7 @@
   }
 }
 
-.cloud-stack {
+.cloud-home-page .fibel-prose .cloud-stack {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 1.15rem;
@@ -603,9 +557,11 @@
 
 /* --- day one ------------------------------------------------------------- */
 
+/* Tone alone separates the bands. A rule on top of a tone change would be two
+   devices doing one job. */
 .cloud-dayone {
   border-block: 1px solid var(--c-line);
-  background: color-mix(in srgb, var(--c-sunken) 55%, var(--c-canvas));
+  background: var(--c-band-surface);
 }
 
 .cloud-dayone-grid {
@@ -644,7 +600,7 @@
   padding: 0.4rem 0;
   gap: 0.15rem 1rem;
   align-items: baseline;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .cloud-apps li span {
@@ -657,12 +613,6 @@
   font-weight: 600;
 }
 
-.cloud-apps li code {
-  color: var(--c-faint);
-  font-family: var(--c-mono);
-  font-size: 0.755rem;
-}
-
 .cloud-apps li span {
   color: var(--c-muted);
   font-size: 0.875rem;
@@ -671,11 +621,11 @@
 
 @media (min-width: 34rem) {
   .cloud-apps li {
-    grid-template-columns: 6.5rem 5.5rem minmax(0, 1fr);
+    grid-template-columns: 8rem minmax(0, 1fr);
   }
 
   .cloud-apps li span {
-    grid-column: 3;
+    grid-column: 2;
   }
 }
 
@@ -684,7 +634,7 @@
   border: 1px solid var(--c-line);
   border-radius: 0.7rem;
   padding: clamp(1.4rem, 2.4vw, 1.9rem);
-  background: var(--c-surface);
+  background: var(--c-card-gradient);
   box-shadow: var(--c-bevel);
 }
 
@@ -730,6 +680,7 @@
 @media (min-width: 62rem) {
   .cloud-path {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: auto auto auto;
     gap: 1.75rem;
   }
 
@@ -740,6 +691,11 @@
     color: var(--c-faint);
     font-weight: 400;
     content: "→";
+  }
+
+  .cloud-step {
+    grid-row: span 3;
+    grid-template-rows: subgrid;
   }
 }
 
@@ -756,84 +712,17 @@
   padding: 0.95rem;
 }
 
-.cloud-req-line {
-  display: flex;
-  gap: 0.6rem;
-  align-items: baseline;
-  color: var(--c-ink);
-}
-
-.cloud-req-line b {
-  color: var(--c-accent-ink);
-  font-weight: 500;
-}
-
-.cloud-req-line code {
-  overflow-wrap: anywhere;
-}
-
-.cloud-grant {
-  display: flex;
-  gap: 0.55rem;
-  align-items: center;
-  border-radius: 0.35rem;
-  padding: 0.35rem 0.5rem;
-  background: var(--c-live-soft);
-  color: var(--c-ink);
-}
-
-.cloud-grant b {
-  margin-left: auto;
-  color: var(--c-live);
-  font-weight: 500;
-}
-
-.cloud-match {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: baseline;
-  color: var(--c-ink);
-}
-
-.cloud-match b {
-  color: var(--c-faint);
-  font-weight: 400;
-}
-
 .cloud-step-note {
   color: var(--c-muted);
   font-size: 0.875rem;
   line-height: 1.55;
 }
 
-.cloud-facts {
-  display: grid;
-  margin: 2rem 0 0;
-  gap: 1.25rem 2.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  border-top: 1px solid var(--c-line);
-  padding-top: 1.5rem;
-}
-
-.cloud-facts dt {
-  color: var(--c-faint);
-  font-family: var(--c-mono);
-  font-size: 0.74rem;
-}
-
-.cloud-facts dd {
-  margin: 0.3rem 0 0;
-  color: var(--c-ink);
-  font-size: 0.94rem;
-  font-weight: 500;
-}
-
 /* --- boundary ------------------------------------------------------------ */
 
 .cloud-boundary {
   border-block: 1px solid var(--c-line);
-  background: color-mix(in srgb, var(--c-sunken) 55%, var(--c-canvas));
+  background: var(--c-band-surface);
 }
 
 .cloud-boundary-grid,
@@ -963,19 +852,22 @@
   text-decoration: none;
 }
 
-.cloud-entry dl {
-  padding: 0.25rem 0.95rem 1rem;
+.cloud-hero-code {
+  width: 100%;
+  max-width: 36rem;
+  justify-self: end;
+  font-size: clamp(0.7rem, 1vw, 0.79rem);
 }
 
-.cloud-entry dd {
-  overflow-wrap: anywhere;
-  text-align: right;
+.cloud-hero-code pre {
+  padding-bottom: 1.25rem;
 }
 
 /* --- cta ----------------------------------------------------------------- */
 
 .cloud-cta {
   border-top: 1px solid var(--c-line);
+  background: var(--c-band-surface);
 }
 
 .cloud-cta-grid {
@@ -1014,26 +906,6 @@
 @media (max-width: 33.99rem) {
   .cloud-artifact {
     font-size: 0.7rem;
-  }
-
-  .cloud-routes td,
-  .cloud-routes th {
-    padding-inline: 0.55rem;
-  }
-
-  .cloud-row-tag {
-    padding-left: 0.55rem !important;
-  }
-
-  .cloud-routes td:nth-child(2) {
-    color: var(--c-muted);
-  }
-
-  /* Instance counts are the first thing to go; the "your app" marker is the
-     point of the table and stays. */
-  .cloud-routes th:nth-child(3),
-  .cloud-routes td:nth-child(3) {
-    display: none;
   }
 
   /* The caption note has nowhere to go at this width. */
