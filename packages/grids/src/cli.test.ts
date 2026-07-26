@@ -1808,7 +1808,8 @@ describe("grids CLI", () => {
       kind: "action",
       action: "setVariable",
       mode: "execute",
-      status: "succeeded",
+      // A step completes; "succeeded" is the run's word and never appears here.
+      status: "completed",
       outcome: { state: "completed", output: { ok: true } },
       executionGeneration: 1,
       startedAt: "2026-07-07T00:00:00.000Z",
@@ -1826,8 +1827,8 @@ describe("grids CLI", () => {
         iteration: "",
         kind: "action",
         action: "setVariable",
-        status: "succeeded",
-        generation: 1,
+        status: "completed",
+        attempt: 1,
         outcome: '{"state":"completed","output":{"ok":true}}',
       },
     ]);

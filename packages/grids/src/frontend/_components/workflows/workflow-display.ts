@@ -30,6 +30,18 @@ export const workflowStepStatusClass = (status: GridsWorkflowStepRun["status"] |
       ? "badge-danger"
       : "badge-neutral";
 
+/**
+ * The same step vocabulary as bare text colour, for the places that render the
+ * status as a word rather than a badge. Kept next to the badge mapping so the
+ * two cannot drift on which states count as finished.
+ */
+export const workflowStepStatusTextClass = (status: GridsWorkflowStepRun["status"] | string) =>
+  status === "completed" || status === "planned" || status === "terminal"
+    ? "text-emerald-700 dark:text-emerald-300"
+    : status === "failed" || status === "canceled" || status === "needs_attention" || status === "unsupported"
+      ? "text-red-700 dark:text-red-300"
+      : "text-blue-700 dark:text-blue-300";
+
 export const isTerminalWorkflowRunStatus = (status: GridsWorkflowRun["status"]): boolean =>
   status === "succeeded" || status === "failed" || status === "canceled" || status === "needs_attention";
 
