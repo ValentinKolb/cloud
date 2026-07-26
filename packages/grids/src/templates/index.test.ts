@@ -621,15 +621,25 @@ describe("built-in grid templates", () => {
   test("all internal references resolve", () => {
     for (const template of templates) {
       const index = indexTemplate(template);
+      const tablesByKey = new Map(template.tables.map((table) => [table.key, table]));
+      const recordsByKey = new Map((template.records ?? []).map((record) => [record.key, record]));
       assertUnique(
         template.tables.map((table) => table.key),
         `${template.id} table keys`,
+      );
+      assertUnique(
+        template.tables.map((table) => table.name),
+        `${template.id} table names`,
       );
 
       for (const table of template.tables) {
         assertUnique(
           table.fields.map((field) => field.key),
           `${template.id}.${table.key} field keys`,
+        );
+        assertUnique(
+          table.fields.map((field) => field.name),
+          `${template.id}.${table.key} field names`,
         );
       }
 
@@ -656,21 +666,133 @@ describe("built-in grid templates", () => {
       }
 
       assertUnique(
+        (template.records ?? []).map((record) => record.key),
+        `${template.id} record keys`,
+      );
+      assertUnique(
+        (template.views ?? []).map((view) => view.key),
+        `${template.id} view keys`,
+      );
+      assertUnique(
+        (template.views ?? []).map((view) => view.name),
+        `${template.id} view names`,
+      );
+      assertUnique(
+        (template.forms ?? []).map((form) => form.key),
+        `${template.id} form keys`,
+      );
+      assertUnique(
+        (template.forms ?? []).map((form) => form.name),
+        `${template.id} form names`,
+      );
+      assertUnique(
+        (template.dashboards ?? []).map((dashboard) => dashboard.key),
+        `${template.id} dashboard keys`,
+      );
+      assertUnique(
+        (template.dashboards ?? []).map((dashboard) => dashboard.name),
+        `${template.id} dashboard names`,
+      );
+      assertUnique(
         (template.documentTemplates ?? []).map((documentTemplate) => documentTemplate.key),
         `${template.id} document template keys`,
+      );
+      assertUnique(
+        (template.documentTemplates ?? []).map((documentTemplate) => documentTemplate.name ?? documentTemplate.starterId),
+        `${template.id} document template names`,
       );
       assertUnique(
         (template.emailTemplates ?? []).map((emailTemplate) => emailTemplate.key),
         `${template.id} email template keys`,
       );
       assertUnique(
+        (template.emailTemplates ?? []).map((emailTemplate) => emailTemplate.name),
+        `${template.id} email template names`,
+      );
+      assertUnique(
         (template.workflows ?? []).map((workflow) => workflow.key),
         `${template.id} workflow keys`,
+      );
+      assertUnique(
+        (template.workflows ?? []).map((workflow) => workflow.name),
+        `${template.id} workflow names`,
       );
       assertUnique(
         (template.workflowLaunchers ?? []).map((launcher) => launcher.key),
         `${template.id} workflow launcher keys`,
       );
+      assertUnique(
+        (template.workflowLaunchers ?? []).map((launcher) => launcher.name),
+        `${template.id} workflow launcher names`,
+      );
+
+      for (const record of template.records ?? []) {
+        const recordTable = tablesByKey.get(record.table);
+        expect(recordTable, `${template.id}.${record.key} table`).toBeDefined();
+        if (!recordTable) continue;
+        const fieldsByKey = new Map(recordTable.fields.map((field) => [field.key, field]));
+
+        for (const [fieldKey, value] of Object.entries(record.values)) {
+          const recordField = fieldsByKey.get(fieldKey);
+          expect(recordField, `${template.id}.${record.key}.${fieldKey} field`).toBeDefined();
+          if (!recordField) continue;
+
+          const relatedRecords = refsIn(value).filter((ref) => ref.$ref === "record");
+          if (relatedRecords.length === 0) continue;
+          expect(recordField.type, `${template.id}.${record.key}.${fieldKey} record refs require relation field`).toBe("relation");
+          const targetTable = (recordField.config as { targetTableId?: unknown } | undefined)?.targetTableId;
+          expect(isRef(targetTable) && targetTable.$ref === "table", `${template.id}.${record.key}.${fieldKey} relation target`).toBe(true);
+          if (!isRef(targetTable) || targetTable.$ref !== "table") continue;
+          for (const relatedRecord of relatedRecords) {
+            expect(recordsByKey.get(relatedRecord.key)?.table, `${template.id}.${record.key}.${fieldKey} relation target record`).toBe(
+              targetTable.key,
+            );
+          }
+        }
+
+        for (const attachment of record.files ?? []) {
+          expect(fieldsByKey.get(attachment.field)?.type, `${template.id}.${record.key}.${attachment.field} file field`).toBe("file");
+        }
+      }
+
+      for (const resource of [...(template.views ?? []), ...(template.forms ?? []), ...(template.documentTemplates ?? [])]) {
+        expect(tablesByKey.has(resource.table), `${template.id}.${resource.key} owner table`).toBe(true);
+      }
+
+      for (const form of template.forms ?? []) {
+        const fields = (form.config as { fields?: unknown }).fields;
+        if (!Array.isArray(fields)) continue;
+        const ownerTable = tablesByKey.get(form.table);
+        const ownerFields = new Map(ownerTable?.fields.map((field) => [field.key, field]) ?? []);
+
+        for (const entry of fields as Array<Record<string, unknown>>) {
+          const fieldRef = entry.fieldId;
+          expect(
+            isRef(fieldRef) && fieldRef.$ref === "field" && fieldRef.key.startsWith(`${form.table}.`),
+            `${template.id}.${form.key} field belongs to form table`,
+          ).toBe(true);
+          if (!isRef(fieldRef) || fieldRef.$ref !== "field") continue;
+
+          const inlineFields = (entry.inlineCreate as { fields?: unknown } | undefined)?.fields;
+          if (!Array.isArray(inlineFields)) continue;
+          const relationField = ownerFields.get(fieldRef.key.slice(form.table.length + 1));
+          const targetTable = (relationField?.config as { targetTableId?: unknown } | undefined)?.targetTableId;
+          expect(relationField?.type, `${template.id}.${form.key}.${fieldRef.key} inline relation`).toBe("relation");
+          expect(isRef(targetTable) && targetTable.$ref === "table", `${template.id}.${form.key}.${fieldRef.key} inline target table`).toBe(
+            true,
+          );
+          if (!isRef(targetTable) || targetTable.$ref !== "table") continue;
+
+          for (const inlineEntry of inlineFields as Array<Record<string, unknown>>) {
+            const inlineFieldRef = inlineEntry.fieldId;
+            expect(
+              isRef(inlineFieldRef) && inlineFieldRef.$ref === "field" && inlineFieldRef.key.startsWith(`${targetTable.key}.`),
+              `${template.id}.${form.key}.${fieldRef.key} inline field belongs to relation target`,
+            ).toBe(true);
+          }
+        }
+      }
+
       const workflowKeys = new Set((template.workflows ?? []).map((workflow) => workflow.key));
       for (const launcher of template.workflowLaunchers ?? []) {
         expect(workflowKeys.has(launcher.workflow), `${template.id}.${launcher.key} workflow`).toBe(true);

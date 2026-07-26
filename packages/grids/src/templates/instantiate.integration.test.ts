@@ -62,44 +62,44 @@ const verifyRuntimeSurfaces = async (baseId: string, withSampleData: boolean) =>
   }
 
   if (!withSampleData) return;
-  const [documentRow] = await sql<DocumentTemplateRow[]>`
+  const documentRows = await sql<DocumentTemplateRow[]>`
     SELECT dt.id::text AS id, dt.table_id::text AS table_id, dt.name
     FROM grids.document_templates dt
     JOIN grids.tables t ON t.id = dt.table_id AND t.deleted_at IS NULL
     WHERE t.base_id = ${baseId}::uuid AND dt.deleted_at IS NULL
     ORDER BY dt.created_at, dt.id
-    LIMIT 1
   `;
-  expect(documentRow).toBeDefined();
-  if (!documentRow) return;
+  expect(documentRows.length).toBeGreaterThan(0);
 
-  const [recordRow] = await sql<Array<{ id: string }>>`
-    SELECT id::text AS id
-    FROM grids.records
-    WHERE table_id = ${documentRow.table_id}::uuid AND deleted_at IS NULL
-    ORDER BY created_at, id
-    LIMIT 1
-  `;
-  expect(recordRow).toBeDefined();
-  if (!recordRow) return;
+  for (const documentRow of documentRows) {
+    const [recordRow] = await sql<Array<{ id: string }>>`
+      SELECT id::text AS id
+      FROM grids.records
+      WHERE table_id = ${documentRow.table_id}::uuid AND deleted_at IS NULL
+      ORDER BY created_at, id
+      LIMIT 1
+    `;
+    expect(recordRow, `${documentRow.name} sample record`).toBeDefined();
+    if (!recordRow) continue;
 
-  const [documentTemplate, table, record] = await Promise.all([
-    getDocumentTemplate(documentRow.id),
-    getTable(documentRow.table_id),
-    getRecord(documentRow.table_id, recordRow.id),
-  ]);
-  expect(documentTemplate, `${documentRow.name} template`).toBeDefined();
-  expect(table, `${documentRow.name} table`).toBeDefined();
-  expect(record, `${documentRow.name} record`).toBeDefined();
-  if (!documentTemplate || !table || !record) return;
+    const [documentTemplate, table, record] = await Promise.all([
+      getDocumentTemplate(documentRow.id),
+      getTable(documentRow.table_id),
+      getRecord(documentRow.table_id, recordRow.id),
+    ]);
+    expect(documentTemplate, `${documentRow.name} template`).toBeDefined();
+    expect(table, `${documentRow.name} table`).toBeDefined();
+    expect(record, `${documentRow.name} record`).toBeDefined();
+    if (!documentTemplate || !table || !record) continue;
 
-  const live = await buildLiveRenderData({ template: documentTemplate, table, record });
-  expect(live.ok, `${documentRow.name} render data`).toBe(true);
-  if (!live.ok) return;
-  const html = await renderDocumentHtml(documentTemplate, live.data.data);
-  expect(html.ok, `${documentRow.name} HTML`).toBe(true);
-  if (html.ok) expect(html.data.length).toBeGreaterThan(1_000);
-  if (documentRow.name === "Order invoice") expect(live.data.rows.length).toBeGreaterThan(1);
+    const live = await buildLiveRenderData({ template: documentTemplate, table, record });
+    expect(live.ok, `${documentRow.name} render data`).toBe(true);
+    if (!live.ok) continue;
+    const html = await renderDocumentHtml(documentTemplate, live.data.data);
+    expect(html.ok, `${documentRow.name} HTML`).toBe(true);
+    if (html.ok) expect(html.data.length).toBeGreaterThan(1_000);
+    if (documentRow.name === "Order invoice") expect(live.data.rows.length).toBeGreaterThan(1);
+  }
 };
 
 describe("built-in template instantiation", () => {
