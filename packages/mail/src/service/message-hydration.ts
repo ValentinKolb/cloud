@@ -12,6 +12,7 @@ import { createBlobReadable, type StoredBlob, storeReadableBlob } from "./messag
 import { extractMessageProtocolFacts, parseMessageProtocolFacts, readMessageRootHeaders } from "./message-protocol";
 import { parseMessageReceiptSource, recordMessageReceipt } from "./message-receipts";
 import { splitSearchText } from "./search-chunks";
+import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
 type HydratedPart = {
   partPath: string;
@@ -726,8 +727,7 @@ export const hydrateMessageFromSource = async (params: {
     const sourceHash = storedSource.contentHash;
     const protocolFacts = extractMessageProtocolFacts((name) => headers.getFirst(name));
     const receiptSource =
-      protocolFacts.deliveryStatus ||
-      /(?:^|;)\s*report-type\s*=\s*["']?disposition-notification\b/iu.test(protocolFacts.contentType ?? "")
+      protocolFacts.deliveryStatus || /(?:^|;)\s*report-type\s*=\s*["']?disposition-notification\b/iu.test(protocolFacts.contentType ?? "")
         ? await readReceiptSource(storedSource)
         : null;
     const receipt = receiptSource ? parseMessageReceiptSource(receiptSource) : null;
@@ -868,9 +868,13 @@ export const hydrateMessageFromSource = async (params: {
         }
       }
     });
-    if (canonicalMessageId) return { status: "deduplicated", sourceHash, canonicalMessageId };
     if (collaborationEvent) await publishMailCollaborationEvent(collaborationEvent);
     if (receiptEvent) await publishMailCollaborationEvent(receiptEvent);
+    await publishMailWorkflowDependency({
+      mailboxId: claimed.mailbox_id,
+      dependency: { kind: "mail.hydration", key: params.messageId },
+    });
+    if (canonicalMessageId) return { status: "deduplicated", sourceHash, canonicalMessageId };
     return { status: "hydrated", sourceHash };
   } catch (error) {
     params.source.destroy();
@@ -897,7 +901,7 @@ export const hydrateMessageFromSource = async (params: {
         WHERE id = ${params.messageId}::uuid AND hydration_claim_id = ${claimId}::uuid
       `;
     } else {
-      await sql`
+      const [failed] = await sql<{ mailbox_id: string; hydration_attempt: number }[]>`
         UPDATE mail.message_contents
         SET
           hydration_status = 'failed',
@@ -905,7 +909,14 @@ export const hydrateMessageFromSource = async (params: {
           hydration_claim_id = NULL,
           hydration_claimed_at = NULL
         WHERE id = ${params.messageId}::uuid AND hydration_claim_id = ${claimId}::uuid
-      `.catch(() => undefined);
+        RETURNING mailbox_id, hydration_attempt
+      `.catch(() => []);
+      if (failed && failed.hydration_attempt >= 5) {
+        await publishMailWorkflowDependency({
+          mailboxId: failed.mailbox_id,
+          dependency: { kind: "mail.hydration", key: params.messageId },
+        });
+      }
     }
     throw error;
   }

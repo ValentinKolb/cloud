@@ -5,6 +5,8 @@ import {
   claimWorkflowRun,
   createWorkflow as createKernelWorkflow,
   createWorkflowRun,
+  createWorkflowRuntimeRepository,
+  finishWorkflowRun,
   publishWorkflowVersion,
 } from "@valentinkolb/cloud/workflows/store";
 import { mutex } from "@valentinkolb/sync";
@@ -2267,6 +2269,259 @@ suite("mail lifecycle control plane", () => {
     } finally {
       changeState.mockRestore();
       providerState.mockRestore();
+    }
+  }, 15_000);
+
+  test("real command and hydration completion wake kernel dependencies before their deadlines", async () => {
+    const [dependencyFolder] = await sql<{ id: string }[]>`
+      SELECT folder.id
+      FROM mail.folders folder
+      JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
+      WHERE ref.binding_id = ${bindingId}::uuid
+        AND ref.remote_path = 'INBOX'
+        AND ref.missing_since IS NULL
+      LIMIT 1
+    `;
+    if (!dependencyFolder) throw new Error("Dependency wake fixture inbox is unavailable");
+    const plan: WorkflowBoundPlan = {
+      schemaVersion: 2,
+      languageId: "mail",
+      languageVersion: 1,
+      sourceHash: sha256Json({ fixture: "dependency-wake-source", suffix }),
+      manifestHash: sha256Json({ fixture: "dependency-wake-manifest", suffix }),
+      catalogHash: sha256Json({ fixture: "dependency-wake-catalog", suffix }),
+      actionPolicies: {},
+      inputs: [],
+      triggers: [],
+      steps: [],
+      bindings: {},
+    };
+    const workflow = await createKernelWorkflow({
+      appId: "mail",
+      scopeId: mailboxId,
+      key: `dependency-wake-${suffix}`,
+      name: "Dependency wake integration",
+      author: { kind: "system" },
+    });
+    try {
+      const version = await publishWorkflowVersion({
+        workflowId: workflow.id,
+        source: "steps: []\n",
+        sourceHash: plan.sourceHash,
+        plan,
+        languageId: plan.languageId,
+        languageVersion: plan.languageVersion,
+        manifestHash: plan.manifestHash,
+        activations: [],
+        activate: true,
+        author: { kind: "system" },
+      });
+      let runSequence = 0;
+      const park = async (dependency: { kind: string; key: string }): Promise<string> => {
+        runSequence += 1;
+        const runId = await createWorkflowRun({
+          appId: "mail",
+          scopeId: mailboxId,
+          workflowId: workflow.id,
+          workflowVersionId: version.id,
+          mode: "execute",
+          authorization: {},
+          idempotencyKey: `dependency-wake-${suffix}-${runSequence}`,
+          occurredAt: new Date(),
+        });
+        const claim = await claimWorkflowRun({ worker: `mail-dependency-wake-${runSequence}`, runId });
+        if (!claim) throw new Error("Workflow dependency run was not claimable");
+        const step = {
+          runId,
+          executionGeneration: claim.executionGeneration,
+          mode: "execute" as const,
+          workflowId: workflow.id,
+          sourceHash: plan.sourceHash,
+          idempotencyKey: `dependency-step-${runSequence}`,
+          key: "steps.0",
+          sourcePath: ["steps", 0],
+          iterationPath: [],
+          path: ["steps", 0],
+          kind: "action" as const,
+          action: "mail.test.wait",
+        };
+        const repository = createWorkflowRuntimeRepository();
+        await repository.startStep(step);
+        await repository.parkStep(step, {
+          ...dependency,
+          deadline: new Date(Date.now() + 60 * 60_000).toISOString(),
+        });
+        expect(await finishWorkflowRun(claim, { state: "waiting" })).toEqual({ state: "finished" });
+        return runId;
+      };
+      const expectWokenBeforeDeadline = async (runId: string): Promise<void> => {
+        const [run] = await sql<{ state: string; wake_at: Date | string | null }[]>`
+          SELECT state, wake_at
+          FROM workflows.run
+          WHERE id = ${runId}::uuid
+        `;
+        expect(run).toEqual({ state: "queued", wake_at: null });
+      };
+
+      const [commandMessage] = await sql<{ id: string }[]>`
+        INSERT INTO mail.message_contents (
+          mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
+        ) VALUES (
+          ${mailboxId}::uuid,
+          ${`<dependency-command-${suffix}@example.com>`},
+          'Dependency command',
+          now(),
+          1,
+          ${sha256Json({ fixture: "dependency-command", suffix })},
+          'complete'
+        ) RETURNING id
+      `;
+      const [commandRef] = await sql<{ id: string }[]>`
+        INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+        VALUES (${dependencyFolder.id}::uuid, ${commandMessage!.id}::uuid, 10, 990003)
+        RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id)
+        VALUES (${commandRef!.id}::uuid, ${dependencyFolder.id}::uuid, ${commandMessage!.id}::uuid)
+      `;
+      const command = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "change_message_state",
+          remoteMessageRefId: commandRef!.id,
+          folderId: dependencyFolder.id,
+          change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
+          idempotencyKey: `dependency-command-${suffix}`,
+        },
+      });
+      if (!command.ok) throw new Error(command.error.message);
+      const commandRunId = await park({ kind: "mail.command", key: command.data.id });
+      const providerState = spyOn(imapSmtpConnector, "getMessageState").mockResolvedValue({
+        exists: true,
+        flags: [],
+        keywords: [],
+        messageId: `<dependency-command-${suffix}@example.com>`,
+        modseq: "1",
+      });
+      const changeState = spyOn(imapSmtpConnector, "changeMessageState").mockResolvedValue({
+        exists: true,
+        flags: ["\\Seen"],
+        keywords: [],
+        messageId: `<dependency-command-${suffix}@example.com>`,
+        modseq: "2",
+      });
+      try {
+        expect(await executeMutationCommand(command.data.id)).toBe("confirmed");
+      } finally {
+        changeState.mockRestore();
+        providerState.mockRestore();
+      }
+      await expectWokenBeforeDeadline(commandRunId);
+
+      const [hydrationMessage] = await sql<{ id: string }[]>`
+        INSERT INTO mail.message_contents (
+          mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
+        ) VALUES (
+          ${mailboxId}::uuid,
+          ${`<dependency-hydration-${suffix}@example.com>`},
+          'Dependency hydration',
+          now(),
+          256,
+          ${sha256Json({ fixture: "dependency-hydration", suffix })},
+          'envelope'
+        ) RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+        VALUES (${dependencyFolder.id}::uuid, ${hydrationMessage!.id}::uuid, 10, 990004)
+      `;
+      const hydrationRunId = await park({ kind: "mail.hydration", key: hydrationMessage!.id });
+      const source = [
+        `Message-ID: <dependency-hydration-${suffix}@example.com>`,
+        "From: sender@example.com",
+        "To: lifecycle@example.com",
+        "Subject: Dependency hydration",
+        `Date: ${new Date().toUTCString()}`,
+        "",
+        "Hydrated body",
+      ].join("\r\n");
+      const download = spyOn(imapSmtpConnector, "downloadSourceBatch").mockImplementation(
+        async (_runtime, _folderPath, requests, consume) => {
+          const request = requests.find((candidate) => candidate.key === hydrationMessage!.id);
+          if (!request) throw new Error("Hydration dependency request is missing");
+          await consume({
+            ...request,
+            expectedSize: Buffer.byteLength(source),
+            stream: Readable.from([source]),
+          });
+        },
+      );
+      try {
+        await expect(
+          hydrateMessageBatch({
+            input: { messageId: hydrationMessage!.id },
+            signal: new AbortController().signal,
+            heartbeat: async () => undefined,
+          } as never),
+        ).resolves.toEqual({ hydrated: true });
+      } finally {
+        download.mockRestore();
+      }
+      await expectWokenBeforeDeadline(hydrationRunId);
+
+      const [failedHydrationMessage] = await sql<{ id: string }[]>`
+        INSERT INTO mail.message_contents (
+          mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status, hydration_attempt
+        ) VALUES (
+          ${mailboxId}::uuid,
+          ${`<dependency-hydration-failed-${suffix}@example.com>`},
+          'Terminal dependency hydration',
+          now(),
+          256,
+          ${sha256Json({ fixture: "dependency-hydration-failed", suffix })},
+          'failed',
+          4
+        ) RETURNING id
+      `;
+      await sql`
+        INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+        VALUES (${dependencyFolder.id}::uuid, ${failedHydrationMessage!.id}::uuid, 10, 990005)
+      `;
+      const failedHydrationRunId = await park({ kind: "mail.hydration", key: failedHydrationMessage!.id });
+      const failedDownload = spyOn(imapSmtpConnector, "downloadSourceBatch").mockImplementation(
+        async (_runtime, _folderPath, requests, consume) => {
+          const request = requests.find((candidate) => candidate.key === failedHydrationMessage!.id);
+          if (!request) throw new Error("Terminal hydration dependency request is missing");
+          await consume({
+            ...request,
+            expectedSize: Buffer.byteLength(source) + 1,
+            stream: Readable.from([source]),
+          });
+        },
+      );
+      try {
+        await expect(
+          hydrateMessageBatch({
+            input: { messageId: failedHydrationMessage!.id },
+            signal: new AbortController().signal,
+            heartbeat: async () => undefined,
+          } as never),
+        ).rejects.toMatchObject({ code: "MESSAGE_SIZE_MISMATCH" });
+      } finally {
+        failedDownload.mockRestore();
+      }
+      const [failedHydration] = await sql<{ hydration_status: string; hydration_attempt: number }[]>`
+        SELECT hydration_status, hydration_attempt
+        FROM mail.message_contents
+        WHERE id = ${failedHydrationMessage!.id}::uuid
+      `;
+      expect(failedHydration).toEqual({ hydration_status: "failed", hydration_attempt: 5 });
+      await expectWokenBeforeDeadline(failedHydrationRunId);
+    } finally {
+      await sql`DELETE FROM workflows.workflow WHERE id = ${workflow.id}::uuid`;
     }
   }, 15_000);
 
