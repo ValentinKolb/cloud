@@ -36,6 +36,7 @@ export default function MailRecipientInput(props: {
   const [validationError, setValidationError] = createSignal<string | null>(null);
   let timer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
+  let disposed = false;
 
   const add = (raw: string) => {
     const recipient = parseMailRecipient(raw);
@@ -70,6 +71,7 @@ export default function MailRecipientInput(props: {
         const response = await fetch(`/api/contacts/search?${params}`, { signal: request.signal });
         if (!response.ok) throw new Error("Contacts unavailable");
         const result = searchResponseSchema.parse(await response.json());
+        if (disposed || controller !== request) return;
         const seen = new Set<string>();
         setSuggestions(
           result.data.flatMap((contact) => {
@@ -83,9 +85,11 @@ export default function MailRecipientInput(props: {
           }),
         );
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) setSuggestions([]);
+        if (!disposed && controller === request && !(error instanceof DOMException && error.name === "AbortError")) {
+          setSuggestions([]);
+        }
       } finally {
-        if (controller === request) {
+        if (!disposed && controller === request) {
           controller = null;
           setLoading(false);
         }
@@ -94,8 +98,10 @@ export default function MailRecipientInput(props: {
   });
 
   onCleanup(() => {
+    disposed = true;
     if (timer) clearTimeout(timer);
     controller?.abort();
+    controller = null;
   });
 
   return (

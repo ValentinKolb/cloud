@@ -86,6 +86,8 @@ export default function MailWorkspace(props: {
   let liveRequest = 0;
   let routeController: AbortController | null = null;
   let liveController: AbortController | null = null;
+  let disposed = false;
+  const focusFrames = new Set<number>();
   const pendingReadConversationIds = new Set<string>();
   let pendingListState = new Map<string, PendingMailListState>();
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
@@ -365,7 +367,7 @@ export default function MailWorkspace(props: {
   };
 
   const openSettings = async (initialTab?: string) => {
-    if (settingsOpening()) return;
+    if (disposed || settingsOpening()) return;
     setSettingsOpening(true);
     try {
       const result = await openMailboxSettingsDialog({
@@ -373,45 +375,47 @@ export default function MailWorkspace(props: {
         currentUserEmail: props.currentUserEmail,
         initialTab,
       });
+      if (disposed) return;
       if (result.deleted) return documentNavigate("/app/mail");
       if (!result.workspaceChanged) return;
       const refreshResult = await replaceWorkspaceRoute(requestUrl());
       if (refreshResult === "failed") toast.error("Mailbox settings were saved, but this view could not be refreshed yet.");
     } finally {
-      setSettingsOpening(false);
+      if (!disposed) setSettingsOpening(false);
     }
   };
 
   const openHealth = async () => {
-    if (managementOpening()) return;
+    if (disposed || managementOpening()) return;
     setManagementOpening("health");
     try {
       const result = await openMailboxHealthDialog({ mailboxId: data.mailbox.id, dateConfig: props.dateConfig });
+      if (disposed) return;
       if (!result.workspaceChanged) return;
       const refreshResult = await replaceWorkspaceRoute(requestUrl());
       if (refreshResult === "failed") toast.error("Mailbox health changed, but this view could not be refreshed yet.");
     } finally {
-      setManagementOpening(null);
+      if (!disposed) setManagementOpening(null);
     }
   };
 
   const openSharedLinks = async () => {
-    if (managementOpening()) return;
+    if (disposed || managementOpening()) return;
     setManagementOpening("links");
     try {
       await openMailAttachmentLinksDialog({ mailboxId: data.mailbox.id, dateConfig: props.dateConfig });
     } finally {
-      setManagementOpening(null);
+      if (!disposed) setManagementOpening(null);
     }
   };
 
   const openRemoteContent = async () => {
-    if (managementOpening()) return;
+    if (disposed || managementOpening()) return;
     setManagementOpening("remote-content");
     try {
       await openMailRemoteContentRulesDialog(data.mailbox.id);
     } finally {
-      setManagementOpening(null);
+      if (!disposed) setManagementOpening(null);
     }
   };
 
@@ -434,8 +438,10 @@ export default function MailWorkspace(props: {
         if (oauthFlowId) {
           try {
             const response = await apiClient.oauth.flows[":flowId"].$get({ param: { flowId: oauthFlowId } });
+            if (disposed) return;
             if (response.ok) {
               const result = await response.json();
+              if (disposed) return;
               const resultCode = result.resultCode?.toLowerCase() ?? null;
               if (result.message && resultCode !== "connected" && resultCode !== "reconnected" && resultCode !== "partial") {
                 toast.error(result.message);
@@ -445,10 +451,10 @@ export default function MailWorkspace(props: {
               }
             }
           } catch {
-            toast.error("OAuth completed, but its connection status could not be loaded");
+            if (!disposed) toast.error("OAuth completed, but its connection status could not be loaded");
           }
         }
-        await openSettings("delivery");
+        if (!disposed) await openSettings("delivery");
       })();
     }
     let readyReceived = false;
@@ -515,7 +521,7 @@ export default function MailWorkspace(props: {
     markLiveApplied = live.markApplied;
     const stopPopState = listenPopState(({ url }) => {
       void replaceWorkspaceRoute(`${url.pathname}${url.search}`).then((result) => {
-        if (result === "failed") toast.error("Could not restore this mailbox view. Your current view was kept.");
+        if (!disposed && result === "failed") toast.error("Could not restore this mailbox view. Your current view was kept.");
       });
     });
     live.connect();
@@ -527,11 +533,17 @@ export default function MailWorkspace(props: {
   });
 
   onCleanup(() => {
+    disposed = true;
+    routeRequest += 1;
+    selectionRequest += 1;
+    liveRequest += 1;
     if (preferenceTimer) clearTimeout(preferenceTimer);
     routeController?.abort();
     liveController?.abort();
     detailCache.clear();
     liveRefresh.dispose();
+    for (const frame of focusFrames) cancelAnimationFrame(frame);
+    focusFrames.clear();
   });
 
   const canWrite = createMemo(() => rank(data.permission) >= 2);
@@ -668,7 +680,9 @@ export default function MailWorkspace(props: {
   };
 
   const focusConversation = (conversationId: string, target: "reader" | "row") => {
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
+      focusFrames.delete(frame);
+      if (disposed) return;
       const element =
         target === "reader"
           ? document.querySelector<HTMLElement>("[data-mail-reader-heading]")
@@ -676,6 +690,7 @@ export default function MailWorkspace(props: {
       element?.focus({ preventScroll: true });
       if (target === "row") element?.scrollIntoView({ block: "nearest" });
     });
+    focusFrames.add(frame);
   };
 
   const applyConversationRoute = async (
@@ -1244,12 +1259,15 @@ export default function MailWorkspace(props: {
   const setDetailsVisible = (open: boolean) => {
     setDetailsOpen(open);
     persistPreferences();
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
+      focusFrames.delete(frame);
+      if (disposed) return;
       const target = open
         ? document.querySelector<HTMLElement>("[data-mail-details-heading]")
         : document.querySelector<HTMLElement>("[data-mail-details-trigger]");
       target?.focus({ preventScroll: true });
     });
+    focusFrames.add(frame);
   };
 
   return (

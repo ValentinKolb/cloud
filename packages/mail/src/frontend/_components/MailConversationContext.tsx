@@ -34,10 +34,12 @@ function RelatedMail(props: {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   let controller: AbortController | null = null;
+  let disposed = false;
 
   const load = async (cursor?: string) => {
     controller?.abort();
-    controller = new AbortController();
+    const currentController = new AbortController();
+    controller = currentController;
     setLoading(true);
     setError(null);
     try {
@@ -45,19 +47,29 @@ function RelatedMail(props: {
       if (cursor) query.set("cursor", cursor);
       const response = await fetch(
         `/api/mail/mailboxes/${props.mailboxId}/conversations/${props.conversationId}/contacts/${encodeURIComponent(props.bookId)}/${props.contactId}/history?${query}`,
-        { signal: controller.signal },
+        { signal: currentController.signal },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load related Mail"));
       const next = relatedMailPageSchema.parse(await response.json());
+      if (disposed || controller !== currentController) return;
       setPage((current) => ({ items: cursor ? [...current.items, ...next.items] : next.items, nextCursor: next.nextCursor }));
     } catch (cause) {
-      if (!isAbortError(cause)) setError(cause instanceof Error ? cause.message : "Could not load related Mail");
+      if (!disposed && controller === currentController && !isAbortError(cause)) {
+        setError(cause instanceof Error ? cause.message : "Could not load related Mail");
+      }
     } finally {
-      setLoading(false);
+      if (!disposed && controller === currentController) {
+        controller = null;
+        setLoading(false);
+      }
     }
   };
 
-  onCleanup(() => controller?.abort());
+  onCleanup(() => {
+    disposed = true;
+    controller?.abort();
+    controller = null;
+  });
 
   return (
     <div class="mt-2">
@@ -134,6 +146,8 @@ export default function MailConversationContext(props: {
     controller = currentController;
     const generation = loadGeneration;
     const conversationId = props.conversationId;
+    const isCurrent = () =>
+      controller === currentController && generation === loadGeneration && conversationId === props.conversationId;
     setLoading(true);
     setError(null);
     try {
@@ -144,7 +158,7 @@ export default function MailConversationContext(props: {
       });
       if (!response.ok) throw new Error(await readApiError(response, "Could not load Contacts"));
       const next = mailConversationContextSchema.parse(await response.json());
-      if (generation !== loadGeneration || conversationId !== props.conversationId) return false;
+      if (!isCurrent()) return false;
       setContext((current) => ({
         ...next,
         contacts:
@@ -154,10 +168,13 @@ export default function MailConversationContext(props: {
       }));
       return true;
     } catch (cause) {
-      if (!isAbortError(cause)) setError(cause instanceof Error ? cause.message : "Could not load Contacts");
+      if (isCurrent() && !isAbortError(cause)) {
+        setError(cause instanceof Error ? cause.message : "Could not load Contacts");
+      }
       return false;
     } finally {
-      if (controller === currentController) {
+      if (isCurrent()) {
+        controller = null;
         setLoaded(true);
         setLoading(false);
       }
@@ -191,13 +208,16 @@ export default function MailConversationContext(props: {
 
   createEffect(() => {
     if (!props.active) {
+      loadGeneration += 1;
       controller?.abort();
+      controller = null;
       return;
     }
     const conversationId = props.conversationId;
     if (loadedConversationId !== conversationId) {
       loadGeneration += 1;
       controller?.abort();
+      controller = null;
       loadedConversationId = conversationId;
       setContext(null);
       setLoaded(false);
@@ -242,7 +262,11 @@ export default function MailConversationContext(props: {
     onCleanup(() => live.dispose());
   });
 
-  onCleanup(() => controller?.abort());
+  onCleanup(() => {
+    loadGeneration += 1;
+    controller?.abort();
+    controller = null;
+  });
 
   const participantRows = createMemo(() => {
     const current = context();
