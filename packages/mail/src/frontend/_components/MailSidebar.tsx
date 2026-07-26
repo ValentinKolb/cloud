@@ -184,8 +184,9 @@ export default function MailSidebar(props: {
       elements={[
         ...(props.canAdmin ? [{ label: "Mailbox health", icon: "ti ti-heartbeat", action: props.onOpenHealth }] : []),
         { label: "Remote images", icon: "ti ti-photo-shield", action: props.onOpenRemoteContent },
+        ...(props.canAdmin ? [{ label: "Subscriptions", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` }] : []),
         ...(props.canAdmin
-          ? [{ label: "Subscriptions", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` }]
+          ? [{ label: "Sender rules", icon: "ti ti-filter-cog", href: `/app/mail/${props.mailboxId}/automations?section=sender-rules` }]
           : []),
         ...(props.canAdmin ? [{ label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks }] : []),
       ]}

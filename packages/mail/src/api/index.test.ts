@@ -24,6 +24,16 @@ describe("Mail API composition", () => {
     ).toBe(true);
   });
 
+  test("exposes bounded sender preview and existing-message action routes", () => {
+    for (const path of [
+      "/mailboxes/:mailboxId/sender-rules/preview",
+      "/mailboxes/:mailboxId/sender-rules/mark-read",
+      "/mailboxes/:mailboxId/sender-rules/:ruleId/apply-existing",
+    ]) {
+      expect(api.routes.some((route) => route.method === "POST" && route.path === path)).toBe(true);
+    }
+  });
+
   test("exposes an explicit mailbox-scoped provider limit refresh", () => {
     expect(
       api.routes.some(

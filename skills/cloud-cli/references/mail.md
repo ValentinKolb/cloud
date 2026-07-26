@@ -238,6 +238,16 @@ cld --json mail message inspect <message-id>
 cld --json mail message source <message-id> --out message.eml
 ```
 
+Queue provider-backed conversation state changes from a concrete source folder:
+
+```bash
+cld --json mail conversation not-spam <conversation-id> --source <junk-folder-id> --wait
+cld --json mail conversation keyword add <conversation-id> FollowUp --source <folder-id> --wait
+cld --json mail conversation keyword remove <conversation-id> FollowUp --source <folder-id> --wait
+```
+
+Provider keywords are distinct from Cloud-local tags. The command reports a clear provider error if the selected IMAP folder does not permit custom keywords.
+
 `search`, `conversation list`, activities, saved views, scheduled sends, and deleted-mailbox listings are cursor-paginated. Preserve and pass the returned cursor rather than reconstructing it.
 
 Create a reviewable independent draft from an existing message, or prepare a resend of an outbound message:

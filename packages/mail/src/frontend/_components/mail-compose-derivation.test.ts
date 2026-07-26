@@ -63,6 +63,8 @@ const message = (overrides: Partial<MessageDetail> = {}): MessageDetail => ({
   forwardText: "Question",
   selectedHeaders: {},
   sourceAvailable: false,
+  mailingList: null,
+  keywords: [],
   remoteContent: {
     imageIds: [],
     allowedByRule: false,

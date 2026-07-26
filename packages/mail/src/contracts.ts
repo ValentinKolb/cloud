@@ -67,6 +67,14 @@ export const messageInspectorMailingListSchema = z
   })
   .strict();
 
+export const messageInspectorSpamSchema = z
+  .object({
+    flag: z.string().max(4096).nullable(),
+    status: z.string().max(4096).nullable(),
+    score: z.string().max(4096).nullable(),
+  })
+  .strict();
+
 export const messageInspectorSchema = z
   .object({
     id: z.uuid(),
@@ -97,6 +105,7 @@ export const messageInspectorSchema = z
     parts: z.array(messageInspectorPartSchema).max(10_000),
     attachments: z.array(messageInspectorAttachmentSchema).max(10_000),
     mailingList: messageInspectorMailingListSchema.nullable(),
+    spam: messageInspectorSpamSchema,
     warnings: z.array(z.string().max(4096)).max(100),
   })
   .strict();
@@ -1851,6 +1860,62 @@ export type SetSenderRuleEnabled = z.infer<typeof setSenderRuleEnabledSchema>;
 
 export const deleteSenderRuleSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
 export type DeleteSenderRule = z.infer<typeof deleteSenderRuleSchema>;
+
+export const previewSenderRuleMatchesInputSchema = z
+  .object({
+    matchKind: senderRuleMatchKindSchema,
+    matchValue: z.string().trim().min(1).max(320),
+  })
+  .strict()
+  .superRefine(validateSenderRuleMatch);
+export type PreviewSenderRuleMatchesInput = z.infer<typeof previewSenderRuleMatchesInputSchema>;
+
+export const senderRuleMatchPreviewSchema = z
+  .object({
+    messageCount: z.number().int().nonnegative(),
+    conversationCount: z.number().int().nonnegative(),
+    applicationLimit: z.number().int().positive(),
+    capped: z.boolean(),
+  })
+  .strict();
+export type SenderRuleMatchPreview = z.infer<typeof senderRuleMatchPreviewSchema>;
+
+export const applySenderRuleToExistingInputSchema = z
+  .object({
+    expectedRevision: z.number().int().positive(),
+  })
+  .strict();
+export type ApplySenderRuleToExistingInput = z.infer<typeof applySenderRuleToExistingInputSchema>;
+
+export const applySenderRuleToExistingResultSchema = z
+  .object({
+    ruleId: z.string().uuid(),
+    eventCount: z.number().int().nonnegative(),
+    applicationLimit: z.number().int().positive(),
+    capped: z.boolean(),
+  })
+  .strict();
+export type ApplySenderRuleToExistingResult = z.infer<typeof applySenderRuleToExistingResultSchema>;
+
+export const markSenderMessagesReadInputSchema = z
+  .object({
+    matchKind: senderRuleMatchKindSchema,
+    matchValue: z.string().trim().min(1).max(320),
+    idempotencyKey: z.string().trim().min(1).max(150),
+  })
+  .strict()
+  .superRefine(validateSenderRuleMatch);
+export type MarkSenderMessagesReadInput = z.infer<typeof markSenderMessagesReadInputSchema>;
+
+export const markSenderMessagesReadResultSchema = z
+  .object({
+    commandIds: z.array(z.string().uuid()).max(500),
+    messageCount: z.number().int().nonnegative(),
+    applicationLimit: z.number().int().positive(),
+    capped: z.boolean(),
+  })
+  .strict();
+export type MarkSenderMessagesReadResult = z.infer<typeof markSenderMessagesReadResultSchema>;
 
 const internalCommentBodySchema = z
   .string()

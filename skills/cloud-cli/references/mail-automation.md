@@ -7,6 +7,7 @@ Read this reference when configuring managed automatic replies, conversation ref
 | Need | Use |
 | --- | --- |
 | Out-of-office or receipt acknowledgement | `automatic-reply ...` |
+| Exact sender/domain routing, read state, or provider keyword | `sender-rule ...` |
 | Permanent human-facing conversation ids | `reference ...` plus `ensureConversationReference` |
 | Conditional routing, tagging, assignment, drafts, sends, or notifications | `workflow ...` |
 
@@ -100,6 +101,34 @@ Schedule rules are evaluated in `timeZone`:
 - `minimumIntervalHours` limits repeated replies to the same sender. `0` disables this interval, but protocol loop and same-message duplicate guards remain active.
 
 Mail also suppresses unsafe automatic responses such as bulk mail, mailing-list mail, delivery-status notifications, self-mail, and messages that request no automatic reply.
+
+## Manage guided sender rules
+
+Sender rules are managed workflows with a narrow, reviewable contract:
+
+```bash
+cld --json mail sender-rule list
+cld --json mail sender-rule create \
+  --name "Block noisy sender" \
+  --match sender \
+  --value news@example.com \
+  --action junk
+cld --json mail sender-rule get <rule-id>
+cld --json mail sender-rule update <rule-id> --action mark_read
+cld mail sender-rule delete <rule-id> --yes
+```
+
+Supported actions are `junk`, `trash`, `mark_read`, and `add_keyword`; pass `--keyword <value>` with `add_keyword`. Destructive rules reject mailbox identities, configured internal domains and subdomains, and unsafe parent domains. `sender-rule get` exposes the exact generated workflow YAML.
+
+Preview sender-scoped work before changing existing messages:
+
+```bash
+cld --json mail sender preview --match sender --value news@example.com
+cld --json mail sender mark-read --match domain --value example.com --yes
+cld --json mail sender-rule apply-existing <rule-id> --yes
+```
+
+Existing-message actions are bounded to the newest 500 matches per invocation. `sender mark-read` uses the durable command outbox. `sender-rule apply-existing` emits targeted events into the same workflow runtime used for new mail, so runs and effects remain observable. Repeat an action only when its result reports `capped: true`.
 
 ## Configure conversation references
 

@@ -29,6 +29,7 @@ const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
 const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
 const ATTACHMENT_LINK_ID = "00000000-0000-4000-8000-000000000026";
 const REMOTE_CONTENT_RULE_ID = "00000000-0000-4000-8000-000000000027";
+const SENDER_RULE_ID = "00000000-0000-4000-8000-000000000028";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -2205,6 +2206,7 @@ test("message inspect and source expose metadata and exact RFC bytes", async () 
     parts: [],
     attachments: [],
     mailingList: null,
+    spam: { flag: null, status: null, score: null },
     warnings: [],
   };
   const server = withMailbox((request) => {
@@ -2690,6 +2692,80 @@ test("conversation archive targets the configured semantic role", async () => {
     idempotencyKey: "conversation-archive-test",
   });
   expect(JSON.parse(result.stdout)).toMatchObject({ correlationId: "archive-correlation", commands: [{ kind: "move" }] });
+});
+
+test("conversation not-spam and provider keyword commands use the shared triage API", async () => {
+  const bodies: unknown[] = [];
+  const server = withMailbox(async (request) => {
+    const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/actions`;
+    if (request.method === "POST" && new URL(request.url).pathname === expectedPath) {
+      bodies.push(await request.json());
+      return api({ correlationId: `correlation-${bodies.length}`, commands: [{ ...mailCommand("queued"), kind: "change_message_state" }] });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+  const sharedFlags = ["--mailbox", MAILBOX_ID, "--source", FOLDER_ID];
+
+  const results = [
+    await runCli(origin, [
+      "--json",
+      "mail",
+      "conversation",
+      "not-spam",
+      CONVERSATION_ID,
+      ...sharedFlags,
+      "--idempotency-key",
+      "not-spam-test",
+    ]),
+    await runCli(origin, [
+      "--json",
+      "mail",
+      "conversation",
+      "keyword",
+      "add",
+      CONVERSATION_ID,
+      "FollowUp",
+      ...sharedFlags,
+      "--idempotency-key",
+      "keyword-add-test",
+    ]),
+    await runCli(origin, [
+      "--json",
+      "mail",
+      "conversation",
+      "keyword",
+      "remove",
+      CONVERSATION_ID,
+      "FollowUp",
+      ...sharedFlags,
+      "--idempotency-key",
+      "keyword-remove-test",
+    ]),
+  ];
+
+  expect(results.map((result) => result.exitCode)).toEqual([0, 0, 0]);
+  expect(bodies).toEqual([
+    {
+      kind: "move_to_role",
+      sourceFolderId: FOLDER_ID,
+      role: "inbox",
+      idempotencyKey: "not-spam-test",
+    },
+    {
+      kind: "change_state",
+      sourceFolderId: FOLDER_ID,
+      change: { addKeywords: ["FollowUp"] },
+      idempotencyKey: "keyword-add-test",
+    },
+    {
+      kind: "change_state",
+      sourceFolderId: FOLDER_ID,
+      change: { removeKeywords: ["FollowUp"] },
+      idempotencyKey: "keyword-remove-test",
+    },
+  ]);
 });
 
 test("conversation move targets an explicit provider folder", async () => {
@@ -3660,4 +3736,91 @@ test("automatic reply commands cover list, create, and revision-checked update",
     { method: "POST", body: input },
     { method: "PATCH", body: { expectedRevision: 1, ...input } },
   ]);
+});
+
+test("sender commands cover preview, bounded read updates, and existing-message rule application", async () => {
+  const rule = {
+    id: SENDER_RULE_ID,
+    mailboxId: MAILBOX_ID,
+    workflowId: WORKFLOW_ID,
+    name: "Example sender",
+    enabled: true,
+    matchKind: "sender",
+    matchValue: "sender@example.test",
+    action: { kind: "mark_read" },
+    workflowSource: "name: Example sender",
+    revision: 3,
+    createdAt: "2026-07-26T00:00:00.000Z",
+    updatedAt: "2026-07-26T00:00:00.000Z",
+  };
+  const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules`;
+    if (request.method === "GET" && url.pathname === base) return api([rule]);
+    if (request.method === "POST" && url.pathname === `${base}/preview`) {
+      requests.push({ path: url.pathname, body: (await request.json()) as Record<string, unknown> });
+      return api({ messageCount: 6, conversationCount: 4, applicationLimit: 500, capped: false });
+    }
+    if (request.method === "POST" && url.pathname === `${base}/mark-read`) {
+      requests.push({ path: url.pathname, body: (await request.json()) as Record<string, unknown> });
+      return api({ commandIds: [COMMAND_ID], messageCount: 1, applicationLimit: 500, capped: false });
+    }
+    if (request.method === "POST" && url.pathname === `${base}/${SENDER_RULE_ID}/apply-existing`) {
+      requests.push({ path: url.pathname, body: (await request.json()) as Record<string, unknown> });
+      return api({ ruleId: SENDER_RULE_ID, eventCount: 6, applicationLimit: 500, capped: false });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const previewed = await runCli(origin, [
+    "--json",
+    "mail",
+    "sender",
+    "preview",
+    "--mailbox",
+    MAILBOX_ID,
+    "--match",
+    "sender",
+    "--value",
+    "sender@example.test",
+  ]);
+  const markedRead = await runCli(origin, [
+    "--json",
+    "mail",
+    "sender",
+    "mark-read",
+    "--mailbox",
+    MAILBOX_ID,
+    "--match",
+    "domain",
+    "--value",
+    "example.test",
+    "--yes",
+  ]);
+  const applied = await runCli(origin, [
+    "--json",
+    "mail",
+    "sender-rule",
+    "apply-existing",
+    SENDER_RULE_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--yes",
+  ]);
+
+  expect([previewed.exitCode, markedRead.exitCode, applied.exitCode]).toEqual([0, 0, 0]);
+  expect(JSON.parse(previewed.stdout)).toMatchObject({ messageCount: 6, conversationCount: 4 });
+  expect(JSON.parse(markedRead.stdout)).toMatchObject({ messageCount: 1 });
+  expect(JSON.parse(applied.stdout)).toMatchObject({ ruleId: SENDER_RULE_ID, eventCount: 6 });
+  expect(requests).toHaveLength(3);
+  expect(requests[0]).toEqual({
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/preview`,
+    body: { matchKind: "sender", matchValue: "sender@example.test" },
+  });
+  expect(requests[1]?.body).toMatchObject({ matchKind: "domain", matchValue: "example.test" });
+  expect(requests[1]?.body.idempotencyKey).toEqual(expect.any(String));
+  expect(requests[2]?.body).toEqual({ expectedRevision: 3 });
 });

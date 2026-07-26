@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ListResponse } from "imapflow";
 import {
+  assertProviderKeywordsSupported,
   assertUidValidity,
   normalizeImapQuotaEvidence,
   parseEnvelopeHeaders,
@@ -8,6 +9,22 @@ import {
   renameImapFolder,
   selectUidBatch,
 } from "./imap-smtp";
+
+describe("IMAP provider keywords", () => {
+  test("accepts arbitrary keywords when the provider advertises wildcard support", () => {
+    expect(() => assertProviderKeywordsSupported(new Set(["\\Seen", "\\*"]), ["Cloud/Follow-up"])).not.toThrow();
+  });
+
+  test("accepts an explicitly advertised keyword", () => {
+    expect(() => assertProviderKeywordsSupported(new Set(["\\Seen", "Approved"]), ["approved"])).not.toThrow();
+  });
+
+  test("fails clearly when a folder rejects custom keywords", () => {
+    expect(() => assertProviderKeywordsSupported(new Set(["\\Seen", "\\Answered"]), ["Cloud/Follow-up"])).toThrow(
+      "The provider does not allow custom keywords in this folder",
+    );
+  });
+});
 
 const sparseSearch = (uids: number[], probes: Array<[number, number]>) => async (lowUid: number, highUid: number) => {
   probes.push([lowUid, highUid]);

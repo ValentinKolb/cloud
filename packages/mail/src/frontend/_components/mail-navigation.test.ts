@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { MAIL_SEARCH_PARAMETER, serializeMailSearchState } from "../../search-state";
-import { buildMailListHref, buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
+import { MAIL_SEARCH_PARAMETER, parseMailSearchState, serializeMailSearchState } from "../../search-state";
+import {
+  buildExactSenderSearchHref,
+  buildMailListHref,
+  buildMailSelectionHref,
+  isMailListItemActive,
+  type MailListItem,
+  senderDomainFromAddress,
+} from "./mail-navigation";
 
 const item: MailListItem = {
   id: "00000000-0000-4000-8000-000000000002",
@@ -64,5 +71,27 @@ describe("Mail search navigation", () => {
     expect(isMailListItemActive(item, item.conversationId, null)).toBe(true);
     expect(isMailListItemActive(item, "00000000-0000-4000-8000-000000000099", null)).toBe(false);
     expect(isMailListItemActive({ ...item, conversationId: null }, null, item.id)).toBe(true);
+  });
+
+  test("builds an exact URL-backed sender search and normalizes a usable domain", () => {
+    const url = new URL(
+      "https://cloud.example/app/mail/00000000-0000-4000-8000-000000000001?folder=00000000-0000-4000-8000-000000000004&q=old&conversation=00000000-0000-4000-8000-000000000003",
+    );
+    const href = buildExactSenderSearchHref(url, "Sender+news@Sub.Example.com");
+    expect(href).not.toBeNull();
+    const next = new URL(href!, url.origin);
+
+    expect(next.searchParams.get("folder")).toBe("00000000-0000-4000-8000-000000000004");
+    expect(next.searchParams.has("q")).toBe(false);
+    expect(next.searchParams.has("conversation")).toBe(false);
+    expect(parseMailSearchState(next)).toEqual({
+      state: {
+        expression: { type: "text", field: "from", query: "Sender+news@Sub.Example.com", match: "exact" },
+        sort: "newest",
+      },
+      error: null,
+    });
+    expect(senderDomainFromAddress("Sender+news@Sub.Example.com")).toBe("sub.example.com");
+    expect(senderDomainFromAddress("invalid")).toBeNull();
   });
 });

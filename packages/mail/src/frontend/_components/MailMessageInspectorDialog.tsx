@@ -260,6 +260,23 @@ function MailMessageInspectorDialog(props: {
                     )}
                   </Show>
 
+                  <Show when={current().spam.flag || current().spam.status || current().spam.score}>
+                    <section class="detail-section">
+                      <p class="detail-section-label">Spam diagnostics</p>
+                      <p class="mb-3 text-xs text-dimmed">
+                        These values come from headers added by the mail provider. Cloud does not calculate a spam score.
+                      </p>
+                      <dl class="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
+                        <dt class="text-dimmed">Flag</dt>
+                        <dd class="break-all text-primary">{current().spam.flag ?? "Unavailable"}</dd>
+                        <dt class="text-dimmed">Status</dt>
+                        <dd class="break-all text-primary">{current().spam.status ?? "Unavailable"}</dd>
+                        <dt class="text-dimmed">Score</dt>
+                        <dd class="break-all text-primary">{current().spam.score ?? "Unavailable"}</dd>
+                      </dl>
+                    </section>
+                  </Show>
+
                   <Show when={current().placements.length > 0}>
                     <section class="detail-section">
                       <p class="detail-section-label">Provider placements</p>
@@ -271,6 +288,7 @@ function MailMessageInspectorDialog(props: {
                               <th>UID</th>
                               <th>UID validity</th>
                               <th>Flags</th>
+                              <th>Provider keywords</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -280,7 +298,8 @@ function MailMessageInspectorDialog(props: {
                                   <td title={placement.remotePath}>{placement.folderName}</td>
                                   <td class="font-mono">{placement.uid}</td>
                                   <td class="font-mono">{placement.uidValidity}</td>
-                                  <td>{[...placement.flags, ...placement.keywords].join(", ") || "None"}</td>
+                                  <td>{placement.flags.join(", ") || "None"}</td>
+                                  <td>{placement.keywords.join(", ") || "None"}</td>
                                 </tr>
                               )}
                             </For>

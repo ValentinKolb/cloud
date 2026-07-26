@@ -2,8 +2,11 @@ import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import {
+  applySenderRuleToExistingInputSchema,
   createSenderRuleSchema,
   deleteSenderRuleSchema,
+  markSenderMessagesReadInputSchema,
+  previewSenderRuleMatchesInputSchema,
   setSenderRuleEnabledSchema,
   updateSenderRuleSchema,
 } from "../contracts";
@@ -31,6 +34,48 @@ export default new Hono<AuthContext>()
         senderRules.createSenderRule({
           context: requestContext(c),
           mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/sender-rules/preview",
+    v("param", mailboxParamSchema),
+    v("json", previewSenderRuleMatchesInputSchema),
+    async (c) =>
+      respond(
+        c,
+        senderRules.previewSenderRuleMatches({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/sender-rules/mark-read",
+    v("param", mailboxParamSchema),
+    v("json", markSenderMessagesReadInputSchema),
+    async (c) =>
+      respond(
+        c,
+        senderRules.markSenderMessagesRead({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/sender-rules/:ruleId/apply-existing",
+    v("param", senderRuleParamSchema),
+    v("json", applySenderRuleToExistingInputSchema),
+    async (c) =>
+      respond(
+        c,
+        senderRules.applySenderRuleToExisting({
+          context: requestContext(c),
+          ...c.req.valid("param"),
           input: c.req.valid("json"),
         }),
       ),

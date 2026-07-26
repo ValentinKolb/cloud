@@ -18,5 +18,13 @@ describe("Mail actions", () => {
         correlationId: "corr",
       }),
     ).toMatchObject({ kind: "move_to_folder", sourceFolderId: "source", destinationFolderId: "target" });
+    expect(
+      buildMailActionInput({
+        actionId: "not_spam",
+        sourceFolderId: "junk",
+        idempotencyKey: "not-spam",
+        correlationId: "corr",
+      }),
+    ).toMatchObject({ kind: "move_to_role", sourceFolderId: "junk", role: "inbox" });
   });
 });

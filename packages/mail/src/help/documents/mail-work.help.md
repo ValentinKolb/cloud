@@ -65,18 +65,27 @@ Opening an unread conversation marks it as read. Use **More conversation actions
 The top actions operate on the conversation's active provider placement:
 
 - **Archive** moves it to the mapped archive folder.
-- **Move to junk** moves it to the mapped junk folder.
+- **Move to junk** moves it to the mapped junk folder. In Junk, the same action becomes **Not spam** and moves the conversation back to Inbox.
 - **Delete** moves it to the mapped trash folder.
 
 These actions require write access and the corresponding folder mapping. If Mail reports that the conversation has no active provider placement, refresh the mailbox or ask an administrator to review folder discovery and mappings.
 
 Select **Mail commands** above the conversation list to search the same actions that appear in buttons and menus. Common commands also have keyboard shortcuts. Open **Configure keyboard shortcuts** from Mail commands to change or disable them on this device. Shortcuts do not run while you are typing in an input or message editor.
 
+Open an individual message's **Message organization actions** for sender-scoped tools:
+
+- **Find all from this sender** opens an exact, URL-backed mailbox search.
+- **Create rule from sender**, **Block sender**, and **Block sender domain** open the guided rule editor with the sender already filled in.
+- **Mark all as read** confirms and queues at most 500 unread matching messages through the durable command outbox. Repeat it if Mail reports that the limit was reached.
+- **Manage unsubscribe** appears only when the message supplies standard mailing-list unsubscribe information.
+- **Provider keywords** edits IMAP keywords for the message's active provider placement. In a multi-message thread, **Conversation provider keyword** adds or removes one keyword from every message in the current provider folder. They are separate from Cloud-local tags and may be rejected when the provider does not support custom keywords in that folder.
+
 ## Inspect an individual message {icon="file-search"}
 
 Open **Conversation details**, expand **Mail details**, and choose **Headers** or **Source** when you need technical information about one message. In a conversation with several messages, select the exact message at the top of the inspector.
 
-- **Overview** shows message identifiers, provider placement, MIME parts, attachments, synchronization state, and any parsing warnings.
+- **Overview** shows message identifiers, provider placement, standard flags, provider keywords, MIME parts, attachments, synchronization state, and any parsing warnings.
+- **Spam diagnostics** shows provider-supplied spam headers when present. Cloud does not calculate or infer its own spam score.
 - **Headers** shows every stored header, including repeated delivery headers.
 - **Source** shows a bounded preview of the exact original message. Choose **Download .eml** for the complete byte-exact file.
 

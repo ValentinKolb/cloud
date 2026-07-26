@@ -104,6 +104,22 @@ describe("mailHelp", () => {
     expect(work).toContain("complete byte-exact file");
     expect(work).toContain("Raw headers and `.eml` files can contain private");
     expect(work).toContain("source and `.eml` download are unavailable");
+    expect(work).toContain("Spam diagnostics");
+    expect(work).toContain("Cloud does not calculate or infer its own spam score");
+    expect(work).toContain("Provider keywords");
+  });
+
+  test("documents guided sender rules and bounded existing-message actions", () => {
+    const automation = mailHelp.getMarkdown("mail-automation");
+    const work = mailHelp.getMarkdown("mail-work");
+
+    expect(automation).toContain("Automations > Sender rules");
+    expect(automation).toContain("shows the generated YAML");
+    expect(automation).toContain("newest 500 matching messages");
+    expect(automation).toContain("same workflow runtime");
+    expect(work).toContain("Find all from this sender");
+    expect(work).toContain("Mark all as read");
+    expect(work).toContain("Manage unsubscribe");
   });
 
   test("keeps every documented workflow example valid for the Mail vocabulary", async () => {

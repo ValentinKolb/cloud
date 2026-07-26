@@ -332,8 +332,8 @@ export const inspectMessage = async (params: {
   });
   if (!currentAccess.ok) return currentAccess;
 
-  const protocolFacts = parseJsonObject(message.protocol_facts);
-  const mailingList = mailingListMetadata(parseMessageProtocolFacts(protocolFacts));
+  const protocolFacts = parseMessageProtocolFacts(parseJsonObject(message.protocol_facts));
+  const mailingList = mailingListMetadata(protocolFacts);
   const value = {
     id: message.id,
     messageId: message.message_id,
@@ -347,7 +347,7 @@ export const inspectMessage = async (params: {
     hydrationErrorCode: message.hydration_error_code,
     contentHash: message.content_hash,
     sourceHash: message.source_hash,
-    contentType: typeof protocolFacts.contentType === "string" ? protocolFacts.contentType : null,
+    contentType: protocolFacts.contentType,
     source: {
       available: sourceAvailable,
       exact: sourceAvailable,
@@ -402,6 +402,7 @@ export const inspectMessage = async (params: {
           archiveHref: mailingList.archiveHref,
         }
       : null,
+    spam: protocolFacts.spam,
     warnings,
   };
   const parsed = messageInspectorSchema.safeParse(value);

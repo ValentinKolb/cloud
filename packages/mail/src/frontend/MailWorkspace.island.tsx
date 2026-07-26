@@ -544,6 +544,10 @@ export default function MailWorkspace(props: {
   const selectedFlagged = createMemo(
     () => selectedListItem()?.flagged ?? data.detailMessages.some((message) => message.flags.includes("\\Flagged")),
   );
+  const selectedInJunk = createMemo(() => {
+    const folderId = selectedListItem()?.sourceFolderId ?? data.folderId ?? data.detailMessages.at(-1)?.folderId;
+    return Boolean(folderId && data.folders.some((folder) => folder.id === folderId && folder.role === "junk"));
+  });
   const selectedConversationRevision = createMemo(() => selectedListItem()?.revision ?? data.collaborationState?.revision ?? null);
   const canShowDetails = createMemo(() => Boolean(data.selectedConversationId));
 
@@ -1109,7 +1113,7 @@ export default function MailWorkspace(props: {
       if (remainingIds.size === 0) setSelectionMode(false);
 
       const removesActiveConversation =
-        (actionId === "archive" || actionId === "junk" || actionId === "trash" || actionId === "move") &&
+        (actionId === "archive" || actionId === "junk" || actionId === "not_spam" || actionId === "trash" || actionId === "move") &&
         Boolean(data.selectedConversationId && succeeded.has(data.selectedConversationId!));
       if (result.succeededConversationIds.length > 0) {
         if (removesActiveConversation) {
@@ -1349,6 +1353,7 @@ export default function MailWorkspace(props: {
                   selectedConversationId={data.selectedConversationId}
                   unread={selectedUnread()}
                   flagged={selectedFlagged()}
+                  inJunk={selectedInJunk()}
                   reference={data.selectedReference}
                   subject={data.selectedSubject}
                   messages={data.detailMessages}
@@ -1361,6 +1366,7 @@ export default function MailWorkspace(props: {
                   onToggleDetails={() => canShowDetails() && setDetailsVisible(!detailsOpen())}
                   actionPending={actionPending()}
                   onAction={runAction}
+                  onOpenHref={openWorkspaceHref}
                   onMergeConversation={mergeSelectedConversation}
                   onReassignMessage={reassignMessage}
                   onSplitMessage={splitMessage}

@@ -4,13 +4,14 @@ import type { MailAutomationWorkspaceData } from "../service/automation-workspac
 import MailAutomaticReplySettings, { type AutomaticReplyPresetId } from "./_components/MailAutomaticReplySettings";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailResponsePolicySettings from "./_components/MailResponsePolicySettings";
+import MailSenderRuleSettings from "./_components/MailSenderRuleSettings";
 import MailWorkflowSettings from "./_components/MailWorkflowSettings";
 
-const SECTIONS = ["overview", "automatic-replies", "workflows", "references"] as const;
+const SECTIONS = ["overview", "automatic-replies", "sender-rules", "workflows", "references"] as const;
 type Section = (typeof SECTIONS)[number];
-type AdminSection = Extract<Section, "workflows" | "references">;
+type AdminSection = Extract<Section, "sender-rules" | "workflows" | "references">;
 
-const ADMIN_SECTIONS = new Set<Section>(["workflows", "references"]);
+const ADMIN_SECTIONS = new Set<Section>(["sender-rules", "workflows", "references"]);
 const isSection = (value: string): value is Section => SECTIONS.some((section) => section === value);
 const isAdminSection = (value: Section): value is AdminSection => ADMIN_SECTIONS.has(value);
 
@@ -36,6 +37,7 @@ export default function MailAutomationWorkspace(props: {
       (workflow) => !props.data.automaticReplies.some((configuration) => configuration.workflowId === workflow.id),
     ),
   );
+  const [senderRules, setSenderRules] = createSignal(props.data.advanced?.senderRules ?? []);
   let automaticReplyPresetNonce = 0;
   const mailboxHref = `/app/mail/${props.data.mailbox.id}`;
   const activeReply = () => automaticReplies().find((configuration) => configuration.enabled) ?? null;
@@ -98,6 +100,15 @@ export default function MailAutomationWorkspace(props: {
 
   const advancedNavigation = (suffix: string) => (
     <>
+      <AppWorkspace.SidebarItem
+        href={`${mailboxHref}/automations?section=sender-rules`}
+        icon="ti ti-filter-cog"
+        active={section() === "sender-rules"}
+        onClick={(event) => navigateSection(event, "sender-rules")}
+        viewTransitionName={`mail-automations-sender-rules-${suffix}`}
+      >
+        Sender rules
+      </AppWorkspace.SidebarItem>
       <AppWorkspace.SidebarItem
         href={`${mailboxHref}/automations?section=workflows`}
         icon="ti ti-route"
@@ -258,6 +269,23 @@ export default function MailAutomationWorkspace(props: {
                     </span>
                   </div>
                   <MailWorkflowSettings mailboxId={props.data.mailbox.id} initialWorkflows={workflows()} onWorkflowsChange={setWorkflows} />
+                </>
+              </Show>
+
+              <Show when={section() === "sender-rules" && props.data.advanced}>
+                <>
+                  <header>
+                    <h1 class="text-base font-semibold text-primary">Sender rules</h1>
+                    <p class="mt-0.5 text-xs text-dimmed">Guided rules for spam, cleanup, read state, and provider keywords.</p>
+                  </header>
+                  <div class="info-block-info flex items-start gap-2">
+                    <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>
+                      Rules process messages after synchronization and do not reject mail during SMTP delivery. Applying a rule to existing
+                      messages is always previewed and confirmed separately.
+                    </span>
+                  </div>
+                  <MailSenderRuleSettings mailboxId={props.data.mailbox.id} initialRules={senderRules()} onRulesChange={setSenderRules} />
                 </>
               </Show>
 

@@ -1,6 +1,6 @@
 import type { ConversationTriageInput } from "../../contracts";
 
-export const MAIL_ACTION_IDS = ["mark_read", "mark_unread", "flag", "unflag", "archive", "junk", "trash", "move"] as const;
+export const MAIL_ACTION_IDS = ["mark_read", "mark_unread", "flag", "unflag", "archive", "junk", "not_spam", "trash", "move"] as const;
 export type MailActionId = (typeof MAIL_ACTION_IDS)[number];
 
 type MailActionDescriptor = {
@@ -23,6 +23,12 @@ const ACTIONS = [
     label: "Move to junk",
     description: "Move this conversation to the configured Junk folder.",
     icon: "ti ti-alert-octagon",
+  },
+  {
+    id: "not_spam",
+    label: "Not spam",
+    description: "Move this conversation to the configured Inbox folder.",
+    icon: "ti ti-shield-check",
   },
   {
     id: "trash",
@@ -88,11 +94,11 @@ export const buildMailActionInput = (params: {
       correlationId: params.correlationId,
     };
   }
-  if (params.actionId === "archive" || params.actionId === "junk" || params.actionId === "trash") {
+  if (params.actionId === "archive" || params.actionId === "junk" || params.actionId === "not_spam" || params.actionId === "trash") {
     return {
       kind: "move_to_role",
       sourceFolderId: params.sourceFolderId,
-      role: params.actionId,
+      role: params.actionId === "not_spam" ? "inbox" : params.actionId,
       idempotencyKey: params.idempotencyKey,
       correlationId: params.correlationId,
     };

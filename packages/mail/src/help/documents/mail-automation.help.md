@@ -6,17 +6,26 @@ description: Configure automatic replies, conversation references, and safe work
 order: 60
 ---
 
-Open **Automations** near the bottom of the mailbox navigation. The overview leads to guided automatic replies. Mailbox admins also see focused pages for **Workflows** and **Reference numbers**. Cloud administrators inspect execution centrally under **Admin > Observability > Workflows**.
+Open **Automations** near the bottom of the mailbox navigation. The overview leads to guided automatic replies and sender rules. Mailbox admins also see focused pages for **Workflows** and **Reference numbers**. Cloud administrators inspect execution centrally under **Admin > Observability > Workflows**.
 
 ## Choose the right automation tool {icon="route"}
 
 | Need | Use |
 | --- | --- |
 | Send an out-of-office or receipt acknowledgement | **Automatic replies** |
+| Route, mark, or label mail from one sender or domain | **Sender rules** |
 | Give conversations permanent human-facing IDs | **Reference numbers** plus a workflow |
 | Tag, move, assign, change status, allocate references, or send guarded replies from conditions | **Workflows** |
 
 The tools can work together, but creating one does not activate another. Reference-number settings define the format; a workflow still decides when to allocate a number. Saving a workflow does not activate it.
+
+## Create a sender or domain rule {icon="filter-cog"}
+
+Mailbox admins can create a guided rule under **Automations > Sender rules** or directly from a message's organization menu. Choose one exact sender address or one complete domain, then choose **Move to junk**, **Move to trash**, **Mark as read**, or **Add provider keyword**.
+
+Mail generates a canonical workflow version from these fields and shows the generated YAML in the editor. Keep using the guided editor for managed rules; each save creates a new immutable version and updates its activation. Destructive rules cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
+
+Enabled rules process future received messages. Turn on **Also apply to existing matching messages** to preview the affected count and queue the newest 500 matching messages through the same workflow runtime. This is deliberately bounded and does not bypass workflow history or effect budgets. Repeat the action when the preview reports more matches. Disabling or deleting a rule stops future matches and never reverses already completed effects.
 
 ## Configure an automatic reply {icon="send"}
 

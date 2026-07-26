@@ -9,6 +9,8 @@ import type { ConversationReferenceConfiguration } from "./conversation-referenc
 import * as conversationReferences from "./conversation-reference";
 import * as mailboxes from "./mailboxes";
 import * as senderIdentities from "./sender-identities";
+import type { SenderRule } from "./sender-rules";
+import * as senderRules from "./sender-rules";
 import * as workflows from "./workflows";
 
 export type MailAutomationWorkspaceData = {
@@ -20,6 +22,7 @@ export type MailAutomationWorkspaceData = {
   referenceConfiguration: ConversationReferenceConfiguration | null;
   advanced: {
     workflows: MailWorkflow[];
+    senderRules: SenderRule[];
   } | null;
 };
 
@@ -54,8 +57,12 @@ export const loadMailAutomationWorkspace = async (
     });
   }
 
-  const workflowResult = await workflows.listWorkflows(context, mailboxId);
+  const [workflowResult, senderRuleResult] = await Promise.all([
+    workflows.listWorkflows(context, mailboxId),
+    senderRules.listSenderRules(context, mailboxId),
+  ]);
   if (!workflowResult.ok) return fail(workflowResult.error);
+  if (!senderRuleResult.ok) return fail(senderRuleResult.error);
 
   return ok({
     mailbox: mailboxResult.data,
@@ -66,6 +73,7 @@ export const loadMailAutomationWorkspace = async (
     referenceConfiguration: referenceConfigurationResult.data,
     advanced: {
       workflows: workflowResult.data,
+      senderRules: senderRuleResult.data,
     },
   });
 };

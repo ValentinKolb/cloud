@@ -6,6 +6,8 @@ import type { ConversationView, ConversationWorkStatus } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { type ConversationCursorScope, decodeConversationCursor, encodeConversationCursor } from "./conversation-cursor";
 import { resolveMailExecution } from "./execution";
+import { mailingListMetadata } from "./list-subscriptions";
+import { parseMessageProtocolFacts } from "./message-protocol";
 import { type MessageRemoteContent, resolveMessagesRemoteContent } from "./remote-content";
 
 type DateCursor = { version: 1; date: string; id: string };
@@ -482,6 +484,7 @@ export type MessageSummary = {
   from: Array<{ name: string | null; address: string }>;
   to: Array<{ name: string | null; address: string }>;
   flags: string[];
+  keywords: string[];
   hydrationStatus: string;
   remoteAvailable: boolean;
   remoteMessageRefId: string | null;
@@ -497,6 +500,7 @@ type DbMessageSummary = {
   from_addresses: Array<{ name: string | null; address: string }> | string;
   to_addresses: Array<{ name: string | null; address: string }> | string;
   flags: string[] | null;
+  keywords: string[] | null;
   hydration_status: string;
   remote_available: boolean;
   remote_message_ref_id: string | null;
@@ -512,6 +516,7 @@ const mapMessageSummary = (row: DbMessageSummary): MessageSummary => ({
   from: parseJsonArray(row.from_addresses),
   to: parseJsonArray(row.to_addresses),
   flags: row.flags ?? [],
+  keywords: row.keywords ?? [],
   hydrationStatus: row.hydration_status,
   remoteAvailable: row.remote_available,
   remoteMessageRefId: row.remote_message_ref_id,
@@ -527,6 +532,7 @@ const messageSummarySelect = sql`
   COALESCE(from_rows.addresses, '[]'::jsonb) AS from_addresses,
   COALESCE(to_rows.addresses, '[]'::jsonb) AS to_addresses,
   COALESCE(placement.flags, ARRAY[]::text[]) AS flags,
+  COALESCE(placement.keywords, ARRAY[]::text[]) AS keywords,
   mc.hydration_status,
   placement.remote_message_ref_id,
   placement.folder_id,
@@ -548,7 +554,7 @@ const messageSummaryJoins = sql`
     WHERE ma.message_id = mc.id AND ma.role = 'to'
   ) to_rows ON true
   LEFT JOIN LATERAL (
-    SELECT mp.flags, mp.remote_message_ref_id, mp.folder_id
+    SELECT mp.flags, mp.keywords, mp.remote_message_ref_id, mp.folder_id
     FROM mail.message_placements mp
     WHERE mp.message_id = mc.id AND mp.deleted_at IS NULL
     ORDER BY mp.updated_at DESC
@@ -602,6 +608,7 @@ export type MessageDetail = MessageSummary & {
   forwardText: string;
   selectedHeaders: Record<string, unknown>;
   sourceAvailable: boolean;
+  mailingList: ReturnType<typeof mailingListMetadata>;
   remoteContent: MessageRemoteContent;
   attachments: Array<{
     id: string;
@@ -620,6 +627,7 @@ type DbMessageDetail = DbMessageSummary & {
   plain_text: string | null;
   sanitized_html: string | null;
   selected_headers: Record<string, unknown> | string;
+  protocol_facts: Record<string, unknown> | string;
   source_available: boolean;
   attachments: Array<{ id: string; filename: string | null; contentType: string; sizeBytes: number; contentId: string | null }> | string;
 };
@@ -649,6 +657,7 @@ const mapMessageDetail = (row: DbMessageDetail): MessageDetail => ({
   selectedHeaders:
     typeof row.selected_headers === "string" ? (JSON.parse(row.selected_headers) as Record<string, unknown>) : row.selected_headers,
   sourceAvailable: row.source_available,
+  mailingList: mailingListMetadata(parseMessageProtocolFacts(row.protocol_facts)),
   remoteContent: {
     imageIds: [],
     allowedByRule: false,
@@ -691,6 +700,7 @@ const messageDetailSelect = sql`
   COALESCE(reply_to_rows.addresses, '[]'::jsonb) AS reply_to_addresses,
   COALESCE(cc_rows.addresses, '[]'::jsonb) AS cc_addresses,
   mc.selected_headers,
+  mc.protocol_facts,
   COALESCE(attachment_rows.items, '[]'::jsonb) AS attachments
 `;
 

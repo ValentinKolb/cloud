@@ -5,7 +5,16 @@ import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
-import { createSenderRule, deleteSenderRule, listSenderRules, setSenderRuleEnabled, updateSenderRule } from "./sender-rules";
+import {
+  applySenderRuleToExisting,
+  createSenderRule,
+  deleteSenderRule,
+  listSenderRules,
+  markSenderMessagesRead,
+  previewSenderRuleMatches,
+  setSenderRuleEnabled,
+  updateSenderRule,
+} from "./sender-rules";
 import { listWorkflows } from "./workflow-definition-service";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
@@ -263,6 +272,21 @@ suite("mail sender rules", () => {
         matchKind: "domain" as const,
         matchValue: "INTERNAL.EXAMPLE",
       },
+      {
+        name: "Internal subdomain sender",
+        matchKind: "sender" as const,
+        matchValue: "person@team.internal.example",
+      },
+      {
+        name: "Internal subdomain",
+        matchKind: "domain" as const,
+        matchValue: "team.internal.example",
+      },
+      {
+        name: "Broad parent domain",
+        matchKind: "domain" as const,
+        matchValue: "example.test",
+      },
     ]) {
       const result = await createSenderRule({
         context: ownerContext,
@@ -279,5 +303,59 @@ suite("mail sender rules", () => {
         expect(result.error.code).toBe("BAD_INPUT");
       }
     }
+  });
+
+  test("uses read access for previews and write access for bounded sender actions", async () => {
+    const preview = await previewSenderRuleMatches({
+      context: readerContext,
+      mailboxId,
+      input: { matchKind: "sender", matchValue: "nobody@external.example" },
+    });
+    expect(preview).toEqual({
+      ok: true,
+      data: { messageCount: 0, conversationCount: 0, applicationLimit: 500, capped: false },
+    });
+
+    const denied = await markSenderMessagesRead({
+      context: readerContext,
+      mailboxId,
+      input: { matchKind: "sender", matchValue: "nobody@external.example", idempotencyKey: "reader-denied" },
+    });
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error.code).toBe("FORBIDDEN");
+
+    const allowed = await markSenderMessagesRead({
+      context: writerContext,
+      mailboxId,
+      input: { matchKind: "sender", matchValue: "nobody@external.example", idempotencyKey: "writer-allowed" },
+    });
+    expect(allowed).toEqual({
+      ok: true,
+      data: { commandIds: [], messageCount: 0, applicationLimit: 500, capped: false },
+    });
+  });
+
+  test("requires an enabled current revision before applying a rule to existing messages", async () => {
+    const created = await createSenderRule({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Disabled retroactive rule",
+        enabled: false,
+        matchKind: "sender",
+        matchValue: "retroactive@external.example",
+        action: { kind: "mark_read" },
+      },
+    });
+    if (!created.ok) throw new Error(created.error.message);
+
+    const result = await applySenderRuleToExisting({
+      context: ownerContext,
+      mailboxId,
+      ruleId: created.data.id,
+      input: { expectedRevision: created.data.revision },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("BAD_INPUT");
   });
 });

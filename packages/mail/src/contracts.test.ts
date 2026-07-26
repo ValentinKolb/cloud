@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   activateWorkflowInputSchema,
   addConversationLocalTagsSchema,
+  applySenderRuleToExistingInputSchema,
   cancelScheduledSendInputSchema,
   conversationTriageInputSchema,
   createAutomaticReplyConfigurationSchema,
@@ -17,9 +18,11 @@ import {
   draftContentInputSchema,
   draftEditableContentInputSchema,
   mailSearchExpressionSchema,
+  markSenderMessagesReadInputSchema,
   mergeConversationsInputSchema,
   messageStateChangeSchema,
   parseConnectorCapabilities,
+  previewSenderRuleMatchesInputSchema,
   reassignConversationMessageInputSchema,
   restoreWorkflowVersionInputSchema,
   scheduledSendPageSchema,
@@ -211,6 +214,19 @@ describe("sender rule contracts", () => {
         action: { kind: "execute", command: "rm -rf /" },
       }).success,
     ).toBe(false);
+  });
+
+  test("requires bounded, explicit inputs for previews and existing-message actions", () => {
+    expect(previewSenderRuleMatchesInputSchema.safeParse({ matchKind: "sender", matchValue: "person@example.com" }).success).toBe(true);
+    expect(
+      markSenderMessagesReadInputSchema.safeParse({
+        matchKind: "domain",
+        matchValue: "example.com",
+        idempotencyKey: "mail-cli-action",
+      }).success,
+    ).toBe(true);
+    expect(applySenderRuleToExistingInputSchema.safeParse({ expectedRevision: 2 }).success).toBe(true);
+    expect(applySenderRuleToExistingInputSchema.safeParse({ expectedRevision: 0 }).success).toBe(false);
   });
 });
 

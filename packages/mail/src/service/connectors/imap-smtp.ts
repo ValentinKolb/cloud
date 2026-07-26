@@ -1014,12 +1014,22 @@ const setFlags = async (config: ProviderConnectionInput, target: RemoteMutationT
       throw Object.assign(new Error("Provider did not confirm the remote flag replacement"), { code: "REMOTE_FLAGS_UNCONFIRMED" });
   });
 
+export const assertProviderKeywordsSupported = (permanentFlags: Iterable<string> | undefined, keywords: string[]): void => {
+  if (keywords.length === 0 || permanentFlags === undefined) return;
+  const allowed = new Set([...permanentFlags].map((flag) => flag.toLowerCase()));
+  if (allowed.has("\\*") || keywords.every((keyword) => allowed.has(keyword.toLowerCase()))) return;
+  throw Object.assign(new Error("The provider does not allow custom keywords in this folder"), {
+    code: "REMOTE_KEYWORDS_UNSUPPORTED",
+  });
+};
+
 const changeMessageState = async (
   config: ProviderConnectionInput,
   target: RemoteMutationTarget,
   change: RemoteMessageStateChange,
 ): Promise<RemoteMessageState> =>
   withSelectedMailbox(config, target, async (client) => {
+    assertProviderKeywordsSupported(client.mailbox ? client.mailbox.permanentFlags : undefined, change.addKeywords);
     const additions = [...new Set([...change.addFlags, ...change.addKeywords])];
     const removals = [...new Set([...change.removeFlags, ...change.removeKeywords])];
     let changedState = false;
