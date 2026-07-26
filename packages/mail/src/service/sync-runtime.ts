@@ -13,6 +13,7 @@ import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
 import { type JobCtx, job, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
+import { normalizeEmailAddress } from "./address-normalization";
 import { cleanupPublicAttachmentLinks } from "./attachment-links";
 import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
@@ -221,7 +222,7 @@ const upsertAddresses = async (db: typeof sql, messageId: string, message: Conne
       position,
       display_name: address.name,
       email: address.address,
-      normalized_email: address.address.toLowerCase(),
+      normalized_email: normalizeEmailAddress(address.address) ?? address.address.trim().toLowerCase(),
     })),
   );
   if (rows.length > 0) {

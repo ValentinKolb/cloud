@@ -24,19 +24,18 @@ export default new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/sender-rules", v("param", mailboxParamSchema), async (c) =>
     respond(c, senderRules.listSenderRules(requestContext(c), c.req.valid("param").mailboxId)),
   )
-  .post(
-    "/mailboxes/:mailboxId/sender-rules",
-    v("param", mailboxParamSchema),
-    v("json", createSenderRuleSchema),
-    async (c) =>
-      respond(
-        c,
-        senderRules.createSenderRule({
-          context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
-        }),
-      ),
+  .get("/mailboxes/:mailboxId/sender-rules/:ruleId", v("param", senderRuleParamSchema), async (c) =>
+    respond(c, senderRules.getSenderRule(requestContext(c), c.req.valid("param").mailboxId, c.req.valid("param").ruleId)),
+  )
+  .post("/mailboxes/:mailboxId/sender-rules", v("param", mailboxParamSchema), v("json", createSenderRuleSchema), async (c) =>
+    respond(
+      c,
+      senderRules.createSenderRule({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
   )
   .post(
     "/mailboxes/:mailboxId/sender-rules/preview",
@@ -80,19 +79,15 @@ export default new Hono<AuthContext>()
         }),
       ),
   )
-  .put(
-    "/mailboxes/:mailboxId/sender-rules/:ruleId",
-    v("param", senderRuleParamSchema),
-    v("json", updateSenderRuleSchema),
-    async (c) =>
-      respond(
-        c,
-        senderRules.updateSenderRule({
-          context: requestContext(c),
-          ...c.req.valid("param"),
-          input: c.req.valid("json"),
-        }),
-      ),
+  .put("/mailboxes/:mailboxId/sender-rules/:ruleId", v("param", senderRuleParamSchema), v("json", updateSenderRuleSchema), async (c) =>
+    respond(
+      c,
+      senderRules.updateSenderRule({
+        context: requestContext(c),
+        ...c.req.valid("param"),
+        input: c.req.valid("json"),
+      }),
+    ),
   )
   .patch(
     "/mailboxes/:mailboxId/sender-rules/:ruleId/enabled",
@@ -108,17 +103,13 @@ export default new Hono<AuthContext>()
         }),
       ),
   )
-  .delete(
-    "/mailboxes/:mailboxId/sender-rules/:ruleId",
-    v("param", senderRuleParamSchema),
-    v("json", deleteSenderRuleSchema),
-    async (c) =>
-      respond(
-        c,
-        senderRules.deleteSenderRule({
-          context: requestContext(c),
-          ...c.req.valid("param"),
-          input: c.req.valid("json"),
-        }),
-      ),
+  .delete("/mailboxes/:mailboxId/sender-rules/:ruleId", v("param", senderRuleParamSchema), v("json", deleteSenderRuleSchema), async (c) =>
+    respond(
+      c,
+      senderRules.deleteSenderRule({
+        context: requestContext(c),
+        ...c.req.valid("param"),
+        input: c.req.valid("json"),
+      }),
+    ),
   );

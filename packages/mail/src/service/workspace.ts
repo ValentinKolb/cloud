@@ -192,30 +192,27 @@ const attachLocalTags = async (
   };
 };
 
-const loadConversationDetails = async (params: { context: MailRequestContext; mailboxId: string; conversationId: string }) => {
-  const [
-    detailResult,
-    stateResult,
-    tagResult,
-    commentsResult,
-    usersResult,
-    activityResult,
-    reminderResult,
-    referenceResult,
-  ] = await Promise.all([
-    messages.listConversationMessageDetails({ ...params, limit: 100 }),
-    collaboration.getConversationCollaboration(params),
-    localTags.getConversationLocalTags(params),
-    collaboration.listConversationComments({ ...params, limit: 100, order: "newest" }),
-    collaboration.listAssignableUsers({
-      context: params.context,
-      mailboxId: params.mailboxId,
-      limit: 200,
-    }),
-    collaboration.listActivity({ ...params, limit: 30 }),
-    reminders.getConversationReminder(params),
-    conversationReferences.listConversationReferences(params),
-  ]);
+const loadConversationDetails = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+  preferredFolderId?: string | null;
+}) => {
+  const [detailResult, stateResult, tagResult, commentsResult, usersResult, activityResult, reminderResult, referenceResult] =
+    await Promise.all([
+      messages.listConversationMessageDetails({ ...params, limit: 100 }),
+      collaboration.getConversationCollaboration(params),
+      localTags.getConversationLocalTags(params),
+      collaboration.listConversationComments({ ...params, limit: 100, order: "newest" }),
+      collaboration.listAssignableUsers({
+        context: params.context,
+        mailboxId: params.mailboxId,
+        limit: 200,
+      }),
+      collaboration.listActivity({ ...params, limit: 30 }),
+      reminders.getConversationReminder(params),
+      conversationReferences.listConversationReferences(params),
+    ]);
 
   return {
     detailMessages: detailResult.ok ? detailResult.data : [],
@@ -260,12 +257,14 @@ const loadSelectionDetail = async (params: {
   mailboxId: string;
   conversationId: string | null;
   messageId: string | null;
+  preferredFolderId?: string | null;
 }): Promise<MailSelectionDetail> => {
   if (params.conversationId) {
     return await loadConversationDetails({
       context: params.context,
       mailboxId: params.mailboxId,
       conversationId: params.conversationId,
+      preferredFolderId: params.preferredFolderId,
     });
   }
   if (!params.messageId) return EMPTY_SELECTION_DETAIL;
@@ -404,7 +403,7 @@ export const loadMailboxPageData = async (params: {
   const selectedConversationId = optionalUuidSearchParam(params.requestUrl, "conversation");
   const selectedMessageId = selectedConversationId ? null : optionalUuidSearchParam(params.requestUrl, "message");
   const folders = folderResult.ok ? folderResult.data : [];
-  const [list, selection, scheduledPageResult] = await Promise.all([
+  const [list, scheduledPageResult] = await Promise.all([
     scheduledMode
       ? Promise.resolve({ items: [], nextCursor: null, error: null })
       : resolvedSearch.error
@@ -425,14 +424,6 @@ export const loadMailboxPageData = async (params: {
             cursor: listCursor ?? undefined,
           }),
     scheduledMode
-      ? Promise.resolve(EMPTY_SELECTION_DETAIL)
-      : loadSelectionDetail({
-          context: params.context,
-          mailboxId: params.mailboxId,
-          conversationId: selectedConversationId,
-          messageId: selectedMessageId,
-        }),
-    scheduledMode
       ? scheduledSends.listScheduledSends({
           context: params.context,
           mailboxId: params.mailboxId,
@@ -441,6 +432,16 @@ export const loadMailboxPageData = async (params: {
         })
       : Promise.resolve(null),
   ]);
+  const preferredFolderId = list.items.find((item) => item.conversationId === selectedConversationId)?.sourceFolderId ?? folderId;
+  const selection = scheduledMode
+    ? EMPTY_SELECTION_DETAIL
+    : await loadSelectionDetail({
+        context: params.context,
+        mailboxId: params.mailboxId,
+        conversationId: selectedConversationId,
+        messageId: selectedMessageId,
+        preferredFolderId,
+      });
 
   const activeFolder = folders.find((folder) => folder.id === folderId);
   const activeSavedView = savedViewResult.ok ? savedViewResult.data.find((view) => view.id === savedViewId) : null;

@@ -27,9 +27,11 @@ describe("sender rule workflow source", () => {
     expect((await bindMailWorkflow(compiled.ir, catalog)).ok).toBe(true);
   });
 
-  test("deduplicates one historical target per immutable rule revision", () => {
-    expect(senderRuleExistingDedupeKey("rule", 3, "message")).toBe(senderRuleExistingDedupeKey("rule", 3, "message"));
-    expect(senderRuleExistingDedupeKey("rule", 4, "message")).not.toBe(senderRuleExistingDedupeKey("rule", 3, "message"));
-    expect(senderRuleExistingDedupeKey("rule", 3, "other")).not.toBe(senderRuleExistingDedupeKey("rule", 3, "message"));
+  test("deduplicates one historical target per immutable workflow version", () => {
+    expect(senderRuleExistingDedupeKey("rule", "version-3", "message")).toBe(senderRuleExistingDedupeKey("rule", "version-3", "message"));
+    expect(senderRuleExistingDedupeKey("rule", "version-4", "message")).not.toBe(
+      senderRuleExistingDedupeKey("rule", "version-3", "message"),
+    );
+    expect(senderRuleExistingDedupeKey("rule", "version-3", "other")).not.toBe(senderRuleExistingDedupeKey("rule", "version-3", "message"));
   });
 });

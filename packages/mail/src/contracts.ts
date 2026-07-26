@@ -1891,6 +1891,7 @@ export const applySenderRuleToExistingResultSchema = z
   .object({
     ruleId: z.string().uuid(),
     eventCount: z.number().int().nonnegative(),
+    eventIds: z.array(z.string().uuid()).max(100),
     applicationLimit: z.number().int().positive(),
     capped: z.boolean(),
   })

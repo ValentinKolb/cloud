@@ -4,11 +4,11 @@ import { err, fail, ok, type Result, tryCatch, unwrap } from "@valentinkolb/stdl
 import { sql } from "bun";
 import { z } from "zod";
 import {
-  composeSafetyConfigSchema,
-  defaultComposeSafetyConfig,
   type CreateMailboxInput,
+  composeSafetyConfigSchema,
   type DeletedMailbox,
   type DeletedMailboxPage,
+  defaultComposeSafetyConfig,
   type Mailbox,
 } from "../contracts";
 import {
@@ -30,6 +30,7 @@ import {
 import { publishMailMailboxEvent } from "./events";
 import { pauseDeletedMailboxExecution, pauseMailboxTransport } from "./mailbox-lifecycle";
 import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
+import { validateDestructiveSenderRulesForMailbox } from "./sender-rules";
 
 type DbMailbox = {
   id: string;
@@ -350,10 +351,7 @@ export const updateMailbox = async (params: {
   if (name !== undefined && (name.length < 1 || name.length > 160)) return fail(err.badInput("Mailbox name is invalid"));
   const description = params.description?.trim() || null;
   if (description && description.length > 2_000) return fail(err.badInput("Mailbox description is too long"));
-  const composeSafety =
-    params.composeSafety === undefined
-      ? null
-      : composeSafetyConfigSchema.safeParse(params.composeSafety);
+  const composeSafety = params.composeSafety === undefined ? null : composeSafetyConfigSchema.safeParse(params.composeSafety);
   if (composeSafety && !composeSafety.success) {
     return fail(err.badInput(composeSafety.error.issues[0]?.message ?? "Composer safety settings are invalid"));
   }
@@ -366,6 +364,15 @@ export const updateMailbox = async (params: {
         `;
         if (!locked) unwrap(fail(err.notFound("Mailbox")));
         unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
+        if (composeSafety) {
+          unwrap(
+            await validateDestructiveSenderRulesForMailbox({
+              mailboxId: params.mailboxId,
+              internalDomains: composeSafety.data.internalDomains,
+              db: tx,
+            }),
+          );
+        }
         const [row] = await tx<DbMailbox[]>`
           UPDATE mail.mailboxes
           SET

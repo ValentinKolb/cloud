@@ -14,11 +14,11 @@ import { readApiError } from "./_components/api-response";
 import { openMailAttachmentLinksDialog } from "./_components/MailAttachmentLinksDialog";
 import { chooseBulkTags, chooseConversationTags } from "./_components/MailBulkTagDialog";
 import { openMailboxHealthDialog } from "./_components/MailboxHealthDialog";
-import { openMailRemoteContentRulesDialog } from "./_components/MailRemoteContentRulesDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
+import { openMailRemoteContentRulesDialog } from "./_components/MailRemoteContentRulesDialog";
 import MailScheduledView from "./_components/MailScheduledView";
 import MailSidebar from "./_components/MailSidebar";
 import { buildMailActionInput, getMailAction, type MailActionId } from "./_components/mail-actions";
@@ -1317,6 +1317,7 @@ export default function MailWorkspace(props: {
                     nextCursor={data.nextListCursor}
                     dateConfig={props.dateConfig}
                     canWrite={canWrite()}
+                    junkFolderIds={data.folders.filter((folder) => folder.role === "junk").map((folder) => folder.id)}
                     savedViews={data.savedViews}
                     activeSavedViewId={data.savedViewId}
                     loading={routeLoading()}
@@ -1351,6 +1352,7 @@ export default function MailWorkspace(props: {
                   identities={data.identities}
                   selectionKey={data.selectedConversationId ?? data.selectedMessageId}
                   selectedConversationId={data.selectedConversationId}
+                  sourceFolderId={selectedListItem()?.sourceFolderId ?? data.folderId ?? data.detailMessages.at(-1)?.folderId ?? null}
                   unread={selectedUnread()}
                   flagged={selectedFlagged()}
                   inJunk={selectedInJunk()}

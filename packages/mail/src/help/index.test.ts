@@ -114,11 +114,12 @@ describe("mailHelp", () => {
     const work = mailHelp.getMarkdown("mail-work");
 
     expect(automation).toContain("Automations > Sender rules");
-    expect(automation).toContain("shows the generated YAML");
-    expect(automation).toContain("newest 500 matching messages");
+    expect(automation).toContain("shows it in the editor");
+    expect(automation).toContain("up to 100 matching messages");
     expect(automation).toContain("same workflow runtime");
     expect(work).toContain("Find all from this sender");
     expect(work).toContain("Mark all as read");
+    expect(work).toContain("at most 100 unread matching messages");
     expect(work).toContain("Manage unsubscribe");
   });
 

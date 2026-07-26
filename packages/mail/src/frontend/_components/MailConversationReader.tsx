@@ -11,17 +11,16 @@ import type {
   DraftIntent,
   MailDraft,
   SenderIdentity,
-  SenderRuleMatchKind,
 } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
 import MailComposer from "./MailComposer";
 import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
+import MailSenderMessageActions from "./MailSenderMessageActions";
 import { getMailAction, type MailActionId } from "./mail-actions";
 import { deriveReplyIdentityId, deriveReplyRecipients } from "./mail-compose-derivation";
-import { buildExactSenderSearchHref, buildMailListHref, senderDomainFromAddress } from "./mail-navigation";
-import { openMailSenderRuleEditor, type RuleActionKind } from "./MailSenderRuleSettings";
+import { buildMailListHref } from "./mail-navigation";
 
 const formatAddress = (address: { name: string | null; address: string }): string =>
   address.name ? `${address.name} <${address.address}>` : address.address;
@@ -69,6 +68,7 @@ export default function MailConversationReader(props: {
   identities: SenderIdentity[];
   selectionKey: string | null;
   selectedConversationId: string | null;
+  sourceFolderId: string | null;
   unread: boolean;
   flagged: boolean;
   inJunk: boolean;
@@ -96,8 +96,6 @@ export default function MailConversationReader(props: {
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
   const [compose, setCompose] = createSignal<ActiveComposer | null>(null);
   const [openingDraft, setOpeningDraft] = createSignal(false);
-  const [keywordPending, setKeywordPending] = createSignal(false);
-  const [senderActionPending, setSenderActionPending] = createSignal(false);
   const closeHref = () => buildMailListHref(new URL(props.requestUrl));
   let draftLoadController: AbortController | null = null;
   let closeDraftDialog: ((value: ConversationDraftSummary | null | undefined) => void) | null = null;
@@ -412,166 +410,6 @@ export default function MailConversationReader(props: {
     requestAnimationFrame(() => window.print());
   };
 
-  const findSenderHref = (address: string): string | null => buildExactSenderSearchHref(new URL(props.requestUrl), address);
-
-  const openSenderRule = (address: string, options: { matchKind?: SenderRuleMatchKind; action?: RuleActionKind; name?: string } = {}) => {
-    const matchKind = options.matchKind ?? "sender";
-    const matchValue = matchKind === "domain" ? senderDomainFromAddress(address) : address;
-    if (!matchValue) return void prompts.error("This message does not contain a complete sender domain.");
-    void openMailSenderRuleEditor({
-      mailboxId: props.mailboxId,
-      initialName: options.name ?? `Messages from ${matchValue}`,
-      initialMatchKind: matchKind,
-      initialMatchValue: matchValue,
-      initialAction: options.action ?? "mark_read",
-      onSaved: () => undefined,
-    });
-  };
-
-  const editProviderKeywords = async (message: MessageDetail) => {
-    if (!message.remoteMessageRefId || !message.folderId || keywordPending()) {
-      if (!message.remoteMessageRefId || !message.folderId) {
-        await prompts.error("This message has no active provider placement.", { title: "Provider keywords unavailable" });
-      }
-      return;
-    }
-    const values = await prompts.form({
-      title: "Edit provider keywords",
-      icon: "ti ti-tags",
-      fields: {
-        keywords: {
-          type: "tags",
-          label: "Provider keywords",
-          description: "These values sync through IMAP and are separate from Cloud tags.",
-          default: message.keywords,
-          maxTags: 100,
-        },
-      },
-      confirmText: "Apply",
-    });
-    if (!values) return;
-    const next = [...new Set((values.keywords ?? []).map((keyword) => keyword.trim()).filter(Boolean))];
-    const current = new Set(message.keywords.map((keyword) => keyword.toLowerCase()));
-    const desired = new Set(next.map((keyword) => keyword.toLowerCase()));
-    const addKeywords = next.filter((keyword) => !current.has(keyword.toLowerCase()));
-    const removeKeywords = message.keywords.filter((keyword) => !desired.has(keyword.toLowerCase()));
-    if (addKeywords.length === 0 && removeKeywords.length === 0) return;
-    setKeywordPending(true);
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"].commands.$post({
-        param: { mailboxId: props.mailboxId },
-        json: {
-          kind: "change_message_state",
-          remoteMessageRefId: message.remoteMessageRefId,
-          folderId: message.folderId,
-          change: { addFlags: [], removeFlags: [], addKeywords, removeKeywords },
-          idempotencyKey: crypto.randomUUID(),
-        },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Could not update provider keywords"));
-      toast.success("Provider keyword update queued");
-    } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Could not update provider keywords");
-    } finally {
-      setKeywordPending(false);
-    }
-  };
-
-  const editConversationKeyword = async (message: MessageDetail) => {
-    if (!props.selectedConversationId || !message.folderId || keywordPending()) return;
-    const values = await prompts.form({
-      title: "Change conversation provider keyword",
-      icon: "ti ti-tags",
-      fields: {
-        operation: {
-          type: "select",
-          label: "Change",
-          options: [
-            { id: "add", label: "Add keyword" },
-            { id: "remove", label: "Remove keyword" },
-          ],
-          default: "add",
-          required: true,
-        },
-        keyword: {
-          type: "text",
-          label: "Provider keyword",
-          description: "Applied to every message in this conversation's current provider folder.",
-          required: true,
-        },
-      },
-      confirmText: "Queue change",
-    });
-    const keyword = values?.keyword.trim();
-    if (!values || !keyword) return;
-    setKeywordPending(true);
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post({
-        param: { mailboxId: props.mailboxId, conversationId: props.selectedConversationId },
-        json: {
-          kind: "change_state",
-          sourceFolderId: message.folderId,
-          change:
-            values.operation === "remove"
-              ? { addFlags: [], removeFlags: [], addKeywords: [], removeKeywords: [keyword] }
-              : { addFlags: [], removeFlags: [], addKeywords: [keyword], removeKeywords: [] },
-          idempotencyKey: crypto.randomUUID(),
-          correlationId: crypto.randomUUID(),
-        },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Could not queue the conversation keyword change"));
-      toast.success("Conversation keyword change queued");
-      await props.onReconcile();
-    } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Could not change the conversation provider keyword");
-    } finally {
-      setKeywordPending(false);
-    }
-  };
-
-  const markAllFromSenderRead = async (address: string) => {
-    if (senderActionPending()) return;
-    setSenderActionPending(true);
-    try {
-      const previewResponse = await apiClient.mailboxes[":mailboxId"]["sender-rules"].preview.$post({
-        param: { mailboxId: props.mailboxId },
-        json: { matchKind: "sender", matchValue: address },
-      });
-      if (!previewResponse.ok) throw new Error(await readApiError(previewResponse, "Could not preview sender messages"));
-      const preview = await previewResponse.json();
-      if (preview.messageCount === 0) return void toast("No messages from this sender were found", { title: "Nothing to change" });
-      const confirmed = await prompts.confirm(
-        `Queue a read-state update for unread messages among ${preview.messageCount} matching message${
-          preview.messageCount === 1 ? "" : "s"
-        }? ${preview.capped ? `At most ${preview.applicationLimit} messages are queued per action.` : ""}`,
-        {
-          title: `Mark messages from ${address} as read?`,
-          confirmText: "Mark as read",
-        },
-      );
-      if (!confirmed) return;
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"]["mark-read"].$post({
-        param: { mailboxId: props.mailboxId },
-        json: { matchKind: "sender", matchValue: address, idempotencyKey: crypto.randomUUID() },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Could not queue sender messages"));
-      const result = await response.json();
-      if (result.messageCount === 0) toast("All matching messages are already read", { title: "Nothing to change" });
-      else {
-        toast.success(
-          `${result.messageCount} message${result.messageCount === 1 ? "" : "s"} queued${
-            result.capped ? `; limited to ${result.applicationLimit}` : ""
-          }`,
-        );
-        await props.onReconcile();
-      }
-    } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Could not mark sender messages as read");
-    } finally {
-      setSenderActionPending(false);
-    }
-  };
-
   return (
     <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface)]" data-mail-print-root>
       <Show when={props.error}>
@@ -858,140 +696,21 @@ export default function MailConversationReader(props: {
                             >
                               <i class="ti ti-blockquote" aria-hidden="true" /> Quote selection
                             </button>
-                            <Dropdown
-                              trigger={
-                                <button type="button" class="icon-btn icon-btn-sm" aria-label="Message organization actions">
-                                  <i class="ti ti-dots" aria-hidden="true" />
-                                </button>
-                              }
-                              position="bottom-left"
-                              width="w-64"
-                              elements={[
-                                ...(message.from[0]
-                                  ? [
-                                      {
-                                        sectionLabel: "Sender",
-                                        items: [
-                                          ...(findSenderHref(message.from[0].address)
-                                            ? [
-                                                {
-                                                  label: "Find all from this sender",
-                                                  icon: "ti ti-search",
-                                                  action: () => {
-                                                    const href = findSenderHref(message.from[0]!.address);
-                                                    if (href) void props.onOpenHref(href);
-                                                  },
-                                                },
-                                              ]
-                                            : []),
-                                          ...(props.canAdmin
-                                            ? [
-                                                {
-                                                  label: "Create rule from sender",
-                                                  icon: "ti ti-filter-plus",
-                                                  action: () => openSenderRule(message.from[0]!.address),
-                                                },
-                                              ]
-                                            : []),
-                                          {
-                                            label: "Mark all as read",
-                                            icon: "ti ti-mail-opened",
-                                            action: () => void markAllFromSenderRead(message.from[0]!.address),
-                                          },
-                                          ...(props.canAdmin
-                                            ? [
-                                                {
-                                                  label: "Block sender",
-                                                  icon: "ti ti-user-x",
-                                                  action: () =>
-                                                    openSenderRule(message.from[0]!.address, {
-                                                      action: "junk",
-                                                      name: `Block ${message.from[0]!.address}`,
-                                                    }),
-                                                },
-                                                ...(senderDomainFromAddress(message.from[0].address)
-                                                  ? [
-                                                      {
-                                                        label: "Block sender domain",
-                                                        icon: "ti ti-world-x",
-                                                        action: () =>
-                                                          openSenderRule(message.from[0]!.address, {
-                                                            matchKind: "domain",
-                                                            action: "junk",
-                                                            name: `Block ${senderDomainFromAddress(message.from[0]!.address)}`,
-                                                          }),
-                                                      },
-                                                    ]
-                                                  : []),
-                                              ]
-                                            : []),
-                                          ...(props.canAdmin && message.mailingList?.unsubscribe
-                                            ? [
-                                                {
-                                                  label: "Manage unsubscribe",
-                                                  icon: "ti ti-mail-off",
-                                                  href: `/app/mail/${props.mailboxId}/subscriptions?list=${encodeURIComponent(message.mailingList.listKey)}`,
-                                                },
-                                              ]
-                                            : []),
-                                        ],
-                                      },
-                                    ]
-                                  : []),
-                                {
-                                  sectionLabel: "Message",
-                                  items: [
-                                    {
-                                      label: "Provider keywords",
-                                      icon: "ti ti-tags",
-                                      action: () => void editProviderKeywords(message),
-                                    },
-                                  ],
-                                },
-                                ...(props.totalMessageCount > 1
-                                  ? [
-                                      {
-                                        sectionLabel: "Conversation",
-                                        items: [
-                                          {
-                                            label: "Conversation provider keyword",
-                                            icon: "ti ti-tags",
-                                            action: () => void editConversationKeyword(message),
-                                          },
-                                          {
-                                            label: "Move to another conversation",
-                                            icon: "ti ti-message-forward",
-                                            action: () => props.onReassignMessage(message.id),
-                                          },
-                                          {
-                                            label: "Start a new conversation",
-                                            icon: "ti ti-arrows-split-2",
-                                            action: () => props.onSplitMessage(message.id),
-                                          },
-                                        ],
-                                      },
-                                    ]
-                                  : []),
-                                {
-                                  label: "Edit as new",
-                                  icon: "ti ti-copy",
-                                  action: () => void deriveMessage("edit_as_new", message),
-                                },
-                                ...(message.from.some((sender) =>
-                                  props.identities.some(
-                                    (identity) =>
-                                      identity.status === "verified" && identity.fromAddress.toLowerCase() === sender.address.toLowerCase(),
-                                  ),
-                                )
-                                  ? [
-                                      {
-                                        label: "Resend as a new draft",
-                                        icon: "ti ti-repeat",
-                                        action: () => void deriveMessage("resend", message),
-                                      },
-                                    ]
-                                  : []),
-                              ]}
+                            <MailSenderMessageActions
+                              mailboxId={props.mailboxId}
+                              requestUrl={props.requestUrl}
+                              canWrite={props.canWrite}
+                              canAdmin={props.canAdmin}
+                              selectionKey={props.selectionKey}
+                              selectedConversationId={props.selectedConversationId}
+                              sourceFolderId={props.sourceFolderId}
+                              message={message}
+                              totalMessageCount={props.totalMessageCount}
+                              identities={props.identities}
+                              onReconcile={props.onReconcile}
+                              onReassignMessage={props.onReassignMessage}
+                              onSplitMessage={props.onSplitMessage}
+                              onDeriveMessage={deriveMessage}
                             />
                           </div>
                         </Show>

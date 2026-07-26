@@ -77,6 +77,9 @@ export const getMailAction = (id: MailActionId): MailActionDescriptor => {
   return action;
 };
 
+export const spamActionForFolder = (folderId: string | null, junkFolderIds: readonly string[]): "junk" | "not_spam" =>
+  folderId && junkFolderIds.includes(folderId) ? "not_spam" : "junk";
+
 export const buildMailActionInput = (params: {
   actionId: MailActionId;
   sourceFolderId: string;

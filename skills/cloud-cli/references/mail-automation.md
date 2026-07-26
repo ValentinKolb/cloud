@@ -114,8 +114,8 @@ cld --json mail sender-rule create \
   --value news@example.com \
   --action junk
 cld --json mail sender-rule get <rule-id>
-cld --json mail sender-rule update <rule-id> --action mark_read
-cld mail sender-rule delete <rule-id> --yes
+cld --json mail sender-rule update <rule-id> --revision <revision> --action mark_read
+cld mail sender-rule delete <rule-id> --revision <revision> --yes
 ```
 
 Supported actions are `junk`, `trash`, `mark_read`, and `add_keyword`; pass `--keyword <value>` with `add_keyword`. Destructive rules reject mailbox identities, configured internal domains and subdomains, and unsafe parent domains. `sender-rule get` exposes the exact generated workflow YAML.
@@ -124,11 +124,11 @@ Preview sender-scoped work before changing existing messages:
 
 ```bash
 cld --json mail sender preview --match sender --value news@example.com
-cld --json mail sender mark-read --match domain --value example.com --yes
-cld --json mail sender-rule apply-existing <rule-id> --yes
+cld --json mail sender mark-read --match domain --value example.com --idempotency-key <stable-key> --yes
+cld --json mail sender-rule apply-existing <rule-id> --revision <revision> --yes
 ```
 
-Existing-message actions are bounded to the newest 500 matches per invocation. `sender mark-read` uses the durable command outbox. `sender-rule apply-existing` emits targeted events into the same workflow runtime used for new mail, so runs and effects remain observable. Repeat an action only when its result reports `capped: true`.
+Existing-message actions are bounded to 100 matches per invocation; workflow application also enforces a payload-size bound. `sender mark-read` uses the durable command outbox and accepts `--idempotency-key` so an agent retry returns the original batch. `sender-rule apply-existing` emits targeted events into the same workflow runtime used for new mail and returns their `eventIds`, so runs and effects remain observable. Update, delete, and apply-existing require the revision shown by `sender-rule get`; they refuse stale state instead of silently adopting the latest revision. Repeat an action only when its result reports `capped: true`.
 
 ## Configure conversation references
 

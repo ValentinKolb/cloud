@@ -12,19 +12,16 @@ describe("Mail API composition", () => {
 
   test("exposes mailbox-scoped subscription routes", () => {
     expect(api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/subscriptions")).toBe(true);
-    expect(
-      api.routes.some(
-        (route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/subscriptions/unsubscribe",
-      ),
-    ).toBe(true);
-    expect(
-      api.routes.some(
-        (route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/subscriptions/disposition",
-      ),
-    ).toBe(true);
+    expect(api.routes.some((route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/subscriptions/unsubscribe")).toBe(
+      true,
+    );
+    expect(api.routes.some((route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/subscriptions/disposition")).toBe(
+      true,
+    );
   });
 
   test("exposes bounded sender preview and existing-message action routes", () => {
+    expect(api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/sender-rules/:ruleId")).toBe(true);
     for (const path of [
       "/mailboxes/:mailboxId/sender-rules/preview",
       "/mailboxes/:mailboxId/sender-rules/mark-read",
@@ -37,10 +34,7 @@ describe("Mail API composition", () => {
   test("exposes an explicit mailbox-scoped provider limit refresh", () => {
     expect(
       api.routes.some(
-        (route) =>
-          route.method === "POST" &&
-          route.path ===
-            "/mailboxes/:mailboxId/connections/:connectionId/limits/refresh",
+        (route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/connections/:connectionId/limits/refresh",
       ),
     ).toBe(true);
   });

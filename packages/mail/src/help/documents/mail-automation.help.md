@@ -23,9 +23,9 @@ The tools can work together, but creating one does not activate another. Referen
 
 Mailbox admins can create a guided rule under **Automations > Sender rules** or directly from a message's organization menu. Choose one exact sender address or one complete domain, then choose **Move to junk**, **Move to trash**, **Mark as read**, or **Add provider keyword**.
 
-Mail generates a canonical workflow version from these fields and shows the generated YAML in the editor. Keep using the guided editor for managed rules; each save creates a new immutable version and updates its activation. Destructive rules cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
+Mail generates canonical workflow YAML from these fields and shows it in the editor. Keep using the guided editor for managed rules. Changing the match or action creates a new immutable workflow version; changing only the name or active state updates the managed rule without duplicating identical workflow source. Destructive rules cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
 
-Enabled rules process future received messages. Turn on **Also apply to existing matching messages** to preview the affected count and queue the newest 500 matching messages through the same workflow runtime. This is deliberately bounded and does not bypass workflow history or effect budgets. Repeat the action when the preview reports more matches. Disabling or deleting a rule stops future matches and never reverses already completed effects.
+Enabled rules process future received messages. Turn on **Also apply to existing matching messages** to preview the affected count and queue a bounded batch of up to 100 matching messages through the same workflow runtime. This is deliberately bounded by both count and payload size and does not bypass workflow history or effect budgets. Repeat the action when the result reports more matches. Disabling or deleting a rule stops future matches and never reverses already completed effects.
 
 ## Configure an automatic reply {icon="send"}
 

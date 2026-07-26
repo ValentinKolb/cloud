@@ -794,7 +794,7 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
   return ok(command);
 };
 
-const enqueueActorCommands = async (commands: MailCommand[]): Promise<void> => {
+export const enqueueCreatedActorCommands = async (commands: MailCommand[]): Promise<void> => {
   await Promise.all(commands.map((command) => enqueueMailCommand(command.id, command.kind).catch(() => undefined)));
 };
 
@@ -819,6 +819,28 @@ const createActorCommandWithActor = async (params: CreateActorCommandInternalPar
 };
 
 export const createActorCommand = (params: CreateActorCommandParams): Promise<Result<MailCommand>> => createActorCommandWithActor(params);
+
+export const createActorCommandsInTransaction = async (
+  params: {
+    context: MailRequestContext;
+    mailboxId: string;
+    inputs: ActorCommandInput[];
+    afterCreate?: (tx: typeof sql, commands: MailCommand[]) => Promise<void>;
+  },
+  tx: typeof sql,
+): Promise<MailCommand[]> => {
+  const commands: MailCommand[] = [];
+  for (const input of params.inputs) {
+    const command = await createActorCommandInTransaction(
+      { context: params.context, mailboxId: params.mailboxId, input, enqueue: false },
+      tx,
+    );
+    if (!command.ok) throw command.error;
+    commands.push(command.data);
+  }
+  await params.afterCreate?.(tx, commands);
+  return commands;
+};
 
 export const createWorkflowCommandInTransaction = (
   params: {
@@ -875,19 +897,10 @@ export const createActorCommands = async (params: {
 }): Promise<Result<MailCommand[]>> => {
   try {
     const result = await sql.begin(async (tx) => {
-      const commands: MailCommand[] = [];
-      for (const input of params.inputs) {
-        const command = await createActorCommandInTransaction(
-          { context: params.context, mailboxId: params.mailboxId, input, enqueue: false },
-          tx,
-        );
-        if (!command.ok) throw command.error;
-        commands.push(command.data);
-      }
-      await params.afterCreate?.(tx, commands);
+      const commands = await createActorCommandsInTransaction(params, tx);
       return ok(commands);
     });
-    if (result.ok) await enqueueActorCommands(result.data);
+    if (result.ok) await enqueueCreatedActorCommands(result.data);
     return result;
   } catch (error) {
     if (isServiceError(error)) return fail(error);

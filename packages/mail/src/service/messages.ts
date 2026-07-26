@@ -542,7 +542,7 @@ const messageSummarySelect = sql`
   ) AS remote_available
 `;
 
-const messageSummaryJoins = sql`
+const messageSummaryJoins = (preferredFolderId?: string | null) => sql`
   LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object('name', ma.display_name, 'address', ma.email) ORDER BY ma.position) AS addresses
     FROM mail.message_addresses ma
@@ -557,7 +557,7 @@ const messageSummaryJoins = sql`
     SELECT mp.flags, mp.keywords, mp.remote_message_ref_id, mp.folder_id
     FROM mail.message_placements mp
     WHERE mp.message_id = mc.id AND mp.deleted_at IS NULL
-    ORDER BY mp.updated_at DESC
+    ORDER BY (mp.folder_id = ${preferredFolderId ?? null}::uuid) DESC, mp.updated_at DESC
     LIMIT 1
   ) placement ON true
 `;
@@ -582,7 +582,7 @@ export const listConversationMessages = async (params: {
     SELECT ${messageSummarySelect}
     FROM mail.conversation_messages cm
     JOIN mail.message_contents mc ON mc.id = cm.message_id
-    ${messageSummaryJoins}
+    ${messageSummaryJoins()}
     WHERE cm.conversation_id = ${params.conversationId}::uuid
       AND (${cursor.data?.id ?? null}::uuid IS NULL OR (mc.internal_date, mc.id) > (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid))
     ORDER BY mc.internal_date, mc.id
@@ -737,6 +737,7 @@ export const listConversationMessageDetails = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   conversationId: string;
+  preferredFolderId?: string | null;
   limit?: number;
 }): Promise<Result<MessageDetail[]>> => {
   const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
@@ -755,7 +756,7 @@ export const listConversationMessageDetails = async (params: {
     SELECT ${messageDetailSelect}
     FROM selected_messages selected_message
     JOIN mail.message_contents mc ON mc.id = selected_message.message_id
-    ${messageSummaryJoins}
+    ${messageSummaryJoins(params.preferredFolderId)}
     ${messageDetailAddressJoin}
     ${messageDetailAttachmentJoin}
     ORDER BY mc.internal_date, mc.id
@@ -773,7 +774,7 @@ export const getMessage = async (params: {
   const [row] = await sql<DbMessageDetail[]>`
     SELECT ${messageDetailSelect}
     FROM mail.message_contents mc
-    ${messageSummaryJoins}
+    ${messageSummaryJoins()}
     ${messageDetailAddressJoin}
     ${messageDetailAttachmentJoin}
     WHERE mc.id = ${params.messageId}::uuid AND mc.mailbox_id = ${params.mailboxId}::uuid

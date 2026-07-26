@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildMailActionInput, getMailAction, MAIL_ACTION_IDS } from "./mail-actions";
+import { buildMailActionInput, getMailAction, MAIL_ACTION_IDS, spamActionForFolder } from "./mail-actions";
 
 describe("Mail actions", () => {
   test("defines every action exactly once", () => {
@@ -26,5 +26,11 @@ describe("Mail actions", () => {
         correlationId: "corr",
       }),
     ).toMatchObject({ kind: "move_to_role", sourceFolderId: "junk", role: "inbox" });
+  });
+
+  test("uses not-spam only for messages currently shown from junk", () => {
+    expect(spamActionForFolder("junk-folder", ["junk-folder"])).toBe("not_spam");
+    expect(spamActionForFolder("inbox-folder", ["junk-folder"])).toBe("junk");
+    expect(spamActionForFolder(null, ["junk-folder"])).toBe("junk");
   });
 });

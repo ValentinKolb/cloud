@@ -3680,6 +3680,7 @@ test("automatic reply commands cover list, create, and revision-checked update",
     id: AUTOMATIC_REPLY_ID,
     mailboxId: MAILBOX_ID,
     workflowId: WORKFLOW_ID,
+    workflowVersionId: crypto.randomUUID(),
     ...input,
     revision: 1,
     createdAt: "2026-07-19T00:00:00.000Z",
@@ -3758,17 +3759,18 @@ test("sender commands cover preview, bounded read updates, and existing-message 
     const url = new URL(request.url);
     const base = `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules`;
     if (request.method === "GET" && url.pathname === base) return api([rule]);
+    if (request.method === "GET" && url.pathname === `${base}/${SENDER_RULE_ID}`) return api(rule);
     if (request.method === "POST" && url.pathname === `${base}/preview`) {
       requests.push({ path: url.pathname, body: (await request.json()) as Record<string, unknown> });
-      return api({ messageCount: 6, conversationCount: 4, applicationLimit: 500, capped: false });
+      return api({ messageCount: 6, conversationCount: 4, applicationLimit: 100, capped: false });
     }
     if (request.method === "POST" && url.pathname === `${base}/mark-read`) {
       requests.push({ path: url.pathname, body: (await request.json()) as Record<string, unknown> });
-      return api({ commandIds: [COMMAND_ID], messageCount: 1, applicationLimit: 500, capped: false });
+      return api({ commandIds: [COMMAND_ID], messageCount: 1, applicationLimit: 100, capped: false });
     }
     if (request.method === "POST" && url.pathname === `${base}/${SENDER_RULE_ID}/apply-existing`) {
       requests.push({ path: url.pathname, body: (await request.json()) as Record<string, unknown> });
-      return api({ ruleId: SENDER_RULE_ID, eventCount: 6, applicationLimit: 500, capped: false });
+      return api({ ruleId: SENDER_RULE_ID, eventCount: 6, eventIds: [crypto.randomUUID()], applicationLimit: 100, capped: false });
     }
     return api({ message: "unexpected" }, { status: 500 });
   });
@@ -3798,6 +3800,8 @@ test("sender commands cover preview, bounded read updates, and existing-message 
     "domain",
     "--value",
     "example.test",
+    "--idempotency-key",
+    "stable-read",
     "--yes",
   ]);
   const applied = await runCli(origin, [
@@ -3808,19 +3812,159 @@ test("sender commands cover preview, bounded read updates, and existing-message 
     SENDER_RULE_ID,
     "--mailbox",
     MAILBOX_ID,
+    "--revision",
+    "3",
     "--yes",
   ]);
 
   expect([previewed.exitCode, markedRead.exitCode, applied.exitCode]).toEqual([0, 0, 0]);
   expect(JSON.parse(previewed.stdout)).toMatchObject({ messageCount: 6, conversationCount: 4 });
   expect(JSON.parse(markedRead.stdout)).toMatchObject({ messageCount: 1 });
-  expect(JSON.parse(applied.stdout)).toMatchObject({ ruleId: SENDER_RULE_ID, eventCount: 6 });
+  expect(JSON.parse(applied.stdout)).toMatchObject({
+    ruleId: SENDER_RULE_ID,
+    eventCount: 6,
+    eventIds: [expect.any(String)],
+  });
   expect(requests).toHaveLength(3);
   expect(requests[0]).toEqual({
     path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/preview`,
     body: { matchKind: "sender", matchValue: "sender@example.test" },
   });
-  expect(requests[1]?.body).toMatchObject({ matchKind: "domain", matchValue: "example.test" });
-  expect(requests[1]?.body.idempotencyKey).toEqual(expect.any(String));
+  expect(requests[1]?.body).toEqual({
+    matchKind: "domain",
+    matchValue: "example.test",
+    idempotencyKey: "stable-read",
+  });
   expect(requests[2]?.body).toEqual({ expectedRevision: 3 });
+});
+
+test("sender-rule CRUD preserves explicit revision fences and JSONL output", async () => {
+  const rule = {
+    id: SENDER_RULE_ID,
+    mailboxId: MAILBOX_ID,
+    workflowId: WORKFLOW_ID,
+    workflowVersionId: crypto.randomUUID(),
+    name: "Example sender",
+    enabled: true,
+    matchKind: "sender",
+    matchValue: "sender@example.test",
+    action: { kind: "mark_read" },
+    workflowSource: "name: Example sender",
+    revision: 3,
+    createdAt: "2026-07-26T00:00:00.000Z",
+    updatedAt: "2026-07-26T00:00:00.000Z",
+  };
+  const mutations: Array<{ method: string; path: string; body: unknown }> = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules`;
+    if (request.method === "GET" && url.pathname === base) return api([rule]);
+    if (request.method === "GET" && url.pathname === `${base}/${SENDER_RULE_ID}`) return api(rule);
+    if (url.pathname === base && request.method === "POST") {
+      mutations.push({ method: request.method, path: url.pathname, body: await request.json() });
+      return api(rule);
+    }
+    if (url.pathname === `${base}/${SENDER_RULE_ID}` && (request.method === "PUT" || request.method === "DELETE")) {
+      mutations.push({ method: request.method, path: url.pathname, body: await request.json() });
+      return api(request.method === "PUT" ? { ...rule, name: "Updated sender", enabled: false, revision: 4 } : rule);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const listed = await runCli(origin, ["--jsonl", "mail", "sender-rule", "list", "--mailbox", MAILBOX_ID]);
+  const created = await runCli(origin, [
+    "--json",
+    "mail",
+    "sender-rule",
+    "create",
+    "--mailbox",
+    MAILBOX_ID,
+    "--name",
+    "Example sender",
+    "--match",
+    "sender",
+    "--value",
+    "sender@example.test",
+    "--action",
+    "mark_read",
+  ]);
+  const updated = await runCli(origin, [
+    "--json",
+    "mail",
+    "sender-rule",
+    "update",
+    SENDER_RULE_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "3",
+    "--name",
+    "Updated sender",
+    "--disable",
+  ]);
+  const stale = await runCli(origin, [
+    "--json",
+    "mail",
+    "sender-rule",
+    "update",
+    SENDER_RULE_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "2",
+    "--name",
+    "Stale sender",
+  ]);
+  const deleted = await runCli(origin, [
+    "--json",
+    "mail",
+    "sender-rule",
+    "delete",
+    SENDER_RULE_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--revision",
+    "3",
+    "--yes",
+  ]);
+
+  expect([listed.exitCode, created.exitCode, updated.exitCode, deleted.exitCode]).toEqual([0, 0, 0, 0]);
+  expect(JSON.parse(listed.stdout)).toEqual(rule);
+  expect(JSON.parse(created.stdout)).toMatchObject({ id: SENDER_RULE_ID, revision: 3 });
+  expect(JSON.parse(updated.stdout)).toMatchObject({ name: "Updated sender", enabled: false, revision: 4 });
+  expect(stale.exitCode).toBe(1);
+  expect(stale.stderr).toContain("Sender rule is at revision 3, not 2");
+  expect(JSON.parse(deleted.stdout)).toMatchObject({ id: SENDER_RULE_ID, revision: 3 });
+  expect(mutations).toEqual([
+    {
+      method: "POST",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules`,
+      body: {
+        name: "Example sender",
+        enabled: true,
+        matchKind: "sender",
+        matchValue: "sender@example.test",
+        action: { kind: "mark_read" },
+      },
+    },
+    {
+      method: "PUT",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/${SENDER_RULE_ID}`,
+      body: {
+        expectedRevision: 3,
+        name: "Updated sender",
+        enabled: false,
+        matchKind: "sender",
+        matchValue: "sender@example.test",
+        action: { kind: "mark_read" },
+      },
+    },
+    {
+      method: "DELETE",
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/${SENDER_RULE_ID}`,
+      body: { expectedRevision: 3 },
+    },
+  ]);
 });

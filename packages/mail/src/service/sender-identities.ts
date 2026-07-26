@@ -10,18 +10,20 @@ import {
   type MailComposeFormat,
   type MailPriority,
   parseProviderLimitSnapshot,
-  smtpTransportCapabilitiesSchema,
   type SenderIdentity,
   type SmtpTransportCapabilities,
+  smtpTransportCapabilitiesSchema,
   type UpdateSenderIdentityInput,
   updateSenderIdentityInputSchema,
 } from "../contracts";
 import { requireMailboxPermission } from "./access";
+import { normalizeEmailAddress } from "./address-normalization";
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { imapSmtpConnector } from "./connectors";
 import { resolveRoleFolder } from "./folders";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
+import { validateDestructiveSenderRulesForMailbox } from "./sender-rules";
 
 type DbIdentity = {
   id: string;
@@ -198,7 +200,7 @@ const mapIdentity = (row: DbIdentity): SenderIdentity => ({
 const normalizeAddresses = (addresses: MailAddress[]): MailAddress[] => {
   const normalized = new Map<string, MailAddress>();
   for (const address of addresses) {
-    const key = address.address.trim().toLowerCase();
+    const key = normalizeEmailAddress(address.address) ?? address.address.trim().toLowerCase();
     if (!normalized.has(key)) {
       normalized.set(key, {
         ...(address.name?.trim() ? { name: address.name.trim() } : {}),
@@ -330,6 +332,18 @@ export const createSenderIdentity = async (params: {
     return await sql.begin(async (tx) => {
       const allowed = await requireLockedMailboxAdmin(params.context, params.mailboxId, tx);
       if (!allowed.ok) return allowed;
+      const fromAddress = normalizeEmailAddress(parsed.data.fromAddress) ?? parsed.data.fromAddress.trim().toLowerCase();
+      const existingIdentities = await tx<{ from_address: string }[]>`
+        SELECT from_address
+        FROM mail.sender_identities
+        WHERE mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
+      `;
+      const safe = await validateDestructiveSenderRulesForMailbox({
+        mailboxId: params.mailboxId,
+        identityAddresses: [...existingIdentities.map((identity) => identity.from_address), fromAddress],
+        db: tx,
+      });
+      if (!safe.ok) return safe;
       if (!(await foldersBelongToMailbox(params.mailboxId, [parsed.data.sentFolderId, parsed.data.draftsFolderId], tx))) {
         return fail(err.badInput("Sender identity folder mapping does not belong to this mailbox"));
       }
@@ -365,8 +379,8 @@ export const createSenderIdentity = async (params: {
           ${params.mailboxId}::uuid,
           ${parsed.data.label},
           ${parsed.data.displayName},
-          ${parsed.data.fromAddress.toLowerCase()},
-          ${parsed.data.replyTo?.toLowerCase() ?? null},
+          ${fromAddress},
+          ${parsed.data.replyTo ? (normalizeEmailAddress(parsed.data.replyTo) ?? parsed.data.replyTo.trim().toLowerCase()) : null},
           ${normalizeAddresses(parsed.data.defaultCc)}::jsonb,
           ${normalizeAddresses(parsed.data.defaultBcc)}::jsonb,
           ${parsed.data.defaultFormat},
@@ -374,7 +388,11 @@ export const createSenderIdentity = async (params: {
           ${parsed.data.defaultDeliveryReceipt},
           ${parsed.data.defaultReadReceipt},
           ${parsed.data.vcard ?? null},
-          ${parsed.data.envelopeSender?.toLowerCase() ?? null},
+          ${
+            parsed.data.envelopeSender
+              ? (normalizeEmailAddress(parsed.data.envelopeSender) ?? parsed.data.envelopeSender.trim().toLowerCase())
+              : null
+          },
           ${parsed.data.authenticationPolicy.automation},
           ${parsed.data.sentFolderId ?? null}::uuid,
           ${parsed.data.draftsFolderId ?? null}::uuid,
@@ -459,10 +477,21 @@ export const updateSenderIdentity = async (params: {
       if (!(await foldersBelongToMailbox(params.mailboxId, [sentFolderId, draftsFolderId], tx))) {
         return fail(err.badInput("Sender identity folder mapping does not belong to this mailbox"));
       }
-      const fromAddress = parsed.data.fromAddress?.toLowerCase() ?? current.from_address;
-      const replyTo = parsed.data.replyTo === undefined ? current.reply_to : (parsed.data.replyTo?.toLowerCase() ?? null);
+      const fromAddress = parsed.data.fromAddress
+        ? (normalizeEmailAddress(parsed.data.fromAddress) ?? parsed.data.fromAddress.trim().toLowerCase())
+        : current.from_address;
+      const replyTo =
+        parsed.data.replyTo === undefined
+          ? current.reply_to
+          : parsed.data.replyTo
+            ? (normalizeEmailAddress(parsed.data.replyTo) ?? parsed.data.replyTo.trim().toLowerCase())
+            : null;
       const envelopeSender =
-        parsed.data.envelopeSender === undefined ? current.envelope_sender : (parsed.data.envelopeSender?.toLowerCase() ?? null);
+        parsed.data.envelopeSender === undefined
+          ? current.envelope_sender
+          : parsed.data.envelopeSender
+            ? (normalizeEmailAddress(parsed.data.envelopeSender) ?? parsed.data.envelopeSender.trim().toLowerCase())
+            : null;
       const defaultCc =
         parsed.data.defaultCc === undefined
           ? typeof current.default_cc === "string"
@@ -482,6 +511,19 @@ export const updateSenderIdentity = async (params: {
         sentFolderId !== current.sent_folder_id ||
         draftsFolderId !== current.drafts_folder_id;
       const automationPolicyChanged = nextPolicy.automation !== current.automation_policy;
+      if (fromAddress !== current.from_address) {
+        const identities = await tx<{ id: string; from_address: string }[]>`
+          SELECT id, from_address
+          FROM mail.sender_identities
+          WHERE mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
+        `;
+        const safe = await validateDestructiveSenderRulesForMailbox({
+          mailboxId: params.mailboxId,
+          identityAddresses: identities.map((identity) => (identity.id === current.id ? fromAddress : identity.from_address)),
+          db: tx,
+        });
+        if (!safe.ok) return safe;
+      }
       if (parsed.data.isDefault === true) {
         await tx`
           UPDATE mail.sender_identities

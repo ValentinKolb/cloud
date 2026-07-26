@@ -89,9 +89,9 @@ import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary
 import type { DiscoveredMailConfiguration } from "./service/onboarding-discovery";
 import type { ConversationReminder } from "./service/reminders";
 import type { RemoteContentRule } from "./service/remote-content";
-import type { SenderRule } from "./service/sender-rules";
 import type { SavedConversationView } from "./service/saved-views";
 import type { MessageSearchHit, MessageSearchPage } from "./service/search";
+import type { SenderRule } from "./service/sender-rules";
 
 type MailboxWithPermission = Mailbox & { permission: PermissionLevel };
 type ResolvedMailbox = Mailbox & { permission: PermissionLevel | null };
@@ -5302,9 +5302,7 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rules = await readApi<SenderRule[]>(ctx, `/mailboxes/${mailbox.id}/sender-rules`);
-        const rule = rules.find((candidate) => candidate.id === args.ruleId);
-        if (!rule) throw new Error("Sender rule not found.");
+        const rule = await readApi<SenderRule>(ctx, `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}`);
         if (printStructured(ctx, rule)) return;
         ctx.print(`${rule.name} (${rule.id})`);
         ctx.print(`Match: ${rule.matchKind} ${rule.matchValue}`);
@@ -5343,6 +5341,7 @@ export default defineCliCommands({
         ...mailboxFlag,
         match: flag.enum(["sender", "domain"] as const, { required: true, description: "Match one sender address or domain" }),
         value: flag.string({ required: true, description: "Sender email address or complete domain" }),
+        idempotencyKey: flag.string({ description: "Stable idempotency key for safe retries" }),
         yes: confirmFlag("Confirm the bounded sender read-state update"),
       },
       run: async ({ ctx, flags }) => {
@@ -5355,7 +5354,7 @@ export default defineCliCommands({
           jsonRequest("POST", {
             matchKind: flags.match,
             matchValue: flags.value,
-            idempotencyKey: crypto.randomUUID(),
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           }),
         );
         if (printStructured(ctx, result)) return;
@@ -5410,15 +5409,16 @@ export default defineCliCommands({
           description: "Action for future matching messages",
         }),
         keyword: flag.string({ description: "Provider keyword for add_keyword" }),
+        revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
         enable: flag.boolean({ description: "Enable the rule" }),
         disable: flag.boolean({ description: "Disable the rule" }),
       },
       run: async ({ ctx, args, flags }) => {
         if (flags.enable && flags.disable) throw new Error("Use either --enable or --disable.");
+        if (flags.revision === undefined) throw new Error("Missing expected sender-rule revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rules = await readApi<SenderRule[]>(ctx, `/mailboxes/${mailbox.id}/sender-rules`);
-        const current = rules.find((candidate) => candidate.id === args.ruleId);
-        if (!current) throw new Error("Sender rule not found.");
+        const current = await readApi<SenderRule>(ctx, `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}`);
+        if (current.revision !== flags.revision) throw new Error(`Sender rule is at revision ${current.revision}, not ${flags.revision}.`);
         const nextAction =
           flags.action !== undefined
             ? senderRuleAction(flags.action, flags.keyword)
@@ -5429,7 +5429,7 @@ export default defineCliCommands({
           ctx,
           `/mailboxes/${mailbox.id}/sender-rules/${current.id}`,
           jsonRequest("PUT", {
-            expectedRevision: current.revision,
+            expectedRevision: flags.revision,
             name: flags.name ?? current.name,
             enabled: flags.enable || flags.disable ? flags.enable : current.enabled,
             matchKind: flags.match ?? current.matchKind,
@@ -5444,17 +5444,21 @@ export default defineCliCommands({
     command("sender-rule delete", {
       summary: "Delete a guided sender rule and disable its managed workflow",
       args: { ruleId: arg.required({ description: "Sender rule id" }) },
-      flags: { ...mailboxFlag, yes: confirmFlag("Confirm sender-rule deletion") },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
+        yes: confirmFlag("Confirm sender-rule deletion"),
+      },
       run: async ({ ctx, args, flags }) => {
         if (!flags.yes) throw new Error("Pass --yes to delete the sender rule.");
+        if (flags.revision === undefined) throw new Error("Missing expected sender-rule revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rules = await readApi<SenderRule[]>(ctx, `/mailboxes/${mailbox.id}/sender-rules`);
-        const current = rules.find((candidate) => candidate.id === args.ruleId);
-        if (!current) throw new Error("Sender rule not found.");
+        const current = await readApi<SenderRule>(ctx, `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}`);
+        if (current.revision !== flags.revision) throw new Error(`Sender rule is at revision ${current.revision}, not ${flags.revision}.`);
         const deleted = await readApi<SenderRule>(
           ctx,
           `/mailboxes/${mailbox.id}/sender-rules/${current.id}`,
-          jsonRequest("DELETE", { expectedRevision: current.revision }),
+          jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, deleted)) return;
         ctx.print(`Deleted sender rule ${deleted.name}.`);
@@ -5463,18 +5467,22 @@ export default defineCliCommands({
     command("sender-rule apply-existing", {
       summary: "Apply one enabled sender rule to a bounded set of existing messages",
       args: { ruleId: arg.required({ description: "Sender rule id" }) },
-      flags: { ...mailboxFlag, yes: confirmFlag("Confirm applying the sender rule to existing messages") },
+      flags: {
+        ...mailboxFlag,
+        revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
+        yes: confirmFlag("Confirm applying the sender rule to existing messages"),
+      },
       run: async ({ ctx, args, flags }) => {
         if (!flags.yes) throw new Error("Pass --yes to apply the sender rule to existing messages.");
+        if (flags.revision === undefined) throw new Error("Missing expected sender-rule revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rules = await readApi<SenderRule[]>(ctx, `/mailboxes/${mailbox.id}/sender-rules`);
-        const current = rules.find((candidate) => candidate.id === args.ruleId);
-        if (!current) throw new Error("Sender rule not found.");
+        const current = await readApi<SenderRule>(ctx, `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}`);
+        if (current.revision !== flags.revision) throw new Error(`Sender rule is at revision ${current.revision}, not ${flags.revision}.`);
         const result = await readApi<ApplySenderRuleToExistingResult>(
           ctx,
           `/mailboxes/${mailbox.id}/sender-rules/${current.id}/apply-existing`,
           jsonRequest("POST", {
-            expectedRevision: current.revision,
+            expectedRevision: flags.revision,
           }),
         );
         if (printStructured(ctx, result)) return;

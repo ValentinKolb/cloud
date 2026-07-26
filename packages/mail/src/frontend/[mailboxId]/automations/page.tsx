@@ -7,8 +7,8 @@ import { loadMailAutomationWorkspace } from "../../../service/automation-workspa
 import MailLayoutHelp from "../../_components/help/MailLayoutHelp.island";
 import MailAutomationWorkspace from "../../MailAutomationWorkspace.island";
 
-const sections = new Set(["overview", "automatic-replies", "workflows", "runs", "references"]);
-const adminSections = new Set(["workflows", "runs", "references", "schedules"]);
+const sections = new Set(["overview", "automatic-replies", "sender-rules", "workflows", "runs", "references"]);
+const adminSections = new Set(["sender-rules", "workflows", "runs", "references", "schedules"]);
 
 export default ssr<AuthContext>(async (c) => {
   const mailboxId = c.req.param("mailboxId") ?? "";

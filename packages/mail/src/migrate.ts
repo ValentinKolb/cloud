@@ -4735,6 +4735,25 @@ const hardenManagedSenderRules = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addSenderReadBatches = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.sender_read_batches (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      actor_kind TEXT NOT NULL CHECK (actor_kind IN ('user', 'service_account')),
+      actor_id UUID NOT NULL,
+      idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 150),
+      match_kind TEXT NOT NULL CHECK (match_kind IN ('sender', 'domain')),
+      match_value TEXT NOT NULL CHECK (char_length(match_value) BETWEEN 1 AND 320),
+      command_ids UUID[] NOT NULL DEFAULT ARRAY[]::uuid[],
+      capped BOOLEAN NOT NULL,
+      application_limit INTEGER NOT NULL CHECK (application_limit > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, actor_kind, actor_id, idempotency_key)
+    )
+  `;
+};
+
 /**
  * Mail is still unreleased, so this is an intentional hard cut to the shared
  * workflow kernel. The old tables are empty in every deployed environment:
@@ -4959,6 +4978,7 @@ const migrations: readonly MailMigration[] = [
   { version: 93, name: "shared_workflow_kernel", run: migrateWorkflowsToKernel },
   { version: 94, name: "workflow_command_generation_fence", run: addWorkflowCommandGenerationFence },
   { version: 95, name: "workflow_profile_manager", run: addWorkflowProfileManager },
+  { version: 96, name: "sender_read_batches", run: addSenderReadBatches },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

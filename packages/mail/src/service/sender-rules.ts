@@ -1,47 +1,49 @@
-import { audit, toPgTextArray } from "@valentinkolb/cloud/services";
+import { audit, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
 import { err, fail, isServiceError, ok, type Result, unwrap } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { stringify } from "yaml";
 import {
-  type CreateSenderRule,
-  createSenderRuleSchema,
   type ApplySenderRuleToExistingInput,
   type ApplySenderRuleToExistingResult,
   applySenderRuleToExistingInputSchema,
+  type CreateSenderRule,
+  createSenderRuleSchema,
   type DeleteSenderRule,
   deleteSenderRuleSchema,
+  type MailCommand,
   type MarkSenderMessagesReadInput,
   type MarkSenderMessagesReadResult,
   markSenderMessagesReadInputSchema,
   type PreviewSenderRuleMatchesInput,
   previewSenderRuleMatchesInputSchema,
   type SenderRuleAction,
-  type SenderRuleMatchPreview,
   type SenderRuleMatchKind,
+  type SenderRuleMatchPreview,
   type SetSenderRuleEnabled,
   setSenderRuleEnabledSchema,
   type UpdateSenderRule,
   updateSenderRuleSchema,
   type WorkflowEffectBudget,
 } from "../contracts";
+import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 import { requireMailboxPermission } from "./access";
 import { normalizeEmailAddress, normalizeEmailDomain } from "./address-normalization";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
-import { createActorCommands } from "./commands";
+import { createActorCommandsInTransaction, enqueueCreatedActorCommands } from "./commands";
 import { databaseErrorCode } from "./database-errors";
 import { publishMailMailboxEvent } from "./events";
 import type { SqlClient } from "./workflow-data";
-import { getWorkflowSnapshot, mailWorkflowEventContext } from "./workflow-data";
+import { getWorkflowSnapshots, mailWorkflowEventContext } from "./workflow-data";
 import { replaceManagedWorkflowInTransaction, setManagedWorkflowEnabledInTransaction } from "./workflow-definition-service";
-import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 
 export type SenderRule = {
   id: string;
   mailboxId: string;
   workflowId: string;
+  workflowVersionId: string;
   name: string;
   enabled: boolean;
   matchKind: SenderRuleMatchKind;
@@ -57,6 +59,7 @@ type SenderRuleRow = {
   id: string;
   mailbox_id: string;
   workflow_id: string;
+  workflow_version_id: string;
   name: string;
   enabled: boolean;
   match_kind: SenderRuleMatchKind;
@@ -74,6 +77,11 @@ const senderRuleColumns = sql`
   rule.id,
   rule.mailbox_id,
   rule.workflow_id,
+  (
+    SELECT workflow.active_version_id
+    FROM workflows.workflow workflow
+    WHERE workflow.id = rule.workflow_id
+  ) AS workflow_version_id,
   rule.name,
   rule.enabled,
   rule.match_kind,
@@ -94,11 +102,14 @@ const toIso = (value: Date | string): string => (value instanceof Date ? value :
 const normalizeName = (value: string): string => value.trim().replace(/\s+/gu, " ");
 const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
 const internalWorkflowName = (id: string): string => `Sender rule ${id}`;
-const EXISTING_MESSAGE_APPLICATION_LIMIT = 500;
+const EXISTING_MESSAGE_APPLICATION_LIMIT = 100;
+const EXISTING_MESSAGE_APPLICATION_BYTES = 8 * 1024 * 1024;
+const MAX_SENDER_RULES = 500;
 const isSameOrSubdomain = (candidate: string, domain: string): boolean => candidate === domain || candidate.endsWith(`.${domain}`);
-const senderRuleExistingDedupePrefix = (ruleId: string, revision: number): string => `sender-rule-existing:${ruleId}:r${revision}:`;
-export const senderRuleExistingDedupeKey = (ruleId: string, revision: number, targetKey: string): string =>
-  `${senderRuleExistingDedupePrefix(ruleId, revision)}${targetKey}`;
+const senderRuleExistingDedupePrefix = (ruleId: string, workflowVersionId: string): string =>
+  `sender-rule-existing:${ruleId}:v${workflowVersionId}:`;
+export const senderRuleExistingDedupeKey = (ruleId: string, workflowVersionId: string, targetKey: string): string =>
+  `${senderRuleExistingDedupePrefix(ruleId, workflowVersionId)}${targetKey}`;
 
 const requestActor = (context: MailRequestContext): RuleActor => {
   const actor = actorRefFromRequest(context);
@@ -111,6 +122,7 @@ const mapSenderRule = (row: SenderRuleRow): SenderRule => ({
   id: row.id,
   mailboxId: row.mailbox_id,
   workflowId: row.workflow_id,
+  workflowVersionId: row.workflow_version_id,
   name: row.name,
   enabled: row.enabled,
   matchKind: row.match_kind,
@@ -208,6 +220,16 @@ const senderRuleTargetFrom = sql`
     ON conversation_message.message_id = message.id
 `;
 
+const inboundSenderRuleTarget = sql`
+  NOT EXISTS (
+    SELECT 1
+    FROM mail.sender_identities identity
+    WHERE identity.mailbox_id = resource.mailbox_id
+      AND lower(identity.from_address) = sender.normalized_email
+      AND identity.status <> 'disabled'
+  )
+`;
+
 const normalizePreviewMatch = (input: PreviewSenderRuleMatchesInput): Result<{ matchKind: SenderRuleMatchKind; matchValue: string }> => {
   const parsed = previewSenderRuleMatchesInputSchema.safeParse(input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid sender rule match"));
@@ -255,6 +277,116 @@ const protectMailboxSenders = async (params: {
           (domain) => isSameOrSubdomain(params.matchValue, domain) || isSameOrSubdomain(domain, params.matchValue),
         );
   return protectedMatch ? fail(err.badInput("Mailbox identities and internal domains cannot be routed to junk or trash")) : ok();
+};
+
+const destructiveAction = (action: SenderRuleAction): action is Extract<SenderRuleAction, { kind: "junk" | "trash" }> =>
+  action.kind === "junk" || action.kind === "trash";
+
+const matchesOverlap = (
+  left: { matchKind: SenderRuleMatchKind; matchValue: string },
+  right: { matchKind: SenderRuleMatchKind; matchValue: string },
+): boolean => {
+  if (left.matchKind === right.matchKind) return left.matchValue === right.matchValue;
+  const sender = left.matchKind === "sender" ? left.matchValue : right.matchValue;
+  const domain = left.matchKind === "domain" ? left.matchValue : right.matchValue;
+  return sender.slice(sender.lastIndexOf("@") + 1) === domain;
+};
+
+const protectAgainstConflictingRules = async (params: {
+  mailboxId: string;
+  ruleId?: string;
+  enabled: boolean;
+  matchKind: SenderRuleMatchKind;
+  matchValue: string;
+  action: SenderRuleAction;
+  db: SqlClient;
+}): Promise<Result<void>> => {
+  if (!params.enabled || !destructiveAction(params.action)) return ok();
+  const rows = await params.db<
+    Array<{
+      id: string;
+      name: string;
+      match_kind: SenderRuleMatchKind;
+      match_value: string;
+      action: SenderRuleAction | string;
+    }>
+  >`
+    SELECT id, name, match_kind, match_value, action
+    FROM mail.sender_rules
+    WHERE mailbox_id = ${params.mailboxId}::uuid
+      AND deleted_at IS NULL
+      AND enabled = true
+      AND action->>'kind' IN ('junk', 'trash')
+      AND (${params.ruleId ?? null}::uuid IS NULL OR id <> ${params.ruleId ?? null}::uuid)
+    FOR UPDATE
+  `;
+  const conflict = rows.find((row) => {
+    const action = parseJson<SenderRuleAction>(row.action);
+    return (
+      destructiveAction(action) &&
+      action.kind !== params.action.kind &&
+      matchesOverlap(
+        { matchKind: params.matchKind, matchValue: params.matchValue },
+        { matchKind: row.match_kind, matchValue: row.match_value },
+      )
+    );
+  });
+  return conflict ? fail(err.conflict(`Sender rule conflicts with “${conflict.name}”`)) : ok();
+};
+
+export const validateDestructiveSenderRulesForMailbox = async (params: {
+  mailboxId: string;
+  internalDomains?: readonly string[];
+  identityAddresses?: readonly string[];
+  db: SqlClient;
+}): Promise<Result<void>> => {
+  const [mailbox] = await params.db<{ compose_safety: { internalDomains?: unknown } | string }[]>`
+    SELECT compose_safety FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
+  `;
+  if (!mailbox) return fail(err.notFound("Mailbox"));
+  const identityRows =
+    params.identityAddresses === undefined
+      ? await params.db<{ from_address: string }[]>`
+          SELECT from_address FROM mail.sender_identities
+          WHERE mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
+        `
+      : params.identityAddresses.map((from_address) => ({ from_address }));
+  const configuredSafety = parseJson(mailbox.compose_safety);
+  const internalDomains = new Set(
+    (params.internalDomains ?? (Array.isArray(configuredSafety.internalDomains) ? configuredSafety.internalDomains : []))
+      .flatMap((value) => (typeof value === "string" ? [normalizeEmailDomain(value)] : []))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const identityAddresses = new Set(
+    identityRows.map((identity) => normalizeEmailAddress(identity.from_address)).filter((value): value is string => Boolean(value)),
+  );
+  const identityDomains = new Set(
+    [...identityAddresses]
+      .map((address) => normalizeEmailDomain(address.slice(address.lastIndexOf("@") + 1)))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const rules = await params.db<
+    Array<{ id: string; name: string; match_kind: SenderRuleMatchKind; match_value: string; action: SenderRuleAction | string }>
+  >`
+    SELECT id, name, match_kind, match_value, action
+    FROM mail.sender_rules
+    WHERE mailbox_id = ${params.mailboxId}::uuid
+      AND deleted_at IS NULL
+      AND enabled = true
+      AND action->>'kind' IN ('junk', 'trash')
+    FOR UPDATE
+  `;
+  const unsafe = rules.find((rule) => {
+    const protectedMatch =
+      rule.match_kind === "sender"
+        ? identityAddresses.has(rule.match_value) ||
+          [...internalDomains].some((domain) => isSameOrSubdomain(rule.match_value.slice(rule.match_value.lastIndexOf("@") + 1), domain))
+        : [...identityDomains, ...internalDomains].some(
+            (domain) => isSameOrSubdomain(rule.match_value, domain) || isSameOrSubdomain(domain, rule.match_value),
+          );
+    return protectedMatch;
+  });
+  return unsafe ? fail(err.conflict(`Sender rule “${unsafe.name}” must be changed before updating mailbox sender safety`)) : ok();
 };
 
 const lockMailbox = async (context: MailRequestContext, mailboxId: string, db: SqlClient): Promise<Result<void>> => {
@@ -347,6 +479,12 @@ export const listSenderRules = async (context: MailRequestContext, mailboxId: st
   return ok(rows.map(mapSenderRule));
 };
 
+export const getSenderRule = async (context: MailRequestContext, mailboxId: string, ruleId: string): Promise<Result<SenderRule>> => {
+  const allowed = await requireMailboxPermission(context, mailboxId, "read");
+  if (!allowed.ok) return allowed;
+  return loadSenderRule(mailboxId, ruleId, sql);
+};
+
 export const previewSenderRuleMatches = async (params: {
   context: MailRequestContext;
   mailboxId: string;
@@ -363,6 +501,7 @@ export const previewSenderRuleMatches = async (params: {
     ${senderRuleTargetFrom}
     WHERE resource.mailbox_id = ${params.mailboxId}::uuid
       AND remote_ref.stale_at IS NULL
+      AND ${inboundSenderRuleTarget}
       AND ${senderRuleMatchSql(match.data.matchKind, match.data.matchValue)}
   `;
   const messageCount = Number(counts?.message_count ?? 0);
@@ -379,91 +518,174 @@ export const markSenderMessagesRead = async (params: {
   mailboxId: string;
   input: MarkSenderMessagesReadInput;
 }): Promise<Result<MarkSenderMessagesReadResult>> => {
-  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
-  if (!allowed.ok) return allowed;
   const parsed = markSenderMessagesReadInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid sender read action"));
   const match = normalizePreviewMatch({ matchKind: parsed.data.matchKind, matchValue: parsed.data.matchValue });
   if (!match.ok) return match;
-  const targets = await sql<
-    {
-      remote_message_ref_id: string;
-      folder_id: string;
-      flags: string[];
-      keywords: string[];
-    }[]
-  >`
-    SELECT DISTINCT
-      remote_ref.id AS remote_message_ref_id,
-      placement.folder_id,
-      placement.flags,
-      placement.keywords,
-      message.internal_date
-    ${senderRuleTargetFrom}
-    WHERE resource.mailbox_id = ${params.mailboxId}::uuid
-      AND remote_ref.stale_at IS NULL
-      AND NOT ('\\Seen' = ANY(placement.flags))
-      AND ${senderRuleMatchSql(match.data.matchKind, match.data.matchValue)}
-    ORDER BY message.internal_date DESC, remote_ref.id, placement.folder_id
-    LIMIT ${EXISTING_MESSAGE_APPLICATION_LIMIT + 1}
-  `;
-  const capped = targets.length > EXISTING_MESSAGE_APPLICATION_LIMIT;
-  const selected = capped ? targets.slice(0, EXISTING_MESSAGE_APPLICATION_LIMIT) : targets;
-  if (selected.length === 0) {
-    return ok({ commandIds: [], messageCount: 0, applicationLimit: EXISTING_MESSAGE_APPLICATION_LIMIT, capped: false });
-  }
-  const commands = await createActorCommands({
-    context: params.context,
-    mailboxId: params.mailboxId,
-    inputs: selected.map((target) => ({
-      kind: "change_message_state",
-      remoteMessageRefId: target.remote_message_ref_id,
-      folderId: target.folder_id,
-      change: { addFlags: ["seen" as const], removeFlags: [], addKeywords: [], removeKeywords: [] },
-      idempotencyKey: `sender-read:${sha256Json([
-        parsed.data.idempotencyKey,
-        target.remote_message_ref_id,
-        target.folder_id,
-      ])}`,
-      correlationId: `sender-read:${parsed.data.idempotencyKey}`,
-    })),
-    afterCreate: async (tx, createdCommands) => {
-      for (const [index, command] of createdCommands.entries()) {
-        if (!["queued", "executing", "ambiguous"].includes(command.state)) continue;
-        const target = selected[index];
-        if (!target) throw new Error("Sender read target changed");
-        const projectedFlags = [...new Set([...target.flags, "\\Seen"])].sort((left, right) => left.localeCompare(right));
-        await tx`
-          UPDATE mail.commands
-          SET transport_metadata = transport_metadata || ${{
-            localStateProjection: {
-              remoteMessageRefId: target.remote_message_ref_id,
-              previousFlags: target.flags,
-              previousKeywords: target.keywords,
-              projectedFlags,
-              projectedKeywords: target.keywords,
-            },
-          }}::jsonb
-          WHERE id = ${command.id}::uuid
-            AND NOT (transport_metadata ? 'localStateProjection')
+  const actor = requestActor(params.context);
+  const correlationId = `sender-read:${parsed.data.idempotencyKey}`;
+  try {
+    const outcome: { result: MarkSenderMessagesReadResult; commands: MailCommand[] } = await sql.begin(async (tx) => {
+      unwrap(await requireMailboxPermission(params.context, params.mailboxId, "write", tx));
+      const [claimed] = await tx<{ id: string }[]>`
+        INSERT INTO mail.sender_read_batches (
+          mailbox_id, actor_kind, actor_id, idempotency_key, match_kind, match_value,
+          command_ids, capped, application_limit
+        ) VALUES (
+          ${params.mailboxId}::uuid, ${actor.kind}, ${actor.id}::uuid, ${parsed.data.idempotencyKey},
+          ${match.data.matchKind}, ${match.data.matchValue}, ARRAY[]::uuid[], false, ${EXISTING_MESSAGE_APPLICATION_LIMIT}
+        )
+        ON CONFLICT (mailbox_id, actor_kind, actor_id, idempotency_key) DO NOTHING
+        RETURNING id
+      `;
+      if (!claimed) {
+        const [existing] = await tx<
+          {
+            match_kind: SenderRuleMatchKind;
+            match_value: string;
+            command_ids: string[];
+            capped: boolean;
+            application_limit: number;
+          }[]
+        >`
+          SELECT match_kind, match_value, command_ids::text[] AS command_ids, capped, application_limit
+          FROM mail.sender_read_batches
+          WHERE mailbox_id = ${params.mailboxId}::uuid
+            AND actor_kind = ${actor.kind}
+            AND actor_id = ${actor.id}::uuid
+            AND idempotency_key = ${parsed.data.idempotencyKey}
         `;
-        await tx`
-          UPDATE mail.message_placements
-          SET flags = ${toPgTextArray(projectedFlags)}::text[], updated_at = now()
-          WHERE remote_message_ref_id = ${target.remote_message_ref_id}::uuid
-            AND deleted_at IS NULL
-        `;
+        if (!existing) throw new Error("Sender read batch disappeared");
+        if (existing.match_kind !== match.data.matchKind || existing.match_value !== match.data.matchValue) {
+          unwrap(fail(err.conflict("Idempotency key is already in use for a different sender read action")));
+        }
+        return {
+          result: {
+            commandIds: existing.command_ids,
+            messageCount: existing.command_ids.length,
+            applicationLimit: existing.application_limit,
+            capped: existing.capped,
+          },
+          commands: [],
+        };
       }
-    },
-  });
-  return commands.ok
-    ? ok({
-        commandIds: commands.data.map((command) => command.id),
-        messageCount: commands.data.length,
-        applicationLimit: EXISTING_MESSAGE_APPLICATION_LIMIT,
-        capped,
-      })
-    : commands;
+      const targets = await tx<
+        {
+          remote_message_ref_id: string;
+          folder_id: string;
+          flags: string[];
+          keywords: string[];
+        }[]
+      >`
+        SELECT DISTINCT
+          remote_ref.id AS remote_message_ref_id,
+          placement.folder_id,
+          placement.flags,
+          placement.keywords,
+          message.internal_date
+        ${senderRuleTargetFrom}
+        WHERE resource.mailbox_id = ${params.mailboxId}::uuid
+          AND remote_ref.stale_at IS NULL
+          AND ${inboundSenderRuleTarget}
+          AND NOT ('\\Seen' = ANY(placement.flags))
+          AND ${senderRuleMatchSql(match.data.matchKind, match.data.matchValue)}
+        ORDER BY message.internal_date DESC, remote_ref.id, placement.folder_id
+        LIMIT ${EXISTING_MESSAGE_APPLICATION_LIMIT + 1}
+      `;
+      const capped = targets.length > EXISTING_MESSAGE_APPLICATION_LIMIT;
+      const selected = capped ? targets.slice(0, EXISTING_MESSAGE_APPLICATION_LIMIT) : targets;
+      if (selected.length === 0) {
+        return {
+          result: { commandIds: [], messageCount: 0, applicationLimit: EXISTING_MESSAGE_APPLICATION_LIMIT, capped: false },
+          commands: [],
+        };
+      }
+      const commands = await createActorCommandsInTransaction(
+        {
+          context: params.context,
+          mailboxId: params.mailboxId,
+          inputs: selected.map((target) => ({
+            kind: "change_message_state",
+            remoteMessageRefId: target.remote_message_ref_id,
+            folderId: target.folder_id,
+            change: { addFlags: ["seen" as const], removeFlags: [], addKeywords: [], removeKeywords: [] },
+            idempotencyKey: `sender-read:${sha256Json([parsed.data.idempotencyKey, target.remote_message_ref_id, target.folder_id])}`,
+            correlationId,
+          })),
+          afterCreate: async (commandTx, createdCommands) => {
+            const currentPlacements = await commandTx<
+              Array<{ remote_message_ref_id: string; folder_id: string; flags: string[]; keywords: string[] }>
+            >`
+              SELECT remote_message_ref_id, folder_id, flags, keywords
+              FROM mail.message_placements
+              WHERE remote_message_ref_id = ANY(${toPgUuidArray(selected.map((target) => target.remote_message_ref_id))}::uuid[])
+                AND folder_id = ANY(${toPgUuidArray(selected.map((target) => target.folder_id))}::uuid[])
+                AND deleted_at IS NULL
+              FOR UPDATE
+            `;
+            const placementByTarget = new Map(
+              currentPlacements.map((placement) => [`${placement.remote_message_ref_id}:${placement.folder_id}`, placement]),
+            );
+            for (const [index, command] of createdCommands.entries()) {
+              if (!["queued", "executing", "ambiguous"].includes(command.state)) continue;
+              const target = selected[index];
+              if (!target) throw new Error("Sender read target changed");
+              const placement = placementByTarget.get(`${target.remote_message_ref_id}:${target.folder_id}`);
+              if (!placement) throw new Error("Sender read placement changed");
+              const projectedFlags = [...new Set([...placement.flags, "\\Seen"])].sort((left, right) => left.localeCompare(right));
+              await commandTx`
+                UPDATE mail.commands
+                SET transport_metadata = transport_metadata || ${{
+                  localStateProjection: {
+                    remoteMessageRefId: target.remote_message_ref_id,
+                    previousFlags: placement.flags,
+                    previousKeywords: placement.keywords,
+                    projectedFlags,
+                    projectedKeywords: placement.keywords,
+                  },
+                  senderReadBatch: {
+                    capped,
+                    applicationLimit: EXISTING_MESSAGE_APPLICATION_LIMIT,
+                    matchKind: match.data.matchKind,
+                    matchValue: match.data.matchValue,
+                  },
+                }}::jsonb
+                WHERE id = ${command.id}::uuid
+                  AND NOT (transport_metadata ? 'localStateProjection')
+              `;
+              await commandTx`
+                UPDATE mail.message_placements
+                SET flags = ${toPgTextArray(projectedFlags)}::text[], updated_at = now()
+                WHERE remote_message_ref_id = ${target.remote_message_ref_id}::uuid
+                  AND folder_id = ${target.folder_id}::uuid
+                  AND deleted_at IS NULL
+              `;
+            }
+          },
+        },
+        tx,
+      );
+      await tx`
+        UPDATE mail.sender_read_batches
+        SET command_ids = ${toPgUuidArray(commands.map((command) => command.id))}::uuid[], capped = ${capped}
+        WHERE id = ${claimed.id}::uuid
+      `;
+      return {
+        result: {
+          commandIds: commands.map((command) => command.id),
+          messageCount: commands.length,
+          applicationLimit: EXISTING_MESSAGE_APPLICATION_LIMIT,
+          capped,
+        },
+        commands,
+      };
+    });
+    await enqueueCreatedActorCommands(outcome.commands);
+    return ok(outcome.result);
+  } catch (error) {
+    if (isServiceError(error)) return fail(error);
+    return fail(err.internal("Failed to mark sender messages as read"));
+  }
 };
 
 export const applySenderRuleToExisting = async (params: {
@@ -476,16 +698,26 @@ export const applySenderRuleToExisting = async (params: {
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid sender rule application"));
   try {
     return await sql.begin(async (tx) => {
-      unwrap(await lockMailbox(params.context, params.mailboxId, tx));
+      unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
       const rule = unwrap(await loadSenderRule(params.mailboxId, params.ruleId, tx, true));
       if (rule.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Sender rule was changed")));
       if (!rule.enabled) unwrap(fail(err.badInput("Enable the sender rule before applying it to existing messages")));
+      unwrap(
+        await protectMailboxSenders({
+          mailboxId: params.mailboxId,
+          matchKind: rule.matchKind,
+          matchValue: rule.matchValue,
+          action: rule.action,
+          db: tx,
+        }),
+      );
 
-      const targets = await tx<{ remote_message_ref_id: string }[]>`
-        SELECT DISTINCT remote_ref.id AS remote_message_ref_id, message.internal_date
+      const targets = await tx<{ remote_message_ref_id: string; size_bytes: string | number }[]>`
+        SELECT DISTINCT remote_ref.id AS remote_message_ref_id, message.internal_date, message.size_bytes
         ${senderRuleTargetFrom}
         WHERE resource.mailbox_id = ${params.mailboxId}::uuid
           AND remote_ref.stale_at IS NULL
+          AND ${inboundSenderRuleTarget}
           AND ${senderRuleMatchSql(rule.matchKind, rule.matchValue)}
           AND NOT EXISTS (
             SELECT 1
@@ -493,20 +725,28 @@ export const applySenderRuleToExisting = async (params: {
             WHERE existing_event.app_id = ${MAIL_WORKFLOW_APP_ID}
               AND existing_event.scope_id = ${params.mailboxId}
               AND existing_event.type = ${MAIL_WORKFLOW_EVENT.messageReceived}
-              AND existing_event.dedupe_key = ${senderRuleExistingDedupePrefix(rule.id, rule.revision)} || remote_ref.id::text
+              AND existing_event.dedupe_key = ${senderRuleExistingDedupePrefix(rule.id, rule.workflowVersionId)} || remote_ref.id::text
           )
         ORDER BY message.internal_date DESC, remote_ref.id
         LIMIT ${EXISTING_MESSAGE_APPLICATION_LIMIT + 1}
       `;
-      const capped = targets.length > EXISTING_MESSAGE_APPLICATION_LIMIT;
-      const selected = capped ? targets.slice(0, EXISTING_MESSAGE_APPLICATION_LIMIT) : targets;
-      let eventCount = 0;
+      let selectedBytes = 0;
+      const selected: typeof targets = [];
+      for (const target of targets.slice(0, EXISTING_MESSAGE_APPLICATION_LIMIT)) {
+        const sizeBytes = Math.max(0, Number(target.size_bytes));
+        if (selected.length > 0 && selectedBytes + sizeBytes > EXISTING_MESSAGE_APPLICATION_BYTES) break;
+        selected.push(target);
+        selectedBytes += sizeBytes;
+      }
+      const capped = selected.length < targets.length;
+      const snapshots = await getWorkflowSnapshots({
+        mailboxId: params.mailboxId,
+        remoteMessageRefIds: selected.map((target) => target.remote_message_ref_id),
+        db: tx,
+      });
+      const eventIds: string[] = [];
       for (const target of selected) {
-        const snapshot = await getWorkflowSnapshot({
-          mailboxId: params.mailboxId,
-          remoteMessageRefId: target.remote_message_ref_id,
-          db: tx,
-        });
+        const snapshot = snapshots.get(target.remote_message_ref_id);
         if (!snapshot) continue;
         const emission = await emitWorkflowEvent(
           {
@@ -519,12 +759,12 @@ export const applySenderRuleToExisting = async (params: {
               conversation: snapshot.source.conversation as unknown as WorkflowJsonValue,
             },
             context: mailWorkflowEventContext(params.mailboxId, snapshot),
-            dedupeKey: senderRuleExistingDedupeKey(rule.id, rule.revision, snapshot.targetKey),
+            dedupeKey: senderRuleExistingDedupeKey(rule.id, rule.workflowVersionId, snapshot.targetKey),
             occurredAt: new Date(snapshot.internalDate),
           },
           { db: tx },
         );
-        if (!emission.duplicate) eventCount += 1;
+        if (!emission.duplicate) eventIds.push(emission.eventId);
       }
       await audit.record(
         {
@@ -536,7 +776,8 @@ export const applySenderRuleToExisting = async (params: {
           metadata: {
             mailboxId: params.mailboxId,
             workflowId: rule.workflowId,
-            eventCount,
+            eventCount: eventIds.length,
+            eventIds,
             capped,
             applicationLimit: EXISTING_MESSAGE_APPLICATION_LIMIT,
           },
@@ -545,7 +786,8 @@ export const applySenderRuleToExisting = async (params: {
       );
       return ok({
         ruleId: rule.id,
-        eventCount,
+        eventCount: eventIds.length,
+        eventIds,
         applicationLimit: EXISTING_MESSAGE_APPLICATION_LIMIT,
         capped,
       });
@@ -570,9 +812,27 @@ export const createSenderRule = async (params: {
   try {
     const result = await sql.begin(async (tx) => {
       unwrap(await lockMailbox(params.context, params.mailboxId, tx));
+      const [count] = await tx<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM mail.sender_rules
+        WHERE mailbox_id = ${params.mailboxId}::uuid AND deleted_at IS NULL
+      `;
+      if ((count?.count ?? 0) >= MAX_SENDER_RULES) {
+        unwrap(fail(err.conflict(`A mailbox can have at most ${MAX_SENDER_RULES} sender rules`)));
+      }
       unwrap(
         await protectMailboxSenders({
           mailboxId: params.mailboxId,
+          matchKind: parsed.data.matchKind,
+          matchValue,
+          action: parsed.data.action,
+          db: tx,
+        }),
+      );
+      unwrap(
+        await protectAgainstConflictingRules({
+          mailboxId: params.mailboxId,
+          enabled: parsed.data.enabled,
           matchKind: parsed.data.matchKind,
           matchValue,
           action: parsed.data.action,
@@ -663,6 +923,17 @@ export const updateSenderRule = async (params: {
           db: tx,
         }),
       );
+      unwrap(
+        await protectAgainstConflictingRules({
+          mailboxId: params.mailboxId,
+          ruleId: params.ruleId,
+          enabled: parsed.data.enabled,
+          matchKind: parsed.data.matchKind,
+          matchValue,
+          action: parsed.data.action,
+          db: tx,
+        }),
+      );
       const definitionChanged =
         current.matchKind !== parsed.data.matchKind ||
         current.matchValue !== matchValue ||
@@ -745,6 +1016,28 @@ export const setSenderRuleEnabled = async (params: {
       const current = unwrap(await loadSenderRule(params.mailboxId, params.ruleId, tx, true));
       if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Sender rule was changed")));
       if (current.enabled === parsed.data.enabled) return { rule: current, activityId: null as string | null };
+      if (parsed.data.enabled) {
+        unwrap(
+          await protectMailboxSenders({
+            mailboxId: params.mailboxId,
+            matchKind: current.matchKind,
+            matchValue: current.matchValue,
+            action: current.action,
+            db: tx,
+          }),
+        );
+        unwrap(
+          await protectAgainstConflictingRules({
+            mailboxId: params.mailboxId,
+            ruleId: params.ruleId,
+            enabled: true,
+            matchKind: current.matchKind,
+            matchValue: current.matchValue,
+            action: current.action,
+            db: tx,
+          }),
+        );
+      }
       unwrap(
         await setManagedWorkflowEnabledInTransaction({
           db: tx,

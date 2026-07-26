@@ -1,5 +1,7 @@
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { sql } from "bun";
+import { normalizeEmailAddress } from "./address-normalization";
 import { sha256Json } from "./canonical";
 import type { ConnectorProtocolFacts } from "./connectors";
 import { parseMessageProtocolFacts } from "./message-protocol";
@@ -159,7 +161,9 @@ const snapshotColumns = sql`
 `;
 
 const snapshotJoins = sql`
-  JOIN mail.message_placements mp ON mp.remote_message_ref_id = rmr.id
+  JOIN mail.message_placements mp
+    ON mp.remote_message_ref_id = rmr.id
+   AND mp.folder_id = rmr.folder_id
   JOIN mail.message_contents mc ON mc.id = rmr.message_id
   JOIN mail.folders folder ON folder.id = rmr.folder_id
   JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
@@ -203,11 +207,8 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
   const keywords = [...(row.keywords ?? [])].sort();
   const attachments = parseJson(row.attachments);
   const sender = parseJson<FrozenMailAddress[]>(row.sender);
-  const fromAddress =
-    sender
-      .find((address) => address.role === "from")
-      ?.email.trim()
-      .toLowerCase() ?? "";
+  const rawFromAddress = sender.find((address) => address.role === "from")?.email ?? "";
+  const fromAddress = normalizeEmailAddress(rawFromAddress) ?? rawFromAddress.trim().toLowerCase();
   const fromDomain = fromAddress.includes("@") ? fromAddress.slice(fromAddress.lastIndexOf("@") + 1) : "";
   const conversation =
     row.conversation_id && row.collaboration_revision != null && row.work_status && row.latest_message_at
@@ -282,4 +283,24 @@ export const getWorkflowSnapshot = async (params: {
       AND folder.discovery_state = 'active'
   `;
   return row ? mapSnapshot(row) : null;
+};
+
+export const getWorkflowSnapshots = async (params: {
+  mailboxId: string;
+  remoteMessageRefIds: readonly string[];
+  db?: SqlClient;
+}): Promise<Map<string, MailWorkflowTargetSnapshot>> => {
+  if (params.remoteMessageRefIds.length === 0) return new Map();
+  const db = params.db ?? sql;
+  const rows = await db<WorkflowSnapshotRow[]>`
+    SELECT ${snapshotColumns}
+    FROM mail.remote_message_refs rmr
+    ${snapshotJoins}
+    WHERE resource.mailbox_id = ${params.mailboxId}::uuid
+      AND rmr.id = ANY(${toPgUuidArray([...params.remoteMessageRefIds])}::uuid[])
+      AND rmr.stale_at IS NULL
+      AND mp.deleted_at IS NULL
+      AND folder.discovery_state = 'active'
+  `;
+  return new Map(rows.map(mapSnapshot).map((snapshot) => [snapshot.targetKey, snapshot]));
 };

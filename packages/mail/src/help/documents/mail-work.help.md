@@ -76,7 +76,7 @@ Open an individual message's **Message organization actions** for sender-scoped 
 
 - **Find all from this sender** opens an exact, URL-backed mailbox search.
 - **Create rule from sender**, **Block sender**, and **Block sender domain** open the guided rule editor with the sender already filled in.
-- **Mark all as read** confirms and queues at most 500 unread matching messages through the durable command outbox. Repeat it if Mail reports that the limit was reached.
+- **Mark all as read** confirms and queues at most 100 unread matching messages through the durable command outbox. Repeat it with a new action only if Mail reports that the limit was reached; retries with the same idempotency key return the original batch.
 - **Manage unsubscribe** appears only when the message supplies standard mailing-list unsubscribe information.
 - **Provider keywords** edits IMAP keywords for the message's active provider placement. In a multi-message thread, **Conversation provider keyword** adds or removes one keyword from every message in the current provider folder. They are separate from Cloud-local tags and may be rejected when the provider does not support custom keywords in that folder.
 

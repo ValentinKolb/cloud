@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { encryptSecret, toPgTextArray } from "@valentinkolb/cloud/services";
 import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
-import { createMailbox } from "./mailboxes";
+import { createMailbox, updateMailbox } from "./mailboxes";
+import { createSenderIdentity } from "./sender-identities";
 import {
   applySenderRuleToExisting,
   createSenderRule,
@@ -48,9 +50,80 @@ suite("mail sender rules", () => {
   const userIds: string[] = [];
   const accessIds: string[] = [];
   let mailboxId = "";
+  let folderId = "";
   let ownerContext: MailRequestContext;
   let writerContext: MailRequestContext;
   let readerContext: MailRequestContext;
+
+  const seedMessage = async (params: {
+    sender: string;
+    normalizedSender?: string;
+    uid: number;
+    flags?: string[];
+    sizeBytes?: number;
+  }): Promise<{ messageId: string; remoteMessageRefId: string; conversationId: string }> => {
+    const internalDate = new Date(Date.now() + params.uid * 1_000);
+    const [message] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, normalized_subject, internal_date, sent_at,
+        size_bytes, content_hash, hydration_status, plain_text
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${`<sender-rule-${suffix}-${params.uid}@example.test>`},
+        ${`Sender rule ${params.uid}`},
+        ${`sender rule ${params.uid}`},
+        ${internalDate},
+        ${internalDate},
+        ${params.sizeBytes ?? 256},
+        ${params.uid.toString(16).padStart(64, "0")},
+        'complete',
+        ${`Sender rule body ${params.uid}`}
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_addresses (message_id, role, position, display_name, email, normalized_email)
+      VALUES (
+        ${message!.id}::uuid,
+        'from',
+        0,
+        'Sender rule fixture',
+        ${params.sender},
+        ${params.normalizedSender ?? params.sender.toLowerCase()}
+      )
+    `;
+    const [remoteRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+      VALUES (${folderId}::uuid, ${message!.id}::uuid, 1, ${params.uid})
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
+      VALUES (
+        ${remoteRef!.id}::uuid,
+        ${folderId}::uuid,
+        ${message!.id}::uuid,
+        ${toPgTextArray(params.flags ?? [])}::text[],
+        ARRAY['keep-me']::text[]
+      )
+    `;
+    const [conversation] = await sql<{ id: string }[]>`
+      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at)
+      VALUES (
+        ${mailboxId}::uuid,
+        ${`Sender rule ${params.uid}`},
+        'Sender rule fixture',
+        ${internalDate},
+        ${internalDate}
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
+      VALUES (${conversation!.id}::uuid, ${message!.id}::uuid, 0, 'headers')
+    `;
+    return { messageId: message!.id, remoteMessageRefId: remoteRef!.id, conversationId: conversation!.id };
+  };
 
   beforeAll(async () => {
     await migrate();
@@ -106,6 +179,76 @@ suite("mail sender rules", () => {
         ${mailboxId}::uuid, 'Support', 'Support', 'support@example.test', 'disabled', true, 'verified'
       )
     `;
+    const scopeFingerprint = "c".repeat(64);
+    const encryptedSecret = await encryptSecret({ kind: "password", password: `sender-rules-${suffix}` });
+    const [connection] = await sql<{ id: string }[]>`
+      INSERT INTO mail.provider_connections (
+        owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
+        smtp_host, smtp_port, smtp_tls_mode, secret_kind, encrypted_secret,
+        authenticated_principal, capabilities, server_identity, last_verified_at
+      ) VALUES (
+        ${mailboxId}::uuid, 'Sender rules fixture', 'support@example.test', 'support@example.test',
+        'imap.example.test', 993, 'implicit', 'smtp.example.test', 587, 'starttls',
+        'password', ${encryptedSecret}, 'support@example.test', '{}'::jsonb, '{}'::jsonb, now()
+      )
+      RETURNING id
+    `;
+    const [resource] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_resources (mailbox_id, remote_locator, server_identity, scope_fingerprint, status)
+      VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${scopeFingerprint}, 'active')
+      RETURNING id
+    `;
+    const [binding] = await sql<{ id: string }[]>`
+      INSERT INTO mail.provider_bindings (
+        remote_resource_id, connection_id, state, remote_locator, capabilities, rights,
+        verification_evidence, verified_scope_fingerprint, last_verified_at
+      ) VALUES (
+        ${resource!.id}::uuid, ${connection!.id}::uuid, 'active', '{}'::jsonb, '{}'::jsonb,
+        '{}'::jsonb, '{}'::jsonb, ${scopeFingerprint}, now()
+      )
+      RETURNING id
+    `;
+    const [folder] = await sql<{ id: string }[]>`
+      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${resource!.id}::uuid, 'sender-rules-inbox', 'Inbox', 'inbox', 'current')
+      RETURNING id
+    `;
+    folderId = folder!.id;
+    await sql`
+      INSERT INTO mail.binding_folder_refs (
+        binding_id, folder_id, remote_path, uid_validity, uid_next, effective_rights, last_verified_at
+      ) VALUES (
+        ${binding!.id}::uuid,
+        ${folderId}::uuid,
+        'INBOX',
+        1,
+        10000,
+        ARRAY['read', 'write_flags', 'insert', 'move', 'delete_messages']::text[],
+        now()
+      )
+    `;
+    const roleFolders = await sql<{ id: string; role: "junk" | "trash" }[]>`
+      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
+      VALUES
+        (${resource!.id}::uuid, 'sender-rules-junk', 'Junk', 'junk', 'current'),
+        (${resource!.id}::uuid, 'sender-rules-trash', 'Trash', 'trash', 'current')
+      RETURNING id, role
+    `;
+    for (const roleFolder of roleFolders) {
+      await sql`
+        INSERT INTO mail.binding_folder_refs (
+          binding_id, folder_id, remote_path, uid_validity, uid_next, effective_rights, last_verified_at
+        ) VALUES (
+          ${binding!.id}::uuid,
+          ${roleFolder.id}::uuid,
+          ${roleFolder.role === "junk" ? "Junk" : "Trash"},
+          1,
+          10000,
+          ARRAY['read', 'write_flags', 'insert', 'move', 'delete_messages']::text[],
+          now()
+        )
+      `;
+    }
   });
 
   afterAll(async () => {
@@ -305,6 +448,63 @@ suite("mail sender rules", () => {
     }
   });
 
+  test("prevents conflicting destructive rules and later safety changes", async () => {
+    const created = await createSenderRule({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Risky domain",
+        enabled: true,
+        matchKind: "domain",
+        matchValue: "risky.example",
+        action: { kind: "junk" },
+      },
+    });
+    if (!created.ok) throw new Error(created.error.message);
+
+    const overlap = await createSenderRule({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Conflicting sender",
+        enabled: true,
+        matchKind: "sender",
+        matchValue: "person@risky.example",
+        action: { kind: "trash" },
+      },
+    });
+    expect(overlap.ok).toBe(false);
+    if (!overlap.ok) expect(overlap.error.code).toBe("CONFLICT");
+
+    const safety = await updateMailbox({
+      context: ownerContext,
+      mailboxId,
+      composeSafety: { internalDomains: ["internal.example", "risky.example"], largeRecipientThreshold: 20 },
+    });
+    expect(safety.ok).toBe(false);
+    if (!safety.ok) expect(safety.error.code).toBe("CONFLICT");
+
+    const identity = await createSenderIdentity({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        label: "Risky identity",
+        displayName: "Risky",
+        fromAddress: "identity@risky.example",
+      },
+    });
+    expect(identity.ok).toBe(false);
+    if (!identity.ok) expect(identity.error.code).toBe("CONFLICT");
+
+    const deleted = await deleteSenderRule({
+      context: ownerContext,
+      mailboxId,
+      ruleId: created.data.id,
+      input: { expectedRevision: created.data.revision },
+    });
+    expect(deleted.ok).toBe(true);
+  });
+
   test("uses read access for previews and write access for bounded sender actions", async () => {
     const preview = await previewSenderRuleMatches({
       context: readerContext,
@@ -313,7 +513,7 @@ suite("mail sender rules", () => {
     });
     expect(preview).toEqual({
       ok: true,
-      data: { messageCount: 0, conversationCount: 0, applicationLimit: 500, capped: false },
+      data: { messageCount: 0, conversationCount: 0, applicationLimit: 100, capped: false },
     });
 
     const denied = await markSenderMessagesRead({
@@ -331,7 +531,7 @@ suite("mail sender rules", () => {
     });
     expect(allowed).toEqual({
       ok: true,
-      data: { commandIds: [], messageCount: 0, applicationLimit: 500, capped: false },
+      data: { commandIds: [], messageCount: 0, applicationLimit: 100, capped: false },
     });
   });
 
@@ -357,5 +557,140 @@ suite("mail sender rules", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("BAD_INPUT");
+  });
+
+  test("matches inbound IDN senders, preserves flags, and returns one stable read batch", async () => {
+    const sender = `person@xn--mnich-kva.example`;
+    await seedMessage({ sender: "person@münich.example", normalizedSender: sender, uid: 1001, flags: ["$Important"] });
+    await seedMessage({ sender: "person@münich.example", normalizedSender: sender, uid: 1002 });
+    await seedMessage({ sender: "support@example.test", uid: 1003 });
+
+    const preview = await previewSenderRuleMatches({
+      context: ownerContext,
+      mailboxId,
+      input: { matchKind: "domain", matchValue: "münich.example" },
+    });
+    expect(preview).toEqual({
+      ok: true,
+      data: { messageCount: 2, conversationCount: 2, applicationLimit: 100, capped: false },
+    });
+    const outbound = await previewSenderRuleMatches({
+      context: ownerContext,
+      mailboxId,
+      input: { matchKind: "sender", matchValue: "support@example.test" },
+    });
+    expect(outbound.ok && outbound.data.messageCount).toBe(0);
+
+    const input = { matchKind: "domain" as const, matchValue: "münich.example", idempotencyKey: `stable-${suffix}` };
+    const [first, concurrent] = await Promise.all([
+      markSenderMessagesRead({ context: writerContext, mailboxId, input }),
+      markSenderMessagesRead({ context: writerContext, mailboxId, input }),
+    ]);
+    if (!first.ok || !concurrent.ok) throw new Error("Stable sender read batch failed");
+    expect([...concurrent.data.commandIds].sort()).toEqual([...first.data.commandIds].sort());
+    expect(first.data.messageCount).toBe(2);
+
+    const retry = await markSenderMessagesRead({ context: writerContext, mailboxId, input });
+    if (!retry.ok) throw new Error(retry.error.message);
+    expect(retry.data).toEqual(first.data);
+    const placements = await sql<{ flags: string[]; keywords: string[] }[]>`
+      SELECT placement.flags, placement.keywords
+      FROM mail.message_placements placement
+      JOIN mail.remote_message_refs remote_ref ON remote_ref.id = placement.remote_message_ref_id
+      JOIN mail.message_addresses sender_address ON sender_address.message_id = remote_ref.message_id
+      WHERE sender_address.normalized_email = ${sender}
+      ORDER BY remote_ref.id
+    `;
+    expect(placements.every((placement) => placement.flags.includes("\\Seen"))).toBe(true);
+    expect(placements.some((placement) => placement.flags.includes("$Important"))).toBe(true);
+    expect(placements.every((placement) => placement.keywords.includes("keep-me"))).toBe(true);
+
+    const conflictingKey = `conflicting-${suffix}`;
+    const conflicting = await Promise.all([
+      markSenderMessagesRead({
+        context: writerContext,
+        mailboxId,
+        input: { matchKind: "domain", matchValue: "münich.example", idempotencyKey: conflictingKey },
+      }),
+      markSenderMessagesRead({
+        context: writerContext,
+        mailboxId,
+        input: { matchKind: "sender", matchValue: "person@münich.example", idempotencyKey: conflictingKey },
+      }),
+    ]);
+    expect(conflicting.filter((result) => result.ok)).toHaveLength(1);
+    const rejected = conflicting.find((result) => !result.ok);
+    expect(rejected?.ok).toBe(false);
+    if (rejected && !rejected.ok) expect(rejected.error.code).toBe("CONFLICT");
+  });
+
+  test("continues bounded historical application without replaying an unchanged workflow version", async () => {
+    const sender = `retro-${suffix}@external.example`;
+    await seedMessage({ sender, uid: 1101, sizeBytes: 5 * 1024 * 1024 });
+    await seedMessage({ sender, uid: 1102, sizeBytes: 5 * 1024 * 1024 });
+    const created = await createSenderRule({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Retroactive stable version",
+        enabled: true,
+        matchKind: "sender",
+        matchValue: sender,
+        action: { kind: "mark_read" },
+      },
+    });
+    if (!created.ok) throw new Error(created.error.message);
+
+    const first = await applySenderRuleToExisting({
+      context: ownerContext,
+      mailboxId,
+      ruleId: created.data.id,
+      input: { expectedRevision: created.data.revision },
+    });
+    if (!first.ok) throw new Error(first.error.message);
+    expect(first.data).toMatchObject({ eventCount: 1, capped: true, applicationLimit: 100 });
+    expect(first.data.eventIds).toHaveLength(1);
+
+    const renamed = await updateSenderRule({
+      context: ownerContext,
+      mailboxId,
+      ruleId: created.data.id,
+      input: {
+        expectedRevision: created.data.revision,
+        name: "Renamed stable version",
+        enabled: true,
+        matchKind: created.data.matchKind,
+        matchValue: created.data.matchValue,
+        action: created.data.action,
+      },
+    });
+    if (!renamed.ok) throw new Error(renamed.error.message);
+    expect(renamed.data.workflowVersionId).toBe(created.data.workflowVersionId);
+
+    const second = await applySenderRuleToExisting({
+      context: ownerContext,
+      mailboxId,
+      ruleId: renamed.data.id,
+      input: { expectedRevision: renamed.data.revision },
+    });
+    if (!second.ok) throw new Error(second.error.message);
+    expect(second.data).toMatchObject({ eventCount: 1, capped: false });
+
+    const complete = await applySenderRuleToExisting({
+      context: ownerContext,
+      mailboxId,
+      ruleId: renamed.data.id,
+      input: { expectedRevision: renamed.data.revision },
+    });
+    expect(complete).toEqual({
+      ok: true,
+      data: {
+        ruleId: renamed.data.id,
+        eventCount: 0,
+        eventIds: [],
+        applicationLimit: 100,
+        capped: false,
+      },
+    });
   });
 });

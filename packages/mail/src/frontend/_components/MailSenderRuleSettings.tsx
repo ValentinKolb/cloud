@@ -1,27 +1,21 @@
 import {
   CodeDisplay,
   DataTable,
-  dialogCore,
+  type DataTableColumn,
   Dropdown,
+  dialogCore,
   PanelDialog,
   panelDialogOptions,
-  Placeholder,
   prompts,
   Select,
   Switch,
   TextInput,
   toast,
-  type DataTableColumn,
 } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type {
-  ApplySenderRuleToExistingResult,
-  SenderRuleAction,
-  SenderRuleMatchKind,
-  SenderRuleMatchPreview,
-} from "../../contracts";
+import type { ApplySenderRuleToExistingResult, SenderRuleAction, SenderRuleMatchKind, SenderRuleMatchPreview } from "../../contracts";
 import type { SenderRule } from "../../service/sender-rules";
 import { readApiError } from "./api-response";
 
@@ -61,8 +55,11 @@ function SenderRuleEditor(props: {
   const [keyword, setKeyword] = createSignal(props.rule?.action.kind === "add_keyword" ? props.rule.action.keyword : "");
   const [applyExisting, setApplyExisting] = createSignal(false);
 
-  const save = mutation.create<{ rule: SenderRule; application: ApplySenderRuleToExistingResult | null; applicationError: string | null }, boolean>({
-    mutation: async (applyToExisting) => {
+  const save = mutation.create<
+    { rule: SenderRule; application: ApplySenderRuleToExistingResult | null; applicationError: string | null } | null,
+    boolean
+  >({
+    mutation: async (applyToExisting, { abortSignal }) => {
       const action = senderRuleAction(actionKind(), keyword().trim());
       const input = {
         name: name().trim(),
@@ -71,22 +68,61 @@ function SenderRuleEditor(props: {
         matchValue: matchValue().trim(),
         action,
       };
-      const response = props.rule
-        ? await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].$put({
-            param: { mailboxId: props.mailboxId, ruleId: props.rule.id },
-            json: { ...input, expectedRevision: props.rule.revision },
-          })
-        : await apiClient.mailboxes[":mailboxId"]["sender-rules"].$post({
+      if (applyToExisting) {
+        const previewResponse = await apiClient.mailboxes[":mailboxId"]["sender-rules"].preview.$post(
+          {
             param: { mailboxId: props.mailboxId },
-            json: input,
-          });
+            json: { matchKind: input.matchKind, matchValue: input.matchValue },
+          },
+          { init: { signal: abortSignal } },
+        );
+        if (!previewResponse.ok) throw new Error(await readApiError(previewResponse, "Could not preview existing messages"));
+        const preview: SenderRuleMatchPreview = await previewResponse.json();
+        if (preview.messageCount === 0) {
+          toast("No existing messages match this rule", { title: "Rule applies to future mail" });
+          applyToExisting = false;
+        } else {
+          const confirmed = await prompts.confirm(
+            `${preview.messageCount} existing message${preview.messageCount === 1 ? "" : "s"} in ${
+              preview.conversationCount
+            } conversation${preview.conversationCount === 1 ? "" : "s"} match. ${
+              preview.capped
+                ? `This action queues only the newest ${preview.applicationLimit}; run it again later for more.`
+                : "Each message is queued through the same workflow path as future mail."
+            }`,
+            {
+              title: "Apply rule to existing messages?",
+              confirmText: `Apply to ${Math.min(preview.messageCount, preview.applicationLimit)}`,
+            },
+          );
+          if (!confirmed || abortSignal.aborted) return null;
+        }
+      }
+      const response = props.rule
+        ? await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].$put(
+            {
+              param: { mailboxId: props.mailboxId, ruleId: props.rule.id },
+              json: { ...input, expectedRevision: props.rule.revision },
+            },
+            { init: { signal: abortSignal } },
+          )
+        : await apiClient.mailboxes[":mailboxId"]["sender-rules"].$post(
+            {
+              param: { mailboxId: props.mailboxId },
+              json: input,
+            },
+            { init: { signal: abortSignal } },
+          );
       if (!response.ok) throw new Error(await readApiError(response, "Could not save sender rule"));
       const rule = await response.json();
       if (!applyToExisting) return { rule, application: null, applicationError: null };
-      const applicationResponse = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"]["apply-existing"].$post({
-        param: { mailboxId: props.mailboxId, ruleId: rule.id },
-        json: { expectedRevision: rule.revision },
-      });
+      const applicationResponse = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"]["apply-existing"].$post(
+        {
+          param: { mailboxId: props.mailboxId, ruleId: rule.id },
+          json: { expectedRevision: rule.revision },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!applicationResponse.ok) {
         return {
           rule,
@@ -97,12 +133,11 @@ function SenderRuleEditor(props: {
       return { rule, application: await applicationResponse.json(), applicationError: null };
     },
     onSuccess: (result) => {
+      if (!result) return;
       props.onSaved(result.rule);
       toast.success(
         result.application
-          ? `Sender rule saved; ${result.application.eventCount} existing message${
-              result.application.eventCount === 1 ? "" : "s"
-            } queued`
+          ? `Sender rule saved; ${result.application.eventCount} existing message${result.application.eventCount === 1 ? "" : "s"} queued`
           : props.rule
             ? "Sender rule updated"
             : "Sender rule created",
@@ -116,37 +151,10 @@ function SenderRuleEditor(props: {
   });
 
   const valid = () =>
-    name().trim().length > 0 &&
-    matchValue().trim().length > 0 &&
-    (actionKind() !== "add_keyword" || keyword().trim().length > 0);
+    name().trim().length > 0 && matchValue().trim().length > 0 && (actionKind() !== "add_keyword" || keyword().trim().length > 0);
 
-  const submit = async () => {
-    if (!applyExisting() || !enabled()) return void save.mutate(false);
-    const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"].preview.$post({
-      param: { mailboxId: props.mailboxId },
-      json: { matchKind: matchKind(), matchValue: matchValue().trim() },
-    });
-    if (!response.ok) return void prompts.error(await readApiError(response, "Could not preview existing messages"));
-    const preview: SenderRuleMatchPreview = await response.json();
-    if (preview.messageCount === 0) {
-      toast("No existing messages match this rule", { title: "Rule applies to future mail" });
-      return void save.mutate(false);
-    }
-    const confirmed = await prompts.confirm(
-      `${preview.messageCount} existing message${preview.messageCount === 1 ? "" : "s"} in ${
-        preview.conversationCount
-      } conversation${preview.conversationCount === 1 ? "" : "s"} match. ${
-        preview.capped
-          ? `This action queues only the newest ${preview.applicationLimit}; run it again later for more.`
-          : "Each message is queued through the same workflow path as future mail."
-      }`,
-      {
-        title: "Apply rule to existing messages?",
-        confirmText: `Apply to ${Math.min(preview.messageCount, preview.applicationLimit)}`,
-      },
-    );
-    if (confirmed) void save.mutate(true);
-  };
+  const submit = () => save.mutate(applyExisting() && enabled());
+  onCleanup(save.abort);
 
   return (
     <PanelDialog>
@@ -237,7 +245,11 @@ function SenderRuleEditor(props: {
         </Show>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <span class="text-xs text-dimmed">Changes affect newly received messages.</span>
+        <span class="text-xs text-dimmed">
+          {applyExisting() && enabled()
+            ? "Existing matches are previewed before changes are queued."
+            : "Changes affect newly received messages."}
+        </span>
         <div class="flex items-center gap-2">
           <button type="button" class="btn-secondary btn-sm" disabled={save.loading()} onClick={props.close}>
             Cancel
@@ -371,15 +383,9 @@ export default function MailSenderRuleSettings(props: {
         columns={columns}
         getRowId={(rule) => rule.id}
         class="overflow-x-auto"
-        tableClass="w-full min-w-[42rem] text-xs"
+        tableClass={rules().length > 0 ? "w-full min-w-[42rem] text-xs" : "w-full text-xs"}
         hoverRows
-        empty={
-          <Placeholder
-            icon="ti ti-filter-off"
-            title="No sender rules"
-            description="Create a guided rule to process future messages from one sender or domain."
-          />
-        }
+        empty={"No sender rules. Create a guided rule to process future messages from one sender or domain."}
         renderCell={({ row, col, render }) => {
           if (col.id === "enabled") {
             return (

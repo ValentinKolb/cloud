@@ -15,7 +15,7 @@ import {
 import type { SavedConversationView } from "../../service/saved-views";
 import MailBulkActionBar from "./MailBulkActionBar";
 import { openMailSearchBuilder } from "./MailSearchBuilder";
-import { getMailAction, type MailActionId } from "./mail-actions";
+import { getMailAction, type MailActionId, spamActionForFolder } from "./mail-actions";
 import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";
 import { mailboxHealthMessage } from "./mail-health-presentation";
 import { buildMailListHref, buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
@@ -66,6 +66,7 @@ export default function MailConversationList(props: {
   nextCursor: string | null;
   dateConfig: DateContext;
   canWrite: boolean;
+  junkFolderIds: string[];
   savedViews: SavedConversationView[];
   activeSavedViewId: string | null;
   loading: boolean;
@@ -247,7 +248,12 @@ export default function MailConversationList(props: {
               </Tooltip>
               <Show when={props.selectedConversationId || props.selectedMessageId}>
                 <Tooltip content="Hide conversation list">
-                  <button type="button" class="icon-btn hidden lg:inline-flex" aria-label="Hide conversation list" onClick={props.onCollapse}>
+                  <button
+                    type="button"
+                    class="icon-btn hidden lg:inline-flex"
+                    aria-label="Hide conversation list"
+                    onClick={props.onCollapse}
+                  >
                     <i class="ti ti-layout-sidebar-left-collapse" aria-hidden="true" />
                   </button>
                 </Tooltip>
@@ -257,6 +263,12 @@ export default function MailConversationList(props: {
         >
           <MailBulkActionBar
             selectedCount={props.selectedConversationIds.size}
+            selectedInJunk={
+              props.selectedConversationIds.size > 0 &&
+              props.items
+                .filter((item) => item.conversationId && props.selectedConversationIds.has(item.conversationId))
+                .every((item) => Boolean(item.sourceFolderId && props.junkFolderIds.includes(item.sourceFolderId)))
+            }
             busy={props.loading}
             onClear={props.onClearSelection}
             onAddTags={props.onAddTags}
@@ -514,11 +526,7 @@ export default function MailConversationList(props: {
                       <div class="absolute right-3 top-2 z-10 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
                         <Dropdown
                           trigger={
-                            <button
-                              type="button"
-                              class="icon-btn icon-btn-sm"
-                              aria-label={`Actions for ${item.subject || "conversation"}`}
-                            >
+                            <button type="button" class="icon-btn icon-btn-sm" aria-label={`Actions for ${item.subject || "conversation"}`}>
                               <i class="ti ti-dots" aria-hidden="true" />
                             </button>
                           }
@@ -540,11 +548,13 @@ export default function MailConversationList(props: {
                               icon: "ti ti-tags",
                               action: () => props.onManageTags(item),
                             },
-                            ...(["archive", "move", "junk", "trash"] as const).map((actionId) => ({
-                              label: getMailAction(actionId).label,
-                              icon: getMailAction(actionId).icon,
-                              action: () => props.onItemAction(item, actionId),
-                            })),
+                            ...(["archive", "move", spamActionForFolder(item.sourceFolderId, props.junkFolderIds), "trash"] as const).map(
+                              (actionId) => ({
+                                label: getMailAction(actionId).label,
+                                icon: getMailAction(actionId).icon,
+                                action: () => props.onItemAction(item, actionId),
+                              }),
+                            ),
                             {
                               label: "Merge with another conversation",
                               icon: "ti ti-git-merge",

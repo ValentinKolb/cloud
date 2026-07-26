@@ -3,10 +3,9 @@ import { Show } from "solid-js";
 import { getMailAction, type MailActionId } from "./mail-actions";
 
 const primaryActions: readonly MailActionId[] = ["archive", "mark_read", "flag", "move", "trash"];
-const overflowActions: readonly MailActionId[] = ["mark_unread", "unflag", "junk"];
-
 export default function MailBulkActionBar(props: {
   selectedCount: number;
+  selectedInJunk: boolean;
   busy: boolean;
   onClear: () => void;
   onAddTags: () => void | Promise<void>;
@@ -54,7 +53,7 @@ export default function MailBulkActionBar(props: {
           position="bottom-left"
           width="w-56"
           elements={[
-            ...overflowActions.map((actionId) => {
+            ...(["mark_unread", "unflag", props.selectedInJunk ? "not_spam" : "junk"] as const).map((actionId) => {
               const action = getMailAction(actionId);
               return {
                 label: action.label,
