@@ -11,7 +11,7 @@
 import { beforeAll, describe, expect } from "bun:test";
 import type { WorkflowBoundPlan, WorkflowIrStep, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createWorkflowRun, workflowActionDescriptors } from "@valentinkolb/cloud/workflows/store";
-import { redis, sql } from "bun";
+import { sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
@@ -254,33 +254,6 @@ const reopenForReplay = async (runId: string): Promise<void> => {
   `;
 };
 
-/** The store's own cache keys, the shape `services/settings/store.ts` reads. */
-const ALLOW_PRIVATE_CACHE_KEY = "settings:grids.http_request_allow_private_networks";
-const ALLOWED_HOSTS_CACHE_KEY = "settings:grids.http_request_allowed_hosts";
-
-/**
- * Lets the HTTP action reach a loopback test server.
- *
- * The client refuses loopback targets unless an operator opted in, and it reads
- * that opt-in from the shared settings store — with no injectable seam on the
- * path `httpRequest` actually takes. So the value is placed in the store's own
- * Redis cache-aside layer, which `readKey` consults first, rather than written
- * to `settings.entries`: a persisted write would silently replace whatever
- * network policy the developer configured on this machine, and encrypting one
- * would need APP_SECRET besides. Deleting the cache keys afterwards puts every
- * reader straight back on the real resolution path.
- */
-const withLoopbackHttpAllowed = async <T>(host: string, body: () => Promise<T>): Promise<T> => {
-  await redis.set(ALLOW_PRIVATE_CACHE_KEY, JSON.stringify(true), "EX", 60);
-  await redis.set(ALLOWED_HOSTS_CACHE_KEY, JSON.stringify([host]), "EX", 60);
-  try {
-    return await body();
-  } finally {
-    await redis.del(ALLOW_PRIVATE_CACHE_KEY);
-    await redis.del(ALLOWED_HOSTS_CACHE_KEY);
-  }
-};
-
 beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
@@ -418,34 +391,27 @@ describe("declared Grids workflow actions", () => {
     }
   });
 
-  postgresTest("httpRequest journals a 2xx as succeeded and fails the step on any other status", async () => {
+  postgresTest("httpRequest refuses the private side of the network, and says so on the step", async () => {
     const fixture = createFixture();
-    const server = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: (request) => new Response("{}", { status: new URL(request.url).pathname === "/ok" ? 200 : 503 }),
-    });
+    // A workflow author has the app's permissions, not the server's network
+    // position. This server is reachable from inside the container and from
+    // nowhere the author could reach on their own — which is the whole point.
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("{}") });
     try {
       await insertFixture(fixture);
-      await withLoopbackHttpAllowed("127.0.0.1", async () => {
-        const accepted = await queueRun(fixture, {
-          plan: boundPlan([actionStep(0, "httpRequest", { url: `http://127.0.0.1:${server.port}/ok`, json: { ping: true } })], {}),
-        });
-        expect(await drive(accepted)).toBe("succeeded");
-        const [acceptedStep] = await stepRuns(accepted);
-        // An ambiguous effect is marked before it acts and settled after; the
-        // settled state is the only thing that keeps a replay from re-sending.
-        expect(acceptedStep).toMatchObject({ state: "completed", effect_state: "succeeded" });
-        expect(acceptedStep?.outcome?.output).toMatchObject({ status: 200, ok: true });
-
-        const refused = await queueRun(fixture, {
-          plan: boundPlan([actionStep(0, "httpRequest", { url: `http://127.0.0.1:${server.port}/boom`, json: { ping: true } })], {}),
-        });
-        expect(await drive(refused)).toBe("failed");
-        expect((await runRow(refused)).error).toMatchObject({ code: "WORKFLOW_HTTP_FAILED" });
-        const [refusedStep] = await stepRuns(refused);
-        expect(refusedStep).toMatchObject({ state: "failed", effect_state: "failed" });
+      const runId = await queueRun(fixture, {
+        plan: boundPlan([actionStep(0, "httpRequest", { url: `http://127.0.0.1:${server.port}/ok`, json: { ping: true } })], {}),
       });
+
+      expect(await drive(runId)).toBe("failed");
+      expect((await runRow(runId)).error).toMatchObject({ code: "BAD_INPUT" });
+
+      const [step] = await stepRuns(runId);
+      // An ambiguous effect is marked before the action runs — the kernel cannot
+      // know when a request actually leaves the process. So the refusal settles
+      // that mark as failed rather than leaving it dangling for a human.
+      expect(step).toMatchObject({ state: "failed", effect_state: "failed" });
+      expect(step?.outcome).toMatchObject({ error: { message: "HTTP request target is not a public address" } });
     } finally {
       server.stop(true);
       await cleanupFixture(fixture);

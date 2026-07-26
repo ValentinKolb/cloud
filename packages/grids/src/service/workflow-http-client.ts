@@ -2,12 +2,9 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { type ClientRequest, request as httpRequest, type IncomingMessage, type RequestOptions } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
-import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { isUnsafeNetworkAddress, isUnsafeNetworkHostname, normalizeNetworkHostname } from "@valentinkolb/cloud/shared";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 
-const PRIVATE_HTTP_SETTING = "grids.http_request_allow_private_networks";
-const ALLOWED_HOSTS_SETTING = "grids.http_request_allowed_hosts";
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -17,10 +14,8 @@ type RequestFactory = (options: RequestOptions, callback: (response: IncomingMes
 type LookupAddress = { address: string; family: number };
 
 export type WorkflowHttpClientDeps = {
-  getSetting?: (key: string) => Promise<unknown>;
   lookup?: (hostname: string, options: { all: true; verbatim: true }) => Promise<LookupAddress[]>;
   request?: RequestFactory;
-  tlsCa?: string | Buffer;
 };
 
 export type WorkflowHttpRequestInput = {
@@ -54,14 +49,6 @@ export const isUnsafeWorkflowHttpAddress = isUnsafeNetworkAddress;
 
 const normalizeHostname = normalizeNetworkHostname;
 
-const hostMatches = (hostname: string, pattern: string): boolean => {
-  const normalized = normalizeHostname(pattern.trim());
-  if (!normalized) return false;
-  if (!normalized.startsWith("*.")) return hostname === normalized;
-  const suffix = normalized.slice(1);
-  return hostname.endsWith(suffix) && hostname.length > suffix.length;
-};
-
 const isUnsafeHostname = isUnsafeNetworkHostname;
 
 const resolveTarget = async (rawUrl: string, deps: WorkflowHttpClientDeps): Promise<Result<ResolvedTarget>> => {
@@ -74,21 +61,8 @@ const resolveTarget = async (rawUrl: string, deps: WorkflowHttpClientDeps): Prom
   if (url.protocol !== "http:" && url.protocol !== "https:") return fail(err.badInput("HTTP request URL must use http or https"));
   if (url.username || url.password) return fail(err.badInput("HTTP request URL must not contain credentials"));
 
-  const getSetting = deps.getSetting ?? ((key: string) => settingsGet(key));
   const hostname = normalizeHostname(url.hostname);
-  const allowedHostsValue = await getSetting(ALLOWED_HOSTS_SETTING);
-  const allowedHosts = Array.isArray(allowedHostsValue)
-    ? allowedHostsValue.filter((value): value is string => typeof value === "string")
-    : [];
-  if (allowedHosts.length > 0 && !allowedHosts.some((pattern) => hostMatches(hostname, pattern))) {
-    return fail(err.badInput("HTTP request target is not allowed by the configured host allowlist"));
-  }
-
-  const allowPrivate = Boolean(await getSetting(PRIVATE_HTTP_SETTING));
-  const privateHostname = isUnsafeHostname(hostname);
-  if (privateHostname && (!allowPrivate || allowedHosts.length === 0)) {
-    return fail(err.badInput("HTTP request target is not allowed"));
-  }
+  if (isUnsafeHostname(hostname)) return fail(err.badInput("HTTP request target is not a public address"));
 
   const literalFamily = isIP(hostname);
   const lookupAll = deps.lookup ?? ((host: string) => dnsLookup(host, { all: true, verbatim: true }) as Promise<LookupAddress[]>);
@@ -96,9 +70,10 @@ const resolveTarget = async (rawUrl: string, deps: WorkflowHttpClientDeps): Prom
     ? [{ address: hostname, family: literalFamily }]
     : await lookupAll(hostname, { all: true, verbatim: true }).catch(() => []);
   if (addresses.length === 0) return fail(err.badInput("HTTP request target could not be resolved"));
-  const hasUnsafeAddress = addresses.some((entry) => isUnsafeWorkflowHttpAddress(entry.address));
-  if (hasUnsafeAddress && (!allowPrivate || allowedHosts.length === 0)) {
-    return fail(err.badInput("HTTP request target is not allowed"));
+  // Every answer, not just the one dialled: a name that resolves to one public
+  // and one private address would otherwise be a way in on the second attempt.
+  if (addresses.some((entry) => isUnsafeWorkflowHttpAddress(entry.address))) {
+    return fail(err.badInput("HTTP request target is not a public address"));
   }
   const selected = addresses[0];
   if (!selected || (selected.family !== 4 && selected.family !== 6)) return fail(err.badInput("HTTP request target could not be resolved"));
@@ -202,7 +177,6 @@ const sendPinnedRequest = (
       method: input.method,
       headers,
       servername: normalizeHostname(target.url.hostname),
-      ca: deps.tlsCa,
       lookup: (_hostname, options, callback) => {
         if (typeof options === "object" && options.all) {
           (callback as (error: Error | null, addresses: LookupAddress[]) => void)(null, [
