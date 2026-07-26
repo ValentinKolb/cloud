@@ -53,7 +53,7 @@ const totalsFor = (health: WorkflowAppHealth[]): WorkflowTotals =>
   );
 
 const WorkflowStats = (props: { totals: WorkflowTotals; window: string }) => (
-  <StatGrid>
+  <StatGrid columns={6}>
     <StatCell label="Runs" value={formatNumber(props.totals.runs)} sub={`last ${props.window}`} />
     <StatCell label="In flight" value={formatNumber(props.totals.active)} sub="queued, running or waiting" />
     <StatCell
@@ -72,6 +72,12 @@ const WorkflowStats = (props: { totals: WorkflowTotals; window: string }) => (
       value={props.totals.worstLagMs > 0 ? formatDurationMs(props.totals.worstLagMs) : "—"}
       sub="cause to first attempt"
       valueClass={props.totals.worstLagMs > LAG_WARN_MS ? "text-amber-600 dark:text-amber-400" : undefined}
+    />
+    <StatCell
+      label="Open findings"
+      value={formatNumber(props.totals.stranded + props.totals.undispatched)}
+      sub={`${formatNumber(props.totals.stranded)} effects · ${formatNumber(props.totals.undispatched)} events`}
+      valueClass={props.totals.stranded + props.totals.undispatched > 0 ? "text-amber-600 dark:text-amber-400" : undefined}
     />
   </StatGrid>
 );

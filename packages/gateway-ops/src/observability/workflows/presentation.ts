@@ -52,6 +52,17 @@ const readString = (value: unknown, key: string): string | null => {
   return typeof field === "string" ? field : null;
 };
 
+export const runErrorSummary = (error: unknown): { message: string; code: string | null; retryable: boolean | null } | null => {
+  if (typeof error === "string") return { message: error, code: null, retryable: null };
+  const record = readRecord(error);
+  if (!record) return null;
+  const message = typeof record.message === "string" ? record.message : null;
+  const code = typeof record.code === "string" ? record.code : null;
+  const retryable = typeof record.retryable === "boolean" ? record.retryable : null;
+  if (!message && !code) return null;
+  return { message: message ?? code ?? "Workflow failed", code, retryable };
+};
+
 export const stepDetail = (step: WorkflowStepSummary): string => {
   const dependency = readRecord(step.dependency);
   if (dependency) {

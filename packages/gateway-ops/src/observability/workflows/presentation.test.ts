@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { UndispatchedWorkflowEvent, WorkflowStepSummary } from "@valentinkolb/cloud/workflows/store";
-import { eventState, stepDetail } from "./presentation";
+import { eventState, runErrorSummary, stepDetail } from "./presentation";
 
 const step = (values: Partial<WorkflowStepSummary>): WorkflowStepSummary => ({
   stepKey: "steps.0",
@@ -49,5 +49,15 @@ describe("workflow operator presentation", () => {
       label: "Dead letter",
       tone: "error",
     });
+  });
+
+  test("summarizes structured and plain run errors without assuming their shape", () => {
+    expect(runErrorSummary({ code: "WORKFLOW_FAILED", message: "Provider refused", retryable: false })).toEqual({
+      code: "WORKFLOW_FAILED",
+      message: "Provider refused",
+      retryable: false,
+    });
+    expect(runErrorSummary("Worker exited")).toEqual({ code: null, message: "Worker exited", retryable: null });
+    expect(runErrorSummary(7)).toBeNull();
   });
 });
