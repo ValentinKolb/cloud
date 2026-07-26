@@ -4,7 +4,7 @@ import { gridsService } from "../../../service";
 import type { DocumentRunReadAuthorizer } from "../../../service/document-browse";
 import type { ExpansionViewer } from "../../../service/relation-access";
 import { buildRelationLabelCacheForIds } from "../../../service/relation-labels";
-import { getWorkflowTriggerRuntimeState } from "../../../service/workflow-kernel-runtime";
+import { getWorkflowTriggerRuntimeState } from "../../../service/workflow-runtime";
 import {
   getWorkflowRunProvenance,
   getWorkflowRunStats,

@@ -25,7 +25,6 @@ import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import type { WorkflowActivationInput } from "@valentinkolb/cloud/workflows/store";
 import {
   createWorkflow as createKernelWorkflow,
-  deleteWorkflowScope,
   publishWorkflowVersion,
   renameWorkflow as renameKernelWorkflow,
   setWorkflowEnabled,
@@ -43,7 +42,7 @@ import type {
 import { GridsWorkflowRevisionSchema, GridsWorkflowSchema } from "../workflows/contracts";
 import { GRIDS_EVENT } from "../workflows/events";
 import { gridsWorkflowManifest } from "../workflows/manifest";
-import { logAudit, type SqlClient } from "./audit";
+import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import { loadWorkflowCatalog } from "./workflow-catalog";
@@ -558,7 +557,3 @@ export const removeWorkflow = async (id: string, actorId: string | null): Promis
   await metadataEvent("workflow.deleted", existing, actorId);
   return ok();
 };
-
-/** Drops every workflow a base owned. Called when the base itself goes away. */
-export const removeWorkflowsForBase = async (baseId: string, options: { db?: SqlClient } = {}): Promise<number> =>
-  deleteWorkflowScope({ appId: APP_ID, scopeId: baseId }, options.db ? { db: options.db } : {});

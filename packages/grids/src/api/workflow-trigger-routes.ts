@@ -3,8 +3,8 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import type { z } from "zod";
-import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-kernel-launchers";
-import { invokeGridsWorkflow } from "../service/workflow-kernel-runtime";
+import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-launcher-invocations";
+import { invokeGridsWorkflow } from "../service/workflow-runtime";
 import { GridsWorkflowInvocationRequestSchema, WorkflowInvocationReceiptSchema } from "../workflows/contracts";
 import { uuidParam } from "./route-params";
 import {

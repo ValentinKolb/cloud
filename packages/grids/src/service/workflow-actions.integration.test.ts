@@ -16,7 +16,7 @@ import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integ
 import { migrate } from "../migrate";
 import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
-import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-kernel-runtime";
+import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-runtime";
 import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
 import { deleteTestWorkflowScope, insertTestWorkflow, publishTestWorkflowVersion } from "./workflow-test-fixture";
 

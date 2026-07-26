@@ -12,7 +12,7 @@ import {
   restoreWorkflowRevision,
   updateWorkflow,
 } from "../service/workflow-definitions";
-import { getWorkflowTriggerRuntimeState } from "../service/workflow-kernel-runtime";
+import { getWorkflowTriggerRuntimeState } from "../service/workflow-runtime";
 import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "../service/workflow-launchers";
 import {
   CreateGridsWorkflowLauncherSchema,

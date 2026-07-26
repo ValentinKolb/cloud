@@ -16,7 +16,7 @@ import {
   stopRecordEventOutbox,
 } from "./record-event-outbox";
 import type { GridsRecordEvent } from "./record-events";
-import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-kernel-record-events";
+import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-record-events";
 
 type Fixture = { actorId: string; baseId: string; tableId: string; fieldId: string };
 

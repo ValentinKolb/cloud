@@ -3,7 +3,7 @@ import { SQL, sql } from "bun";
 import { migrate as migrateCoreWorkflows } from "../../core/src/migrate/core/workflows";
 import { migrate } from "./migrate";
 import { insertTestWorkflow } from "./service/workflow-test-fixture";
-import { WORKFLOW_KERNEL_SCHEMA_VERSION } from "./workflows/migrate";
+import { GRIDS_WORKFLOW_SCHEMA_VERSION } from "./workflows/migrate";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -321,7 +321,7 @@ describe("grids schema migration", () => {
           )
         `;
 
-        await database`DELETE FROM grids.workflow_kernel_migrations WHERE version = ${WORKFLOW_KERNEL_SCHEMA_VERSION}`;
+        await database`DELETE FROM grids.workflow_migrations WHERE version = ${GRIDS_WORKFLOW_SCHEMA_VERSION}`;
         await migrateCoreWorkflows(database);
         await migrate(database);
 

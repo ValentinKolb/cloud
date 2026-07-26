@@ -6,8 +6,8 @@ import {
   invokeBulkLauncher,
   invokeDashboardLauncher,
   invokeScannerLauncher,
-  type WorkflowKernelLauncherDeps,
-} from "./workflow-kernel-launchers";
+  type WorkflowLauncherInvocationDeps,
+} from "./workflow-launcher-invocations";
 
 const baseId = "10000000-0000-4000-8000-000000000001";
 const workflowId = "20000000-0000-4000-8000-000000000002";
@@ -117,15 +117,15 @@ const dashboardInput = (overrides: Record<string, unknown> = {}) => ({
 const setup = (
   configuredLauncher: GridsWorkflowLauncher,
   configuredWorkflow: GridsWorkflow,
-  overrides: Partial<WorkflowKernelLauncherDeps> = {},
+  overrides: Partial<WorkflowLauncherInvocationDeps> = {},
 ) => {
-  const invokeWorkflow = mock<WorkflowKernelLauncherDeps["invokeWorkflow"]>(async () => ok(receipt));
+  const invokeWorkflow = mock<WorkflowLauncherInvocationDeps["invokeWorkflow"]>(async () => ok(receipt));
   const authorize = mock(async () => ok());
   const resolveScanCode = mock(async () => ok(recordId));
   const resolveUniqueField = mock(async () => ok(recordId));
   const resolveExplicitRecordIds = mock(async (_baseId: string, _tableId: string, ids: string[]) => ok(ids));
   const resolveQueryRecordIds = mock(async () => ok([recordId, secondRecordId]));
-  const deps: WorkflowKernelLauncherDeps = {
+  const deps: WorkflowLauncherInvocationDeps = {
     getLauncher: mock(async () => configuredLauncher),
     getWorkflow: mock(async () => configuredWorkflow),
     authorize,

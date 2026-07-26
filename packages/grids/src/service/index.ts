@@ -45,14 +45,14 @@ import {
   updateWorkflow,
   validateWorkflowSource,
 } from "./workflow-definitions";
-import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "./workflow-kernel-launchers";
-import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-kernel-record-events";
+import { invokeBulkLauncher, invokeDashboardLauncher, invokeScannerLauncher } from "./workflow-launcher-invocations";
+import { replayWorkflowRecordEventDeliveryFailure } from "./workflow-record-events";
 import {
   invokeGridsWorkflow,
-  reconcileWorkflowKernelRuntime,
-  startWorkflowKernelRuntime,
-  stopWorkflowKernelRuntime,
-} from "./workflow-kernel-runtime";
+  reconcileWorkflowRuntime,
+  startWorkflowRuntime,
+  stopWorkflowRuntime,
+} from "./workflow-runtime";
 import { createLauncher, getLauncher, listLaunchers, removeLauncher, updateLauncher } from "./workflow-launchers";
 import { getWorkflowRun } from "./workflow-runs";
 
@@ -296,9 +296,9 @@ export const gridsService = {
       invokeDashboard: invokeDashboardLauncher,
     },
     runtime: {
-      start: startWorkflowKernelRuntime,
-      stop: stopWorkflowKernelRuntime,
-      reconcile: reconcileWorkflowKernelRuntime,
+      start: startWorkflowRuntime,
+      stop: stopWorkflowRuntime,
+      reconcile: reconcileWorkflowRuntime,
       listDeadRecordEvents: listDeadRecordEventDeliveryFailures,
       replayDeadRecordEvent: replayWorkflowRecordEventDeliveryFailure,
     },

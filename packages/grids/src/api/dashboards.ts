@@ -22,7 +22,7 @@ import { gridsService } from "../service";
 import { resolveWidgetData } from "../service/dashboard-widget-data";
 import { get as getDashboardById } from "../service/dashboards";
 import { hasAtLeast, hasGrantsForResource } from "../service/permission-resolver";
-import { invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-kernel-launchers";
+import { invokeDashboardLauncher, invokeScannerLauncher } from "../service/workflow-launcher-invocations";
 import { getLauncher as getWorkflowLauncher } from "../service/workflow-launchers";
 import { getWorkflowRun, getWorkflowRunScope, listWorkflowStepRuns } from "../service/workflow-runs";
 import {

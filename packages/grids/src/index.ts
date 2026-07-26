@@ -11,7 +11,7 @@ import { gridsService } from "./service";
 import { stopBoundedQueryPool } from "./service/bounded-query";
 import { startFieldIndexMaintenance, stopFieldIndexMaintenance } from "./service/field-index-maintenance";
 import { startRecordEventOutbox, stopRecordEventOutbox } from "./service/record-event-outbox";
-import { startWorkflowKernelRuntime, stopWorkflowKernelRuntime } from "./service/workflow-kernel-runtime";
+import { startWorkflowRuntime, stopWorkflowRuntime } from "./service/workflow-runtime";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -25,10 +25,10 @@ const router = new Hono<AuthContext>()
 const gridsRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
     await startRecordEventOutbox();
-    await startWorkflowKernelRuntime();
+    await startWorkflowRuntime();
     startFieldIndexMaintenance();
   },
-  stop: () => stopRuntimeResources([stopFieldIndexMaintenance, stopWorkflowKernelRuntime, stopRecordEventOutbox, stopBoundedQueryPool]),
+  stop: () => stopRuntimeResources([stopFieldIndexMaintenance, stopWorkflowRuntime, stopRecordEventOutbox, stopBoundedQueryPool]),
 });
 
 const result = await app.start({

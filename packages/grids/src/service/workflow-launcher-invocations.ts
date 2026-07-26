@@ -17,7 +17,7 @@ import { authorizeWorkflowTarget, revalidateWorkflowPrincipal, workflowPermissio
 import { loadWorkflowCatalog, resolveWorkflowFieldRef } from "./workflow-catalog";
 import { getWorkflow } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
-import { invokeGridsWorkflow } from "./workflow-kernel-runtime";
+import { invokeGridsWorkflow } from "./workflow-runtime";
 import { getLauncher } from "./workflow-launchers";
 
 export const MAX_BULK_LAUNCHER_RECORDS = 10_000;
@@ -150,7 +150,7 @@ type LauncherAuthorizationInput = {
   authorization?: z.infer<typeof launcherAuthorizationSchema>;
 };
 
-export type WorkflowKernelLauncherDeps = {
+export type WorkflowLauncherInvocationDeps = {
   getLauncher: typeof getLauncher;
   getWorkflow: typeof getWorkflow;
   authorize: (input: LauncherAuthorizationInput) => Promise<Result<void>>;
@@ -180,7 +180,7 @@ const normalizeScannedText = (value: string): string => {
   return trimmed;
 };
 
-const authorize: WorkflowKernelLauncherDeps["authorize"] = async ({ workflow, principal, tableId, authorization }) => {
+const authorize: WorkflowLauncherInvocationDeps["authorize"] = async ({ workflow, principal, tableId, authorization }) => {
   const principalState = await revalidateWorkflowPrincipal(principal, workflow.baseId);
   if (!principalState.ok || !workflowPermissionAllows(principalState.permissionCap, "write")) {
     return fail(err.forbidden("Workflow actor cannot run this workflow."));
@@ -197,7 +197,7 @@ const authorize: WorkflowKernelLauncherDeps["authorize"] = async ({ workflow, pr
   return ok();
 };
 
-const resolveScanCode: WorkflowKernelLauncherDeps["resolveScanCode"] = async (baseId, tableId, scannedText) => {
+const resolveScanCode: WorkflowLauncherInvocationDeps["resolveScanCode"] = async (baseId, tableId, scannedText) => {
   const [row] = await sql<Array<{ id: string }>>`
     SELECT r.id::text AS id
     FROM grids.record_scan_codes scan
@@ -213,7 +213,7 @@ const resolveScanCode: WorkflowKernelLauncherDeps["resolveScanCode"] = async (ba
   return row ? ok(row.id) : fail(err.notFound("scan code"));
 };
 
-const resolveUniqueField: WorkflowKernelLauncherDeps["resolveUniqueField"] = async (baseId, tableId, fieldRef, scannedText) => {
+const resolveUniqueField: WorkflowLauncherInvocationDeps["resolveUniqueField"] = async (baseId, tableId, fieldRef, scannedText) => {
   const field = resolveWorkflowFieldRef(await loadWorkflowCatalog(baseId), tableId, fieldRef);
   if (!field) return fail(err.badInput(`unknown or ambiguous scanner field "${fieldRef}"`));
   const [storedField] = await sql<Array<{ unique_constraint: boolean }>>`
@@ -245,7 +245,7 @@ const resolveUniqueField: WorkflowKernelLauncherDeps["resolveUniqueField"] = asy
   return ok(rows[0]!.id);
 };
 
-const resolveExplicitRecordIds: WorkflowKernelLauncherDeps["resolveExplicitRecordIds"] = async (baseId, tableId, recordIds) => {
+const resolveExplicitRecordIds: WorkflowLauncherInvocationDeps["resolveExplicitRecordIds"] = async (baseId, tableId, recordIds) => {
   const rows = await sql<Array<{ id: string }>>`
     SELECT r.id::text AS id
     FROM grids.records r
@@ -260,7 +260,7 @@ const resolveExplicitRecordIds: WorkflowKernelLauncherDeps["resolveExplicitRecor
   return found.size === recordIds.length ? ok(recordIds) : fail(err.notFound("bulk selection record"));
 };
 
-const resolveQueryRecordIds: WorkflowKernelLauncherDeps["resolveQueryRecordIds"] = async (tableId, query, principal) => {
+const resolveQueryRecordIds: WorkflowLauncherInvocationDeps["resolveQueryRecordIds"] = async (tableId, query, principal) => {
   if ((query.groupBy?.length ?? 0) > 0 || (query.aggregations?.length ?? 0) > 0 || (query.groupSort?.length ?? 0) > 0) {
     return fail(err.badInput("bulk selection queries must be row-shaped"));
   }
@@ -298,7 +298,7 @@ const resolveQueryRecordIds: WorkflowKernelLauncherDeps["resolveQueryRecordIds"]
   return ok(ids);
 };
 
-const defaultDeps: WorkflowKernelLauncherDeps = {
+const defaultDeps: WorkflowLauncherInvocationDeps = {
   getLauncher,
   getWorkflow,
   authorize,
@@ -318,7 +318,7 @@ const loadLauncherContext = async (
   launcherId: string,
   expectedKind: LauncherKind,
   expectedRevision: number | undefined,
-  deps: WorkflowKernelLauncherDeps,
+  deps: WorkflowLauncherInvocationDeps,
 ): Promise<Result<LauncherContext>> => {
   const launcher = await deps.getLauncher(launcherId);
   if (!launcher) return fail(err.notFound("workflow launcher"));
@@ -374,7 +374,7 @@ const invoke = (
     occurredAt?: string;
     authorization?: z.infer<typeof launcherAuthorizationSchema>;
   },
-  deps: WorkflowKernelLauncherDeps,
+  deps: WorkflowLauncherInvocationDeps,
 ): Promise<Result<WorkflowInvocationReceipt>> =>
   deps.invokeWorkflow({
     workflowId: ctx.workflow.id,
@@ -392,7 +392,7 @@ const invoke = (
 
 export const invokeScannerLauncher = async (
   rawInput: unknown,
-  deps: WorkflowKernelLauncherDeps = defaultDeps,
+  deps: WorkflowLauncherInvocationDeps = defaultDeps,
 ): Promise<Result<WorkflowInvocationReceipt>> => {
   const input = ScannerLauncherInvocationSchema.safeParse(rawInput);
   if (!input.success) return fail(err.badInput(`invalid scanner launcher invocation: ${formatZodError(input.error)}`));
@@ -419,7 +419,7 @@ export const invokeScannerLauncher = async (
 
 export const invokeBulkLauncher = async (
   rawInput: unknown,
-  deps: WorkflowKernelLauncherDeps = defaultDeps,
+  deps: WorkflowLauncherInvocationDeps = defaultDeps,
 ): Promise<Result<WorkflowInvocationReceipt>> => {
   const input = BulkLauncherInvocationSchema.safeParse(rawInput);
   if (!input.success) return fail(err.badInput(`invalid bulk launcher invocation: ${formatZodError(input.error)}`));
@@ -445,7 +445,7 @@ export const invokeBulkLauncher = async (
 
 export const invokeDashboardLauncher = async (
   rawInput: unknown,
-  deps: WorkflowKernelLauncherDeps = defaultDeps,
+  deps: WorkflowLauncherInvocationDeps = defaultDeps,
 ): Promise<Result<WorkflowInvocationReceipt>> => {
   const input = DashboardLauncherInvocationSchema.safeParse(rawInput);
   if (!input.success) return fail(err.badInput(`invalid dashboard launcher invocation: ${formatZodError(input.error)}`));

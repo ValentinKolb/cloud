@@ -12,7 +12,7 @@ import { GridsWorkflowLauncherConfigSchema } from "../workflows/contracts";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
-import { workflowInputShapeError } from "./workflow-kernel-values";
+import { workflowInputShapeError } from "./workflow-values";
 
 type DbRow = Record<string, unknown>;
 

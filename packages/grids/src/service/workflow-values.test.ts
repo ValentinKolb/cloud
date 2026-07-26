@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { WorkflowBoundPlan, WorkflowInvocation, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import type { WorkflowVariableScope } from "@valentinkolb/cloud/workflows/runtime";
 import type { GridRecord } from "../contracts";
-import { GridsWorkflowValueResolver, prepareWorkflowInputs, WorkflowInputPreparationError } from "./workflow-kernel-values";
+import { GridsWorkflowValueResolver, prepareWorkflowInputs, WorkflowInputPreparationError } from "./workflow-values";
 
 const recordId = "11111111-1111-4111-8111-111111111111";
 const otherRecordId = "22222222-2222-4222-8222-222222222222";

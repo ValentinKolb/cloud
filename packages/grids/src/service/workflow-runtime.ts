@@ -36,7 +36,7 @@ import { canExecuteWorkflow } from "./workflow-action-scope";
 import { authorizeWorkflowTarget } from "./workflow-authorization";
 import { getWorkflow, listScheduledWorkflows } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
-import { createWorkflowRecordEventRuntime } from "./workflow-kernel-record-events";
+import { createWorkflowRecordEventRuntime } from "./workflow-record-events";
 import {
   createGridsWorkflowValueResolver,
   createGridsWorkflowValueResolverPort,
@@ -44,7 +44,7 @@ import {
   loadWorkflowUserGroupIds,
   prepareWorkflowInputs,
   WorkflowInputPreparationError,
-} from "./workflow-kernel-values";
+} from "./workflow-values";
 import { notifyWorkflowRunEvent } from "./workflow-run-events";
 import {
   GRIDS_APP_ID,
@@ -56,7 +56,7 @@ import {
 } from "./workflow-runs";
 import { latestWorkflowRuntimeEventCursor, liveWorkflowRuntimeEvents } from "./workflow-runtime-events";
 
-const log = logger("grids:workflow-kernel");
+const log = logger("grids:workflows");
 const workflowScheduler = scheduler({ id: "grids:workflows" });
 const WORKFLOW_SCHEDULE_MAX_RETRIES = 3;
 const RECONCILE_INTERVAL_MS = 60_000;
@@ -529,7 +529,7 @@ export const registerWorkflowSchedules = async (
   }
 };
 
-export const reconcileWorkflowKernelRuntime = async (): Promise<void> => {
+export const reconcileWorkflowRuntime = async (): Promise<void> => {
   // Only the deadline needs a nudge; whatever this re-queues the worker claims
   // on its next pass, the same as a run that was never parked.
   await wakeExpiredWorkflowRuns(100, { appId: GRIDS_APP_ID });
@@ -594,7 +594,7 @@ const workflowRuntimeLifecycle = createRuntimeLifecycle({
       log.warn("Could not initialize workflow runtime event reader", { error: errorMessage(error) });
       return null;
     });
-    await reconcileWorkflowKernelRuntime();
+    await reconcileWorkflowRuntime();
     workflowScheduler.start();
     startRuntimeEventReader(eventCursor);
     workerTimer = setInterval(() => {
@@ -610,7 +610,7 @@ const workflowRuntimeLifecycle = createRuntimeLifecycle({
     }, WORKER_INTERVAL_MS);
     reconcileTimer = setInterval(() => {
       workflowRuntimeTasks.run(async () => {
-        await reconcileWorkflowKernelRuntime().catch((error) =>
+        await reconcileWorkflowRuntime().catch((error) =>
           log.warn("Workflow runtime reconcile failed", { error: errorMessage(error) }),
         );
       });
@@ -636,5 +636,5 @@ const workflowRuntimeLifecycle = createRuntimeLifecycle({
   },
 });
 
-export const startWorkflowKernelRuntime = workflowRuntimeLifecycle.start;
-export const stopWorkflowKernelRuntime = workflowRuntimeLifecycle.stop;
+export const startWorkflowRuntime = workflowRuntimeLifecycle.start;
+export const stopWorkflowRuntime = workflowRuntimeLifecycle.stop;

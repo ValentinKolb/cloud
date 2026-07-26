@@ -26,9 +26,9 @@ import {
   recordEventWorkReader,
 } from "./record-events";
 import { listRecordEventWorkflows } from "./workflow-definitions";
-import { type GridsWorkflowPrincipal, loadWorkflowUserGroupIds } from "./workflow-kernel-values";
+import { type GridsWorkflowPrincipal, loadWorkflowUserGroupIds } from "./workflow-values";
 
-const log = logger("grids:workflow-kernel-record-events");
+const log = logger("grids:workflow-record-events");
 const CONSUMER_GROUP = "workflow-kernel-queue-v1";
 const RETRY_DELAY_MS = 1_000;
 const APPLICATION_MAX_DELIVERY_ATTEMPTS = 20;

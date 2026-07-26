@@ -13,8 +13,8 @@ import { loadGrantsForUser, type ResolveTarget, resolveEffectivePermission } fro
 import type {
   invokeDashboardLauncher as invokeDashboardLauncherService,
   invokeScannerLauncher as invokeScannerLauncherService,
-} from "../service/workflow-kernel-launchers";
-import { runGridsWorkflowRun } from "../service/workflow-kernel-runtime";
+} from "../service/workflow-launcher-invocations";
+import { runGridsWorkflowRun } from "../service/workflow-runtime";
 import { deleteTestWorkflowScope, insertTestWorkflow, insertTestWorkflowRun } from "../service/workflow-test-fixture";
 import { canReadDashboardForRequest, createDashboardsApi } from "./dashboards";
 import { createWorkflowsApi } from "./workflows";

@@ -1,10 +1,10 @@
 import type { SQL } from "bun";
 
-export const WORKFLOW_KERNEL_SCHEMA_VERSION = 7;
+export const GRIDS_WORKFLOW_SCHEMA_VERSION = 8;
 
 const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
   await sql`
-    CREATE TABLE IF NOT EXISTS grids.workflow_kernel_migrations (
+    CREATE TABLE IF NOT EXISTS grids.workflow_migrations (
       version INT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
@@ -12,7 +12,7 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
 
   const [migration] = await sql<Array<{ applied: boolean }>>`
     SELECT EXISTS (
-      SELECT 1 FROM grids.workflow_kernel_migrations WHERE version = ${WORKFLOW_KERNEL_SCHEMA_VERSION}
+      SELECT 1 FROM grids.workflow_migrations WHERE version = ${GRIDS_WORKFLOW_SCHEMA_VERSION}
     ) AS applied
   `;
   if (migration?.applied) return false;
@@ -28,6 +28,10 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
    * grids.workflow_runs and grids.workflow_step_runs follow: runs execute on
    * workflows.run, and a step's outcome — its effect included — is journaled on
    * workflows.step_outcome. grids.workflow_effect_intents went the same way.
+   *
+   * The ledger itself is dropped too. It was named after an engine Grids no
+   * longer has, and carrying the old name forward would have meant explaining
+   * it to every reader from here on.
    */
   await sql`
     ALTER TABLE grids.document_runs DROP CONSTRAINT IF EXISTS document_runs_workflow_run_id_fkey;
@@ -42,6 +46,7 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
     DROP TABLE IF EXISTS grids.workflow_profile CASCADE;
     DROP TABLE IF EXISTS grids.workflow_revisions CASCADE;
     DROP TABLE IF EXISTS grids.workflows CASCADE;
+    DROP TABLE IF EXISTS grids.workflow_kernel_migrations CASCADE;
     DROP FUNCTION IF EXISTS grids.populate_workflow_run_snapshots();
     DROP FUNCTION IF EXISTS grids.bump_workflow_revision();
   `.simple();
@@ -49,11 +54,11 @@ const resetAlphaWorkflowSchema = async (sql: SQL): Promise<boolean> => {
 };
 
 /**
- * Where the Grids half of a workflow will live once the kernel owns identity,
- * versions, activations, runs and the journal.
+ * The Grids half of a workflow, now that the kernel owns identity, versions,
+ * activations, runs and the journal.
  *
- * Added ahead of the cutover and read by nothing yet, so this stays a safe
- * checkpoint: the engine below still owns every workflow.
+ * What is left here is what the kernel has no opinion about: which base a
+ * workflow belongs to, where it sits in the list, and who owns it.
  *
  * There is deliberately nowhere here for a draft. The editor saves on an
  * explicit action and keeps its working copy in a signal, like every other app
@@ -237,15 +242,15 @@ const migrateDeliveries = async (sql: SQL): Promise<void> => {
   `.simple();
 };
 
-export const migrateWorkflowKernel = async (sql: SQL): Promise<void> => {
+export const migrateGridsWorkflowTables = async (sql: SQL): Promise<void> => {
   const didReset = await resetAlphaWorkflowSchema(sql);
   await migrateKernelProfile(sql);
   await migrateDefinitionLinks(sql);
   await migrateDeliveries(sql);
   if (didReset) {
     await sql`
-      INSERT INTO grids.workflow_kernel_migrations (version)
-      VALUES (${WORKFLOW_KERNEL_SCHEMA_VERSION})
+      INSERT INTO grids.workflow_migrations (version)
+      VALUES (${GRIDS_WORKFLOW_SCHEMA_VERSION})
       ON CONFLICT (version) DO NOTHING
     `;
   }
