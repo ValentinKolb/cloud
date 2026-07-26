@@ -16,7 +16,7 @@ export const { config, html, plugin } = createConfig<PageOptions>({
   template: async ({ body, scripts, title, description, path, styles = [] }) => {
     const siteUrl = process.env.CLOUD_DOCS_SITE_URL?.replace(/\/+$/, "");
     const canonical = siteUrl ? `${siteUrl}${path}` : path;
-    const stylesheets = ["/assets/homepage.css", ...styles]
+    const stylesheets = ["/docs/_fibel/styles.css", "/assets/homepage.css", ...styles]
       .map((href) => `<link rel="stylesheet" href="${escapeAttribute(href)}">`)
       .join("\n    ");
 
@@ -34,7 +34,7 @@ export const { config, html, plugin } = createConfig<PageOptions>({
     ${stylesheets}
     <script>if(document.cookie.split("; ").includes("cloud_docs_theme=dark")){document.documentElement.className="dark";document.documentElement.dataset.theme="dark";document.documentElement.style.colorScheme="dark"}</script>
   </head>
-  <body class="cloud-standalone">
+  <body class="cloud-site cloud-standalone">
     ${body}
     ${scripts}
   </body>

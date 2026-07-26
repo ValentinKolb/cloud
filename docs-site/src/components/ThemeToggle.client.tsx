@@ -18,16 +18,31 @@ export default function ThemeToggle() {
   };
 
   return (
-    <button class="site-theme-toggle" type="button" aria-label="Toggle theme" onClick={toggle}>
-      {dark() ? (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" />
-        </svg>
-      ) : (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M21 13.2A7.5 7.5 0 0 1 10.8 3 8.5 8.5 0 1 0 21 13.2Z" />
-        </svg>
-      )}
+    <button class="fibel-control-icon-button" type="button" aria-label="Toggle theme" onClick={toggle}>
+      <span data-theme-icon>
+        {dark() ? (
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4">
+            <path
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"
+            />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="h-4 w-4">
+            <path
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M21 13.2A7.5 7.5 0 0 1 10.8 3 8.5 8.5 0 1 0 21 13.2Z"
+            />
+          </svg>
+        )}
+      </span>
     </button>
   );
 }

@@ -1,8 +1,81 @@
-.ui-catalog {
-  width: min(100% - (var(--c-gutter) * 2), var(--c-shell));
-  margin-inline: auto;
-  padding-block: clamp(3rem, 6vw, 5.5rem);
+.ui-layout {
+  min-height: calc(100vh - 4rem);
+  background: var(--c-page-surface);
   color: var(--c-ink);
+}
+
+.ui-sidebar {
+  border-bottom: 1px solid var(--c-line);
+}
+
+.ui-component-nav {
+  width: 100%;
+}
+
+.ui-component-search {
+  min-height: 2.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--c-line);
+  border-radius: 999px;
+  padding: 0 0.75rem;
+  background: var(--c-surface);
+  color: var(--c-muted);
+}
+
+.ui-component-search:focus-within {
+  border-color: var(--c-accent);
+  outline: 2px solid color-mix(in srgb, var(--c-accent) 18%, transparent);
+  outline-offset: 1px;
+}
+
+.ui-component-search svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.ui-component-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  padding: 0.45rem 0;
+  outline: 0;
+  background: transparent;
+  color: var(--c-ink);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.ui-component-search input::placeholder {
+  color: var(--c-faint);
+}
+
+.ui-component-search kbd {
+  border: 1px solid var(--c-line);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.3rem;
+  background: var(--c-sunken);
+  color: var(--c-faint);
+  font-family: var(--c-mono);
+  font-size: 0.68rem;
+}
+
+.ui-component-search:focus-within kbd,
+.ui-component-search input:not(:placeholder-shown) + kbd {
+  display: none;
+}
+
+.ui-catalog {
+  width: min(100%, 76rem);
+  margin-inline: auto;
+  padding: clamp(2.5rem, 6vw, 5rem) var(--c-gutter);
 }
 
 .ui-intro {
@@ -43,26 +116,6 @@
   color: var(--c-accent-ink);
   font-size: 0.74rem;
   letter-spacing: 0.04em;
-}
-
-.ui-index {
-  display: flex;
-  overflow-x: auto;
-  margin-top: 2.5rem;
-  border-block: 1px solid var(--c-line);
-}
-
-.ui-index a {
-  padding: 0.9rem 1.2rem 0.9rem 0;
-  color: var(--c-muted);
-  font-family: var(--c-mono);
-  font-size: 0.78rem;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.ui-index a:hover {
-  color: var(--c-accent-ink);
 }
 
 .ui-example {
@@ -116,9 +169,28 @@
   line-height: 1.6;
 }
 
-@media (min-width: 60rem) {
+@media (min-width: 64rem) {
+  .ui-layout {
+    display: grid;
+    grid-template-columns: 19rem minmax(0, 1fr);
+  }
+
+  .ui-sidebar {
+    border-bottom: 0;
+  }
+
+  .ui-component-nav {
+    padding: 0;
+  }
+
   .ui-intro,
   .ui-example {
     grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+}
+
+@media (min-width: 90rem) {
+  .ui-catalog {
+    padding-inline: clamp(3rem, 5vw, 6rem);
   }
 }
