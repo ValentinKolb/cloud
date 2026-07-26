@@ -64,11 +64,42 @@ Generated documents redownload from their stored snapshot and template data. Lat
 
 ## A workflow did not do what you expected {icon="route"}
 
-Open the run detail rather than immediately retrying. Check its revision, mode, channel, inputs, step outcomes, saved outputs, and error.
+Open the run detail rather than immediately retrying. Check its revision, mode, channel, inputs, step outcomes, saved outputs, and error. The run executed the revision it pinned when it started, which is not necessarily the YAML on screen now — open the run's linked revision to read what actually ran.
 
 A `dryRun` records predicted effects but does not perform writes or external requests. An `execute` retry should use a deliberate idempotency key; external HTTP receivers should also handle duplicate requests safely.
 
-For automatic runs, confirm the workflow is enabled and the schedule or record-event filter matches. For scanner, bulk, and dashboard actions, inspect the saved launcher's diagnostics after changing workflow inputs.
+For scanner, bulk, and dashboard actions, inspect the saved run option's diagnostics after changing workflow inputs.
+
+## A workflow run never appeared {icon="route"}
+
+An automatic run only exists if the workflow's published revision was listening for that occurrence. When nothing was listening, there is no failed run to open — there is no run at all. Work through the conditions in order:
+
+:::steps
+1. **Enabled:** A disabled workflow refuses every execute run, schedules and record events included.
+2. **Published:** The trigger has to be in the published YAML. Editing the source in the editor without saving changes nothing that fires.
+3. **Trigger match:** Compare the record event, its optional table restriction, and its filter against the change you made; compare the cron expression and timezone against the time you expected.
+4. **Activation window:** A record change is only picked up if it happened after the trigger became active. Enabling the workflow or publishing a changed record-event trigger restarts that window — changes from before it are not replayed.
+5. **Missed schedule:** A slot that passes while Grids is unavailable is skipped, not caught up later. The next slot runs normally.
+6. **Owner permission:** Schedules and record events run as the workflow owner. If the owner no longer has write access to the workflow, or cannot read a record the trigger binds to an input, the invocation is refused before any run is created.
+:::
+
+If all six hold and there is still nothing, ask a Cloud administrator to check **Observability → Workflows**, which lists recorded occurrences that never became runs.
+
+## A workflow run needs attention {icon="alert-triangle"}
+
+`needs_attention` is not a failure. It means a step performed something outside Grids and nothing can establish whether it landed — in practice, an `httpRequest` that left the process without a complete response coming back. Grids deliberately neither retries it nor calls it failed: retrying is how a receiver is charged twice, and calling it failed would claim it did not arrive.
+
+Check the receiving system for the request, then decide. If it did not arrive, start a new run. If it did, no further action is needed and the run stays as the record of what happened. Nothing in the run detail can answer this for you, which is exactly why it stopped for a person.
+
+Record changes, generated documents, and sent email never end this way — those steps are either undone by the interruption or safe to resume once.
+
+## A dry run reported indeterminate {icon="lifebuoy"}
+
+A dry run ends indeterminate when the plan could not be decided, not when something went wrong. The run reads `failed` with a dry-run error code, and the step that could not be planned carries the reason.
+
+Two causes account for most of it. A step naming a template, table, field, or record that is deleted, ambiguous, or beyond the run identity's access reports that reference as the reason. Separately, a condition Grids could not evaluate while planning makes an `if` or `switch` undecidable; the dry run then plans **every** branch and marks the control step. Read those branches as alternatives, not as work that will all happen.
+
+Fix the named reference. For an undecidable branch, accept that a plan cannot settle it and verify the behaviour with a small execute run instead.
 
 ## A Combined table needs attention {icon="lifebuoy"}
 

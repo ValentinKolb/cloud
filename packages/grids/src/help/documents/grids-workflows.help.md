@@ -7,7 +7,7 @@ order: 140
 ---
 Workflows carry out repeatable operations in Grids. Use one when a person or event should run the same checked sequence of record changes, document generation, email delivery, or JSON HTTP requests.
 
-A workflow is more than a hidden automation. It has typed inputs, a reviewed YAML definition, permissions, revisions, and a run history that shows what happened at each step.
+A workflow is more than a hidden automation. It has typed inputs, a reviewed YAML definition, permissions, a published revision history, and a run history that shows what happened at each step. Every run pins the revision it started on, so editing a workflow never changes a run that is already in flight.
 
 ## Decide whether to use a workflow {icon="route"}
 
@@ -40,8 +40,8 @@ steps:
 2. Enter the name and description outside YAML.
 3. Add the smallest input and step definition that produces the intended result.
 4. Save until the YAML and Grids references validate.
-5. Run a **dryRun** with a representative input and inspect every predicted effect.
-6. Run **execute**, then inspect the completed run and changed record.
+5. Run a **dryRun** with a representative input and inspect every predicted effect. A step shown in amber could not be planned; fix that before executing.
+6. Run **execute**, then inspect the succeeded run and the changed record.
 7. Add an automatic trigger or run option only after direct execution is correct.
 :::
 
@@ -63,15 +63,20 @@ YAML maps must not repeat a key. Indentation defines nesting, so use spaces cons
 
 ## How runs start {icon="square-plus"}
 
-A workflow can start in three ways:
+Everything that starts an execute run is an **event**: something happened, Grids records that occurrence, and the workflow's published revision decides whether to answer it. There are four kinds.
 
 :::reference
-- **Direct invocation:** The Grids UI, authenticated API, or CLI supplies its inputs.
-- **Run option:** A scanner, bulk action, or dashboard button supplies a surface-specific input.
-- **Automatic trigger:** A schedule or record event declared in YAML supplies trigger values.
+- **Run requested:** Someone asked for this workflow directly — from the workflow page, the authenticated API, or the CLI.
+- **Run option used:** A scanner, bulk action, or dashboard button started it.
+- **Schedule fired:** A scheduled slot came due.
+- **Record changed:** A row was created, updated, or deleted in a table this workflow watches.
 :::
 
-All three create the same kind of run from typed inputs and the active workflow revision. A workflow does not need a YAML trigger.
+A run exists only when the workflow's published revision is listening for that event. Publishing always listens for **Run requested** and **Run option used** — being runnable is not a trigger anyone writes — and additionally for **Schedule fired** or **Record changed** when the YAML declares those triggers. Disabling the workflow stops every one of them, direct invocation included.
+
+This is why an occurrence that nothing is listening for produces no run at all rather than a failed one: nothing was ever accepted. A schedule that fires while the workflow is disabled, or a record change that arrives before its trigger was published, leaves no run to open.
+
+A **dry run is not an event**. Nothing happened; somebody is asking what would. It is created directly against the workflow's newest published revision and never consults a trigger, which is why a disabled workflow can still be dry-run while its execute runs are refused.
 
 Scanner, bulk, and dashboard run options are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard option either keeps fixed values for one-click use or asks for the declared inputs when it runs.
 
@@ -79,22 +84,24 @@ Scanner, bulk, and dashboard run options are saved separately and remain outside
 
 :::reference
 - **Inputs:** Typed values supplied by a direct caller, run option, or automatic trigger. Record inputs resolve before steps execute.
-- **Start:** Invoke directly, use a run option, or declare an automatic trigger. A workflow does not need a YAML trigger.
-- **Steps:** Actions and control flow executed in order. Failed steps stop the run and write diagnostics to the run history.
+- **Revision:** A run pins the revision it started on and executes that plan to the end. Editing, restoring, or disabling the workflow does not change a run already in flight.
+- **Steps:** Actions and control flow executed in order. A failed step stops the run and writes its message and error code to the run history.
 - **Observe:** Each run keeps its revision, mode, channel, inputs, status, timing, step outcomes, result or error, and generated documents.
 :::
 
-An idempotency key identifies one logical invocation. Retrying with the same key reuses it; reusing the key for different input is rejected. This prevents an uncertain client retry from quietly creating a second logical run.
+A **run** succeeds; a **step** completes. The two vocabularies are deliberately different: a step that ran to the end reads `completed` and never `succeeded`, and a step a dry run only described reads `planned`. Read a step badge as a statement about that step, not as the run's verdict.
+
+An idempotency key identifies one logical invocation. Retrying with the same key reuses it; reusing the key for different input is rejected. This prevents an uncertain client retry from quietly creating a second logical run. Execute and dry-run keys are separate, so the same key can be used once for each mode.
 
 ### Follow the run lifecycle
 
-Starting a workflow creates a run immediately. Open that run to follow its current status, progress message, inputs, starter, run option, and individual steps. A run can wait for external work without appearing failed. Its detail explains what it is waiting for.
+Starting a workflow creates a run immediately. Open that run to follow its current status, progress message, inputs, starter, run option, and individual steps. A run can wait for external work without appearing failed. Its detail names what it is waiting for.
 
-You can cancel a queued, running, or waiting run. Cancellation stops later steps and prevents a worker from replacing the canceled result, but it does not undo record changes, documents, emails, or HTTP requests that already finished. Resolve those effects explicitly when needed.
+You can cancel a queued, running, or waiting run. Cancellation is a request: the worker holding the run notices and unwinds where it is, rather than the run being deleted underneath it. It stops later steps, but it does not undo record changes, documents, emails, or HTTP requests that already finished. Resolve those effects explicitly when needed.
 
-**Run again** starts the workflow's current revision with a fresh run and pre-fills compatible inputs from the selected run. Review them before starting because the workflow may have changed. To inspect exactly what an older run executed, open its linked revision.
+**Run again** opens the input dialog pre-filled from the selected run, then starts the workflow's current revision in the same mode the original used. Review the inputs before starting because the workflow may have changed since. To inspect exactly what an older run executed, open its linked revision from the run detail.
 
-Every save creates an immutable revision. Restoring an older revision never deletes history; it copies that definition into a new current revision. Enabling a workflow with a schedule or record-event trigger requires confirmation because it can start work without another click.
+Publishing new YAML creates an immutable revision, so the revision number counts published plans rather than edits — renaming a workflow or changing its description does not produce one. Restoring an older revision never deletes history; it publishes that definition as a new current revision. Enabling a workflow with a schedule or record-event trigger requires confirmation because it can start work without another click.
 
 ## Inputs reference {icon="book-2"}
 
@@ -135,20 +142,23 @@ inputs:
       - High
 ```
 
-## Starting a workflow {icon="route"}
+## Invoke a workflow directly {icon="terminal-2"}
 
 :::reference
-- **Direct invocation:** Manual UI, API, and CLI callers invoke the same workflow directly with an input object, execute or dryRun mode, and an idempotency key.
-- **Run options:** Scanner, bulk, and dashboard options are configured separately from workflow YAML.
-- **Automatic triggers:** Only schedule and recordEvent belong under triggers in YAML. The triggers block is optional when a workflow starts only through direct invocation or run options.
-- **Revision and deduplication:** Callers may require the expected active revision. Idempotency keys reuse the same logical invocation and reject conflicting reuse.
+- **Request shape:** The workflow page, the authenticated API, and the CLI all invoke the same workflow with an input object, `execute` or `dryRun` mode, and an idempotency key.
+- **Expected revision:** A caller may state the revision it loaded. If the workflow has been published again since, the invocation is rejected instead of running a plan the caller never saw.
+- **Deduplication:** The same idempotency key returns the first run. The same key with different inputs, a different mode, a different channel, or a different actor is rejected as a conflict.
+- **Disabled workflows:** An execute invocation of a disabled workflow is refused. A dry run of one is still allowed.
 :::
+
+Only `schedule` and `recordEvent` belong under `triggers` in YAML. A workflow does not need a YAML trigger: one that is only ever invoked directly or through a run option leaves the block out entirely.
 
 ## Automatic trigger reference {icon="route"}
 
 :::reference
 - **schedule:** Starts future runs from a five-field cron expression. timezone is an optional IANA timezone and defaults to UTC. The same scheduled time creates at most one run. If a scheduled time passes while Grids is unavailable, that missed run is not created later.
 - **recordEvent:** Runs when a record is created, updated, or deleted. Add an optional table restriction and a filter that must match before the workflow starts.
+- **Activation window:** A record event only starts a run if it happened after the trigger became active. Enabling a workflow, or publishing a changed record-event trigger, restarts that window — earlier changes are not replayed into it.
 - **with bindings:** Map trigger values into declared workflow inputs. Every required input must receive a compatible value before the automatic run can start.
 - **Trigger values:** Schedules expose occurredAt and slot. Record events expose record, event, and occurredAt through the trigger root.
 :::
@@ -239,7 +249,7 @@ Run options are configured separately from the workflow source. One workflow can
 | `generateDocument` | `template`, `record` | `filename`, up to 20 `tags`, `saveAs` | Validates access and values; does not generate |
 | `createDocumentLink` | `document` output reference | `expiresIn` (`1d`, `7d`, `30d`, `90d`; default `30d`), `comment`, `saveAs` | Validates the document and access; does not create a link |
 | `sendEmail` | `template`, 1–50 `to` recipients | `data` with up to 200 keys, `saveAs` | Validates template, recipients, data, and access; does not send |
-| `httpRequest` | Absolute HTTP or HTTPS `url` | `method` (default `POST`), `headers`, `json`, `timeoutMs` (default 15,000; range 1,000–60,000), `saveAs` | Checks the target and request policy; does not send |
+| `httpRequest` | Absolute HTTP or HTTPS `url` | `method` (default `POST`), `headers`, `json`, `timeoutMs` (default 15,000; range 1,000–60,000), `saveAs` | Resolves and checks the target; does not send |
 | `setVariable` | `name`, `value` | None | Stores the planned value in the current scope |
 | `succeed` | `message` | None | Stops planning with a successful terminal result |
 | `fail` | `message` | None | Stops planning with the failure that execution would produce |
@@ -248,7 +258,7 @@ Run options are configured separately from the workflow source. One workflow can
 
 Each `sendEmail.to` item contains exactly one recipient: `email` resolves to an email address and `user` resolves to a Cloud user UUID. `httpRequest.headers` accepts at most 100 entries, each up to 1,000 characters; its URL is limited to 4,000 characters. The JSON request body and text response body are each limited to 64 KiB.
 
-`httpRequest.method` accepts `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`. It defaults to `POST`. Requests carry JSON only; use `json` for an optional structured body rather than encoding form data or arbitrary binary content.
+`httpRequest.method` accepts `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`. It defaults to `POST`. Requests carry JSON only; use `json` for an optional structured body rather than encoding form data or arbitrary binary content. Grids sends an `Idempotency-Key` header derived from the run and the step, so a receiver that honours it can recognise a repeated attempt.
 
 **Actions**
 
@@ -481,19 +491,43 @@ steps:
 ## Run modes and observability {icon="route"}
 
 :::reference
-- **execute:** Runs the active revision, changes records, generates documents, starts email delivery, and sends external requests.
+- **execute:** Runs the pinned revision, changes records, generates documents, starts email delivery, and sends external requests.
 - **dryRun:** Plans the workflow, checks current references and permissions, and records predicted effects without applying changes or sending external requests.
 - **Channels:** Direct UI, API, and CLI calls use api. Run options use dashboard, scanner, or bulk. Automatic triggers use schedule or recordEvent.
-- **Run statuses:** A run is queued, running, waiting, succeeded, failed, canceled, or needs_attention.
-- **Step statuses:** Step history uses the run states where applicable and can also show skipped, indeterminate, or unsupported planning outcomes.
 - **Run detail:** Inspect revision, channel, mode, input, start and finish times, duration, result message or structured error, each step outcome, and generated documents.
 - **Automatic triggers:** The workflow page shows whether a schedule is reconciled and its next run, or which record event and table are active. A degraded schedule includes a persistent problem description.
-- **Production health:** Health and error-rate summaries count execute runs. Dry-run failures remain visible in run history without making production execution appear unhealthy.
+- **Run statistics:** The counts and error rate above the run list cover execute runs in the selected window. Dry-run failures stay visible in run history without making real execution look unhealthy.
 :::
+
+A run and a step do not share a vocabulary. Both lists are complete:
+
+:::reference
+- **Run statuses:** `queued`, `running`, `waiting`, `succeeded`, `failed`, `canceled`, `needs_attention`.
+- **Step statuses:** `running`, `completed`, `waiting`, `failed`, `needs_attention`, `terminal`, `planned`, `unsupported`, `indeterminate`, `canceled`.
+:::
+
+`terminal` marks the step that stopped the run: a `succeed` in either mode, and a `fail` in a dry run. A `fail` in an execute run reads `failed` instead, because it is one. `planned`, `indeterminate`, and `unsupported` only ever appear in a dry run — `planned` is a step that was described rather than performed, and the other two say the plan could not be decided, not that anything went wrong at run time.
 
 :::note Dry runs are recorded
 A dry run is a normal observable run with mode `dryRun`. Its step report describes the records, templates, recipient counts, and HTTP hosts that execution would affect without exposing request payloads. Review every predicted effect; a dry run does not prove that a later execute run will see unchanged records, permissions, or external systems.
 :::
+
+The workflow page covers the runs in this base, which is what a workflow author needs. Two things live one level up, with a Cloud administrator: the occurrence that caused each run, and the individual external effects a run performed. Both are under **Observability → Workflows** in Cloud administration, and in `cld admin workflows`. Ask for them when a run's own detail does not explain what started it or what escaped it.
+
+## Understand an interrupted run {icon="alert-triangle"}
+
+A run that is interrupted — a restart, a lost connection, a worker replaced mid-step — is resumed from the outcomes already recorded rather than started again. What that means for a step depends on the kind of effect the action performs, and it is the reason a run can end `needs_attention` instead of simply failing.
+
+:::reference
+- **Record changes:** `updateRecord`, `createRecord`, and `createDocumentLink` commit their work and the record of it together. An interruption means the change did not happen, so resuming performs it once.
+- **Documents and email:** `generateDocument` and `sendEmail` are keyed to the run and the step. Resuming after an interruption does not generate a second document or send a recipient a second copy.
+- **HTTP requests:** `httpRequest` is the one action nothing can verify afterwards. If a request left Grids and no complete response came back, the outcome is genuinely unknown.
+- **Decisions and variables:** `setVariable`, `succeed`, `fail`, and the control-flow steps perform no external effect and are simply re-evaluated.
+:::
+
+An `httpRequest` whose outcome is unknown is not retried and not reported as a failure. Repeating it is how a receiver is charged twice or a webhook fires twice; calling it a failure would claim it did not arrive. Instead the step ends `needs_attention` and the run stops there, so a person decides. Check the receiving system, then start a new run if the request has to be made again.
+
+Because of that, an `httpRequest` inside a workflow is worth pointing at a receiver that tolerates a repeated `Idempotency-Key`. That turns the ambiguous case into a safe one.
 
 ## Permissions and limits {icon="shield-lock"}
 
@@ -501,10 +535,11 @@ A dry run is a normal observable run with mode `dryRun`. Its step report describ
 - **Run permission:** Direct calls and standalone run options require workflow write access. Dashboard widget runs use included dashboard authorization; actions still check their target resources.
 - **Caller run identity:** Direct UI, API, and CLI calls plus scanner, bulk, and dashboard run options run as the user or service account that starts them. Direct calls appear under the api channel.
 - **Automatic run identity:** Schedules and record events run as the workflow owner with the owner's current groups. A record event keeps the user who changed the record in trigger metadata, but does not inherit that user's permissions.
-- **Action permission:** Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow.
+- **Action permission:** Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow. The check happens at the moment of the effect, so access revoked while a run was queued refuses that step rather than the original invocation.
 - **Email delivery:** Email template management requires base admin access. Workflow runs can use enabled email templates without exposing template HTML in autocomplete.
 - **Email-template dependencies:** Grids shows which workflows use an email template and refuses to delete a referenced template. Change those workflows first.
-- **HTTP guardrails:** httpRequest limits request and response bodies to 64 KiB, applies the configured timeout to the complete request, and blocks private or reserved targets by default. Administrators can restrict requests to exact hosts or wildcard subdomains. Private-network requests require both the private-network setting and a matching non-empty host allowlist.
+- **HTTP guardrails:** `httpRequest` reaches public internet addresses only. A URL naming a private, local, or otherwise reserved address is refused, and so is a hostname that resolves to one — including a name that also resolves to a public address. There is no allowlist and no setting that opens this up; a service inside your network cannot be called from a workflow.
+- **HTTP limits:** `httpRequest` limits request and response bodies to 64 KiB, applies the configured timeout to the complete request including target resolution, and rejects credentials embedded in the URL. Connection and transfer headers cannot be overridden.
 :::
 
 One workflow may declare at most 100 inputs and 1,000 steps across all branches and loops. Control flow and recursive conditions may each be nested 20 levels deep, with at most 1,000 conditions. A `recordList`, bulk selection, or `forEach` loop can contain at most 10,000 records. Workflow YAML itself is limited to 200,000 characters.
