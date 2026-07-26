@@ -56,10 +56,6 @@ import {
   type MailSubscriptionSummary,
   type MailWorkflow,
   type MailWorkflowDetail,
-  type MailWorkflowPreflight,
-  type MailWorkflowRun,
-  type MailWorkflowRunPage,
-  type MailWorkflowRunTarget,
   type MailWorkflowVersion,
   type MessageInspector,
   mailSearchExpressionSchema,
@@ -74,9 +70,7 @@ import {
   savedConversationViewFilterSchema,
   type UnsubscribeMailingListResult,
   type WorkflowEffectBudget,
-  type WorkflowTargetQuery,
   type WorkflowValidation,
-  workflowTargetQuerySchema,
 } from "./contracts";
 import type { AutomaticReplyConfiguration } from "./service/automatic-reply-configuration";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
@@ -117,7 +111,6 @@ const MAILBOX_HEALTHS = [
 const COMMAND_PENDING_STATES = new Set<MailCommand["state"]>(["queued", "executing", "ambiguous"]);
 const COMMAND_SUCCESS_STATES = new Set<MailCommand["state"]>(["confirmed", "reconciled"]);
 const MAILBOX_FAILURE_HEALTHS = new Set<MailboxHealth>(["auth_required", "degraded", "connection_required", "paused"]);
-const WORKFLOW_TERMINAL_STATES = new Set<MailWorkflowRun["state"]>(["succeeded", "failed", "canceled", "needs_attention"]);
 const apiPath = (path = "") => `/api/mail${path}`;
 const readApi = async <T>(ctx: CloudCliContext, path: string, init?: RequestInit): Promise<T> =>
   ctx.readJson<T>(await ctx.fetch(apiPath(path), init));
@@ -126,7 +119,6 @@ const jsonRequest = (method: string, value: unknown): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(value),
 });
-const workflowRunRequest = (value: unknown): RequestInit => jsonRequest("POST", value);
 const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const offsetDateTimeSchema = z.iso.datetime({ offset: true });
 const parseOffsetDateTime = (value: string, flagName: string): string => {
@@ -324,16 +316,6 @@ const workflowSourceInput = flag.input({
   stdinName: "source-stdin",
   description: "Exact canonical workflow YAML source",
 });
-const workflowQueryInput = flag.input({
-  fileName: "query-file",
-  stdinName: "query-stdin",
-  description: "Optional target query as JSON or YAML; defaults to all messages",
-});
-const workflowInputsInput = flag.input({
-  fileName: "inputs-file",
-  stdinName: "inputs-stdin",
-  description: "Optional invocation inputs as JSON or YAML; defaults to an empty object",
-});
 const savedViewFilterInput = flag.input({
   fileName: "filter-file",
   stdinName: "filter-stdin",
@@ -388,30 +370,6 @@ const readWorkflowSource = async (input: Parameters<typeof readCliInput>[0]): Pr
   return source;
 };
 
-const readWorkflowQuery = async (input: Parameters<typeof readCliInput>[0]): Promise<WorkflowTargetQuery> => {
-  const raw = await readCliInput(input, {
-    label: "workflow target query",
-    required: false,
-  });
-  if (raw === undefined) return { type: "all" };
-  if (raw.trim().length === 0) throw new Error("Workflow target query cannot be empty.");
-  const parsed = workflowTargetQuerySchema.safeParse(parseStructuredDocument(raw, "Workflow target query"));
-  if (!parsed.success) throw new Error(`Invalid workflow target query: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
-  return parsed.data;
-};
-
-const readWorkflowInputs = async (input: Parameters<typeof readCliInput>[0]): Promise<Record<string, unknown>> => {
-  const raw = await readCliInput(input, {
-    label: "workflow inputs",
-    required: false,
-  });
-  if (raw === undefined) return {};
-  if (raw.trim().length === 0) throw new Error("Workflow inputs cannot be empty.");
-  const parsed = z.record(z.string(), z.json()).safeParse(parseStructuredDocument(raw, "Workflow inputs"));
-  if (!parsed.success) throw new Error(`Invalid workflow inputs: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
-  return parsed.data;
-};
-
 const readSavedViewFilter = async (
   input: Parameters<typeof readCliInput>[0],
   required: boolean,
@@ -436,47 +394,6 @@ const readAutomaticReplyConfiguration = async (input: Parameters<typeof readCliI
   const parsed = createAutomaticReplyConfigurationSchema.safeParse(parseStructuredDocument(raw, "Automatic reply configuration"));
   if (!parsed.success) throw new Error(`Invalid automatic reply configuration: ${parsed.error.issues[0]?.message ?? "unknown error"}`);
   return parsed.data;
-};
-
-const printWorkflowPreflight = (ctx: CloudCliContext, preflight: MailWorkflowPreflight): void => {
-  if (printStructured(ctx, preflight)) return;
-  ctx.print(`Version: ${preflight.workflowVersionId}; source hash: ${preflight.sourceHash}`);
-  ctx.print(`Targets: ${preflight.targetCount}; preflight hash: ${preflight.preflightHash}`);
-};
-
-const workflowProgressText = (run: MailWorkflowRun): string =>
-  `${run.targetProgress.succeeded}/${run.targetProgress.total} succeeded; ${run.targetProgress.failed} failed; ${run.targetProgress.needs_attention} need attention`;
-
-const workflowLastErrorText = (run: MailWorkflowRun): string => (run.lastError ? ` - ${run.lastError.code}: ${run.lastError.message}` : "");
-
-const workflowTerminalError = (run: MailWorkflowRun) =>
-  run.lastError ?? {
-    code: `WORKFLOW_RUN_${run.state.toUpperCase()}`,
-    message: `Workflow run ended in ${run.state}.`,
-    retryable: false,
-  };
-
-const printWorkflowWaitFailure = (ctx: CloudCliContext, run: MailWorkflowRun, value: Record<string, unknown> = { run }): number => {
-  const error = workflowTerminalError(run);
-  if (!printStructured(ctx, { ...value, error })) {
-    ctx.error(`Workflow run ${run.id} ended in ${run.state} - ${error.code}: ${error.message}`);
-  }
-  return 1;
-};
-
-const waitForWorkflowRun = async (
-  ctx: CloudCliContext,
-  mailboxId: string,
-  runId: string,
-  timeoutSeconds?: number,
-): Promise<MailWorkflowRun> => {
-  const run = await pollUntil({
-    load: (signal) => readApi<MailWorkflowRun>(ctx, `/mailboxes/${mailboxId}/workflow-runs/${runId}`, { signal }),
-    done: (value) => WORKFLOW_TERMINAL_STATES.has(value.state),
-    timeoutSeconds,
-    description: `workflow run ${runId}`,
-  });
-  return run;
 };
 
 const mailboxAccessCommands = createAccessCommands({
@@ -5303,33 +5220,6 @@ export default defineCliCommands({
         }
       },
     }),
-    command("workflow preflight", {
-      summary: "Create a version-pinned execution preflight without changing mail",
-      args: { workflowId: arg.required({ description: "Workflow id" }) },
-      flags: {
-        ...mailboxFlag,
-        versionId: flag.string({
-          name: "version-id",
-          required: true,
-          description: "Immutable workflow version id to preflight",
-        }),
-        query: workflowQueryInput,
-        inputs: workflowInputsInput,
-      },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const preflight = await readApi<MailWorkflowPreflight>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/preflight`,
-          jsonRequest("POST", {
-            expectedVersionId: flags.versionId,
-            inputs: await readWorkflowInputs(flags.inputs),
-            query: await readWorkflowQuery(flags.query),
-          }),
-        );
-        printWorkflowPreflight(ctx, preflight);
-      },
-    }),
     command("workflow list", {
       summary: "List saved workflows",
       flags: mailboxFlag,
@@ -5520,393 +5410,6 @@ export default defineCliCommands({
         );
         if (printStructured(ctx, workflow)) return;
         ctx.print(`Deactivated ${workflow.name}.`);
-      },
-    }),
-    command("workflow run one-shot", {
-      summary: "Preflight and execute a saved workflow as a one-shot run",
-      args: { workflowId: arg.required({ description: "Workflow id" }) },
-      flags: {
-        ...mailboxFlag,
-        versionId: flag.string({
-          name: "version-id",
-          required: true,
-          description: "Immutable workflow version id to execute",
-        }),
-        query: workflowQueryInput,
-        inputs: workflowInputsInput,
-        idempotencyKey: flag.string({
-          name: "idempotency-key",
-          description: "Stable client retry key",
-        }),
-        yes: confirmFlag("Confirm workflow effects"),
-        wait: flag.boolean({
-          description: "Wait for the workflow run to finish",
-        }),
-        ...waitFlags,
-      },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const query = await readWorkflowQuery(flags.query);
-        const inputs = await readWorkflowInputs(flags.inputs);
-        const preflight = await readApi<MailWorkflowPreflight>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/preflight`,
-          jsonRequest("POST", {
-            expectedVersionId: flags.versionId,
-            inputs,
-            query,
-          }),
-        );
-        if (!flags.yes) {
-          printWorkflowPreflight(ctx, preflight);
-          throw new Error("Pass --yes to execute the preflighted workflow effects.");
-        }
-        const queued = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/one-shot`,
-          workflowRunRequest({
-            expectedVersionId: flags.versionId,
-            inputs,
-            query,
-            preflightHash: preflight.preflightHash,
-            occurredAt: preflight.occurredAt,
-            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
-          }),
-        );
-        const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
-        if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
-        if (printStructured(ctx, { preflight, run })) return;
-        ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
-      },
-    }),
-    command("workflow run dry-run", {
-      summary: "Plan a saved workflow without applying effects",
-      args: { workflowId: arg.required({ description: "Workflow id" }) },
-      flags: {
-        ...mailboxFlag,
-        versionId: flag.string({
-          name: "version-id",
-          required: true,
-          description: "Immutable workflow version id to plan",
-        }),
-        query: workflowQueryInput,
-        inputs: workflowInputsInput,
-        idempotencyKey: flag.string({
-          name: "idempotency-key",
-          description: "Stable client retry key",
-        }),
-        wait: flag.boolean({ description: "Wait for planning to finish" }),
-        ...waitFlags,
-      },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const run = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/dry-run`,
-          workflowRunRequest({
-            expectedVersionId: flags.versionId,
-            inputs: await readWorkflowInputs(flags.inputs),
-            query: await readWorkflowQuery(flags.query),
-            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
-          }),
-        );
-        const result = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, run.id, flags.timeoutSeconds) : run;
-        if (flags.wait && result.state !== "succeeded") return printWorkflowWaitFailure(ctx, result);
-        if (printStructured(ctx, result)) return;
-        ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow dry run ${result.id} (${result.state}).`);
-      },
-    }),
-    command("workflow run invoke", {
-      summary: "Preflight and execute a saved workflow through the direct invocation channel",
-      args: { workflowId: arg.required({ description: "Workflow id" }) },
-      flags: {
-        ...mailboxFlag,
-        versionId: flag.string({
-          name: "version-id",
-          required: true,
-          description: "Immutable workflow version id to execute",
-        }),
-        query: workflowQueryInput,
-        inputs: workflowInputsInput,
-        idempotencyKey: flag.string({
-          name: "idempotency-key",
-          description: "Stable client retry key",
-        }),
-        yes: confirmFlag("Confirm workflow effects"),
-        wait: flag.boolean({
-          description: "Wait for the workflow run to finish",
-        }),
-        ...waitFlags,
-      },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const query = await readWorkflowQuery(flags.query);
-        const inputs = await readWorkflowInputs(flags.inputs);
-        const preflight = await readApi<MailWorkflowPreflight>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/preflight`,
-          jsonRequest("POST", {
-            expectedVersionId: flags.versionId,
-            inputs,
-            query,
-          }),
-        );
-        if (!flags.yes) {
-          printWorkflowPreflight(ctx, preflight);
-          throw new Error("Pass --yes to execute the preflighted workflow effects.");
-        }
-        const queued = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/invoke`,
-          workflowRunRequest({
-            expectedVersionId: flags.versionId,
-            inputs,
-            query,
-            preflightHash: preflight.preflightHash,
-            occurredAt: preflight.occurredAt,
-            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
-          }),
-        );
-        const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
-        if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
-        if (printStructured(ctx, { preflight, run })) return;
-        ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
-      },
-    }),
-    command("workflow run backfill", {
-      summary: "Preflight and execute a saved workflow over a backfill target set",
-      args: { workflowId: arg.required({ description: "Workflow id" }) },
-      flags: {
-        ...mailboxFlag,
-        versionId: flag.string({
-          name: "version-id",
-          required: true,
-          description: "Immutable workflow version id to execute",
-        }),
-        query: workflowQueryInput,
-        inputs: workflowInputsInput,
-        idempotencyKey: flag.string({
-          name: "idempotency-key",
-          description: "Stable client retry key",
-        }),
-        yes: confirmFlag("Confirm workflow effects"),
-        wait: flag.boolean({
-          description: "Wait for the workflow run to finish",
-        }),
-        ...waitFlags,
-      },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const query = await readWorkflowQuery(flags.query);
-        const inputs = await readWorkflowInputs(flags.inputs);
-        const preflight = await readApi<MailWorkflowPreflight>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/preflight`,
-          jsonRequest("POST", {
-            expectedVersionId: flags.versionId,
-            inputs,
-            query,
-          }),
-        );
-        if (!flags.yes) {
-          printWorkflowPreflight(ctx, preflight);
-          throw new Error("Pass --yes to execute the preflighted workflow effects.");
-        }
-        const queued = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/backfill`,
-          workflowRunRequest({
-            expectedVersionId: flags.versionId,
-            inputs,
-            query,
-            preflightHash: preflight.preflightHash,
-            occurredAt: preflight.occurredAt,
-            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
-          }),
-        );
-        const run = flags.wait ? await waitForWorkflowRun(ctx, mailbox.id, queued.id, flags.timeoutSeconds) : queued;
-        if (flags.wait && run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run, { preflight, run });
-        if (printStructured(ctx, { preflight, run })) return;
-        ctx.print(`${flags.wait ? "Completed" : "Queued"} workflow run ${run.id} (${run.state}).`);
-      },
-    }),
-    command("workflow run list", {
-      summary: "List recent workflow runs",
-      flags: {
-        ...mailboxFlag,
-        workflow: flag.string({ description: "Optional workflow id" }),
-        cursor: flag.string({ description: "Continue from a workflow run cursor" }),
-        limit: flag.int({ min: 1, max: 200, default: 50 }),
-      },
-      run: async ({ ctx, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
-        if (flags.workflow) query.set("workflowId", flags.workflow);
-        if (flags.cursor) query.set("cursor", flags.cursor);
-        const page = await readApi<MailWorkflowRunPage>(ctx, `/mailboxes/${mailbox.id}/workflow-runs?${query}`);
-        printTable(
-          ctx,
-          page,
-          page.items.map((run) => ({
-            created: run.createdAt,
-            state: run.state,
-            targets: workflowProgressText(run),
-            workflow: run.workflowId,
-            id: run.id,
-          })),
-          [
-            { key: "created", label: "CREATED" },
-            { key: "state", label: "STATE" },
-            { key: "targets", label: "TARGETS" },
-            { key: "workflow", label: "WORKFLOW ID" },
-            { key: "id", label: "RUN ID" },
-          ],
-        );
-        if (ctx.options.output === "text" && page.nextCursor) ctx.print(`Next cursor: ${page.nextCursor}`);
-      },
-    }),
-    command("workflow run get", {
-      summary: "Inspect a durable workflow run",
-      args: { runId: arg.required({ description: "Workflow run id" }) },
-      flags: mailboxFlag,
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const run = await readApi<MailWorkflowRun>(ctx, `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}`);
-        if (printStructured(ctx, run)) return;
-        ctx.print(`${run.state}: ${workflowProgressText(run)}${workflowLastErrorText(run)}`);
-      },
-    }),
-    command("workflow run targets", {
-      summary: "Inspect workflow run targets using an ordinal cursor",
-      args: { runId: arg.required({ description: "Workflow run id" }) },
-      flags: {
-        ...mailboxFlag,
-        after: flag.int({
-          min: -1,
-          default: -1,
-          description: "Return targets after this ordinal",
-        }),
-        limit: flag.int({ min: 1, max: 200, default: 100 }),
-      },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const query = new URLSearchParams({
-          afterOrdinal: String(flags.after ?? -1),
-          limit: String(flags.limit ?? 100),
-        });
-        const targets = await readApi<MailWorkflowRunTarget[]>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}/targets?${query}`,
-        );
-        printTable(
-          ctx,
-          targets,
-          targets.map((target) => ({
-            ordinal: target.ordinal,
-            state: target.state,
-            key: target.targetKey,
-            error: target.lastError?.message ?? "",
-            id: target.id,
-          })),
-          [
-            { key: "ordinal", label: "ORDINAL" },
-            { key: "state", label: "STATE" },
-            { key: "key", label: "TARGET" },
-            { key: "error", label: "ERROR" },
-            { key: "id", label: "TARGET ID" },
-          ],
-        );
-      },
-    }),
-    command("workflow run wait", {
-      summary: "Wait for a workflow run to succeed",
-      args: { runId: arg.required({ description: "Workflow run id" }) },
-      flags: { ...mailboxFlag, ...waitFlags },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const run = await waitForWorkflowRun(ctx, mailbox.id, args.runId, flags.timeoutSeconds);
-        if (run.state !== "succeeded") return printWorkflowWaitFailure(ctx, run);
-        if (printStructured(ctx, run)) return;
-        ctx.print(`Workflow run ${run.id} succeeded (${workflowProgressText(run)}).`);
-      },
-    }),
-    command("workflow run cancel", {
-      summary: "Cancel queued, running, or waiting workflow targets",
-      args: { runId: arg.required({ description: "Workflow run id" }) },
-      flags: {
-        ...mailboxFlag,
-        reason: flag.string({
-          description: "Optional operator-visible cancellation reason",
-        }),
-        yes: confirmFlag("Confirm workflow run cancellation"),
-      },
-      run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to cancel the workflow run.");
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const run = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}/cancel`,
-          jsonRequest("POST", { reason: flags.reason }),
-        );
-        if (printStructured(ctx, run)) return;
-        ctx.print(`Workflow run ${run.id} is ${run.state}.`);
-      },
-    }),
-    command("workflow run pause", {
-      summary: "Pause an active workflow run at a fenced action boundary",
-      args: { runId: arg.required({ description: "Workflow run id" }) },
-      flags: { ...mailboxFlag, reason: flag.string({ description: "Optional operator-visible pause reason" }) },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const run = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}/pause`,
-          jsonRequest("POST", { reason: flags.reason }),
-        );
-        if (printStructured(ctx, run)) return;
-        ctx.print(`Workflow run ${run.id} is ${run.state}.`);
-      },
-    }),
-    command("workflow run resume", {
-      summary: "Resume a paused workflow run",
-      args: { runId: arg.required({ description: "Workflow run id" }) },
-      flags: { ...mailboxFlag, reason: flag.string({ description: "Optional operator-visible resume reason" }) },
-      run: async ({ ctx, args, flags }) => {
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const run = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}/resume`,
-          jsonRequest("POST", { reason: flags.reason }),
-        );
-        if (printStructured(ctx, run)) return;
-        ctx.print(`Workflow run ${run.id} is ${run.state}.`);
-      },
-    }),
-    command("workflow run retry", {
-      summary: "Retry selected failed targets as a lineage-linked child run",
-      args: { runId: arg.required({ description: "Source workflow run id" }) },
-      flags: {
-        ...mailboxFlag,
-        target: flag.stringList({ description: "Failed target id; repeatable" }),
-        idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable client retry key" }),
-        reason: flag.string({ description: "Optional operator-visible retry reason" }),
-        yes: confirmFlag("Confirm workflow target retry"),
-      },
-      run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to retry workflow targets.");
-        if (flags.target.length === 0) throw new Error("Pass at least one --target.");
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const run = await readApi<MailWorkflowRun>(
-          ctx,
-          `/mailboxes/${mailbox.id}/workflow-runs/${args.runId}/retry`,
-          jsonRequest("POST", {
-            targetIds: flags.target,
-            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
-            reason: flags.reason,
-          }),
-        );
-        if (printStructured(ctx, run)) return;
-        ctx.print(`Queued retry child run ${run.id} for ${run.targetProgress.total} target(s).`);
       },
     }),
     command("command list", {

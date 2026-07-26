@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
-import { workflowTriggerRegistrations } from "./workflow-definition-service";
+import { workflowActivationError, workflowTriggerRegistrations } from "./workflow-definition-service";
 
 const plan: WorkflowBoundPlan = {
   schemaVersion: 2,
@@ -27,15 +27,22 @@ describe("Mail workflow activation registrations", () => {
   test("derives keys and configs exclusively from the bound plan", () => {
     expect(workflowTriggerRegistrations(plan)).toEqual([
       {
-        key: "messageReceived",
-        kind: "messageReceived",
+        key: "messageReceived:0",
+        eventType: "mail.messageReceived",
         config: { with: { message: "${{ trigger.message }}", conversation: "${{ trigger.conversation }}" } },
+        enabled: true,
       },
       {
-        key: "schedule",
-        kind: "schedule",
+        key: "schedule:1",
+        eventType: "mail.schedule",
         config: { cron: "0 8 * * *", timezone: "Europe/Berlin", with: {} },
+        enabled: true,
       },
     ]);
+  });
+
+  test("rejects activation when no automatic trigger can create a run", () => {
+    expect(workflowActivationError({ ...plan, triggers: [] })).toBe("An active workflow needs at least one trigger");
+    expect(workflowActivationError(plan)).toBeNull();
   });
 });

@@ -3737,36 +3737,6 @@ const removeConversationFollowersAndMentions = async (db: SqlClient): Promise<vo
   await canonicalizeSavedConversationViews(db);
 
   await db`
-    UPDATE mail.workflow_activations activation
-    SET
-      enabled = false,
-      diagnostics = activation.diagnostics || jsonb_build_array(jsonb_build_object(
-        'severity', 'error',
-        'code', 'removed_search_condition',
-        'message', 'This workflow used the removed Followed by me search condition. Edit and reactivate it.'
-      )),
-      updated_at = now()
-    FROM mail.workflow_versions version
-    WHERE activation.workflow_version_id = version.id
-      AND (
-        version.source LIKE '%watched_by_me%'
-        OR version.ir::text LIKE '%watched_by_me%'
-        OR version.bound_plan::text LIKE '%watched_by_me%'
-      )
-  `;
-  await db`
-    UPDATE mail.workflows workflow
-    SET active_version_id = NULL, updated_at = now()
-    FROM mail.workflow_versions version
-    WHERE workflow.active_version_id = version.id
-      AND (
-        version.source LIKE '%watched_by_me%'
-        OR version.ir::text LIKE '%watched_by_me%'
-        OR version.bound_plan::text LIKE '%watched_by_me%'
-      )
-  `;
-
-  await db`
     DO $$
     BEGIN
       IF to_regclass('notifications.events') IS NOT NULL THEN
@@ -3817,35 +3787,6 @@ const unifyConversationWorkStates = async (db: SqlClient): Promise<void> => {
   `;
 
   await canonicalizeSavedConversationViews(db);
-  await db`
-    UPDATE mail.workflow_activations activation
-    SET
-      enabled = false,
-      diagnostics = activation.diagnostics || jsonb_build_array(jsonb_build_object(
-        'severity', 'error',
-        'code', 'removed_conversation_state',
-        'message', 'This workflow used a removed conversation-state field or value. Edit and reactivate it.'
-      )),
-      updated_at = now()
-    FROM mail.workflow_versions version
-    WHERE activation.workflow_version_id = version.id
-      AND (
-        version.source ~ '(^|[[:space:]])(response_needed|responseNeeded)([[:space:]:]|$)|(^|[[:space:]])(work_status|workStatus)[[:space:]]*:[[:space:]]*open([[:space:]#]|$)|conversation[.]status'
-        OR version.ir::text ~ '"(response_needed|responseNeeded)"|"(work_status|workStatus)"[[:space:]]*:[[:space:]]*"open"|conversation[.]status'
-        OR version.bound_plan::text ~ '"(response_needed|responseNeeded)"|"(work_status|workStatus)"[[:space:]]*:[[:space:]]*"open"|conversation[.]status'
-      )
-  `;
-  await db`
-    UPDATE mail.workflows workflow
-    SET active_version_id = NULL, updated_at = now()
-    FROM mail.workflow_versions version
-    WHERE workflow.active_version_id = version.id
-      AND (
-        version.source ~ '(^|[[:space:]])(response_needed|responseNeeded)([[:space:]:]|$)|(^|[[:space:]])(work_status|workStatus)[[:space:]]*:[[:space:]]*open([[:space:]#]|$)|conversation[.]status'
-        OR version.ir::text ~ '"(response_needed|responseNeeded)"|"(work_status|workStatus)"[[:space:]]*:[[:space:]]*"open"|conversation[.]status'
-        OR version.bound_plan::text ~ '"(response_needed|responseNeeded)"|"(work_status|workStatus)"[[:space:]]*:[[:space:]]*"open"|conversation[.]status'
-      )
-  `;
 };
 
 const repairDraftProviderRemoteIdentityIndex = async (db: SqlClient): Promise<void> => {
@@ -4794,6 +4735,135 @@ const hardenManagedSenderRules = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+/**
+ * Mail is still unreleased, so this is an intentional hard cut to the shared
+ * workflow kernel. The old tables are empty in every deployed environment:
+ * there is no dual-write, compatibility view, or data conversion to keep.
+ */
+const migrateWorkflowsToKernel = async (db: SqlClient): Promise<void> => {
+  await db`DROP TABLE IF EXISTS mail.automatic_reply_effects`;
+  await db`
+    ALTER TABLE mail.automatic_reply_configurations
+    DROP CONSTRAINT IF EXISTS automatic_reply_configurations_workflow_id_mailbox_id_fkey
+  `;
+  await db`
+    ALTER TABLE mail.sender_rules
+    DROP CONSTRAINT IF EXISTS sender_rules_workflow_id_mailbox_id_fkey
+  `;
+  await db`
+    ALTER TABLE mail.workflows
+    DROP CONSTRAINT IF EXISTS workflows_current_version_fkey,
+    DROP CONSTRAINT IF EXISTS workflows_active_version_fkey
+  `;
+
+  await db`DROP TABLE IF EXISTS mail.workflow_step_runs`;
+  await db`DROP TABLE IF EXISTS mail.workflow_run_targets`;
+  await db`DROP TABLE IF EXISTS mail.workflow_runs`;
+  await db`DROP TABLE IF EXISTS mail.workflow_trigger_events`;
+  await db`DROP TABLE IF EXISTS mail.workflow_activations`;
+  await db`DROP TABLE IF EXISTS mail.workflow_versions`;
+  await db`DROP TABLE IF EXISTS mail.workflows`;
+
+  await db`
+    CREATE TABLE mail.workflow_profile (
+      id UUID PRIMARY KEY REFERENCES workflows.workflow(id) ON DELETE CASCADE,
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      priority INTEGER NOT NULL DEFAULT 100 CHECK (priority BETWEEN -1000 AND 1000),
+      enabled BOOLEAN NOT NULL DEFAULT false,
+      managed_by TEXT CHECK (managed_by IS NULL OR managed_by IN ('automatic_reply', 'sender_rule')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (id, mailbox_id)
+    )
+  `;
+  await db`
+    CREATE INDEX workflow_profile_mailbox_priority_idx
+    ON mail.workflow_profile (mailbox_id, priority, id)
+  `;
+  await db`
+    CREATE TRIGGER workflow_profile_touch_updated_at
+    BEFORE UPDATE ON mail.workflow_profile
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+
+  await db`
+    CREATE TABLE mail.workflow_run_state (
+      run_id UUID PRIMARY KEY REFERENCES workflows.run(id) ON DELETE CASCADE,
+      frozen_hydration JSONB NOT NULL DEFAULT '{}'::jsonb
+        CHECK (jsonb_typeof(frozen_hydration) = 'object'),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+
+  await db`
+    ALTER TABLE mail.automatic_reply_configurations
+    ADD CONSTRAINT automatic_reply_configurations_workflow_id_fkey
+    FOREIGN KEY (workflow_id) REFERENCES mail.workflow_profile(id) ON DELETE RESTRICT
+  `;
+  await db`
+    ALTER TABLE mail.sender_rules
+    ADD CONSTRAINT sender_rules_workflow_id_fkey
+    FOREIGN KEY (workflow_id) REFERENCES mail.workflow_profile(id) ON DELETE CASCADE
+  `;
+
+  await db`
+    CREATE TABLE mail.automatic_reply_effects (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      workflow_version_id UUID NOT NULL REFERENCES workflows.version(id) ON DELETE RESTRICT,
+      workflow_run_id UUID NOT NULL REFERENCES workflows.run(id) ON DELETE CASCADE,
+      step_key TEXT NOT NULL CHECK (char_length(step_key) BETWEEN 1 AND 500),
+      message_id UUID NOT NULL REFERENCES mail.message_contents(id) ON DELETE RESTRICT,
+      conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE RESTRICT,
+      sender_identity_id UUID NOT NULL REFERENCES mail.sender_identities(id) ON DELETE RESTRICT,
+      recipient TEXT CHECK (recipient IS NULL OR char_length(recipient) BETWEEN 3 AND 320),
+      state TEXT NOT NULL CHECK (state IN ('suppressed', 'queued', 'confirmed', 'failed', 'cancelled', 'needs_attention')),
+      suppression_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::text[],
+      command_id UUID REFERENCES mail.commands(id) ON DELETE SET NULL,
+      draft_id UUID REFERENCES mail.drafts(id) ON DELETE RESTRICT,
+      request_hash TEXT CHECK (request_hash IS NULL OR request_hash ~ '^[a-f0-9]{64}$'),
+      protocol_facts JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(protocol_facts) = 'object'),
+      scheduled_at TIMESTAMPTZ,
+      confirmed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT automatic_reply_effects_confirmed_at_check CHECK (state <> 'confirmed' OR confirmed_at IS NOT NULL),
+      UNIQUE (workflow_version_id, workflow_run_id, step_key)
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX automatic_reply_effects_command_idx
+    ON mail.automatic_reply_effects (command_id)
+    WHERE command_id IS NOT NULL
+  `;
+  await db`
+    CREATE INDEX automatic_reply_rate_idx
+    ON mail.automatic_reply_effects (mailbox_id, recipient, state, confirmed_at DESC)
+    WHERE state IN ('queued', 'confirmed', 'needs_attention')
+  `;
+  await db`
+    CREATE TRIGGER automatic_reply_effects_touch_updated_at
+    BEFORE UPDATE ON mail.automatic_reply_effects
+    FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
+  `;
+};
+
+const addWorkflowCommandGenerationFence = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.commands
+    ADD COLUMN workflow_execution_generation BIGINT
+      CHECK (workflow_execution_generation IS NULL OR workflow_execution_generation > 0)
+  `;
+};
+
+const addWorkflowProfileManager = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.workflow_profile
+    ADD COLUMN IF NOT EXISTS managed_by TEXT
+      CHECK (managed_by IS NULL OR managed_by IN ('automatic_reply', 'sender_rule'))
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4886,6 +4956,9 @@ const migrations: readonly MailMigration[] = [
   { version: 90, name: "draft_derivation_idempotency", run: addDraftDerivationIdempotency },
   { version: 91, name: "managed_sender_rules", run: addManagedSenderRules },
   { version: 92, name: "managed_sender_rules_hardening", run: hardenManagedSenderRules },
+  { version: 93, name: "shared_workflow_kernel", run: migrateWorkflowsToKernel },
+  { version: 94, name: "workflow_command_generation_fence", run: addWorkflowCommandGenerationFence },
+  { version: 95, name: "workflow_profile_manager", run: addWorkflowProfileManager },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

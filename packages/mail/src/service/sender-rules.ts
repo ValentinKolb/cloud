@@ -15,16 +15,13 @@ import {
   updateSenderRuleSchema,
   type WorkflowEffectBudget,
 } from "../contracts";
-import { normalizeEmailAddress, normalizeEmailDomain } from "./address-normalization";
 import { requireMailboxPermission } from "./access";
+import { normalizeEmailAddress, normalizeEmailDomain } from "./address-normalization";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { databaseErrorCode } from "./database-errors";
 import { publishMailMailboxEvent } from "./events";
 import type { SqlClient } from "./workflow-data";
-import {
-  replaceManagedWorkflowInTransaction,
-  setManagedWorkflowEnabledInTransaction,
-} from "./workflow-definition-service";
+import { replaceManagedWorkflowInTransaction, setManagedWorkflowEnabledInTransaction } from "./workflow-definition-service";
 
 export type SenderRule = {
   id: string;
@@ -194,12 +191,9 @@ const protectMailboxSenders = async (params: {
   );
   const protectedMatch =
     params.matchKind === "sender"
-      ? identityAddresses.has(params.matchValue) ||
-        internalDomains.has(params.matchValue.slice(params.matchValue.lastIndexOf("@") + 1))
+      ? identityAddresses.has(params.matchValue) || internalDomains.has(params.matchValue.slice(params.matchValue.lastIndexOf("@") + 1))
       : identityDomains.has(params.matchValue) || internalDomains.has(params.matchValue);
-  return protectedMatch
-    ? fail(err.badInput("Mailbox identities and internal domains cannot be routed to junk or trash"))
-    : ok();
+  return protectedMatch ? fail(err.badInput("Mailbox identities and internal domains cannot be routed to junk or trash")) : ok();
 };
 
 const lockMailbox = async (context: MailRequestContext, mailboxId: string, db: SqlClient): Promise<Result<void>> => {
@@ -214,12 +208,7 @@ const lockMailbox = async (context: MailRequestContext, mailboxId: string, db: S
   return allowed.ok ? ok() : allowed;
 };
 
-const loadSenderRule = async (
-  mailboxId: string,
-  ruleId: string,
-  db: SqlClient,
-  lock = false,
-): Promise<Result<SenderRule>> => {
+const loadSenderRule = async (mailboxId: string, ruleId: string, db: SqlClient, lock = false): Promise<Result<SenderRule>> => {
   const [row] = await db<SenderRuleRow[]>`
     SELECT ${senderRuleColumns}
     FROM mail.sender_rules rule
@@ -331,6 +320,7 @@ export const createSenderRule = async (params: {
           name: internalWorkflowName(ruleId),
           description: "Managed by Mail sender rules.",
           priority: 50,
+          managedBy: "sender_rule",
           source: buildSenderRuleWorkflowSource({ ...parsed.data, matchValue }),
           effectBudget: workflowBudget(parsed.data.action),
           enabled: parsed.data.enabled,
@@ -421,6 +411,7 @@ export const updateSenderRule = async (params: {
             name: internalWorkflowName(params.ruleId),
             description: "Managed by Mail sender rules.",
             priority: 50,
+            managedBy: "sender_rule",
             source: buildSenderRuleWorkflowSource({ ...parsed.data, matchValue }),
             effectBudget: workflowBudget(parsed.data.action),
             enabled: parsed.data.enabled,

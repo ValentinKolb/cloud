@@ -6,19 +6,10 @@ import { z } from "zod";
 import {
   type MailWorkflow,
   type MailWorkflowDetail,
-  type MailWorkflowPreflight,
-  type MailWorkflowRun,
-  type MailWorkflowRunTarget,
   type MailWorkflowVersion,
   type WorkflowValidation,
   workflowEffectBudgetSchema,
   workflowJsonValueSchema,
-  workflowRunChannelSchema,
-  workflowRunKindSchema,
-  workflowRunModeSchema,
-  workflowRunStateSchema,
-  workflowRunTargetSelectionSchema,
-  workflowTargetStateSchema,
 } from "../contracts";
 
 const responseSchema =
@@ -232,88 +223,6 @@ export const mailWorkflowDetailSchema = responseSchema<MailWorkflowDetail>()(
     activations: z.array(mailWorkflowActivationSchema),
   }),
 );
-export const mailWorkflowPreflightSchema = responseSchema<MailWorkflowPreflight>()(
-  z.object({
-    workflowVersionId: z.string().uuid(),
-    versionIdentity: z.string(),
-    sourceHash: workflowHashSchema,
-    queryHash: workflowHashSchema,
-    preflightHash: workflowHashSchema,
-    occurredAt: z.string().datetime(),
-    effectBudget: workflowEffectBudgetSchema,
-    actionCounts: z.record(z.string(), z.number().int().nonnegative()),
-    targetCount: z.number().int().nonnegative(),
-  }),
-);
-const workflowExecutionErrorSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  retryable: z.boolean(),
-});
-const workflowTargetProgressSchema = z.object({
-  total: z.number().int().nonnegative(),
-  queued: z.number().int().nonnegative(),
-  running: z.number().int().nonnegative(),
-  waiting: z.number().int().nonnegative(),
-  succeeded: z.number().int().nonnegative(),
-  failed: z.number().int().nonnegative(),
-  canceled: z.number().int().nonnegative(),
-  needs_attention: z.number().int().nonnegative(),
-});
-export const mailWorkflowRunSchema = responseSchema<MailWorkflowRun>()(
-  z.object({
-    id: z.string().uuid(),
-    mailboxId: z.string().uuid(),
-    workflowId: z.string().uuid(),
-    workflowVersionId: z.string().uuid(),
-    versionIdentity: z.string(),
-    sourceHash: workflowHashSchema,
-    kind: workflowRunKindSchema,
-    mode: workflowRunModeSchema,
-    channel: workflowRunChannelSchema,
-    state: workflowRunStateSchema,
-    inputs: workflowJsonObjectSchema,
-    query: workflowRunTargetSelectionSchema,
-    preflightHash: workflowHashSchema.nullable(),
-    retryOfRunId: z.string().uuid().nullable(),
-    pausedAt: z.string().datetime().nullable(),
-    pauseReason: z.string().nullable(),
-    targetProgress: workflowTargetProgressSchema,
-    result: workflowJsonValueSchema.nullable(),
-    lastError: workflowExecutionErrorSchema.nullable(),
-    createdAt: z.string().datetime(),
-    startedAt: z.string().datetime().nullable(),
-    finishedAt: z.string().datetime().nullable(),
-    updatedAt: z.string().datetime(),
-  }),
-);
-export const mailWorkflowRunPageSchema = z.object({
-  items: z.array(mailWorkflowRunSchema),
-  nextCursor: z.string().nullable(),
-});
-export const mailWorkflowRunTargetSchema = responseSchema<MailWorkflowRunTarget>()(
-  z.object({
-    id: z.string().uuid(),
-    parentRunId: z.string().uuid(),
-    ordinal: z.number().int().nonnegative(),
-    targetKey: z.string(),
-    state: workflowTargetStateSchema,
-    executionGeneration: z.number().int().nonnegative(),
-    inputs: workflowJsonObjectSchema,
-    source: workflowJsonValueSchema,
-    preconditions: workflowJsonValueSchema,
-    result: workflowJsonValueSchema.nullable(),
-    lastError: workflowExecutionErrorSchema.nullable(),
-    cancelRequestedAt: z.string().datetime().nullable(),
-    retryOfTargetId: z.string().uuid().nullable(),
-    hasRetry: z.boolean(),
-    createdAt: z.string().datetime(),
-    startedAt: z.string().datetime().nullable(),
-    finishedAt: z.string().datetime().nullable(),
-    updatedAt: z.string().datetime(),
-  }),
-);
-
 const errorResponses = {
   400: jsonResponse(ErrorResponseSchema, "Invalid request"),
   401: jsonResponse(ErrorResponseSchema, "Authentication required"),

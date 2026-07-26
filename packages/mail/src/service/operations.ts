@@ -20,70 +20,46 @@ import {
 } from "./operator-actions";
 
 const toIso = (value: Date | string | null): string | null =>
-  value
-    ? (value instanceof Date ? value : new Date(value)).toISOString()
-    : null;
+  value ? (value instanceof Date ? value : new Date(value)).toISOString() : null;
 
-const stateRecord = (
-  rows: Array<{ state: string; count: number | string }>
-): Record<string, number> =>
+const stateRecord = (rows: Array<{ state: string; count: number | string }>): Record<string, number> =>
   Object.fromEntries(rows.map((row) => [row.state, Number(row.count)]));
 
-const platformCursorSchema = z
-  .object({ version: z.literal(1), createdAt: z.iso.datetime(), id: z.uuid() })
-  .strict();
+const platformCursorSchema = z.object({ version: z.literal(1), createdAt: z.iso.datetime(), id: z.uuid() }).strict();
 type PlatformCursor = z.infer<typeof platformCursorSchema>;
-const attentionCursorSchema = z
-  .object({ version: z.literal(1), updatedAt: z.iso.datetime(), id: z.uuid() })
-  .strict();
+const attentionCursorSchema = z.object({ version: z.literal(1), updatedAt: z.iso.datetime(), id: z.uuid() }).strict();
 type AttentionCursor = z.infer<typeof attentionCursorSchema>;
 
-const encodePlatformCursor = (row: {
-  id: string;
-  cursor_created_at: string;
-}): string =>
+const encodePlatformCursor = (row: { id: string; cursor_created_at: string }): string =>
   Buffer.from(
     JSON.stringify({
       version: 1,
       createdAt: row.cursor_created_at,
       id: row.id,
-    } satisfies PlatformCursor)
+    } satisfies PlatformCursor),
   ).toString("base64url");
 
 const toSafeCount = (value: number | string): number => {
   const count = Number(value);
-  if (!Number.isSafeInteger(count) || count < 0)
-    throw new Error("Mail operations count exceeds the JSON integer range");
+  if (!Number.isSafeInteger(count) || count < 0) throw new Error("Mail operations count exceeds the JSON integer range");
   return count;
 };
 
-const decodePlatformCursor = (
-  value?: string
-): Result<PlatformCursor | null> => {
+const decodePlatformCursor = (value?: string): Result<PlatformCursor | null> => {
   if (!value) return ok(null);
   try {
-    const parsed = platformCursorSchema.safeParse(
-      JSON.parse(Buffer.from(value, "base64url").toString("utf8"))
-    );
-    return parsed.success
-      ? ok(parsed.data)
-      : fail(err.badInput("Invalid Mail operations cursor"));
+    const parsed = platformCursorSchema.safeParse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+    return parsed.success ? ok(parsed.data) : fail(err.badInput("Invalid Mail operations cursor"));
   } catch {
     return fail(err.badInput("Invalid Mail operations cursor"));
   }
 };
 
-const decodeAttentionCursor = (
-  value?: string
-): Result<AttentionCursor | null> => {
+const decodeAttentionCursor = (value?: string): Result<AttentionCursor | null> => {
   if (!value) return ok(null);
   try {
-    const parsed = attentionCursorSchema.safeParse(
-      JSON.parse(Buffer.from(value, "base64url").toString("utf8"))
-    );
-    return parsed.success
-      ? ok(parsed.data)
-      : fail(err.badInput("Invalid Mail attention cursor"));
+    const parsed = attentionCursorSchema.safeParse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
+    return parsed.success ? ok(parsed.data) : fail(err.badInput("Invalid Mail attention cursor"));
   } catch {
     return fail(err.badInput("Invalid Mail attention cursor"));
   }
@@ -112,7 +88,7 @@ const encodeAttentionCursor = (row: DbAttentionCommand): string =>
       version: 1,
       updatedAt: toIso(row.updated_at)!,
       id: row.id,
-    } satisfies AttentionCursor)
+    } satisfies AttentionCursor),
   ).toString("base64url");
 
 type DbFolder = {
@@ -129,7 +105,7 @@ const loadMailboxOperations = async (
     attentionCursor?: AttentionCursor | null;
     attentionLimit?: number;
     includeFolderActions?: boolean;
-  } = {}
+  } = {},
 ): Promise<MailboxOperatorOperations | null> => {
   const [mailbox] = await sql<DbMailbox[]>`
     SELECT
@@ -184,14 +160,16 @@ const loadMailboxOperations = async (
     SELECT state, COUNT(*)::int AS count FROM mail.outbox_submissions WHERE mailbox_id = ${mailboxId}::uuid GROUP BY state
   `;
   const workflowStates = await sql<{ state: string; count: number }[]>`
-    SELECT state, COUNT(*)::int AS count FROM mail.workflow_runs WHERE mailbox_id = ${mailboxId}::uuid GROUP BY state
+    SELECT run.state, COUNT(*)::int AS count
+    FROM workflows.run run
+    JOIN mail.workflow_profile profile ON profile.id = run.workflow_id
+    WHERE profile.mailbox_id = ${mailboxId}::uuid
+    GROUP BY run.state
   `;
   const automaticReplyStates = await sql<{ state: string; count: number }[]>`
     SELECT state, COUNT(*)::int AS count FROM mail.automatic_reply_effects WHERE mailbox_id = ${mailboxId}::uuid GROUP BY state
   `;
-  const automaticReplySuppressions = await sql<
-    { state: string; count: number }[]
-  >`
+  const automaticReplySuppressions = await sql<{ state: string; count: number }[]>`
     SELECT reason AS state, COUNT(*)::int AS count
     FROM mail.automatic_reply_effects effect
     CROSS JOIN LATERAL unnest(effect.suppression_reasons) reason
@@ -269,18 +247,13 @@ const loadMailboxOperations = async (
           WHERE resource.mailbox_id = ${mailboxId}::uuid
           ORDER BY lower(folder.name), folder.id
         `;
-  const attentionLimit = Math.min(
-    Math.max(options.attentionLimit ?? 100, 1),
-    200
-  );
+  const attentionLimit = Math.min(Math.max(options.attentionLimit ?? 100, 1), 200);
   const attentionCommandsPage = await sql<DbAttentionCommand[]>`
     SELECT id, kind, state, attempt, last_error_code, provider_effect_started_at, created_at, updated_at
     FROM mail.commands
     WHERE mailbox_id = ${mailboxId}::uuid AND state IN ('failed', 'ambiguous', 'needs_attention')
       AND (${options.attentionCursor?.updatedAt ?? null}::timestamptz IS NULL
-        OR (updated_at, id) < (${
-          options.attentionCursor?.updatedAt ?? null
-        }::timestamptz, ${options.attentionCursor?.id ?? null}::uuid))
+        OR (updated_at, id) < (${options.attentionCursor?.updatedAt ?? null}::timestamptz, ${options.attentionCursor?.id ?? null}::uuid))
     ORDER BY updated_at DESC, id DESC
     LIMIT ${attentionLimit + 1}
   `;
@@ -306,17 +279,13 @@ const loadMailboxOperations = async (
     ORDER BY updated_at DESC, id DESC
     LIMIT 6
   `;
-  const activeActions = await sql<
-    { kind: string; target: Record<string, string> | string }[]
-  >`
+  const activeActions = await sql<{ kind: string; target: Record<string, string> | string }[]>`
     SELECT kind, target FROM mail.commands
     WHERE mailbox_id = ${mailboxId}::uuid
       AND state IN ('queued', 'executing')
       AND (
         kind IN ('sync_mailbox', 'discover_folders', 'hydrate_missing', 'rebuild_search', 'rebuild_threads')
-        OR (${
-          options.includeFolderActions !== false
-        } AND kind IN ('sync_folder', 'rebuild_folder') AND target ->> 'folderId' IN (
+        OR (${options.includeFolderActions !== false} AND kind IN ('sync_folder', 'rebuild_folder') AND target ->> 'folderId' IN (
           SELECT folder.id::text
           FROM mail.folders folder
           JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
@@ -326,38 +295,26 @@ const loadMailboxOperations = async (
           kind IN ('reconcile_effect', 'retry_command', 'cancel_command')
           AND target ->> 'commandId' = ANY(${sql.array(
             attentionCommands.map((command) => command.id),
-            "TEXT"
+            "TEXT",
           )})
         )
       )
   `;
   const activeKeys = new Set(
     activeActions.map((action) => {
-      const target =
-        typeof action.target === "string"
-          ? (JSON.parse(action.target) as Record<string, string>)
-          : action.target;
+      const target = typeof action.target === "string" ? (JSON.parse(action.target) as Record<string, string>) : action.target;
       return `${action.kind}:${JSON.stringify(target)}`;
-    })
+    }),
   );
-  const duplicate = (kind: string, target: Record<string, string>) =>
-    activeKeys.has(`${kind}:${JSON.stringify(target)}`);
+  const duplicate = (kind: string, target: Record<string, string>) => activeKeys.has(`${kind}:${JSON.stringify(target)}`);
 
   const actions = await Promise.all(
-    (
-      [
-        "sync_mailbox",
-        "discover_folders",
-        "hydrate_missing",
-        "rebuild_search",
-        "rebuild_threads",
-      ] as const
-    ).map((kind) =>
+    (["sync_mailbox", "discover_folders", "hydrate_missing", "rebuild_search", "rebuild_threads"] as const).map((kind) =>
       getOperatorActionEligibility({
         mailboxId,
         input: { kind, idempotencyKey: "operator-read-model" },
-      })
-    )
+      }),
+    ),
   );
   const parsedCapabilities = bindings?.capabilities
     ? typeof bindings.capabilities === "string"
@@ -365,10 +322,7 @@ const loadMailboxOperations = async (
       : bindings.capabilities
     : {};
   const bm25Ready = search?.bm25_ready ?? false;
-  const effectiveBackend =
-    mailbox.search_backend !== "postgres" && bm25Ready
-      ? "pg_textsearch"
-      : "postgres";
+  const effectiveBackend = mailbox.search_backend !== "postgres" && bm25Ready ? "pg_textsearch" : "postgres";
 
   return mailboxOperatorOperationsSchema.parse({
     mailboxId: mailbox.id,
@@ -377,8 +331,7 @@ const loadMailboxOperations = async (
     syncEnabled: mailbox.sync_enabled,
     sync: {
       lastAt: toIso(mailbox.last_sync_at),
-      lagSeconds:
-        mailbox.lag_seconds == null ? null : Number(mailbox.lag_seconds),
+      lagSeconds: mailbox.lag_seconds == null ? null : Number(mailbox.lag_seconds),
       states: stateRecord(syncStates),
     },
     coverage: {
@@ -405,12 +358,7 @@ const loadMailboxOperations = async (
     connectors: {
       activeBindings: Number(bindings?.active ?? 0),
       degradedBindings: Number(bindings?.degraded ?? 0),
-      capabilities: Object.fromEntries(
-        Object.entries(parsedCapabilities).map(([key, count]) => [
-          key,
-          Number(count),
-        ])
-      ),
+      capabilities: Object.fromEntries(Object.entries(parsedCapabilities).map(([key, count]) => [key, Number(count)])),
       pushModes: stateRecord(pushModes),
       pushStates: stateRecord(pushStates),
       draftProjectionStates: stateRecord(draftProjectionStates),
@@ -418,9 +366,7 @@ const loadMailboxOperations = async (
     search: {
       configuredBackend: mailbox.search_backend,
       effectiveBackend,
-      fallbackActive:
-        mailbox.search_backend === "pg_textsearch" &&
-        effectiveBackend === "postgres",
+      fallbackActive: mailbox.search_backend === "pg_textsearch" && effectiveBackend === "postgres",
     },
     references: {
       configured: references?.configured ?? false,
@@ -436,8 +382,8 @@ const loadMailboxOperations = async (
         operatorActionForFolder(
           { kind, folderId: folder.id, idempotencyKey: "operator-read-model" },
           folder,
-          duplicate(kind, { folderId: folder.id })
-        )
+          duplicate(kind, { folderId: folder.id }),
+        ),
       ),
     })),
     recentCommands: recentCommands.map((command) => ({
@@ -460,9 +406,7 @@ const loadMailboxOperations = async (
       providerEffectStarted: command.provider_effect_started_at !== null,
       createdAt: toIso(command.created_at),
       updatedAt: toIso(command.updated_at),
-      actions: (
-        ["reconcile_effect", "retry_command", "cancel_command"] as const
-      ).map((kind) =>
+      actions: (["reconcile_effect", "retry_command", "cancel_command"] as const).map((kind) =>
         operatorActionForCommand(
           {
             kind,
@@ -470,22 +414,14 @@ const loadMailboxOperations = async (
             idempotencyKey: "operator-read-model",
           },
           command,
-          duplicate(kind, { commandId: command.id })
-        )
+          duplicate(kind, { commandId: command.id }),
+        ),
       ),
     })),
     attentionCount: commandStates
-      .filter(
-        (row) =>
-          row.state === "failed" ||
-          row.state === "ambiguous" ||
-          row.state === "needs_attention"
-      )
+      .filter((row) => row.state === "failed" || row.state === "ambiguous" || row.state === "needs_attention")
       .reduce((count, row) => count + Number(row.count), 0),
-    nextAttentionCursor:
-      hasMoreAttention && attentionCommands.at(-1)
-        ? encodeAttentionCursor(attentionCommands.at(-1)!)
-        : null,
+    nextAttentionCursor: hasMoreAttention && attentionCommands.at(-1) ? encodeAttentionCursor(attentionCommands.at(-1)!) : null,
     actions,
     generatedAt: new Date().toISOString(),
   });
@@ -494,7 +430,7 @@ const loadMailboxOperations = async (
 export const getMailboxOperations = async (
   context: MailRequestContext,
   mailboxId: string,
-  query: { attentionCursor?: string; attentionLimit?: number } = {}
+  query: { attentionCursor?: string; attentionLimit?: number } = {},
 ): Promise<Result<MailboxOperatorOperations>> => {
   const allowed = await requireMailboxPermission(context, mailboxId, "admin");
   if (!allowed.ok) return allowed;
@@ -513,17 +449,14 @@ export const getMailboxOperations = async (
 
 export const getPlatformMailOperations = async (
   context: MailRequestContext,
-  query: { cursor?: string; limit?: number; q?: string } = {}
+  query: { cursor?: string; limit?: number; q?: string } = {},
 ): Promise<Result<PlatformMailOperations>> => {
-  if (!(await isCurrentPlatformAdmin(context)))
-    return fail(err.forbidden("Cloud administration access is required"));
+  if (!(await isCurrentPlatformAdmin(context))) return fail(err.forbidden("Cloud administration access is required"));
   const cursor = decodePlatformCursor(query.cursor);
   if (!cursor.ok) return cursor;
   try {
     const limit = Math.min(Math.max(query.limit ?? 10, 1), 10);
-    const search = query.q?.trim()
-      ? `%${escapeLikePattern(query.q.trim())}%`
-      : null;
+    const search = query.q?.trim() ? `%${escapeLikePattern(query.q.trim())}%` : null;
     const [attention, rows] = await Promise.all([
       sql<{ count: number | string }[]>`
         SELECT COUNT(*) AS count
@@ -556,9 +489,7 @@ export const getPlatformMailOperations = async (
           WHERE deleted_at IS NULL
             AND (${search}::text IS NULL OR LOWER(name) LIKE LOWER(${search}) ESCAPE '\\')
             AND (${cursor.data?.createdAt ?? null}::timestamptz IS NULL
-              OR (created_at, id) > (${
-                cursor.data?.createdAt ?? null
-              }::timestamptz, ${cursor.data?.id ?? null}::uuid))
+              OR (created_at, id) > (${cursor.data?.createdAt ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid))
           ORDER BY created_at, id
           LIMIT ${limit + 1}
         )
@@ -618,8 +549,7 @@ export const getPlatformMailOperations = async (
       syncEnabled: mailbox.sync_enabled,
       sync: {
         lastAt: toIso(mailbox.last_sync_at),
-        lagSeconds:
-          mailbox.lag_seconds == null ? null : Number(mailbox.lag_seconds),
+        lagSeconds: mailbox.lag_seconds == null ? null : Number(mailbox.lag_seconds),
       },
       coverage: {
         hydration: {
@@ -644,7 +574,7 @@ export const getPlatformMailOperations = async (
         attentionCount: toSafeCount(attention[0]?.count ?? 0),
         generatedAt: new Date().toISOString(),
         nextCursor: hasMore && last ? encodePlatformCursor(last) : null,
-      })
+      }),
     );
   } catch {
     return fail(err.internal("Failed to load platform Mail operator status"));

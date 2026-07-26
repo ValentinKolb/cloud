@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { Readable } from "node:stream";
+import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
+import {
+  claimWorkflowRun,
+  createWorkflow as createKernelWorkflow,
+  createWorkflowRun,
+  publishWorkflowVersion,
+} from "@valentinkolb/cloud/workflows/store";
 import { mutex } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { type ConnectorVerification, unavailableProviderLimitSnapshot } from "../contracts";
@@ -9,7 +16,7 @@ import type { MailRequestContext } from "./auth";
 import { attachProviderBinding, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
 import { executeMutationCommand } from "./command-runtime";
-import { createActorCommand, createMailCommand } from "./commands";
+import { createActorCommand, createMailCommand, createWorkflowCommand } from "./commands";
 import { imapSmtpConnector } from "./connectors";
 import { resolveMailExecution } from "./execution";
 import {
@@ -2497,6 +2504,152 @@ suite("mail lifecycle control plane", () => {
         accessId,
         permission: "read",
       });
+    }
+  }, 15_000);
+
+  test("cancels a workflow command when its kernel execution generation is stale", async () => {
+    const [message] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${`<stale-workflow-command-${suffix}@example.com>`},
+        'Stale workflow command',
+        now(),
+        1,
+        ${sha256Json({ fixture: "stale-workflow-command", suffix })},
+        'complete'
+      ) RETURNING id
+    `;
+    const [remoteRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
+      VALUES (${inboxFolderId}::uuid, ${message!.id}::uuid, 10, 990002)
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id)
+      VALUES (${remoteRef!.id}::uuid, ${inboxFolderId}::uuid, ${message!.id}::uuid)
+    `;
+
+    const plan: WorkflowBoundPlan = {
+      schemaVersion: 2,
+      languageId: "mail",
+      languageVersion: 1,
+      sourceHash: "a".repeat(64),
+      manifestHash: "b".repeat(64),
+      catalogHash: "c".repeat(64),
+      actionPolicies: {},
+      inputs: [],
+      triggers: [],
+      steps: [],
+      bindings: {},
+    };
+    const workflow = await createKernelWorkflow({
+      appId: "mail",
+      scopeId: mailboxId,
+      key: `stale-command-${suffix}`,
+      name: "Stale command fence",
+      author: { kind: "system" },
+    });
+    try {
+      await sql`
+        INSERT INTO mail.workflow_profile (id, mailbox_id, enabled)
+        VALUES (${workflow.id}::uuid, ${mailboxId}::uuid, true)
+      `;
+      const version = await publishWorkflowVersion({
+        workflowId: workflow.id,
+        source: "steps: []\n",
+        sourceHash: plan.sourceHash,
+        plan,
+        languageId: plan.languageId,
+        languageVersion: plan.languageVersion,
+        manifestHash: plan.manifestHash,
+        activations: [],
+        activate: true,
+        author: { kind: "system" },
+      });
+      const runId = await createWorkflowRun({
+        appId: "mail",
+        scopeId: mailboxId,
+        workflowId: workflow.id,
+        workflowVersionId: version.id,
+        mode: "execute",
+        authorization: {},
+        idempotencyKey: `stale-command-${suffix}`,
+        occurredAt: new Date(),
+      });
+      const claim = await claimWorkflowRun({ worker: "mail-stale-command-test", runId });
+      if (!claim) throw new Error("Workflow run was not claimable");
+      const terminalInput = {
+        kind: "change_message_state" as const,
+        remoteMessageRefId: remoteRef!.id,
+        folderId: inboxFolderId,
+        change: { addFlags: ["seen" as const], removeFlags: [], addKeywords: [], removeKeywords: [] },
+        idempotencyKey: `terminal-workflow-command-${suffix}`,
+        correlationId: runId,
+      };
+      const terminal = await createWorkflowCommand({
+        context: null,
+        mailboxId,
+        workflowVersionId: version.id,
+        input: terminalInput,
+        enqueue: false,
+        beforeCreate: async () => ({ workflowExecutionGeneration: claim.executionGeneration }),
+      });
+      if (!terminal.ok) throw new Error(terminal.error.message);
+      await sql`UPDATE mail.commands SET state = 'confirmed', finished_at = now() WHERE id = ${terminal.data.id}::uuid`;
+      await sql`UPDATE workflows.run SET execution_generation = execution_generation + 1 WHERE id = ${runId}::uuid`;
+      const resumedGeneration = claim.executionGeneration + 1;
+      const replay = await createWorkflowCommand({
+        context: null,
+        mailboxId,
+        workflowVersionId: version.id,
+        input: terminalInput,
+        enqueue: false,
+        beforeCreate: async () => ({ workflowExecutionGeneration: resumedGeneration }),
+      });
+      expect(replay.ok && replay.data.id).toBe(terminal.data.id);
+
+      const command = await createWorkflowCommand({
+        context: null,
+        mailboxId,
+        workflowVersionId: version.id,
+        input: {
+          kind: "change_message_state",
+          remoteMessageRefId: remoteRef!.id,
+          folderId: inboxFolderId,
+          change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
+          idempotencyKey: `stale-workflow-command-${suffix}`,
+          correlationId: runId,
+        },
+        enqueue: false,
+        beforeCreate: async () => ({ workflowExecutionGeneration: resumedGeneration }),
+      });
+      expect(command.ok).toBe(true);
+      if (!command.ok) return;
+      await sql`UPDATE workflows.run SET execution_generation = execution_generation + 1 WHERE id = ${runId}::uuid`;
+
+      const provider = spyOn(imapSmtpConnector, "changeMessageState").mockRejectedValue(
+        new Error("stale workflow command reached provider effect"),
+      );
+      try {
+        expect(await executeMutationCommand(command.data.id)).toBeNull();
+        expect(provider).not.toHaveBeenCalled();
+        const [stored] = await sql<
+          { state: string; last_error_code: string | null; workflow_execution_generation: string | number | null }[]
+        >`
+          SELECT state, last_error_code, workflow_execution_generation
+          FROM mail.commands
+          WHERE id = ${command.data.id}::uuid
+        `;
+        expect(stored?.state).toBe("cancelled");
+        expect(stored?.last_error_code).toBe("WORKFLOW_CANCELED");
+        expect(Number(stored?.workflow_execution_generation)).toBe(resumedGeneration);
+      } finally {
+        provider.mockRestore();
+      }
+    } finally {
+      await sql`DELETE FROM workflows.workflow WHERE id = ${workflow.id}::uuid`;
     }
   }, 15_000);
 

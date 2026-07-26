@@ -1,6 +1,12 @@
 import { audit } from "@valentinkolb/cloud/services";
 import type { WorkflowBoundPlan, WorkflowDiagnostic, WorkflowIr, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { compileWorkflow, hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
+import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
+import {
+  createWorkflow as createKernelWorkflow,
+  publishWorkflowVersion,
+  renameWorkflow,
+  type WorkflowActivationInput,
+} from "@valentinkolb/cloud/workflows/store";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type {
@@ -15,16 +21,14 @@ import type {
   WorkflowEffectBudget,
   WorkflowValidation,
 } from "../contracts";
-import { bindMailWorkflow, mailWorkflowManifest } from "../workflows";
-import { retiredMailWorkflowConfiguration, retiredMailWorkflowConfigurationMessage } from "../workflows/version-compatibility";
+import { bindMailWorkflow } from "../workflows/binder";
+import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
+import { mailWorkflowManifest } from "../workflows/manifest";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { loadMailWorkflowCatalog } from "./workflow-catalog-service";
 import type { SqlClient } from "./workflow-data";
 import { snapshotMailboxWorkflowAuthorization } from "./workflow-runtime-context";
-
-const COMPILER_NAME = "cloud-workflow-kernel";
-const COMPILER_VERSION = "1";
 
 type DbWorkflow = {
   id: string;
@@ -32,29 +36,29 @@ type DbWorkflow = {
   name: string;
   description: string | null;
   priority: number;
+  enabled: boolean;
+  managed_by: ManagedWorkflowOwner | null;
   current_version_id: string;
   active_version_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
 
+type ManagedWorkflowOwner = "automatic_reply" | "sender_rule";
+
 export type DbWorkflowVersion = {
   id: string;
-  version_identity: string;
   workflow_id: string;
   mailbox_id: string;
+  revision: number;
   source: string;
   source_hash: string;
-  ir: WorkflowIr | string;
-  bound_plan: WorkflowBoundPlan | string;
+  plan: WorkflowBoundPlan | string;
   diagnostics: WorkflowDiagnostic[] | string;
   effect_budget: WorkflowEffectBudget | string;
   language_id: string;
   language_version: number;
   manifest_hash: string;
-  catalog_hash: string;
-  compiler_name: string;
-  compiler_version: string;
   created_at: Date | string;
 };
 
@@ -62,62 +66,61 @@ type DbActivation = {
   id: string;
   workflow_id: string;
   workflow_version_id: string;
-  trigger_key: string;
-  trigger_kind: string;
-  trigger_config: Record<string, WorkflowJsonValue> | string;
+  key: string;
+  event_type: string;
+  config: WorkflowJsonValue | string;
   enabled: boolean;
-  diagnostics: WorkflowDiagnostic[] | string;
   created_at: Date | string;
   updated_at: Date | string;
 };
 
-const workflowColumns = sql`
-  workflow.id,
-  workflow.mailbox_id,
+const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
+const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
+
+const WORKFLOW_SELECT = sql.unsafe(`
+  workflow.id::text AS id,
+  profile.mailbox_id::text AS mailbox_id,
   workflow.name,
   workflow.description,
-  workflow.priority,
-  workflow.current_version_id,
-  workflow.active_version_id,
-  workflow.created_at,
-  workflow.updated_at
-`;
+  profile.priority,
+  profile.enabled,
+  profile.managed_by,
+  latest.id::text AS current_version_id,
+  workflow.active_version_id::text AS active_version_id,
+  profile.created_at,
+  profile.updated_at
+`);
+const WORKFLOW_FROM = sql.unsafe(`
+  FROM mail.workflow_profile profile
+  JOIN workflows.workflow workflow ON workflow.id = profile.id
+  JOIN LATERAL (
+    SELECT id
+    FROM workflows.version
+    WHERE workflow_id = workflow.id
+    ORDER BY revision DESC
+    LIMIT 1
+  ) latest ON TRUE
+`);
 
-const versionColumns = sql`
-  version.id,
-  version.version_identity,
-  version.workflow_id,
-  version.mailbox_id,
+const VERSION_SELECT = sql.unsafe(`
+  version.id::text AS id,
+  version.workflow_id::text AS workflow_id,
+  profile.mailbox_id::text AS mailbox_id,
+  version.revision,
   version.source,
   version.source_hash,
-  version.ir,
-  version.bound_plan,
+  version.plan,
   version.diagnostics,
   version.effect_budget,
   version.language_id,
   version.language_version,
   version.manifest_hash,
-  version.catalog_hash,
-  version.compiler_name,
-  version.compiler_version,
   version.created_at
-`;
-
-const activationColumns = sql`
-  activation.id,
-  activation.workflow_id,
-  activation.workflow_version_id,
-  activation.trigger_key,
-  activation.trigger_kind,
-  activation.trigger_config,
-  activation.enabled,
-  activation.diagnostics,
-  activation.created_at,
-  activation.updated_at
-`;
-
-const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
-const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
+`);
+const VERSION_FROM = sql.unsafe(`
+  FROM workflows.version version
+  JOIN mail.workflow_profile profile ON profile.id = version.workflow_id
+`);
 
 const mapWorkflow = (row: DbWorkflow): MailWorkflow => ({
   id: row.id,
@@ -127,49 +130,47 @@ const mapWorkflow = (row: DbWorkflow): MailWorkflow => ({
   priority: row.priority,
   currentVersionId: row.current_version_id,
   activeVersionId: row.active_version_id,
-  enabled: row.active_version_id !== null,
+  enabled: row.enabled,
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
 
-export const mapWorkflowVersion = (row: DbWorkflowVersion): MailWorkflowVersion => ({
-  id: row.id,
-  identity: row.version_identity,
-  workflowId: row.workflow_id,
-  mailboxId: row.mailbox_id,
-  source: row.source,
-  sourceHash: row.source_hash,
-  ir: parseJson(row.ir),
-  boundPlan: parseJson(row.bound_plan),
-  diagnostics: parseJson(row.diagnostics),
-  effectBudget: parseJson(row.effect_budget),
-  languageId: row.language_id,
-  languageVersion: row.language_version,
-  manifestHash: row.manifest_hash,
-  catalogHash: row.catalog_hash,
-  compiler: { name: row.compiler_name, version: row.compiler_version },
-  createdAt: toIso(row.created_at),
-});
+const mapWorkflowVersion = async (row: DbWorkflowVersion): Promise<MailWorkflowVersion> => {
+  const compiled = await compileWorkflow(row.source, mailWorkflowManifest);
+  if (!compiled.ok) throw new Error(`stored Mail workflow version ${row.id} no longer compiles`);
+  const plan = parseJson(row.plan);
+  return {
+    id: row.id,
+    identity: `${row.workflow_id}:r${row.revision}`,
+    workflowId: row.workflow_id,
+    mailboxId: row.mailbox_id,
+    source: row.source,
+    sourceHash: row.source_hash,
+    ir: compiled.ir,
+    boundPlan: plan,
+    diagnostics: parseJson(row.diagnostics),
+    effectBudget: parseJson(row.effect_budget),
+    languageId: row.language_id,
+    languageVersion: row.language_version,
+    manifestHash: row.manifest_hash,
+    catalogHash: plan.catalogHash,
+    compiler: { name: "cloud-workflow-kernel", version: "1" },
+    createdAt: toIso(row.created_at),
+  };
+};
 
 const mapActivation = (row: DbActivation): MailWorkflowActivation => ({
   id: row.id,
   workflowId: row.workflow_id,
   workflowVersionId: row.workflow_version_id,
-  key: row.trigger_key,
-  kind: row.trigger_kind,
-  config: parseJson(row.trigger_config),
+  key: row.key,
+  kind: row.event_type === MAIL_WORKFLOW_EVENT.schedule ? "schedule" : "messageReceived",
+  config: (parseJson(row.config) ?? {}) as Record<string, WorkflowJsonValue>,
   enabled: row.enabled,
-  diagnostics: parseJson(row.diagnostics),
+  diagnostics: [],
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
-
-export const workflowTriggerRegistrations = (plan: WorkflowBoundPlan) =>
-  plan.triggers.map((trigger) => ({
-    key: trigger.kind,
-    kind: trigger.kind,
-    config: { ...trigger.config, with: trigger.with } as Record<string, WorkflowJsonValue>,
-  }));
 
 const creator = (context: MailRequestContext): { kind: "user" | "service_account"; id: string } => {
   const actor = actorRefFromRequest(context);
@@ -186,35 +187,26 @@ export const validateMailWorkflowSource = async (params: {
 }): Promise<WorkflowValidation> => {
   const compiled = await compileWorkflow(params.source, mailWorkflowManifest);
   if (!compiled.ok) {
-    return {
-      valid: false,
-      source: params.source,
-      sourceHash: null,
-      ir: null,
-      boundPlan: null,
-      diagnostics: compiled.diagnostics,
-    };
+    return { valid: false, source: params.source, sourceHash: null, ir: null, boundPlan: null, diagnostics: compiled.diagnostics };
   }
-  const catalog = await loadMailWorkflowCatalog(params);
-  const bound = await bindMailWorkflow(compiled.ir, catalog);
-  if (!bound.ok) {
-    return {
-      valid: false,
-      source: params.source,
-      sourceHash: compiled.ir.sourceHash,
-      ir: compiled.ir,
-      boundPlan: null,
-      diagnostics: bound.diagnostics,
-    };
-  }
-  return {
-    valid: true,
-    source: params.source,
-    sourceHash: compiled.ir.sourceHash,
-    ir: compiled.ir,
-    boundPlan: bound.plan,
-    diagnostics: [],
-  };
+  const bound = await bindMailWorkflow(compiled.ir, await loadMailWorkflowCatalog(params));
+  return bound.ok
+    ? {
+        valid: true,
+        source: params.source,
+        sourceHash: compiled.ir.sourceHash,
+        ir: compiled.ir,
+        boundPlan: bound.plan,
+        diagnostics: [],
+      }
+    : {
+        valid: false,
+        source: params.source,
+        sourceHash: compiled.ir.sourceHash,
+        ir: compiled.ir,
+        boundPlan: null,
+        diagnostics: bound.diagnostics,
+      };
 };
 
 export const validateWorkflow = async (params: {
@@ -223,162 +215,120 @@ export const validateWorkflow = async (params: {
   source: string;
 }): Promise<Result<WorkflowValidation>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
-  if (!allowed.ok) return allowed;
-  return ok(await validateMailWorkflowSource(params));
+  return allowed.ok ? ok(await validateMailWorkflowSource(params)) : allowed;
 };
 
-const versionIdentity = (
-  versionId: string,
-  validation: WorkflowValidation & { ir: WorkflowIr; boundPlan: WorkflowBoundPlan; sourceHash: string },
-  effectBudget: WorkflowEffectBudget,
-): Promise<string> =>
-  hashWorkflowJson({
-    versionId,
-    sourceHash: validation.sourceHash,
-    ir: validation.ir,
-    boundPlan: validation.boundPlan,
-    effectBudget,
-    compiler: { name: COMPILER_NAME, version: COMPILER_VERSION },
-  });
+export const workflowTriggerRegistrations = (plan: WorkflowBoundPlan, enabled = true): WorkflowActivationInput[] =>
+  plan.triggers.map((trigger, index) => ({
+    key: `${trigger.kind}:${index}`,
+    eventType: trigger.kind === "schedule" ? MAIL_WORKFLOW_EVENT.schedule : MAIL_WORKFLOW_EVENT.messageReceived,
+    config: { ...trigger.config, with: trigger.with },
+    enabled,
+  }));
 
-const insertVersion = async (params: {
-  db: SqlClient;
-  versionId: string;
-  workflowId: string;
-  mailboxId: string;
-  validation: WorkflowValidation & { ir: WorkflowIr; boundPlan: WorkflowBoundPlan; sourceHash: string };
-  effectBudget: WorkflowEffectBudget;
-  actor: { kind: "user" | "service_account"; id: string };
-}): Promise<DbWorkflowVersion> => {
-  const identity = await versionIdentity(params.versionId, params.validation, params.effectBudget);
-  const [version] = await params.db<DbWorkflowVersion[]>`
-    INSERT INTO mail.workflow_versions AS version (
-      id, version_identity, workflow_id, mailbox_id, source, source_hash, ir, bound_plan,
-      diagnostics, effect_budget, language_id, language_version, manifest_hash, catalog_hash,
-      compiler_name, compiler_version, created_by_kind, created_by_id
-    ) VALUES (
-      ${params.versionId}::uuid,
-      ${identity},
-      ${params.workflowId}::uuid,
-      ${params.mailboxId}::uuid,
-      ${params.validation.source},
-      ${params.validation.sourceHash},
-      ${params.validation.ir}::jsonb,
-      ${params.validation.boundPlan}::jsonb,
-      ${params.validation.diagnostics}::jsonb,
-      ${params.effectBudget}::jsonb,
-      ${params.validation.boundPlan.languageId},
-      ${params.validation.boundPlan.languageVersion},
-      ${params.validation.boundPlan.manifestHash},
-      ${params.validation.boundPlan.catalogHash},
-      ${COMPILER_NAME},
-      ${COMPILER_VERSION},
-      ${params.actor.kind},
-      ${params.actor.id}::uuid
-    )
-    RETURNING ${versionColumns}
-  `;
-  if (!version) throw new Error("Workflow version insert returned no row");
-  return version;
-};
+export const workflowActivationError = (plan: WorkflowBoundPlan): string | null =>
+  plan.triggers.length > 0 ? null : "An active workflow needs at least one trigger";
 
 const loadActivations = async (workflowId: string, db: SqlClient = sql): Promise<MailWorkflowActivation[]> => {
   const rows = await db<DbActivation[]>`
-    SELECT ${activationColumns}
-    FROM mail.workflow_activations activation
-    WHERE activation.workflow_id = ${workflowId}::uuid
-    ORDER BY activation.trigger_key, activation.id
+    SELECT id::text, workflow_id::text, workflow_version_id::text, key, event_type, config,
+           enabled, created_at, updated_at
+    FROM workflows.activation
+    WHERE workflow_id = ${workflowId}::uuid
+    ORDER BY key, id
   `;
   return rows.map(mapActivation);
 };
 
-const setWorkflowActivationInTransaction = async (params: {
-  db: SqlClient;
-  context: MailRequestContext;
+const loadWorkflowRow = async (mailboxId: string, workflowId: string, db: SqlClient = sql, lock = false): Promise<DbWorkflow | null> => {
+  const [row] = await db<DbWorkflow[]>`
+    SELECT ${WORKFLOW_SELECT}
+    ${WORKFLOW_FROM}
+    WHERE workflow.id = ${workflowId}::uuid AND profile.mailbox_id = ${mailboxId}::uuid
+    ${lock ? sql`FOR UPDATE OF profile` : sql``}
+  `;
+  return row ?? null;
+};
+
+export const loadWorkflowVersion = async (params: {
   mailboxId: string;
   workflowId: string;
-  version: DbWorkflowVersion;
-  enabled: boolean;
-}): Promise<void> => {
-  await params.db`DELETE FROM mail.workflow_activations WHERE workflow_id = ${params.workflowId}::uuid`;
-  if (params.enabled) {
-    const authorizationSnapshot = snapshotMailboxWorkflowAuthorization(params.context, params.mailboxId);
-    for (const trigger of workflowTriggerRegistrations(parseJson(params.version.bound_plan))) {
-      await params.db`
-        INSERT INTO mail.workflow_activations (
-          mailbox_id, workflow_id, workflow_version_id, trigger_key, trigger_kind, trigger_config,
-          authorization_snapshot, diagnostics
-        ) VALUES (
-          ${params.mailboxId}::uuid, ${params.workflowId}::uuid, ${params.version.id}::uuid,
-          ${trigger.key}, ${trigger.kind}, ${trigger.config}::jsonb,
-          ${authorizationSnapshot}::jsonb, '[]'::jsonb
-        )
-      `;
-    }
-  }
-  await params.db`
-    UPDATE mail.workflows
-    SET active_version_id = ${params.enabled ? params.version.id : null}::uuid
-    WHERE id = ${params.workflowId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+  versionId: string;
+  db?: SqlClient;
+  lock?: boolean;
+}): Promise<DbWorkflowVersion | null> => {
+  const db = params.db ?? sql;
+  const [row] = await db<DbWorkflowVersion[]>`
+    SELECT ${VERSION_SELECT}
+    ${VERSION_FROM}
+    WHERE version.id = ${params.versionId}::uuid
+      AND version.workflow_id = ${params.workflowId}::uuid
+      AND profile.mailbox_id = ${params.mailboxId}::uuid
+    ${params.lock ? sql`FOR SHARE OF version` : sql``}
   `;
+  return row ?? null;
 };
 
 const loadWorkflowDetail = async (mailboxId: string, workflowId: string, db: SqlClient = sql): Promise<MailWorkflowDetail | null> => {
-  const [workflow] = await db<DbWorkflow[]>`
-    SELECT ${workflowColumns}
-    FROM mail.workflows workflow
-    WHERE workflow.id = ${workflowId}::uuid AND workflow.mailbox_id = ${mailboxId}::uuid
-  `;
+  const workflow = await loadWorkflowRow(mailboxId, workflowId, db);
   if (!workflow) return null;
-  const [version] = await db<DbWorkflowVersion[]>`
-    SELECT ${versionColumns}
-    FROM mail.workflow_versions version
-    WHERE version.id = ${workflow.current_version_id}::uuid
-      AND version.workflow_id = ${workflowId}::uuid
-      AND version.mailbox_id = ${mailboxId}::uuid
-  `;
-  if (!version) return null;
-  return { ...mapWorkflow(workflow), currentVersion: mapWorkflowVersion(version), activations: await loadActivations(workflowId, db) };
+  const version = await loadWorkflowVersion({
+    mailboxId,
+    workflowId,
+    versionId: workflow.current_version_id,
+    db,
+  });
+  if (!version) throw new Error(`Mail workflow ${workflowId} has no current version`);
+  return {
+    ...mapWorkflow(workflow),
+    currentVersion: await mapWorkflowVersion(version),
+    activations: await loadActivations(workflowId, db),
+  };
 };
 
-const rejectManagedWorkflowMutation = async (mailboxId: string, workflowId: string, db: SqlClient): Promise<Result<void>> => {
-  const [managed] = await db<{ exists: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1
-      FROM mail.automatic_reply_configurations
-      WHERE mailbox_id = ${mailboxId}::uuid AND workflow_id = ${workflowId}::uuid
-      UNION ALL
-      SELECT 1
-      FROM mail.sender_rules
-      WHERE mailbox_id = ${mailboxId}::uuid
-        AND workflow_id = ${workflowId}::uuid
-        AND deleted_at IS NULL
-    ) AS exists
+const rejectManagedWorkflow = async (mailboxId: string, workflowId: string, db: SqlClient, conceal: boolean): Promise<Result<void>> => {
+  const [profile] = await db<{ managed_by: ManagedWorkflowOwner | null }[]>`
+    SELECT managed_by
+    FROM mail.workflow_profile
+    WHERE id = ${workflowId}::uuid AND mailbox_id = ${mailboxId}::uuid
   `;
-  return managed?.exists ? fail(err.conflict("Managed workflows must be changed from their guided Mail settings")) : ok();
+  if (!profile?.managed_by) return ok();
+  return conceal ? fail(err.notFound("Workflow")) : fail(err.conflict("Managed workflows must be changed from their guided Mail settings"));
 };
 
-const rejectManagedWorkflowRead = async (mailboxId: string, workflowId: string, db: SqlClient = sql): Promise<Result<void>> => {
-  const [managed] = await db<{ exists: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1
-      FROM mail.automatic_reply_configurations
-      WHERE mailbox_id = ${mailboxId}::uuid AND workflow_id = ${workflowId}::uuid
-      UNION ALL
-      SELECT 1
-      FROM mail.sender_rules
-      WHERE mailbox_id = ${mailboxId}::uuid
-        AND workflow_id = ${workflowId}::uuid
-    ) AS exists
-  `;
-  return managed?.exists ? fail(err.notFound("Workflow")) : ok();
-};
+const publish = async (params: {
+  db: SqlClient;
+  workflowId: string;
+  validation: WorkflowValidation & { boundPlan: WorkflowBoundPlan; sourceHash: string };
+  effectBudget: WorkflowEffectBudget;
+  actor: ReturnType<typeof creator>;
+  authorization: WorkflowJsonValue;
+  enabled: boolean;
+}) =>
+  publishWorkflowVersion(
+    {
+      workflowId: params.workflowId,
+      source: params.validation.source,
+      sourceHash: params.validation.sourceHash,
+      plan: params.validation.boundPlan,
+      diagnostics: params.validation.diagnostics,
+      effectBudget: params.effectBudget,
+      languageId: params.validation.boundPlan.languageId,
+      languageVersion: params.validation.boundPlan.languageVersion,
+      manifestHash: params.validation.boundPlan.manifestHash,
+      authorization: params.authorization,
+      activations: workflowTriggerRegistrations(params.validation.boundPlan, params.enabled),
+      activate: true,
+      author: params.actor,
+    },
+    { db: params.db },
+  );
 
-/**
- * Replaces the immutable workflow version and activation owned by a
- * higher-level Mail control-plane resource. The caller owns the surrounding
- * transaction, permission lock, audit record, and resource revision.
- */
+const requireValid = (
+  validation: WorkflowValidation,
+): validation is WorkflowValidation & { ir: WorkflowIr; boundPlan: WorkflowBoundPlan; sourceHash: string } =>
+  validation.valid && validation.ir !== null && validation.boundPlan !== null && validation.sourceHash !== null;
+
 export const replaceManagedWorkflowInTransaction = async (params: {
   db: SqlClient;
   context: MailRequestContext;
@@ -387,72 +337,56 @@ export const replaceManagedWorkflowInTransaction = async (params: {
   name: string;
   description: string;
   priority: number;
+  managedBy: ManagedWorkflowOwner;
   source: string;
   effectBudget: WorkflowEffectBudget;
   enabled: boolean;
 }): Promise<Result<MailWorkflowDetail>> => {
-  const workflowId = params.workflowId ?? crypto.randomUUID();
-  const versionId = crypto.randomUUID();
+  const validation = await validateMailWorkflowSource(params);
+  if (!requireValid(validation)) return fail(err.badInput(validation.diagnostics[0]?.message ?? "Managed workflow source is invalid"));
   const actor = creator(params.context);
-  const validation = await validateMailWorkflowSource({
-    context: params.context,
-    mailboxId: params.mailboxId,
-    source: params.source,
-    db: params.db,
-  });
-  if (!validation.valid || !validation.ir || !validation.boundPlan || !validation.sourceHash) {
-    return fail(err.badInput(validation.diagnostics[0]?.message ?? "Managed workflow source is invalid"));
-  }
-
-  if (params.workflowId) {
-    const [workflow] = await params.db<DbWorkflow[]>`
-      SELECT ${workflowColumns}
-      FROM mail.workflows workflow
-      WHERE workflow.id = ${workflowId}::uuid AND workflow.mailbox_id = ${params.mailboxId}::uuid
-      FOR UPDATE
-    `;
+  let workflowId = params.workflowId;
+  if (workflowId) {
+    const workflow = await loadWorkflowRow(params.mailboxId, workflowId, params.db, true);
     if (!workflow) return fail(err.notFound("Workflow"));
+    if (workflow.managed_by !== params.managedBy) return fail(err.conflict("Workflow manager changed"));
+    await renameWorkflow(workflowId, { name: params.name, description: params.description }, { db: params.db });
   } else {
+    const workflow = await createKernelWorkflow(
+      {
+        appId: MAIL_WORKFLOW_APP_ID,
+        scopeId: params.mailboxId,
+        key: crypto.randomUUID(),
+        name: params.name,
+        description: params.description,
+        author: actor,
+      },
+      { db: params.db },
+    );
+    workflowId = workflow.id;
     await params.db`
-      INSERT INTO mail.workflows (
-        id, mailbox_id, name, description, priority, current_version_id, active_version_id,
-        created_by_kind, created_by_id
-      ) VALUES (
-        ${workflowId}::uuid, ${params.mailboxId}::uuid, ${params.name}, ${params.description},
-        ${params.priority}, ${versionId}::uuid, NULL, ${actor.kind}, ${actor.id}::uuid
+      INSERT INTO mail.workflow_profile (id, mailbox_id, priority, enabled, managed_by)
+      VALUES (
+        ${workflowId}::uuid,
+        ${params.mailboxId}::uuid,
+        ${params.priority},
+        ${params.enabled},
+        ${params.managedBy}
       )
     `;
   }
-
-  const version = await insertVersion({
-    db: params.db,
-    versionId,
-    workflowId,
-    mailboxId: params.mailboxId,
-    validation: {
-      ...validation,
-      ir: validation.ir,
-      boundPlan: validation.boundPlan,
-      sourceHash: validation.sourceHash,
-    },
-    effectBudget: params.effectBudget,
-    actor,
-  });
   await params.db`
-    UPDATE mail.workflows
-    SET
-      name = ${params.name},
-      description = ${params.description},
-      priority = ${params.priority},
-      current_version_id = ${versionId}::uuid
+    UPDATE mail.workflow_profile
+    SET priority = ${params.priority}, enabled = ${params.enabled}
     WHERE id = ${workflowId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
   `;
-  await setWorkflowActivationInTransaction({
+  await publish({
     db: params.db,
-    context: params.context,
-    mailboxId: params.mailboxId,
     workflowId,
-    version,
+    validation,
+    effectBudget: params.effectBudget,
+    actor,
+    authorization: snapshotMailboxWorkflowAuthorization(params.context, params.mailboxId),
     enabled: params.enabled,
   });
   const detail = await loadWorkflowDetail(params.mailboxId, workflowId, params.db);
@@ -466,28 +400,16 @@ export const setManagedWorkflowEnabledInTransaction = async (params: {
   workflowId: string;
   enabled: boolean;
 }): Promise<Result<MailWorkflowDetail>> => {
-  const [workflow] = await params.db<DbWorkflow[]>`
-    SELECT ${workflowColumns}
-    FROM mail.workflows workflow
-    WHERE workflow.id = ${params.workflowId}::uuid AND workflow.mailbox_id = ${params.mailboxId}::uuid
-    FOR UPDATE
-  `;
+  const workflow = await loadWorkflowRow(params.mailboxId, params.workflowId, params.db, true);
   if (!workflow) return fail(err.notFound("Workflow"));
-  const version = await loadWorkflowVersion({
-    mailboxId: params.mailboxId,
-    workflowId: params.workflowId,
-    versionId: workflow.current_version_id,
-    db: params.db,
-  });
-  if (!version) return fail(err.internal("Managed workflow version is missing"));
-  await setWorkflowActivationInTransaction({
-    db: params.db,
-    context: params.context,
-    mailboxId: params.mailboxId,
-    workflowId: params.workflowId,
-    version,
-    enabled: params.enabled,
-  });
+  await params.db`
+    UPDATE mail.workflow_profile SET enabled = ${params.enabled}
+    WHERE id = ${params.workflowId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+  `;
+  await params.db`
+    UPDATE workflows.activation SET enabled = ${params.enabled}, updated_at = now()
+    WHERE workflow_id = ${params.workflowId}::uuid
+  `;
   const detail = await loadWorkflowDetail(params.mailboxId, params.workflowId, params.db);
   return detail ? ok(detail) : fail(err.internal("Managed workflow could not be reloaded"));
 };
@@ -496,22 +418,11 @@ export const listWorkflows = async (context: MailRequestContext, mailboxId: stri
   const allowed = await requireMailboxPermission(context, mailboxId, "read");
   if (!allowed.ok) return allowed;
   const rows = await sql<DbWorkflow[]>`
-    SELECT ${workflowColumns}
-    FROM mail.workflows workflow
-    WHERE workflow.mailbox_id = ${mailboxId}::uuid
-      AND NOT EXISTS (
-        SELECT 1
-        FROM mail.automatic_reply_configurations configuration
-        WHERE configuration.mailbox_id = workflow.mailbox_id
-          AND configuration.workflow_id = workflow.id
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM mail.sender_rules rule
-        WHERE rule.mailbox_id = workflow.mailbox_id
-          AND rule.workflow_id = workflow.id
-      )
-    ORDER BY workflow.priority, lower(workflow.name), workflow.id
+    SELECT ${WORKFLOW_SELECT}
+    ${WORKFLOW_FROM}
+    WHERE profile.mailbox_id = ${mailboxId}::uuid
+      AND profile.managed_by IS NULL
+    ORDER BY profile.priority, lower(workflow.name), workflow.id
     LIMIT 200
   `;
   return ok(rows.map(mapWorkflow));
@@ -524,7 +435,7 @@ export const getWorkflow = async (
 ): Promise<Result<MailWorkflowDetail>> => {
   const allowed = await requireMailboxPermission(context, mailboxId, "read");
   if (!allowed.ok) return allowed;
-  const visible = await rejectManagedWorkflowRead(mailboxId, workflowId);
+  const visible = await rejectManagedWorkflow(mailboxId, workflowId, sql, true);
   if (!visible.ok) return visible;
   const workflow = await loadWorkflowDetail(mailboxId, workflowId);
   return workflow ? ok(workflow) : fail(err.notFound("Workflow"));
@@ -537,19 +448,17 @@ export const listWorkflowVersions = async (params: {
 }): Promise<Result<MailWorkflowVersion[]>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
-  const visible = await rejectManagedWorkflowRead(params.mailboxId, params.workflowId);
+  const visible = await rejectManagedWorkflow(params.mailboxId, params.workflowId, sql, true);
   if (!visible.ok) return visible;
   const rows = await sql<DbWorkflowVersion[]>`
-    SELECT ${versionColumns}
-    FROM mail.workflow_versions version
-    JOIN mail.workflows workflow
-      ON workflow.id = version.workflow_id AND workflow.mailbox_id = version.mailbox_id
-    WHERE version.mailbox_id = ${params.mailboxId}::uuid
+    SELECT ${VERSION_SELECT}
+    ${VERSION_FROM}
+    WHERE profile.mailbox_id = ${params.mailboxId}::uuid
       AND version.workflow_id = ${params.workflowId}::uuid
-    ORDER BY version.created_at DESC, version.id DESC
+    ORDER BY version.revision DESC
     LIMIT 200
   `;
-  return rows.length > 0 ? ok(rows.map(mapWorkflowVersion)) : fail(err.notFound("Workflow"));
+  return rows.length ? ok(await Promise.all(rows.map(mapWorkflowVersion))) : fail(err.notFound("Workflow"));
 };
 
 export const getWorkflowVersion = async (params: {
@@ -560,29 +469,10 @@ export const getWorkflowVersion = async (params: {
 }): Promise<Result<MailWorkflowVersion>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
-  const visible = await rejectManagedWorkflowRead(params.mailboxId, params.workflowId);
+  const visible = await rejectManagedWorkflow(params.mailboxId, params.workflowId, sql, true);
   if (!visible.ok) return visible;
   const version = await loadWorkflowVersion(params);
-  return version ? ok(mapWorkflowVersion(version)) : fail(err.notFound("Workflow version"));
-};
-
-export const loadWorkflowVersion = async (params: {
-  mailboxId: string;
-  workflowId: string;
-  versionId: string;
-  db?: SqlClient;
-  lock?: boolean;
-}): Promise<DbWorkflowVersion | null> => {
-  const db = params.db ?? sql;
-  const [row] = await db<DbWorkflowVersion[]>`
-    SELECT ${versionColumns}
-    FROM mail.workflow_versions version
-    WHERE version.id = ${params.versionId}::uuid
-      AND version.workflow_id = ${params.workflowId}::uuid
-      AND version.mailbox_id = ${params.mailboxId}::uuid
-    ${params.lock ? sql`FOR SHARE` : sql``}
-  `;
-  return row ?? null;
+  return version ? ok(await mapWorkflowVersion(version)) : fail(err.notFound("Workflow version"));
 };
 
 export const createWorkflow = async (params: {
@@ -592,54 +482,63 @@ export const createWorkflow = async (params: {
 }): Promise<Result<MailWorkflowDetail>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!allowed.ok) return allowed;
-  const workflowId = crypto.randomUUID();
-  const versionId = crypto.randomUUID();
-  const actor = creator(params.context);
   try {
     return await sql.begin(async (tx) => {
       const currentPermission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
       if (!currentPermission.ok) return currentPermission;
       const validation = await validateMailWorkflowSource({ ...params, source: params.input.source, db: tx });
-      if (!validation.valid || !validation.ir || !validation.boundPlan || !validation.sourceHash) {
-        return fail(err.badInput("Workflow source is invalid"));
-      }
+      if (!requireValid(validation)) return fail(err.badInput(validation.diagnostics[0]?.message ?? "Workflow source is invalid"));
+      const actor = creator(params.context);
+      const workflow = await createKernelWorkflow(
+        {
+          appId: MAIL_WORKFLOW_APP_ID,
+          scopeId: params.mailboxId,
+          key: crypto.randomUUID(),
+          name: params.input.name,
+          description: params.input.description ?? undefined,
+          author: actor,
+        },
+        { db: tx },
+      );
       await tx`
-        INSERT INTO mail.workflows (
-          id, mailbox_id, name, description, priority, current_version_id, active_version_id,
-          created_by_kind, created_by_id
-        ) VALUES (
-          ${workflowId}::uuid, ${params.mailboxId}::uuid, ${params.input.name}, ${params.input.description ?? null},
-          ${params.input.priority}, ${versionId}::uuid, NULL, ${actor.kind}, ${actor.id}::uuid
-        )
+        INSERT INTO mail.workflow_profile (id, mailbox_id, priority, enabled)
+        VALUES (${workflow.id}::uuid, ${params.mailboxId}::uuid, ${params.input.priority}, false)
       `;
-      await insertVersion({
-        db: tx,
-        versionId,
-        workflowId,
-        mailboxId: params.mailboxId,
-        validation: { ...validation, ir: validation.ir, boundPlan: validation.boundPlan, sourceHash: validation.sourceHash },
-        effectBudget: params.input.effectBudget,
-        actor,
-      });
+      const version = await publishWorkflowVersion(
+        {
+          workflowId: workflow.id,
+          source: validation.source,
+          sourceHash: validation.sourceHash,
+          plan: validation.boundPlan,
+          diagnostics: validation.diagnostics,
+          effectBudget: params.input.effectBudget,
+          languageId: validation.boundPlan.languageId,
+          languageVersion: validation.boundPlan.languageVersion,
+          manifestHash: validation.boundPlan.manifestHash,
+          activations: [],
+          activate: false,
+          author: actor,
+        },
+        { db: tx },
+      );
       await audit.record(
         {
           action: "mail.workflow.create",
           outcome: "allowed",
           actor: auditActorFromRequest(params.context),
-          target: { type: "workflow", id: workflowId },
+          target: { type: "workflow", id: workflow.id },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, versionId, sourceHash: validation.sourceHash },
+          metadata: { mailboxId: params.mailboxId, versionId: version.id, sourceHash: validation.sourceHash },
         },
         tx,
       );
-      const detail = await loadWorkflowDetail(params.mailboxId, workflowId, tx);
+      const detail = await loadWorkflowDetail(params.mailboxId, workflow.id, tx);
       if (!detail) throw new Error("Created workflow could not be reloaded");
       return ok(detail);
     });
   } catch (error) {
     if ((error as { code?: string }).code === "23505") return fail(err.conflict("Workflow name"));
-    if (isServiceError(error)) return fail(error);
-    return fail(err.internal("Failed to create workflow"));
+    return isServiceError(error) ? fail(error) : fail(err.internal("Failed to create workflow"));
   }
 };
 
@@ -651,39 +550,32 @@ export const createWorkflowVersion = async (params: {
 }): Promise<Result<MailWorkflowDetail>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!allowed.ok) return allowed;
-  const versionId = crypto.randomUUID();
-  const actor = creator(params.context);
   try {
     return await sql.begin(async (tx) => {
       const currentPermission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
       if (!currentPermission.ok) return currentPermission;
-      const [workflow] = await tx<DbWorkflow[]>`
-        SELECT ${workflowColumns}
-        FROM mail.workflows workflow
-        WHERE workflow.id = ${params.workflowId}::uuid AND workflow.mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE
-      `;
-      if (!workflow) return fail(err.notFound("Workflow"));
-      const editable = await rejectManagedWorkflowMutation(params.mailboxId, params.workflowId, tx);
+      if (!(await loadWorkflowRow(params.mailboxId, params.workflowId, tx, true))) return fail(err.notFound("Workflow"));
+      const editable = await rejectManagedWorkflow(params.mailboxId, params.workflowId, tx, false);
       if (!editable.ok) return editable;
       const validation = await validateMailWorkflowSource({ ...params, source: params.input.source, db: tx });
-      if (!validation.valid || !validation.ir || !validation.boundPlan || !validation.sourceHash) {
-        return fail(err.badInput("Workflow source is invalid"));
-      }
-      await insertVersion({
-        db: tx,
-        versionId,
-        workflowId: params.workflowId,
-        mailboxId: params.mailboxId,
-        validation: { ...validation, ir: validation.ir, boundPlan: validation.boundPlan, sourceHash: validation.sourceHash },
-        effectBudget: params.input.effectBudget,
-        actor,
-      });
-      await tx`
-        UPDATE mail.workflows
-        SET current_version_id = ${versionId}::uuid
-        WHERE id = ${params.workflowId}::uuid
-      `;
+      if (!requireValid(validation)) return fail(err.badInput(validation.diagnostics[0]?.message ?? "Workflow source is invalid"));
+      const version = await publishWorkflowVersion(
+        {
+          workflowId: params.workflowId,
+          source: validation.source,
+          sourceHash: validation.sourceHash,
+          plan: validation.boundPlan,
+          diagnostics: validation.diagnostics,
+          effectBudget: params.input.effectBudget,
+          languageId: validation.boundPlan.languageId,
+          languageVersion: validation.boundPlan.languageVersion,
+          manifestHash: validation.boundPlan.manifestHash,
+          activations: [],
+          activate: false,
+          author: creator(params.context),
+        },
+        { db: tx },
+      );
       await audit.record(
         {
           action: "mail.workflow.version.create",
@@ -691,7 +583,7 @@ export const createWorkflowVersion = async (params: {
           actor: auditActorFromRequest(params.context),
           target: { type: "workflow", id: params.workflowId },
           requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, versionId, sourceHash: validation.sourceHash },
+          metadata: { mailboxId: params.mailboxId, versionId: version.id, sourceHash: validation.sourceHash },
         },
         tx,
       );
@@ -700,9 +592,40 @@ export const createWorkflowVersion = async (params: {
       return ok(detail);
     });
   } catch (error) {
-    if (isServiceError(error)) return fail(error);
-    return fail(err.internal("Failed to create workflow version"));
+    return isServiceError(error) ? fail(error) : fail(err.internal("Failed to create workflow version"));
   }
+};
+
+const activateVersion = async (params: {
+  db: SqlClient;
+  context: MailRequestContext;
+  mailboxId: string;
+  workflowId: string;
+  version: DbWorkflowVersion;
+  enabled: boolean;
+}): Promise<void> => {
+  const plan = parseJson(params.version.plan);
+  const snapshot = snapshotMailboxWorkflowAuthorization(params.context, params.mailboxId);
+  await params.db`DELETE FROM workflows.activation WHERE workflow_id = ${params.workflowId}::uuid`;
+  for (const activation of workflowTriggerRegistrations(plan, params.enabled)) {
+    await params.db`
+      INSERT INTO workflows.activation (
+        workflow_id, workflow_version_id, key, event_type, config, authorization_snapshot, enabled
+      ) VALUES (
+        ${params.workflowId}::uuid, ${params.version.id}::uuid, ${activation.key}, ${activation.eventType},
+        ${activation.config ?? {}}::jsonb, ${snapshot}::jsonb, ${params.enabled}
+      )
+    `;
+  }
+  await params.db`
+    UPDATE workflows.workflow
+    SET active_version_id = ${params.version.id}::uuid, updated_at = now()
+    WHERE id = ${params.workflowId}::uuid
+  `;
+  await params.db`
+    UPDATE mail.workflow_profile SET enabled = ${params.enabled}
+    WHERE id = ${params.workflowId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+  `;
 };
 
 export const activateWorkflow = async (params: {
@@ -713,71 +636,22 @@ export const activateWorkflow = async (params: {
 }): Promise<Result<MailWorkflowDetail>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!allowed.ok) return allowed;
-  const authorizationSnapshot = snapshotMailboxWorkflowAuthorization(params.context, params.mailboxId);
-  try {
-    return await sql.begin(async (tx) => {
-      const currentPermission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
-      if (!currentPermission.ok) return currentPermission;
-      const [workflow] = await tx<DbWorkflow[]>`
-        SELECT ${workflowColumns}
-        FROM mail.workflows workflow
-        WHERE workflow.id = ${params.workflowId}::uuid AND workflow.mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE
-      `;
-      if (!workflow) return fail(err.notFound("Workflow"));
-      const editable = await rejectManagedWorkflowMutation(params.mailboxId, params.workflowId, tx);
-      if (!editable.ok) return editable;
-      if (workflow.current_version_id !== params.input.expectedVersionId) {
-        return fail(err.conflict("Workflow version changed before activation"));
-      }
-      const version = await loadWorkflowVersion({
-        mailboxId: params.mailboxId,
-        workflowId: params.workflowId,
-        versionId: params.input.expectedVersionId,
-        db: tx,
-      });
-      if (!version) return fail(err.notFound("Workflow version"));
-      const plan = parseJson(version.bound_plan);
-      const retiredConfiguration = retiredMailWorkflowConfiguration(plan);
-      if (retiredConfiguration) return fail(err.conflict(retiredMailWorkflowConfigurationMessage(retiredConfiguration)));
-      const registrations = workflowTriggerRegistrations(plan);
-      await tx`DELETE FROM mail.workflow_activations WHERE workflow_id = ${params.workflowId}::uuid`;
-      for (const trigger of registrations) {
-        await tx`
-          INSERT INTO mail.workflow_activations (
-            mailbox_id, workflow_id, workflow_version_id, trigger_key, trigger_kind, trigger_config,
-            authorization_snapshot, diagnostics
-          ) VALUES (
-            ${params.mailboxId}::uuid, ${params.workflowId}::uuid, ${version.id}::uuid,
-            ${trigger.key}, ${trigger.kind}, ${trigger.config}::jsonb,
-            ${authorizationSnapshot}::jsonb, '[]'::jsonb
-          )
-        `;
-      }
-      await tx`
-        UPDATE mail.workflows
-        SET active_version_id = ${version.id}::uuid
-        WHERE id = ${params.workflowId}::uuid
-      `;
-      await audit.record(
-        {
-          action: "mail.workflow.activate",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "workflow", id: params.workflowId },
-          requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, versionId: version.id, triggers: registrations.map((trigger) => trigger.kind) },
-        },
-        tx,
-      );
-      const detail = await loadWorkflowDetail(params.mailboxId, params.workflowId, tx);
-      if (!detail) throw new Error("Activated workflow could not be reloaded");
-      return ok(detail);
-    });
-  } catch (error) {
-    if (isServiceError(error)) return fail(error);
-    return fail(err.internal("Failed to activate workflow"));
-  }
+  return sql.begin(async (tx) => {
+    const workflow = await loadWorkflowRow(params.mailboxId, params.workflowId, tx, true);
+    if (!workflow) return fail(err.notFound("Workflow"));
+    const editable = await rejectManagedWorkflow(params.mailboxId, params.workflowId, tx, false);
+    if (!editable.ok) return editable;
+    if (workflow.current_version_id !== params.input.expectedVersionId) {
+      return fail(err.conflict("Workflow version changed before activation"));
+    }
+    const version = await loadWorkflowVersion({ ...params, versionId: params.input.expectedVersionId, db: tx });
+    if (!version) return fail(err.notFound("Workflow version"));
+    const activationError = workflowActivationError(parseJson(version.plan));
+    if (activationError) return fail(err.badInput(activationError));
+    await activateVersion({ ...params, db: tx, version, enabled: true });
+    const detail = await loadWorkflowDetail(params.mailboxId, params.workflowId, tx);
+    return detail ? ok(detail) : fail(err.internal("Activated workflow could not be reloaded"));
+  });
 };
 
 export const deactivateWorkflow = async (params: {
@@ -788,45 +662,20 @@ export const deactivateWorkflow = async (params: {
 }): Promise<Result<MailWorkflowDetail>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!allowed.ok) return allowed;
-  try {
-    return await sql.begin(async (tx) => {
-      const currentPermission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
-      if (!currentPermission.ok) return currentPermission;
-      const [workflow] = await tx<DbWorkflow[]>`
-        SELECT ${workflowColumns}
-        FROM mail.workflows workflow
-        WHERE workflow.id = ${params.workflowId}::uuid AND workflow.mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE
-      `;
-      if (!workflow) return fail(err.notFound("Workflow"));
-      const editable = await rejectManagedWorkflowMutation(params.mailboxId, params.workflowId, tx);
-      if (!editable.ok) return editable;
-      if (workflow.active_version_id !== params.input.expectedVersionId) {
-        return fail(err.conflict("Active workflow version changed before deactivation"));
-      }
-      await tx`UPDATE mail.workflows SET active_version_id = NULL WHERE id = ${params.workflowId}::uuid`;
-      await tx`
-        UPDATE mail.workflow_activations
-        SET enabled = false
-        WHERE workflow_id = ${params.workflowId}::uuid AND workflow_version_id = ${params.input.expectedVersionId}::uuid
-      `;
-      await audit.record(
-        {
-          action: "mail.workflow.deactivate",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "workflow", id: params.workflowId },
-          requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, versionId: params.input.expectedVersionId },
-        },
-        tx,
-      );
-      const detail = await loadWorkflowDetail(params.mailboxId, params.workflowId, tx);
-      if (!detail) throw new Error("Deactivated workflow could not be reloaded");
-      return ok(detail);
-    });
-  } catch (error) {
-    if (isServiceError(error)) return fail(error);
-    return fail(err.internal("Failed to deactivate workflow"));
-  }
+  return sql.begin(async (tx) => {
+    const workflow = await loadWorkflowRow(params.mailboxId, params.workflowId, tx, true);
+    if (!workflow) return fail(err.notFound("Workflow"));
+    const editable = await rejectManagedWorkflow(params.mailboxId, params.workflowId, tx, false);
+    if (!editable.ok) return editable;
+    if (workflow.active_version_id !== params.input.expectedVersionId) {
+      return fail(err.conflict("Workflow activation changed before deactivation"));
+    }
+    await tx`UPDATE workflows.activation SET enabled = false, updated_at = now() WHERE workflow_id = ${params.workflowId}::uuid`;
+    await tx`
+      UPDATE mail.workflow_profile SET enabled = false
+      WHERE id = ${params.workflowId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+    `;
+    const detail = await loadWorkflowDetail(params.mailboxId, params.workflowId, tx);
+    return detail ? ok(detail) : fail(err.internal("Deactivated workflow could not be reloaded"));
+  });
 };

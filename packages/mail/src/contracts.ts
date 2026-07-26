@@ -1443,36 +1443,6 @@ export type WorkflowEffectBudget = Omit<
   maxNotifications?: number;
 };
 
-export const workflowTargetQuerySchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("all") }).strict(),
-  z
-    .object({
-      type: z.literal("search"),
-      expression: mailSearchExpressionSchema,
-    })
-    .strict(),
-]);
-export type WorkflowTargetQuery = z.infer<typeof workflowTargetQuerySchema>;
-
-export const workflowRunTargetSelectionSchema = z.union([
-  workflowTargetQuerySchema,
-  z
-    .object({
-      type: z.literal("trigger"),
-      kind: z.string().min(1).max(120),
-      deliveryKey: z.string().min(1).max(500),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("retry"),
-      sourceRunId: z.string().uuid(),
-      targetIds: z.array(z.string().uuid()).min(1).max(500),
-    })
-    .strict(),
-]);
-export type WorkflowRunTargetSelection = z.infer<typeof workflowRunTargetSelectionSchema>;
-
 const workflowSourceSchema = z
   .string()
   .min(1)
@@ -1480,7 +1450,6 @@ const workflowSourceSchema = z
   .refine((source) => source.trim().length > 0, "Workflow source cannot be blank");
 const workflowVersionIdSchema = z.string().uuid();
 const workflowVersionIdentitySchema = z.string().min(1).max(200);
-const workflowHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const isWorkflowJsonValue = (value: unknown): value is WorkflowJsonValue => {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true;
   if (typeof value === "number") return Number.isFinite(value);
@@ -1506,8 +1475,6 @@ export const workflowJsonValueSchema = z
       },
     ],
   }) as z.ZodType<WorkflowJsonValue>;
-const workflowInputsSchema = z.record(z.string(), workflowJsonValueSchema).default({});
-const workflowIdempotencyKeySchema = z.string().trim().min(1).max(200);
 
 export const validateWorkflowInputSchema = z.object({ source: workflowSourceSchema }).strict();
 export type ValidateWorkflowInput = z.infer<typeof validateWorkflowInputSchema>;
@@ -1537,70 +1504,6 @@ export type ActivateWorkflowInput = z.infer<typeof activateWorkflowInputSchema>;
 export const deactivateWorkflowInputSchema = z.object({ expectedVersionId: workflowVersionIdSchema }).strict();
 export type DeactivateWorkflowInput = z.infer<typeof deactivateWorkflowInputSchema>;
 
-const workflowVersionRequestSchema = z.object({
-  expectedVersionId: workflowVersionIdSchema,
-  inputs: workflowInputsSchema,
-  query: workflowTargetQuerySchema,
-});
-
-export const dryRunWorkflowInputSchema = workflowVersionRequestSchema.extend({ idempotencyKey: workflowIdempotencyKeySchema }).strict();
-export type DryRunWorkflowInput = z.infer<typeof dryRunWorkflowInputSchema>;
-
-export const preflightWorkflowInputSchema = workflowVersionRequestSchema.strict();
-export type PreflightWorkflowInput = z.infer<typeof preflightWorkflowInputSchema>;
-
-const effectfulWorkflowRunInputSchema = workflowVersionRequestSchema.extend({
-  preflightHash: workflowHashSchema,
-  occurredAt: z.string().datetime(),
-  idempotencyKey: workflowIdempotencyKeySchema,
-});
-
-export const invokeWorkflowInputSchema = effectfulWorkflowRunInputSchema.strict();
-export type InvokeWorkflowInput = z.infer<typeof invokeWorkflowInputSchema>;
-
-export const backfillWorkflowInputSchema = effectfulWorkflowRunInputSchema.strict();
-export type BackfillWorkflowInput = z.infer<typeof backfillWorkflowInputSchema>;
-
-export const oneShotWorkflowInputSchema = effectfulWorkflowRunInputSchema.strict();
-export type OneShotWorkflowInput = z.infer<typeof oneShotWorkflowInputSchema>;
-
-export const workflowRunControlInputSchema = z.object({ reason: z.string().trim().min(1).max(1_000).optional() }).strict();
-export type WorkflowRunControlInput = z.infer<typeof workflowRunControlInputSchema>;
-export const retryWorkflowRunInputSchema = z
-  .object({
-    targetIds: z
-      .array(z.string().uuid())
-      .min(1)
-      .max(500)
-      .refine((ids) => new Set(ids).size === ids.length, "Target IDs must be unique"),
-    idempotencyKey: workflowIdempotencyKeySchema,
-    reason: z.string().trim().min(1).max(1_000).optional(),
-  })
-  .strict();
-export type RetryWorkflowRunInput = z.infer<typeof retryWorkflowRunInputSchema>;
-
-export const MAIL_WORKFLOW_CHANNELS = ["ui", "api", "bulk", "agent", "schedule", "event"] as const;
-export const workflowRunModeSchema = z.enum(["execute", "dryRun"]);
-export type WorkflowRunMode = z.infer<typeof workflowRunModeSchema>;
-export const workflowRunChannelSchema = z.enum(MAIL_WORKFLOW_CHANNELS);
-export type WorkflowRunChannel = z.infer<typeof workflowRunChannelSchema>;
-export const workflowRunKindSchema = z.enum(["invoke", "backfill", "oneShot", "trigger", "retry"]);
-export type WorkflowRunKind = z.infer<typeof workflowRunKindSchema>;
-export const workflowRunStateSchema = z.enum([
-  "materializing",
-  "queued",
-  "running",
-  "waiting",
-  "paused",
-  "succeeded",
-  "failed",
-  "canceled",
-  "needs_attention",
-]);
-export type WorkflowRunState = z.infer<typeof workflowRunStateSchema>;
-export const workflowTargetStateSchema = z.enum(["queued", "running", "waiting", "succeeded", "failed", "canceled", "needs_attention"]);
-export type WorkflowTargetState = z.infer<typeof workflowTargetStateSchema>;
-
 export type WorkflowVersionIdentity = z.infer<typeof workflowVersionIdentitySchema>;
 export type WorkflowDiagnostic = KernelWorkflowDiagnostic;
 
@@ -1611,18 +1514,6 @@ export type WorkflowValidation = {
   ir: WorkflowIr | null;
   boundPlan: WorkflowBoundPlan | null;
   diagnostics: WorkflowDiagnostic[];
-};
-
-export type MailWorkflowPreflight = {
-  workflowVersionId: string;
-  versionIdentity: WorkflowVersionIdentity;
-  sourceHash: string;
-  queryHash: string;
-  preflightHash: string;
-  occurredAt: string;
-  effectBudget: WorkflowEffectBudget;
-  actionCounts: Record<string, number>;
-  targetCount: number;
 };
 
 export type MailWorkflow = {
@@ -1673,62 +1564,6 @@ export type MailWorkflowActivation = {
 export type MailWorkflowDetail = MailWorkflow & {
   currentVersion: MailWorkflowVersion;
   activations: MailWorkflowActivation[];
-};
-
-export type MailWorkflowTargetProgress = Record<WorkflowTargetState, number> & {
-  total: number;
-};
-
-export type MailWorkflowRun = {
-  id: string;
-  mailboxId: string;
-  workflowId: string;
-  workflowVersionId: string;
-  versionIdentity: WorkflowVersionIdentity;
-  sourceHash: string;
-  kind: WorkflowRunKind;
-  mode: WorkflowRunMode;
-  channel: WorkflowRunChannel;
-  state: WorkflowRunState;
-  inputs: Record<string, WorkflowJsonValue>;
-  query: WorkflowRunTargetSelection;
-  preflightHash: string | null;
-  retryOfRunId: string | null;
-  pausedAt: string | null;
-  pauseReason: string | null;
-  targetProgress: MailWorkflowTargetProgress;
-  result: WorkflowJsonValue | null;
-  lastError: { code: string; message: string; retryable: boolean } | null;
-  createdAt: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  updatedAt: string;
-};
-
-export type MailWorkflowRunPage = {
-  items: MailWorkflowRun[];
-  nextCursor: string | null;
-};
-
-export type MailWorkflowRunTarget = {
-  id: string;
-  parentRunId: string;
-  ordinal: number;
-  targetKey: string;
-  state: WorkflowTargetState;
-  executionGeneration: number;
-  inputs: Record<string, WorkflowJsonValue>;
-  source: WorkflowJsonValue;
-  preconditions: WorkflowJsonValue;
-  result: WorkflowJsonValue | null;
-  lastError: { code: string; message: string; retryable: boolean } | null;
-  cancelRequestedAt: string | null;
-  retryOfTargetId: string | null;
-  hasRetry: boolean;
-  createdAt: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  updatedAt: string;
 };
 
 export const conversationViewSchema = z.enum(["needs_action", "mine", "unassigned", "waiting", "done", "snoozed", "recently_active"]);

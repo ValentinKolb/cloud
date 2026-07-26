@@ -1,9 +1,7 @@
 import { sql } from "bun";
-import type { MailSearchExpression, WorkflowTargetQuery } from "../contracts";
 import { sha256Json } from "./canonical";
 import type { ConnectorProtocolFacts } from "./connectors";
 import { parseMessageProtocolFacts } from "./message-protocol";
-import { compileSearchExpression } from "./search";
 
 export type SqlClient = typeof sql;
 
@@ -119,40 +117,6 @@ const standardFlagNames: Record<string, string> = {
 
 export const normalizeWorkflowFlags = (flags: readonly string[]): string[] =>
   flags.map((flag) => standardFlagNames[flag.toLowerCase()] ?? flag).sort();
-
-const searchExpressionUsesBody = (expression: MailSearchExpression): boolean => {
-  const remaining: MailSearchExpression[] = [expression];
-  while (remaining.length > 0) {
-    const current = remaining.pop()!;
-    if (current.type === "and" || current.type === "or") remaining.push(...current.expressions);
-    else if (current.type === "not") remaining.push(current.expression);
-    else if (current.type === "text" && (current.field === "body" || current.field === "any")) return true;
-  }
-  return false;
-};
-
-export const countWorkflowQueryBodyGaps = async (params: {
-  mailboxId: string;
-  query: WorkflowTargetQuery;
-  db?: SqlClient;
-}): Promise<number> => {
-  if (params.query.type !== "search" || !searchExpressionUsesBody(params.query.expression)) return 0;
-  const db = params.db ?? sql;
-  const [row] = await db<{ count: number }[]>`
-    SELECT COUNT(*)::int AS count
-    FROM mail.remote_message_refs rmr
-    JOIN mail.message_placements mp ON mp.remote_message_ref_id = rmr.id
-    JOIN mail.message_contents mc ON mc.id = rmr.message_id
-    JOIN mail.folders folder ON folder.id = rmr.folder_id
-    JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
-    WHERE resource.mailbox_id = ${params.mailboxId}::uuid
-      AND rmr.stale_at IS NULL
-      AND mp.deleted_at IS NULL
-      AND folder.discovery_state = 'active'
-      AND mc.hydration_status NOT IN ('body', 'complete')
-  `;
-  return row?.count ?? 0;
-};
 
 const snapshotColumns = sql`
   rmr.id AS remote_message_ref_id,
@@ -294,42 +258,12 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
   };
 };
 
-export const listWorkflowSnapshots = async (params: {
-  mailboxId: string;
-  query: WorkflowTargetQuery;
-  limit: number;
-  after?: { internalDate: string; remoteMessageRefId: string } | null;
-  db?: SqlClient;
-}): Promise<MailWorkflowTargetSnapshot[]> => {
-  const db = params.db ?? sql;
-  const predicate = params.query.type === "search" ? compileSearchExpression(params.query.expression) : sql`TRUE`;
-  const rows = await db<WorkflowSnapshotRow[]>`
-    SELECT ${snapshotColumns}
-    FROM mail.remote_message_refs rmr
-    ${snapshotJoins}
-    WHERE resource.mailbox_id = ${params.mailboxId}::uuid
-      AND rmr.stale_at IS NULL
-      AND mp.deleted_at IS NULL
-      AND folder.discovery_state = 'active'
-      AND (${predicate})
-      AND (
-        ${params.after?.internalDate ?? null}::timestamptz IS NULL
-        OR (mc.internal_date, rmr.id) < (${params.after?.internalDate ?? null}::timestamptz, ${params.after?.remoteMessageRefId ?? null}::uuid)
-      )
-    ORDER BY mc.internal_date DESC, rmr.id DESC
-    LIMIT ${params.limit}
-  `;
-  return rows.map(mapSnapshot);
-};
-
 export const getWorkflowSnapshot = async (params: {
   mailboxId: string;
   remoteMessageRefId: string;
-  query: WorkflowTargetQuery;
   db?: SqlClient;
 }): Promise<MailWorkflowTargetSnapshot | null> => {
   const db = params.db ?? sql;
-  const predicate = params.query.type === "search" ? compileSearchExpression(params.query.expression) : sql`TRUE`;
   const [row] = await db<WorkflowSnapshotRow[]>`
     SELECT ${snapshotColumns}
     FROM mail.remote_message_refs rmr
@@ -339,7 +273,6 @@ export const getWorkflowSnapshot = async (params: {
       AND rmr.stale_at IS NULL
       AND mp.deleted_at IS NULL
       AND folder.discovery_state = 'active'
-      AND (${predicate})
   `;
   return row ? mapSnapshot(row) : null;
 };

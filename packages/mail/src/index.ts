@@ -11,7 +11,7 @@ import { publicAttachmentRoutes } from "./frontend/public-attachments";
 import { mailHelp } from "./help";
 import { migrate } from "./migrate";
 import { createMailNotificationService } from "./notifications";
-import { commandRuntime, mailRuntime, workflowMaterializationRuntime, workflowRuntime } from "./service";
+import { commandRuntime, mailRuntime, workflowRuntime } from "./service";
 
 const mailNotifications = createMailNotificationService(app.notifications);
 const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("user")).route("/", mailHelp.router);
@@ -19,7 +19,6 @@ const helpRoutes = new Hono<AuthContext>().use(auth.requireRole("user")).route("
 const stopMailRuntimes = (): Promise<void> =>
   stopRuntimeResources([
     () => mailRuntime.stop(),
-    () => workflowMaterializationRuntime.stop(),
     () => workflowRuntime.stop(),
     () => commandRuntime.stop(),
     () => mailNotifications.stop(),
@@ -45,7 +44,6 @@ const result = await app.start({
         await mailNotifications.start();
         await mailRuntime.start();
         await commandRuntime.start();
-        await workflowMaterializationRuntime.start();
         await workflowRuntime.start();
       } catch (startError) {
         try {

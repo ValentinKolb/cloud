@@ -8,7 +8,7 @@ Read this reference when configuring managed automatic replies, conversation ref
 | --- | --- |
 | Out-of-office or receipt acknowledgement | `automatic-reply ...` |
 | Permanent human-facing conversation ids | `reference ...` plus `ensureConversationReference` |
-| Conditional routing, tagging, assignment, drafts, sends, notifications, or backfills | `workflow ...` |
+| Conditional routing, tagging, assignment, drafts, sends, or notifications | `workflow ...` |
 
 Managed automatic replies are convenience configurations backed by the same guarded response behavior as workflows. Presets exist only in the Mail application; the persisted configuration and CLI input use one stable schema.
 
@@ -171,7 +171,7 @@ steps:
 
 `messageReceived` is emitted once for a stable inbound message imported by live incremental sync. Historical backfill does not emit it. Activation grants the active version mailbox-owned automation authority. Deactivation stops new automatic runs without changing existing versions or runs.
 
-Omit `triggers` for a direct-only workflow. An empty `triggers: {}` is invalid. Direct-only and automatically triggered workflows can both be run manually.
+Every active Mail workflow needs a `messageReceived` or `schedule` trigger. An empty `triggers: {}` is invalid.
 
 The language also accepts a five-field cron schedule and an optional IANA timezone:
 
@@ -187,7 +187,7 @@ steps:
       message: Scheduled check completed
 ```
 
-Activation reconciles schedules into the shared scheduler. Every delivered slot has a deterministic key and revalidates the active workflow version before materialization. Duplicate delivery reuses the same logical run. Slots missed while the scheduler process is offline are skipped rather than backfilled.
+Activation reconciles schedules into the shared scheduler. Every delivered slot has a deterministic key and revalidates the active workflow version before creating a run. Duplicate delivery reuses the same logical run. Slots missed while the scheduler process is offline are skipped rather than backfilled.
 
 ## Use inputs and conditions
 
@@ -205,7 +205,7 @@ Conditions are recursive and contain exactly one operator:
 - `exists` accepts one reference such as `inputs.conversation.assigneeUserId`.
 - `all` and `any` contain one or more conditions; `not` contains one condition.
 
-Steps may use `if`/`then`/`else` and `switch`/`cases`/`default`. The shared parser understands `forEach`, but the Mail binder rejects it; Mail target sets are processed by the durable batch runtime instead.
+Steps may use `if`/`then`/`else` and `switch`/`cases`/`default`. The shared parser understands `forEach`, but the Mail binder rejects it because each Mail event starts one durable workflow run.
 
 ## Use the complete action vocabulary
 
@@ -221,11 +221,11 @@ Steps may use `if`/`then`/`else` and `switch`/`cases`/`default`. The shared pars
 | `removeFlag` | `message`, `seen`, `answered`, `flagged`, or `draft` in `flag` | Remove one standard provider flag |
 | `assignConversation` | `conversation`, assignable user name, id, expression, or `null` in `user` | Change assignment transactionally |
 | `setConversationStatus` | `conversation`, `needs_action`, `waiting`, or `done` in `status` | Change work state transactionally |
-| `ensureConversationReference` | `conversation`; optional identifier in `result` | Allocate or return the immutable reference |
+| `ensureConversationReference` | `conversation`; optional identifier in `saveAs` | Allocate or return the immutable reference |
 | `addLocalTag` | `conversation`, mailbox-local tag name or id in `tag` | Add a Cloud-local tag |
 | `removeLocalTag` | `conversation`, mailbox-local tag name or id in `tag` | Remove a Cloud-local tag |
 | `addComment` | `conversation`, `body` | Add an internal comment |
-| `createDraft` | sender, recipients, subject, body, and identifier in `result`; optional cc, bcc, format | Create a normal-delivery draft |
+| `createDraft` | sender, recipients, subject, body, and identifier in `saveAs`; optional cc, bcc, format | Create a normal-delivery draft |
 | `scheduleDraftSend` | draft value reference in `draft`, ISO timestamp in `scheduledAt` | Schedule a created draft |
 | `notifyUser` | mailbox reader in `user`, `title`, `body` | Send an internal notification |
 | `automaticReply` | `message`, `conversation`, sender, subject, body; optional format and response schedule | Queue a guarded automatic response |
@@ -243,7 +243,7 @@ Reference allocation can expose its result:
 steps:
   - ensureConversationReference:
       conversation: inputs.conversation
-      result: reference
+      saveAs: reference
   - automaticReply:
       message: inputs.message
       conversation: inputs.conversation
@@ -325,120 +325,39 @@ cld --json mail workflow activate <workflow-id> --version-id <new-version-id>
 cld --json mail workflow deactivate <workflow-id> --version-id <active-version-id>
 ```
 
-A new version receives the effect budgets passed to that command; it does not inherit omitted values from the previous version. Activation and deactivation require the expected current or active version id, so a concurrent edit fails instead of activating the wrong source. Manual execution may target any saved immutable version; activation controls automatic triggers only.
-
-## Preflight and run manually
-
-Manual runs use a mailbox-scoped target query. Omit `--query-file` to select all current messages, or provide JSON or YAML:
-
-```yaml
-type: search
-expression:
-  type: and
-  expressions:
-    - type: text
-      field: subject
-      query: invoice
-      match: contains
-    - type: not
-      expression:
-        type: text
-        field: from
-        query: bot@example.com
-        match: exact
-```
-
-Preflight is read-only. It traverses frozen message and conversation snapshots, counts planned effects, enforces the immutable version's effect budget, and returns a version-bound `preflightHash`:
-
-```bash
-cld --json mail workflow preflight \
-  <workflow-id> \
-  --version-id <version-id> \
-  --query-file invoice-query.yml
-```
-
-Effectful CLI run commands preflight again immediately before execution. Without `--yes`, they print the preflight and stop. With `--yes`, they submit the returned hash and queue the durable run:
-
-```bash
-cld --json mail workflow run invoke <workflow-id> \
-  --version-id <version-id> \
-  --query-file invoice-query.yml \
-  --idempotency-key invoice-run-2026-07-15 \
-  --yes --wait
-
-cld --json mail workflow run one-shot <workflow-id> \
-  --version-id <version-id> \
-  --query-file invoice-query.yml \
-  --yes
-
-cld --json mail workflow run backfill <workflow-id> \
-  --version-id <version-id> \
-  --query-file invoice-query.yml \
-  --yes
-```
-
-`invoke`, `one-shot`, and `backfill` share the same version-pinned query, preflight, and execution path. Their stored run kind records caller intent. Use a stable `--idempotency-key` when a caller may retry; reusing it with different inputs, query, version, or run kind fails.
-
-Current CLI workflow requests use the authenticated API transport and are recorded by the server with channel `api`. The shared CLI transport does not provide authenticated client provenance, so a client-controlled header must not claim channel `cli`.
-
-Use a durable dry run for an auditable per-target plan without effects:
-
-```bash
-cld --json mail workflow run dry-run <workflow-id> \
-  --version-id <version-id> \
-  --query-file invoice-query.yml \
-  --idempotency-key invoice-review-2026-07-15 \
-  --wait
-```
-
-Dry runs use the same frozen targets, leases, recovery, and result history as execution, but action planners receive no effect-capable ports.
+A new version receives the effect budgets passed to that command; it does not inherit omitted values from the previous version. Activation and deactivation require the expected current or active version id, so a concurrent edit fails instead of activating the wrong source.
 
 ## Observe and control runs
 
-Inspect durable progress:
+Mail uses the shared Cloud workflow kernel. Cloud administrators inspect every app's runs through the central operations commands:
 
 ```bash
-cld --json mail workflow run list --workflow <workflow-id>
-cld --json mail workflow run get <run-id>
-cld --json mail workflow run targets <run-id> --after -1 --limit 100
-cld --json mail workflow run wait <run-id> --timeout-seconds 300
+cld admin workflows health --json
+cld admin workflows runs --app mail --json
+cld admin workflows show <run-id> --json
+cld admin workflows effects --app mail --json
+cld admin workflows events --app mail --json
 ```
 
-Pause at a fenced action boundary and resume later:
+Request cooperative cancellation when no further effects should start:
 
 ```bash
-cld --json mail workflow run pause <run-id> --reason "Provider maintenance"
-cld --json mail workflow run resume <run-id> --reason "Provider recovered"
+cld admin workflows cancel <run-id> --yes
 ```
 
-Cancel unfinished targets or retry selected failed targets as a lineage-linked child run:
-
-```bash
-cld --json mail workflow run cancel <run-id> --reason "Superseded" --yes
-cld --json mail workflow run retry \
-  <run-id> \
-  --target <failed-target-id> \
-  --target <second-failed-target-id> \
-  --idempotency-key retry-2026-07-15 \
-  --reason "Provider recovered" \
-  --yes
-```
-
-Cancellation does not undo effects that already completed. A retry targets only explicitly selected failed targets and preserves lineage to the source run.
-
-With `--json` or `--jsonl`, a waited run that ends in `failed`, `canceled`, or `needs_attention` writes a structured `{ error, run }` result and exits with status 1.
+Cancellation does not undo completed effects. If an external effect has an uncertain outcome, inspect it with `workflows effects` and record the verified outcome with `cld admin workflows resolve`. Read [Administration](admin.md) for the exact filters, states, and resolution command.
 
 ## Understand budgets, permissions, and recovery
 
-Every saved version carries limits for targets, moves, copies, sends, drafts, flag changes, notifications, keyword changes, and collaboration changes. Defaults are 1,000 for targets, moves, copies, sends, drafts, and notifications, and 2,000 for flag, keyword, and collaboration changes.
+Every saved version carries limits for moves, copies, sends, drafts, flag changes, notifications, keyword changes, and collaboration changes. Defaults are 1,000 for moves, copies, sends, drafts, and notifications, and 2,000 for flag, keyword, and collaboration changes.
 
-The accepted maximum is 50,000 for targets, moves, copies, sends, drafts, and notifications, and 100,000 for flag, keyword, and collaboration changes. Preflight also enforces hard planning ceilings.
+The accepted maximum is 50,000 for moves, copies, sends, drafts, and notifications, and 100,000 for flag, keyword, and collaboration changes.
 
-Creating versions and activating or deactivating workflows requires mailbox `admin`; validation and inspection require `read`; preflight, manual execution, and run control require current mutation access. Manual runs snapshot the initiating user or service-account credential and recheck it during execution.
+Creating versions and activating or deactivating workflows requires mailbox `admin`; validation and inspection require `read`. Central run inspection and control requires Cloud administrator access.
 
-Automatic runs use the active version's mailbox-owned authority, so removing the activating administrator's later personal access does not silently disable approved automation. Deactivation or replacement prevents new automatic runs. Runs already accepted retain their pinned version and authority; cancel them explicitly to stop unfinished targets.
+Runs use the active version's mailbox-owned authority, so removing the activating administrator's later personal access does not silently disable approved automation. Deactivation or replacement prevents new runs. Runs already accepted retain their pinned version and authority; cancel them centrally to stop unfinished work.
 
-Provider actions create idempotent Mail commands. A step may wait for a command, hydration, or attachment dependency. Large backfills materialize frozen targets in bounded keyset batches. Durable outcomes survive retries; lease generations fence stale workers; PostgreSQL reconciliation recovers interrupted materialization, missed events, expired claims, and terminal dependencies. Ambiguous provider outcomes become `needs_attention` rather than being blindly repeated.
+Provider actions create idempotent Mail commands. A step may wait for a command or message hydration. Durable outcomes survive retries; lease generations fence stale workers; dependency completion wakes waiting runs. Ambiguous provider outcomes become `needs_attention` rather than being blindly repeated.
 
 ## Call the workflow API directly
 
@@ -472,54 +391,7 @@ curl -fsS -X POST \
   --data-binary @create-workflow.json
 ```
 
-Execution is an explicit two-request commitment. First create a preflight:
-
-```json
-{
-  "expectedVersionId": "<version-id>",
-  "inputs": {},
-  "query": {
-    "type": "search",
-    "expression": {
-      "type": "text",
-      "field": "subject",
-      "query": "invoice",
-      "match": "contains"
-    }
-  }
-}
-```
-
-```bash
-curl -fsS -X POST \
-  "$CLOUD_URL/api/mail/mailboxes/$MAILBOX_ID/workflows/$WORKFLOW_ID/preflight" \
-  -H "Authorization: Bearer $CLD_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data-binary @preflight-request.json
-```
-
-Then send the same version, occurrence time, inputs, and query to `/invoke`, `/one-shot`, or `/backfill`, together with the returned hash:
-
-```json
-{
-  "expectedVersionId": "<version-id>",
-  "inputs": {},
-  "query": {
-    "type": "search",
-    "expression": {
-      "type": "text",
-      "field": "subject",
-      "query": "invoice",
-      "match": "contains"
-    }
-  },
-  "occurredAt": "<preflight-occurred-at>",
-  "preflightHash": "<preflight-hash>",
-  "idempotencyKey": "invoice-run-2026-07-15"
-}
-```
-
-The server recomputes the preflight in the execution transaction. A changed target snapshot, precondition, query, input, catalog binding, version, or budget makes the hash stale and prevents the run from being created.
+The Mail API manages definitions and activations only. Runtime observability and control use the shared Admin workflow API published by the Cloud core application; discover it with `cld api-docs operations cloud` or use `cld admin workflows`.
 
 ## Command map
 
@@ -527,6 +399,5 @@ The server recomputes the preflight in the execution transaction. A changed targ
 | --- | --- |
 | Automatic replies | `automatic-reply list|create|update` |
 | References | `reference config show|set`, `reference list|ensure|find` |
-| Workflow lifecycle | `workflow list|get|validate|preflight|create|activate|deactivate`, `workflow version list|get|create` |
-| Run creation | `workflow run invoke|one-shot|backfill|dry-run` |
-| Run operations | `workflow run list|get|targets|wait|pause|resume|cancel|retry` |
+| Workflow lifecycle | `workflow list|get|validate|create|activate|deactivate`, `workflow version list|get|create` |
+| Runtime operations | `cld admin workflows health|runs|show|cancel|effects|resolve|events` |

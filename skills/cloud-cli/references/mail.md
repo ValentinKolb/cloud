@@ -5,7 +5,7 @@ Use `cld mail` to configure Cloud mailboxes and operate mirrored provider mail t
 Start here for mailbox setup, search, and collaboration. Continue with:
 
 - [Mail compose and drafts](mail-compose.md) for templates, signatures, shared drafts, attachments, immediate or scheduled delivery, and durable send commands.
-- [Mail automation](mail-automation.md) for managed automatic replies, conversation references, workflow YAML, immutable versions, and durable runs.
+- [Mail automation](mail-automation.md) for managed automatic replies, conversation references, workflow YAML, immutable versions, and central run operations.
 - [Mail operations](mail-operations.md) for provider credential lifecycle, folder discovery, repairs, operator actions, storage observability, and provider-backed message changes.
 
 ## Safety
@@ -238,7 +238,7 @@ cld --json mail message inspect <message-id>
 cld --json mail message source <message-id> --out message.eml
 ```
 
-`search`, `conversation list`, activities, saved views, scheduled sends, workflow runs, and deleted-mailbox listings are cursor-paginated. Preserve and pass the returned cursor rather than reconstructing it.
+`search`, `conversation list`, activities, saved views, scheduled sends, and deleted-mailbox listings are cursor-paginated. Preserve and pass the returned cursor rather than reconstructing it.
 
 Create a reviewable independent draft from an existing message, or prepare a resend of an outbound message:
 

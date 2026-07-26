@@ -193,7 +193,7 @@ inputs:
 steps:
   - ensureConversationReference:
       conversation: inputs.conversation
-      result: reference
+      saveAs: reference
   - setConversationStatus:
       conversation: inputs.conversation
       status: waiting
@@ -201,7 +201,7 @@ steps:
       message: "Allocated ${{ reference.value }}"
 ```
 
-The action is safe to repeat and does not allocate a second reference for the same conversation. When `result` is present, later steps in the same scope can use:
+The action is safe to repeat and does not allocate a second reference for the same conversation. When `saveAs` is present, later steps in the same scope can use:
 
 - `${{ reference.id }}` for the immutable reference record ID.
 - `${{ reference.value }}` for the rendered value such as `SUP-2026-000042`.
@@ -355,23 +355,21 @@ Values created in a `case` remain inside that case. Use terminal actions inside 
 
 Changing an accessible folder or sender does not rewrite a saved version. The mailbox reference pattern is evaluated when a number is allocated, while existing reference values remain unchanged. Changing response timing means saving and explicitly activating a new workflow version because the schedule is part of the YAML itself.
 
-## Validate, preview effects, and inspect runs {icon="layout-list"}
+## Validate and inspect runs {icon="layout-list"}
 
-**Validate** checks source and catalog bindings but does not execute steps. Direct CLI/API runs support:
+**Validate** checks source and catalog bindings but does not execute steps. Mail workflows start only from their active `messageReceived` or `schedule` triggers; there is no separate manual-run or backfill path.
 
-- **dry run**, which records predicted effects without applying them,
-- **preflight**, which freezes the version, query, target count, and effect budget before an effectful run,
-- **execute**, which applies the exact preflighted request with an idempotency key.
+Every action rechecks current mailbox authority. Removing the required access or deactivating the workflow prevents later effects. Provider commands additionally pin the kernel execution generation, so a worker that lost its lease cannot reach the mail provider.
 
-A dry run is advisory. Permissions, provider state, and mailbox content are checked again during real execution.
+Administrators inspect runtime history in **Administration > Observability > Workflows**. The shared view shows runs, step outcomes, effects, source events, failures, and items that need attention across all applications. The equivalent CLI commands are:
 
-Every action rechecks current mailbox authority. Removing the required access or deactivating the workflow prevents later effects.
+```bash
+cld admin workflows runs --app mail
+cld admin workflows show <run-id>
+cld admin workflows effects --app mail
+cld admin workflows events --app mail
+```
 
-- **Pause** fences new action commits. It is rejected while a provider command is queued, executing, or ambiguous.
-- **Resume** requeues interrupted targets with a new execution generation and restores already completed step outcomes.
-- **Retry failed** creates a lineage-linked child run for explicitly selected failed targets. A target is ineligible after any provider effect began or when its provider outcome is ambiguous.
-- **Cancel** stops pending targets before their next effect; completed effects remain audited.
-
-The child run retains the immutable workflow version, frozen target data, and execution clock. It captures current authorization separately and receives new target and command idempotency identities.
+`cld admin workflows cancel <run-id> --yes` prevents later effects but does not undo completed work. Resolve an uncertain external outcome only after verifying it at the provider, then record that decision with `cld admin workflows resolve`.
 
 For setup tasks and operational consequences, see [Automate responses and mailbox work](/app/mail/help/mail-automation).

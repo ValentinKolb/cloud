@@ -1,16 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
-import {
-  createSenderRule,
-  deleteSenderRule,
-  listSenderRules,
-  setSenderRuleEnabled,
-  updateSenderRule,
-} from "./sender-rules";
+import { createSenderRule, deleteSenderRule, listSenderRules, setSenderRuleEnabled, updateSenderRule } from "./sender-rules";
+import { listWorkflows } from "./workflow-definition-service";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
@@ -110,6 +106,7 @@ suite("mail sender rules", () => {
       `;
       accessIds.push(...rows.map((row) => row.access_id));
       await sql`DELETE FROM mail.mailboxes WHERE id = ${mailboxId}::uuid`;
+      await deleteWorkflowScope({ appId: "mail", scopeId: mailboxId });
     }
     if (accessIds.length > 0) {
       await sql`
@@ -200,7 +197,7 @@ suite("mail sender rules", () => {
 
     const [versionCount] = await sql<{ count: string }[]>`
       SELECT count(*)::text AS count
-      FROM mail.workflow_versions
+      FROM workflows.version
       WHERE workflow_id = ${created.data.workflowId}::uuid
     `;
     expect(Number(versionCount?.count)).toBe(2);
@@ -234,13 +231,19 @@ suite("mail sender rules", () => {
     const afterDelete = await listSenderRules(ownerContext, mailboxId);
     expect(afterDelete.ok).toBe(true);
     if (afterDelete.ok) expect(afterDelete.data.some((rule) => rule.id === created.data.id)).toBe(false);
+    const visibleWorkflows = await listWorkflows(ownerContext, mailboxId);
+    expect(visibleWorkflows.ok).toBe(true);
+    if (visibleWorkflows.ok) expect(visibleWorkflows.data.some((workflow) => workflow.id === created.data.workflowId)).toBe(false);
 
-    const [workflow] = await sql<{ active_version_id: string | null }[]>`
-      SELECT active_version_id
-      FROM mail.workflows
-      WHERE id = ${created.data.workflowId}::uuid
+    const [workflow] = await sql<{ enabled: boolean; active_activations: number }[]>`
+      SELECT
+        profile.enabled,
+        (SELECT COUNT(*)::int FROM workflows.activation activation
+         WHERE activation.workflow_id = profile.id AND activation.enabled) AS active_activations
+      FROM mail.workflow_profile profile
+      WHERE profile.id = ${created.data.workflowId}::uuid
     `;
-    expect(workflow?.active_version_id).toBeNull();
+    expect(workflow).toEqual({ enabled: false, active_activations: 0 });
   });
 
   test("rejects destructive rules for mailbox identities and internal domains", async () => {

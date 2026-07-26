@@ -4,8 +4,8 @@ import { sql } from "bun";
 import {
   type ActorCommandInput,
   type ActorRef,
-  type ComposeSafetyApproval,
   actorCommandInputSchema,
+  type ComposeSafetyApproval,
   draftEditableContentInputSchema,
   type MailCommand,
   type MailCommandInput,
@@ -17,18 +17,14 @@ import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
-import { renderComposeDraft } from "./compose-templates";
 import { validateDraftComposeSafety } from "./compose-safety";
+import { renderComposeDraft } from "./compose-templates";
 import { publishMailMailboxEvent } from "./events";
 import { resolveMailExecution } from "./execution";
 import { createBlobReadable } from "./message-blobs";
 import { BASE_MAINTENANCE_KINDS, getOperatorActionEligibility } from "./operator-actions";
 import { measureMimeStream, outboundDraftSnapshotSchema } from "./outbound-mime";
-import {
-  activeSmtpMessageLimit,
-  assertProviderMessageSize,
-  loadBindingProviderLimits,
-} from "./provider-limits";
+import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
 
 type DbCommand = {
   id: string;
@@ -41,6 +37,7 @@ type DbCommand = {
   idempotency_key: string;
   request_hash: string;
   correlation_id: string | null;
+  workflow_execution_generation: string | number | null;
   target: Record<string, unknown> | string;
   payload: Record<string, unknown> | string;
   selected_binding_id: string | null;
@@ -64,6 +61,7 @@ const commandColumns = sql`
   c.idempotency_key,
   c.request_hash,
   c.correlation_id,
+  c.workflow_execution_generation,
   c.target,
   c.payload,
   c.selected_binding_id,
@@ -523,18 +521,13 @@ const createSendOutbox = async (params: {
     date: mimeDate,
     openAttachment: createBlobReadable,
   });
-  const providerLimits = await loadBindingProviderLimits(
-    params.db,
-    params.selectedBindingId,
-  );
+  const providerLimits = await loadBindingProviderLimits(params.db, params.selectedBindingId);
   const rawIdentityTransportCapabilities =
     typeof draft.identity_transport_capabilities === "string"
       ? JSON.parse(draft.identity_transport_capabilities)
       : draft.identity_transport_capabilities;
   const identityTransportCapabilities =
-    draft.identity_transport_revision === null
-      ? null
-      : smtpTransportCapabilitiesSchema.parse(rawIdentityTransportCapabilities);
+    draft.identity_transport_revision === null ? null : smtpTransportCapabilitiesSchema.parse(rawIdentityTransportCapabilities);
   const smtpLimitBytes =
     draft.identity_transport_revision !== null
       ? (identityTransportCapabilities?.maxMessageBytes ?? null)
@@ -542,9 +535,7 @@ const createSendOutbox = async (params: {
         ? activeSmtpMessageLimit(providerLimits)
         : null;
   const supportsDsn =
-    draft.identity_transport_revision !== null
-      ? identityTransportCapabilities?.dsn === true
-      : providerLimits?.smtp.dsn === true;
+    draft.identity_transport_revision !== null ? identityTransportCapabilities?.dsn === true : providerLimits?.smtp.dsn === true;
   if (draft.request_delivery_receipt && !supportsDsn) {
     const unsupported = err.badInput("Delivery receipts are not supported by the selected SMTP server");
     throw Object.assign(new Error(unsupported.message), unsupported);
@@ -552,9 +543,7 @@ const createSendOutbox = async (params: {
   try {
     assertProviderMessageSize(byteLength, smtpLimitBytes);
   } catch (error) {
-    const invalid = err.badInput(
-      error instanceof Error ? error.message : "Message exceeds the provider limit",
-    );
+    const invalid = err.badInput(error instanceof Error ? error.message : "Message exceeds the provider limit");
     throw Object.assign(new Error(invalid.message), invalid);
   }
   await params.db`
@@ -596,7 +585,7 @@ const createSendOutbox = async (params: {
         draft.identity_transport_revision === null
           ? smtpLimitBytes === null
             ? null
-            : providerLimits?.checkedAt ?? null
+            : (providerLimits?.checkedAt ?? null)
           : draft.identity_transport_verified_at
       }::timestamptz,
       ${{
@@ -624,7 +613,7 @@ type CreateActorCommandParams = {
 type CreateActorCommandInternalParams = Omit<CreateActorCommandParams, "context"> & {
   context: MailRequestContext | null;
   actorOverride?: ActorRef;
-  beforeCreate?: (tx: typeof sql) => Promise<void>;
+  beforeCreate?: (tx: typeof sql) => Promise<{ workflowExecutionGeneration: number } | void>;
   afterCreate?: (tx: typeof sql, command: MailCommand) => Promise<void>;
 };
 
@@ -654,7 +643,13 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
     const permission = await requireMailboxPermission(params.context, params.mailboxId, prepared.requiredPermission, tx);
     if (!permission.ok) return permission;
   }
-  await params.beforeCreate?.(tx);
+  const creationFence = await params.beforeCreate?.(tx);
+  if (
+    actor.kind === "workflow" &&
+    (!creationFence || !Number.isSafeInteger(creationFence.workflowExecutionGeneration) || creationFence.workflowExecutionGeneration < 1)
+  ) {
+    return fail(err.internal("Workflow command is missing its execution fence"));
+  }
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${params.mailboxId}:${prepared.kind}:${stableTargetKey(prepared.target)}`}, 0))`;
 
   const [existing] = await tx<DbCommand[]>`
@@ -665,6 +660,13 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
   `;
   if (existing) {
     if (!commandActorMatches(existing, actor)) return fail(err.conflict("Idempotency key is already in use"));
+    if (
+      actor.kind === "workflow" &&
+      Number(existing.workflow_execution_generation) !== creationFence?.workflowExecutionGeneration &&
+      !["confirmed", "failed", "cancelled", "reconciled", "needs_attention"].includes(existing.state)
+    ) {
+      return fail(err.conflict("Workflow command belongs to a stale execution generation"));
+    }
     return existing.request_hash === requestHash
       ? ok(mapCommand(existing))
       : fail(err.conflict("Idempotency key with a different mail command"));
@@ -698,6 +700,7 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
       idempotency_key,
       request_hash,
       correlation_id,
+      workflow_execution_generation,
       target,
       payload,
       selected_binding_id,
@@ -721,6 +724,7 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
       ${prepared.idempotencyKey},
       ${requestHash},
       ${prepared.correlationId},
+      ${actor.kind === "workflow" ? creationFence?.workflowExecutionGeneration : null},
       ${prepared.target}::jsonb,
       ${prepared.payload}::jsonb,
       ${execution.data.bindingId}::uuid,
@@ -822,7 +826,7 @@ export const createWorkflowCommand = (params: {
   workflowVersionId: string;
   input: ActorCommandInput;
   enqueue?: boolean;
-  beforeCreate?: (tx: typeof sql) => Promise<void>;
+  beforeCreate: (tx: typeof sql) => Promise<{ workflowExecutionGeneration: number }>;
   afterCreate?: (tx: typeof sql, command: MailCommand) => Promise<void>;
 }): Promise<Result<MailCommand>> =>
   createActorCommandWithActor({

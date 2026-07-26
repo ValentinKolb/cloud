@@ -40,8 +40,6 @@ type BindingContext = {
   diagnostics: WorkflowDiagnostic[];
 };
 
-const inputTypes = new Map(mailWorkflowManifest.inputs.map((input) => [input.kind, input.valueType]));
-
 const textValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.text" };
 const booleanValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.boolean" };
 const dateTimeValue: WorkflowValuePathDescriptor = { kind: "scalar", type: "core.dateTime" };
@@ -429,7 +427,7 @@ const bindAction = (
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
   } else if (step.action === "ensureConversationReference") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
-    defineValue(config.result, referenceResult, [...path, "result"], scope, context);
+    defineValue(config.saveAs, referenceResult, [...path, "saveAs"], scope, context);
   } else if (step.action === "addLocalTag" || step.action === "removeLocalTag") {
     expectReference(config.conversation, "mail.conversation", "conversation", [...path, "conversation"], scope, context);
     bindCatalogValue(config.tag, context.catalog.localTags, "local tag", [...path, "tag"], scope, context);
@@ -443,7 +441,7 @@ const bindAction = (
     if (config.bcc !== undefined) bindValue(config.bcc, [...path, "bcc"], scope, context);
     bindMessage(config.subject, [...path, "subject"], scope, context);
     bindMessage(config.body, [...path, "body"], scope, context);
-    defineValue(config.result, draftResult, [...path, "result"], scope, context);
+    defineValue(config.saveAs, draftResult, [...path, "saveAs"], scope, context);
   } else if (step.action === "scheduleDraftSend") {
     expectReference(config.draft, "mail.draft", "draft", [...path, "draft"], scope, context);
     if (config.scheduledAt !== undefined) bindValue(config.scheduledAt, [...path, "scheduledAt"], scope, context);
@@ -511,6 +509,7 @@ const bindSteps = (steps: WorkflowIrStep[], scope: Map<string, ValueInfo>, provi
 };
 
 const bindInputs = (context: BindingContext): void => {
+  const inputTypes = new Map(mailWorkflowManifest.inputs.map((input) => [input.kind, input.valueType]));
   for (const input of context.ir.inputs) {
     const descriptor = valueDescriptor(inputTypes.get(input.type) ?? "core.value");
     context.inputs.set(input.name, {

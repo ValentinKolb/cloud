@@ -7,8 +7,12 @@ import {
   stopRuntimeResources,
 } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
+import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
 import { type JobCtx, job, ratelimit, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
+import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 import { cleanupPublicAttachmentLinks } from "./attachment-links";
 import { type BindingRediscoveryResult, rediscoverProviderBinding } from "./bindings";
 import { sha256Json } from "./canonical";
@@ -39,7 +43,6 @@ import { cleanupMailRuntimeHistory } from "./runtime-history-retention";
 import { reconcileMailStorageUsage } from "./storage-observability";
 import { getWorkflowSnapshot } from "./workflow-data";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
-import { enqueueMailWorkflowTriggerEvent } from "./workflow-trigger-runtime";
 
 const log = logger("mail:sync");
 const ENVELOPE_BATCH_SIZE = 200;
@@ -344,7 +347,6 @@ export const ingestEnvelope = async (params: {
   folderId: string;
   message: ConnectorEnvelope;
   captureWorkflowTriggers?: boolean;
-  workflowTriggerEventIds?: string[];
 }): Promise<string> => {
   const protocolFacts = parseMessageProtocolFacts(params.message.protocolFacts);
   const contentHash = sha256Json({
@@ -575,60 +577,51 @@ export const ingestEnvelope = async (params: {
     const snapshot = await getWorkflowSnapshot({
       mailboxId: params.mailboxId,
       remoteMessageRefId: remoteRef.id,
-      query: { type: "all" },
       db: params.db,
     });
     if (!snapshot) throw new Error("Received message workflow snapshot could not be loaded");
     const occurredAt = params.message.internalDate.toISOString();
-    const events = await params.db<{ id: string }[]>`
-      INSERT INTO mail.workflow_trigger_events (
-        mailbox_id, activation_id, workflow_id, workflow_version_id,
-        trigger_key, trigger_kind, trigger_config, authorization_snapshot,
-        version_identity, workflow_source_hash, bound_plan, effect_budget, manifest_hash, catalog_hash,
-        delivery_key, occurred_at, trigger_values, target_key, frozen_source, frozen_preconditions
-      )
+    const activations = await params.db<{ workflow_id: string; trigger_config: Record<string, WorkflowJsonValue> | string }[]>`
       SELECT
-        activation.mailbox_id,
-        activation.id,
-        activation.workflow_id,
-        activation.workflow_version_id,
-        activation.trigger_key,
-        activation.trigger_kind,
-        activation.trigger_config,
-        activation.authorization_snapshot,
-        version.version_identity,
-        version.source_hash,
-        version.bound_plan,
-        version.effect_budget,
-        version.manifest_hash,
-        version.catalog_hash,
-        ${deliveryKey},
-        ${occurredAt}::timestamptz,
-        ${{
-          message: snapshot.source.message,
-          conversation: snapshot.source.conversation,
-          occurredAt,
-        }}::jsonb,
-        ${snapshot.targetKey},
-        ${snapshot.source}::jsonb,
-        ${{ ...snapshot.preconditions, triggerKind: "messageReceived" }}::jsonb
-      FROM mail.workflow_activations activation
-      JOIN mail.workflows workflow
+        activation.workflow_id::text,
+        activation.config AS trigger_config
+      FROM workflows.activation activation
+      JOIN workflows.workflow workflow
         ON workflow.id = activation.workflow_id
-       AND workflow.mailbox_id = activation.mailbox_id
        AND workflow.active_version_id = activation.workflow_version_id
-      JOIN mail.workflow_versions version
-        ON version.id = activation.workflow_version_id
-       AND version.workflow_id = activation.workflow_id
-       AND version.mailbox_id = activation.mailbox_id
-      WHERE activation.mailbox_id = ${params.mailboxId}::uuid
-        AND activation.trigger_kind = 'messageReceived'
+      JOIN mail.workflow_profile profile
+        ON profile.id = workflow.id
+       AND profile.enabled
+      WHERE profile.mailbox_id = ${params.mailboxId}::uuid
+        AND activation.event_type = ${MAIL_WORKFLOW_EVENT.messageReceived}
         AND activation.enabled
-      ORDER BY workflow.priority, activation.workflow_id, activation.id
-      ON CONFLICT (activation_id, trigger_kind, delivery_key) DO NOTHING
-      RETURNING id
+      ORDER BY profile.priority, activation.workflow_id, activation.id
     `;
-    params.workflowTriggerEventIds?.push(...events.map((event) => event.id));
+    const triggerValues = {
+      message: snapshot.source.message,
+      conversation: snapshot.source.conversation,
+      occurredAt,
+    };
+    for (const activation of activations) {
+      const config = typeof activation.trigger_config === "string" ? JSON.parse(activation.trigger_config) : activation.trigger_config;
+      const withValues =
+        config.with !== null && typeof config.with === "object" && !Array.isArray(config.with)
+          ? (config.with as Record<string, WorkflowJsonValue>)
+          : {};
+      await emitWorkflowEvent(
+        {
+          appId: MAIL_WORKFLOW_APP_ID,
+          scopeId: params.mailboxId,
+          type: MAIL_WORKFLOW_EVENT.messageReceived,
+          targetWorkflowId: activation.workflow_id,
+          data: evaluateWorkflowTriggerInputs(triggerValues, withValues, occurredAt),
+          context: { mailboxId: params.mailboxId },
+          dedupeKey: `${deliveryKey}:${activation.workflow_id}`,
+          occurredAt: new Date(occurredAt),
+        },
+        { db: params.db },
+      );
+    }
   }
   return messageContentId;
 };
@@ -989,7 +982,6 @@ export const commitSyncBatch = async (params: {
   hydratedIds: string[];
   draftImportSnapshotIds: string[];
   draftExportSnapshotIds: string[];
-  workflowTriggerEventIds: string[];
   flagsUpdated: number;
   removed: number;
 }> => {
@@ -1054,7 +1046,6 @@ export const commitSyncBatch = async (params: {
     let draftImportSnapshotIds: string[] = [];
     let draftExportSnapshotIds: string[] = [];
     let draftRemoved = 0;
-    const workflowTriggerEventIds: string[] = [];
     if (isDraftFolder) {
       const projection = await recordDraftFolderSyncInTransaction({
         db: tx,
@@ -1080,7 +1071,6 @@ export const commitSyncBatch = async (params: {
             folderId: params.folderId,
             message,
             captureWorkflowTriggers: params.envelopeKind === "incremental",
-            workflowTriggerEventIds,
           }),
         );
       }
@@ -1189,7 +1179,7 @@ export const commitSyncBatch = async (params: {
         finished_at = now()
       WHERE id = ${params.fence.runId}::uuid
     `;
-    return { hydratedIds, draftImportSnapshotIds, draftExportSnapshotIds, workflowTriggerEventIds, flagsUpdated, removed };
+    return { hydratedIds, draftImportSnapshotIds, draftExportSnapshotIds, flagsUpdated, removed };
   });
   return result;
 };
@@ -1311,7 +1301,6 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         }
         await enqueueDraftImports(result.draftImportSnapshotIds);
         await Promise.all(result.draftExportSnapshotIds.map((snapshotId) => enqueueDraftProjectionSnapshot(snapshotId)));
-        await Promise.all(result.workflowTriggerEventIds.map((eventId) => enqueueMailWorkflowTriggerEvent(eventId)));
         const hasMore =
           cursor.incrementalNextHigh != null || !cursor.backfillComplete || cursor.flagNextLow != null || cursor.reconcileNextLow != null;
         return { hasMore, imported: result.hydratedIds.length, flagsUpdated: result.flagsUpdated, removed: result.removed };

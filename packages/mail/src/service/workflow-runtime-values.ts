@@ -1,9 +1,9 @@
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { readWorkflowValuePath } from "@valentinkolb/cloud/workflows/language";
 import type { WorkflowValueResolverPort } from "@valentinkolb/cloud/workflows/runtime";
+import type { WorkflowRunClaim } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { enqueueMessageHydration } from "./sync-runtime";
-import { freezeMailWorkflowHydrationValue } from "./workflow-runtime-repository";
 
 type JsonObject = Record<string, WorkflowJsonValue>;
 type HydratedMessageValue = { state: "resolved"; value: WorkflowJsonValue } | { state: "pending" } | { state: "unavailable" };
@@ -86,16 +86,48 @@ const resolvedPath = (value: WorkflowJsonValue, tail: readonly string[]): Return
   return Promise.resolve(resolved === undefined ? { state: "missing" } : { state: "resolved", value: resolved });
 };
 
-export const createMailWorkflowValueResolver = (params: {
-  targetId: string;
+const freezeHydrationValue = async (params: {
+  runId: string;
   executionGeneration: number;
-  leaseToken: string;
+  reference: string;
+  value: WorkflowJsonValue;
+}): Promise<WorkflowJsonValue> =>
+  sql.begin(async (tx) => {
+    const [active] = await tx<{ id: string }[]>`
+      SELECT id
+      FROM workflows.run
+      WHERE id = ${params.runId}::uuid
+        AND state = 'running'
+        AND execution_generation = ${params.executionGeneration}
+        AND lease_expires_at >= now()
+        AND cancel_requested_at IS NULL
+      FOR UPDATE
+    `;
+    if (!active) throw new Error("Workflow execution lease was lost while freezing hydrated Mail content");
+    const [state] = await tx<{ frozen_hydration: Record<string, WorkflowJsonValue> | string }[]>`
+      INSERT INTO mail.workflow_run_state (run_id)
+      VALUES (${params.runId}::uuid)
+      ON CONFLICT (run_id) DO UPDATE SET updated_at = mail.workflow_run_state.updated_at
+      RETURNING frozen_hydration
+    `;
+    const frozen = typeof state?.frozen_hydration === "string" ? JSON.parse(state.frozen_hydration) : (state?.frozen_hydration ?? {});
+    if (Object.prototype.hasOwnProperty.call(frozen, params.reference)) return frozen[params.reference]!;
+    await tx`
+      UPDATE mail.workflow_run_state
+      SET frozen_hydration = frozen_hydration || jsonb_build_object(${params.reference}, ${params.value}::jsonb),
+          updated_at = now()
+      WHERE run_id = ${params.runId}::uuid
+    `;
+    return params.value;
+  });
+
+export const createMailWorkflowValueResolver = (params: {
+  claim: Pick<WorkflowRunClaim, "runId" | "executionGeneration" | "inputs">;
   mailboxId: string;
-  inputs: Record<string, WorkflowJsonValue>;
   frozenHydration: Record<string, WorkflowJsonValue>;
 }): WorkflowValueResolverPort => ({
   resolve: async ({ reference, fallback }) => {
-    const candidate = messageForReference(reference, params.inputs);
+    const candidate = messageForReference(reference, params.claim.inputs);
     if (!candidate) {
       const value = fallback();
       return value === undefined ? { state: "missing" } : { state: "resolved", value };
@@ -120,14 +152,13 @@ export const createMailWorkflowValueResolver = (params: {
       await enqueueMessageHydration(messageId);
       return {
         state: "waiting",
-        dependency: { kind: "mail.hydration", key: messageId, data: { targetId: params.targetId } },
+        dependency: { kind: "mail.hydration", key: messageId, data: { runId: params.claim.runId } },
       };
     }
 
-    const frozen = await freezeMailWorkflowHydrationValue({
-      targetId: params.targetId,
-      executionGeneration: params.executionGeneration,
-      leaseToken: params.leaseToken,
+    const frozen = await freezeHydrationValue({
+      runId: params.claim.runId,
+      executionGeneration: params.claim.executionGeneration,
       reference: candidate.frozenKey,
       value: hydrated.value,
     });

@@ -27,15 +27,11 @@ import {
 import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
 import { isOperatorMaintenanceKind } from "./operator-actions";
 import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
-import {
-  activeSmtpMessageLimit,
-  assertProviderMessageSize,
-  loadBindingProviderLimits,
-} from "./provider-limits";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
+import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
-import { publishMailWorkflowDependency } from "./workflow-dependencies";
 import { loadSenderIdentityTransportRuntime } from "./sender-identity-transports";
+import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
 const log = logger("mail:commands");
 const STALE_EXECUTION_MINUTES = 10;
@@ -54,6 +50,8 @@ type DbCommandExecution = {
   state: MailCommand["state"];
   actor_kind: "user" | "service_account" | "workflow" | "system";
   actor_id: string | null;
+  correlation_id: string | null;
+  workflow_execution_generation: string | number | null;
   initiator_actor_kind: "user" | "service_account" | null;
   initiator_actor_id: string | null;
   access_subject_kind: "user" | "service_account" | "system";
@@ -305,7 +303,8 @@ const claimCommand = async (
   sql.begin(async (tx) => {
     const [current] = await tx<DbCommandExecution[]>`
       SELECT
-        id, mailbox_id, kind, state, actor_kind, actor_id, initiator_actor_kind, initiator_actor_id,
+        id, mailbox_id, kind, state, actor_kind, actor_id, correlation_id, workflow_execution_generation,
+        initiator_actor_kind, initiator_actor_id,
         access_subject_kind, access_subject_id,
         credential_scopes, credential_id, credential_expires_at, target, payload, transport_metadata,
         selected_binding_id, selected_secret_revision, attempt
@@ -315,24 +314,27 @@ const claimCommand = async (
     `;
     if (!current || !allowedKinds.includes(current.kind) || !["queued", "ambiguous"].includes(current.state)) return null;
     if (current.actor_kind === "workflow") {
-      const [target] = await tx<{ id: string }[]>`
-        SELECT target.id
-        FROM mail.workflow_step_runs step
-        JOIN mail.workflow_run_targets target ON target.id = step.target_id
-        WHERE step.command_id = ${current.id}::uuid
-          AND step.execution_generation = target.execution_generation
-          AND target.state IN ('running', 'waiting')
-          AND target.cancel_requested_at IS NULL
-        FOR UPDATE OF target
+      const [run] = await tx<{ id: string }[]>`
+        SELECT run.id
+        FROM workflows.run run
+        WHERE run.id::text = ${current.correlation_id}
+          AND run.workflow_version_id = ${current.actor_id}::uuid
+          AND run.execution_generation = ${current.workflow_execution_generation}
+          AND (
+            (run.state = 'running' AND run.lease_expires_at >= now())
+            OR run.state = 'waiting'
+          )
+          AND run.cancel_requested_at IS NULL
+        FOR UPDATE OF run
       `;
-      if (!target) {
+      if (!run) {
         await tx`
           UPDATE mail.commands
           SET
             state = 'cancelled',
             finished_at = now(),
             last_error_code = 'WORKFLOW_CANCELED',
-            last_error_message = 'The workflow target was canceled before command execution',
+            last_error_message = 'The workflow run was canceled before command execution',
             updated_at = now()
           WHERE id = ${current.id}::uuid AND state IN ('queued', 'ambiguous')
         `;
@@ -351,7 +353,8 @@ const claimCommand = async (
         updated_at = now()
       WHERE id = ${commandId}::uuid
       RETURNING
-        id, mailbox_id, kind, state, actor_kind, actor_id, initiator_actor_kind, initiator_actor_id,
+        id, mailbox_id, kind, state, actor_kind, actor_id, correlation_id, workflow_execution_generation,
+        initiator_actor_kind, initiator_actor_id,
         access_subject_kind, access_subject_id,
         credential_scopes, credential_id, credential_expires_at, target, payload, transport_metadata,
         selected_binding_id, selected_secret_revision, attempt
@@ -580,18 +583,21 @@ const beginProviderEffect = async (
       throw Object.assign(new Error("Mail command lease was lost before the provider effect"), { code: "COMMAND_JOB_LEASE_LOST" });
     }
     if (command.actor_kind === "workflow") {
-      const [target] = await tx<{ id: string }[]>`
-        SELECT target.id
-        FROM mail.workflow_step_runs step
-        JOIN mail.workflow_run_targets target ON target.id = step.target_id
-        WHERE step.command_id = ${command.id}::uuid
-          AND step.execution_generation = target.execution_generation
-          AND target.state IN ('running', 'waiting')
-          AND target.cancel_requested_at IS NULL
-        FOR UPDATE OF target
+      const [run] = await tx<{ id: string }[]>`
+        SELECT run.id
+        FROM workflows.run run
+        WHERE run.id::text = ${command.correlation_id}
+          AND run.workflow_version_id = ${command.actor_id}::uuid
+          AND run.execution_generation = ${command.workflow_execution_generation}
+          AND (
+            (run.state = 'running' AND run.lease_expires_at >= now())
+            OR run.state = 'waiting'
+          )
+          AND run.cancel_requested_at IS NULL
+        FOR UPDATE OF run
       `;
-      if (!target) {
-        throw Object.assign(new Error("Workflow target was canceled before the provider effect"), { code: "WORKFLOW_CANCELED" });
+      if (!run) {
+        throw Object.assign(new Error("Workflow run was canceled before the provider effect"), { code: "WORKFLOW_CANCELED" });
       }
     }
     if (command.kind === "send") {
@@ -1619,6 +1625,8 @@ type DbOutboxExecutionRow = DbOutboxExecution & {
   command_state: DbCommandExecution["state"];
   command_actor_kind: DbCommandExecution["actor_kind"];
   command_actor_id: string | null;
+  command_correlation_id: string | null;
+  command_workflow_execution_generation: string | number | null;
   command_initiator_actor_kind: DbCommandExecution["initiator_actor_kind"];
   command_initiator_actor_id: string | null;
   command_access_subject_kind: DbCommandExecution["access_subject_kind"];
@@ -1666,6 +1674,8 @@ const loadOutbox = async (outboxId: string): Promise<{ outbox: DbOutboxExecution
       c.state AS command_state,
       c.actor_kind AS command_actor_kind,
       c.actor_id AS command_actor_id,
+      c.correlation_id AS command_correlation_id,
+      c.workflow_execution_generation AS command_workflow_execution_generation,
       c.initiator_actor_kind AS command_initiator_actor_kind,
       c.initiator_actor_id AS command_initiator_actor_id,
       c.access_subject_kind AS command_access_subject_kind,
@@ -1713,6 +1723,8 @@ const loadOutbox = async (outboxId: string): Promise<{ outbox: DbOutboxExecution
       state: row.command_state,
       actor_kind: row.command_actor_kind,
       actor_id: row.command_actor_id,
+      correlation_id: row.command_correlation_id,
+      workflow_execution_generation: row.command_workflow_execution_generation,
       initiator_actor_kind: row.command_initiator_actor_kind,
       initiator_actor_id: row.command_initiator_actor_id,
       access_subject_kind: row.command_access_subject_kind,
@@ -2223,6 +2235,12 @@ const finishOutbox = async (params: {
       activityId: `scheduled-send-state:${params.outbox.id}:${params.outbox.attempt}:${params.outboxState}`,
     });
   }
+  if (result.updated && ["confirmed", "failed", "cancelled", "reconciled", "needs_attention"].includes(params.commandState)) {
+    await publishMailWorkflowDependency({
+      mailboxId: params.command.mailbox_id,
+      dependency: { kind: "mail.command", key: params.command.id },
+    });
+  }
   return result.updated;
 };
 
@@ -2374,7 +2392,7 @@ const prepareFreshOutbox = async (
       : customTransport.capabilities.maxMessageBytes;
   assertProviderMessageSize(mime.byteLength, smtpLimit);
   if (mime.snapshot.requestDeliveryReceipt) {
-    const supportsDsn = customTransport?.capabilities.dsn ?? (providerLimits?.smtp.dsn === true);
+    const supportsDsn = customTransport?.capabilities.dsn ?? providerLimits?.smtp.dsn === true;
     if (!supportsDsn) {
       throw Object.assign(new Error("Delivery receipts are not supported by the selected SMTP server"), {
         code: "SMTP_DSN_UNSUPPORTED",
@@ -2564,9 +2582,7 @@ const executeFreshOutbox = async (
       recipients: outboundRecipients(prepared.snapshot),
       messageId: outbox.stable_message_id,
       deliveryStatusNotification:
-        prepared.snapshot.requestDeliveryReceipt && prepared.snapshot.receiptAddress
-          ? { id: outbox.id }
-          : undefined,
+        prepared.snapshot.requestDeliveryReceipt && prepared.snapshot.receiptAddress ? { id: outbox.id } : undefined,
       signal,
     });
     await assertLeaseActive();

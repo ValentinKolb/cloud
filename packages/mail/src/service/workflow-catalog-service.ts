@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { buildMailWorkflowCatalog, type MailWorkflowCatalog } from "../workflows";
+import { buildMailWorkflowCatalog, type MailWorkflowCatalog } from "../workflows/catalog";
 import type { MailRequestContext } from "./auth";
 import { listCurrentMailboxUsers } from "./collaborators";
 import type { SqlClient } from "./workflow-data";

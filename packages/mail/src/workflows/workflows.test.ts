@@ -121,7 +121,7 @@ describe("Mail workflow binder", () => {
 steps:
   - ensureConversationReference:
       conversation: inputs.conversation
-      result: reference
+      saveAs: reference
   - succeed:
       message: "Allocated \${{ reference.value }}"
 `;

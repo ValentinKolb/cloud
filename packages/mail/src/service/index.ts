@@ -46,11 +46,9 @@ import * as storageObservability from "./storage-observability";
 import * as subscriptionWorkspace from "./subscription-workspace";
 import { enqueueMailboxSync, mailRuntime as scheduledMailRuntime } from "./sync-runtime";
 import * as triage from "./triage";
-import { createMailWorkflowMaterializationRuntime } from "./workflow-materialization-service";
-import { enqueueWorkflowRun, workflowRuntime } from "./workflow-runtime";
+import { workflowRuntime } from "./workflow-runtime";
 import * as workflows from "./workflows";
 
-const workflowMaterializationRuntime = createMailWorkflowMaterializationRuntime(enqueueWorkflowRun);
 const mailRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
     await scheduledMailRuntime.start();
@@ -109,7 +107,6 @@ export {
   storageObservability,
   subscriptionWorkspace,
   triage,
-  workflowMaterializationRuntime,
   workflowRuntime,
   workflows,
 };

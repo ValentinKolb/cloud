@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
@@ -156,6 +157,7 @@ suite("conversation references and automatic reply policies", () => {
       >`SELECT access_id FROM mail.mailbox_access WHERE mailbox_id = ${mailboxId}::uuid`;
       accessIds.push(...mailboxAccess.map((row) => row.access_id));
       await sql`DELETE FROM mail.mailboxes WHERE id = ${mailboxId}::uuid`;
+      await deleteWorkflowScope({ appId: "mail", scopeId: mailboxId });
     }
     if (accessIds.length > 0) {
       await sql`DELETE FROM auth.access WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${[...new Set(accessIds)]}::jsonb))`;
@@ -587,13 +589,19 @@ suite("conversation references and automatic reply policies", () => {
       }[]
     >`
       SELECT
-        workflow.current_version_id,
+        latest.id AS current_version_id,
         workflow.active_version_id,
-        (SELECT COUNT(*)::int FROM mail.workflow_activations activation
+        (SELECT COUNT(*)::int FROM workflows.activation activation
          WHERE activation.workflow_id = workflow.id AND activation.enabled) AS activation_count,
         configuration.schedule_definition
       FROM mail.automatic_reply_configurations configuration
-      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      JOIN workflows.workflow workflow ON workflow.id = configuration.workflow_id
+      JOIN LATERAL (
+        SELECT id FROM workflows.version
+        WHERE workflow_id = workflow.id
+        ORDER BY revision DESC
+        LIMIT 1
+      ) latest ON true
       WHERE configuration.id = ${created.data.id}::uuid
     `;
     expect(stored).toMatchObject({
@@ -610,7 +618,7 @@ suite("conversation references and automatic reply policies", () => {
     const [beforeConflict] = await sql<{ configurations: number; workflows: number }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM mail.automatic_reply_configurations WHERE mailbox_id = ${mailboxId}::uuid) AS configurations,
-        (SELECT COUNT(*)::int FROM mail.workflows WHERE mailbox_id = ${mailboxId}::uuid) AS workflows
+        (SELECT COUNT(*)::int FROM mail.workflow_profile WHERE mailbox_id = ${mailboxId}::uuid) AS workflows
     `;
     const duplicate = await createAutomaticReplyConfiguration({
       context: ownerContext,
@@ -622,7 +630,7 @@ suite("conversation references and automatic reply policies", () => {
     const [afterConflict] = await sql<{ configurations: number; workflows: number }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM mail.automatic_reply_configurations WHERE mailbox_id = ${mailboxId}::uuid) AS configurations,
-        (SELECT COUNT(*)::int FROM mail.workflows WHERE mailbox_id = ${mailboxId}::uuid) AS workflows
+        (SELECT COUNT(*)::int FROM mail.workflow_profile WHERE mailbox_id = ${mailboxId}::uuid) AS workflows
     `;
     expect(afterConflict).toEqual(beforeConflict);
     const secondActive = await createAutomaticReplyConfiguration({
@@ -720,27 +728,38 @@ suite("conversation references and automatic reply policies", () => {
     const [referenceWorkflow] = await sql<{ source: string }[]>`
       SELECT version.source
       FROM mail.automatic_reply_configurations configuration
-      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
-      JOIN mail.workflow_versions version ON version.id = workflow.current_version_id
+      JOIN workflows.workflow workflow ON workflow.id = configuration.workflow_id
+      JOIN LATERAL (
+        SELECT source FROM workflows.version
+        WHERE workflow_id = workflow.id
+        ORDER BY revision DESC
+        LIMIT 1
+      ) version ON true
       WHERE configuration.id = ${created.data.id}::uuid
     `;
     expect(referenceWorkflow?.source).toContain("ensureConversationReference:");
-    expect(referenceWorkflow?.source).toContain("result: reference");
+    expect(referenceWorkflow?.source).toContain("saveAs: reference");
     expect(referenceWorkflow?.source).toContain("${{ reference.value }}");
     const [disabled] = await sql<{ active_version_id: string | null; activation_count: number }[]>`
       SELECT
         workflow.active_version_id,
-        (SELECT COUNT(*)::int FROM mail.workflow_activations activation
+        (SELECT COUNT(*)::int FROM workflows.activation activation
          WHERE activation.workflow_id = workflow.id AND activation.enabled) AS activation_count
       FROM mail.automatic_reply_configurations configuration
-      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      JOIN workflows.workflow workflow ON workflow.id = configuration.workflow_id
       WHERE configuration.id = ${created.data.id}::uuid
     `;
-    expect(disabled).toEqual({ active_version_id: null, activation_count: 0 });
+    expect(disabled).toEqual({ active_version_id: expect.any(String), activation_count: 0 });
     const beforeMetadataUpdate = await sql<{ current_version_id: string }[]>`
-      SELECT workflow.current_version_id
+      SELECT latest.id AS current_version_id
       FROM mail.automatic_reply_configurations configuration
-      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      JOIN workflows.workflow workflow ON workflow.id = configuration.workflow_id
+      JOIN LATERAL (
+        SELECT id FROM workflows.version
+        WHERE workflow_id = workflow.id
+        ORDER BY revision DESC
+        LIMIT 1
+      ) latest ON true
       WHERE configuration.id = ${created.data.id}::uuid
     `;
     const referenceConfiguration = await getReferenceConfiguration();
@@ -781,9 +800,15 @@ suite("conversation references and automatic reply policies", () => {
       name: `${input.name} renamed`,
     });
     const afterMetadataUpdate = await sql<{ current_version_id: string }[]>`
-      SELECT workflow.current_version_id
+      SELECT latest.id AS current_version_id
       FROM mail.automatic_reply_configurations configuration
-      JOIN mail.workflows workflow ON workflow.id = configuration.workflow_id
+      JOIN workflows.workflow workflow ON workflow.id = configuration.workflow_id
+      JOIN LATERAL (
+        SELECT id FROM workflows.version
+        WHERE workflow_id = workflow.id
+        ORDER BY revision DESC
+        LIMIT 1
+      ) latest ON true
       WHERE configuration.id = ${created.data.id}::uuid
     `;
     expect(afterMetadataUpdate[0]?.current_version_id).toBe(beforeMetadataUpdate[0]?.current_version_id);

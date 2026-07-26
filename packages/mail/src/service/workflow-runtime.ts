@@ -1,378 +1,119 @@
+import { createRuntimeLifecycle, createRuntimeTaskTracker, logger } from "@valentinkolb/cloud/services";
+import { createWorkflowBuiltinActionPorts, type WorkflowExecutionError } from "@valentinkolb/cloud/workflows";
+import type { WorkflowExecuteActionPort } from "@valentinkolb/cloud/workflows/runtime";
 import {
-  createRuntimeLifecycle,
-  createRuntimeTaskTracker,
-  logger,
-  stopRuntimeJobs,
-  stopRuntimeResources,
-  trace,
-} from "@valentinkolb/cloud/services";
-import type { WorkflowInvocation, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import {
-  coordinateWorkflowExecution,
-  dryRunWorkflowPlan,
-  executeWorkflowPlan,
-  type WorkflowTraceEvent,
-  type WorkflowTracePort,
-} from "@valentinkolb/cloud/workflows/runtime";
-import { job, scheduler } from "@valentinkolb/sync";
+  createWorkflowActionPort,
+  runOneWorkflow,
+  tickWorkflows,
+  type WorkflowRunClaim,
+  wakeExpiredWorkflowRuns,
+} from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
-import { requireMailboxPermission } from "./access";
-import type { FrozenMailWorkflowSource } from "./workflow-data";
-import { latestMailWorkflowDependencyCursor, liveMailWorkflowDependencies } from "./workflow-dependencies";
-import { createMailWorkflowProjectedState } from "./workflow-projected-state";
-import { createMailWorkflowActionPorts } from "./workflow-runtime-actions";
-import { resolveMailWorkflowExecutionAuthority } from "./workflow-runtime-context";
-import {
-  createMailWorkflowCoordinatorPort,
-  listRecoverableMailWorkflowTargetIds,
-  MAIL_WORKFLOW_TARGET_LEASE_MS,
-  MailWorkflowRuntimeRepository,
-  type MailWorkflowTargetResult,
-  recoverCanceledMailWorkflowTargets,
-  resumeMailWorkflowDependency,
-} from "./workflow-runtime-repository";
+import { MAIL_WORKFLOW_ACTIONS } from "../workflows/actions";
+import { MAIL_WORKFLOW_APP_ID } from "../workflows/events";
 import { createMailWorkflowValueResolver } from "./workflow-runtime-values";
-import {
-  reconcileMailWorkflowSchedules,
-  startMailWorkflowScheduleRuntime,
-  stopMailWorkflowScheduleRuntime,
-} from "./workflow-schedule-runtime";
-import {
-  reconcileMailWorkflowTriggerEvents,
-  startMailWorkflowTriggerRuntime,
-  stopMailWorkflowTriggerRuntime,
-} from "./workflow-trigger-runtime";
+import { startMailWorkflowScheduleRuntime, stopMailWorkflowScheduleRuntime } from "./workflow-schedule-runtime";
 
-const log = logger("mail:workflow-runtime");
-const WORKFLOW_JOB_ID = "mail:workflow-targets:v1";
-const WORKFLOW_JOB_MAX_RETRIES = 3;
-const WORKFLOW_HEARTBEAT_MS = Math.floor(MAIL_WORKFLOW_TARGET_LEASE_MS / 3);
-const RECONCILE_LIMIT = 500;
-const workflowTargetTasks = createRuntimeTaskTracker();
+const log = logger("mail:workflows");
+const WORKER_INTERVAL_MS = 1_000;
+const RECONCILE_INTERVAL_MS = 60_000;
+const workerId = `mail:${Bun.env.HOSTNAME ?? "local"}:${process.pid}`;
 
-const isObject = (value: WorkflowJsonValue | undefined): value is Record<string, WorkflowJsonValue> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
-const traceAttributes = (event: WorkflowTraceEvent, parentRunId: string, targetId: string) => {
-  const step = "step" in event ? event.step : null;
-  return {
-    "cloud.mail.workflow_run_id": parentRunId,
-    "cloud.mail.workflow_target_id": targetId,
-    "workflow.event": event.type,
-    "workflow.step.action": step?.action,
-    "workflow.step.key": step?.key,
-    "workflow.step.kind": step?.kind,
-    "workflow.step.outcome": event.type === "step.finished" ? event.result.outcome.state : undefined,
-  };
-};
-
-const workflowStepTrace = (jobId: string, parentRunId: string, targetId: string): WorkflowTracePort => ({
-  emit: async (event) => {
-    await trace.record({
-      spanKey: `sync:job:${WORKFLOW_JOB_ID}:${jobId}`,
-      name: "Mail workflow target",
-      source: WORKFLOW_JOB_ID,
-      appId: "mail",
-      category: "job",
-      kind: "consumer",
-      event: `workflow.${event.type}`,
-      attributes: traceAttributes(event, parentRunId, targetId),
-    });
-  },
-});
-
-export const processMailWorkflowTarget = async (params: {
-  targetId: string;
-  workerId: string;
-  jobId?: string;
-}): Promise<{ state: string; result?: MailWorkflowTargetResult }> => {
-  const coordinated = await coordinateWorkflowExecution({
-    input: params.targetId,
-    heartbeatMs: WORKFLOW_HEARTBEAT_MS,
-    port: createMailWorkflowCoordinatorPort(params.workerId),
-    execute: async ({ claim }): Promise<MailWorkflowTargetResult> => {
-      const authority = await resolveMailWorkflowExecutionAuthority({
-        snapshot: claim.authorization,
-        mailboxId: claim.mailboxId,
-        workflowVersionId: claim.workflowVersionId,
-        runId: claim.parentRunId,
-      });
-      if (!authority) return { state: "canceled", message: "Workflow execution authority is no longer active" };
-      if (authority.kind === "actor") {
-        const allowed = await requireMailboxPermission(authority.context, claim.mailboxId, "write");
-        if (!allowed.ok) return { state: "canceled", message: "Workflow actor's mailbox write access was revoked" };
-      }
-      const repository = new MailWorkflowRuntimeRepository(claim);
-      const sourceContext = isObject(claim.source) ? claim.source : {};
-      const messageSource =
-        isObject(sourceContext.message) && (sourceContext.conversation === null || isObject(sourceContext.conversation));
-      const scheduleSource = claim.channel === "schedule" && Object.keys(sourceContext).length === 0;
-      if (!messageSource && !scheduleSource) {
-        throw new Error("Frozen Mail workflow source is invalid");
-      }
-      const projected = createMailWorkflowProjectedState(
-        claim.plan,
-        sourceContext as FrozenMailWorkflowSource | Record<string, never>,
-        claim.inputs,
-      );
-      const actorSnapshot = claim.authorization.authority === "actor" ? claim.authorization.actor : null;
-      const invocationActor = {
-        userId: actorSnapshot?.kind === "user" ? actorSnapshot.userId : null,
-        groupIds: [],
-        serviceAccountId: actorSnapshot?.kind === "service_account" ? actorSnapshot.serviceAccountId : null,
-      };
-      const invocation: WorkflowInvocation = {
-        workflowId: claim.workflowId,
-        expectedRevision: claim.versionIdentity,
-        mode: claim.mode,
-        channel: claim.channel,
-        actor: invocationActor,
-        inputs: projected.inputs,
-        idempotencyKey: `${claim.idempotencyKey}:${claim.runId}`,
-        occurredAt: claim.occurredAt,
-        context: {
-          ...projected.source,
-          mailboxId: claim.mailboxId,
-          actor: invocationActor,
-          occurredAt: claim.occurredAt,
-          workflow: { id: claim.workflowId, versionId: claim.workflowVersionId },
-        },
-      };
-      const ports = createMailWorkflowActionPorts({
-        authority,
-        mailboxId: claim.mailboxId,
-        workflowVersionId: claim.workflowVersionId,
-        targetId: claim.runId,
-        preconditions: claim.preconditions,
-      });
-      const common = {
-        runId: claim.runId,
-        executionGeneration: claim.executionGeneration,
-        plan: claim.plan,
-        invocation,
-        repository,
-        clock: { now: () => claim.executionClockAt },
-        values: createMailWorkflowValueResolver({
-          targetId: claim.runId,
-          executionGeneration: claim.executionGeneration,
-          leaseToken: claim.leaseToken,
-          mailboxId: claim.mailboxId,
-          inputs: projected.inputs,
-          frozenHydration: claim.frozenHydration,
-        }),
-        trace: params.jobId ? workflowStepTrace(params.jobId, claim.parentRunId, claim.runId) : undefined,
-      };
-      return claim.mode === "execute"
-        ? await executeWorkflowPlan({ ...common, invocation: { ...invocation, mode: "execute" }, actions: ports.execute })
-        : await dryRunWorkflowPlan({ ...common, invocation: { ...invocation, mode: "dryRun" }, actions: ports.dryRun });
-    },
-  });
-
-  if (coordinated.state === "retry") throw coordinated.error;
-  if (coordinated.state === "released") throw coordinated.error;
-  if (coordinated.state === "finished") return { state: coordinated.result.state, result: coordinated.result };
-  return { state: coordinated.state };
-};
-
-const workflowTargetJob = job<{ targetId: string }, { state: string } | null>({
-  id: WORKFLOW_JOB_ID,
-  defaults: { leaseMs: MAIL_WORKFLOW_TARGET_LEASE_MS, keyTtlMs: 7 * 24 * 60 * 60_000 },
-  trace: trace.fromSyncJob({
-    name: "Mail workflow target",
-    source: WORKFLOW_JOB_ID,
-    appId: "mail",
-    attributes: (event) => ("input" in event && event.input ? { "cloud.mail.workflow_target_id": event.input.targetId } : {}),
-  }),
-  process: ({ ctx }) =>
-    workflowTargetTasks.run(() =>
-      processMailWorkflowTarget({ targetId: ctx.input.targetId, workerId: ctx.jobId, jobId: ctx.jobId }).then((result) => ({
-        state: result.state,
-      })),
-    ) ?? Promise.resolve(null),
-  after: ({ ctx }) => {
-    if (ctx.error && ctx.failureCount < WORKFLOW_JOB_MAX_RETRIES) {
-      ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 2_000, maxMs: 60_000 }) });
-    }
-  },
-});
-
-const enqueueWorkflowTarget = async (targetId: string): Promise<void> => {
-  await (workflowTargetTasks.run(() =>
-    workflowTargetJob.submit({
-      key: `target:${targetId}`,
-      input: { targetId },
-      leaseMs: MAIL_WORKFLOW_TARGET_LEASE_MS,
-    }),
-  ) ?? Promise.resolve());
-};
-
-const submitTargetIds = async (targetIds: readonly string[]): Promise<void> => {
-  for (let offset = 0; offset < targetIds.length; offset += 50) {
-    await Promise.all(targetIds.slice(offset, offset + 50).map((targetId) => enqueueWorkflowTarget(targetId)));
-  }
-};
-
-export const enqueueWorkflowRun = async (runId: string): Promise<void> => {
-  let after: string | null = null;
-  while (true) {
-    const rows: { id: string }[] = await sql<{ id: string }[]>`
-      SELECT id
-      FROM mail.workflow_run_targets
-      WHERE parent_run_id = ${runId}::uuid
-        AND state = 'queued'
-        AND (${after}::uuid IS NULL OR id > ${after}::uuid)
-      ORDER BY id
-      LIMIT ${RECONCILE_LIMIT}
+const declaredActions = createWorkflowActionPort(MAIL_WORKFLOW_ACTIONS);
+const builtins = createWorkflowBuiltinActionPorts({
+  authorize: async (context): Promise<WorkflowExecutionError | undefined> => {
+    const [active] = await sql<{ active: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM workflows.run run
+        JOIN workflows.workflow workflow
+          ON workflow.id = run.workflow_id
+         AND workflow.active_version_id = run.workflow_version_id
+        JOIN mail.workflow_profile profile
+          ON profile.id = workflow.id
+         AND profile.enabled
+        WHERE run.id = ${context.run.runId}::uuid
+      ) AS active
     `;
-    if (rows.length === 0) return;
-    await submitTargetIds(rows.map((row) => row.id));
-    after = rows.at(-1)!.id;
-    if (rows.length < RECONCILE_LIMIT) return;
-  }
+    return active?.active ? undefined : { code: "FORBIDDEN", message: "Workflow is no longer active.", retryable: false };
+  },
+});
+const actions: WorkflowExecuteActionPort = {
+  get: (name) => declaredActions.get(name) ?? builtins.execute.get(name),
 };
 
-const reconcileTerminalDependencies = async (): Promise<number> => {
-  const dependencies = await sql<{ kind: string; key: string }[]>`
-    SELECT DISTINCT step.dependency ->> 'kind' AS kind, step.dependency ->> 'key' AS key
-    FROM mail.workflow_step_runs step
-    JOIN mail.workflow_run_targets target ON target.id = step.target_id
-    LEFT JOIN mail.commands command
-      ON step.dependency ->> 'kind' = 'mail.command'
-     AND command.id = (step.dependency ->> 'key')::uuid
-    LEFT JOIN mail.message_contents message
-      ON step.dependency ->> 'kind' = 'mail.hydration'
-     AND message.id = (step.dependency ->> 'key')::uuid
-    WHERE step.state = 'waiting'
-      AND target.state = 'waiting'
-      AND (
-        (step.dependency ->> 'kind' = 'mail.command' AND command.state IN ('confirmed', 'failed', 'cancelled', 'reconciled', 'needs_attention'))
-        OR (
-          step.dependency ->> 'kind' = 'mail.hydration'
-          AND (
-            message.hydration_status = 'complete'
-            OR (message.hydration_status = 'failed' AND message.hydration_attempt >= 5)
-          )
-        )
-      )
-    ORDER BY kind, key
-    LIMIT ${RECONCILE_LIMIT}
-  `;
-  let resumed = 0;
-  for (const dependency of dependencies) {
-    const targetIds = await resumeMailWorkflowDependency(dependency);
-    resumed += targetIds.length;
-    await submitTargetIds(targetIds);
-  }
-  return resumed;
-};
-
-const reconcileWorkflowTargets = async (): Promise<number> => {
-  const canceled = await recoverCanceledMailWorkflowTargets(RECONCILE_LIMIT);
-  const targetIds = await listRecoverableMailWorkflowTargetIds(RECONCILE_LIMIT);
-  await submitTargetIds(targetIds);
-  return canceled + targetIds.length;
-};
-
-const workflowRuntimeScheduler = scheduler({ id: "mail:workflow-runtime" });
-const dependencyReaders = new Map<string, { abort: AbortController; task: Promise<void> }>();
-const dependencyReaderStarts = new Map<string, Promise<void>>();
-let dependencyReadersAccepting = false;
-
-const startDependencyReader = (mailboxId: string): Promise<void> => {
-  if (!dependencyReadersAccepting || dependencyReaders.has(mailboxId) || dependencyReaderStarts.has(mailboxId)) {
-    return Promise.resolve();
-  }
-  const start = (async () => {
-    const after = await latestMailWorkflowDependencyCursor(mailboxId);
-    if (!dependencyReadersAccepting || dependencyReaders.has(mailboxId)) return;
-    const abort = new AbortController();
-    const task = (async () => {
-      try {
-        for await (const event of liveMailWorkflowDependencies({ mailboxId, after, signal: abort.signal })) {
-          const targetIds = await resumeMailWorkflowDependency({ kind: event.data.kind, key: event.data.key });
-          await submitTargetIds(targetIds);
-        }
-      } catch (error) {
-        if (!abort.signal.aborted) {
-          log.error("Mail workflow dependency reader stopped", {
-            mailboxId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      } finally {
-        dependencyReaders.delete(mailboxId);
-      }
-    })();
-    dependencyReaders.set(mailboxId, { abort, task });
-  })();
-  dependencyReaderStarts.set(mailboxId, start);
-  return start.finally(() => {
-    if (dependencyReaderStarts.get(mailboxId) === start) dependencyReaderStarts.delete(mailboxId);
-  });
-};
-
-const ensureDependencyReaders = async (): Promise<void> => {
-  const rows = await sql<{ mailbox_id: string }[]>`
-    SELECT DISTINCT mailbox_id
-    FROM mail.workflow_runs
-    WHERE state IN ('queued', 'running', 'waiting')
-    ORDER BY mailbox_id
-  `;
-  await Promise.all(rows.map((row) => startDependencyReader(row.mailbox_id)));
-};
-
-const reconcileRuntime = async (): Promise<{ targets: number; dependencies: number; triggerEvents: number }> => {
-  await ensureDependencyReaders();
-  const result = {
-    targets: await reconcileWorkflowTargets(),
-    dependencies: await reconcileTerminalDependencies(),
-    triggerEvents: await reconcileMailWorkflowTriggerEvents(),
+const values = (claim: WorkflowRunClaim) => {
+  let frozen: Promise<Record<string, import("@valentinkolb/cloud/workflows").WorkflowJsonValue>> | null = null;
+  return {
+    resolve: async (input: Parameters<ReturnType<typeof createMailWorkflowValueResolver>["resolve"]>[0]) => {
+      frozen ??= sql<{ frozen_hydration: Record<string, import("@valentinkolb/cloud/workflows").WorkflowJsonValue> | string }[]>`
+        SELECT frozen_hydration
+        FROM mail.workflow_run_state
+        WHERE run_id = ${claim.runId}::uuid
+      `.then((rows) => {
+        const value = rows[0]?.frozen_hydration;
+        return typeof value === "string" ? JSON.parse(value) : (value ?? {});
+      });
+      return createMailWorkflowValueResolver({
+        claim,
+        mailboxId: claim.scopeId,
+        frozenHydration: await frozen,
+      }).resolve(input);
+    },
   };
-  await reconcileMailWorkflowSchedules();
-  return result;
 };
 
-const stopDependencyReaders = async (): Promise<void> => {
-  dependencyReadersAccepting = false;
-  await Promise.allSettled([...dependencyReaderStarts.values()]);
-  for (const reader of dependencyReaders.values()) reader.abort.abort();
-  await Promise.all([...dependencyReaders.values()].map((reader) => reader.task.catch(() => undefined)));
-  dependencyReaders.clear();
+const workerPorts = { worker: workerId, appId: MAIL_WORKFLOW_APP_ID, values } as const;
+
+export const runMailWorkflow = (runId: string) => runOneWorkflow({ ...workerPorts, actions, runId });
+
+const drain = async (): Promise<void> => {
+  await tickWorkflows({ ...workerPorts, actions });
 };
 
-const stopWorkflowTargetRuntime = async (): Promise<void> => {
-  await stopRuntimeJobs(workflowTargetTasks, [workflowTargetJob]);
+let workerTimer: ReturnType<typeof setInterval> | null = null;
+let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+let draining = false;
+const tasks = createRuntimeTaskTracker();
+
+const drainOnce = (): void => {
+  if (draining) return;
+  draining = true;
+  const task = tasks.run(async () => {
+    try {
+      await drain();
+    } catch (error) {
+      log.error("Mail workflow worker tick failed", { error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      draining = false;
+    }
+  });
+  if (task) void task.catch(() => undefined);
+  else draining = false;
 };
 
-const runtimeLifecycle = createRuntimeLifecycle({
+const lifecycle = createRuntimeLifecycle({
   start: async () => {
-    workflowTargetTasks.open();
-    dependencyReadersAccepting = true;
-    startMailWorkflowTriggerRuntime();
-    await workflowRuntimeScheduler.create({
-      id: "mail:workflow-runtime:reconcile",
-      cron: "* * * * *",
-      meta: { appId: "mail", family: "mail:workflows", label: "Mail workflow recovery" },
-      process: reconcileRuntime,
-    });
+    tasks.open();
     await startMailWorkflowScheduleRuntime();
-    await reconcileRuntime();
-    workflowRuntimeScheduler.start();
+    await wakeExpiredWorkflowRuns(100, { appId: MAIL_WORKFLOW_APP_ID });
+    drainOnce();
+    workerTimer = setInterval(drainOnce, WORKER_INTERVAL_MS);
+    reconcileTimer = setInterval(() => {
+      const task = tasks.run(async () => {
+        await wakeExpiredWorkflowRuns(100, { appId: MAIL_WORKFLOW_APP_ID });
+      });
+      if (task) void task.catch(() => undefined);
+    }, RECONCILE_INTERVAL_MS);
   },
   stop: async () => {
-    workflowTargetTasks.close();
-    dependencyReadersAccepting = false;
-    await stopRuntimeResources([
-      () => workflowRuntimeScheduler.stop(),
-      stopMailWorkflowScheduleRuntime,
-      stopMailWorkflowTriggerRuntime,
-      stopDependencyReaders,
-      stopWorkflowTargetRuntime,
-    ]);
+    if (workerTimer) clearInterval(workerTimer);
+    if (reconcileTimer) clearInterval(reconcileTimer);
+    workerTimer = null;
+    reconcileTimer = null;
+    await stopMailWorkflowScheduleRuntime();
+    await tasks.close();
   },
 });
 
-export const workflowRuntime = {
-  start: runtimeLifecycle.start,
-  stop: runtimeLifecycle.stop,
-};
+export const workflowRuntime = { start: lifecycle.start, stop: lifecycle.stop };

@@ -6,7 +6,7 @@ description: Configure automatic replies, conversation references, and safe work
 order: 60
 ---
 
-Open **Automations** near the bottom of the mailbox navigation. The overview leads to guided automatic replies. Mailbox admins also see focused pages for **Workflows**, **Runs**, and **Reference numbers**.
+Open **Automations** near the bottom of the mailbox navigation. The overview leads to guided automatic replies. Mailbox admins also see focused pages for **Workflows** and **Reference numbers**. Cloud administrators inspect execution centrally under **Admin > Observability > Workflows**.
 
 ## Choose the right automation tool {icon="route"}
 
@@ -92,17 +92,17 @@ The **Reference acknowledgement** preset assigns the number before sending and i
 4. Select **Create workflow** or **Save version**.
 5. Review the new version under **Versions**.
 6. Select **Activate** or **Activate current version**.
-7. Open **Automations > Runs** after the first matching event.
+7. Ask a Cloud administrator to verify the first matching execution under **Admin > Observability > Workflows**.
 :::
 
 Saving never activates a version. An already active version continues to run until an administrator explicitly activates the newer one. **Update available** means the saved current version and active version differ.
 
-Effect budgets are hard upper bounds for targets, moves, sends, keyword changes, and collaboration changes. A run that would exceed a budget is rejected before those effects are materialized.
+Effect budgets are hard upper bounds for moves, sends, keyword changes, and collaboration changes during one execution. An execution stops before applying an effect that would exceed its budget.
 
-## Observe and stop workflow runs {icon="route"}
+## Observe and stop workflow runs {icon="activity"}
 
-**Automations > Runs** shows durable state, target progress, and the latest error. A run may be materializing, queued, running, waiting, succeeded, failed, canceled, or need attention.
+Cloud administrators use **Admin > Observability > Workflows** for every app's durable run history. Filter the list by **Mail**, then open a run to inspect its cause, inputs, steps, effects, result, and errors. A run may be queued, running, waiting, succeeded, failed, canceled, or need attention.
 
-Select **Cancel** for a pending run when no further effects should start. Cancellation does not reverse mail moves, sends, or collaboration changes that already completed. Pausing the mailbox stops transport-backed effects, including queued sends, but does not deactivate workflow definitions.
+Select **Cancel** when no further effects should start. Cancellation does not reverse mail moves, sends, or collaboration changes that already completed. A run that needs attention waits for an administrator to record whether an uncertain external effect completed. Disabling a Mail workflow prevents new trigger matches; it does not rewrite completed history.
 
 For the complete YAML vocabulary and validated examples, see [Mail workflow YAML reference](/app/mail/help/mail-workflows).

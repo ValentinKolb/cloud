@@ -2,30 +2,28 @@ import { createRuntimeLifecycle, logger, trace } from "@valentinkolb/cloud/servi
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import {
   createWorkflowScheduleRegistration,
+  evaluateWorkflowTriggerInputs,
   reconcileWorkflowSchedules,
   type WorkflowScheduleRegistration,
   workflowScheduleSlotKey,
 } from "@valentinkolb/cloud/workflows/runtime";
+import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
 import { type Scheduler, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
-import {
-  type AutomaticWorkflowMaterialization,
-  type AutomaticWorkflowMaterializationInput,
-  materializeAutomaticWorkflowRun,
-} from "./workflow-automatic-materialization";
-import { enqueueWorkflowRun } from "./workflow-runtime";
+import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 
-const MAIL_WORKFLOW_SCHEDULER_ID = "mail:workflow-schedules";
-const MAIL_WORKFLOW_SCHEDULE_PREFIX = "mail:workflow-schedule:";
-const MAIL_WORKFLOW_SCHEDULE_MAX_RETRIES = 5;
+const SCHEDULER_ID = "mail:workflow-schedules";
+const SCHEDULE_PREFIX = "mail:workflow-schedule:";
+const MAX_RETRIES = 5;
 const log = logger("mail:workflow-schedules");
 
-type DbScheduleActivation = {
+type DbActivation = {
   activation_id: string;
   workflow_id: string;
   workflow_version_id: string;
+  mailbox_id: string;
   workflow_name: string;
-  version_identity: string;
+  revision: number;
   trigger_key: string;
   trigger_config: Record<string, WorkflowJsonValue> | string;
 };
@@ -33,21 +31,10 @@ type DbScheduleActivation = {
 export type MailWorkflowScheduleActivation = {
   activationId: string;
   workflowVersionId: string;
+  mailboxId: string;
   workflowName: string;
+  config: Record<string, WorkflowJsonValue>;
   registration: WorkflowScheduleRegistration;
-};
-
-export type MailWorkflowScheduleResult =
-  | AutomaticWorkflowMaterialization
-  | { state: "stale"; reason: "activation" | "revision" | "schedule" };
-
-type ScheduleMaterialization = (input: AutomaticWorkflowMaterializationInput) => Promise<AutomaticWorkflowMaterialization>;
-
-export type MailWorkflowScheduleRuntimeDependencies = {
-  transport: Scheduler;
-  listActive(): Promise<MailWorkflowScheduleActivation[]>;
-  loadCurrent(registration: WorkflowScheduleRegistration): Promise<MailWorkflowScheduleActivation | null>;
-  materialize: ScheduleMaterialization;
 };
 
 const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSON.parse(value) as T) : value);
@@ -55,7 +42,7 @@ const parseJson = <T>(value: T | string): T => (typeof value === "string" ? (JSO
 export const mailWorkflowScheduleRegistration = (input: {
   workflowId: string;
   triggerKey: string;
-  versionIdentity: string;
+  revision: number;
   cron: string;
   timezone: string;
 }): WorkflowScheduleRegistration => {
@@ -63,215 +50,175 @@ export const mailWorkflowScheduleRegistration = (input: {
     namespace: "mail",
     workflowId: input.workflowId,
     triggerId: input.triggerKey,
-    revision: input.versionIdentity,
+    revision: String(input.revision),
     cron: input.cron,
     timezone: input.timezone,
   });
-  return { ...registration, id: `${MAIL_WORKFLOW_SCHEDULE_PREFIX}${registration.id}` };
+  return { ...registration, id: `${SCHEDULE_PREFIX}${registration.id}` };
 };
 
-const mapScheduleActivation = (row: DbScheduleActivation): MailWorkflowScheduleActivation => {
+const mapActivation = (row: DbActivation): MailWorkflowScheduleActivation => {
   const config = parseJson(row.trigger_config);
   if (typeof config.cron !== "string") throw new Error(`Mail workflow schedule ${row.activation_id} has no cron expression`);
   return {
     activationId: row.activation_id,
     workflowVersionId: row.workflow_version_id,
+    mailboxId: row.mailbox_id,
     workflowName: row.workflow_name,
+    config,
     registration: mailWorkflowScheduleRegistration({
       workflowId: row.workflow_id,
       triggerKey: row.trigger_key,
-      versionIdentity: row.version_identity,
+      revision: row.revision,
       cron: config.cron,
       timezone: typeof config.timezone === "string" ? config.timezone : "UTC",
     }),
   };
 };
 
-const validScheduleActivation = (row: DbScheduleActivation): MailWorkflowScheduleActivation | null => {
-  try {
-    return mapScheduleActivation(row);
-  } catch (error) {
-    log.warn("Ignoring invalid Mail workflow schedule activation", {
-      activationId: row.activation_id,
-      code: error instanceof Error ? error.message : "INVALID_SCHEDULE",
-    });
-    return null;
-  }
-};
-
-const scheduleActivationColumns = sql`
-  activation.id AS activation_id,
-  activation.workflow_id,
-  activation.workflow_version_id,
+const activationColumns = sql`
+  activation.id::text AS activation_id,
+  activation.workflow_id::text,
+  activation.workflow_version_id::text,
+  profile.mailbox_id::text,
   workflow.name AS workflow_name,
-  version.version_identity,
-  activation.trigger_key,
-  activation.trigger_config
+  version.revision,
+  activation.key AS trigger_key,
+  activation.config AS trigger_config
 `;
 
-const listActiveScheduleActivations = async (): Promise<MailWorkflowScheduleActivation[]> => {
-  const rows = await sql<DbScheduleActivation[]>`
-    SELECT ${scheduleActivationColumns}
-    FROM mail.workflow_activations activation
-    JOIN mail.workflows workflow
+const listActive = async (): Promise<MailWorkflowScheduleActivation[]> => {
+  const rows = await sql<DbActivation[]>`
+    SELECT ${activationColumns}
+    FROM workflows.activation activation
+    JOIN workflows.workflow workflow
       ON workflow.id = activation.workflow_id
-     AND workflow.mailbox_id = activation.mailbox_id
      AND workflow.active_version_id = activation.workflow_version_id
-    JOIN mail.workflow_versions version
-      ON version.id = activation.workflow_version_id
-     AND version.workflow_id = activation.workflow_id
-     AND version.mailbox_id = activation.mailbox_id
-    WHERE activation.trigger_kind = 'schedule'
+    JOIN workflows.version version ON version.id = activation.workflow_version_id
+    JOIN mail.workflow_profile profile ON profile.id = workflow.id AND profile.enabled
+    WHERE activation.event_type = ${MAIL_WORKFLOW_EVENT.schedule}
       AND activation.enabled
-    ORDER BY activation.workflow_id, activation.trigger_key, activation.id
+    ORDER BY activation.workflow_id, activation.key, activation.id
   `;
-  return rows.map(validScheduleActivation).filter((item): item is MailWorkflowScheduleActivation => item !== null);
-};
-
-const loadCurrentScheduleActivation = async (
-  registration: WorkflowScheduleRegistration,
-): Promise<MailWorkflowScheduleActivation | null> => {
-  const [row] = await sql<DbScheduleActivation[]>`
-    SELECT ${scheduleActivationColumns}
-    FROM mail.workflow_activations activation
-    JOIN mail.workflows workflow
-      ON workflow.id = activation.workflow_id
-     AND workflow.mailbox_id = activation.mailbox_id
-     AND workflow.active_version_id = activation.workflow_version_id
-    JOIN mail.workflow_versions version
-      ON version.id = activation.workflow_version_id
-     AND version.workflow_id = activation.workflow_id
-     AND version.mailbox_id = activation.mailbox_id
-    WHERE activation.workflow_id = ${registration.workflowId}::uuid
-      AND activation.trigger_key = ${registration.triggerId}
-      AND activation.trigger_kind = 'schedule'
-      AND activation.enabled
-  `;
-  return row ? validScheduleActivation(row) : null;
-};
-
-const currentRegistration = (item: Awaited<ReturnType<Scheduler["list"]>>[number]): WorkflowScheduleRegistration => {
-  const metadata = item.meta;
-  return {
-    id: item.id,
-    namespace: typeof metadata?.namespace === "string" ? metadata.namespace : "mail",
-    workflowId: typeof metadata?.workflowId === "string" ? metadata.workflowId : item.id,
-    triggerId: typeof metadata?.triggerId === "string" ? metadata.triggerId : "stale",
-    revision: typeof metadata?.revision === "string" ? metadata.revision : "stale",
-    schedule: { cron: item.cron, timezone: item.tz },
-  };
-};
-
-const sameSchedule = (left: WorkflowScheduleRegistration, right: WorkflowScheduleRegistration): boolean =>
-  left.schedule.cron === right.schedule.cron && left.schedule.timezone === right.schedule.timezone;
-
-export const createMailWorkflowScheduleRuntime = (dependencies: MailWorkflowScheduleRuntimeDependencies) => {
-  const processSlot = async (registration: WorkflowScheduleRegistration, slotTs: number): Promise<MailWorkflowScheduleResult> => {
-    const current = await dependencies.loadCurrent(registration);
-    if (!current) return { state: "stale", reason: "activation" };
-    if (current.registration.id !== registration.id || current.registration.revision !== registration.revision) {
-      return { state: "stale", reason: "revision" };
+  return rows.flatMap((row) => {
+    try {
+      return [mapActivation(row)];
+    } catch (error) {
+      log.warn("Ignoring invalid Mail workflow schedule", {
+        activationId: row.activation_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
     }
-    if (!sameSchedule(current.registration, registration)) return { state: "stale", reason: "schedule" };
-
-    const slot = new Date(slotTs).toISOString();
-    const slotKey = workflowScheduleSlotKey(registration.id, slot);
-    return await dependencies.materialize({
-      activationId: current.activationId,
-      triggerKind: "schedule",
-      deliveryKey: slotKey,
-      occurredAt: slot,
-      channel: "schedule",
-      triggerValues: { occurredAt: slot, slot },
-      target: {
-        key: slotKey,
-        source: {},
-        preconditions: {},
-      },
-    });
-  };
-
-  const register = async (registration: WorkflowScheduleRegistration, activation: MailWorkflowScheduleActivation): Promise<void> => {
-    await dependencies.transport.create<MailWorkflowScheduleResult>({
-      id: registration.id,
-      cron: registration.schedule.cron,
-      tz: registration.schedule.timezone,
-      meta: {
-        appId: "mail",
-        family: MAIL_WORKFLOW_SCHEDULER_ID,
-        label: `Workflow: ${activation.workflowName}`,
-        namespace: registration.namespace,
-        source: MAIL_WORKFLOW_SCHEDULER_ID,
-        resourceLabel: activation.workflowName,
-        workflowId: registration.workflowId,
-        workflowVersionId: activation.workflowVersionId,
-        revision: registration.revision,
-        triggerId: registration.triggerId,
-      },
-      trace: trace.fromSyncSchedule<MailWorkflowScheduleResult>({
-        name: `Mail workflow schedule: ${activation.workflowName}`,
-        source: registration.id,
-        appId: "mail",
-        attributes: {
-          "cloud.mail.workflow_id": registration.workflowId,
-          "cloud.mail.workflow_version_id": activation.workflowVersionId,
-        },
-      }),
-      process: async ({ ctx }) => await processSlot(registration, ctx.slotTs),
-      after: ({ ctx }) => {
-        if (ctx.error && ctx.failureCount < MAIL_WORKFLOW_SCHEDULE_MAX_RETRIES) {
-          ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 60_000 }) });
-        }
-      },
-    });
-  };
-
-  const reconcile = async () => {
-    const activations = await dependencies.listActive();
-    const desired = activations.map((activation) => activation.registration);
-    const activationById = new Map(activations.map((activation) => [activation.registration.id, activation]));
-    const current = (await dependencies.transport.list())
-      .filter((item) => item.id.startsWith(MAIL_WORKFLOW_SCHEDULE_PREFIX))
-      .map(currentRegistration);
-
-    return await reconcileWorkflowSchedules({
-      desired,
-      current,
-      port: {
-        create: async (registration) => await register(registration, activationById.get(registration.id)!),
-        update: async (_current, registration) => await register(registration, activationById.get(registration.id)!),
-        register: async (registration) => await register(registration, activationById.get(registration.id)!),
-        remove: async (registration) => await dependencies.transport.delete({ id: registration.id }),
-      },
-    });
-  };
-
-  const lifecycle = createRuntimeLifecycle({
-    start: async () => {
-      await reconcile();
-      dependencies.transport.start();
-    },
-    stop: async () => {
-      await dependencies.transport.stop();
-    },
   });
-
-  return {
-    reconcile,
-    start: lifecycle.start,
-    stop: lifecycle.stop,
-  };
 };
 
-const mailWorkflowScheduleRuntime = createMailWorkflowScheduleRuntime({
-  transport: scheduler({ id: MAIL_WORKFLOW_SCHEDULER_ID }),
-  listActive: listActiveScheduleActivations,
-  loadCurrent: loadCurrentScheduleActivation,
-  materialize: (input) => materializeAutomaticWorkflowRun(input, enqueueWorkflowRun),
+const loadCurrent = async (registration: WorkflowScheduleRegistration): Promise<MailWorkflowScheduleActivation | null> => {
+  const [row] = await sql<DbActivation[]>`
+    SELECT ${activationColumns}
+    FROM workflows.activation activation
+    JOIN workflows.workflow workflow
+      ON workflow.id = activation.workflow_id
+     AND workflow.active_version_id = activation.workflow_version_id
+    JOIN workflows.version version ON version.id = activation.workflow_version_id
+    JOIN mail.workflow_profile profile ON profile.id = workflow.id AND profile.enabled
+    WHERE activation.workflow_id = ${registration.workflowId}::uuid
+      AND activation.key = ${registration.triggerId}
+      AND activation.event_type = ${MAIL_WORKFLOW_EVENT.schedule}
+      AND activation.enabled
+  `;
+  return row ? mapActivation(row) : null;
+};
+
+const currentRegistration = (item: Awaited<ReturnType<Scheduler["list"]>>[number]): WorkflowScheduleRegistration => ({
+  id: item.id,
+  namespace: typeof item.meta?.namespace === "string" ? item.meta.namespace : "mail",
+  workflowId: typeof item.meta?.workflowId === "string" ? item.meta.workflowId : item.id,
+  triggerId: typeof item.meta?.triggerId === "string" ? item.meta.triggerId : "stale",
+  revision: typeof item.meta?.revision === "string" ? item.meta.revision : "stale",
+  schedule: { cron: item.cron, timezone: item.tz },
 });
 
-export const reconcileMailWorkflowSchedules = async (): Promise<void> => {
-  await mailWorkflowScheduleRuntime.reconcile();
+const transport = scheduler({ id: SCHEDULER_ID });
+
+const register = async (registration: WorkflowScheduleRegistration, activation: MailWorkflowScheduleActivation): Promise<void> => {
+  await transport.create({
+    id: registration.id,
+    cron: registration.schedule.cron,
+    tz: registration.schedule.timezone,
+    meta: {
+      appId: MAIL_WORKFLOW_APP_ID,
+      family: SCHEDULER_ID,
+      label: `Workflow: ${activation.workflowName}`,
+      namespace: registration.namespace,
+      source: SCHEDULER_ID,
+      resourceLabel: activation.workflowName,
+      workflowId: registration.workflowId,
+      workflowVersionId: activation.workflowVersionId,
+      revision: registration.revision,
+      triggerId: registration.triggerId,
+    },
+    trace: trace.fromSyncSchedule<{ runId: string | null; status: string }>({
+      name: `Mail workflow schedule: ${activation.workflowName}`,
+      source: registration.id,
+      appId: MAIL_WORKFLOW_APP_ID,
+      attributes: { "cloud.mail.workflow_id": registration.workflowId },
+    }),
+    process: async ({ ctx }) => {
+      const current = await loadCurrent(registration);
+      if (!current || current.registration.revision !== registration.revision) return { runId: null, status: "stale" };
+      const slot = new Date(ctx.slotTs).toISOString();
+      const triggerValues = { occurredAt: slot, slot };
+      const withValues = isJsonObject(current.config.with) ? current.config.with : {};
+      const emission = await emitWorkflowEvent(
+        {
+          appId: MAIL_WORKFLOW_APP_ID,
+          scopeId: current.mailboxId,
+          type: MAIL_WORKFLOW_EVENT.schedule,
+          targetWorkflowId: registration.workflowId,
+          data: evaluateWorkflowTriggerInputs(triggerValues, withValues, slot),
+          dedupeKey: workflowScheduleSlotKey(registration.id, slot),
+          occurredAt: new Date(slot),
+        },
+        { dispatch: "now" },
+      );
+      return { runId: emission.runIds[0] ?? null, status: emission.runIds.length ? "queued" : "ignored" };
+    },
+    after: ({ ctx }) => {
+      if (ctx.error && ctx.failureCount < MAX_RETRIES) {
+        ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 60_000 }) });
+      }
+    },
+  });
 };
-export const startMailWorkflowScheduleRuntime = async (): Promise<void> => await mailWorkflowScheduleRuntime.start();
-export const stopMailWorkflowScheduleRuntime = async (): Promise<void> => await mailWorkflowScheduleRuntime.stop();
+
+const isJsonObject = (value: WorkflowJsonValue | undefined): value is Record<string, WorkflowJsonValue> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+export const reconcileMailWorkflowSchedules = async (): Promise<void> => {
+  const activations = await listActive();
+  const desired = activations.map((item) => item.registration);
+  const byId = new Map(activations.map((item) => [item.registration.id, item]));
+  const current = (await transport.list()).filter((item) => item.id.startsWith(SCHEDULE_PREFIX)).map(currentRegistration);
+  await reconcileWorkflowSchedules({
+    desired,
+    current,
+    port: {
+      create: (registration) => register(registration, byId.get(registration.id)!),
+      update: (_current, registration) => register(registration, byId.get(registration.id)!),
+      register: (registration) => register(registration, byId.get(registration.id)!),
+      remove: (registration) => transport.delete({ id: registration.id }),
+    },
+  });
+};
+
+const lifecycle = createRuntimeLifecycle({
+  start: async () => {
+    await reconcileMailWorkflowSchedules();
+    transport.start();
+  },
+  stop: () => transport.stop(),
+});
+
+export const startMailWorkflowScheduleRuntime = lifecycle.start;
+export const stopMailWorkflowScheduleRuntime = lifecycle.stop;

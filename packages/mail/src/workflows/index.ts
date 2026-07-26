@@ -1,3 +1,4 @@
+export { MAIL_WORKFLOW_ACTIONS } from "./actions";
 export { type BindMailWorkflowResult, bindMailWorkflow } from "./binder";
 export {
   buildMailWorkflowCatalog,
@@ -12,4 +13,5 @@ export {
   restoreMailWorkflowCatalog,
   snapshotMailWorkflowCatalog,
 } from "./catalog";
+export { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT, mailWorkflowEvents } from "./events";
 export { mailWorkflowManifest } from "./manifest";

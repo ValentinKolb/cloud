@@ -1,5 +1,5 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import type { Mailbox, MailWorkflow, MailWorkflowRun, SenderIdentity } from "../contracts";
+import type { Mailbox, MailWorkflow, SenderIdentity } from "../contracts";
 import * as access from "./access";
 import type { MailRequestContext } from "./auth";
 import { requireAutomaticReplyManagementPermission } from "./automatic-reply-access";
@@ -20,8 +20,6 @@ export type MailAutomationWorkspaceData = {
   referenceConfiguration: ConversationReferenceConfiguration | null;
   advanced: {
     workflows: MailWorkflow[];
-    workflowRuns: MailWorkflowRun[];
-    workflowRunsNextCursor: string | null;
   } | null;
 };
 
@@ -56,12 +54,8 @@ export const loadMailAutomationWorkspace = async (
     });
   }
 
-  const [workflowResult, workflowRunResult] = await Promise.all([
-    workflows.listWorkflows(context, mailboxId),
-    workflows.listWorkflowRuns({ context, mailboxId, limit: 20 }),
-  ]);
+  const workflowResult = await workflows.listWorkflows(context, mailboxId);
   if (!workflowResult.ok) return fail(workflowResult.error);
-  if (!workflowRunResult.ok) return fail(workflowRunResult.error);
 
   return ok({
     mailbox: mailboxResult.data,
@@ -72,8 +66,6 @@ export const loadMailAutomationWorkspace = async (
     referenceConfiguration: referenceConfigurationResult.data,
     advanced: {
       workflows: workflowResult.data,
-      workflowRuns: workflowRunResult.data.items,
-      workflowRunsNextCursor: workflowRunResult.data.nextCursor,
     },
   });
 };

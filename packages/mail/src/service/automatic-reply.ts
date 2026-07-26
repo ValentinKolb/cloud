@@ -77,7 +77,7 @@ export const prepareAutomaticReplyInTransaction = async (params: {
   db: SqlClient;
   mailboxId: string;
   workflowVersionId: string;
-  workflowTargetId: string;
+  workflowRunId: string;
   stepKey: string;
   messageId: string;
   conversationId: string;
@@ -102,7 +102,7 @@ export const prepareAutomaticReplyInTransaction = async (params: {
     const requestHash = sha256Json({
       mailboxId: params.mailboxId,
       workflowVersionId: params.workflowVersionId,
-      workflowTargetId: params.workflowTargetId,
+      workflowRunId: params.workflowRunId,
       stepKey: params.stepKey,
       messageId: params.messageId,
       conversationId: params.conversationId,
@@ -128,7 +128,7 @@ export const prepareAutomaticReplyInTransaction = async (params: {
       SELECT id, state, suppression_reasons, draft_id, command_id, request_hash, scheduled_at
       FROM mail.automatic_reply_effects
       WHERE workflow_version_id = ${params.workflowVersionId}::uuid
-        AND workflow_target_id = ${params.workflowTargetId}::uuid
+        AND workflow_run_id = ${params.workflowRunId}::uuid
         AND step_key = ${params.stepKey}
       FOR UPDATE
     `;
@@ -191,11 +191,11 @@ export const prepareAutomaticReplyInTransaction = async (params: {
     if (suppressionReasons.length > 0) {
       await params.db`
         INSERT INTO mail.automatic_reply_effects (
-          id, mailbox_id, workflow_version_id, workflow_target_id, step_key, message_id, conversation_id,
+          id, mailbox_id, workflow_version_id, workflow_run_id, step_key, message_id, conversation_id,
           sender_identity_id, recipient, state,
           suppression_reasons, request_hash, protocol_facts, scheduled_at
         ) VALUES (
-          ${effectId}::uuid, ${params.mailboxId}::uuid, ${params.workflowVersionId}::uuid, ${params.workflowTargetId}::uuid,
+          ${effectId}::uuid, ${params.mailboxId}::uuid, ${params.workflowVersionId}::uuid, ${params.workflowRunId}::uuid,
           ${params.stepKey}, ${params.messageId}::uuid, ${params.conversationId}::uuid, ${params.senderIdentityId}::uuid,
           ${recipient}, 'suppressed', ${sql.array(suppressionReasons, "TEXT")},
           ${requestHash}, ${params.protocolFacts}::jsonb, NULL
@@ -232,11 +232,11 @@ export const prepareAutomaticReplyInTransaction = async (params: {
     if (!draft.ok) return draft;
     await params.db`
       INSERT INTO mail.automatic_reply_effects (
-        id, mailbox_id, workflow_version_id, workflow_target_id, step_key, message_id, conversation_id,
+        id, mailbox_id, workflow_version_id, workflow_run_id, step_key, message_id, conversation_id,
         sender_identity_id, recipient, state,
         suppression_reasons, draft_id, request_hash, protocol_facts, scheduled_at
       ) VALUES (
-        ${effectId}::uuid, ${params.mailboxId}::uuid, ${params.workflowVersionId}::uuid, ${params.workflowTargetId}::uuid,
+        ${effectId}::uuid, ${params.mailboxId}::uuid, ${params.workflowVersionId}::uuid, ${params.workflowRunId}::uuid,
         ${params.stepKey}, ${params.messageId}::uuid, ${params.conversationId}::uuid, ${params.senderIdentityId}::uuid,
         ${recipient}, 'queued', ARRAY[]::text[], ${draftId}::uuid,
         ${requestHash}, ${params.protocolFacts}::jsonb, ${scheduledAt}
@@ -284,14 +284,14 @@ export const cancelPendingAutomaticRepliesInTransaction = async (params: {
     WITH scoped AS MATERIALIZED (
       SELECT effect.id, effect.draft_id, effect.command_id
       FROM mail.automatic_reply_effects effect
-      JOIN mail.workflow_run_targets target ON target.id = effect.workflow_target_id
-      JOIN mail.workflow_versions version ON version.id = effect.workflow_version_id
+      JOIN workflows.run run ON run.id = effect.workflow_run_id
+      JOIN workflows.version version ON version.id = effect.workflow_version_id
       WHERE effect.mailbox_id = ${params.mailboxId}::uuid
         AND effect.state = 'queued'
         AND (${params.workflowId ?? null}::uuid IS NULL OR version.workflow_id = ${params.workflowId ?? null}::uuid)
         AND (
           ${params.workflowRunId ?? null}::uuid IS NULL
-          OR (target.parent_run_id = ${params.workflowRunId ?? null}::uuid AND target.state = 'canceled')
+          OR (run.id = ${params.workflowRunId ?? null}::uuid AND run.state = 'canceled')
         )
       FOR UPDATE OF effect
     ), cancelled_outboxes AS (

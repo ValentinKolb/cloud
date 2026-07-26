@@ -154,12 +154,14 @@ export const resolveMailWorkflowExecutionAuthority = async (params: {
   const [workflow] = await sql<{ authorized: boolean }[]>`
     SELECT EXISTS (
       SELECT 1
-      FROM mail.workflow_versions version
-      JOIN mail.workflows workflow
+      FROM workflows.version version
+      JOIN workflows.workflow workflow
         ON workflow.id = version.workflow_id
-       AND workflow.mailbox_id = version.mailbox_id
        AND workflow.active_version_id = version.id
-      WHERE version.mailbox_id = ${params.mailboxId}::uuid
+      JOIN mail.workflow_profile profile
+        ON profile.id = workflow.id
+       AND profile.enabled
+      WHERE profile.mailbox_id = ${params.mailboxId}::uuid
         AND version.id = ${params.workflowVersionId}::uuid
     ) AS authorized
   `;
@@ -179,12 +181,14 @@ export const mailWorkflowExecutionAuthorityActive = async (
     const [version] = await db<{ authorized: boolean }[]>`
       SELECT EXISTS (
         SELECT 1
-        FROM mail.workflow_versions version
-        JOIN mail.workflows workflow
+        FROM workflows.version version
+        JOIN workflows.workflow workflow
           ON workflow.id = version.workflow_id
-         AND workflow.mailbox_id = version.mailbox_id
          AND workflow.active_version_id = version.id
-        WHERE version.mailbox_id = ${mailboxId}::uuid
+        JOIN mail.workflow_profile profile
+          ON profile.id = workflow.id
+         AND profile.enabled
+        WHERE profile.mailbox_id = ${mailboxId}::uuid
           AND version.id = ${workflowVersionId}::uuid
       ) AS authorized
     `;

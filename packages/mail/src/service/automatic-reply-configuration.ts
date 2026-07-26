@@ -155,7 +155,7 @@ const buildWorkflowSource = (params: {
               {
                 ensureConversationReference: {
                   conversation: "${{ inputs.conversation }}",
-                  result: "reference",
+                  saveAs: "reference",
                 },
               },
             ]
@@ -356,6 +356,7 @@ export const createAutomaticReplyConfiguration = async (params: {
           name: internalName,
           description: "Managed by Mail automatic replies.",
           priority: 100,
+          managedBy: "automatic_reply",
           source: buildWorkflowSource({
             senderIdentityId: parsed.data.senderIdentityId,
             schedule: schedule.data,
@@ -492,6 +493,7 @@ export const updateAutomaticReplyConfiguration = async (params: {
             name: internalResourceName(params.configurationId),
             description: "Managed by Mail automatic replies.",
             priority: 100,
+            managedBy: "automatic_reply",
             source: buildWorkflowSource({
               senderIdentityId: parsed.data.senderIdentityId,
               schedule: schedule.data,

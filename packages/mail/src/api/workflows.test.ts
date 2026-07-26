@@ -36,45 +36,6 @@ const expectedOperations = [
     "Deactivate a Mail workflow",
     ["200", "400", "401", "403", "404", "409", "500"],
   ],
-  [
-    "post",
-    "/mailboxes/{mailboxId}/workflows/{workflowId}/preflight",
-    "Preflight a Mail workflow run",
-    ["200", "400", "401", "403", "404", "409"],
-  ],
-  [
-    "post",
-    "/mailboxes/{mailboxId}/workflows/{workflowId}/dry-run",
-    "Create a durable Mail workflow dry run",
-    ["200", "400", "401", "403", "404", "409", "500"],
-  ],
-  [
-    "post",
-    "/mailboxes/{mailboxId}/workflows/{workflowId}/invoke",
-    "Invoke a Mail workflow",
-    ["200", "400", "401", "403", "404", "409", "500"],
-  ],
-  [
-    "post",
-    "/mailboxes/{mailboxId}/workflows/{workflowId}/backfill",
-    "Start a Mail workflow backfill",
-    ["200", "400", "401", "403", "404", "409", "500"],
-  ],
-  [
-    "post",
-    "/mailboxes/{mailboxId}/workflows/{workflowId}/one-shot",
-    "Start a one-shot Mail workflow run",
-    ["200", "400", "401", "403", "404", "409", "500"],
-  ],
-  ["get", "/mailboxes/{mailboxId}/workflow-runs", "List Mail workflow runs", ["200", "400", "401", "403"]],
-  ["get", "/mailboxes/{mailboxId}/workflow-runs/{runId}", "Get a Mail workflow run", ["200", "400", "401", "403", "404"]],
-  ["get", "/mailboxes/{mailboxId}/workflow-runs/{runId}/targets", "List Mail workflow run targets", ["200", "400", "401", "403", "404"]],
-  [
-    "post",
-    "/mailboxes/{mailboxId}/workflow-runs/{runId}/cancel",
-    "Cancel a Mail workflow run",
-    ["200", "400", "401", "403", "404", "409", "500"],
-  ],
 ] as const;
 
 describe("Mail workflow OpenAPI contracts", () => {
@@ -104,32 +65,9 @@ describe("Mail workflow OpenAPI contracts", () => {
     expect(references.filter((reference) => !(reference.slice("#/components/schemas/".length) in schemas))).toEqual([]);
   });
 
-  test("represents recursive search expressions without an empty or dangling schema", async () => {
+  test("does not publish the removed Mail-owned run API", async () => {
     const spec = await generateSpecs(app());
-    const requestSchema = spec.paths?.["/mailboxes/{mailboxId}/workflows/{workflowId}/preflight"]?.post?.requestBody;
-    expect(requestSchema && "$ref" in requestSchema ? undefined : requestSchema?.content?.["application/json"]?.schema).toBeDefined();
-
-    const schema = (requestSchema as { content: { "application/json": { schema: any } } }).content["application/json"].schema;
-    const expression = schema.properties.query.oneOf[1].properties.expression;
-    const variants = new Map<string, any>(expression.oneOf.map((variant: any) => [variant.properties.type.const, variant]));
-    expect(expression.$dynamicAnchor).toBe("MailSearchExpression");
-    expect([...variants.keys()]).toEqual([
-      "text",
-      "date",
-      "size",
-      "work_status",
-      "assignee",
-      "snoozed",
-      "all",
-      "folder_id",
-      "assigned_to_me",
-      "and",
-      "or",
-      "not",
-    ]);
-    expect(variants.get("and").properties.expressions.items).toEqual({ $dynamicRef: "#MailSearchExpression" });
-    expect(variants.get("or").properties.expressions.items).toEqual({ $dynamicRef: "#MailSearchExpression" });
-    expect(variants.get("not").properties.expression).toEqual({ $dynamicRef: "#MailSearchExpression" });
-    expect(expression.$ref).toBeUndefined();
+    expect(Object.keys(spec.paths ?? {}).filter((path) => path.includes("workflow-runs"))).toEqual([]);
+    expect(spec.paths?.["/mailboxes/{mailboxId}/workflows/{workflowId}/preflight"]).toBeUndefined();
   });
 });

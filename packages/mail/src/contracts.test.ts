@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   activateWorkflowInputSchema,
   addConversationLocalTagsSchema,
-  backfillWorkflowInputSchema,
   cancelScheduledSendInputSchema,
   conversationTriageInputSchema,
   createAutomaticReplyConfigurationSchema,
@@ -17,14 +16,10 @@ import {
   deleteSenderIdentityTransportInputSchema,
   draftContentInputSchema,
   draftEditableContentInputSchema,
-  dryRunWorkflowInputSchema,
-  invokeWorkflowInputSchema,
   mailSearchExpressionSchema,
   mergeConversationsInputSchema,
   messageStateChangeSchema,
-  oneShotWorkflowInputSchema,
   parseConnectorCapabilities,
-  preflightWorkflowInputSchema,
   reassignConversationMessageInputSchema,
   scheduledSendPageSchema,
   splitConversationInputSchema,
@@ -34,8 +29,6 @@ import {
   updateLocalTagSchema,
   updateSenderIdentityTransportInputSchema,
   validateWorkflowInputSchema,
-  workflowRunStateSchema,
-  workflowTargetStateSchema,
 } from "./contracts";
 
 describe("conversation tag contracts", () => {
@@ -454,35 +447,6 @@ describe("mail workflow contracts", () => {
     expect(activateWorkflowInputSchema.safeParse({ expectedVersionId, enabled: true }).success).toBe(false);
     expect(deactivateWorkflowInputSchema.safeParse({ expectedVersionId }).success).toBe(true);
     expect(deactivateWorkflowInputSchema.safeParse({ expectedVersionId, reason: "legacy" }).success).toBe(false);
-  });
-
-  test("separates advisory dry runs from effectful preflight-bound runs", () => {
-    const expectedVersionId = "00000000-0000-4000-8000-000000000001";
-    const base = {
-      expectedVersionId,
-      inputs: { threshold: 3 },
-      query: { type: "all" as const },
-    };
-    const effectful = {
-      ...base,
-      occurredAt: "2026-07-15T12:00:00.000Z",
-      preflightHash: "a".repeat(64),
-      idempotencyKey: "route-mail-1",
-    };
-
-    expect(preflightWorkflowInputSchema.safeParse(base).success).toBe(true);
-    expect(preflightWorkflowInputSchema.safeParse({ expectedVersionId, inputs: {} }).success).toBe(false);
-    expect(dryRunWorkflowInputSchema.safeParse({ ...base, idempotencyKey: "dry-run-1" }).success).toBe(true);
-    expect(dryRunWorkflowInputSchema.safeParse(effectful).success).toBe(false);
-    expect(invokeWorkflowInputSchema.safeParse(effectful).success).toBe(true);
-    expect(backfillWorkflowInputSchema.safeParse(effectful).success).toBe(true);
-    expect(oneShotWorkflowInputSchema.safeParse(effectful).success).toBe(true);
-    expect(invokeWorkflowInputSchema.safeParse({ ...base, idempotencyKey: "missing-preflight" }).success).toBe(false);
-  });
-
-  test("exposes materialization only as a parent run state", () => {
-    expect(workflowRunStateSchema.parse("materializing")).toBe("materializing");
-    expect(workflowTargetStateSchema.safeParse("materializing").success).toBe(false);
   });
 
   test("validates provider capability snapshots and defaults legacy quota evidence", () => {

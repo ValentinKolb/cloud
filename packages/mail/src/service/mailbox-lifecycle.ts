@@ -10,10 +10,8 @@ type MailboxExecutionPauseSummary = {
   commandsNeedAttention: number;
   outboxCancelled: number;
   outboxNeedAttention: number;
-  workflowActivations: number;
-  workflowTriggers: number;
-  workflowRuns: number;
-  workflowTargets: number;
+  workflowsDisabled: number;
+  workflowRunsCancellationRequested: number;
 };
 
 const affectedRows = (result: { count: number }): number => Number(result.count);
@@ -105,100 +103,32 @@ export const pauseDeletedMailboxExecution = async (mailboxId: string, db: SqlCli
       COUNT(*) FILTER (WHERE state = 'needs_attention')::int AS needs_attention
     FROM changed
   `;
-  const workflowActivations = await db`
-    UPDATE mail.workflow_activations
+  const workflowsDisabled = await db`
+    UPDATE mail.workflow_profile
     SET enabled = false, updated_at = now()
     WHERE mailbox_id = ${mailboxId}::uuid AND enabled
   `;
-  const workflowTriggers = await db`
-    UPDATE mail.workflow_trigger_events
-    SET
-      state = 'failed',
-      execution_generation = execution_generation + 1,
-      lease_owner = NULL,
-      lease_token = NULL,
-      lease_expires_at = NULL,
-      last_error = ${{ code, message, retryable: false }}::jsonb,
-      finished_at = now(),
-      updated_at = now()
-    WHERE mailbox_id = ${mailboxId}::uuid AND state IN ('queued', 'running')
-  `;
-  const materializingRuns = await db<{ id: string }[]>`
-    SELECT id
-    FROM mail.workflow_runs
-    WHERE mailbox_id = ${mailboxId}::uuid AND state = 'materializing'
-    FOR UPDATE
-  `;
-  if (materializingRuns.length > 0) {
-    const ids = materializingRuns.map((run) => run.id);
-    await db`
-      DELETE FROM mail.workflow_run_targets
-      WHERE parent_run_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${ids}::jsonb))
-    `;
-    await db`
-      UPDATE mail.workflow_runs
-      SET
-        state = 'canceled',
-        target_count = 0,
-        queued_targets = 0,
-        materialization_cursor_internal_date = NULL,
-        materialization_cursor_target_key = NULL,
-        materialization_digest = NULL,
-        materialization_expected_digest = NULL,
-        materialization_action_counts = NULL,
-        last_error = ${{ code, message, retryable: false }}::jsonb,
-        finished_at = now(),
-        updated_at = now()
-      WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${ids}::jsonb))
-        AND state = 'materializing'
-    `;
-  }
-  const workflowTargets = await db`
-    UPDATE mail.workflow_run_targets target
-    SET
-      state = CASE WHEN target.state IN ('queued', 'waiting') THEN 'canceled' ELSE target.state END,
-      cancel_requested_at = COALESCE(target.cancel_requested_at, now()),
-      cancel_reason = ${message},
-      finished_at = CASE WHEN target.state IN ('queued', 'waiting') THEN now() ELSE target.finished_at END,
-      updated_at = now()
-    FROM mail.workflow_runs run
-    WHERE target.parent_run_id = run.id
-      AND run.mailbox_id = ${mailboxId}::uuid
-      AND run.state IN ('queued', 'running', 'waiting')
-      AND target.state IN ('queued', 'running', 'waiting')
+  await db`
+    UPDATE workflows.activation activation
+    SET enabled = false, updated_at = now()
+    WHERE activation.workflow_id IN (
+      SELECT id FROM mail.workflow_profile WHERE mailbox_id = ${mailboxId}::uuid
+    )
+      AND activation.enabled
   `;
   const workflowRuns = await db`
-    WITH progress AS (
-      SELECT
-        run.id AS parent_run_id,
-        COUNT(*) FILTER (WHERE target.state = 'queued')::int AS queued,
-        COUNT(*) FILTER (WHERE target.state = 'running')::int AS running,
-        COUNT(*) FILTER (WHERE target.state = 'waiting')::int AS waiting,
-        COUNT(*) FILTER (WHERE target.state = 'succeeded')::int AS succeeded,
-        COUNT(*) FILTER (WHERE target.state = 'failed')::int AS failed,
-        COUNT(*) FILTER (WHERE target.state = 'canceled')::int AS canceled,
-        COUNT(*) FILTER (WHERE target.state = 'needs_attention')::int AS needs_attention
-      FROM mail.workflow_runs run
-      LEFT JOIN mail.workflow_run_targets target ON target.parent_run_id = run.id
-      WHERE run.mailbox_id = ${mailboxId}::uuid
-        AND run.state IN ('queued', 'running', 'waiting')
-      GROUP BY run.id
-    )
-    UPDATE mail.workflow_runs run
+    UPDATE workflows.run run
     SET
-      queued_targets = progress.queued,
-      running_targets = progress.running,
-      waiting_targets = progress.waiting,
-      succeeded_targets = progress.succeeded,
-      failed_targets = progress.failed,
-      canceled_targets = progress.canceled,
-      needs_attention_targets = progress.needs_attention,
-      state = 'canceled',
-      last_error = ${{ code, message, retryable: false }}::jsonb,
-      finished_at = now(),
+      cancel_requested_at = COALESCE(run.cancel_requested_at, now()),
+      execution_generation = run.execution_generation + 1,
+      lease_owner = NULL,
+      lease_expires_at = NULL,
       updated_at = now()
-    FROM progress
-    WHERE run.id = progress.parent_run_id
+    FROM mail.workflow_profile profile
+    WHERE run.workflow_id = profile.id
+      AND profile.mailbox_id = ${mailboxId}::uuid
+      AND run.state IN ('queued', 'running', 'waiting')
+      AND run.cancel_requested_at IS NULL
   `;
   await cancelPendingAutomaticRepliesInTransaction({ db, mailboxId, code, message });
 
@@ -209,9 +139,7 @@ export const pauseDeletedMailboxExecution = async (mailboxId: string, db: SqlCli
     commandsNeedAttention: commands?.needs_attention ?? 0,
     outboxCancelled: outbox?.cancelled ?? 0,
     outboxNeedAttention: outbox?.needs_attention ?? 0,
-    workflowActivations: affectedRows(workflowActivations),
-    workflowTriggers: affectedRows(workflowTriggers),
-    workflowRuns: materializingRuns.length + affectedRows(workflowRuns),
-    workflowTargets: affectedRows(workflowTargets),
+    workflowsDisabled: affectedRows(workflowsDisabled),
+    workflowRunsCancellationRequested: affectedRows(workflowRuns),
   };
 };
