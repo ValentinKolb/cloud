@@ -3,11 +3,11 @@
  *
  * Everything the admin page shows, reachable from a script: whether anything
  * is broken, which runs failed, why a run started, and which effects escaped
- * without reporting back. Read-only — cancelling a run or settling a stranded
- * effect stays a deliberate human action.
+ * without reporting back. The one mutation here resolves a stranded effect
+ * and requires an explicit `--yes` decision.
  */
-import { arg, command, flag } from "../index";
-import { apiGet, formatMs, printJsonOrTable, queryString, truncate } from "./shared";
+import { arg, command, confirmFlag, flag } from "../index";
+import { apiGet, apiJson, formatMs, printJsonOrTable, queryString, readJsonInput, truncate } from "./shared";
 
 type RunState = "queued" | "running" | "waiting" | "succeeded" | "failed" | "canceled" | "needs_attention";
 
@@ -258,6 +258,49 @@ export const workflowCommands = [
           { key: "age", label: "Age" },
         ],
       );
+    },
+  }),
+
+  command("workflows resolve", {
+    summary: "Resolve a workflow effect that needs attention",
+    description:
+      "Confirm whether an ambiguous external effect succeeded or failed. Success records the supplied output and resumes the pinned plan; failure settles the step and run. This never repeats the effect.",
+    examples: [
+      'cld admin workflows resolve <run-id> <step-key> --decision succeeded --result \'{"id":"m-1"}\' --yes',
+      "cld admin workflows resolve <run-id> <step-key> --decision failed --message 'provider rejected it' --yes",
+    ],
+    args: {
+      run: arg.required({ description: "Run id" }),
+      step: arg.required({ description: "Step key" }),
+    },
+    flags: {
+      decision: flag.enum(["succeeded", "failed"] as const, { required: true, description: "Confirmed effect outcome" }),
+      result: flag.input({ description: "JSON output for a succeeded effect, or @file/-" }),
+      message: flag.string({ description: "Failure explanation" }),
+      code: flag.string({ description: "Stable failure code" }),
+      yes: confirmFlag("Confirm the effect resolution"),
+    },
+    run: async ({ ctx, args, flags }) => {
+      if (!flags.yes) throw new Error("Refusing to resolve a workflow effect without --yes.");
+      const resolution =
+        flags.decision === "succeeded"
+          ? {
+              state: "succeeded" as const,
+              ...(flags.result ? { output: await readJsonInput<unknown>(flags.result, "effect result") } : {}),
+            }
+          : {
+              state: "failed" as const,
+              message: flags.message?.trim() || "effect confirmed failed by operator",
+              ...(flags.code ? { code: flags.code } : {}),
+            };
+      const raw = await apiJson<{ resolved: true }>(
+        ctx,
+        "POST",
+        `/api/gateway/workflows/runs/${encodeURIComponent(args.run)}/attention/${encodeURIComponent(args.step)}`,
+        resolution,
+      );
+      if (ctx.options.output === "json") ctx.json(raw);
+      else ctx.print(`Resolved ${args.run} ${args.step} as ${flags.decision}.`);
     },
   }),
 

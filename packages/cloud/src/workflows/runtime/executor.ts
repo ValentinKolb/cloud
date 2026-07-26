@@ -137,7 +137,11 @@ const optionalOutput = (output: WorkflowJsonValue | undefined): { output?: Workf
 const optionalMessage = (message: string | undefined): { message?: string } => (message === undefined ? {} : { message });
 
 const emit = async (state: RuntimeState, event: WorkflowTraceEvent): Promise<void> => {
-  await state.options.trace?.emit(event);
+  try {
+    await state.options.trace?.emit(event);
+  } catch {
+    // Observability is never part of the run's correctness contract.
+  }
 };
 
 const storedIssues = (issues: WorkflowDryRunIssue[]): WorkflowPlanningIssue[] =>
@@ -875,7 +879,15 @@ const runStep = async (
   }
   const waitingForDependency =
     evaluated.result?.mode === "execute" && evaluated.result.outcome.state === "waiting" && evaluated.flow.state === "waiting";
-  if (evaluated.result && !waitingForDependency) {
+  // A control step only propagates the leaf's attention result. Journaling the
+  // control as settled would make resolution restore the wrapper and stop at
+  // the same attention state forever.
+  const propagatedAttention =
+    irStep.kind !== "action" &&
+    evaluated.result?.mode === "execute" &&
+    evaluated.result.outcome.state === "needs_attention" &&
+    evaluated.flow.state === "needs_attention";
+  if (evaluated.result && !waitingForDependency && !propagatedAttention) {
     await state.options.repository.finishStep(step, evaluated.result);
     await emit(state, { type: "step.finished", step, result: evaluated.result });
   }

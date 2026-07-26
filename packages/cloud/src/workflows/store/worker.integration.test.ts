@@ -219,8 +219,8 @@ describe("workflow worker", () => {
       runId,
       actions: port({ "probe.observed": async () => ({ state: "completed", output: null }) }),
       trace: {
-        emit: (event) => {
-          if (event.type === "run.started" || event.type === "run.finished") throw new Error("stream gone");
+        emit: () => {
+          throw new Error("stream gone");
         },
       },
     });

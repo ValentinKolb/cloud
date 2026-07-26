@@ -1,6 +1,6 @@
 # Workflows
 
-An app that wants user-authored automation does not write a run engine. The kernel owns storage, scheduling, leasing, retry, crash recovery, the effect journal, effect budgets and observability. **An app supplies action implementations and an event vocabulary. Nothing else.**
+An app that wants user-authored automation does not write a run engine. The kernel owns storage, event dispatch, leasing, bounded retry, crash recovery, waiting, the effect journal, effect budgets and observability. **An app supplies action implementations, an event vocabulary, and the sources that emit those events** (including its scheduler).
 
 Two apps each grew their own engine before this existed — around 3,500 lines that agreed on almost everything and differed exactly where it hurts. If you find yourself writing a run table, a lease, a step journal or a retry loop, you are re-creating something that already exists and will drift from it.
 
@@ -83,11 +83,19 @@ Naming the class at the call site makes each requirement a plain missing-propert
 
 ```typescript
 { state: "succeeded", output }
+{ state: "waiting", dependency: { kind, key, deadline?, data? } }
 { state: "failed", message, code?, retryable? }
 { state: "ambiguous", message, code?, evidence? }   // ambiguous class only
 ```
 
 `code` reaches the run view — without it "the template was deleted" and "you may not do this" read identically. `retryable` says the attempt failed, not the work: the runtime retries the step instead of ending the run, so a provider being briefly unreachable stops costing a run.
+
+`waiting` parks the run durably. When the dependency happens, call
+`wakeWorkflowRunsWaitingOn({ appId, kind, key })`. The signal is persisted, so
+it is safe whether it arrives just before or just after the action parks. Keys
+therefore identify one durable occurrence and must be unique within the app.
+Return `waiting` only before any effect happened; if the action may already
+have acted, return `ambiguous`.
 
 `plan` returns `{ summary, consumes?, output?, issues? }`. `output` is what later steps plan against — **mark synthetic values as such**, or a downstream step acts on a fiction. `issues` is how a plan reports what it could not determine; the run ends `indeterminate` rather than claiming success.
 
@@ -135,6 +143,12 @@ A run only exists if an **activation** binds that event type to a version. An ap
 
 Pass `dedupeKey` for any source that can repeat itself — a schedule slot, a provider redelivery, a double-clicked button. The same key records one event and therefore starts one run, and the second call is answered with the first one's run ids.
 
+The matching activation, version, and fallback authorization are frozen when
+the event is recorded. A deferred event therefore cannot be redirected by a
+publish that happens before dispatch. Dispatch failures back off exponentially
+and become an operator-visible terminal event after eight attempts; an event
+that matched nothing is visible too.
+
 **A dry run is not an event.** Nothing happened; somebody is asking what would. Create it directly with `createWorkflowRun({ mode: "dryRun", workflowVersionId, ... })` against the version being asked about.
 
 If your app keeps its own row alongside the run — which base, which button, who — **write it in the same transaction**. A committed run is immediately claimable, and a row written afterwards leaves a window in which a worker picks the run up and finds no scope.
@@ -151,11 +165,11 @@ Everything else in the object is yours. An unrecognised snapshot yields an **emp
 
 ## Effects that leave the process
 
-**You do not journal effects yourself.** `createWorkflowActionPort` does it around your `run` hook, in the one order that cannot overspend or lose evidence: plan, charge, mark, act, settle. An ambiguous effect is marked before it acts and settled after; a transactional one records its outcome inside its own transaction.
+**You do not journal effects yourself.** `createWorkflowActionPort` does it around your `run` hook, in the one order that cannot overspend or lose evidence: authorize, plan and charge, mark, act, settle. An ambiguous effect is marked before it acts and settled after; a transactional one records its outcome inside its own transaction.
 
 The budget is charged from your `plan` hook — the same hook a dry run reads — so preflight and execution cannot disagree about what an action costs. Return `consumes` and the port charges it against the root of a fan-out, because a fan-out over ten thousand records would otherwise authorise ten thousand times the cap.
 
-An effect left `executing` or `ambiguous` is one that may already have happened. A replay refuses to repeat it — repeating is how the same message goes out twice — so `reconcile` is asked, and if it still cannot say, the run surfaces on the admin page and in `cld admin workflows effects` for a human.
+An effect left `executing` or `ambiguous` is one that may already have happened. A replay refuses to repeat it — repeating is how the same message goes out twice — so `reconcile` is asked, and if it still cannot say, the run surfaces on the admin page and in `cld admin workflows effects` for a human. Resolve it explicitly with `cld admin workflows resolve <run> <step> --decision succeeded|failed --yes`; confirming success resumes the pinned plan without repeating the effect.
 
 ## Fan-out
 
@@ -179,10 +193,10 @@ A **run** succeeds. A **step** completes. Run states are `queued | running | wai
 
 ## What stays in your app
 
-Action implementations, the event vocabulary, what fires them, and your own API, CLI and UI. If you are writing anything else — a run table, a lease, a retry loop, a dry-run mode, a health endpoint, an effect journal — check whether the kernel already owns it. It probably does.
+Action implementations, the event vocabulary, what fires them (including schedule registration), and your own product API and UI. If you are writing anything else — a run table, a lease, a retry loop, a dry-run mode, a health endpoint, an effect journal — check whether the kernel already owns it. It probably does.
 
 Nothing in the kernel references an app's tables, deliberately, so `app_id` and `scope_id` are opaque strings. That cuts both ways: **deleting your scope's rows does not cascade into the kernel.** Call `deleteWorkflowScope({ appId, scopeId })` when a scope really goes away, and do the same in test teardown or the shared dev database fills up with orphans.
 
 ## Observability comes free
 
-Runs, causes, steps, effects and budgets are already on `/admin/observability/workflows` and in `cld admin workflows` (`runs`, `show`, `effects`, `events`, `health`). Do not build an app-specific run list; a per-app health port is exactly the thing that moving storage into the kernel removed.
+Runs, causes, steps, effects and budgets are already on `/admin/observability/workflows` and in `cld admin workflows` (`runs`, `show`, `effects`, `resolve`, `events`, `health`). Do not build an app-specific run list; a per-app health port is exactly the thing that moving storage into the kernel removed.

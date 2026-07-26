@@ -14,7 +14,7 @@
  * shape that cannot occur.
  */
 import type { SQL } from "bun";
-import { type WorkflowJsonValue, type WorkflowStepOutcome, workflowPathKey } from "../contracts";
+import { type WorkflowDependency, type WorkflowJsonValue, type WorkflowStepOutcome, workflowPathKey } from "../contracts";
 import { type ErasedWorkflowAction, LANGUAGE_EFFECT, type WorkflowActionMap } from "../definition";
 import type {
   WorkflowActionStep,
@@ -43,9 +43,16 @@ class WorkflowTransactionalFailure extends Error {
   }
 }
 
+/** Rolls a transactional action back before parking its run. */
+class WorkflowTransactionalWaiting extends Error {
+  constructor(readonly dependency: WorkflowDependency) {
+    super("workflow action is waiting");
+  }
+}
+
 type StepError = Extract<WorkflowStepOutcome, { state: "failed" }>["error"];
 
-const asError = (message: string, retryable = false): StepError => ({ code: "WORKFLOW_ACTION_ERROR", message, retryable });
+const asError = (message: string, retryable = false, code = "WORKFLOW_ACTION_ERROR"): StepError => ({ code, message, retryable });
 
 /** Carries the action's own code and retryability into the run, where both are read. */
 const reportedError = (result: { message: string; code?: string; retryable?: boolean }): StepError => ({
@@ -182,13 +189,27 @@ const runDeclaredAction = async (
    * discarded, and `plan` is allowed to be expensive — an HTTP action resolves
    * its target to check it is safe to call.
    */
-  const charge = async (): Promise<Extract<WorkflowStepOutcome, { state: "failed" }> | null> => {
+  const charge = async (db?: SQL): Promise<Extract<WorkflowStepOutcome, { state: "failed" }> | null> => {
     if (options.budget === false || !action.plan) return null;
     const planned = await action.plan(actionContext(ctx, step, effectKey), config as never);
     if (!planned.consumes || Object.keys(planned.consumes).length === 0) return null;
-    const root = await budgetRootRunId(ctx.run.runId, { ...(options.db ? { db: options.db } : {}) });
-    const charged = await chargeWorkflowEffectBudget(root, planned.consumes, { ...(options.db ? { db: options.db } : {}) });
-    return charged.state === "exceeded" ? { state: "failed", error: asError(budgetError(charged).message) } : null;
+    const handle = db ?? options.db;
+    const root = await budgetRootRunId(ctx.run.runId, { ...(handle ? { db: handle } : {}) });
+    const charged = await chargeWorkflowEffectBudget(root, planned.consumes, { ...(handle ? { db: handle } : {}) });
+    if (charged.state !== "exceeded") return null;
+    const error = budgetError(charged);
+    return {
+      state: "failed",
+      error: {
+        ...asError(error.message, false, "WORKFLOW_BUDGET_EXCEEDED"),
+        details: {
+          dimension: error.dimension,
+          limit: error.limit,
+          used: error.used,
+          requested: error.requested,
+        },
+      },
+    };
   };
 
   /*
@@ -204,7 +225,15 @@ const runDeclaredAction = async (
   if (action.effect === "ambiguous" && action.reconcile) {
     const prior = await journal.read(journalStep);
     if (prior && (prior.state === "executing" || prior.state === "ambiguous")) {
-      const verdict = await action.reconcile(actionContext(ctx, step, prior.key), prior.key);
+      let verdict: Awaited<ReturnType<NonNullable<typeof action.reconcile>>>;
+      try {
+        verdict = await action.reconcile(actionContext(ctx, step, prior.key), prior.key);
+      } catch (error) {
+        return {
+          state: "failed",
+          error: asError(error instanceof Error ? error.message : String(error), true, "WORKFLOW_EFFECT_RECONCILE_FAILED"),
+        };
+      }
       if (verdict.state === "succeeded") {
         await journal.settle(journalStep, "succeeded");
         return { state: "completed", output: (verdict.output ?? null) as WorkflowJsonValue };
@@ -228,27 +257,31 @@ const runDeclaredAction = async (
     const prior = await journal.read(journalStep);
     if (prior?.state === "succeeded") return { state: "completed", output: prior.output };
 
-    const overspent = await charge();
-    if (overspent) return overspent;
-
     return withTransaction(options.db, async (tx) => {
       const txCtx = actionContext(ctx, step, effectKey, tx);
       // Checked on the transaction's own handle: access can be revoked between
       // queueing and running, and a check on another connection is checking a
       // world this write will not see.
       if (action.authorize && !(await action.authorize(txCtx, config as never))) return denied();
+      const overspent = await charge(tx);
+      if (overspent) return overspent;
 
       const result = await action.run(txCtx, config as never);
       // Let the transaction unwind: the effect did not happen.
+      if (result.state === "waiting") throw new WorkflowTransactionalWaiting(result.dependency);
       if (result.state !== "succeeded") throw new WorkflowTransactionalFailure(result);
       await journal.record(tx, journalStep, effectKey, (result.output ?? null) as WorkflowJsonValue);
       return { state: "completed", output: (result.output ?? null) as WorkflowJsonValue } satisfies WorkflowStepOutcome;
     }).catch((error) => {
+      if (error instanceof WorkflowTransactionalWaiting)
+        return { state: "waiting", dependency: error.dependency } satisfies WorkflowStepOutcome;
       if (error instanceof WorkflowTransactionalFailure)
         return { state: "failed", error: reportedError(error.failure) } satisfies WorkflowStepOutcome;
       throw error;
     });
   }
+
+  if (action.authorize && !(await action.authorize(actionContext(ctx, step, effectKey), config as never))) return denied();
 
   if (action.effect !== "pure") {
     // Charged per attempt. A replayed in-flight step charges twice, which is
@@ -257,16 +290,26 @@ const runDeclaredAction = async (
     if (overspent) return overspent;
   }
 
-  if (action.authorize && !(await action.authorize(actionContext(ctx, step, effectKey), config as never))) return denied();
-
   // Only an ambiguous effect needs evidence that it started: the others are
   // either safe to repeat or undone by the crash that interrupted them.
   if (action.effect === "ambiguous") await journal.begin(journalStep, effectKey);
 
-  const result = await action.run(actionContext(ctx, step, effectKey), config as never);
+  let result: Awaited<ReturnType<typeof action.run>>;
+  try {
+    result = await action.run(actionContext(ctx, step, effectKey), config as never);
+  } catch (error) {
+    if (action.effect !== "ambiguous") throw error;
+    // The exception happened after the external effect was marked executing.
+    // Its fate is unknown, so never turn it into a retryable ordinary failure.
+    await journal.settle(journalStep, "ambiguous");
+    return {
+      state: "needs_attention",
+      error: asError(error instanceof Error ? error.message : String(error), false, "WORKFLOW_EFFECT_OUTCOME_UNKNOWN"),
+    };
+  }
 
   if (action.effect === "ambiguous") {
-    await journal.settle(journalStep, result.state === "succeeded" ? "succeeded" : result.state === "failed" ? "failed" : "ambiguous");
+    await journal.settle(journalStep, result.state === "succeeded" ? "succeeded" : result.state === "ambiguous" ? "ambiguous" : "failed");
   }
 
   switch (result.state) {
@@ -274,11 +317,14 @@ const runDeclaredAction = async (
       return { state: "completed", output: (result.output ?? null) as WorkflowJsonValue };
     case "failed":
       return { state: "failed", error: reportedError(result) };
+    case "waiting":
+      return { state: "waiting", dependency: result.dependency };
     case "ambiguous":
       // Not a failure: "the send may have gone through" needs a human, and
       // treating it as failure either loses messages or sends them twice.
       return { state: "needs_attention", error: reportedError(result) };
   }
+  throw new Error("workflow action returned an unknown state");
 };
 
 /**
@@ -350,6 +396,12 @@ export const createWorkflowDryRunPort = (actions: WorkflowActionMap): WorkflowDr
 
         if (action.effect === "pure") {
           const result = await action.run(context, config as never);
+          if (result.state === "waiting") {
+            return {
+              state: "indeterminate" as const,
+              reason: `dependency ${result.dependency.kind}:${result.dependency.key} is not satisfied`,
+            };
+          }
           if (result.state !== "succeeded") {
             return { state: "terminal" as const, status: "failed" as const, message: result.message, effects: [] };
           }

@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
-import type { WorkflowBoundPlan } from "../contracts";
+import type { WorkflowBoundPlan, WorkflowJsonValue } from "../contracts";
 import { createWorkflow, deleteWorkflowScope, publishWorkflowVersion } from "./definitions";
 import { dispatchPendingWorkflowEvents, emitWorkflowEvent, listUndispatchedWorkflowEvents } from "./events";
 import { claimWorkflowRun } from "./runs";
@@ -58,6 +58,26 @@ const listening = (eventType: string, options: { activations?: number } = {}) =>
   listeningInScope(`scope-${crypto.randomUUID()}`, eventType, options);
 
 describe("workflow events", () => {
+  test("workflow schema upgrades are idempotent and include runtime columns", async () => {
+    if (!(await ready())) return;
+    await migrate();
+    const rows = await sql<{ table_name: string; column_name: string }[]>`
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'workflows'
+        AND (table_name, column_name) IN (
+          ('version', 'effect_budget'),
+          ('event', 'context'),
+          ('event', 'authorization_snapshot'),
+          ('run', 'context'),
+          ('run', 'effects_used'),
+          ('run', 'retry_after'),
+          ('step_outcome', 'effect_output')
+        )
+    `;
+    expect(rows).toHaveLength(7);
+  });
+
   test("an event starts one run per activation listening for it", async () => {
     if (!(await ready())) return;
     const { scopeId } = await listening("probe.recordChanged", { activations: 2 });
@@ -86,6 +106,8 @@ describe("workflow events", () => {
     expect(emission.runIds).toEqual([]);
     const [row] = await sql<{ id: string }[]>`SELECT id FROM workflows.event WHERE id = ${emission.eventId}::uuid`;
     expect(row).toBeDefined();
+    const unmatched = (await listUndispatchedWorkflowEvents({ appId: "probe", scopeId })).find((event) => event.id === emission.eventId);
+    expect(unmatched?.matchedCount).toBe(0);
   });
 
   test("the same dedupe key answers with the runs it already started", async () => {
@@ -109,13 +131,13 @@ describe("workflow events", () => {
 
     const emission = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.deferred" });
     expect(emission.runIds).toEqual([]);
-    expect((await listUndispatchedWorkflowEvents({ appId: "probe" })).some((event) => event.id === emission.eventId)).toBe(true);
+    expect((await listUndispatchedWorkflowEvents({ appId: "probe", scopeId })).some((event) => event.id === emission.eventId)).toBe(true);
 
-    expect((await dispatchPendingWorkflowEvents()).failed).toBe(0);
+    expect((await dispatchPendingWorkflowEvents(100, { scopeId })).failed).toBe(0);
     const after = await sql<{ id: string }[]>`SELECT id FROM workflows.run WHERE event_id = ${emission.eventId}::uuid`;
     expect(after).toHaveLength(1);
 
-    await dispatchPendingWorkflowEvents();
+    await dispatchPendingWorkflowEvents(100, { scopeId });
     const again = await sql<{ id: string }[]>`SELECT id FROM workflows.run WHERE event_id = ${emission.eventId}::uuid`;
     expect(again).toHaveLength(1);
   });
@@ -141,16 +163,61 @@ describe("workflow events", () => {
       },
     });
 
-    const result = await dispatchPendingWorkflowEvents(100, { db: flaky });
+    const result = await dispatchPendingWorkflowEvents(100, { db: flaky, scopeId });
     expect(result.failed).toBe(1);
 
-    const stuck = (await listUndispatchedWorkflowEvents({ appId: "probe" })).find((event) => event.id === emission.eventId);
+    const stuck = (await listUndispatchedWorkflowEvents({ appId: "probe", scopeId })).find((event) => event.id === emission.eventId);
     expect(stuck?.attempts).toBe(1);
     expect(stuck?.lastError).toBe("connection reset during dispatch");
 
-    // Still dispatchable once the fault clears — a recorded failure is not a
-    // dead end.
-    expect((await dispatchPendingWorkflowEvents()).dispatched).toBeGreaterThan(0);
+    // Backoff keeps one poison event from occupying every dispatch batch. Once
+    // its retry time arrives it is still dispatchable.
+    await sql`UPDATE workflows.event SET dispatch_after = now() WHERE id = ${emission.eventId}::uuid`;
+    expect((await dispatchPendingWorkflowEvents(100, { scopeId })).dispatched).toBeGreaterThan(0);
+  });
+
+  test("one poison event does not block later events in the batch", async () => {
+    if (!(await ready())) return;
+    const scopeId = `scope-${crypto.randomUUID()}`;
+    await listeningInScope(scopeId, "probe.poison");
+    await listeningInScope(scopeId, "probe.healthy");
+    const poison = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.poison" });
+    const good = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.healthy" });
+    await sql`
+      UPDATE workflows.event_delivery
+      SET workflow_version_id = gen_random_uuid()
+      WHERE event_id = ${poison.eventId}::uuid
+    `;
+
+    const result = await dispatchPendingWorkflowEvents(100, { scopeId });
+    expect(result.failed).toBe(1);
+    expect(result.dispatched).toBeGreaterThanOrEqual(1);
+    const healthyRuns = await sql<{ id: string }[]>`SELECT id FROM workflows.run WHERE event_id = ${good.eventId}::uuid`;
+    expect(healthyRuns).toHaveLength(1);
+  });
+
+  test("an event is dead-lettered after its bounded final dispatch attempt", async () => {
+    if (!(await ready())) return;
+    const { scopeId } = await listening("probe.dead");
+    const emission = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.dead" });
+    await sql`
+      UPDATE workflows.event_delivery
+      SET workflow_version_id = gen_random_uuid()
+      WHERE event_id = ${emission.eventId}::uuid
+    `;
+    await sql`
+      UPDATE workflows.event
+      SET attempts = 7, dispatch_after = now()
+      WHERE id = ${emission.eventId}::uuid
+    `;
+
+    const result = await dispatchPendingWorkflowEvents(100, { scopeId });
+    expect(result.deadLettered).toBe(1);
+    const [event] = await sql<{ attempts: number; dispatch_failed_at: Date | null }[]>`
+      SELECT attempts, dispatch_failed_at FROM workflows.event WHERE id = ${emission.eventId}::uuid
+    `;
+    expect(event?.attempts).toBe(8);
+    expect(event?.dispatch_failed_at).toBeInstanceOf(Date);
   });
 
   test("a dedupe key is scoped, so two bases cannot collide", async () => {
@@ -202,7 +269,7 @@ describe("workflow events", () => {
     // The target has to be a column: deferred dispatch reloads the row, so a
     // value passed only as an argument would evaporate and fan out.
     const emission = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.deferred-target", targetWorkflowId: mine.workflowId });
-    await dispatchPendingWorkflowEvents();
+    await dispatchPendingWorkflowEvents(100, { scopeId });
 
     const runs = await sql<{ workflow_id: string }[]>`SELECT workflow_id FROM workflows.run WHERE event_id = ${emission.eventId}::uuid`;
     expect(runs.map((row) => row.workflow_id)).toEqual([mine.workflowId]);
@@ -300,6 +367,89 @@ describe("workflow events", () => {
     `;
     expect(run?.workflow_version_id).toBe(second.id);
     expect(run?.workflow_version_id).not.toBe(versionId);
+  });
+
+  test("deferred dispatch keeps the version that matched at receipt time", async () => {
+    if (!(await ready())) return;
+    const { scopeId, workflowId, versionId } = await listening("probe.receipt");
+    const emission = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.receipt" });
+
+    const second = await publishWorkflowVersion({
+      workflowId,
+      source: "source v2",
+      sourceHash: hex(`${scopeId}-receipt-v2`),
+      plan: PLAN,
+      languageId: "probe",
+      languageVersion: 1,
+      manifestHash: hex("manifest"),
+      author: { kind: "system" },
+      activations: [{ key: "t0", eventType: "probe.receipt" }],
+    });
+    expect(second.id).not.toBe(versionId);
+
+    await dispatchPendingWorkflowEvents(100, { scopeId });
+    const [run] = await sql<{ workflow_version_id: string }[]>`
+      SELECT workflow_version_id FROM workflows.run WHERE event_id = ${emission.eventId}::uuid
+    `;
+    expect(run?.workflow_version_id).toBe(versionId);
+  });
+
+  test("a draft version does not change the live version or activations", async () => {
+    if (!(await ready())) return;
+    const { scopeId, workflowId, versionId } = await listening("probe.live");
+
+    const draft = await publishWorkflowVersion({
+      workflowId,
+      source: "draft",
+      sourceHash: hex(`${scopeId}-draft`),
+      plan: PLAN,
+      languageId: "probe",
+      languageVersion: 1,
+      manifestHash: hex("manifest"),
+      authorization: { kind: "service_account", id: "draft" },
+      author: { kind: "system" },
+      activations: [{ key: "t0", eventType: "probe.draft" }],
+      activate: false,
+    });
+    expect(draft.revision).toBe(2);
+
+    const [workflow] = await sql<{ active_version_id: string | null }[]>`
+      SELECT active_version_id FROM workflows.workflow WHERE id = ${workflowId}::uuid
+    `;
+    const activations = await sql<{ workflow_version_id: string; event_type: string }[]>`
+      SELECT workflow_version_id, event_type FROM workflows.activation WHERE workflow_id = ${workflowId}::uuid
+    `;
+    expect(workflow?.active_version_id).toBe(versionId);
+    expect(activations).toEqual([{ workflow_version_id: versionId, event_type: "probe.live" }]);
+
+    const emission = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.live" }, { dispatch: "now" });
+    const [run] = await sql<{ workflow_version_id: string }[]>`
+      SELECT workflow_version_id FROM workflows.run WHERE id = ${emission.runIds[0]!}::uuid
+    `;
+    expect(run?.workflow_version_id).toBe(versionId);
+  });
+
+  test("publishing refreshes the activation authorization snapshot", async () => {
+    if (!(await ready())) return;
+    const { scopeId, workflowId } = await listening("probe.authorization");
+    await publishWorkflowVersion({
+      workflowId,
+      source: "authorized v2",
+      sourceHash: hex(`${scopeId}-authorization`),
+      plan: PLAN,
+      languageId: "probe",
+      languageVersion: 1,
+      manifestHash: hex("manifest"),
+      authorization: { kind: "service_account", id: "sa-2" },
+      author: { kind: "system" },
+      activations: [{ key: "t0", eventType: "probe.authorization" }],
+    });
+
+    const emission = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.authorization" }, { dispatch: "now" });
+    const [run] = await sql<{ authorization_snapshot: WorkflowJsonValue }[]>`
+      SELECT authorization_snapshot FROM workflows.run WHERE id = ${emission.runIds[0]!}::uuid
+    `;
+    expect(run?.authorization_snapshot).toEqual({ kind: "service_account", id: "sa-2" });
   });
 
   test("a trigger removed from the source stops firing", async () => {

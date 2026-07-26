@@ -11,6 +11,7 @@
  */
 import { type SQL, sql } from "bun";
 import type { WorkflowBoundPlan, WorkflowDiagnostic, WorkflowJsonValue } from "../contracts";
+import { validateWorkflowEffectBudget } from "./budget";
 import { withTransaction } from "./transaction";
 
 export type WorkflowAuthor = { kind: "user" | "service_account"; id: string } | { kind: "system"; id?: undefined };
@@ -182,7 +183,7 @@ export type PublishWorkflowVersion = {
  * executing exactly this plan.
  */
 export const publishWorkflowVersion = async (input: PublishWorkflowVersion, options: { db?: SQL } = {}): Promise<WorkflowVersionRecord> => {
-  const db = options.db ?? sql;
+  validateWorkflowEffectBudget(input.effectBudget ?? {});
   return withTransaction(options.db, async (tx) => {
     // Serialise concurrent publishes of the same workflow, so two of them
     // cannot claim the same revision number or interleave their activations.
@@ -218,41 +219,43 @@ export const publishWorkflowVersion = async (input: PublishWorkflowVersion, opti
     `;
     if (!version) throw new Error("workflow version insert returned no row");
 
-    // Whether each key is currently enabled, so a publish carries the operator's
-    // decision forward instead of turning a disabled workflow back on.
-    const existing = await tx<{ key: string; enabled: boolean }[]>`
-      SELECT key, enabled FROM workflows.activation WHERE workflow_id = ${input.workflowId}::uuid
-    `;
-    const wasEnabled = new Map(existing.map((row) => [row.key, row.enabled]));
-
-    if (input.activations.length > 0) {
-      const rows = input.activations.map((activation) => ({
-        workflow_id: input.workflowId,
-        workflow_version_id: version.id,
-        key: activation.key,
-        event_type: activation.eventType,
-        config: activation.config ?? {},
-        authorization_snapshot: input.authorization ?? {},
-        enabled: activation.enabled ?? wasEnabled.get(activation.key) ?? true,
-      }));
-      await tx`
-        INSERT INTO workflows.activation ${tx(rows)}
-        ON CONFLICT (workflow_id, key) DO UPDATE
-        SET workflow_version_id = EXCLUDED.workflow_version_id,
-            event_type = EXCLUDED.event_type,
-            config = EXCLUDED.config,
-            enabled = EXCLUDED.enabled,
-            updated_at = now()
-      `;
-    }
-    // A trigger removed from the source must stop firing, so anything not in
-    // this publish goes — matched by key, which is stable across versions.
-    await tx`
-      DELETE FROM workflows.activation
-      WHERE workflow_id = ${input.workflowId}::uuid AND workflow_version_id <> ${version.id}::uuid
-    `;
-
     if (input.activate !== false) {
+      // Whether each key is currently enabled, so a publish carries the
+      // operator's decision forward instead of turning a disabled workflow
+      // back on.
+      const existing = await tx<{ key: string; enabled: boolean }[]>`
+        SELECT key, enabled FROM workflows.activation WHERE workflow_id = ${input.workflowId}::uuid
+      `;
+      const wasEnabled = new Map(existing.map((row) => [row.key, row.enabled]));
+
+      if (input.activations.length > 0) {
+        const rows = input.activations.map((activation) => ({
+          workflow_id: input.workflowId,
+          workflow_version_id: version.id,
+          key: activation.key,
+          event_type: activation.eventType,
+          config: activation.config ?? {},
+          authorization_snapshot: input.authorization ?? {},
+          enabled: activation.enabled ?? wasEnabled.get(activation.key) ?? true,
+        }));
+        await tx`
+          INSERT INTO workflows.activation ${tx(rows)}
+          ON CONFLICT (workflow_id, key) DO UPDATE
+          SET workflow_version_id = EXCLUDED.workflow_version_id,
+              event_type = EXCLUDED.event_type,
+              config = EXCLUDED.config,
+              authorization_snapshot = EXCLUDED.authorization_snapshot,
+              enabled = EXCLUDED.enabled,
+              updated_at = now()
+        `;
+      }
+      // A trigger removed from the source must stop firing, so anything not in
+      // this publish goes — matched by key, which is stable across versions.
+      await tx`
+        DELETE FROM workflows.activation
+        WHERE workflow_id = ${input.workflowId}::uuid AND workflow_version_id <> ${version.id}::uuid
+      `;
+
       await tx`UPDATE workflows.workflow SET active_version_id = ${version.id}::uuid, updated_at = now() WHERE id = ${input.workflowId}::uuid`;
     }
 

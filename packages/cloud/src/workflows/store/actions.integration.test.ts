@@ -14,7 +14,14 @@ import { createWorkflowActionPort, createWorkflowDryRunPort } from "./actions";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
 import { getWorkflowRun } from "./observability";
-import { beginWorkflowEffect, claimWorkflowRun, createWorkflowRuntimeRepository } from "./runs";
+import {
+  beginWorkflowEffect,
+  claimWorkflowRun,
+  createWorkflowRuntimeRepository,
+  resolveWorkflowRunAttention,
+  WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES,
+  wakeWorkflowRunsWaitingOn,
+} from "./runs";
 import { runOneWorkflow } from "./worker";
 
 let readiness: Promise<boolean> | null = null;
@@ -115,6 +122,34 @@ describe("declared actions", () => {
     expect(await effectRow(runId)).toMatchObject({ effect_key: null, effect_state: null });
   });
 
+  test("a declared action can park, wake, and resume without losing the signal", async () => {
+    if (!(await ready())) return;
+    const { runId, appId } = await queued("probe.await");
+    let calls = 0;
+    const dependency = { kind: "probe.reply", key: crypto.randomUUID() };
+    const actions = {
+      "probe.await": workflowAction.pure({
+        label: "Await",
+        description: "Waits for a reply.",
+        config: CONFIG,
+        run: async () => {
+          calls += 1;
+          return calls === 1 ? { state: "waiting" as const, dependency } : { state: "succeeded" as const, output: { resumed: true } };
+        },
+      }),
+    };
+    const port = createWorkflowActionPort(actions);
+
+    const parked = await runOneWorkflow({ worker: "w1", runId, actions: port });
+    expect(parked).toMatchObject({ state: "finished", result: { state: "waiting" } });
+    expect((await getWorkflowRun(runId))?.state).toBe("waiting");
+
+    expect(await wakeWorkflowRunsWaitingOn({ appId, ...dependency })).toEqual([runId]);
+    await runOneWorkflow({ worker: "w2", runId, actions: port });
+    expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
+    expect(calls).toBe(2);
+  });
+
   test("an ambiguous action is marked before it acts and settled after", async () => {
     if (!(await ready())) return;
     const { runId } = await queued("probe.send");
@@ -163,6 +198,69 @@ describe("declared actions", () => {
     // it failure either loses the message or sends it twice.
     const detail = await getWorkflowRun(runId);
     expect(detail?.state).toBe("needs_attention");
+    expect(await effectRow(runId)).toMatchObject({ effect_state: "ambiguous" });
+
+    await resolveWorkflowRunAttention({
+      runId,
+      stepKey: "steps.0",
+      resolution: { state: "failed", message: "provider confirmed rejection", code: "PROVIDER_REJECTED" },
+    });
+    expect((await getWorkflowRun(runId))?.error).toMatchObject({ code: "PROVIDER_REJECTED" });
+    expect(await effectRow(runId)).toMatchObject({ effect_state: "failed" });
+  });
+
+  test("an operator can confirm an ambiguous effect and resume without repeating it", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.resolve");
+    let calls = 0;
+    const actions = {
+      "probe.resolve": workflowAction.ambiguous({
+        label: "Send",
+        description: "Sends.",
+        config: CONFIG,
+        run: async () => {
+          calls += 1;
+          return { state: "ambiguous", message: "provider timed out" };
+        },
+        plan: async () => ({ summary: "send" }),
+        reconcile: async () => ({ state: "unknown", message: "provider has no record" }),
+      }),
+    };
+    const port = createWorkflowActionPort(actions);
+
+    await runOneWorkflow({ worker: "w1", runId, actions: port });
+    await resolveWorkflowRunAttention({
+      runId,
+      stepKey: "steps.0",
+      resolution: { state: "succeeded", output: { id: "confirmed" } },
+    });
+    await runOneWorkflow({ worker: "w2", runId, actions: port });
+
+    expect(calls).toBe(1);
+    expect((await getWorkflowRun(runId))?.state).toBe("succeeded");
+    expect(await effectRow(runId)).toMatchObject({ effect_state: "succeeded" });
+  });
+
+  test("a thrown ambiguous action becomes attention, never an ordinary retry", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.throw-after-begin");
+    const actions = {
+      "probe.throw-after-begin": workflowAction.ambiguous({
+        label: "Send",
+        description: "Sends.",
+        config: CONFIG,
+        run: async () => {
+          throw new Error("connection vanished after request write");
+        },
+        plan: async () => ({ summary: "send" }),
+        reconcile: async () => ({ state: "unknown", message: "provider has no record" }),
+      }),
+    };
+
+    await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
+    const detail = await getWorkflowRun(runId);
+    expect(detail?.state).toBe("needs_attention");
+    expect(detail?.error).toMatchObject({ code: "WORKFLOW_EFFECT_OUTCOME_UNKNOWN" });
     expect(await effectRow(runId)).toMatchObject({ effect_state: "ambiguous" });
   });
 
@@ -296,6 +394,7 @@ describe("declared actions", () => {
     expect(ran).toBe(false);
     const detail = await getWorkflowRun(runId);
     expect(detail?.state).toBe("failed");
+    expect(detail?.error).toMatchObject({ code: "WORKFLOW_BUDGET_EXCEEDED" });
     expect(JSON.stringify(detail?.error)).toContain("effect budget for emails");
   });
 
@@ -356,7 +455,7 @@ describe("declared actions", () => {
 
   test("a refused authorize fails the step without performing the work", async () => {
     if (!(await ready())) return;
-    const { runId } = await queued("probe.denied");
+    const { runId } = await queued("probe.denied", { writes: 10 });
 
     let ran = false;
     const actions = {
@@ -368,7 +467,7 @@ describe("declared actions", () => {
           ran = true;
           return { state: "succeeded", output: null };
         },
-        plan: async () => ({ summary: "write" }),
+        plan: async () => ({ summary: "write", consumes: { writes: 1 } }),
         // Access can be revoked between queueing and running.
         authorize: async () => false,
       }),
@@ -376,7 +475,9 @@ describe("declared actions", () => {
 
     await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) });
     expect(ran).toBe(false);
-    expect((await getWorkflowRun(runId))?.state).toBe("failed");
+    const detail = await getWorkflowRun(runId);
+    expect(detail?.state).toBe("failed");
+    expect(detail?.effectsUsed).toEqual({});
   });
 
   test("an action sees who it acts as and what its app attached", async () => {
@@ -500,6 +601,35 @@ describe("declared actions", () => {
     // otherwise cost a whole run.
     expect((await runOneWorkflow({ worker: "w1", runId, actions: createWorkflowActionPort(actions) })).state).toBe("released");
     expect((await getWorkflowRun(runId))?.state).toBe("queued");
+  });
+
+  test("automatic retries stop after a bounded number of consecutive failures", async () => {
+    if (!(await ready())) return;
+    const { runId } = await queued("probe.always-down");
+    let calls = 0;
+    const actions = createWorkflowActionPort({
+      "probe.always-down": workflowAction.idempotent({
+        label: "Down",
+        description: "Always unavailable.",
+        config: CONFIG,
+        run: async () => {
+          calls += 1;
+          return { state: "failed", message: "still unavailable", retryable: true };
+        },
+        plan: async () => ({ summary: "call" }),
+      }),
+    });
+
+    for (let index = 0; index < WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES; index += 1) {
+      expect((await runOneWorkflow({ worker: `w${index}`, runId, actions })).state).toBe("released");
+      await sql`UPDATE workflows.run SET retry_after = now() WHERE id = ${runId}::uuid`;
+    }
+    expect((await runOneWorkflow({ worker: "terminal", runId, actions })).state).toBe("finished");
+
+    expect(calls).toBe(WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES);
+    const detail = await getWorkflowRun(runId);
+    expect(detail?.state).toBe("failed");
+    expect(detail?.error).toMatchObject({ code: "WORKFLOW_RETRY_EXHAUSTED" });
   });
 
   test("an action the app never declared is a missing handler, not a crash", async () => {

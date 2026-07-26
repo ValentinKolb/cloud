@@ -40,6 +40,10 @@ export const WORKFLOW_RUN_LEASE_MS = 120_000;
 
 /** How long a released run waits before it can be picked up again. */
 const RELEASE_BACKOFF_MS = 5_000;
+const RELEASE_MAX_BACKOFF_MS = 5 * 60_000;
+
+/** A repeatedly crashing/retryable run eventually becomes an operator-visible failure. */
+export const WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES = 8;
 
 /** A run state that no longer moves on its own. */
 const TERMINAL_RUN_STATES: readonly WorkflowRunState[] = ["succeeded", "failed", "canceled", "needs_attention"];
@@ -68,6 +72,7 @@ export type WorkflowRunClaim = {
   parentRunId: string | null;
   parentStepKey: string | null;
   attempt: number;
+  consecutiveFailures: number;
 };
 
 /** The outcome a run settles into. `waiting` means it parked and will be woken. */
@@ -96,6 +101,7 @@ type ClaimRow = {
   parent_run_id: string | null;
   parent_step_key: string | null;
   attempt: number;
+  consecutive_failures: number;
 };
 
 const toClaim = (row: ClaimRow): WorkflowRunClaim => ({
@@ -116,6 +122,7 @@ const toClaim = (row: ClaimRow): WorkflowRunClaim => ({
   parentRunId: row.parent_run_id,
   parentStepKey: row.parent_step_key,
   attempt: row.attempt,
+  consecutiveFailures: row.consecutive_failures,
 });
 
 /**
@@ -173,16 +180,30 @@ export const createWorkflowRun = async (run: NewWorkflowRun, options: { db?: SQL
       app_id, scope_id, workflow_id, workflow_version_id, event_id, parent_run_id, parent_step_key,
       mode, inputs, context, authorization_snapshot, idempotency_key, occurred_at
     )
-    VALUES (
-      ${run.appId}, ${run.scopeId}, ${run.workflowId}::uuid, ${run.workflowVersionId}::uuid,
+    SELECT
+      w.app_id, w.scope_id, w.id, v.id,
       ${run.eventId ?? null}::uuid, ${run.parentRunId ?? null}::uuid, ${run.parentStepKey ?? null},
       ${run.mode}, ${run.inputs ?? {}}, ${run.context ?? {}}, ${run.authorization},
       ${run.idempotencyKey}, ${run.occurredAt}
-    )
+    FROM workflows.workflow AS w
+    JOIN workflows.version AS v ON v.workflow_id = w.id
+    WHERE w.id = ${run.workflowId}::uuid
+      AND v.id = ${run.workflowVersionId}::uuid
+      AND w.app_id = ${run.appId}
+      AND w.scope_id = ${run.scopeId}
+      AND (
+        ${run.parentRunId ?? null}::uuid IS NULL
+        OR EXISTS (
+          SELECT 1 FROM workflows.run AS parent
+          WHERE parent.id = ${run.parentRunId ?? null}::uuid
+            AND parent.app_id = w.app_id
+            AND parent.scope_id = w.scope_id
+        )
+      )
     ON CONFLICT (workflow_id, mode, idempotency_key) DO UPDATE SET updated_at = workflows.run.updated_at
     RETURNING id
   `;
-  if (!row) throw new Error("workflow run insert returned no row");
+  if (!row) throw new Error("workflow run does not match its workflow version, app, scope, or parent");
   return row.id;
 };
 
@@ -267,12 +288,18 @@ export const claimWorkflowRun = async (options: {
     WITH candidate AS (
       SELECT id FROM workflows.run
       WHERE state IN ('queued', 'running')
-        AND claimable_at < now()
+        AND GREATEST(
+          COALESCE(lease_expires_at, '-infinity'::timestamptz),
+          COALESCE(retry_after, '-infinity'::timestamptz)
+        ) < now()
         AND cancel_requested_at IS NULL
         AND (${options.runId ?? null}::uuid IS NULL OR id = ${options.runId ?? null}::uuid)
         AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
         AND mode = ${options.mode ?? "execute"}
-      ORDER BY claimable_at, created_at, id
+      ORDER BY GREATEST(
+        COALESCE(lease_expires_at, '-infinity'::timestamptz),
+        COALESCE(retry_after, '-infinity'::timestamptz)
+      ), created_at, id
       LIMIT 1
       FOR UPDATE SKIP LOCKED
     )
@@ -290,7 +317,8 @@ export const claimWorkflowRun = async (options: {
     WHERE r.id = c.id
     RETURNING r.id, r.execution_generation, r.mode, r.workflow_id, r.workflow_version_id,
               v.source_hash, r.idempotency_key, r.app_id, r.scope_id, v.plan,
-              r.inputs, r.context, r.authorization_snapshot, r.occurred_at, r.parent_run_id, r.parent_step_key, r.attempt
+              r.inputs, r.context, r.authorization_snapshot, r.occurred_at, r.parent_run_id, r.parent_step_key,
+              r.attempt, r.consecutive_failures
   `;
   const row = rows[0];
   return row ? toClaim(row) : null;
@@ -331,10 +359,18 @@ export const finishWorkflowRun = async (
   const db = options.db ?? sql;
 
   if (result.state === "waiting") {
-    const [row] = await db<{ state: WorkflowRunState }[]>`
-      SELECT state FROM workflows.run WHERE id = ${claim.runId} AND execution_generation = ${claim.executionGeneration}
+    // A dependency signal may have arrived between parkStep and this
+    // coordinator acknowledgement. In that case parkStep already re-queued
+    // the run; the waiting attempt still finished successfully.
+    const rows = await db<{ id: string }[]>`
+      UPDATE workflows.run
+      SET consecutive_failures = 0, updated_at = now()
+      WHERE id = ${claim.runId}
+        AND execution_generation = ${claim.executionGeneration}
+        AND state IN ('waiting', 'queued')
+      RETURNING id
     `;
-    if (row?.state === "waiting") return { state: "finished" };
+    if (rows.length > 0) return { state: "finished" };
     return diagnoseLostLease(db, claim.runId, claim.executionGeneration);
   }
 
@@ -347,6 +383,7 @@ export const finishWorkflowRun = async (
         lease_owner = NULL,
         lease_expires_at = NULL,
         retry_after = NULL,
+        consecutive_failures = 0,
         wake_at = NULL,
         finished_at = now(),
         updated_at = now()
@@ -367,17 +404,19 @@ export const finishWorkflowRun = async (
  * every attempt would otherwise be re-claimed as fast as the dispatcher loops.
  */
 export const releaseWorkflowRun = async (
-  claim: { runId: string; executionGeneration: number },
+  claim: { runId: string; executionGeneration: number; consecutiveFailures?: number },
   options: { backoffMs?: number; db?: SQL } = {},
 ): Promise<WorkflowCoordinatorReleaseState> => {
   const db = options.db ?? sql;
-  const backoffMs = options.backoffMs ?? RELEASE_BACKOFF_MS;
+  const backoffMs =
+    options.backoffMs ?? Math.min(RELEASE_BACKOFF_MS * 2 ** Math.max(0, claim.consecutiveFailures ?? 0), RELEASE_MAX_BACKOFF_MS);
   const rows = await db<{ retry_after: Date }[]>`
     UPDATE workflows.run
     SET state = 'queued',
         lease_owner = NULL,
         lease_expires_at = NULL,
         retry_after = now() + ${`${backoffMs} milliseconds`}::interval,
+        consecutive_failures = consecutive_failures + 1,
         updated_at = now()
     WHERE id = ${claim.runId}
       AND execution_generation = ${claim.executionGeneration}
@@ -393,17 +432,26 @@ export const releaseWorkflowRun = async (
 export const requestWorkflowRunCancel = async (runId: string, options: { db?: SQL } = {}): Promise<boolean> => {
   const db = options.db ?? sql;
   const rows = await db<{ id: string }[]>`
-    UPDATE workflows.run
+    WITH RECURSIVE descendants AS (
+      SELECT id FROM workflows.run WHERE id = ${runId}::uuid
+      UNION ALL
+      SELECT child.id
+      FROM workflows.run AS child
+      JOIN descendants AS parent ON child.parent_run_id = parent.id
+    )
+    UPDATE workflows.run AS r
     SET cancel_requested_at = COALESCE(cancel_requested_at, now()),
-        state = CASE WHEN state = 'queued' THEN 'canceled' ELSE state END,
-        finished_at = CASE WHEN state = 'queued' THEN now() ELSE finished_at END,
-        lease_owner = CASE WHEN state = 'queued' THEN NULL ELSE lease_owner END,
-        lease_expires_at = CASE WHEN state = 'queued' THEN NULL ELSE lease_expires_at END,
+        state = CASE WHEN state IN ('queued', 'waiting') THEN 'canceled' ELSE state END,
+        finished_at = CASE WHEN state IN ('queued', 'waiting') THEN now() ELSE finished_at END,
+        lease_owner = CASE WHEN state IN ('queued', 'waiting') THEN NULL ELSE lease_owner END,
+        lease_expires_at = CASE WHEN state IN ('queued', 'waiting') THEN NULL ELSE lease_expires_at END,
+        wake_at = CASE WHEN state IN ('queued', 'waiting') THEN NULL ELSE wake_at END,
         updated_at = now()
-    WHERE id = ${runId} AND state NOT IN ${db(TERMINAL_RUN_STATES)}
-    RETURNING id
+    WHERE r.id IN (SELECT id FROM descendants)
+      AND r.state NOT IN ${db(TERMINAL_RUN_STATES)}
+    RETURNING r.id
   `;
-  return rows.length > 0;
+  return rows.some((row) => row.id === runId);
 };
 
 /** The coordinator's view of the store, so `coordinateWorkflowExecution` drives it directly. */
@@ -427,8 +475,16 @@ export const listClaimableWorkflowRunIds = async (limit: number, options: { db?:
   const db = options.db ?? sql;
   const rows = await db<{ id: string }[]>`
     SELECT id FROM workflows.run
-    WHERE state IN ('queued', 'running') AND claimable_at < now() AND cancel_requested_at IS NULL
-    ORDER BY claimable_at, created_at, id
+    WHERE state IN ('queued', 'running')
+      AND GREATEST(
+        COALESCE(lease_expires_at, '-infinity'::timestamptz),
+        COALESCE(retry_after, '-infinity'::timestamptz)
+      ) < now()
+      AND cancel_requested_at IS NULL
+    ORDER BY GREATEST(
+      COALESCE(lease_expires_at, '-infinity'::timestamptz),
+      COALESCE(retry_after, '-infinity'::timestamptz)
+    ), created_at, id
     LIMIT ${limit}
   `;
   return rows.map((row) => row.id);
@@ -455,27 +511,30 @@ export const wakeExpiredWorkflowRuns = async (limit: number, options: { appId?: 
 
 /** Re-queues every run parked on a dependency that has now been satisfied. */
 export const wakeWorkflowRunsWaitingOn = async (
-  dependency: { kind: string; key: string },
-  options: { limit?: number; db?: SQL } = {},
+  dependency: { appId: string; kind: string; key: string },
+  options: { db?: SQL } = {},
 ): Promise<string[]> => {
-  const db = options.db ?? sql;
-  const rows = await db<{ id: string }[]>`
-    UPDATE workflows.run
-    SET state = 'queued', wake_at = NULL, updated_at = now()
-    WHERE id IN (
-      SELECT s.run_id FROM workflows.step_outcome AS s
-      JOIN workflows.run AS r ON r.id = s.run_id
-      WHERE s.state = 'waiting'
+  return withTransaction(options.db, async (tx) => {
+    await tx`
+      INSERT INTO workflows.dependency_signal (app_id, kind, key)
+      VALUES (${dependency.appId}, ${dependency.kind}, ${dependency.key})
+      ON CONFLICT (app_id, kind, key) DO UPDATE
+      SET updated_at = now()
+    `;
+    const rows = await tx<{ id: string }[]>`
+      UPDATE workflows.run AS r
+      SET state = 'queued', wake_at = NULL, updated_at = now()
+      FROM workflows.step_outcome AS s
+      WHERE s.run_id = r.id
+        AND s.state = 'waiting'
         AND s.dependency ->> 'kind' = ${dependency.kind}
         AND s.dependency ->> 'key' = ${dependency.key}
+        AND r.app_id = ${dependency.appId}
         AND r.state = 'waiting'
-      ORDER BY s.run_id
-      LIMIT ${options.limit ?? 500}
-      FOR UPDATE OF r SKIP LOCKED
-    )
-    RETURNING id
-  `;
-  return rows.map((row) => row.id);
+      RETURNING r.id
+    `;
+    return rows.map((row) => row.id).sort();
+  });
 };
 
 // ─── Journal ─────────────────────────────────────────────────────────────────
@@ -553,7 +612,7 @@ const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort 
       `;
       if (rows.length === 0) throw new WorkflowLeaseLostError();
 
-      const parked = await tx<{ id: string }[]>`
+      const parked = await tx<{ id: string; app_id: string }[]>`
         UPDATE workflows.run
         SET state = 'waiting',
             wake_at = ${dependency.deadline ?? null}::timestamptz,
@@ -561,9 +620,28 @@ const stepJournal = (options: { db?: SQL } = {}): WorkflowRuntimeRepositoryPort 
             lease_expires_at = NULL,
             updated_at = now()
         WHERE id = ${step.runId}::uuid AND execution_generation = ${step.executionGeneration} AND state = 'running'
-        RETURNING id
+        RETURNING id, app_id
       `;
-      if (parked.length === 0) throw new WorkflowLeaseLostError();
+      const run = parked[0];
+      if (!run) throw new WorkflowLeaseLostError();
+
+      // Close wake-before-park: a signal recorded just before this transaction
+      // is as satisfying as one recorded just after it.
+      const [signal] = await tx<{ app_id: string }[]>`
+        SELECT app_id FROM workflows.dependency_signal
+        WHERE app_id = ${run.app_id}
+          AND kind = ${dependency.kind}
+          AND key = ${dependency.key}
+      `;
+      if (signal) {
+        await tx`
+          UPDATE workflows.run
+          SET state = 'queued', wake_at = NULL, updated_at = now()
+          WHERE id = ${step.runId}::uuid
+            AND execution_generation = ${step.executionGeneration}
+            AND state = 'waiting'
+        `;
+      }
     });
   };
 
@@ -681,16 +759,117 @@ export const recordWorkflowEffect = async (
 
 /** Settles an effect once its fate is known. `ambiguous` is a real answer, not a failure. */
 export const settleWorkflowEffect = async (
-  step: { runId: string; key: string },
+  step: { runId: string; key: string; executionGeneration: number },
   state: "succeeded" | "ambiguous" | "failed",
   options: { db?: SQL } = {},
 ): Promise<void> => {
   const db = options.db ?? sql;
-  await db`
-    UPDATE workflows.step_outcome
+  const rows = await db<{ run_id: string }[]>`
+    UPDATE workflows.step_outcome AS s
     SET effect_state = ${state}, updated_at = now()
-    WHERE run_id = ${step.runId}::uuid AND step_key = ${step.key} AND effect_key IS NOT NULL
+    FROM workflows.run AS r
+    WHERE s.run_id = ${step.runId}::uuid
+      AND s.step_key = ${step.key}
+      AND s.effect_key IS NOT NULL
+      AND r.id = s.run_id
+      AND r.state = 'running'
+      AND r.execution_generation = ${step.executionGeneration}
+    RETURNING s.run_id
   `;
+  if (rows.length === 0) throw new WorkflowLeaseLostError();
+};
+
+export type WorkflowAttentionResolution =
+  | { state: "succeeded"; output?: WorkflowJsonValue }
+  | { state: "failed"; message: string; code?: string };
+
+/**
+ * Resolves the one effect a run stopped for.
+ *
+ * The run must already be terminal needs_attention, so this cannot race a
+ * worker. Confirming success records the step outcome and re-queues the rest
+ * of the immutable plan; confirming failure settles both step and run.
+ */
+export const resolveWorkflowRunAttention = async (
+  input: { runId: string; stepKey: string; resolution: WorkflowAttentionResolution },
+  options: { db?: SQL } = {},
+): Promise<void> => {
+  await withTransaction(options.db, async (tx) => {
+    const [row] = await tx<{ effect_state: string | null }[]>`
+      SELECT s.effect_state
+      FROM workflows.run AS r
+      JOIN workflows.step_outcome AS s ON s.run_id = r.id
+      WHERE r.id = ${input.runId}::uuid
+        AND r.state = 'needs_attention'
+        AND s.step_key = ${input.stepKey}
+        AND s.state = 'needs_attention'
+        AND s.effect_state IN ('executing', 'ambiguous')
+      FOR UPDATE OF r, s
+    `;
+    if (!row) throw new Error("workflow run is not awaiting resolution for that step");
+
+    if (input.resolution.state === "succeeded") {
+      const output = input.resolution.output ?? null;
+      await tx`
+        UPDATE workflows.step_outcome
+        SET state = 'completed',
+            outcome = ${{
+              mode: "execute",
+              outcome: { state: "completed", output },
+            }},
+            dependency = NULL,
+            effect_state = 'succeeded',
+            effect_output = ${output},
+            finished_at = now(),
+            updated_at = now()
+        WHERE run_id = ${input.runId}::uuid AND step_key = ${input.stepKey}
+      `;
+      // Older alpha workers journaled propagated control wrappers as attention
+      // outcomes. They are incomplete traversal state, not effects, so let the
+      // resumed run recompute only those wrappers.
+      await tx`
+        DELETE FROM workflows.step_outcome
+        WHERE run_id = ${input.runId}::uuid
+          AND step_key <> ${input.stepKey}
+          AND state = 'needs_attention'
+          AND effect_key IS NULL
+      `;
+      await tx`
+        UPDATE workflows.run
+        SET state = 'queued',
+            error = NULL,
+            result = NULL,
+            result_message = NULL,
+            retry_after = NULL,
+            consecutive_failures = 0,
+            finished_at = NULL,
+            updated_at = now()
+        WHERE id = ${input.runId}::uuid
+      `;
+      return;
+    }
+
+    const error = {
+      code: input.resolution.code ?? "WORKFLOW_EFFECT_CONFIRMED_FAILED",
+      message: input.resolution.message,
+      retryable: false,
+    };
+    await tx`
+      UPDATE workflows.step_outcome
+      SET state = 'failed',
+          outcome = ${{ mode: "execute", outcome: { state: "failed", error } }},
+          dependency = NULL,
+          effect_state = 'failed',
+          finished_at = now(),
+          updated_at = now()
+      WHERE run_id = ${input.runId}::uuid AND step_key = ${input.stepKey}
+    `;
+    await tx`
+      UPDATE workflows.run
+      SET state = 'failed', error = ${error}, finished_at = now(), updated_at = now()
+      WHERE id = ${input.runId}::uuid
+    `;
+  });
 };
 
 /** What an earlier attempt recorded about this step's effect, if anything. */

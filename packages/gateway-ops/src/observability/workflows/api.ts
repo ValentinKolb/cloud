@@ -1,9 +1,9 @@
 /**
- * Workflow run read API.
+ * Workflow run operations API.
  *
  * The same data the admin page renders, so scripts and agents can answer "is
- * any workflow broken" without scraping HTML. Read-only: cancelling a run or
- * settling a stranded effect stays a deliberate action elsewhere.
+ * any workflow broken" without scraping HTML. Resolving an ambiguous effect is
+ * the one write here: it is admin-only and requires an explicit decision.
  */
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
 import {
@@ -11,6 +11,8 @@ import {
   listStrandedWorkflowEffects,
   listUndispatchedWorkflowEvents,
   listWorkflowRuns,
+  resolveWorkflowRunAttention,
+  type WorkflowAttentionResolution,
   workflowHealth,
 } from "@valentinkolb/cloud/workflows/store";
 import { err, fail, ok } from "@valentinkolb/stdlib";
@@ -72,6 +74,27 @@ const app = new Hono<AuthContext>()
     const run = await getWorkflowRun(c.req.valid("param").id);
     return respond(c, run ? ok(run) : fail(err.notFound("Workflow run")));
   })
+
+  .post(
+    "/runs/:id/attention/:step",
+    v("param", z.object({ id: z.string().uuid(), step: z.string().min(1).max(1000) })),
+    v(
+      "json",
+      z.discriminatedUnion("state", [
+        z.object({ state: z.literal("succeeded"), output: z.unknown().optional() }),
+        z.object({ state: z.literal("failed"), message: z.string().min(1).max(2000), code: z.string().min(1).max(200).optional() }),
+      ]),
+    ),
+    async (c) => {
+      const { id, step } = c.req.valid("param");
+      await resolveWorkflowRunAttention({
+        runId: id,
+        stepKey: step,
+        resolution: c.req.valid("json") as WorkflowAttentionResolution,
+      });
+      return respond(c, ok({ resolved: true }));
+    },
+  )
 
   /** Effects that left the process and never reported back. */
   .get(

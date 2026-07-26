@@ -694,6 +694,31 @@ describe("workflow runtime executor", () => {
     expect(repository.parked).toEqual([{ step: expect.objectContaining({ key: "steps.0.then.0" }), dependency }]);
   });
 
+  test("leaves enclosing control steps resumable when a nested effect needs attention", async () => {
+    const repository = new FakeRepository();
+    const error = { code: "UNKNOWN", message: "effect outcome unknown", retryable: false };
+    const result = await executeWorkflowPlan({
+      ...runtime,
+      plan: plan([
+        {
+          kind: "if",
+          condition: { operator: "equals", operands: [true, true] },
+          then: [{ kind: "action", action: "ambiguous", config: {}, sourcePath: ["steps", 0, "then", 0] }],
+          else: [],
+          sourcePath: ["steps", 0],
+        },
+      ]),
+      invocation: invocation("execute"),
+      repository,
+      actions: executeActions({ ambiguous: { execute: async () => ({ state: "needs_attention", error }) } }),
+    });
+
+    expect(result).toMatchObject({ state: "needs_attention", step: { key: "steps.0.then.0" } });
+    expect(repository.finished.map(({ step, result }) => [step.key, result.outcome.state])).toEqual([
+      ["steps.0.then.0", "needs_attention"],
+    ]);
+  });
+
   test("closes enclosing control steps when a nested action fails", async () => {
     const repository = new FakeRepository();
     const error = { code: "FAILED", message: "nested failure", retryable: false };

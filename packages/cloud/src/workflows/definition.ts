@@ -11,11 +11,12 @@
  * language and the implementation's parameter type, so a change to either side
  * is a compile error rather than a production surprise.
  *
- * Mirrors the notifications pattern deliberately — declaration file at the app
- * root, bound by `defineApp`, types inferred rather than restated.
+ * Mirrors the notifications declaration style deliberately — one file at the
+ * app root, with types inferred rather than restated. Workflow worker wiring is
+ * explicit; `defineApp` does not consume these declarations.
  */
 import type { SQL } from "bun";
-import type { WorkflowActionEffect, WorkflowFieldSchema, WorkflowInvocation, WorkflowJsonValue } from "./contracts";
+import type { WorkflowActionEffect, WorkflowDependency, WorkflowFieldSchema, WorkflowInvocation, WorkflowJsonValue } from "./contracts";
 
 // ─── Config type inference ───────────────────────────────────────────────────
 
@@ -122,10 +123,12 @@ type WorkflowActionFailure = { message: string; code?: string; retryable?: boole
  *
  * `ambiguous` is a first-class result rather than a thrown error: "the send may
  * have gone through" is not a failure, and treating it as one either loses
- * messages or sends them twice.
+ * messages or sends them twice. `waiting` means no effect happened; an action
+ * that may already have acted must report `ambiguous` instead.
  */
 export type WorkflowActionResult<Output> =
   | { state: "succeeded"; output: Output }
+  | { state: "waiting"; dependency: WorkflowDependency }
   | ({ state: "failed" } & WorkflowActionFailure)
   | ({ state: "ambiguous"; evidence?: WorkflowJsonValue } & WorkflowActionFailure);
 
@@ -347,7 +350,7 @@ export type ErasedWorkflowAction = {
 export type WorkflowActionMap = Record<string, ErasedWorkflowAction>;
 export type WorkflowEventMap = Record<string, WorkflowEventDefinition<ObjectSchema>>;
 
-/** The shape of an app's `src/workflows.ts`. */
+/** Optional grouping for an app's declaration file; it is not auto-bound by `defineApp`. */
 export type WorkflowModule = {
   actions: WorkflowActionMap;
   events: WorkflowEventMap;

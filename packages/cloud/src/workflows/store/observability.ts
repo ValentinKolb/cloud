@@ -375,7 +375,9 @@ export const workflowHealth = async (options: { since?: Date; db?: SQL } = {}): 
     `,
     db<{ app_id: string; count: string; oldest: Date }[]>`
       SELECT app_id, count(*) AS count, min(occurred_at) AS oldest
-      FROM workflows.event WHERE dispatched_at IS NULL GROUP BY app_id
+      FROM workflows.event
+      WHERE matched_count = 0 OR dispatched_at IS NULL
+      GROUP BY app_id
     `,
   ]);
 

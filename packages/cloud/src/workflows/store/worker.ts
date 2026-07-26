@@ -29,6 +29,7 @@ import {
   createWorkflowCoordinatorPort,
   createWorkflowRuntimeRepository,
   WORKFLOW_RUN_LEASE_MS,
+  WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES,
   type WorkflowRunClaim,
   type WorkflowRunResult,
   wakeExpiredWorkflowRuns,
@@ -151,6 +152,31 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
     port,
     execute: async ({ claim, heartbeat }) => {
       await traceRun(options.trace, { type: "run.started", run: runIdentity(claim, "execute") });
+      if (claim.consecutiveFailures >= WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES) {
+        const error = {
+          code: "WORKFLOW_RETRY_EXHAUSTED",
+          message: `workflow failed ${claim.consecutiveFailures} consecutive attempts`,
+          retryable: false,
+        };
+        await db`
+          UPDATE workflows.step_outcome AS s
+          SET state = 'failed',
+              outcome = ${{ mode: "execute", outcome: { state: "failed", error } }},
+              execution_generation = ${claim.executionGeneration},
+              finished_at = now(),
+              updated_at = now()
+          FROM workflows.run AS r
+          WHERE s.run_id = r.id
+            AND r.id = ${claim.runId}::uuid
+            AND r.execution_generation = ${claim.executionGeneration}
+            AND r.state = 'running'
+            AND s.state = 'running'
+        `;
+        return {
+          state: "failed",
+          error,
+        };
+      }
       const result = await executeWorkflowPlan({
         runId: claim.runId,
         executionGeneration: claim.executionGeneration,
@@ -176,9 +202,11 @@ export const runOneWorkflow = async (options: WorkflowWorkerOptions & { runId?: 
         ...(options.values ? { values: options.values(claim) } : {}),
         ...(options.maxLoopItems === undefined ? {} : { maxLoopItems: options.maxLoopItems }),
       });
-      // Keep the lease honest for a plan whose last step ran long.
-      await heartbeat();
-      return settle(result);
+      const runResult = settle(result);
+      // Parking deliberately releases the lease. Heartbeating after that
+      // misdiagnoses a successful park as a lost claim.
+      if (runResult.state !== "waiting") await heartbeat();
+      return runResult;
     },
   });
 

@@ -82,9 +82,36 @@ type StoredEvent = {
   targetWorkflowId: string | null;
 };
 
+const EVENT_DISPATCH_MAX_ATTEMPTS = 8;
+const EVENT_DISPATCH_BACKOFF_MS = 1_000;
+const EVENT_DISPATCH_MAX_BACKOFF_MS = 5 * 60_000;
+
 /** An empty object means the emitter named nobody; fall back to the activation. */
 const isEmpty = (value: WorkflowJsonValue): boolean =>
   !value || (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
+
+/** Freezes the exact live activations that matched when the event arrived. */
+const pinDeliveries = async (tx: SQL, event: StoredEvent): Promise<number> => {
+  const rows = await tx<{ activation_id: string }[]>`
+    INSERT INTO workflows.event_delivery (
+      event_id, activation_id, workflow_id, workflow_version_id, authorization_snapshot
+    )
+    SELECT ${event.id}::uuid, a.id, a.workflow_id, a.workflow_version_id, a.authorization_snapshot
+    FROM workflows.activation AS a
+    JOIN workflows.workflow AS w
+      ON w.id = a.workflow_id
+      AND w.active_version_id = a.workflow_version_id
+    WHERE a.enabled
+      AND a.event_type = ${event.type}
+      AND w.app_id = ${event.appId}
+      AND w.scope_id = ${event.scopeId}
+      AND (${event.targetWorkflowId}::uuid IS NULL OR a.workflow_id = ${event.targetWorkflowId}::uuid)
+    ORDER BY a.id
+    ON CONFLICT DO NOTHING
+    RETURNING activation_id
+  `;
+  return rows.length;
+};
 
 /**
  * Turns one event into runs.
@@ -95,15 +122,10 @@ const isEmpty = (value: WorkflowJsonValue): boolean =>
  */
 const materializeRuns = async (tx: SQL, event: StoredEvent): Promise<string[]> => {
   const matches = await tx<ActivationMatch[]>`
-    SELECT a.id AS activation_id, a.workflow_id, a.workflow_version_id, a.authorization_snapshot
-    FROM workflows.activation AS a
-    JOIN workflows.workflow AS w ON w.id = a.workflow_id
-    WHERE a.enabled
-      AND a.event_type = ${event.type}
-      AND w.app_id = ${event.appId}
-      AND w.scope_id = ${event.scopeId}
-      AND (${event.targetWorkflowId}::uuid IS NULL OR a.workflow_id = ${event.targetWorkflowId}::uuid)
-    ORDER BY a.id
+    SELECT activation_id, workflow_id, workflow_version_id, authorization_snapshot
+    FROM workflows.event_delivery
+    WHERE event_id = ${event.id}::uuid
+    ORDER BY activation_id
   `;
 
   const runIds: string[] = [];
@@ -146,7 +168,6 @@ export const emitWorkflowEvent = async (
   event: WorkflowEventInput,
   options: { dispatch?: "now" | "deferred"; db?: SQL } = {},
 ): Promise<WorkflowEmission> => {
-  const db = options.db ?? sql;
   const occurredAt = event.occurredAt ?? new Date();
   const data = event.data ?? {};
   const context = event.context ?? {};
@@ -181,9 +202,7 @@ export const emitWorkflowEvent = async (
     }
 
     const eventId = inserted[0].id;
-    if (options.dispatch !== "now") return { eventId, runIds: [], duplicate: false };
-
-    const runIds = await materializeRuns(tx, {
+    const stored = {
       id: eventId,
       appId: event.appId,
       scopeId: event.scopeId,
@@ -193,8 +212,22 @@ export const emitWorkflowEvent = async (
       context,
       authorization,
       targetWorkflowId: event.targetWorkflowId ?? null,
-    });
-    await tx`UPDATE workflows.event SET dispatched_at = now(), attempts = attempts + 1 WHERE id = ${eventId}::uuid`;
+    };
+    const matchedCount = await pinDeliveries(tx, stored);
+    await tx`
+      UPDATE workflows.event
+      SET matched_count = ${matchedCount},
+          dispatched_at = CASE WHEN ${matchedCount} = 0 THEN now() ELSE dispatched_at END
+      WHERE id = ${eventId}::uuid
+    `;
+    if (options.dispatch !== "now" || matchedCount === 0) return { eventId, runIds: [], duplicate: false };
+
+    const runIds = await materializeRuns(tx, stored);
+    await tx`
+      UPDATE workflows.event
+      SET dispatched_at = now(), attempts = attempts + 1, last_error = NULL
+      WHERE id = ${eventId}::uuid
+    `;
     return { eventId, runIds, duplicate: false };
   });
 };
@@ -209,18 +242,24 @@ export const emitWorkflowEvent = async (
  */
 export const dispatchPendingWorkflowEvents = async (
   limit = 100,
-  options: { appId?: string; db?: SQL } = {},
-): Promise<{ dispatched: number; failed: number }> => {
+  options: { appId?: string; scopeId?: string; db?: SQL } = {},
+): Promise<{ dispatched: number; failed: number; deadLettered: number }> => {
   const db = options.db ?? sql;
   const pending = await db<{ id: string }[]>`
     SELECT id FROM workflows.event
-    WHERE dispatched_at IS NULL AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
-    ORDER BY occurred_at, id
+    WHERE dispatched_at IS NULL
+      AND dispatch_failed_at IS NULL
+      AND matched_count > 0
+      AND dispatch_after <= now()
+      AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
+      AND (${options.scopeId ?? null}::text IS NULL OR scope_id = ${options.scopeId ?? null})
+    ORDER BY dispatch_after, occurred_at, id
     LIMIT ${limit}
   `;
 
   let dispatched = 0;
   let failed = 0;
+  let deadLettered = 0;
   for (const { id } of pending) {
     try {
       await withTransaction(options.db, async (tx) => {
@@ -239,7 +278,11 @@ export const dispatchPendingWorkflowEvents = async (
         >`
           SELECT id, app_id, scope_id, type, data, context, authorization_snapshot, target_workflow_id, occurred_at
           FROM workflows.event
-          WHERE id = ${id}::uuid AND dispatched_at IS NULL
+          WHERE id = ${id}::uuid
+            AND dispatched_at IS NULL
+            AND dispatch_failed_at IS NULL
+            AND matched_count > 0
+            AND dispatch_after <= now()
           FOR UPDATE SKIP LOCKED
         `;
         // Another worker took it, or it was dispatched between the scan and here.
@@ -256,38 +299,85 @@ export const dispatchPendingWorkflowEvents = async (
           authorization: row.authorization_snapshot,
           targetWorkflowId: row.target_workflow_id,
         });
-        await tx`UPDATE workflows.event SET dispatched_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = ${row.id}::uuid`;
+        await tx`
+          UPDATE workflows.event
+          SET dispatched_at = now(), attempts = attempts + 1, last_error = NULL
+          WHERE id = ${row.id}::uuid
+        `;
         dispatched += 1;
       });
     } catch (error) {
       failed += 1;
-      await db`
+      const [recorded] = await db<{ dispatch_failed_at: Date | null }[]>`
         UPDATE workflows.event
-        SET attempts = attempts + 1, last_error = ${error instanceof Error ? error.message : String(error)}
-        WHERE id = ${id}::uuid
+        SET attempts = attempts + 1,
+            last_error = ${error instanceof Error ? error.message : String(error)},
+            dispatch_after = now() + (
+              LEAST(
+                ${EVENT_DISPATCH_MAX_BACKOFF_MS}::double precision,
+                ${EVENT_DISPATCH_BACKOFF_MS}::double precision * power(2::double precision, attempts::double precision)
+              ) * interval '1 millisecond'
+            ),
+            dispatch_failed_at = CASE
+              WHEN attempts + 1 >= ${EVENT_DISPATCH_MAX_ATTEMPTS} THEN now()
+              ELSE dispatch_failed_at
+            END
+        WHERE id = ${id}::uuid AND dispatched_at IS NULL
+        RETURNING dispatch_failed_at
       `;
+      if (recorded?.dispatch_failed_at) deadLettered += 1;
     }
   }
-  return { dispatched, failed };
+  return { dispatched, failed, deadLettered };
 };
 
-/** Events that never turned into runs. The first thing to look at when a workflow "just stopped". */
+/** Events that matched nothing, are retrying, or exhausted dispatch retries. */
 export const listUndispatchedWorkflowEvents = async (
-  options: { limit?: number; appId?: string; db?: SQL } = {},
-): Promise<{ id: string; appId: string; type: string; occurredAt: Date; attempts: number; lastError: string | null }[]> => {
+  options: { limit?: number; appId?: string; scopeId?: string; db?: SQL } = {},
+): Promise<
+  {
+    id: string;
+    appId: string;
+    scopeId: string;
+    type: string;
+    occurredAt: Date;
+    attempts: number;
+    matchedCount: number;
+    lastError: string | null;
+    dispatchFailedAt: Date | null;
+  }[]
+> => {
   const db = options.db ?? sql;
-  const rows = await db<{ id: string; app_id: string; type: string; occurred_at: Date; attempts: number; last_error: string | null }[]>`
-    SELECT id, app_id, type, occurred_at, attempts, last_error FROM workflows.event
-    WHERE dispatched_at IS NULL AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
+  const rows = await db<
+    {
+      id: string;
+      app_id: string;
+      scope_id: string;
+      type: string;
+      occurred_at: Date;
+      attempts: number;
+      matched_count: number;
+      last_error: string | null;
+      dispatch_failed_at: Date | null;
+    }[]
+  >`
+    SELECT id, app_id, scope_id, type, occurred_at, attempts, matched_count, last_error, dispatch_failed_at
+    FROM workflows.event
+    WHERE (matched_count = 0 OR dispatched_at IS NULL)
+      AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
+      AND (${options.scopeId ?? null}::text IS NULL OR scope_id = ${options.scopeId ?? null})
     ORDER BY occurred_at, id
     LIMIT ${options.limit ?? 100}
   `;
   return rows.map((row) => ({
     id: row.id,
     appId: row.app_id,
+    scopeId: row.scope_id,
     type: row.type,
     occurredAt: row.occurred_at,
     attempts: row.attempts,
+    matchedCount: row.matched_count,
     lastError: row.last_error,
+    dispatchFailedAt: row.dispatch_failed_at,
   }));
 };

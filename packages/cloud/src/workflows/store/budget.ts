@@ -39,6 +39,15 @@ export type WorkflowBudgetError = {
   message: string;
 };
 
+/** Refuses values JSON accepts but arithmetic cannot safely enforce. */
+export const validateWorkflowEffectBudget = (value: Record<string, number>, label = "workflow effect budget"): void => {
+  for (const [dimension, amount] of Object.entries(value)) {
+    if (!dimension || !Number.isFinite(amount) || amount < 0) {
+      throw new TypeError(`${label} ${JSON.stringify(dimension)} must be a finite non-negative number`);
+    }
+  }
+};
+
 export const budgetError = (outcome: Extract<WorkflowBudgetOutcome, { state: "exceeded" }>): WorkflowBudgetError => ({
   kind: "budget_exceeded",
   dimension: outcome.dimension,
@@ -52,6 +61,7 @@ export const budgetError = (outcome: Extract<WorkflowBudgetOutcome, { state: "ex
 export const totalPlannedEffects = (planned: readonly { consumes?: WorkflowEffectCharge }[]): WorkflowEffectBudget => {
   const total: WorkflowEffectBudget = {};
   for (const effect of planned) {
+    validateWorkflowEffectBudget(effect.consumes ?? {}, "workflow effect charge");
     for (const [dimension, amount] of Object.entries(effect.consumes ?? {})) {
       total[dimension] = (total[dimension] ?? 0) + amount;
     }
@@ -61,6 +71,8 @@ export const totalPlannedEffects = (planned: readonly { consumes?: WorkflowEffec
 
 /** Whether a planned total fits, without touching the database. Used by preflight. */
 export const checkEffectBudget = (budget: WorkflowEffectBudget, planned: WorkflowEffectBudget): WorkflowBudgetOutcome => {
+  validateWorkflowEffectBudget(budget);
+  validateWorkflowEffectBudget(planned, "planned workflow effect charge");
   for (const [dimension, requested] of Object.entries(planned)) {
     const limit = budget[dimension];
     if (limit !== undefined && requested > limit) {
@@ -83,9 +95,8 @@ export const chargeWorkflowEffectBudget = async (
   charge: WorkflowEffectCharge,
   options: { db?: SQL } = {},
 ): Promise<WorkflowBudgetOutcome> => {
+  validateWorkflowEffectBudget(charge, "workflow effect charge");
   if (Object.keys(charge).length === 0) return { state: "ok", used: {} };
-  const db = options.db ?? sql;
-
   return withTransaction(options.db, async (tx) => {
     const [row] = await tx<{ effects_used: WorkflowEffectBudget; effect_budget: WorkflowEffectBudget }[]>`
       SELECT r.effects_used, v.effect_budget
@@ -95,6 +106,8 @@ export const chargeWorkflowEffectBudget = async (
       FOR UPDATE OF r
     `;
     if (!row) throw new Error(`workflow run ${runId} does not exist`);
+    validateWorkflowEffectBudget(row.effect_budget);
+    validateWorkflowEffectBudget(row.effects_used, "workflow effects used");
 
     const next: WorkflowEffectBudget = { ...row.effects_used };
     for (const [dimension, amount] of Object.entries(charge)) {

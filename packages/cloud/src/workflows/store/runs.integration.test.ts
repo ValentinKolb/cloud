@@ -104,6 +104,13 @@ const runState = async (runId: string) => {
   return row?.state;
 };
 
+const effectRow = async (runId: string) => {
+  const [row] = await sql<{ effect_state: string | null }[]>`
+    SELECT effect_state FROM workflows.step_outcome WHERE run_id = ${runId}::uuid
+  `;
+  return row;
+};
+
 describe("workflow run store", () => {
   test("a claim fences with the generation, so a stale worker writes nothing", async () => {
     if (!(await ready())) return;
@@ -205,11 +212,26 @@ describe("workflow run store", () => {
     // back. Nothing recorded whether it went out.
     expect(await isWorkflowEffectReplayable({ runId, key: "send" })).toBe(false);
 
-    await settleWorkflowEffect({ runId, key: "send" }, "ambiguous");
+    await settleWorkflowEffect({ runId, key: "send", executionGeneration: claim!.executionGeneration }, "ambiguous");
     expect(await isWorkflowEffectReplayable({ runId, key: "send" })).toBe(false);
 
-    await settleWorkflowEffect({ runId, key: "send" }, "succeeded");
+    await settleWorkflowEffect({ runId, key: "send", executionGeneration: claim!.executionGeneration }, "succeeded");
     expect(await isWorkflowEffectReplayable({ runId, key: "send" })).toBe(true);
+  });
+
+  test("a stale worker cannot settle another generation's effect", async () => {
+    if (!(await ready())) return;
+    const { base } = await fixture();
+    const runId = await createWorkflowRun({ ...base, idempotencyKey: "stale-settle" });
+    const claim = await claimWorkflowRun({ worker: "w1", runId });
+    const journal = createWorkflowRuntimeRepository();
+    const sending = step(runId, claim!.executionGeneration, "send");
+    await journal.startStep(sending);
+    await beginWorkflowEffect(sending, `workflow:${runId}:step:send`);
+    await sql`UPDATE workflows.run SET execution_generation = execution_generation + 1 WHERE id = ${runId}::uuid`;
+
+    await expect(settleWorkflowEffect(sending, "succeeded")).rejects.toBeInstanceOf(WorkflowLeaseLostError);
+    expect(await effectRow(runId)).toMatchObject({ effect_state: "executing" });
   });
 
   test("parking a step parks its run, and a deadline wakes it", async () => {
@@ -221,7 +243,11 @@ describe("workflow run store", () => {
     const claim = await claimWorkflowRun({ worker: "w1", runId });
     const blocked = step(runId, claim!.executionGeneration, "await");
     await journal.startStep(blocked);
-    await journal.parkStep(blocked, { kind: "probe.reply", key: "r-1", deadline: new Date(Date.now() - 1000).toISOString() });
+    await journal.parkStep(blocked, {
+      kind: "probe.reply",
+      key: crypto.randomUUID(),
+      deadline: new Date(Date.now() - 1000).toISOString(),
+    });
 
     // A step marked waiting while its run stays running is a run nothing wakes.
     expect(await runState(runId)).toBe("waiting");
@@ -237,10 +263,12 @@ describe("workflow run store", () => {
     const waiting = await createWorkflowRun({ ...base, idempotencyKey: "dep-waiting" });
     const other = await createWorkflowRun({ ...base, idempotencyKey: "dep-other" });
     const journal = createWorkflowRuntimeRepository();
+    const waitingKey = crypto.randomUUID();
+    const otherKey = crypto.randomUUID();
 
     for (const [runId, key] of [
-      [waiting, "r-1"],
-      [other, "r-2"],
+      [waiting, waitingKey],
+      [other, otherKey],
     ] as const) {
       const claim = await claimWorkflowRun({ worker: "w1", runId });
       const blocked = step(runId, claim!.executionGeneration, "await");
@@ -248,9 +276,25 @@ describe("workflow run store", () => {
       await journal.parkStep(blocked, { kind: "probe.reply", key });
     }
 
-    const woken = await wakeWorkflowRunsWaitingOn({ kind: "probe.reply", key: "r-1" });
+    const woken = await wakeWorkflowRunsWaitingOn({ appId: base.appId, kind: "probe.reply", key: waitingKey });
     expect(woken).toEqual([waiting]);
     expect(await runState(other)).toBe("waiting");
+  });
+
+  test("a dependency signal recorded before parking is not lost", async () => {
+    if (!(await ready())) return;
+    const { base } = await fixture();
+    const runId = await createWorkflowRun({ ...base, idempotencyKey: "wake-before-park" });
+    await wakeWorkflowRunsWaitingOn({ appId: base.appId, kind: "probe.reply", key: "early" });
+
+    const claim = await claimWorkflowRun({ worker: "w1", runId });
+    const blocked = step(runId, claim!.executionGeneration, "await");
+    const journal = createWorkflowRuntimeRepository();
+    await journal.startStep(blocked);
+    await journal.parkStep(blocked, { kind: "probe.reply", key: "early" });
+
+    expect(await finishWorkflowRun(claim!, { state: "waiting" })).toEqual({ state: "finished" });
+    expect(await runState(runId)).toBe("queued");
   });
 
   test("a released run backs off instead of spinning", async () => {
@@ -321,6 +365,20 @@ describe("workflow run store", () => {
     expect(child?.parentRunId).toBe(parentId);
     expect(child?.parentStepKey).toBe("each");
     expect(await countChildWorkflowRuns(parentId)).toMatchObject({ queued: 249, running: 1 });
+  });
+
+  test("canceling a fan-out propagates to every unfinished descendant", async () => {
+    if (!(await ready())) return;
+    const { base } = await fixture();
+    const parentId = await createWorkflowRun({ ...base, idempotencyKey: "cancel-parent" });
+    await createChildWorkflowRuns(
+      { runId: parentId, stepKey: "each" },
+      Array.from({ length: 3 }, (_, index) => ({ ...base, idempotencyKey: `cancel-child-${index}` })),
+    );
+
+    expect(await requestWorkflowRunCancel(parentId)).toBe(true);
+    expect(await runState(parentId)).toBe("canceled");
+    expect(await countChildWorkflowRuns(parentId)).toMatchObject({ canceled: 3 });
   });
 
   test("a dry run is never claimed by an execute worker", async () => {

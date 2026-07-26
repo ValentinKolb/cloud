@@ -7,7 +7,14 @@ import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
 import type { WorkflowBoundPlan } from "../contracts";
-import { budgetError, budgetRootRunId, chargeWorkflowEffectBudget, checkEffectBudget, totalPlannedEffects } from "./budget";
+import {
+  budgetError,
+  budgetRootRunId,
+  chargeWorkflowEffectBudget,
+  checkEffectBudget,
+  totalPlannedEffects,
+  validateWorkflowEffectBudget,
+} from "./budget";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { createChildWorkflowRuns, createWorkflowRun } from "./runs";
 
@@ -56,6 +63,13 @@ const budgeted = async (effectBudget: Record<string, number>) => {
 };
 
 describe("effect budgets", () => {
+  test("budgets and charges reject negative or non-finite values", () => {
+    expect(() => validateWorkflowEffectBudget({ emails: -1 })).toThrow("finite non-negative");
+    expect(() => validateWorkflowEffectBudget({ emails: Number.NaN })).toThrow("finite non-negative");
+    expect(() => totalPlannedEffects([{ consumes: { emails: Number.POSITIVE_INFINITY } }])).toThrow("finite non-negative");
+    expect(() => checkEffectBudget({ emails: 1 }, { emails: -1 })).toThrow("finite non-negative");
+  });
+
   test("preflight adds up what a dry run said it would do", () => {
     const planned = totalPlannedEffects([{ consumes: { emails: 3 } }, { consumes: { emails: 2, httpRequests: 1 } }, {}]);
     expect(planned).toEqual({ emails: 5, httpRequests: 1 });
