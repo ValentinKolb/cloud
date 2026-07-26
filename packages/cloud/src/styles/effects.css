@@ -653,7 +653,7 @@
 }
 
 .help-document .md-table :where(th, td) {
-  min-width: 8rem;
+  min-width: 0;
   height: auto;
   padding: 0;
 }

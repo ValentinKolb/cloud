@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { markdown } from "./index";
 
 describe("markdown tables", () => {
@@ -23,5 +25,14 @@ describe("markdown tables", () => {
     expect(html).toContain("md-formula-ok md-align-right");
     expect(html).toContain("ti-math-function");
     expect(html).toContain(">400</span>");
+  });
+
+  test("keeps the table frame content-height driven", () => {
+    const styles = readFileSync(resolve(import.meta.dir, "../../styles/utilities-markdown-table.css"), "utf8");
+    const wrapper = styles.slice(styles.indexOf(".md-table-wrap"), styles.indexOf(".md-table {"));
+
+    expect(wrapper).toContain("overflow: clip");
+    expect(wrapper).not.toContain("overflow-x");
+    expect(styles).toContain("overflow-wrap: anywhere");
   });
 });

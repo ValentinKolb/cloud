@@ -10,7 +10,7 @@
            <span class="md-table-cell">  ← content + alignment owner */
 
 .md-table-wrap {
-  overflow-x: auto;
+  overflow: clip;
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
   border: 1px solid var(--ui-border);
@@ -56,8 +56,7 @@
   position: relative;
   padding: 0;
   vertical-align: top;
-  /* The floor keeps columns readable and lets the wrapper own overflow. */
-  min-width: 7rem;
+  min-width: 0;
 }
 
 /* The inner span remains the alignment and formula-state owner, but no longer
@@ -79,6 +78,7 @@
   font-size: inherit;
   line-height: inherit;
   color: inherit;
+  overflow-wrap: anywhere;
 }
 
 .dark .md-table-cell {
@@ -91,7 +91,6 @@
 .md-table thead .md-table-cell {
   background: transparent;
   font-weight: 600;
-  white-space: nowrap;
 }
 
 .dark .md-table thead .md-table-cell {
