@@ -3929,6 +3929,7 @@ const addManagedProviderOAuth = async (db: SqlClient): Promise<void> => {
       connection_id UUID REFERENCES mail.provider_connections(id) ON DELETE CASCADE,
       connection_input JSONB NOT NULL CHECK (jsonb_typeof(connection_input) = 'object'),
       create_sender BOOLEAN NOT NULL DEFAULT false,
+      saves_sent_automatically BOOLEAN NOT NULL DEFAULT false,
       encrypted_code_verifier TEXT NOT NULL CHECK (char_length(encrypted_code_verifier) > 0),
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'exchanging', 'completed', 'failed')),
       result_connection_id UUID REFERENCES mail.provider_connections(id) ON DELETE SET NULL,
@@ -4883,6 +4884,13 @@ const addWorkflowProfileManager = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addProviderOAuthSentMode = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.provider_oauth_flows
+    ADD COLUMN IF NOT EXISTS saves_sent_automatically BOOLEAN NOT NULL DEFAULT false
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4979,6 +4987,7 @@ const migrations: readonly MailMigration[] = [
   { version: 94, name: "workflow_command_generation_fence", run: addWorkflowCommandGenerationFence },
   { version: 95, name: "workflow_profile_manager", run: addWorkflowProfileManager },
   { version: 96, name: "sender_read_batches", run: addSenderReadBatches },
+  { version: 97, name: "provider_oauth_sent_mode", run: addProviderOAuthSentMode },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

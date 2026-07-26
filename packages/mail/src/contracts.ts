@@ -372,6 +372,7 @@ export const mailOAuthStartInputSchema = z.discriminatedUnion("operation", [
     providerId: mailOAuthProviderIdSchema,
     connection: providerConnectionDetailsSchema,
     createSender: z.boolean().default(true),
+    savesSentAutomatically: z.boolean().default(false),
   }),
   z.object({
     operation: z.literal("reconnect"),

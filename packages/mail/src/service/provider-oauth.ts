@@ -40,6 +40,7 @@ type OAuthFlowRow = {
   connection_id: string | null;
   connection_input: unknown;
   create_sender: boolean;
+  saves_sent_automatically: boolean;
   encrypted_code_verifier: string;
   status: "pending" | "exchanging" | "completed" | "failed";
   result_connection_id: string | null;
@@ -78,8 +79,21 @@ const connectionDetailsForStart = async (
   context: MailRequestContext,
   mailboxId: string,
   input: MailOAuthStartInput,
-): Promise<Result<{ details: ProviderConnectionDetails; connectionId: string | null; createSender: boolean }>> => {
-  if (input.operation === "create") return ok({ details: input.connection, connectionId: null, createSender: input.createSender });
+): Promise<
+  Result<{
+    details: ProviderConnectionDetails;
+    connectionId: string | null;
+    createSender: boolean;
+    savesSentAutomatically: boolean;
+  }>
+> => {
+  if (input.operation === "create")
+    return ok({
+      details: input.connection,
+      connectionId: null,
+      createSender: input.createSender,
+      savesSentAutomatically: input.savesSentAutomatically,
+    });
   const connection = await providerConnections.getProviderConnection(context, input.connectionId);
   if (!connection.ok) return connection;
   if (connection.data.mailboxId !== mailboxId || connection.data.status === "revoked") return fail(err.notFound("Provider connection"));
@@ -89,6 +103,7 @@ const connectionDetailsForStart = async (
   return ok({
     connectionId: connection.data.id,
     createSender: false,
+    savesSentAutomatically: false,
     details:
       input.connection ??
       ({
@@ -125,12 +140,13 @@ export const startProviderOAuth = async (params: {
   const [flow] = await sql<{ id: string }[]>`
     INSERT INTO mail.provider_oauth_flows (
       state_hash, browser_nonce_hash, mailbox_id, user_id, provider_id, operation,
-      connection_id, connection_input, create_sender, encrypted_code_verifier, expires_at
+      connection_id, connection_input, create_sender, saves_sent_automatically, encrypted_code_verifier, expires_at
     )
     VALUES (
       ${sha256Text(material.state)}, ${sha256Text(material.browserNonce)}, ${params.mailboxId}::uuid,
       ${userId}::uuid, ${parsed.data.providerId}, ${parsed.data.operation}, ${connection.data.connectionId}::uuid,
-      ${connection.data.details}::jsonb, ${connection.data.createSender}, ${encryptedVerifier}, ${expiresAt}::timestamptz
+      ${connection.data.details}::jsonb, ${connection.data.createSender}, ${connection.data.savesSentAutomatically},
+      ${encryptedVerifier}, ${expiresAt}::timestamptz
     )
     RETURNING id
   `;
@@ -215,12 +231,12 @@ export const completeProviderOAuth = async (params: {
       AND consumed_at IS NULL
       AND expires_at > now()
     RETURNING id, mailbox_id, user_id, provider_id, operation, connection_id, connection_input,
-              create_sender, encrypted_code_verifier, status, result_connection_id, result_code, diagnostics
+              create_sender, saves_sent_automatically, encrypted_code_verifier, status, result_connection_id, result_code, diagnostics
   `;
   if (!flow) {
     [flow] = await sql<OAuthFlowRow[]>`
       SELECT id, mailbox_id, user_id, provider_id, operation, connection_id, connection_input,
-             create_sender, encrypted_code_verifier, status, result_connection_id, result_code, diagnostics
+             create_sender, saves_sent_automatically, encrypted_code_verifier, status, result_connection_id, result_code, diagnostics
       FROM mail.provider_oauth_flows
       WHERE state_hash = ${stateHash}
         AND browser_nonce_hash = ${nonceHash}
@@ -341,7 +357,7 @@ export const completeProviderOAuth = async (params: {
         const sender = await senderIdentities.setupDefaultSender({
           context: params.context,
           mailboxId: flow.mailbox_id,
-          input: { bindingId, savesSentAutomatically: false },
+          input: { bindingId, savesSentAutomatically: flow.saves_sent_automatically },
         });
         if (!sender.ok) outcome = "partial";
       }

@@ -31,6 +31,7 @@ import type { DiscoveredMailConfiguration } from "../../service/onboarding-disco
 import type { MailboxAdminSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 import MailRecipientInput from "./MailRecipientInput";
+import { deriveDefaultSenderSetupState } from "./mail-provider-setup";
 import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
 
 type ProviderSettingsProps = {
@@ -71,12 +72,23 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   const [auth, setAuth] = createSignal<"password" | "oauth2">("password");
   const [secret, setSecret] = createSignal("");
   const [createSender, setCreateSender] = createSignal(true);
+  const [savesSentAutomatically, setSavesSentAutomatically] = createSignal(false);
   const [discoverySource, setDiscoverySource] = createSignal<string | null>(null);
   const [oauthProviderId, setOAuthProviderId] = createSignal<MailOAuthProviderId | null>(null);
   const [editorBaseline, setEditorBaseline] = createSignal("");
   let closeConnectionDialog: (() => void) | null = null;
   const currentConnection = createMemo(() => props.admin.connections.find((connection) => connection.status !== "revoked"));
-  const currentBinding = createMemo(() => props.admin.bindings.find((binding) => binding.state !== "revoked"));
+  const currentBinding = createMemo(() => {
+    const connection = currentConnection();
+    return connection
+      ? props.admin.bindings.find((binding) => binding.connectionId === connection.id && binding.state !== "revoked")
+      : undefined;
+  });
+  const senderSetupState = createMemo(() => deriveDefaultSenderSetupState(currentConnection(), currentBinding(), props.admin.identities));
+  const senderSetupPrompt = createMemo(() => {
+    const state = senderSetupState();
+    return state.kind === "optional" || state.kind === "needs-verification" ? state : null;
+  });
   const editorValue = () =>
     JSON.stringify({
       replacingConnectionId: replacingConnectionId(),
@@ -92,6 +104,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
       auth: auth(),
       secret: secret(),
       createSender: createSender(),
+      savesSentAutomatically: savesSentAutomatically(),
     });
   const editorDirty = () => editing() && editorValue() !== editorBaseline();
   const captureEditorBaseline = () => setEditorBaseline(editorValue());
@@ -116,6 +129,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     setAuth("password");
     setSecret("");
     setCreateSender(true);
+    setSavesSentAutomatically(false);
     setDiscoverySource(null);
     setOAuthProviderId(null);
     captureEditorBaseline();
@@ -137,6 +151,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     setAuth(connection.secret.kind);
     setSecret("");
     setCreateSender(false);
+    setSavesSentAutomatically(false);
     setDiscoverySource(null);
     setOAuthProviderId(connection.oauth?.providerId ?? null);
     captureEditorBaseline();
@@ -203,6 +218,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
             operation: "create",
             providerId,
             createSender: createSender(),
+            savesSentAutomatically: savesSentAutomatically(),
             connection: {
               name: name().trim(),
               email: email().trim(),
@@ -219,24 +235,44 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     onError: (error) => prompts.error(error.message),
   });
 
-  const attachConnection = async (connectionId: string): Promise<boolean> => {
+  const requestDefaultSenderSetup = async (bindingId: string) => {
+    const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].default.setup.$post({
+      param: { mailboxId: props.mailbox.id },
+      json: { bindingId, savesSentAutomatically: savesSentAutomatically() },
+    });
+    if (!response.ok) throw new Error(await readApiError(response, "Default identity setup failed"));
+    return response.json();
+  };
+
+  const attachConnection = async (
+    connectionId: string,
+    setupSenderAfterAttach: boolean,
+  ): Promise<{ senderCreated: boolean; setupError: string | null }> => {
     const bindingResponse = await apiClient.mailboxes[":mailboxId"].bindings.$post({
       param: { mailboxId: props.mailbox.id },
       json: { connectionId },
     });
-    if (!bindingResponse.ok) throw new Error(await readApiError(bindingResponse, "Folder discovery failed"));
+    if (!bindingResponse.ok) {
+      const reason = await readApiError(bindingResponse, "Folder discovery failed");
+      return {
+        senderCreated: false,
+        setupError: `Account connected, but incoming mail setup still needs attention. ${reason}`,
+      };
+    }
     const binding = await bindingResponse.json();
-    if (!createSender()) return false;
-    const senderResponse = await apiClient.mailboxes[":mailboxId"]["sender-identities"].default.setup.$post({
-      param: { mailboxId: props.mailbox.id },
-      json: { bindingId: binding.id, savesSentAutomatically: false },
-    });
-    if (!senderResponse.ok)
-      throw new Error(await readApiError(senderResponse, "Provider connected, but the default identity could not be created"));
-    return true;
+    if (!setupSenderAfterAttach) return { senderCreated: false, setupError: null };
+    try {
+      await requestDefaultSenderSetup(binding.id);
+      return { senderCreated: true, setupError: null };
+    } catch (error) {
+      return {
+        senderCreated: false,
+        setupError: `Receiving is active, but sending still needs setup. ${error instanceof Error ? error.message : "Default identity setup failed"}`,
+      };
+    }
   };
 
-  const connect = mutation.create<{ senderCreated: boolean; replaced: boolean }, void>({
+  const connect = mutation.create<{ senderCreated: boolean; setupError: string | null; replaced: boolean }, void>({
     mutation: async () => {
       const input = {
         name: name().trim(),
@@ -259,18 +295,19 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
           });
       if (!connectionResponse.ok) throw new Error(await readApiError(connectionResponse, "Provider verification failed"));
       const created = await connectionResponse.json();
-      return replacementId
-        ? { senderCreated: false, replaced: true }
-        : { senderCreated: await attachConnection(created.connection.id), replaced: false };
+      if (replacementId) return { senderCreated: false, setupError: null, replaced: true };
+      return { ...(await attachConnection(created.connection.id, createSender())), replaced: false };
     },
     onSuccess: (result) => {
-      toast.success(
-        result.replaced
-          ? "Connected account updated"
-          : result.senderCreated
-            ? "Provider and default identity connected"
-            : "Provider connected",
-      );
+      if (!result.setupError) {
+        toast.success(
+          result.replaced
+            ? "Connected account updated"
+            : result.senderCreated
+              ? "Provider and default identity connected"
+              : "Provider connected",
+        );
+      }
       closeConnectionDialog?.();
       closeConnectionDialog = null;
       setEditing(false);
@@ -278,6 +315,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
       setReplacingConnectionId(null);
       props.onWorkspaceChange();
       void props.onReload();
+      if (result.setupError) void prompts.error(result.setupError);
     },
     onError: (error) => {
       void props.onReload();
@@ -307,14 +345,25 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     onError: (error) => prompts.error(error.message),
   });
 
-  const finishSetup = mutation.create<{ senderCreated: boolean }, string>({
-    mutation: async (connectionId) => ({ senderCreated: await attachConnection(connectionId) }),
+  const finishSetup = mutation.create<{ senderCreated: boolean; setupError: string | null }, string>({
+    mutation: (connectionId) => attachConnection(connectionId, false),
     onSuccess: (result) => {
-      toast.success(result.senderCreated ? "Provider and default identity connected" : "Provider connected");
+      if (!result.setupError) toast.success(result.senderCreated ? "Provider and default identity connected" : "Provider connected");
+      props.onWorkspaceChange();
+      void props.onReload();
+      if (result.setupError) void prompts.error(result.setupError);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const setupSender = mutation.create<SenderIdentity, string>({
+    mutation: requestDefaultSenderSetup,
+    onSuccess: (identity) => {
+      toast.success(`${identity.fromAddress} is ready to send`);
       props.onWorkspaceChange();
       void props.onReload();
     },
-    onError: (error) => prompts.error(error.message),
+    onError: (error) => prompts.error(`Receiving remains active. ${error.message}`),
   });
 
   const openConnectionEditor = async () => {
@@ -475,13 +524,24 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
                   />
                 </div>
                 <Show when={!replacingConnectionId()}>
-                  <CheckboxCard
-                    label="Create the default identity for this address"
-                    description="Recommended for normal mailboxes. Disable only when the remote mailbox and sending identity use different accounts."
-                    icon="ti ti-at"
-                    value={createSender}
-                    onChange={setCreateSender}
-                  />
+                  <div class="flex flex-col gap-2">
+                    <CheckboxCard
+                      label="Use this address for sending"
+                      description="Creates and verifies the default sending identity after incoming mail is connected."
+                      icon="ti ti-at"
+                      value={createSender}
+                      onChange={setCreateSender}
+                    />
+                    <Show when={createSender()}>
+                      <div class="px-1">
+                        <Switch
+                          label="Provider saves sent mail automatically"
+                          value={savesSentAutomatically}
+                          onChange={setSavesSentAutomatically}
+                        />
+                      </div>
+                    </Show>
+                  </div>
                 </Show>
               </PanelDialog.Section>
             </PanelDialog.Body>
@@ -610,6 +670,43 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
               position="bottom-left"
             />
           </div>
+        )}
+      </Show>
+      <Show when={senderSetupPrompt()}>
+        {(state) => (
+          <Placeholder
+            align="left"
+            state={state().kind === "needs-verification" ? "error" : "empty"}
+            icon={state().kind === "needs-verification" ? "ti ti-alert-circle" : "ti ti-send-off"}
+            title={state().kind === "needs-verification" ? "Sending needs verification" : "Sending is not configured"}
+            description={
+              state().kind === "needs-verification"
+                ? "Receiving is active. Retry the default identity setup without reconnecting the account."
+                : "This account currently receives mail only. You can add the default sending identity at any time."
+            }
+            action={
+              <div class="flex flex-wrap items-center gap-2">
+                <Switch
+                  label="Provider saves sent mail automatically"
+                  value={savesSentAutomatically}
+                  onChange={setSavesSentAutomatically}
+                  disabled={setupSender.loading()}
+                />
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  disabled={!currentBinding() || setupSender.loading() || props.reloading}
+                  onClick={() => {
+                    const binding = currentBinding();
+                    if (binding) setupSender.mutate(binding.id);
+                  }}
+                >
+                  <i class={setupSender.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-send"} aria-hidden="true" />
+                  Set up sending
+                </button>
+              </div>
+            }
+          />
         )}
       </Show>
     </div>
@@ -1000,8 +1097,19 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                     <Show when={identity.isDefault}>
                       <span class="badge">Default</span>
                     </Show>
+                    <span class="badge capitalize">{identity.status === "verified" ? "Ready" : identity.status.replaceAll("_", " ")}</span>
                     <Show when={identity.authenticationPolicy.automation === "mailbox"}>
                       <span class="badge">Automatic replies</span>
+                    </Show>
+                    <Show when={identity.status === "unverified" || identity.status === "rejected"}>
+                      <button
+                        type="button"
+                        class="btn-secondary btn-sm"
+                        disabled={activeBindings().length === 0 || props.reloading}
+                        onClick={() => openVerify(identity)}
+                      >
+                        Verify
+                      </button>
                     </Show>
                     <button
                       type="button"

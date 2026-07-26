@@ -610,7 +610,7 @@ suite("mail lifecycle control plane", () => {
     });
   });
 
-  test("default sender setup preserves an explicit automation opt-out", async () => {
+  test("default sender setup preserves receiving and supports both Sent delivery models", async () => {
     const identity = await createSenderIdentity({
       context: adminContext,
       mailboxId,
@@ -634,18 +634,127 @@ suite("mail lifecycle control plane", () => {
       VALUES (${identity.data.id}::uuid, ${bindingId}::uuid, ${identity.data.fromAddress}, true, now(), 1)
     `;
 
-    const configured = await setupDefaultSender({
+    const providerManaged = await setupDefaultSender({
       context: adminContext,
       mailboxId,
       input: { bindingId, savesSentAutomatically: true },
     });
-    expect(configured.ok).toBe(true);
-    if (!configured.ok) return;
-    expect(configured.data.status).toBe("verified");
-    expect(configured.data.isDefault).toBe(true);
-    expect(configured.data.authenticationPolicy).toEqual({
+    expect(providerManaged.ok).toBe(true);
+    if (!providerManaged.ok) return;
+    expect(providerManaged.data.status).toBe("verified");
+    expect(providerManaged.data.isDefault).toBe(true);
+    expect(providerManaged.data.authenticationPolicy).toEqual({
       automation: "disabled",
     });
+
+    const [resource] = await sql<{ id: string }[]>`
+      SELECT remote_resource_id AS id
+      FROM mail.provider_bindings
+      WHERE id = ${bindingId}::uuid
+    `;
+    const [sentFolder] = await sql<{ id: string }[]>`
+      INSERT INTO mail.folders (
+        remote_resource_id, stable_key, name, role, selectable, selected_for_sync, sync_status
+      )
+      VALUES (
+        ${resource!.id}::uuid, ${`sender-sent-${suffix}`}, 'Sent fixture', 'sent', true, true, 'current'
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.binding_folder_refs (
+        binding_id, folder_id, remote_path, delimiter, subscribed, effective_rights, rights_source, last_verified_at
+      )
+      VALUES (
+        ${bindingId}::uuid, ${sentFolder!.id}::uuid, 'Sent fixture', '/', true,
+        ARRAY['read', 'insert']::text[], 'acl', now()
+      )
+    `;
+
+    let rejectVerification = false;
+    const send = spyOn(imapSmtpConnector, "send").mockImplementation(async (_connection, request) => {
+      if (rejectVerification) throw new Error("fixture sender rejection");
+      return {
+        accepted: request.to.map((recipient) => recipient.address),
+        rejected: [],
+        response: "250 accepted",
+        messageId: request.messageId,
+      };
+    });
+    try {
+      const appended = await setupDefaultSender({
+        context: adminContext,
+        mailboxId,
+        input: { bindingId, savesSentAutomatically: false },
+      });
+      expect(appended.ok).toBe(true);
+      if (!appended.ok) return;
+      expect(appended.data.id).toBe(identity.data.id);
+      expect(appended.data.sentFolderId).toBe(sentFolder!.id);
+
+      await sql`
+        UPDATE mail.sender_identity_bindings
+        SET saves_sent_automatically = true
+        WHERE sender_identity_id = ${identity.data.id}::uuid AND binding_id = ${bindingId}::uuid
+      `;
+      await sql`
+        UPDATE mail.binding_folder_refs
+        SET effective_rights = ARRAY['read']::text[]
+        WHERE binding_id = ${bindingId}::uuid AND folder_id = ${sentFolder!.id}::uuid
+      `;
+      const missingAppendRight = await setupDefaultSender({
+        context: adminContext,
+        mailboxId,
+        input: { bindingId, savesSentAutomatically: false },
+      });
+      expect(missingAppendRight).toMatchObject({
+        ok: false,
+        error: { status: 400, message: "The selected binding cannot append to the configured Sent folder" },
+      });
+      const [activeBinding] = await sql<{ state: string }[]>`
+        SELECT state FROM mail.provider_bindings WHERE id = ${bindingId}::uuid
+      `;
+      expect(activeBinding?.state).toBe("active");
+
+      const stillProviderManaged = await setupDefaultSender({
+        context: adminContext,
+        mailboxId,
+        input: { bindingId, savesSentAutomatically: true },
+      });
+      expect(stillProviderManaged.ok).toBe(true);
+
+      await sql`
+        UPDATE mail.sender_identity_bindings
+        SET saves_sent_automatically = false
+        WHERE sender_identity_id = ${identity.data.id}::uuid AND binding_id = ${bindingId}::uuid
+      `;
+      rejectVerification = true;
+      const rejected = await setupDefaultSender({
+        context: adminContext,
+        mailboxId,
+        input: { bindingId, savesSentAutomatically: true },
+      });
+      expect(rejected.ok).toBe(false);
+      const [rejectedIdentity] = await sql<{ status: string }[]>`
+        SELECT status FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid
+      `;
+      expect(rejectedIdentity?.status).toBe("rejected");
+
+      rejectVerification = false;
+      const retried = await setupDefaultSender({
+        context: adminContext,
+        mailboxId,
+        input: { bindingId, savesSentAutomatically: true },
+      });
+      expect(retried.ok).toBe(true);
+      if (retried.ok) {
+        expect(retried.data.id).toBe(identity.data.id);
+        expect(retried.data.status).toBe("verified");
+      }
+    } finally {
+      send.mockRestore();
+      await sql`DELETE FROM mail.folders WHERE id = ${sentFolder!.id}::uuid`;
+    }
   });
 
   test("rediscovery projects ACL rights and conservatively reconciles rename and removal", async () => {

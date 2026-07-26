@@ -838,6 +838,7 @@ suite("mail migrations", () => {
       {
         flow_table_present: boolean;
         connection_columns_present: boolean;
+        flow_columns_present: boolean;
         cleanup_index_present: boolean;
       }[]
     >`
@@ -850,9 +851,21 @@ suite("mail migrations", () => {
             AND table_name = 'provider_connections'
             AND column_name IN ('oauth_provider_id', 'oauth_token_revision', 'oauth_expires_at')
         ) AS connection_columns_present,
+        (
+          SELECT count(*) = 2
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'provider_oauth_flows'
+            AND column_name IN ('create_sender', 'saves_sent_automatically')
+        ) AS flow_columns_present,
         to_regclass('mail.provider_oauth_flows_cleanup_idx') IS NOT NULL AS cleanup_index_present
     `;
-    expect(shape).toEqual({ flow_table_present: true, connection_columns_present: true, cleanup_index_present: true });
+    expect(shape).toEqual({
+      flow_table_present: true,
+      connection_columns_present: true,
+      flow_columns_present: true,
+      cleanup_index_present: true,
+    });
 
     const userId = crypto.randomUUID();
     const mailboxId = crypto.randomUUID();
@@ -868,13 +881,19 @@ suite("mail migrations", () => {
         await tx`
           INSERT INTO mail.provider_oauth_flows (
             id, state_hash, browser_nonce_hash, mailbox_id, user_id, provider_id, operation,
-            connection_input, encrypted_code_verifier, expires_at
+            connection_input, create_sender, saves_sent_automatically, encrypted_code_verifier, expires_at
           ) VALUES (
             ${flowId}::uuid, ${"a".repeat(64)}, ${"b".repeat(64)}, ${mailboxId}::uuid, ${userId}::uuid,
-            'google', 'create', '{}'::jsonb, 'encrypted-verifier', now() + interval '10 minutes'
+            'google', 'create', '{}'::jsonb, true, true, 'encrypted-verifier', now() + interval '10 minutes'
           )
         `;
       });
+      const [flowOptions] = await sql<{ create_sender: boolean; saves_sent_automatically: boolean }[]>`
+        SELECT create_sender, saves_sent_automatically
+        FROM mail.provider_oauth_flows
+        WHERE id = ${flowId}::uuid
+      `;
+      expect(flowOptions).toEqual({ create_sender: true, saves_sent_automatically: true });
       const claim = () => sql<{ id: string }[]>`
         UPDATE mail.provider_oauth_flows
         SET status = 'exchanging', consumed_at = now()
