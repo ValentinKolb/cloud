@@ -78,6 +78,8 @@ cld admin workflows runs --state needs_attention --window 7d --json
 cld admin workflows show <run-id> --json
 cld admin workflows effects --json
 cld admin workflows events --json
+cld admin workflows cancel <run-id> --yes
+cld admin workflows resolve <run-id> <step-key> --decision failed --message "provider rejected it" --yes
 ```
 
 Every app's workflow runs live in one schema, so these read across all of them; `--app` narrows `runs`, `effects`, and `events` to one. Start with `workflows health`, which is one row per app and takes only `--window`. Windows here are `1h`, `24h`, `7d`, and `30d` — a narrower set than the background-job windows above.
@@ -89,7 +91,9 @@ Four columns there are the ones worth acting on:
 - **attention** — runs that need a decision rather than a retry.
 - **worst lag** — the gap between the occurrence that caused a run and the run actually starting. A growing lag means the workers are behind, not that anything failed.
 
-`workflows runs` hides the child runs of a fan-out unless `--children` is passed; a bulk operation over ten thousand records is ten thousand runs and would bury everything else. `workflows show` gives one run with its steps, the event that caused it, and its effect budget as `used/limit`. All read-only — cancelling a run or settling a stranded effect stays a deliberate action in the admin UI, or `cld grids workflow-runs cancel` for a Grids run.
+`workflows runs` hides the child runs of a fan-out unless `--children` is passed; use `--parent <run-id>` to list one fan-out's direct children. A bulk operation over ten thousand records would otherwise bury everything else. `workflows show` gives one run with its steps, the event that caused it, and its effect budget as `used/limit`. `runs`, `effects`, and `events` page with `--page` and `--limit`.
+
+Two deliberate mutations mirror the admin UI. Both require `--yes`: `workflows cancel` requests cooperative cancellation without undoing completed effects, while `workflows resolve` records external evidence for a stranded effect without repeating it.
 
 Mind the vocabulary in these outputs. A **run** is `queued`, `running`, `waiting`, `succeeded`, `failed`, `canceled`, or `needs_attention`, and `--state` accepts exactly those. A **step** in `workflows show` has its own set — `running`, `completed`, `waiting`, `failed`, `needs_attention`, `terminal`, `planned`, `unsupported`, `indeterminate`, `canceled` — so a finished step reads `completed`, never `succeeded`. The `Effect` column beside it is the effect journal's state, not the step's.
 
@@ -138,7 +142,7 @@ Run `cld admin <command> --help` for flags, filters, pagination, and confirmatio
 | Logs | `logs list`, `logs summary`, `logs stats`, `logs errors`, `logs problems`, `logs show`, `logs explain`, `logs tail`, `logs sources`, `logs cleanup` |
 | Telemetry | `telemetry routes`, `telemetry overview`, `telemetry timeseries`, `telemetry explain`, `telemetry summary`, `telemetry events`, `telemetry apps` |
 | Background jobs | `jobs list`, `jobs stats`, `jobs runs`, `jobs show` |
-| Workflows | `workflows health`, `workflows runs`, `workflows show`, `workflows effects`, `workflows events` |
+| Workflows | `workflows health`, `workflows runs`, `workflows show`, `workflows cancel`, `workflows effects`, `workflows resolve`, `workflows events` |
 | Postgres diagnostics | `postgres summary`, `postgres tables`, `postgres schemas`, `postgres extensions`, `postgres indexes`, `postgres sessions` |
 | Redis diagnostics | `redis summary`, `redis prefixes` |
 | Notifications | `notifications list`, `notifications summary`, `notifications get`, `notifications resend`, `notifications pending-system`, `notifications send-pending-system` |

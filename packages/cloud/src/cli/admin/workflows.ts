@@ -3,8 +3,7 @@
  *
  * Everything the admin page shows, reachable from a script: whether anything
  * is broken, which runs failed, why a run started, and which effects escaped
- * without reporting back. The one mutation here resolves a stranded effect
- * and requires an explicit `--yes` decision.
+ * without reporting back. Mutations require an explicit `--yes` decision.
  */
 import { arg, command, confirmFlag, flag } from "../index";
 import { apiGet, apiJson, formatMs, printJsonOrTable, queryString, readJsonInput, truncate } from "./shared";
@@ -29,6 +28,7 @@ export type WorkflowRunRow = {
   state: RunState;
   attempt: number;
   eventType: string | null;
+  parentRunId: string | null;
   startLagMs: number | null;
   durationMs: number | null;
   createdAt: string;
@@ -139,11 +139,13 @@ export const workflowCommands = [
     flags: {
       app: flag.string({ description: "Restrict to one app" }),
       workflow: flag.string({ description: "Restrict to one workflow id" }),
+      parent: flag.string({ description: "Restrict to direct children of one run" }),
       state: flag.enum(STATE_VALUES, { default: "all", description: "Run state" }),
       mode: flag.enum(MODE_VALUES, { default: "all", description: "Execute or dry run" }),
       children: flag.boolean({ description: "Include child runs of a fan-out" }),
       window: windowFlag(),
-      limit: flag.int({ default: 50, description: "Maximum rows" }),
+      page: flag.int({ default: 1, description: "Page number" }),
+      limit: flag.int({ default: 50, description: "Rows per page" }),
     },
     run: async ({ ctx, flags }) => {
       const raw = await apiGet<{ items: WorkflowRunRow[] }>(
@@ -151,10 +153,12 @@ export const workflowCommands = [
         `/api/gateway/workflows/runs${queryString({
           app: flags.app,
           workflow: flags.workflow,
+          parent: flags.parent,
           state: flags.state,
           mode: flags.mode,
           children: flags.children ? "true" : undefined,
           window: flags.window,
+          page: flags.page,
           per_page: flags.limit,
         })}`,
       );
@@ -225,16 +229,35 @@ export const workflowCommands = [
     },
   }),
 
+  command("workflows cancel", {
+    summary: "Cancel a queued, running or waiting workflow run",
+    description:
+      "Requests cooperative cancellation. A queued run stops immediately; running or waiting work stops at its next heartbeat. Completed external effects are not undone.",
+    examples: ["cld admin workflows cancel <run-id> --yes", "cld admin workflows cancel <run-id> --yes --json"],
+    args: { run: arg.required({ description: "Run id" }) },
+    flags: { yes: confirmFlag("Confirm workflow run cancellation") },
+    run: async ({ ctx, args, flags }) => {
+      if (!flags.yes) throw new Error("Refusing to cancel a workflow run without --yes.");
+      const raw = await apiJson<{ canceled: true }>(ctx, "POST", `/api/gateway/workflows/runs/${encodeURIComponent(args.run)}/cancel`);
+      if (ctx.options.output === "json") ctx.json(raw);
+      else ctx.print(`Cancellation requested for ${args.run}.`);
+    },
+  }),
+
   command("workflows effects", {
     summary: "List effects that escaped without reporting back",
     description:
       "Each row is a step that told an external system to do something and never learned whether it landed. A replay will not repeat them — repeating is how the same message goes out twice — so a human decides. This is the queue to work through after an incident.",
     examples: ["cld admin workflows effects", "cld admin workflows effects --app mail --json"],
-    flags: { app: flag.string({ description: "Restrict to one app" }), limit: flag.int({ default: 100, description: "Maximum rows" }) },
+    flags: {
+      app: flag.string({ description: "Restrict to one app" }),
+      page: flag.int({ default: 1, description: "Page number" }),
+      limit: flag.int({ default: 100, description: "Rows per page" }),
+    },
     run: async ({ ctx, flags }) => {
       const raw = await apiGet<{ items: StrandedEffectRow[] }>(
         ctx,
-        `/api/gateway/workflows/effects${queryString({ app: flags.app, limit: flags.limit })}`,
+        `/api/gateway/workflows/effects${queryString({ app: flags.app, page: flags.page, limit: flags.limit })}`,
       );
       printJsonOrTable(
         ctx,
@@ -309,11 +332,15 @@ export const workflowCommands = [
     description:
       "An event that matched no activation, or whose dispatch failed. This is what a workflow that silently stopped firing looks like — the occurrence happened, nothing ran, and nothing errored where anyone would see it.",
     examples: ["cld admin workflows events", "cld admin workflows events --app grids --json"],
-    flags: { app: flag.string({ description: "Restrict to one app" }), limit: flag.int({ default: 100, description: "Maximum rows" }) },
+    flags: {
+      app: flag.string({ description: "Restrict to one app" }),
+      page: flag.int({ default: 1, description: "Page number" }),
+      limit: flag.int({ default: 100, description: "Rows per page" }),
+    },
     run: async ({ ctx, flags }) => {
       const raw = await apiGet<{ items: UndispatchedEventRow[] }>(
         ctx,
-        `/api/gateway/workflows/events${queryString({ app: flags.app, limit: flags.limit })}`,
+        `/api/gateway/workflows/events${queryString({ app: flags.app, page: flags.page, limit: flags.limit })}`,
       );
       printJsonOrTable(
         ctx,

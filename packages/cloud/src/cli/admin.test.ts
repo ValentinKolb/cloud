@@ -123,4 +123,51 @@ describe("admin CLI", () => {
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ name: "grafana", expiresAt: null });
     expect(lines[0]).toContain("Token: cld_metric_secret");
   });
+
+  test("pages workflow runs and drills into one parent", async () => {
+    const { ctx, calls } = createContext(
+      ["workflows", "runs"],
+      {
+        parent: "00000000-0000-4000-8000-000000000001",
+        state: "failed",
+        mode: "dryRun",
+        children: true,
+        window: "7d",
+        page: "3",
+        limit: "25",
+      },
+      [jsonResponse({ items: [] })],
+    );
+
+    await adminCli.run(ctx);
+
+    expect(calls[0]?.path).toBe(
+      "/api/gateway/workflows/runs?parent=00000000-0000-4000-8000-000000000001&state=failed&mode=dryRun&children=true&window=7d&page=3&per_page=25",
+    );
+  });
+
+  test("pages workflow finding queues", async () => {
+    const effects = createContext(["workflows", "effects"], { app: "mail", page: "2", limit: "40" }, [jsonResponse({ items: [] })]);
+    const events = createContext(["workflows", "events"], { app: "grids", page: "4", limit: "75" }, [jsonResponse({ items: [] })]);
+
+    await adminCli.run(effects.ctx);
+    await adminCli.run(events.ctx);
+
+    expect(effects.calls[0]?.path).toBe("/api/gateway/workflows/effects?app=mail&page=2&limit=40");
+    expect(events.calls[0]?.path).toBe("/api/gateway/workflows/events?app=grids&page=4&limit=75");
+  });
+
+  test("requires confirmation before canceling a workflow run", async () => {
+    const runId = "00000000-0000-4000-8000-000000000001";
+    const unconfirmed = createContext(["workflows", "cancel", runId]);
+    await expect(adminCli.run(unconfirmed.ctx)).rejects.toThrow("without --yes");
+    expect(unconfirmed.calls).toHaveLength(0);
+
+    const confirmed = createContext(["workflows", "cancel", runId], { yes: true }, [jsonResponse({ canceled: true })]);
+    await adminCli.run(confirmed.ctx);
+
+    expect(confirmed.calls[0]?.path).toBe(`/api/gateway/workflows/runs/${runId}/cancel`);
+    expect(confirmed.calls[0]?.init?.method).toBe("POST");
+    expect(confirmed.lines).toEqual([`Cancellation requested for ${runId}.`]);
+  });
 });

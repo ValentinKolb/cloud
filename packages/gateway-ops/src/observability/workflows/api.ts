@@ -23,6 +23,11 @@ import { z } from "zod";
 const WindowSchema = z.enum(["1h", "24h", "7d", "30d"]).default("24h");
 const StateSchema = z.enum(["all", "queued", "running", "waiting", "succeeded", "failed", "canceled", "needs_attention"]).default("all");
 const ModeSchema = z.enum(["all", "execute", "dryRun"]).default("all");
+const FindingsQuerySchema = z.object({
+  app: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
 
 const WINDOW_MS: Record<z.infer<typeof WindowSchema>, number> = {
   "1h": 60 * 60 * 1000,
@@ -126,24 +131,34 @@ const app = new Hono<AuthContext>()
   )
 
   /** Effects that left the process and never reported back. */
-  .get(
-    "/effects",
-    v("query", z.object({ app: z.string().optional(), limit: z.coerce.number().int().min(1).max(500).default(100) })),
-    async (c) => {
-      const query = c.req.valid("query");
-      return respond(c, ok({ items: await listStrandedWorkflowEffects({ appId: query.app, limit: query.limit }) }));
-    },
-  )
+  .get("/effects", v("query", FindingsQuerySchema), async (c) => {
+    const query = c.req.valid("query");
+    return respond(
+      c,
+      ok({
+        items: await listStrandedWorkflowEffects({
+          appId: query.app,
+          limit: query.limit,
+          offset: (query.page - 1) * query.limit,
+        }),
+      }),
+    );
+  })
 
   /** Events that never turned into runs — the silent failure mode. */
-  .get(
-    "/events",
-    v("query", z.object({ app: z.string().optional(), limit: z.coerce.number().int().min(1).max(500).default(100) })),
-    async (c) => {
-      const query = c.req.valid("query");
-      return respond(c, ok({ items: await listUndispatchedWorkflowEvents({ appId: query.app, limit: query.limit }) }));
-    },
-  );
+  .get("/events", v("query", FindingsQuerySchema), async (c) => {
+    const query = c.req.valid("query");
+    return respond(
+      c,
+      ok({
+        items: await listUndispatchedWorkflowEvents({
+          appId: query.app,
+          limit: query.limit,
+          offset: (query.page - 1) * query.limit,
+        }),
+      }),
+    );
+  });
 
 export default app;
 export type ApiType = typeof app;

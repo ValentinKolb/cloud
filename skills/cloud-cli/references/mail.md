@@ -234,9 +234,29 @@ cld --json mail conversation counts
 cld --json mail conversation list --status needs_action
 cld --json mail conversation messages <conversation-id>
 cld --json mail message get <message-id>
+cld --json mail message inspect <message-id>
+cld --json mail message source <message-id> --out message.eml
 ```
 
 `search`, `conversation list`, activities, saved views, scheduled sends, workflow runs, and deleted-mailbox listings are cursor-paginated. Preserve and pass the returned cursor rather than reconstructing it.
+
+Create a reviewable independent draft from an existing message, or prepare a resend of an outbound message:
+
+```bash
+cld --json mail message edit-as-new <message-id> --idempotency-key edit-message-42
+cld --json mail message resend <message-id> --idempotency-key resend-message-42
+```
+
+Both copy eligible attachments by default and never send immediately. Inspect the returned draft before delivery.
+
+Remote images stay blocked unless the user allows their sender or domain. Manage only the signed-in user's mailbox preference:
+
+```bash
+cld --json mail remote-content list
+cld --json mail remote-content allow-sender sender@example.com
+cld --json mail remote-content allow-domain example.com
+cld mail remote-content remove <rule-id> --yes
+```
 
 ## Manage mailing lists
 
@@ -377,7 +397,7 @@ Use `cld mail <group> help` for all flags. The durable day-to-day surface is:
 | Mailboxes | `list`, `create`, `use`, `current`, `mailbox get`, `mailbox deleted list|get`, `mailbox restore`, `mailbox wait`, `configure`, `delete` |
 | Access | `access list|search-principals|grant|set|revoke` |
 | Discovery | `provider discover|list`, `binding list|attach`, `identity list|add|setup-default|configure|verify|disable`, `folders`, `status` |
-| Read and search | `search`, `message get|wait`, `conversation list|messages|counts` |
+| Read and search | `search`, `message get|wait|inspect|source|edit-as-new|resend`, `conversation list|messages|counts`, `remote-content list|allow-sender|allow-domain|remove` |
 | Collaboration | `conversation collaboration|update|users|activity|context|contact-history`, `tag ...`, `conversation tag ...`, `comment list|add|edit|delete`, `reminder get|set|cancel` |
 | Views and repair | `saved-view list|get|create|update|delete|conversations`, `conversation split|merge|reassign-message` |
 
