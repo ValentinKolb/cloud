@@ -96,7 +96,8 @@ export default function MailMessageBody(props: {
   let frame: HTMLIFrameElement | undefined;
   let remoteController: AbortController | null = null;
   let remoteLoadedBytes = 0;
-  const remoteObjectUrls: string[] = [];
+  let disposed = false;
+  const remoteObjectUrls = new Set<string>();
   const plainSegments = createMemo(() => splitPlainMessageSegments(props.plainText ?? ""));
   const remoteImageIds = createMemo(() => {
     const stored = new Set(props.remoteContent.imageIds.map((id) => id.toLowerCase()));
@@ -131,43 +132,51 @@ export default function MailMessageBody(props: {
           );
           if (!response.ok) continue;
           const blob = await response.blob();
+          if (disposed || controller.signal.aborted) return;
           if (budgetExhausted || remoteLoadedBytes + blob.size > MAX_REMOTE_IMAGE_BYTES) {
             budgetExhausted = true;
             return;
           }
           remoteLoadedBytes += blob.size;
           const objectUrl = URL.createObjectURL(blob);
-          remoteObjectUrls.push(objectUrl);
+          remoteObjectUrls.add(objectUrl);
           loaded.push([imageId, objectUrl]);
           setRemoteUrls((current) => new Map([...current, [imageId, objectUrl]]));
+        } catch (error) {
+          if (!disposed && !controller.signal.aborted) {
+            console.warn("Could not load remote email image", error);
+          }
         } finally {
-          if (!controller.signal.aborted) await sleep(REMOTE_IMAGE_REQUEST_GAP_MS);
+          if (!disposed && !controller.signal.aborted) await sleep(REMOTE_IMAGE_REQUEST_GAP_MS);
         }
       }
     };
     try {
       await Promise.all(Array.from({ length: Math.min(REMOTE_IMAGE_WORKERS, pending.length) }, worker));
-      if (loaded.length === 0 && !controller.signal.aborted) {
-        prompts.error("The remote images could not be loaded safely.");
-      } else if (budgetExhausted && !controller.signal.aborted) {
-        prompts.error("Some remote images were not loaded because this message exceeds the safe image limit.");
+      if (loaded.length === 0 && !disposed && !controller.signal.aborted) {
+        void prompts.error("The remote images could not be loaded safely.");
+      } else if (budgetExhausted && !disposed && !controller.signal.aborted) {
+        void prompts.error("Some remote images were not loaded because this message exceeds the safe image limit.");
       }
     } finally {
       if (remoteController === controller) remoteController = null;
-      if (!controller.signal.aborted) setRemoteLoading(false);
+      if (!disposed && !controller.signal.aborted) setRemoteLoading(false);
     }
   };
 
   const allowRemoteContent = mutation.create<RemoteContentRule, { scope: "sender" | "domain"; value: string }>({
-    mutation: async (input) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["remote-content-rules"].$post({
-        param: { mailboxId: props.mailboxId },
-        json: input,
-      });
+    mutation: async (input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["remote-content-rules"].$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: input,
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not save the remote image preference"));
       return response.json();
     },
-    onSuccess: () => loadRemoteImages(),
+    onSuccess: () => void loadRemoteImages(),
     onError: (error) => prompts.error(error.message),
   });
 
@@ -186,8 +195,7 @@ export default function MailMessageBody(props: {
   onMount(() => {
     window.addEventListener("message", receiveMessage);
     const controller = new AbortController();
-    let disposed = false;
-    const objectUrls: string[] = [];
+    const objectUrls = new Set<string>();
     const loadCidImages = async () => {
       const referenced = new Set(referencedContentIds(props.html ?? ""));
       let selectedBytes = 0;
@@ -208,8 +216,10 @@ export default function MailMessageBody(props: {
           { credentials: "same-origin", signal: controller.signal },
         );
         if (!response.ok) continue;
-        const objectUrl = URL.createObjectURL(await response.blob());
-        objectUrls.push(objectUrl);
+        const blob = await response.blob();
+        if (disposed || controller.signal.aborted) return;
+        const objectUrl = URL.createObjectURL(blob);
+        objectUrls.add(objectUrl);
         entries.push([normalizeContentId(attachment.contentId!), objectUrl]);
       }
       if (!disposed) setCidUrls(new Map(entries));
@@ -225,6 +235,8 @@ export default function MailMessageBody(props: {
       remoteController?.abort();
       for (const url of objectUrls) URL.revokeObjectURL(url);
       for (const url of remoteObjectUrls) URL.revokeObjectURL(url);
+      objectUrls.clear();
+      remoteObjectUrls.clear();
       window.removeEventListener("message", receiveMessage);
       props.onSelectionChange("");
     });

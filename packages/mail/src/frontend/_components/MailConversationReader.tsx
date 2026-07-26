@@ -99,6 +99,7 @@ export default function MailConversationReader(props: {
   const closeHref = () => buildMailListHref(new URL(props.requestUrl));
   let draftLoadController: AbortController | null = null;
   let closeDraftDialog: ((value: ConversationDraftSummary | null | undefined) => void) | null = null;
+  let cleanupPrint: (() => void) | null = null;
   let disposed = false;
 
   const toggleMessage = (messageId: string) =>
@@ -130,7 +131,7 @@ export default function MailConversationReader(props: {
       const selectedDraft = await response.json();
       if (isCurrentLookup(lookup)) showComposer(lookup.request, selectedDraft);
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError")) {
+      if (isCurrentLookup(lookup) && !(error instanceof DOMException && error.name === "AbortError")) {
         await prompts.error(error instanceof Error ? error.message : "Could not open draft");
       }
     } finally {
@@ -247,11 +248,14 @@ export default function MailConversationReader(props: {
     { message: MessageDetail; idempotencyKey: string }
   >({
     onBefore: ({ message, input }) => ({ message, idempotencyKey: input.idempotencyKey }),
-    mutation: async ({ message, input }) => {
-      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["derive-draft"].$post({
-        param: { mailboxId: props.mailboxId, messageId: message.id },
-        json: input,
-      });
+    mutation: async ({ message, input }, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["derive-draft"].$post(
+        {
+          param: { mailboxId: props.mailboxId, messageId: message.id },
+          json: input,
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not create a draft from this message"));
       return response.json();
     },
@@ -280,6 +284,7 @@ export default function MailConversationReader(props: {
 
   const deriveMessage = async (kind: DraftDerivationKind, message: MessageDetail) => {
     if (composerBusy() || derivedDraft.loading()) return;
+    const selectionKey = props.selectionKey;
     const identities = props.identities.filter((identity) => identity.status === "verified");
     const defaultIdentity = identities.find((identity) => identity.isDefault) ?? identities[0];
     if (!defaultIdentity) return prompts.error("Add a verified sending identity before reusing a message.");
@@ -334,7 +339,7 @@ export default function MailConversationReader(props: {
         size: "small",
       },
     );
-    if (choice) {
+    if (choice && !disposed && selectionKey === props.selectionKey && props.messages.some((current) => current.id === message.id)) {
       const requestKey = JSON.stringify([message.id, choice.kind, choice.senderIdentityId, choice.includeAttachments]);
       const idempotencyKey = derivationKeys.get(requestKey) ?? crypto.randomUUID();
       derivationKeys.set(requestKey, idempotencyKey);
@@ -372,6 +377,7 @@ export default function MailConversationReader(props: {
     disposed = true;
     closeDraftDialog?.(undefined);
     closeDraftDialog = null;
+    cleanupPrint?.();
     conversationDrafts.abort();
     derivedDraft.abort();
     draftLoadController?.abort();
@@ -397,17 +403,28 @@ export default function MailConversationReader(props: {
   };
 
   const printConversation = () => {
+    cleanupPrint?.();
     const root = document.body;
+    let active = true;
+    let frame: number | null = null;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     const cleanup = () => {
+      if (!active) return;
+      active = false;
       root.classList.remove("mail-printing-conversation");
       window.removeEventListener("afterprint", cleanup);
       if (timeout) clearTimeout(timeout);
+      if (frame !== null) cancelAnimationFrame(frame);
+      if (cleanupPrint === cleanup) cleanupPrint = null;
     };
+    cleanupPrint = cleanup;
     root.classList.add("mail-printing-conversation");
     window.addEventListener("afterprint", cleanup, { once: true });
     timeout = setTimeout(cleanup, 60_000);
-    requestAnimationFrame(() => window.print());
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      if (active) window.print();
+    });
   };
 
   return (
