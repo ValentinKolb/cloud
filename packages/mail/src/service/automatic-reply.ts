@@ -253,7 +253,8 @@ export const prepareAutomaticReplyInTransaction = async (params: {
     `;
     return ok({ state: "queued", effectId, draftId, draftRevision: draft.data.revision, scheduledAt: scheduledAt.toISOString() });
   } catch (error) {
-    return isServiceError(error) ? fail(error) : fail(err.internal("Failed to prepare automatic reply"));
+    if (isServiceError(error)) return fail(error);
+    throw error;
   }
 };
 

@@ -135,9 +135,7 @@ const mapWorkflow = (row: DbWorkflow): MailWorkflow => ({
   updatedAt: toIso(row.updated_at),
 });
 
-const mapWorkflowVersion = async (row: DbWorkflowVersion): Promise<MailWorkflowVersion> => {
-  const compiled = await compileWorkflow(row.source, mailWorkflowManifest);
-  if (!compiled.ok) throw new Error(`stored Mail workflow version ${row.id} no longer compiles`);
+const mapWorkflowVersion = (row: DbWorkflowVersion): MailWorkflowVersion => {
   const plan = parseJson(row.plan);
   return {
     id: row.id,
@@ -146,15 +144,12 @@ const mapWorkflowVersion = async (row: DbWorkflowVersion): Promise<MailWorkflowV
     mailboxId: row.mailbox_id,
     source: row.source,
     sourceHash: row.source_hash,
-    ir: compiled.ir,
     boundPlan: plan,
     diagnostics: parseJson(row.diagnostics),
     effectBudget: parseJson(row.effect_budget),
     languageId: row.language_id,
     languageVersion: row.language_version,
     manifestHash: row.manifest_hash,
-    catalogHash: plan.catalogHash,
-    compiler: { name: "cloud-workflow-kernel", version: "1" },
     createdAt: toIso(row.created_at),
   };
 };
@@ -281,7 +276,7 @@ const loadWorkflowDetail = async (mailboxId: string, workflowId: string, db: Sql
   if (!version) throw new Error(`Mail workflow ${workflowId} has no current version`);
   return {
     ...mapWorkflow(workflow),
-    currentVersion: await mapWorkflowVersion(version),
+    currentVersion: mapWorkflowVersion(version),
     activations: await loadActivations(workflowId, db),
   };
 };
@@ -458,7 +453,7 @@ export const listWorkflowVersions = async (params: {
     ORDER BY version.revision DESC
     LIMIT 200
   `;
-  return rows.length ? ok(await Promise.all(rows.map(mapWorkflowVersion))) : fail(err.notFound("Workflow"));
+  return rows.length ? ok(rows.map(mapWorkflowVersion)) : fail(err.notFound("Workflow"));
 };
 
 export const getWorkflowVersion = async (params: {
@@ -472,7 +467,7 @@ export const getWorkflowVersion = async (params: {
   const visible = await rejectManagedWorkflow(params.mailboxId, params.workflowId, sql, true);
   if (!visible.ok) return visible;
   const version = await loadWorkflowVersion(params);
-  return version ? ok(await mapWorkflowVersion(version)) : fail(err.notFound("Workflow version"));
+  return version ? ok(mapWorkflowVersion(version)) : fail(err.notFound("Workflow version"));
 };
 
 export const createWorkflow = async (params: {

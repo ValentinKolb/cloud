@@ -18,12 +18,15 @@ import {
   updateWorkflowConversationCollaborationInTransaction,
 } from "../service/collaboration";
 import { hasCurrentMailboxUserPermission } from "../service/collaborators";
-import { createWorkflowCommand } from "../service/commands";
+import { createWorkflowCommand, createWorkflowCommandInTransaction, enqueueCreatedWorkflowCommand } from "../service/commands";
 import { ensureConversationReferenceInTransaction } from "../service/conversation-reference";
 import { createWorkflowDraftInTransaction } from "../service/drafts";
-import { publishMailCollaborationEvent } from "../service/events";
 import { updateWorkflowConversationLocalTagInTransaction } from "../service/local-tags";
 import { parseMessageProtocolFacts } from "../service/message-protocol";
+import { mailWorkflowActionFailure } from "../service/workflow-action-errors";
+import { withMailWorkflowCollaborationEvent } from "../service/workflow-collaboration-events";
+import { mailWorkflowDependencyDeadline } from "../service/workflow-dependencies";
+import { mailWorkflowMessagePrecondition } from "../service/workflow-message-preconditions";
 import {
   applyMailConversationTransition,
   applyMailMessageTransition,
@@ -91,12 +94,7 @@ const asText = (value: unknown, label: string): string => {
   if (typeof value !== "string" || !value) throw new Error(`${label} must resolve to text`);
   return value;
 };
-const resultFailure = (error: unknown, code = "MAIL_WORKFLOW_ACTION_FAILED"): Extract<ActionResult, { state: "failed" }> => ({
-  state: "failed",
-  code: isObject(error) && typeof error.code === "string" ? error.code : code,
-  message: error instanceof Error ? error.message : String(error),
-  retryable: false,
-});
+const resultFailure = mailWorkflowActionFailure;
 const attempt = async (run: () => Promise<ActionResult>): Promise<ActionResult> => {
   try {
     return await run();
@@ -212,7 +210,10 @@ const commandOutcome = (command: MailCommand): ActionResult => {
   if (command.state === "failed" || command.state === "cancelled") {
     return { state: "failed", code: "MAIL_COMMAND_FAILED", message: command.lastError ?? `Mail command ${command.state}` };
   }
-  return { state: "waiting", dependency: { kind: "mail.command", key: command.id } };
+  return {
+    state: "waiting",
+    dependency: { kind: "mail.command", key: command.id, deadline: mailWorkflowDependencyDeadline() },
+  };
 };
 
 const createCommand = async (ctx: WorkflowActionContext, scope: MailRunScope, input: ActorCommandInput): Promise<ActionResult> => {
@@ -264,6 +265,7 @@ const messageAction = (
         const message = await resolveObject(ctx, values.message, "message");
         const remoteMessageRefId = asText(message.remoteMessageRefId, "message.remoteMessageRefId");
         const folderId = asText(message.folderId, "message.folderId");
+        const expectedRemoteState = mailWorkflowMessagePrecondition(ctx.invocation.context, remoteMessageRefId);
         const value =
           kind === "addKeyword" || kind === "removeKeyword"
             ? asText(values.keyword, "keyword")
@@ -280,6 +282,7 @@ const messageAction = (
                 remoteMessageRefId,
                 sourceFolderId: folderId,
                 destinationFolderId: value,
+                expectedRemoteState,
                 idempotencyKey: ctx.effectKey,
                 correlationId: ctx.runId,
               }
@@ -293,13 +296,14 @@ const messageAction = (
                   addKeywords: kind === "addKeyword" ? [value] : [],
                   removeKeywords: kind === "removeKeyword" ? [value] : [],
                 },
+                expectedRemoteState,
                 idempotencyKey: ctx.effectKey,
                 correlationId: ctx.runId,
               };
         const outcome = await createCommand(ctx, scope, input);
         if (outcome.state === "succeeded") {
           applyMailMessageTransition(message, kind, value);
-          return { ...outcome, output: { ...(isObject(outcome.output) ? outcome.output : {}), action: kind, applied: true } };
+          return { ...outcome, output: { ...(isObject(outcome.output) ? outcome.output : {}), action: kind, applied: true, value } };
         }
         return outcome;
       }),
@@ -365,10 +369,12 @@ const conversationMutation = (
         if (!mutation.ok) return resultFailure(mutation.error);
         applyMailConversationTransition(conversation, kind, value);
         conversation.revision = mutation.data.value.revision;
-        if (mutation.data.event) await publishMailCollaborationEvent(mutation.data.event);
         return {
           state: "succeeded",
-          output: { action: kind, applied: true, conversationId, revision: mutation.data.value.revision } as JsonObject,
+          output: withMailWorkflowCollaborationEvent(
+            { action: kind, applied: true, value, conversationId, revision: mutation.data.value.revision },
+            mutation.data.event,
+          ),
         };
       }),
   }) as ErasedWorkflowAction;
@@ -488,24 +494,26 @@ export const MAIL_WORKFLOW_ACTIONS = {
         });
         if (!ensured.ok) return resultFailure(ensured.error);
         conversation.revision = ensured.data.result.conversationRevision;
-        if (ensured.data.activityId) {
-          await publishMailCollaborationEvent({
-            mailboxId: scope.mailboxId,
-            conversationId,
-            reason: "reference",
-            targetId: ensured.data.result.reference.id,
-            activityId: ensured.data.activityId,
-          });
-        }
         return {
           state: "succeeded",
-          output: {
-            id: ensured.data.result.reference.id,
-            value: ensured.data.result.reference.value,
-            created: ensured.data.result.created,
-            conversationId,
-            conversationRevision: ensured.data.result.conversationRevision,
-          },
+          output: withMailWorkflowCollaborationEvent(
+            {
+              id: ensured.data.result.reference.id,
+              value: ensured.data.result.reference.value,
+              created: ensured.data.result.created,
+              conversationId,
+              conversationRevision: ensured.data.result.conversationRevision,
+            },
+            ensured.data.activityId
+              ? {
+                  mailboxId: scope.mailboxId,
+                  conversationId,
+                  reason: "reference",
+                  targetId: ensured.data.result.reference.id,
+                  activityId: ensured.data.activityId,
+                }
+              : null,
+          ),
         };
       }),
   }),
@@ -532,18 +540,20 @@ export const MAIL_WORKFLOW_ACTIONS = {
         });
         if (!mutation.ok) return resultFailure(mutation.error);
         conversation.revision = mutation.data.conversationRevision;
-        if (mutation.data.activityId) {
-          await publishMailCollaborationEvent({
-            mailboxId: scope.mailboxId,
-            conversationId,
-            reason: "local_tag",
-            targetId: asText(ctx.binding("tag"), "local tag"),
-            activityId: mutation.data.activityId,
-          });
-        }
         return {
           state: "succeeded",
-          output: { applied: mutation.data.applied, conversationId, revision: mutation.data.conversationRevision },
+          output: withMailWorkflowCollaborationEvent(
+            { applied: mutation.data.applied, conversationId, revision: mutation.data.conversationRevision },
+            mutation.data.activityId
+              ? {
+                  mailboxId: scope.mailboxId,
+                  conversationId,
+                  reason: "local_tag",
+                  targetId: asText(ctx.binding("tag"), "local tag"),
+                  activityId: mutation.data.activityId,
+                }
+              : null,
+          ),
         };
       }),
   }),
@@ -570,18 +580,20 @@ export const MAIL_WORKFLOW_ACTIONS = {
         });
         if (!mutation.ok) return resultFailure(mutation.error);
         conversation.revision = mutation.data.conversationRevision;
-        if (mutation.data.activityId) {
-          await publishMailCollaborationEvent({
-            mailboxId: scope.mailboxId,
-            conversationId,
-            reason: "local_tag",
-            targetId: asText(ctx.binding("tag"), "local tag"),
-            activityId: mutation.data.activityId,
-          });
-        }
         return {
           state: "succeeded",
-          output: { applied: mutation.data.applied, conversationId, revision: mutation.data.conversationRevision },
+          output: withMailWorkflowCollaborationEvent(
+            { applied: mutation.data.applied, conversationId, revision: mutation.data.conversationRevision },
+            mutation.data.activityId
+              ? {
+                  mailboxId: scope.mailboxId,
+                  conversationId,
+                  reason: "local_tag",
+                  targetId: asText(ctx.binding("tag"), "local tag"),
+                  activityId: mutation.data.activityId,
+                }
+              : null,
+          ),
         };
       }),
   }),
@@ -605,16 +617,21 @@ export const MAIL_WORKFLOW_ACTIONS = {
           body: asText(values.body, "body"),
         });
         if (!mutation.ok) return resultFailure(mutation.error);
-        if (mutation.data.activityId) {
-          await publishMailCollaborationEvent({
-            mailboxId: scope.mailboxId,
-            conversationId,
-            reason: "comment",
-            targetId: mutation.data.id,
-            activityId: mutation.data.activityId,
-          });
-        }
-        return { state: "succeeded", output: { applied: true, conversationId, commentId: mutation.data.id } };
+        return {
+          state: "succeeded",
+          output: withMailWorkflowCollaborationEvent(
+            { applied: true, conversationId, commentId: mutation.data.id },
+            mutation.data.activityId
+              ? {
+                  mailboxId: scope.mailboxId,
+                  conversationId,
+                  reason: "comment",
+                  targetId: mutation.data.id,
+                  activityId: mutation.data.activityId,
+                }
+              : null,
+          ),
+        };
       }),
   }),
   createDraft: workflowAction.transactional({
@@ -760,8 +777,12 @@ export const MAIL_WORKFLOW_ACTIONS = {
         const senderIdentityId = asText(ctx.binding("sender"), "sender identity");
         const schedule: ResponseScheduleDefinitionInput | null =
           values.schedule === undefined ? null : responseScheduleDefinitionSchema.parse(values.schedule);
-        const prepared = await sql.begin((tx) =>
-          prepareAutomaticReplyInTransaction({
+        const prepared = await sql.begin(async (tx) => {
+          const fence = await lockProviderFence(tx, ctx);
+          if (!(await mailWorkflowExecutionAuthorityActive(scope.authority, scope.mailboxId, scope.workflowVersionId, tx))) {
+            throw Object.assign(new Error("Workflow execution authority is no longer active"), { code: "FORBIDDEN" });
+          }
+          const reply = await prepareAutomaticReplyInTransaction({
             db: tx,
             mailboxId: scope.mailboxId,
             workflowVersionId: scope.workflowVersionId,
@@ -778,31 +799,48 @@ export const MAIL_WORKFLOW_ACTIONS = {
             minimumIntervalHours: Number(values.minimumIntervalHours ?? 24),
             inactiveBehavior: values.inactiveBehavior === "skip" ? "skip" : "defer",
             schedule,
-          }),
-        );
+          });
+          if (!reply.ok || reply.data.state === "suppressed") return reply;
+
+          const input: ActorCommandInput = {
+            kind: "send",
+            draftId: reply.data.draftId,
+            expectedDraftRevision: reply.data.draftRevision,
+            senderIdentityId,
+            scheduledAt: reply.data.scheduledAt,
+            undoSeconds: 0,
+            idempotencyKey: ctx.effectKey,
+            correlationId: ctx.runId,
+          };
+          const command = await createWorkflowCommandInTransaction(
+            {
+              context: scope.authority.kind === "actor" ? scope.authority.context : null,
+              mailboxId: scope.mailboxId,
+              workflowVersionId: scope.workflowVersionId,
+              input,
+              beforeCreate: async (commandTx) => {
+                if (!(await mailWorkflowExecutionAuthorityActive(scope.authority, scope.mailboxId, scope.workflowVersionId, commandTx))) {
+                  throw Object.assign(new Error("Workflow execution authority is no longer active"), { code: "FORBIDDEN" });
+                }
+                return fence;
+              },
+              afterCreate: async (commandTx, created) =>
+                linkAutomaticReplyCommandInTransaction({ db: commandTx, effectId: reply.data.effectId, commandId: created.id }),
+            },
+            tx,
+          );
+          if (!command.ok) throw command.error;
+          return { ...reply, command: command.data, input };
+        });
         if (!prepared.ok) return resultFailure(prepared.error);
         if (prepared.data.state === "suppressed") {
           return { state: "succeeded", output: { applied: false, effectId: prepared.data.effectId, reasons: prepared.data.reasons } };
         }
-        const command = await createWorkflowCommand({
-          context: scope.authority.kind === "actor" ? scope.authority.context : null,
-          mailboxId: scope.mailboxId,
-          workflowVersionId: scope.workflowVersionId,
-          input: {
-            kind: "send",
-            draftId: prepared.data.draftId,
-            expectedDraftRevision: prepared.data.draftRevision,
-            senderIdentityId,
-            scheduledAt: prepared.data.scheduledAt,
-            undoSeconds: 0,
-            idempotencyKey: ctx.effectKey,
-            correlationId: ctx.runId,
-          },
-          beforeCreate: async (tx) => lockProviderFence(tx, ctx),
-          afterCreate: async (tx, command) =>
-            linkAutomaticReplyCommandInTransaction({ db: tx, effectId: prepared.data.effectId, commandId: command.id }),
-        });
-        return command.ok ? commandOutcome(command.data) : resultFailure(command.error);
+        if (!("command" in prepared)) {
+          throw Object.assign(new Error("Automatic reply command was not created"), { code: "MAIL_AUTOMATIC_REPLY_COMMAND_MISSING" });
+        }
+        await enqueueCreatedWorkflowCommand(prepared.command, prepared.input);
+        return commandOutcome(prepared.command);
       }),
   }),
 } as const;

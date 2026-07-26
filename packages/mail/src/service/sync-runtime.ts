@@ -41,7 +41,7 @@ import { cleanupProviderOAuthFlows } from "./provider-oauth-cleanup";
 import { mailProviderOperationMutex, withProviderOperationBarrier } from "./provider-operation-lock";
 import { cleanupMailRuntimeHistory } from "./runtime-history-retention";
 import { reconcileMailStorageUsage } from "./storage-observability";
-import { getWorkflowSnapshot } from "./workflow-data";
+import { getWorkflowSnapshot, mailWorkflowEventContext } from "./workflow-data";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
 const log = logger("mail:sync");
@@ -615,7 +615,7 @@ export const ingestEnvelope = async (params: {
           type: MAIL_WORKFLOW_EVENT.messageReceived,
           targetWorkflowId: activation.workflow_id,
           data: evaluateWorkflowTriggerInputs(triggerValues, withValues, occurredAt),
-          context: { mailboxId: params.mailboxId },
+          context: mailWorkflowEventContext(params.mailboxId, snapshot),
           dedupeKey: `${deliveryKey}:${activation.workflow_id}`,
           occurredAt: new Date(occurredAt),
         },

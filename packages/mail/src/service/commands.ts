@@ -820,7 +820,40 @@ const createActorCommandWithActor = async (params: CreateActorCommandInternalPar
 
 export const createActorCommand = (params: CreateActorCommandParams): Promise<Result<MailCommand>> => createActorCommandWithActor(params);
 
-export const createWorkflowCommand = (params: {
+export const createWorkflowCommandInTransaction = (
+  params: {
+    context: MailRequestContext | null;
+    mailboxId: string;
+    workflowVersionId: string;
+    input: ActorCommandInput;
+    beforeCreate: (tx: typeof sql) => Promise<{ workflowExecutionGeneration: number }>;
+    afterCreate?: (tx: typeof sql, command: MailCommand) => Promise<void>;
+  },
+  tx: typeof sql,
+): Promise<Result<MailCommand>> =>
+  createActorCommandInTransaction(
+    {
+      ...params,
+      enqueue: false,
+      actorOverride: { kind: "workflow", workflowVersionId: params.workflowVersionId },
+    },
+    tx,
+  );
+
+export const enqueueCreatedWorkflowCommand = async (command: MailCommand, input: ActorCommandInput): Promise<void> => {
+  await enqueueMailCommand(command.id, command.kind).catch(() => undefined);
+  if (input.kind === "send" && input.scheduledAt) {
+    await publishMailMailboxEvent({
+      mailboxId: command.mailboxId,
+      conversationId: null,
+      reason: "scheduled_send",
+      targetId: command.id,
+      activityId: `scheduled-send-created:${command.id}`,
+    });
+  }
+};
+
+export const createWorkflowCommand = async (params: {
   context: MailRequestContext | null;
   mailboxId: string;
   workflowVersionId: string;
@@ -828,11 +861,11 @@ export const createWorkflowCommand = (params: {
   enqueue?: boolean;
   beforeCreate: (tx: typeof sql) => Promise<{ workflowExecutionGeneration: number }>;
   afterCreate?: (tx: typeof sql, command: MailCommand) => Promise<void>;
-}): Promise<Result<MailCommand>> =>
-  createActorCommandWithActor({
-    ...params,
-    actorOverride: { kind: "workflow", workflowVersionId: params.workflowVersionId },
-  });
+}): Promise<Result<MailCommand>> => {
+  const result = await sql.begin((tx) => createWorkflowCommandInTransaction(params, tx));
+  if (result.ok && params.enqueue !== false) await enqueueCreatedWorkflowCommand(result.data, params.input);
+  return result;
+};
 
 export const createActorCommands = async (params: {
   context: MailRequestContext;

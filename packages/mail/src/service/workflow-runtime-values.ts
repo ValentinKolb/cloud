@@ -4,6 +4,7 @@ import type { WorkflowValueResolverPort } from "@valentinkolb/cloud/workflows/ru
 import type { WorkflowRunClaim } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { enqueueMessageHydration } from "./sync-runtime";
+import { mailWorkflowDependencyDeadline } from "./workflow-dependencies";
 
 type JsonObject = Record<string, WorkflowJsonValue>;
 type HydratedMessageValue = { state: "resolved"; value: WorkflowJsonValue } | { state: "pending" } | { state: "unavailable" };
@@ -152,7 +153,12 @@ export const createMailWorkflowValueResolver = (params: {
       await enqueueMessageHydration(messageId);
       return {
         state: "waiting",
-        dependency: { kind: "mail.hydration", key: messageId, data: { runId: params.claim.runId } },
+        dependency: {
+          kind: "mail.hydration",
+          key: messageId,
+          deadline: mailWorkflowDependencyDeadline(),
+          data: { runId: params.claim.runId },
+        },
       };
     }
 

@@ -1,6 +1,6 @@
 import { createRuntimeLifecycle, createRuntimeTaskTracker, logger } from "@valentinkolb/cloud/services";
 import { createWorkflowBuiltinActionPorts, type WorkflowExecutionError } from "@valentinkolb/cloud/workflows";
-import type { WorkflowExecuteActionPort } from "@valentinkolb/cloud/workflows/runtime";
+import type { WorkflowExecuteActionPort, WorkflowTracePort } from "@valentinkolb/cloud/workflows/runtime";
 import {
   createWorkflowActionPort,
   runOneWorkflow,
@@ -11,12 +11,14 @@ import {
 import { sql } from "bun";
 import { MAIL_WORKFLOW_ACTIONS } from "../workflows/actions";
 import { MAIL_WORKFLOW_APP_ID } from "../workflows/events";
+import { publishMailWorkflowCollaborationEventFromOutput } from "./workflow-collaboration-events";
+import type { FrozenMailWorkflowSource } from "./workflow-data";
+import { createMailWorkflowProjectedState, restoreMailWorkflowProjectedState } from "./workflow-projected-state";
 import { createMailWorkflowValueResolver } from "./workflow-runtime-values";
 import { startMailWorkflowScheduleRuntime, stopMailWorkflowScheduleRuntime } from "./workflow-schedule-runtime";
 
 const log = logger("mail:workflows");
 const WORKER_INTERVAL_MS = 1_000;
-const RECONCILE_INTERVAL_MS = 60_000;
 const workerId = `mail:${Bun.env.HOSTNAME ?? "local"}:${process.pid}`;
 
 const declaredActions = createWorkflowActionPort(MAIL_WORKFLOW_ACTIONS);
@@ -39,10 +41,37 @@ const builtins = createWorkflowBuiltinActionPorts({
   },
 });
 const actions: WorkflowExecuteActionPort = {
-  get: (name) => declaredActions.get(name) ?? builtins.execute.get(name),
+  get: (name) => {
+    const declared = declaredActions.get(name);
+    if (!declared) return builtins.execute.get(name);
+    return {
+      execute: async (ctx, step) => {
+        const outcome = await declared.execute(ctx, step);
+        if (outcome.state === "completed") await publishMailWorkflowCollaborationEventFromOutput(outcome.output);
+        return outcome;
+      },
+      restoreCompleted: async (ctx, step, outcome) => {
+        await declared.restoreCompleted?.(ctx, step, outcome);
+        await restoreMailWorkflowProjectedState(ctx, step, outcome);
+        await publishMailWorkflowCollaborationEventFromOutput(outcome.output);
+      },
+    };
+  },
 };
 
 const values = (claim: WorkflowRunClaim) => {
+  // The kernel invocation retains these claim object references, so preparing
+  // them in the per-claim resolver factory also prepares the action context.
+  const source = claim.context.source;
+  const projected = createMailWorkflowProjectedState(
+    claim.plan,
+    source && typeof source === "object" && !Array.isArray(source) ? (source as unknown as FrozenMailWorkflowSource) : {},
+    claim.inputs,
+  );
+  for (const key of Object.keys(claim.inputs)) delete claim.inputs[key];
+  Object.assign(claim.inputs, projected.inputs);
+  claim.context.source = projected.source as unknown as import("@valentinkolb/cloud/workflows").WorkflowJsonValue;
+
   let frozen: Promise<Record<string, import("@valentinkolb/cloud/workflows").WorkflowJsonValue>> | null = null;
   return {
     resolve: async (input: Parameters<ReturnType<typeof createMailWorkflowValueResolver>["resolve"]>[0]) => {
@@ -65,14 +94,14 @@ const values = (claim: WorkflowRunClaim) => {
 
 const workerPorts = { worker: workerId, appId: MAIL_WORKFLOW_APP_ID, values } as const;
 
-export const runMailWorkflow = (runId: string) => runOneWorkflow({ ...workerPorts, actions, runId });
+export const runMailWorkflow = (runId: string, trace?: WorkflowTracePort) =>
+  runOneWorkflow({ ...workerPorts, actions, runId, ...(trace ? { trace } : {}) });
 
 const drain = async (): Promise<void> => {
   await tickWorkflows({ ...workerPorts, actions });
 };
 
 let workerTimer: ReturnType<typeof setInterval> | null = null;
-let reconcileTimer: ReturnType<typeof setInterval> | null = null;
 let draining = false;
 const tasks = createRuntimeTaskTracker();
 
@@ -99,18 +128,10 @@ const lifecycle = createRuntimeLifecycle({
     await wakeExpiredWorkflowRuns(100, { appId: MAIL_WORKFLOW_APP_ID });
     drainOnce();
     workerTimer = setInterval(drainOnce, WORKER_INTERVAL_MS);
-    reconcileTimer = setInterval(() => {
-      const task = tasks.run(async () => {
-        await wakeExpiredWorkflowRuns(100, { appId: MAIL_WORKFLOW_APP_ID });
-      });
-      if (task) void task.catch(() => undefined);
-    }, RECONCILE_INTERVAL_MS);
   },
   stop: async () => {
     if (workerTimer) clearInterval(workerTimer);
-    if (reconcileTimer) clearInterval(reconcileTimer);
     workerTimer = null;
-    reconcileTimer = null;
     await stopMailWorkflowScheduleRuntime();
     await tasks.close();
   },

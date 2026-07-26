@@ -1,4 +1,5 @@
-import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import type { WorkflowBoundPlan, WorkflowJsonValue, WorkflowStepOutcome } from "@valentinkolb/cloud/workflows";
+import type { WorkflowActionStep, WorkflowExecuteActionContext } from "@valentinkolb/cloud/workflows/runtime";
 import type { FrozenMailWorkflowSource } from "./workflow-data";
 
 export type MailWorkflowProjectedObject = Record<string, WorkflowJsonValue>;
@@ -93,3 +94,71 @@ export const mailConversationTransitionChanges = (
   action: "assignConversation" | "setConversationStatus",
   value: WorkflowJsonValue,
 ): boolean => applyMailConversationTransition(structuredClone(conversation), action, value);
+
+const restoredConfig = async (ctx: WorkflowExecuteActionContext, step: WorkflowActionStep): Promise<Record<string, WorkflowJsonValue>> => {
+  const value = await ctx.evaluate(step.config as WorkflowJsonValue, ["config"]);
+  return isMailWorkflowProjectedObject(value) ? value : {};
+};
+
+const restoredObject = async (
+  ctx: WorkflowExecuteActionContext,
+  step: WorkflowActionStep,
+  config: Record<string, WorkflowJsonValue>,
+  field: "message" | "conversation",
+): Promise<MailWorkflowProjectedObject | null> => {
+  const value = config[field];
+  if (isMailWorkflowProjectedObject(value)) return value;
+  if (typeof value !== "string") return null;
+  const resolved = await ctx.resolveReference(value, [...step.sourcePath, step.action, field]);
+  return isMailWorkflowProjectedObject(resolved) ? resolved : null;
+};
+
+export const restoreMailWorkflowProjectedState = async (
+  ctx: WorkflowExecuteActionContext,
+  step: WorkflowActionStep,
+  outcome: Extract<WorkflowStepOutcome, { state: "completed" }>,
+): Promise<void> => {
+  if (!isMailWorkflowProjectedObject(outcome.output)) return;
+  const output = outcome.output;
+  const config = await restoredConfig(ctx, step);
+
+  if (
+    output.applied === true &&
+    typeof output.action === "string" &&
+    [
+      "addKeyword",
+      "removeKeyword",
+      "moveMessage",
+      "copyMessage",
+      "archiveMessage",
+      "trashMessage",
+      "junkMessage",
+      "addFlag",
+      "removeFlag",
+    ].includes(output.action)
+  ) {
+    const message = await restoredObject(ctx, step, config, "message");
+    if (message && output.value !== undefined) {
+      applyMailMessageTransition(message, output.action as Parameters<typeof applyMailMessageTransition>[1], output.value);
+    }
+    return;
+  }
+
+  if (output.applied === true && (output.action === "assignConversation" || output.action === "setConversationStatus")) {
+    const conversation = await restoredObject(ctx, step, config, "conversation");
+    if (conversation && output.value !== undefined) {
+      applyMailConversationTransition(conversation, output.action, output.value);
+      if (typeof output.revision === "number") conversation.revision = output.revision;
+    }
+    return;
+  }
+
+  const conversation = await restoredObject(ctx, step, config, "conversation");
+  const revision =
+    step.action === "ensureConversationReference"
+      ? output.conversationRevision
+      : ["addLocalTag", "removeLocalTag"].includes(step.action)
+        ? output.revision
+        : null;
+  if (conversation && typeof revision === "number") conversation.revision = revision;
+};

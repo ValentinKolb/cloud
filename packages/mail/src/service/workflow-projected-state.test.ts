@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
+import type { WorkflowBoundPlan, WorkflowStepOutcome } from "@valentinkolb/cloud/workflows";
+import type { WorkflowActionStep, WorkflowExecuteActionContext } from "@valentinkolb/cloud/workflows/runtime";
 import type { FrozenMailWorkflowSource } from "./workflow-data";
-import { applyMailConversationTransition, applyMailMessageTransition, createMailWorkflowProjectedState } from "./workflow-projected-state";
+import {
+  applyMailConversationTransition,
+  applyMailMessageTransition,
+  createMailWorkflowProjectedState,
+  restoreMailWorkflowProjectedState,
+} from "./workflow-projected-state";
 
 const plan = {
   inputs: [
@@ -52,5 +58,46 @@ describe("Mail workflow projected state", () => {
 
     expect(projected.source).toEqual({});
     expect(projected.inputs).toEqual({ slot: "2026-07-22T08:00:00.000Z" });
+  });
+
+  test("restores completed message and conversation projections before later steps", async () => {
+    const projected = createMailWorkflowProjectedState(plan, source, {});
+    const variables = new Map<string, unknown>();
+    const ctx = {
+      plan,
+      variables: {
+        get: (name: string) => variables.get(name),
+        has: (name: string) => variables.has(name),
+        set: (name: string, value: unknown) => variables.set(name, value),
+      },
+      evaluate: async (value: unknown) => value,
+      resolveReference: async (reference: string) =>
+        reference === "message" ? projected.inputs.message : reference === "conversation" ? projected.inputs.conversation : undefined,
+    } as unknown as WorkflowExecuteActionContext;
+
+    await restoreMailWorkflowProjectedState(
+      ctx,
+      { kind: "action", action: "moveMessage", config: { message: "message" }, sourcePath: ["steps", 0] } as WorkflowActionStep,
+      { state: "completed", output: { action: "moveMessage", applied: true, value: "archive" } } as Extract<
+        WorkflowStepOutcome,
+        { state: "completed" }
+      >,
+    );
+    await restoreMailWorkflowProjectedState(
+      ctx,
+      {
+        kind: "action",
+        action: "setConversationStatus",
+        config: { conversation: "conversation" },
+        sourcePath: ["steps", 1],
+      } as WorkflowActionStep,
+      {
+        state: "completed",
+        output: { action: "setConversationStatus", applied: true, value: "done", revision: 8 },
+      } as Extract<WorkflowStepOutcome, { state: "completed" }>,
+    );
+
+    expect(projected.source.message.folderId).toBe("archive");
+    expect(projected.source.conversation).toMatchObject({ workStatus: "done", revision: 8 });
   });
 });

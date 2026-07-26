@@ -1536,15 +1536,12 @@ export type MailWorkflowVersion = {
   mailboxId: string;
   source: string;
   sourceHash: string;
-  ir: WorkflowIr;
   boundPlan: WorkflowBoundPlan;
   diagnostics: WorkflowDiagnostic[];
   effectBudget: WorkflowEffectBudget;
   languageId: string;
   languageVersion: number;
   manifestHash: string;
-  catalogHash: string;
-  compiler: { name: string; version: string };
   createdAt: string;
 };
 

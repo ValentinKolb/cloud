@@ -1,3 +1,4 @@
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { sql } from "bun";
 import { sha256Json } from "./canonical";
 import type { ConnectorProtocolFacts } from "./connectors";
@@ -78,6 +79,12 @@ export type MailWorkflowTargetSnapshot = {
   preconditions: FrozenMailWorkflowPreconditions;
   internalDate: string;
 };
+
+export const mailWorkflowEventContext = (mailboxId: string, snapshot: MailWorkflowTargetSnapshot): Record<string, WorkflowJsonValue> => ({
+  mailboxId,
+  source: snapshot.source as unknown as WorkflowJsonValue,
+  preconditions: snapshot.preconditions as unknown as WorkflowJsonValue,
+});
 
 type WorkflowSnapshotRow = {
   remote_message_ref_id: string;
