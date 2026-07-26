@@ -331,22 +331,22 @@ export const dispatchPendingWorkflowEvents = async (
   return { dispatched, failed, deadLettered };
 };
 
+export type UndispatchedWorkflowEvent = {
+  id: string;
+  appId: string;
+  scopeId: string;
+  type: string;
+  occurredAt: Date;
+  attempts: number;
+  matchedCount: number;
+  lastError: string | null;
+  dispatchFailedAt: Date | null;
+};
+
 /** Events that matched nothing, are retrying, or exhausted dispatch retries. */
 export const listUndispatchedWorkflowEvents = async (
-  options: { limit?: number; appId?: string; scopeId?: string; db?: SQL } = {},
-): Promise<
-  {
-    id: string;
-    appId: string;
-    scopeId: string;
-    type: string;
-    occurredAt: Date;
-    attempts: number;
-    matchedCount: number;
-    lastError: string | null;
-    dispatchFailedAt: Date | null;
-  }[]
-> => {
+  options: { limit?: number; offset?: number; appId?: string; scopeId?: string; db?: SQL } = {},
+): Promise<UndispatchedWorkflowEvent[]> => {
   const db = options.db ?? sql;
   const rows = await db<
     {
@@ -367,7 +367,7 @@ export const listUndispatchedWorkflowEvents = async (
       AND (${options.appId ?? null}::text IS NULL OR app_id = ${options.appId ?? null})
       AND (${options.scopeId ?? null}::text IS NULL OR scope_id = ${options.scopeId ?? null})
     ORDER BY occurred_at, id
-    LIMIT ${options.limit ?? 100}
+    LIMIT ${options.limit ?? 100} OFFSET ${options.offset ?? 0}
   `;
   return rows.map((row) => ({
     id: row.id,

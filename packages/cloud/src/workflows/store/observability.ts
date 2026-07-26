@@ -43,6 +43,8 @@ export type WorkflowRunFilter = {
   appId?: string;
   scopeId?: string;
   workflowId?: string;
+  /** Restrict the list to the direct children of one fan-out parent. */
+  parentRunId?: string;
   state?: WorkflowRunState;
   mode?: WorkflowInvocationMode;
   /** Children are noise in a list view until you are looking at their parent. */
@@ -117,9 +119,10 @@ export const listWorkflowRuns = async (filter: WorkflowRunFilter = {}, options: 
     WHERE (${filter.appId ?? null}::text IS NULL OR r.app_id = ${filter.appId ?? null})
       AND (${filter.scopeId ?? null}::text IS NULL OR r.scope_id = ${filter.scopeId ?? null})
       AND (${filter.workflowId ?? null}::uuid IS NULL OR r.workflow_id = ${filter.workflowId ?? null}::uuid)
+      AND (${filter.parentRunId ?? null}::uuid IS NULL OR r.parent_run_id = ${filter.parentRunId ?? null}::uuid)
       AND (${filter.state ?? null}::text IS NULL OR r.state = ${filter.state ?? null})
       AND (${filter.mode ?? null}::text IS NULL OR r.mode = ${filter.mode ?? null})
-      AND (${filter.includeChildren ?? false} OR r.parent_run_id IS NULL)
+      AND (${filter.parentRunId !== undefined || filter.includeChildren === true} OR r.parent_run_id IS NULL)
       AND (${filter.since ?? null}::timestamptz IS NULL OR r.created_at >= ${filter.since ?? null}::timestamptz)
     ORDER BY r.created_at DESC, r.id DESC
     LIMIT ${filter.limit ?? 50} OFFSET ${filter.offset ?? 0}
@@ -300,7 +303,7 @@ export type StrandedWorkflowEffect = {
  * surfaced them before.
  */
 export const listStrandedWorkflowEffects = async (
-  options: { appId?: string; olderThanMs?: number; limit?: number; db?: SQL } = {},
+  options: { appId?: string; olderThanMs?: number; limit?: number; offset?: number; db?: SQL } = {},
 ): Promise<StrandedWorkflowEffect[]> => {
   const db = options.db ?? sql;
   const rows = await db<
@@ -323,7 +326,7 @@ export const listStrandedWorkflowEffects = async (
       AND s.effect_started_at < now() - ${`${options.olderThanMs ?? 0} milliseconds`}::interval
       AND (${options.appId ?? null}::text IS NULL OR r.app_id = ${options.appId ?? null})
     ORDER BY s.effect_started_at, s.run_id
-    LIMIT ${options.limit ?? 100}
+    LIMIT ${options.limit ?? 100} OFFSET ${options.offset ?? 0}
   `;
   const now = Date.now();
   return rows.map((row) => ({

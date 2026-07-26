@@ -45,6 +45,7 @@ export {
   dispatchPendingWorkflowEvents,
   emitWorkflowEvent,
   listUndispatchedWorkflowEvents,
+  type UndispatchedWorkflowEvent,
   type WorkflowEmission,
   type WorkflowEventInput,
 } from "./events";

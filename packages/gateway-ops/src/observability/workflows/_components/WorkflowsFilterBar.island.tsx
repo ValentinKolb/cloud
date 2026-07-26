@@ -6,6 +6,7 @@ type Props = {
   app: string;
   state: string;
   mode: string;
+  showRunFilters?: boolean;
   /** Pre-built by the page, so the island never has to know the other params. */
   hrefFor: Record<"app" | "state" | "mode", Record<string, string>>;
 };
@@ -56,24 +57,28 @@ export default function WorkflowsFilterBar(props: Props) {
         isActive={Boolean(props.app)}
         defaultValue={[""]}
       />
-      <FilterChip
-        label="State"
-        icon="ti ti-activity"
-        options={STATE_OPTIONS}
-        value={[props.state]}
-        onChange={(value) => navigateTo(props.hrefFor.state[value[0] ?? "all"] ?? "")}
-        isActive={props.state !== "all"}
-        defaultValue={["all"]}
-      />
-      <FilterChip
-        label="Mode"
-        icon="ti ti-arrows-shuffle"
-        options={MODE_OPTIONS}
-        value={[props.mode]}
-        onChange={(value) => navigateTo(props.hrefFor.mode[value[0] ?? "all"] ?? "")}
-        isActive={props.mode !== "all"}
-        defaultValue={["all"]}
-      />
+      {props.showRunFilters !== false ? (
+        <>
+          <FilterChip
+            label="State"
+            icon="ti ti-activity"
+            options={STATE_OPTIONS}
+            value={[props.state]}
+            onChange={(value) => navigateTo(props.hrefFor.state[value[0] ?? "all"] ?? "")}
+            isActive={props.state !== "all"}
+            defaultValue={["all"]}
+          />
+          <FilterChip
+            label="Mode"
+            icon="ti ti-arrows-shuffle"
+            options={MODE_OPTIONS}
+            value={[props.mode]}
+            onChange={(value) => navigateTo(props.hrefFor.mode[value[0] ?? "all"] ?? "")}
+            isActive={props.mode !== "all"}
+            defaultValue={["all"]}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

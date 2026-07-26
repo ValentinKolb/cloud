@@ -2,8 +2,8 @@
  * Workflow run operations API.
  *
  * The same data the admin page renders, so scripts and agents can answer "is
- * any workflow broken" without scraping HTML. Resolving an ambiguous effect is
- * the one write here: it is admin-only and requires an explicit decision.
+ * any workflow broken" without scraping HTML. The two writes mirror the
+ * kernel's safe controls: cancellation and an explicit effect decision.
  */
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
 import {
@@ -11,6 +11,7 @@ import {
   listStrandedWorkflowEffects,
   listUndispatchedWorkflowEvents,
   listWorkflowRuns,
+  requestWorkflowRunCancel,
   resolveWorkflowRunAttention,
   type WorkflowAttentionResolution,
   workflowHealth,
@@ -34,6 +35,7 @@ const RunsQuerySchema = z.object({
   app: z.string().optional(),
   scope: z.string().optional(),
   workflow: z.string().uuid().optional(),
+  parent: z.string().uuid().optional(),
   state: StateSchema,
   mode: ModeSchema,
   /** Children are noise until you are looking at their parent. */
@@ -59,6 +61,7 @@ const app = new Hono<AuthContext>()
       appId: query.app,
       scopeId: query.scope,
       workflowId: query.workflow,
+      parentRunId: query.parent,
       state: query.state === "all" ? undefined : query.state,
       mode: query.mode === "all" ? undefined : query.mode,
       includeChildren: query.children,
@@ -75,6 +78,20 @@ const app = new Hono<AuthContext>()
     return respond(c, run ? ok(run) : fail(err.notFound("Workflow run")));
   })
 
+  .post("/runs/:id/cancel", v("param", z.object({ id: z.string().uuid() })), async (c) => {
+    const canceled = await requestWorkflowRunCancel(c.req.valid("param").id);
+    return respond(
+      c,
+      canceled
+        ? ok({ canceled: true as const })
+        : fail({
+            code: "CONFLICT",
+            message: "Workflow run is already terminal or does not exist",
+            status: 409,
+          }),
+    );
+  })
+
   .post(
     "/runs/:id/attention/:step",
     v("param", z.object({ id: z.string().uuid(), step: z.string().min(1).max(1000) })),
@@ -87,12 +104,24 @@ const app = new Hono<AuthContext>()
     ),
     async (c) => {
       const { id, step } = c.req.valid("param");
-      await resolveWorkflowRunAttention({
-        runId: id,
-        stepKey: step,
-        resolution: c.req.valid("json") as WorkflowAttentionResolution,
-      });
-      return respond(c, ok({ resolved: true }));
+      try {
+        await resolveWorkflowRunAttention({
+          runId: id,
+          stepKey: step,
+          resolution: c.req.valid("json") as WorkflowAttentionResolution,
+        });
+        return respond(c, ok({ resolved: true as const }));
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "workflow run is not awaiting resolution for that step") throw error;
+        return respond(
+          c,
+          fail({
+            code: "CONFLICT",
+            message: error.message,
+            status: 409,
+          }),
+        );
+      }
     },
   )
 
@@ -117,3 +146,4 @@ const app = new Hono<AuthContext>()
   );
 
 export default app;
+export type ApiType = typeof app;
