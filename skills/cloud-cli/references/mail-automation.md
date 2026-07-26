@@ -308,6 +308,7 @@ Creation stores one immutable version but does not activate it:
 ```bash
 cld --json mail workflow list
 cld --json mail workflow get <workflow-id>
+cld mail workflow export <workflow-id> > route-mail.yml
 cld --json mail workflow version list <workflow-id>
 cld --json mail workflow version get <workflow-id> <version-id>
 cld --json mail workflow activate <workflow-id> --version-id <version-id>
@@ -326,6 +327,22 @@ cld --json mail workflow deactivate <workflow-id> --version-id <active-version-i
 ```
 
 A new version receives the effect budgets passed to that command; it does not inherit omitted values from the previous version. Activation and deactivation require the expected current or active version id, so a concurrent edit fails instead of activating the wrong source.
+
+Update metadata without creating a source version:
+
+```bash
+cld --json mail workflow update <workflow-id> --name "Route urgent invoices" --priority 50
+```
+
+Export writes only exact YAML bytes in text mode, making shell redirection safe. Pass `--version-id` to export historical source. Restore history by creating a new inactive immutable version; the historical row is never changed:
+
+```bash
+cld mail workflow export <workflow-id> --version-id <historical-version-id> > historical.yml
+cld --json mail workflow version restore \
+  <workflow-id> \
+  <historical-version-id> \
+  --current-version-id <current-version-id>
+```
 
 ## Observe and control runs
 
@@ -399,5 +416,5 @@ The Mail API manages definitions and activations only. Runtime observability and
 | --- | --- |
 | Automatic replies | `automatic-reply list|create|update` |
 | References | `reference config show|set`, `reference list|ensure|find` |
-| Workflow lifecycle | `workflow list|get|validate|create|activate|deactivate`, `workflow version list|get|create` |
+| Workflow lifecycle | `workflow list|get|validate|create|update|export|activate|deactivate`, `workflow version list|get|create|restore` |
 | Runtime operations | `cld admin workflows health|runs|show|cancel|effects|resolve|events` |

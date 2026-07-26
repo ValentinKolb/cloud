@@ -52,7 +52,7 @@ Mail supports two input types:
 
 Each input name must start with a letter or underscore and contain only letters, numbers, and underscores. Set `required: true` when every caller or trigger must provide the input. A trigger must bind each required input in its `with` block.
 
-A workflow without `triggers` is direct-only. It can be invoked through the Mail API or CLI with explicit inputs and a target query. The Mail settings UI currently edits, activates, and observes workflows; it does not provide a manual target-selection form.
+A workflow without `triggers` can be validated and saved as an inactive draft, but it cannot be activated. Mail intentionally has no separate manual-run or target-query API.
 
 ## Use automatic triggers {icon="route"}
 
@@ -101,7 +101,7 @@ steps:
 
 Trigger values exist only while binding `with`. Scheduled Mail workflows are therefore currently limited to steps that do not require a received message or conversation. `automaticReply` cannot run from a schedule trigger.
 
-Omit `triggers` for a direct-only workflow. An empty `triggers: {}` block is invalid.
+Omit `triggers` while drafting reusable YAML that should remain inactive. An empty `triggers: {}` block is invalid, and activation requires at least one trigger.
 
 ## Read input and context values {icon="route"}
 

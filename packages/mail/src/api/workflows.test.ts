@@ -7,10 +7,17 @@ import workflowRoutes from "./workflows";
 const app = () => new Hono<AuthContext>().route("/", workflowRoutes);
 
 const expectedOperations = [
+  ["post", "/mailboxes/{mailboxId}/workflows/autocomplete", "Complete Mail workflow YAML", ["200", "400", "401", "403"]],
   ["post", "/mailboxes/{mailboxId}/workflows/validate", "Validate Mail workflow YAML", ["200", "400", "401", "403"]],
   ["get", "/mailboxes/{mailboxId}/workflows", "List Mail workflows", ["200", "400", "401", "403"]],
   ["post", "/mailboxes/{mailboxId}/workflows", "Create a Mail workflow", ["200", "400", "401", "403", "409", "500"]],
   ["get", "/mailboxes/{mailboxId}/workflows/{workflowId}", "Get a Mail workflow", ["200", "400", "401", "403", "404"]],
+  [
+    "patch",
+    "/mailboxes/{mailboxId}/workflows/{workflowId}",
+    "Update Mail workflow metadata",
+    ["200", "400", "401", "403", "404", "409", "500"],
+  ],
   ["get", "/mailboxes/{mailboxId}/workflows/{workflowId}/versions", "List Mail workflow versions", ["200", "400", "401", "403", "404"]],
   [
     "post",
@@ -23,6 +30,12 @@ const expectedOperations = [
     "/mailboxes/{mailboxId}/workflows/{workflowId}/versions/{versionId}",
     "Get a Mail workflow version",
     ["200", "400", "401", "403", "404"],
+  ],
+  [
+    "post",
+    "/mailboxes/{mailboxId}/workflows/{workflowId}/versions/{versionId}/restore",
+    "Restore a Mail workflow version",
+    ["200", "400", "401", "403", "404", "409", "500"],
   ],
   [
     "post",

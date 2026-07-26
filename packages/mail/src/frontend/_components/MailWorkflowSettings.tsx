@@ -1,4 +1,6 @@
 import {
+  AutocompleteEditor,
+  CodeDisplay,
   dialogCore,
   NumberInput,
   PanelDialog,
@@ -8,11 +10,24 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
+import {
+  buildWorkflowAutocompleteCompletions,
+  createWorkflowYamlHighlighter,
+  type WorkflowAutocompleteRequest,
+} from "@valentinkolb/cloud/ui/workflow-authoring";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { MailWorkflow, MailWorkflowDetail, MailWorkflowVersion, WorkflowEffectBudget, WorkflowValidation } from "../../contracts";
+import type {
+  MailWorkflow,
+  MailWorkflowDetail,
+  MailWorkflowVersion,
+  WorkflowAutocomplete,
+  WorkflowEffectBudget,
+  WorkflowValidation,
+} from "../../contracts";
 import { readApiError } from "./api-response";
+import { shouldApplyWorkflowValidation } from "./workflow-validation-race";
 
 const DEFAULT_BUDGET: WorkflowEffectBudget = {
   maxTargets: 1_000,
@@ -35,6 +50,8 @@ steps:
       message: "\${{ inputs.message }}"
       keyword: Review
 `;
+const workflowHighlight = createWorkflowYamlHighlighter();
+const WORKFLOW_REFERENCE_HREF = "/app/mail/help/mail-workflows";
 
 const asSummary = (workflow: MailWorkflowDetail): MailWorkflow => ({
   id: workflow.id,
@@ -59,6 +76,7 @@ function WorkflowEditor(props: {
   const [description, setDescription] = createSignal(props.workflow?.description ?? "");
   const [priority, setPriority] = createSignal(props.workflow?.priority ?? 100);
   const [source, setSource] = createSignal(props.workflow?.currentVersion.source ?? STARTER_SOURCE);
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = createSignal(props.workflow?.updatedAt ?? "");
   const initialBudget = props.workflow?.currentVersion.effectBudget ?? DEFAULT_BUDGET;
   const [maxTargets, setMaxTargets] = createSignal(initialBudget.maxTargets);
   const [maxMoves, setMaxMoves] = createSignal(initialBudget.maxMoves);
@@ -70,6 +88,10 @@ function WorkflowEditor(props: {
   const [maxKeywordChanges, setMaxKeywordChanges] = createSignal(initialBudget.maxKeywordChanges);
   const [maxCollaborationChanges, setMaxCollaborationChanges] = createSignal(initialBudget.maxCollaborationChanges);
   const [validation, setValidation] = createSignal<WorkflowValidation | null>(null);
+  const [validating, setValidating] = createSignal(false);
+  let validationTimer: ReturnType<typeof setTimeout> | undefined;
+  let validationAbort: AbortController | undefined;
+  let latestValidationRequest = 0;
 
   const budget = (): WorkflowEffectBudget => ({
     maxTargets: maxTargets(),
@@ -83,18 +105,99 @@ function WorkflowEditor(props: {
     maxCollaborationChanges: maxCollaborationChanges(),
   });
 
-  const validate = mutations.create<WorkflowValidation, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"].workflows.validate.$post({
+  const fetchAutocomplete = async (request: WorkflowAutocompleteRequest, signal: AbortSignal): Promise<WorkflowAutocomplete> => {
+    const response = await apiClient.mailboxes[":mailboxId"].workflows.autocomplete.$post(
+      {
         param: { mailboxId: props.mailboxId },
-        json: { source: source() },
+        json: request,
+      },
+      { init: { signal } },
+    );
+    if (!response.ok) throw new Error(await readApiError(response, "Workflow suggestions failed"));
+    const result = await response.json();
+    if (!signal.aborted && request.source === source()) {
+      setValidation({
+        valid: !result.diagnostics.some((diagnostic) => diagnostic.severity === "error"),
+        source: request.source,
+        sourceHash: null,
+        ir: null,
+        boundPlan: null,
+        diagnostics: result.diagnostics,
       });
+    }
+    return result;
+  };
+  const completions = buildWorkflowAutocompleteCompletions({ fetchAutocomplete });
+
+  const runValidation = async (requestedSource: string, announce: boolean) => {
+    validationAbort?.abort();
+    const abort = new AbortController();
+    validationAbort = abort;
+    const requestId = ++latestValidationRequest;
+    setValidating(true);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].workflows.validate.$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: { source: requestedSource },
+        },
+        { init: { signal: abort.signal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Workflow validation failed"));
+      const result = await response.json();
+      if (
+        shouldApplyWorkflowValidation({
+          requestId,
+          latestRequestId: latestValidationRequest,
+          requestedSource,
+          currentSource: source(),
+          aborted: abort.signal.aborted,
+        })
+      ) {
+        setValidation(result);
+        if (announce && result.valid) toast.success("Workflow is valid");
+      }
+    } catch (error) {
+      if (!abort.signal.aborted && requestId === latestValidationRequest) {
+        setValidation(null);
+        if (announce) await prompts.error(error instanceof Error ? error.message : "Workflow validation failed");
+      }
+    } finally {
+      if (!abort.signal.aborted && requestId === latestValidationRequest) setValidating(false);
+    }
+  };
+
+  createEffect(() => {
+    const current = source();
+    if (validationTimer) clearTimeout(validationTimer);
+    validationTimer = setTimeout(() => void runValidation(current, false), 350);
+  });
+
+  onCleanup(() => {
+    if (validationTimer) clearTimeout(validationTimer);
+    validationAbort?.abort();
+  });
+
+  const updateDetails = mutations.create<MailWorkflowDetail, void>({
+    mutation: async () => {
+      const workflow = props.workflow;
+      if (!workflow) throw new Error("Save the workflow before updating its details");
+      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].$patch({
+        param: { mailboxId: props.mailboxId, workflowId: workflow.id },
+        json: {
+          expectedUpdatedAt: expectedUpdatedAt(),
+          name: name().trim(),
+          description: description().trim() || null,
+          priority: priority(),
+        },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update workflow details"));
       return await response.json();
     },
-    onSuccess: (result) => {
-      setValidation(result);
-      if (result.valid) toast.success("Workflow is valid");
+    onSuccess: (workflow) => {
+      setExpectedUpdatedAt(workflow.updatedAt);
+      props.onSaved(workflow);
+      toast.success("Workflow details updated");
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -131,41 +234,63 @@ function WorkflowEditor(props: {
   return (
     <PanelDialog>
       <PanelDialog.Header
-        title={props.workflow ? props.workflow.name : "New workflow"}
+        title={props.workflow ? name() : "New workflow"}
         subtitle="Canonical YAML with immutable saved versions"
         icon="ti ti-route"
         close={props.close}
       />
       <PanelDialog.Body>
-        <Show when={!props.workflow}>
-          <PanelDialog.Section title="Identity" subtitle="Shown to mailbox administrators." icon="ti ti-id">
-            <TextInput label="Name" value={name} onInput={setName} required />
-            <TextInput label="Description" value={description} onInput={setDescription} multiline lines={2} />
-            <NumberInput label="Priority" value={priority} onInput={(value) => setPriority(value ?? 100)} min={-1_000} max={1_000} />
-          </PanelDialog.Section>
-        </Show>
+        <PanelDialog.Section title="Identity" subtitle="Shown to mailbox administrators." icon="ti ti-id">
+          <TextInput label="Name" value={name} onInput={setName} required />
+          <TextInput label="Description" value={description} onInput={setDescription} multiline lines={2} />
+          <NumberInput label="Priority" value={priority} onInput={(value) => setPriority(value ?? 100)} min={-1_000} max={1_000} />
+          <Show when={props.workflow}>
+            <div class="flex justify-end">
+              <button
+                type="button"
+                class="btn-secondary btn-sm"
+                disabled={updateDetails.loading() || !name().trim()}
+                onClick={() => updateDetails.mutate()}
+              >
+                <i class={`ti ${updateDetails.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+                Update details
+              </button>
+            </div>
+          </Show>
+        </PanelDialog.Section>
         <PanelDialog.Section
           title="Workflow YAML"
           subtitle="Save creates a new immutable version; activation remains explicit."
           icon="ti ti-code"
         >
-          <TextInput
-            ariaLabel="Workflow YAML"
-            value={source}
-            onInput={(value) => {
-              setSource(value);
-              setValidation(null);
-            }}
-            multiline
-            monospace
-            lines={24}
-            spellcheck={false}
-            autocapitalize="off"
-          />
+          <div class="flex justify-end">
+            <a class="btn-simple btn-sm" href={WORKFLOW_REFERENCE_HREF} target="_blank" rel="noreferrer">
+              <i class="ti ti-external-link" aria-hidden="true" /> Open YAML reference
+            </a>
+          </div>
+          <div class="min-h-[24rem]">
+            <AutocompleteEditor
+              ariaLabel="Workflow YAML"
+              value={source}
+              onInput={(value) => {
+                setSource(value);
+                setValidation(null);
+              }}
+              completions={completions}
+              highlight={workflowHighlight}
+              variant="paper"
+              fill
+              restoreExpansionOnBackspace={false}
+              lines={24}
+              spellcheck={false}
+            />
+          </div>
           <Show when={validation()}>
             {(result) => (
               <div class={result().valid ? "info-block-success" : "info-block-danger"} role="status">
-                <p class="text-sm font-medium">{result().valid ? "YAML is valid" : "Fix validation errors before saving"}</p>
+                <p class="text-sm font-medium">
+                  {validating() ? "Validating…" : result().valid ? "YAML is valid" : "Fix validation errors before saving"}
+                </p>
                 <For each={result().diagnostics}>
                   {(diagnostic) => (
                     <p class="mt-1 font-mono text-xs">
@@ -217,8 +342,8 @@ function WorkflowEditor(props: {
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button type="button" class="btn-secondary btn-sm" disabled={validate.loading()} onClick={() => validate.mutate()}>
-          <i class={`ti ${validate.loading() ? "ti-loader-2 animate-spin" : "ti-shield-check"}`} aria-hidden="true" /> Validate
+        <button type="button" class="btn-secondary btn-sm" disabled={validating()} onClick={() => void runValidation(source(), true)}>
+          <i class={`ti ${validating() ? "ti-loader-2 animate-spin" : "ti-shield-check"}`} aria-hidden="true" /> Validate
         </button>
         <div class="flex items-center gap-2">
           <button type="button" class="btn-simple btn-sm" onClick={props.close}>
@@ -233,6 +358,51 @@ function WorkflowEditor(props: {
             <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
             {props.workflow ? "Save version" : "Create workflow"}
           </button>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
+  );
+}
+
+function WorkflowVersionViewer(props: {
+  workflow: MailWorkflow;
+  version: MailWorkflowVersion;
+  close: () => void;
+  restoring: boolean;
+  restore: () => void;
+}) {
+  return (
+    <PanelDialog>
+      <PanelDialog.Header
+        title={props.version.identity}
+        subtitle={`Immutable source · ${props.version.sourceHash}`}
+        icon="ti ti-history"
+        close={props.close}
+      />
+      <PanelDialog.Body>
+        <PanelDialog.Section title="Exact YAML source" subtitle="Comments and formatting are preserved byte-for-byte." icon="ti ti-code">
+          <CodeDisplay code={props.version.source} language="text" title={props.version.identity} />
+        </PanelDialog.Section>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        <span class="flex items-center gap-2">
+          <Show when={props.version.id === props.workflow.activeVersionId}>
+            <span class="badge badge-success">Active</span>
+          </Show>
+          <Show when={props.version.id === props.workflow.currentVersionId}>
+            <span class="badge">Current</span>
+          </Show>
+        </span>
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-simple btn-sm" onClick={props.close}>
+            Close
+          </button>
+          <Show when={props.version.id !== props.workflow.currentVersionId}>
+            <button type="button" class="btn-primary btn-sm" disabled={props.restoring} onClick={props.restore}>
+              <i class={`ti ${props.restoring ? "ti-loader-2 animate-spin" : "ti-history"}`} aria-hidden="true" />
+              Restore as new version
+            </button>
+          </Show>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -314,6 +484,51 @@ export default function MailWorkflowSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
 
+  const restore = mutations.create<
+    { workflow: MailWorkflowDetail; close: () => void } | null,
+    { workflow: MailWorkflow; version: MailWorkflowVersion; close: () => void }
+  >({
+    mutation: async ({ workflow, version, close }) => {
+      const confirmed = await prompts.confirm(
+        `Restore ${version.identity} as a new inactive version? The historical version remains unchanged.`,
+        {
+          title: "Restore workflow version",
+          confirmText: "Restore as new version",
+          icon: "ti ti-history",
+        },
+      );
+      if (!confirmed) return null;
+      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].versions[":versionId"].restore.$post({
+        param: { mailboxId: props.mailboxId, workflowId: workflow.id, versionId: version.id },
+        json: { expectedCurrentVersionId: workflow.currentVersionId },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to restore workflow version"));
+      return { workflow: await response.json(), close };
+    },
+    onSuccess: (result) => {
+      if (!result) return;
+      replaceWorkflow(result.workflow);
+      result.close();
+      toast.success("Historical source restored as a new version");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const openVersion = async (workflow: MailWorkflow, version: MailWorkflowVersion) => {
+    await dialogCore.open<void>(
+      (close) => (
+        <WorkflowVersionViewer
+          workflow={workflow}
+          version={version}
+          close={() => close()}
+          restoring={restore.loading()}
+          restore={() => restore.mutate({ workflow, version, close: () => close() })}
+        />
+      ),
+      panelDialogWorkspaceOptions,
+    );
+  };
+
   const toggleVersions = async (workflow: MailWorkflow) => {
     if (expandedWorkflowId() === workflow.id) return setExpandedWorkflowId(null);
     setExpandedWorkflowId(workflow.id);
@@ -336,6 +551,13 @@ export default function MailWorkflowSettings(props: {
           <i class="ti ti-plus" aria-hidden="true" /> New workflow
         </button>
       </div>
+      <p class="text-xs text-dimmed">
+        Runtime history, cancellation, and effect resolution live in{" "}
+        <a class="link" href="/admin/observability/workflows">
+          Admin Observability
+        </a>
+        .
+      </p>
       <Show
         when={workflows().length > 0}
         fallback={
@@ -402,6 +624,9 @@ export default function MailWorkflowSettings(props: {
                         <Show when={version.id === workflow.activeVersionId}>
                           <span class="badge badge-success">Active</span>
                         </Show>
+                        <button type="button" class="btn-simple btn-xs" onClick={() => void openVersion(workflow, version)}>
+                          View
+                        </button>
                       </div>
                     )}
                   </For>

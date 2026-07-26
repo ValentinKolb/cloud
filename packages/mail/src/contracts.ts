@@ -1,6 +1,7 @@
 import type {
   WorkflowDiagnostic as KernelWorkflowDiagnostic,
   WorkflowBoundPlan,
+  WorkflowCompletionItem,
   WorkflowIr,
   WorkflowJsonValue,
 } from "@valentinkolb/cloud/workflows";
@@ -1479,6 +1480,18 @@ export const workflowJsonValueSchema = z
 export const validateWorkflowInputSchema = z.object({ source: workflowSourceSchema }).strict();
 export type ValidateWorkflowInput = z.infer<typeof validateWorkflowInputSchema>;
 
+export const autocompleteWorkflowInputSchema = z
+  .object({
+    source: z.string().max(200_000),
+    caret: z.number().int().nonnegative().max(200_000),
+  })
+  .strict()
+  .refine((input) => input.caret <= input.source.length, {
+    message: "Caret must be inside workflow source",
+    path: ["caret"],
+  });
+export type AutocompleteWorkflowInput = z.infer<typeof autocompleteWorkflowInputSchema>;
+
 export const createWorkflowInputSchema = z
   .object({
     name: z.string().trim().min(1).max(160),
@@ -1498,6 +1511,23 @@ export const createWorkflowVersionInputSchema = z
   .strict();
 export type CreateWorkflowVersionInput = z.infer<typeof createWorkflowVersionInputSchema>;
 
+export const updateWorkflowMetadataInputSchema = z
+  .object({
+    expectedUpdatedAt: z.string().datetime(),
+    name: z.string().trim().min(1).max(160).optional(),
+    description: z.string().trim().max(2_000).nullable().optional(),
+    priority: z.number().int().min(-1_000).max(1_000).optional(),
+  })
+  .strict()
+  .refine(
+    (input) => input.name !== undefined || input.description !== undefined || input.priority !== undefined,
+    "At least one workflow metadata field must change",
+  );
+export type UpdateWorkflowMetadataInput = z.infer<typeof updateWorkflowMetadataInputSchema>;
+
+export const restoreWorkflowVersionInputSchema = z.object({ expectedCurrentVersionId: workflowVersionIdSchema }).strict();
+export type RestoreWorkflowVersionInput = z.infer<typeof restoreWorkflowVersionInputSchema>;
+
 export const activateWorkflowInputSchema = z.object({ expectedVersionId: workflowVersionIdSchema }).strict();
 export type ActivateWorkflowInput = z.infer<typeof activateWorkflowInputSchema>;
 
@@ -1514,6 +1544,11 @@ export type WorkflowValidation = {
   ir: WorkflowIr | null;
   boundPlan: WorkflowBoundPlan | null;
   diagnostics: WorkflowDiagnostic[];
+};
+
+export type WorkflowAutocomplete = {
+  diagnostics: WorkflowDiagnostic[];
+  items: WorkflowCompletionItem[];
 };
 
 export type MailWorkflow = {

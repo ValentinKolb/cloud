@@ -21,6 +21,7 @@ import {
   messageStateChangeSchema,
   parseConnectorCapabilities,
   reassignConversationMessageInputSchema,
+  restoreWorkflowVersionInputSchema,
   scheduledSendPageSchema,
   splitConversationInputSchema,
   updateAutomaticReplyConfigurationSchema,
@@ -28,6 +29,7 @@ import {
   updateConversationCommentSchema,
   updateLocalTagSchema,
   updateSenderIdentityTransportInputSchema,
+  updateWorkflowMetadataInputSchema,
   validateWorkflowInputSchema,
 } from "./contracts";
 
@@ -447,6 +449,24 @@ describe("mail workflow contracts", () => {
     expect(activateWorkflowInputSchema.safeParse({ expectedVersionId, enabled: true }).success).toBe(false);
     expect(deactivateWorkflowInputSchema.safeParse({ expectedVersionId }).success).toBe(true);
     expect(deactivateWorkflowInputSchema.safeParse({ expectedVersionId, reason: "legacy" }).success).toBe(false);
+  });
+
+  test("requires optimistic state for metadata updates and restore-as-new", () => {
+    const expectedVersionId = "00000000-0000-4000-8000-000000000001";
+    const expectedUpdatedAt = "2026-07-26T12:00:00.000Z";
+
+    expect(updateWorkflowMetadataInputSchema.parse({ expectedUpdatedAt, name: "Renamed" })).toEqual({
+      expectedUpdatedAt,
+      name: "Renamed",
+    });
+    expect(updateWorkflowMetadataInputSchema.safeParse({ expectedUpdatedAt }).success).toBe(false);
+    expect(updateWorkflowMetadataInputSchema.safeParse({ expectedUpdatedAt, priority: 1_001 }).success).toBe(false);
+    expect(restoreWorkflowVersionInputSchema.parse({ expectedCurrentVersionId: expectedVersionId })).toEqual({
+      expectedCurrentVersionId: expectedVersionId,
+    });
+    expect(restoreWorkflowVersionInputSchema.safeParse({ expectedCurrentVersionId: expectedVersionId, activate: true }).success).toBe(
+      false,
+    );
   });
 
   test("validates provider capability snapshots and defaults legacy quota evidence", () => {

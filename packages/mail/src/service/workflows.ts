@@ -1,5 +1,6 @@
 export {
   activateWorkflow,
+  autocompleteWorkflow,
   createWorkflow,
   createWorkflowVersion,
   deactivateWorkflow,
@@ -7,5 +8,7 @@ export {
   getWorkflowVersion,
   listWorkflows,
   listWorkflowVersions,
+  restoreWorkflowVersion,
+  updateWorkflowMetadata,
   validateWorkflow,
 } from "./workflow-definition-service";

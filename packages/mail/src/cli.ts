@@ -5264,6 +5264,57 @@ export default defineCliCommands({
         }
       },
     }),
+    command("workflow update", {
+      summary: "Update workflow name, description, or priority",
+      args: { workflowId: arg.required({ description: "Workflow id" }) },
+      flags: {
+        ...mailboxFlag,
+        name: flag.string({ description: "New workflow name" }),
+        description: flag.string({ description: "New workflow description" }),
+        clearDescription: flag.boolean({ description: "Remove the workflow description" }),
+        priority: flag.int({ min: -1_000, max: 1_000, description: "New Mail ordering priority" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        if (flags.description !== undefined && flags.clearDescription) {
+          throw new Error("--description and --clear-description are mutually exclusive.");
+        }
+        if (flags.name === undefined && flags.description === undefined && !flags.clearDescription && flags.priority === undefined) {
+          throw new Error("Provide at least one of --name, --description, --clear-description, or --priority.");
+        }
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const current = await readApi<MailWorkflowDetail>(ctx, `/mailboxes/${mailbox.id}/workflows/${args.workflowId}`);
+        const workflow = await readApi<MailWorkflowDetail>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}`,
+          jsonRequest("PATCH", {
+            expectedUpdatedAt: current.updatedAt,
+            ...(flags.name === undefined ? {} : { name: flags.name }),
+            ...(flags.description === undefined && !flags.clearDescription
+              ? {}
+              : { description: flags.clearDescription ? null : flags.description }),
+            ...(flags.priority === undefined ? {} : { priority: flags.priority }),
+          }),
+        );
+        if (printStructured(ctx, workflow)) return;
+        ctx.print(`Updated ${workflow.name} (${workflow.id}).`);
+      },
+    }),
+    command("workflow export", {
+      summary: "Write exact workflow YAML to stdout",
+      args: { workflowId: arg.required({ description: "Workflow id" }) },
+      flags: {
+        ...mailboxFlag,
+        versionId: flag.string({ name: "version-id", description: "Immutable version id; defaults to current" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const version = flags.versionId
+          ? await readApi<MailWorkflowVersion>(ctx, `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${flags.versionId}`)
+          : (await readApi<MailWorkflowDetail>(ctx, `/mailboxes/${mailbox.id}/workflows/${args.workflowId}`)).currentVersion;
+        if (printStructured(ctx, version)) return;
+        ctx.write(version.source);
+      },
+    }),
     command("workflow create", {
       summary: "Create a saved workflow from exact YAML source",
       flags: {
@@ -5366,6 +5417,31 @@ export default defineCliCommands({
           ctx.print(`Version: ${version.id}; source hash: ${version.sourceHash}`);
           ctx.print(version.source);
         }
+      },
+    }),
+    command("workflow version restore", {
+      summary: "Restore historical YAML as a new inactive immutable version",
+      args: {
+        workflowId: arg.required({ description: "Workflow id" }),
+        versionId: arg.required({ description: "Historical immutable version id" }),
+      },
+      flags: {
+        ...mailboxFlag,
+        currentVersionId: flag.string({
+          name: "current-version-id",
+          required: true,
+          description: "Current workflow version id expected before restore",
+        }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const workflow = await readApi<MailWorkflowDetail>(
+          ctx,
+          `/mailboxes/${mailbox.id}/workflows/${args.workflowId}/versions/${args.versionId}/restore`,
+          jsonRequest("POST", { expectedCurrentVersionId: flags.currentVersionId }),
+        );
+        if (printStructured(ctx, workflow)) return;
+        ctx.print(`Restored ${args.versionId} as new current version ${workflow.currentVersion.id}.`);
       },
     }),
     command("workflow activate", {

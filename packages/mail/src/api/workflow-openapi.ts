@@ -7,6 +7,7 @@ import {
   type MailWorkflow,
   type MailWorkflowDetail,
   type MailWorkflowVersion,
+  type WorkflowAutocomplete,
   type WorkflowValidation,
   workflowEffectBudgetSchema,
   workflowJsonValueSchema,
@@ -126,6 +127,18 @@ const workflowDiagnosticSchema = z.object({
   path: z.array(z.union([z.string(), z.number()])),
   location: workflowSourceLocationSchema.optional(),
 });
+const workflowCompletionItemSchema = z.object({
+  label: z.string(),
+  kind: z.enum(["keyword", "source", "field", "literal"]),
+  detail: z.string().optional(),
+  insertText: z.string(),
+  textEdit: z.object({
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+    text: z.string(),
+  }),
+  commitCharacters: z.array(z.string()).optional(),
+});
 const workflowIrShapeSchema = z.object({
   schemaVersion: z.literal(1),
   languageId: z.string(),
@@ -169,6 +182,12 @@ export const workflowValidationSchema = responseSchema<WorkflowValidation>()(
     ir: workflowIrSchema.nullable(),
     boundPlan: workflowBoundPlanSchema.nullable(),
     diagnostics: z.array(workflowDiagnosticSchema),
+  }),
+);
+export const workflowAutocompleteSchema = responseSchema<WorkflowAutocomplete>()(
+  z.object({
+    diagnostics: z.array(workflowDiagnosticSchema),
+    items: z.array(workflowCompletionItemSchema),
   }),
 );
 export const mailWorkflowSchema = responseSchema<MailWorkflow>()(

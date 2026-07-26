@@ -3223,6 +3223,47 @@ steps:
       keyword: Finance
 `;
 
+const workflowVersion = {
+  id: WORKFLOW_VERSION_ID,
+  identity: `${WORKFLOW_ID}:1`,
+  workflowId: WORKFLOW_ID,
+  mailboxId: MAILBOX_ID,
+  source: workflowSource,
+  sourceHash: "a".repeat(64),
+  boundPlan: { languageId: "mail", languageVersion: 1, manifestHash: "b".repeat(64), inputs: {}, triggers: {}, steps: [] },
+  diagnostics: [],
+  effectBudget: {
+    maxTargets: 1,
+    maxMoves: 0,
+    maxCopies: 0,
+    maxSends: 0,
+    maxDrafts: 0,
+    maxFlagChanges: 0,
+    maxNotifications: 0,
+    maxKeywordChanges: 1,
+    maxCollaborationChanges: 0,
+  },
+  languageId: "mail",
+  languageVersion: 1,
+  manifestHash: "b".repeat(64),
+  createdAt: "2026-07-12T00:00:00.000Z",
+};
+
+const workflowDetail = {
+  id: WORKFLOW_ID,
+  mailboxId: MAILBOX_ID,
+  name: "Budgeted workflow",
+  description: null,
+  priority: 100,
+  currentVersionId: WORKFLOW_VERSION_ID,
+  activeVersionId: null,
+  enabled: false,
+  createdAt: "2026-07-12T00:00:00.000Z",
+  updatedAt: "2026-07-12T00:00:01.000Z",
+  currentVersion: workflowVersion,
+  activations: [],
+};
+
 test("workflow validate accepts YAML and sends exact canonical source", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
@@ -3299,6 +3340,120 @@ test("workflow create forwards explicit effect budgets", async () => {
     source: workflowSource,
     effectBudget: { maxTargets: 25, maxMoves: 10, maxKeywordChanges: 20, maxCollaborationChanges: 15 },
   });
+});
+
+test("workflow update reads optimistic state before patching metadata", async () => {
+  const requests: Array<{ method: string; body: unknown }> = [];
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}`) {
+      if (request.method === "GET") return api(workflowDetail);
+      requests.push({ method: request.method, body: await request.json() });
+      return api({ ...workflowDetail, name: "Renamed", description: null, priority: 25 });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "workflow",
+    "update",
+    WORKFLOW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--name",
+    "Renamed",
+    "--clear-description",
+    "--priority",
+    "25",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(requests).toEqual([
+    {
+      method: "PATCH",
+      body: {
+        expectedUpdatedAt: workflowDetail.updatedAt,
+        name: "Renamed",
+        description: null,
+        priority: 25,
+      },
+    },
+  ]);
+});
+
+test("workflow export writes exact YAML bytes and structured versions", async () => {
+  const requestedPaths: string[] = [];
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    requestedPaths.push(url.pathname);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}`) return api(workflowDetail);
+    if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/versions/${WORKFLOW_VERSION_ID}`) {
+      return api(workflowVersion);
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const origin = `http://127.0.0.1:${server.port}`;
+
+  const current = await runCli(origin, ["mail", "workflow", "export", WORKFLOW_ID, "--mailbox", MAILBOX_ID]);
+  const historical = await runCli(origin, [
+    "--json",
+    "mail",
+    "workflow",
+    "export",
+    WORKFLOW_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--version-id",
+    WORKFLOW_VERSION_ID,
+  ]);
+
+  expect(current).toEqual({ exitCode: 0, stdout: workflowSource, stderr: "" });
+  expect(historical.exitCode).toBe(0);
+  expect(historical.stderr).toBe("");
+  expect(JSON.parse(historical.stdout)).toEqual(workflowVersion);
+  expect(requestedPaths).toEqual([
+    `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}`,
+    `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/versions/${WORKFLOW_VERSION_ID}`,
+  ]);
+});
+
+test("workflow version restore forwards the expected current version", async () => {
+  let body: unknown;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (
+      request.method === "POST" &&
+      url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/workflows/${WORKFLOW_ID}/versions/${WORKFLOW_VERSION_ID}/restore`
+    ) {
+      body = await request.json();
+      return api({ ...workflowDetail, currentVersion: { ...workflowVersion, id: "00000000-0000-4000-8000-000000000015" } });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "workflow",
+    "version",
+    "restore",
+    WORKFLOW_ID,
+    WORKFLOW_VERSION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+    "--current-version-id",
+    WORKFLOW_VERSION_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(body).toEqual({ expectedCurrentVersionId: WORKFLOW_VERSION_ID });
 });
 
 test("provider discovery exposes mailbox-scoped autoconfiguration candidates", async () => {

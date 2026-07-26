@@ -1,6 +1,6 @@
 import { type SQL, sql } from "bun";
-import type { PaginationParams, UserProvider } from "../../contracts/shared";
-import { err, fail, ok, type PageParams, type Paginated, paginate, type Result, type ServiceError } from "../../server/services";
+import type { UserProvider } from "../../contracts/shared";
+import { err, fail, type PageParams, type Paginated, paginate, type Result, type ServiceError } from "../../server/services";
 import { logger } from "../logging";
 import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "../postgres";
 
@@ -252,6 +252,7 @@ const recordResult = async <T>(params: {
   actor?: AuditActor | null;
   target?: AuditTarget | null;
   metadata?: Record<string, unknown> | null;
+  requestId?: string | null;
   result: Result<T>;
   db?: AuditDb;
 }): Promise<Result<T>> => {
@@ -261,6 +262,7 @@ const recordResult = async <T>(params: {
       actor: params.actor,
       target: params.target,
       metadata: params.metadata,
+      requestId: params.requestId,
       outcome: params.result.ok ? "allowed" : outcomeForError(params.result.error),
       reason: params.result.ok ? null : params.result.error.message,
       error: params.result.ok ? null : params.result.error,
@@ -280,6 +282,7 @@ const recordResultAfterSideEffect = async <T>(params: {
   actor?: AuditActor | null;
   target?: AuditTarget | null;
   metadata?: Record<string, unknown> | null;
+  requestId?: string | null;
   result: Result<T>;
 }): Promise<Result<T>> => {
   try {
