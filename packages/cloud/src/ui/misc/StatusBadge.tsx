@@ -57,7 +57,7 @@ const TONES: Record<StatusTone, { chip: string; text: string; dot: string; icon:
     chip: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
     text: "text-blue-700 dark:text-blue-300",
     dot: "bg-blue-500",
-    icon: "ti ti-loader",
+    icon: "ti ti-loader-2",
   },
   neutral: {
     chip: "bg-[var(--ui-surface-muted)] text-secondary",
@@ -70,13 +70,19 @@ const TONES: Record<StatusTone, { chip: string; text: string; dot: string; icon:
 export default function StatusBadge(props: StatusBadgeProps) {
   const tone = () => TONES[props.tone];
   const icon = () => (props.icon === null ? null : (props.icon ?? tone().icon));
+  const runningAnimation = () => (props.tone === "running" ? "motion-safe:animate-spin" : "");
 
   return (
     <Show
       when={props.variant !== "dot"}
       fallback={
         <span class={`inline-flex items-center gap-1.5 text-[10px] text-secondary ${props.class ?? ""}`} title={props.title}>
-          <span class={`inline-block size-1.5 shrink-0 rounded-full ${tone().dot}`} aria-hidden="true" />
+          <span
+            class={`inline-block size-1.5 shrink-0 rounded-full ${tone().dot} ${
+              props.tone === "running" ? "motion-safe:animate-pulse" : ""
+            }`}
+            aria-hidden="true"
+          />
           {props.label}
         </span>
       }
@@ -87,7 +93,7 @@ export default function StatusBadge(props: StatusBadgeProps) {
         } ${props.class ?? ""}`}
         title={props.title}
       >
-        <Show when={icon()}>{(glyph) => <i class={`${glyph()} text-[11px]`} aria-hidden="true" />}</Show>
+        <Show when={icon()}>{(glyph) => <i class={`${glyph()} text-[11px] ${runningAnimation()}`} aria-hidden="true" />}</Show>
         {props.label}
       </span>
     </Show>
