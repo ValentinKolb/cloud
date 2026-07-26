@@ -6,7 +6,7 @@ import {
   stopRuntimeJobs,
   stopRuntimeResources,
 } from "@valentinkolb/cloud/services";
-import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services/postgres";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
@@ -571,7 +571,19 @@ export const ingestEnvelope = async (params: {
     });
     if (!snapshot) throw new Error("Received message workflow snapshot could not be loaded");
     const occurredAt = params.message.internalDate.toISOString();
-    const activations = await params.db<{ workflow_id: string; trigger_config: Record<string, WorkflowJsonValue> | string }[]>`
+    const workflowIds = await params.db<{ workflow_id: string }[]>`
+      SELECT workflow.id::text AS workflow_id
+      FROM mail.workflow_profile profile
+      JOIN workflows.workflow workflow ON workflow.id = profile.id
+      WHERE profile.mailbox_id = ${params.mailboxId}::uuid
+        AND profile.enabled
+        AND workflow.active_version_id IS NOT NULL
+      ORDER BY profile.priority, workflow.id
+    `;
+    const activations =
+      workflowIds.length === 0
+        ? []
+        : await params.db<{ workflow_id: string; trigger_config: Record<string, WorkflowJsonValue> | string }[]>`
       SELECT
         activation.workflow_id::text,
         activation.config AS trigger_config
@@ -582,10 +594,13 @@ export const ingestEnvelope = async (params: {
       JOIN mail.workflow_profile profile
         ON profile.id = workflow.id
        AND profile.enabled
-      WHERE profile.mailbox_id = ${params.mailboxId}::uuid
+      WHERE activation.workflow_id = ANY(${toPgUuidArray(workflowIds.map((row) => row.workflow_id))}::uuid[])
+        AND profile.mailbox_id = ${params.mailboxId}::uuid
         AND activation.event_type = ${MAIL_WORKFLOW_EVENT.messageReceived}
         AND activation.enabled
-      ORDER BY profile.priority, activation.workflow_id, activation.id
+      ORDER BY
+        array_position(${toPgUuidArray(workflowIds.map((row) => row.workflow_id))}::uuid[], activation.workflow_id),
+        activation.id
     `;
     const triggerValues = {
       message: snapshot.source.message,
