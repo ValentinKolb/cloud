@@ -384,10 +384,12 @@ export default function MailComposer(props: {
       return null;
     }
     let currentDraft = draft();
+    const isExistingDraft = Boolean(currentDraft);
+    let submittedContent: DraftEditableContent | null = null;
+    let serverContent: DraftEditableContent | null = null;
     if (!currentDraft) {
-      setStatus("preparing");
       setStatusMessage("Preparing draft...");
-      const submittedContent = content();
+      submittedContent = content();
       const response = await apiClient.mailboxes[":mailboxId"].drafts.$post({
         param: { mailboxId: props.mailboxId },
         json: {
@@ -400,7 +402,6 @@ export default function MailComposer(props: {
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to create draft"));
       currentDraft = await response.json();
-      setDraft(currentDraft);
       const currentContent = content();
       if (JSON.stringify(currentContent) === JSON.stringify(submittedContent)) {
         applyDraftContent(currentDraft);
@@ -414,7 +415,7 @@ export default function MailComposer(props: {
           setBody([currentContent.body.trimEnd(), signature].filter(Boolean).join("\n\n"));
         }
       }
-      const serverContent: DraftEditableContent = {
+      serverContent = {
         senderIdentityId: currentDraft.senderIdentityId,
         to: currentDraft.to,
         cc: currentDraft.cc,
@@ -426,19 +427,22 @@ export default function MailComposer(props: {
         requestDeliveryReceipt: currentDraft.requestDeliveryReceipt,
         requestReadReceipt: currentDraft.requestReadReceipt,
       };
+    }
+    if (disposed) return null;
+    const acquired = await acquireLease(currentDraft);
+    if (disposed) return null;
+    if (submittedContent && serverContent) {
       promoteMailDraftJournal({
         storage: localStorage,
         pendingKey,
         draftKey: journalKey(props.mailboxId, currentDraft.id),
         revision: currentDraft.revision,
-        fallbackContent: content(),
+        submittedContent,
+        currentContent: content(),
         serverContent,
       });
     }
-    if (disposed) return null;
     const recovered = recoverJournal(journalKey(props.mailboxId, currentDraft.id), currentDraft.revision);
-    const acquired = await acquireLease(currentDraft);
-    if (disposed) return null;
     lastSavedContent = JSON.stringify({
       senderIdentityId: currentDraft.senderIdentityId,
       to: currentDraft.to,
@@ -447,12 +451,18 @@ export default function MailComposer(props: {
       subject: currentDraft.subject,
       body: currentDraft.body,
       format: currentDraft.format,
+      priority: currentDraft.priority,
+      requestDeliveryReceipt: currentDraft.requestDeliveryReceipt,
+      requestReadReceipt: currentDraft.requestReadReceipt,
     });
+    setDraft(currentDraft);
     setInitialized(true);
     if (acquired) {
       setStatus("saved");
       setStatusMessage("");
-      if (recovered) toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" });
+      if (recovered && isExistingDraft) {
+        toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" });
+      }
     }
     return currentDraft;
   };
@@ -949,25 +959,37 @@ export default function MailComposer(props: {
       { title: "Delivery options", icon: "ti ti-adjustments", size: "large" },
     );
 
-  const discard = async () => {
-    if (uploads().length > 0) return await prompts.error("Cancel attachment uploads before discarding this draft.");
-    const currentDraft = draft();
-    if (!currentDraft) return props.onClose?.();
-    const confirmed = await prompts.confirm("This removes the shared draft for everyone with mailbox access.", {
-      title: "Discard draft?",
-      confirmText: "Discard draft",
-      variant: "danger",
-    });
-    if (!confirmed) return;
-    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].discard.$post({
-      param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-      json: { expectedRevision: currentDraft.revision },
-    });
-    if (!response.ok) return prompts.error(await readApiError(response, "Failed to discard draft"));
-    localStorage.removeItem(journalKey(props.mailboxId, currentDraft.id));
-    props.onClose?.();
-    if (props.surface === "full") navigateTo(props.returnHref);
-  };
+  const discard = mutations.create<boolean, void>({
+    mutation: async () => {
+      if (uploads().length > 0) throw new Error("Cancel attachment uploads before discarding this draft.");
+      if (!draft()) return true;
+      const confirmed = await prompts.confirm("This removes the shared draft for everyone with mailbox access.", {
+        title: "Discard draft?",
+        confirmText: "Discard draft",
+        variant: "danger",
+      });
+      if (!confirmed) return false;
+      stopScheduledSave();
+      await serializeDraftMutation(async () => {
+        const currentDraft = draft();
+        if (!currentDraft) return;
+        const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].discard.$post({
+          param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
+          json: { expectedRevision: currentDraft.revision },
+        });
+        if (!response.ok) throw new Error(await readApiError(response, "Failed to discard draft"));
+        localStorage.removeItem(journalKey(props.mailboxId, currentDraft.id));
+        localStorage.removeItem(pendingKey);
+      });
+      return true;
+    },
+    onSuccess: (discarded) => {
+      if (!discarded) return;
+      props.onClose?.();
+      if (props.surface === "full") navigateTo(props.returnHref);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
   const closeComposer = async () => {
     if (handoffInProgress()) return;
@@ -1532,8 +1554,14 @@ export default function MailComposer(props: {
         </Tooltip>
         <span class="flex-1" />
         <Tooltip content="Discard draft">
-          <button type="button" class="icon-btn" aria-label="Discard draft" disabled={!draft() || !editable()} onClick={discard}>
-            <i class="ti ti-trash" aria-hidden="true" />
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Discard draft"
+            disabled={!draft() || !editable() || discard.loading()}
+            onClick={() => discard.mutate()}
+          >
+            <i class={`ti ${discard.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" />
           </button>
         </Tooltip>
       </footer>

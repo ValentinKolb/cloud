@@ -26,15 +26,16 @@ export const promoteMailDraftJournal = (config: {
   pendingKey: string;
   draftKey: string;
   revision: number;
-  fallbackContent: DraftEditableContent;
+  submittedContent: DraftEditableContent;
+  currentContent: DraftEditableContent;
   serverContent: DraftEditableContent;
 }): boolean => {
-  const pending = readMailDraftJournal(config.storage, config.pendingKey);
-  const content = pending?.content ?? config.fallbackContent;
+  const content = config.currentContent;
+  const changedSinceSubmission = JSON.stringify(content) !== JSON.stringify(config.submittedContent);
   const differsFromServer = JSON.stringify(content) !== JSON.stringify(config.serverContent);
-  if (differsFromServer) {
+  if (changedSinceSubmission && differsFromServer) {
     config.storage.setItem(config.draftKey, JSON.stringify({ revision: config.revision, content } satisfies MailDraftJournal));
   }
   config.storage.removeItem(config.pendingKey);
-  return differsFromServer;
+  return changedSinceSubmission && differsFromServer;
 };

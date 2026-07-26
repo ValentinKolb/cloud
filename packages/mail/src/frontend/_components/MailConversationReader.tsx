@@ -413,19 +413,22 @@ export default function MailConversationReader(props: {
   return (
     <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface)]" data-mail-print-root>
       <Show when={props.error}>
-        {(error) => (
-          <Placeholder
-            state="error"
-            variant="panel"
-            title="Could not load this message"
-            description={error()}
-            action={
-              <button type="button" class="btn-secondary btn-sm" onClick={() => void props.onReconcile()}>
-                <i class="ti ti-refresh" aria-hidden="true" /> Retry
-              </button>
-            }
-          />
-        )}
+        {(error) => {
+          const message = error();
+          return (
+            <Placeholder
+              state="error"
+              variant="panel"
+              title="Could not load this message"
+              description={message}
+              action={
+                <button type="button" class="btn-secondary btn-sm" onClick={() => void props.onReconcile()}>
+                  <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                </button>
+              }
+            />
+          );
+        }}
       </Show>
       <Show when={!props.error && props.totalMessageCount > props.messages.length}>
         <div class="info-block-warning mx-3 mt-3 text-xs" role="status">
@@ -724,35 +727,38 @@ export default function MailConversationReader(props: {
         </div>
 
         <Show when={compose()}>
-          {(active) => (
-            <div class="flex max-h-[52%] min-h-72 shrink-0 overflow-hidden bg-[var(--ui-surface)] shadow-[0_-8px_24px_rgb(0_0_0/0.06)]">
-              <MailComposer
-                mailboxId={props.mailboxId}
-                identities={props.identities}
-                initialDraft={active().initialDraft}
-                surface="compact"
-                returnHref={props.requestUrl}
-                dateConfig={props.dateConfig}
-                canShareAttachments={props.canAdmin}
-                onClose={closeComposer}
-                seed={
-                  active().initialDraft
-                    ? undefined
-                    : {
-                        intent: active().intent,
-                        senderIdentityId: deriveReplyIdentityId(active().message, props.identities),
-                        conversationId: props.selectedConversationId,
-                        sourceMessageId: active().message.id,
-                        to: composerRecipients(active(), props.identities).to,
-                        cc: composerRecipients(active(), props.identities).cc,
-                        subject: active().intent === "forward" ? forwardSubject(props.subject) : replySubject(props.subject),
-                        body: active().quotedBody ?? "",
-                        sourceAttachmentCount: active().intent === "forward" ? active().message.attachments.length : 0,
-                      }
-                }
-              />
-            </div>
-          )}
+          {(active) => {
+            const request = active();
+            const recipients = request.initialDraft ? null : composerRecipients(request, props.identities);
+            const seed = request.initialDraft
+              ? undefined
+              : {
+                  intent: request.intent,
+                  senderIdentityId: deriveReplyIdentityId(request.message, props.identities),
+                  conversationId: props.selectedConversationId,
+                  sourceMessageId: request.message.id,
+                  to: recipients?.to ?? [],
+                  cc: recipients?.cc ?? [],
+                  subject: request.intent === "forward" ? forwardSubject(props.subject) : replySubject(props.subject),
+                  body: request.quotedBody ?? "",
+                  sourceAttachmentCount: request.intent === "forward" ? request.message.attachments.length : 0,
+                };
+            return (
+              <div class="flex max-h-[52%] min-h-72 shrink-0 overflow-hidden bg-[var(--ui-surface)] shadow-[0_-8px_24px_rgb(0_0_0/0.06)]">
+                <MailComposer
+                  mailboxId={props.mailboxId}
+                  identities={props.identities}
+                  initialDraft={request.initialDraft}
+                  surface="compact"
+                  returnHref={props.requestUrl}
+                  dateConfig={props.dateConfig}
+                  canShareAttachments={props.canAdmin}
+                  onClose={closeComposer}
+                  seed={seed}
+                />
+              </div>
+            );
+          }}
         </Show>
       </Show>
     </div>

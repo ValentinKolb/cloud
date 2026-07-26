@@ -25,20 +25,24 @@ const storage = () => {
 };
 
 describe("mail draft journals", () => {
-  test("promotes newer pending content to the canonical draft key", () => {
+  test("promotes current content to the canonical draft key", () => {
     const target = storage();
-    target.setItem("pending", JSON.stringify({ revision: 0, content: content("newer") }));
+    target.setItem("pending", JSON.stringify({ revision: 0, content: content("edited before lease") }));
     expect(
       promoteMailDraftJournal({
         storage: target,
         pendingKey: "pending",
         draftKey: "draft",
         revision: 3,
-        fallbackContent: content("fallback"),
-        serverContent: content("submitted"),
+        submittedContent: content("submitted"),
+        currentContent: content("edited after lease\n\nSignature"),
+        serverContent: content("submitted\n\nSignature"),
       }),
     ).toBe(true);
-    expect(readMailDraftJournal(target, "draft")).toEqual({ revision: 3, content: content("newer") });
+    expect(readMailDraftJournal(target, "draft")).toEqual({
+      revision: 3,
+      content: content("edited after lease\n\nSignature"),
+    });
     expect(target.getItem("pending")).toBeNull();
   });
 
@@ -50,11 +54,30 @@ describe("mail draft journals", () => {
         pendingKey: "pending",
         draftKey: "draft",
         revision: 1,
-        fallbackContent: content("same"),
+        submittedContent: content("same"),
+        currentContent: content("same"),
         serverContent: content("same"),
       }),
     ).toBe(false);
     expect(target.getItem("draft")).toBeNull();
+  });
+
+  test("keeps server enrichment when pending content matches the submitted draft", () => {
+    const target = storage();
+    target.setItem("pending", JSON.stringify({ revision: 0, content: content("submitted") }));
+    expect(
+      promoteMailDraftJournal({
+        storage: target,
+        pendingKey: "pending",
+        draftKey: "draft",
+        revision: 2,
+        submittedContent: content("submitted"),
+        currentContent: content("submitted"),
+        serverContent: content("submitted\n\nSignature"),
+      }),
+    ).toBe(false);
+    expect(target.getItem("draft")).toBeNull();
+    expect(target.getItem("pending")).toBeNull();
   });
 
   test("removes malformed journals instead of exposing partial content", () => {
