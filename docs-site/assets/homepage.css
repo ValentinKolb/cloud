@@ -61,8 +61,8 @@
   --c-sunken: #f3f1ec;
   --c-ink: #17171b;
   --c-ink-2: #45454d;
-  --c-muted: #74747d;
-  --c-faint: #9a9aa2;
+  --c-muted: #61616a;
+  --c-faint: #6a6a73;
   --c-line: #e4e0d9;
   --c-line-2: #d2cec5;
   --c-accent: #1b5fd9;
@@ -85,13 +85,13 @@
   --c-sunken: #121419;
   --c-ink: #f1f2f5;
   --c-ink-2: #c2c5cd;
-  --c-muted: #8b909a;
-  --c-faint: #6a6f79;
+  --c-muted: #949aa4;
+  --c-faint: #838994;
   --c-line: #25282f;
   --c-line-2: #343841;
   --c-accent: #74abff;
   --c-accent-ink: #9cc4ff;
-  --c-accent-soft: #14243b;
+  --c-accent-soft: #172c4b;
   --c-live: #4cc38a;
   --c-live-soft: #10261c;
   --c-bevel: inset 0 1px 0 rgb(255 255 255 / 0.045);
@@ -273,6 +273,20 @@
   margin-inline: auto;
 }
 
+/* Grid children default to min-width:auto, which lets a wide artifact push the
+   page past the viewport. Every grid track here is allowed to shrink. */
+.cloud-hero-grid > *,
+.cloud-head > *,
+.cloud-dayone-grid > *,
+.cloud-apps > *,
+.cloud-path > *,
+.cloud-boundary-grid > *,
+.cloud-contract-grid > *,
+.cloud-contract-stack > *,
+.cloud-cta-grid > * {
+  min-width: 0;
+}
+
 .cloud-home section {
   padding-block: clamp(4rem, 7vw, 6.5rem);
 }
@@ -291,15 +305,15 @@
 }
 
 .cloud-home h1 {
-  max-width: 16ch;
-  font-size: clamp(2.35rem, 4.1vw, 3.5rem);
-  line-height: 1.06;
+  max-width: 17ch;
+  font-size: clamp(1.95rem, 3.7vw, 3.15rem);
+  line-height: 1.09;
 }
 
 .cloud-home h2 {
   max-width: 24ch;
-  font-size: clamp(1.65rem, 2.4vw, 2.15rem);
-  line-height: 1.14;
+  font-size: clamp(1.55rem, 2.4vw, 2.15rem);
+  line-height: 1.15;
 }
 
 .cloud-home h3 {
@@ -317,9 +331,9 @@
   margin: 0;
 }
 
-.cloud-lead {
+.cloud-home .cloud-lead {
   max-width: 46ch;
-  margin-top: 1.4rem;
+  margin-top: 1.75rem;
   color: var(--c-ink-2);
   font-size: 1.08rem;
   line-height: 1.62;
@@ -474,7 +488,22 @@
 
 /* route table ------------------------------------------------------------- */
 
+.cloud-routes table,
+.cloud-routes thead,
+.cloud-routes tbody,
+.cloud-routes tr,
+.cloud-routes th,
+.cloud-routes td {
+  border: 0;
+  background: transparent;
+}
+
+.cloud-table-scroll {
+  overflow-x: auto;
+}
+
 .cloud-routes table {
+  display: table;
   width: 100%;
   margin: 0;
   border-collapse: collapse;
@@ -513,11 +542,21 @@
   color: var(--c-accent-ink);
 }
 
+/* The note column absorbs the slack so every row band reaches the panel edge. */
 .cloud-row-tag {
-  width: 0;
-  padding-left: 0 !important;
+  width: auto;
+  padding-left: 0.85rem !important;
   color: var(--c-accent-ink) !important;
   font-size: 0.72rem;
+}
+
+.cloud-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .cloud-artifact-foot {
@@ -557,7 +596,7 @@
 }
 
 .cloud-stack span + span::before {
-  margin-right: 1.15rem;
+  margin-right: 0.55rem;
   color: var(--c-line-2);
   content: "·";
 }
@@ -602,10 +641,14 @@
 
 .cloud-apps li {
   display: grid;
-  padding: 0.5rem 0;
-  gap: 0.15rem 0.85rem;
+  padding: 0.4rem 0;
+  gap: 0.15rem 1rem;
   align-items: baseline;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.cloud-apps li span {
+  grid-column: 1 / -1;
 }
 
 .cloud-apps li b {
@@ -628,7 +671,7 @@
 
 @media (min-width: 34rem) {
   .cloud-apps li {
-    grid-template-columns: 7.5rem 6rem minmax(0, 1fr);
+    grid-template-columns: 6.5rem 5.5rem minmax(0, 1fr);
   }
 
   .cloud-apps li span {
@@ -689,9 +732,19 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1.75rem;
   }
+
+  /* The steps are a sequence, so the gutter says so. */
+  .cloud-step + .cloud-step h3::before {
+    position: absolute;
+    left: -1.2rem;
+    color: var(--c-faint);
+    font-weight: 400;
+    content: "→";
+  }
 }
 
 .cloud-step {
+  position: relative;
   display: grid;
   align-content: start;
   gap: 0.85rem;
@@ -893,8 +946,10 @@
   line-height: 1.6;
 }
 
+/* Two tones only: keywords carry the accent, values carry the ink, the rest
+   recedes. Green stays reserved for live runtime state. */
 .cloud-code code {
-  color: var(--c-ink-2);
+  color: var(--c-muted);
   font-family: var(--c-mono);
 }
 
@@ -904,7 +959,7 @@
 }
 
 .cloud-code u {
-  color: var(--c-live);
+  color: var(--c-ink);
   text-decoration: none;
 }
 
@@ -945,7 +1000,7 @@
   }
 
   .cloud-cta-grid h2 {
-    max-width: 15ch;
+    max-width: 19ch;
   }
 }
 
@@ -958,16 +1013,37 @@
 
 @media (max-width: 33.99rem) {
   .cloud-artifact {
-    font-size: 0.735rem;
+    font-size: 0.7rem;
   }
 
   .cloud-routes td,
   .cloud-routes th {
-    padding-inline: 0.7rem;
+    padding-inline: 0.55rem;
+  }
+
+  .cloud-row-tag {
+    padding-left: 0.55rem !important;
   }
 
   .cloud-routes td:nth-child(2) {
     color: var(--c-muted);
+  }
+
+  /* Instance counts are the first thing to go; the "your app" marker is the
+     point of the table and stays. */
+  .cloud-routes th:nth-child(3),
+  .cloud-routes td:nth-child(3) {
+    display: none;
+  }
+
+  /* The caption note has nowhere to go at this width. */
+  .cloud-artifact-note {
+    display: none;
+  }
+
+  .cloud-actions .cloud-btn {
+    flex: 1 0 100%;
+    justify-content: center;
   }
 }
 

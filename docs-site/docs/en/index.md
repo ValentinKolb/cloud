@@ -24,16 +24,18 @@ updated: 2026-07-26
       </div>
       <figure class="cloud-artifact cloud-routes">
         <figcaption><span class="cloud-artifact-title">gateway route table</span><span class="cloud-dot" aria-hidden="true"></span><span class="cloud-artifact-note">rebuilt from the registry</span></figcaption>
+        <div class="cloud-table-scroll">
         <table>
-          <thead><tr><th scope="col">prefix</th><th scope="col">upstream</th><th scope="col" class="cloud-num">inst</th></tr></thead>
+          <thead><tr><th scope="col">prefix</th><th scope="col">upstream</th><th scope="col" class="cloud-num">inst</th><th class="cloud-row-tag"><span class="cloud-sr">note</span></th></tr></thead>
           <tbody>
-            <tr><td>/app/mail</td><td>app-mail:3000</td><td class="cloud-num">1</td></tr>
-            <tr><td>/app/notebooks</td><td>app-notebooks:3000</td><td class="cloud-num">3</td></tr>
-            <tr><td>/app/grids</td><td>app-grids:3000</td><td class="cloud-num">1</td></tr>
-            <tr><td>/admin/gateway</td><td>app-gateway-ops:3000</td><td class="cloud-num">1</td></tr>
+            <tr><td>/app/mail</td><td>app-mail:3000</td><td class="cloud-num">1</td><td class="cloud-row-tag"></td></tr>
+            <tr><td>/app/notebooks</td><td>app-notebooks:3000</td><td class="cloud-num">3</td><td class="cloud-row-tag"></td></tr>
+            <tr><td>/app/grids</td><td>app-grids:3000</td><td class="cloud-num">1</td><td class="cloud-row-tag"></td></tr>
+            <tr><td>/admin/gateway</td><td>app-gateway-ops:3000</td><td class="cloud-num">1</td><td class="cloud-row-tag"></td></tr>
             <tr class="cloud-row-yours"><td>/app/inventory</td><td>app-inventory:3000</td><td class="cloud-num">2</td><td class="cloud-row-tag">your app</td></tr>
           </tbody>
         </table>
+        </div>
         <p class="cloud-artifact-foot">Every row is a separate container, started and scaled on its own. The applications that ship with Cloud are rows in the same table as yours.</p>
       </figure>
     </div>
@@ -41,7 +43,7 @@ updated: 2026-07-26
   <section class="cloud-dayone">
     <div class="cloud-shell">
       <div class="cloud-head">
-        <h2>What is already running on day one.</h2>
+        <h2>What already runs on day one.</h2>
         <p>Cloud is not a starter repository. The platform ships with working applications that cover the recurring needs of an organisation, and they use exactly the systems your own application uses.</p>
       </div>
       <div class="cloud-dayone-grid">
@@ -94,7 +96,7 @@ updated: 2026-07-26
               <dd>Postgres with optional app-owned schemas and migrations, Valkey for sessions, registry, cache, and distributed coordination.</dd>
             </div>
             <div>
-              <dt>Work</dt>
+              <dt>Background</dt>
               <dd>Jobs, durable queues, schedulers, topics, rate limits, mutexes, and durable workflows with retry, crash recovery, and effect journals.</dd>
             </div>
             <div>
@@ -119,6 +121,7 @@ updated: 2026-07-26
             <p class="cloud-req-line"><b>GET</b><code>/app/grids/api/records/42</code></p>
             <dl><div><dt>cookie</dt><dd>cloud_session</dd></div><div><dt>upgrade</dt><dd>—</dd></div></dl>
           </div>
+          <p class="cloud-step-note">WebSocket upgrades travel the same path. The gateway proxies both from the same prefix trie.</p>
         </li>
         <li class="cloud-step">
           <h3>Identity resolves</h3>

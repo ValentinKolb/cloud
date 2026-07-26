@@ -38,30 +38,19 @@ does not create a competing identity model.
 
 ## Runtime shape
 
-```txt
-                         HTTPS
-                           |
-                           v
-                    +--------------+
-                    |   Gateway    |  longest-prefix routing
-                    +------+-------+
-                           |
-             +-------------+-------------+
-             |             |             |
-             v             v             v
-        +---------+   +-----------+   +----------+
-        |  core   |   | notebooks |   | your-app |
-        +----+----+   +-----+-----+   +-----+----+
-             |              |               |
-             +--------------+---------------+
-                            |
-                  +---------+---------+
-                  |                   |
-                  v                   v
-             +---------+         +----------+
-             | Valkey  |         | Postgres |
-             +---------+         +----------+
-```
+The gateway holds one in-memory prefix trie, rebuilt from the registry. Nothing
+below it is compiled in:
+
+| Prefix | Upstream | Instances |
+| --- | --- | --- |
+| `/app/mail` | `app-mail:3000` | 1 |
+| `/app/notebooks` | `app-notebooks:3000` | 3 |
+| `/app/grids` | `app-grids:3000` | 1 |
+| `/admin/gateway` | `app-gateway-ops:3000` | 1 |
+| `/app/inventory` | `app-inventory:3000` | 2 |
+
+Every upstream is a separate container that talks to Valkey for shared runtime
+state and, if it owns durable data, to Postgres.
 
 Each app runs in its own container. At startup it publishes a registry entry
 containing its identity, internal base URL, declared routes, navigation
