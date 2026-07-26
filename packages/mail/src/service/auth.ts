@@ -1,5 +1,5 @@
 import type { AccessSubject, PermissionLevel, RequestActor } from "@valentinkolb/cloud/server";
-import { MAIL_APP_ID, MAILBOX_RESOURCE_TYPE } from "../config";
+import { MAIL_APP_ID, MAILBOX_RESOURCE_TYPE } from "../app-identity";
 import type { ActorRef } from "../contracts";
 
 export type MailRequestContext = {

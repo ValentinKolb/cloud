@@ -6,7 +6,7 @@ import type { ConversationView, ConversationWorkStatus } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { type ConversationCursorScope, decodeConversationCursor, encodeConversationCursor } from "./conversation-cursor";
 import { resolveMailExecution } from "./execution";
-import { mailingListMetadata } from "./list-subscriptions";
+import { mailingListMetadata } from "./mailing-list-metadata";
 import { parseMessageProtocolFacts } from "./message-protocol";
 import { type MessageRemoteContent, resolveMessagesRemoteContent } from "./remote-content";
 

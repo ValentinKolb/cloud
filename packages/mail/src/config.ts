@@ -1,13 +1,13 @@
 import { defineApp } from "@valentinkolb/cloud";
+import { MAIL_APP_ID, MAILBOX_RESOURCE_TYPE } from "./app-identity";
 import { NOTIFICATIONS } from "./notifications";
+
+export { MAIL_APP_ID, MAILBOX_RESOURCE_TYPE };
 
 const envString = (key: string): string | undefined => {
   const value = process.env[key]?.trim();
   return value ? value : undefined;
 };
-
-export const MAIL_APP_ID = "mail";
-export const MAILBOX_RESOURCE_TYPE = "mailbox";
 
 export const app = defineApp({
   id: MAIL_APP_ID,
