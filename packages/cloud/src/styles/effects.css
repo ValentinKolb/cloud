@@ -51,9 +51,8 @@
   margin-block: 0.875rem;
 }
 
-.assistant-markdown-block :where(table) {
+.assistant-markdown-block :where(.md-table-wrap) {
   margin-block: 1.125rem;
-  @apply w-full border-collapse text-left text-xs;
 }
 
 .assistant-markdown-block :where(hr) {
@@ -645,8 +644,6 @@
 
 .help-document .md-table-wrap {
   margin-block: 0.875rem 1.5rem;
-  border-radius: var(--ui-radius-control);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-border) 64%, transparent);
 }
 
 .help-document .md-table {
@@ -686,10 +683,6 @@
 
 .help-document .md-table tbody tr:nth-child(even) .md-table-cell {
   background: color-mix(in srgb, var(--ui-surface-subtle) 72%, transparent);
-}
-
-.help-document .md-table tbody tr + tr .md-table-cell {
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ui-border) 42%, transparent);
 }
 
 .help-document .md-table td:first-child .md-table-cell {

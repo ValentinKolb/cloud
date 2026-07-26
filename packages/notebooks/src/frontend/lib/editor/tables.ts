@@ -2,7 +2,7 @@
  * Markdown table widget — renders a `| col | col |` block as a tile-style
  * preview when the cursor is on a different line, mirroring the read-mode
  * HTML produced by the `marked` extension. Same `.md-table-*` classes
- * flow through `cloud/src/styles/utilities-table-tile.css` so the visual
+ * flow through `cloud/src/styles/utilities-markdown-table.css` so the visual
  * is identical in edit and read mode.
  *
  * Editing path:
@@ -258,7 +258,7 @@ const buildLivePreviewDecorations = (state: EditorState, tableNode: { from: numb
 };
 
 /**
- * Tile-style table preview. Click → dispatches cursor to the table's
+ * DataTable-style table preview. Click → dispatches cursor to the table's
  * start (`fromPos`, captured at decoration time) so the source-show
  * range fires and the user can edit inline.
  *
@@ -319,22 +319,21 @@ class TableWidget extends WidgetType {
   }
 
   override get estimatedHeight() {
-    // Per-cell rendered metrics (from `utilities-table-tile.css`):
+    // Per-cell rendered metrics (from `utilities-markdown-table.css`):
     //   - padding: 0.5rem 0.75rem (16px vertical)
-    //   - font-size: 13px, line-height: 1.4 (~18px content)
-    //   → ~34px per single-line cell.
-    // Plus 4px inter-row gap (the `padding-top` selector).
+    //   - font-size: 12px, line-height: 16px
+    //   → 32px per single-line row plus its hairline divider.
     // Plus 16px outer padding on `.cm-table-widget` (0.5rem top +
     //   0.5rem bottom — see the theme rule for why this is padding
     //   not margin: margin would collapse and confuse CM's height
     //   measurement, padding stays inside the border-box).
     //
-    // Formula: (N+1) rows × 34px + N gaps × 4px + 16px container
-    //        ≈ (N+1) × 38 + 16
+    // Formula: (N+1) rows × 33px + 16px container + 2px frame
+    //        ≈ (N+1) × 33 + 18
     //
     // ACCURATE estimate matters MORE than buffer — see history at
     // file top for the click-drift bug this matches.
-    return (this.data.rows.length + 1) * 38 + 16;
+    return (this.data.rows.length + 1) * 33 + 18;
   }
 }
 
@@ -520,7 +519,7 @@ export const tablesExtension = (notebookId: string): Extension => {
   const theme = EditorView.theme({
     ".cm-table-widget": {
       display: "block",
-      // PAD instead of margin. The shared CSS (`utilities-table-tile.css`)
+      // PAD instead of margin. The shared CSS (`utilities-markdown-table.css`)
       // sets `.md-table-wrap { margin-top: 0.5rem; margin-bottom: 0.5rem; }`
       // for breathing room in the read-mode rendering, but inside a CM
       // block-widget that pattern produces a measurement-vs-visual

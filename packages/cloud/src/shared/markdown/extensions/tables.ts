@@ -1,11 +1,11 @@
 /**
- * Tile-style markdown table renderer for `marked`.
+ * Markdown table renderer for `marked`.
  *
- * Emits the three-layer markup that `utilities-table-tile.css` styles:
+ * Emits the three-layer markup that `utilities-markdown-table.css` styles:
  *   <div class="md-table-wrap">      — horizontal scroll
  *     <table class="md-table">       — layout reset
  *       <th|td>
- *         <span class="md-table-cell"> — visible tile
+ *         <span class="md-table-cell"> — content + alignment owner
  *
  * Per-column alignment from `:---:` syntax flows through `token.align`
  * to a `md-align-{left,center,right}` class on each cell.
@@ -61,7 +61,7 @@ const renderCell = (alignCls: string, originalText: string, ctx: EvalContext, ht
   }
   // Error: show the original formula in red + ⚠ icon, hover title
   // carries the full diagnostic. Pattern matches `md-formula-error`
-  // styling in `utilities-table-tile.css`.
+  // styling in `utilities-markdown-table.css`.
   const tooltip = result.suggestion ? `${result.message}\n→ Suggestion: ${result.suggestion}` : result.message;
   return `<td><span class="md-table-cell md-formula-error${alignCls}" title="${escapeHtml(tooltip)}">⚠ ${escapeHtml(originalText)}</span></td>`;
 };

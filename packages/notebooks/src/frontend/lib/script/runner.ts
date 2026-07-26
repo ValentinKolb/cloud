@@ -338,7 +338,7 @@ const buildTable = <Row>(
 const asError = (value: unknown): Error => (value instanceof Error ? value : new Error(String(value)));
 
 /** Append a red error block to the output slot. Format mirrors the
- *  `md-formula-error` styling in `utilities-table-tile.css` for
+ *  `md-formula-error` styling in `utilities-markdown-table.css` for
  *  visual consistency with the formula engine in markdown tables. */
 const renderError = (outputEl: HTMLElement, value: unknown, kind: "parse error" | "runtime error") => {
   const err = asError(value);

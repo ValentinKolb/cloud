@@ -52,7 +52,7 @@ class DataBlockWidget extends WidgetType {
 
   override get estimatedHeight() {
     const rows = Math.max(1, this.body.split("\n").filter((line) => line.trim().length > 0).length);
-    return 42 + rows * 36;
+    return 42 + rows * 33;
   }
 
   override ignoreEvent() {

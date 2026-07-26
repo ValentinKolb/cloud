@@ -1,39 +1,35 @@
-/* Tile-style markdown tables — every cell is a self-contained rounded
-   rectangle on a soft background, with 4px gaps between. Used by both
-   the server-side `marked` renderer and the CodeMirror table widget so
+/* Markdown tables use the same quiet visual language as DataTable: one
+   contained surface, one header band, and hairline row separators. Used by
+   both the server-side `marked` renderer and the CodeMirror table widget so
    read-mode and edit-mode look identical.
 
    Three-layer markup:
      <div class="md-table-wrap">      ← horizontal scroll owner
-       <table class="md-table">       ← layout reset + height-1px chain
+       <table class="md-table">       ← table layout
          <thead><tr><th>
-           <span class="md-table-cell">  ← visible tile (bg + radius)
-   See https://www.notion.so etc — same pattern for the same reason: the
-   inner span ensures uniform border-radius on every cell with no
-   first/last edge cases. */
+           <span class="md-table-cell">  ← content + alignment owner */
 
 .md-table-wrap {
   overflow-x: auto;
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-surface);
 }
 
-/* `height: 1px` is the trick — it gives the table an explicit height
-   reference so children's `height: 100%` resolves. The table grows past
-   1px to fit content; the 1px purely enables percentage children. */
 .md-table {
   width: 100%;
   border-collapse: collapse;
-  height: 1px;
+  margin: 0 !important;
   border: 0;
+  font-size: 0.75rem;
+  line-height: 1rem;
 }
 
-/* `@tailwindcss/typography` (`prose` class) puts a `border-bottom` on
-   `thead` AND every `tbody tr`. The tile look already separates rows
-   visually via the 4px gap + per-cell radius, so we reset all
-   table/row/cell borders to keep the surface clean. Our utility CSS
-   is loaded AFTER the typography plugin in `global.css` → same
-   specificity, later wins. */
+/* `@tailwindcss/typography` adds its own table borders. Reset them before
+   applying the shared DataTable divider roles below. */
 .md-table thead,
 .md-table tbody,
 .md-table thead tr,
@@ -43,72 +39,60 @@
   border: 0;
 }
 
+.md-table thead {
+  background: var(--ui-data-header);
+}
+
+.md-table thead tr {
+  border-bottom: 1px solid var(--ui-data-divider);
+}
+
+.md-table tbody tr:not(:last-child) {
+  border-bottom: 1px solid var(--ui-data-row-divider);
+}
+
 .md-table th,
 .md-table td {
   padding: 0;
-  height: 100%;
   vertical-align: top;
-  /* Per-cell minimum width — the table's own `width: 100%` keeps it
-     fitted to the wrap when content is narrow, but `min-width` here
-     gives every column a readable floor and triggers the wrap div's
-     `overflow-x: auto` once the sum exceeds the available width. */
+  /* The floor keeps columns readable and lets the wrapper own overflow. */
   min-width: 7rem;
 }
 
-/* Gaps via adjacent-sibling padding (NOT border-spacing — that would
-   add outer space and trigger spurious horizontal scroll). */
-.md-table th + th,
-.md-table td + td {
-  padding-left: 4px;
-}
-
-.md-table tbody tr + tr > *,
-.md-table thead + tbody tr:first-child > * {
-  padding-top: 4px;
-}
-
-/* Body cells: filled zinc tiles. They intentionally avoid hairline
-   borders; the fill + crisp inset edge separates cells from the page
-   without reading like a button. */
+/* The inner span remains the alignment and formula-state owner, but no longer
+   draws a separate tile around every cell. */
 .md-table-cell {
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
   gap: 0.35rem;
-  height: 100%;
   box-sizing: border-box;
-  padding: 0.46rem 0.68rem 0.52rem;
+  min-height: 2rem;
+  padding: 0.5rem 0.75rem;
   border: 0;
-  border-radius: 0.5rem;
-  background: color-mix(in oklab, rgb(244 244 245) 78%, white);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.56),
-    inset 0 -1px 0 rgb(24 24 27 / 0.035);
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  color: rgb(24 24 27); /* zinc-900 */
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
 }
 
 .dark .md-table-cell {
-  background: color-mix(in oklab, rgb(24 24 27) 88%, rgb(39 39 42));
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.045),
-    inset 0 -1px 0 rgb(0 0 0 / 0.26);
-  color: rgb(244 244 245); /* zinc-100 */
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
 }
 
-/* Header tiles: one shade darker than body + medium weight. Subtle
-   bg-shift only — no accent line, no caps, no shouting. Headers also
-   get `nowrap` so they don't ever break char-by-char even if the
-   widest body cell still pushes the column past the 7 rem floor. */
+/* Headers inherit the single shared band instead of drawing per-cell fills. */
 .md-table thead .md-table-cell {
-  background: color-mix(in oklab, rgb(244 244 245) 74%, rgb(228 228 231));
-  font-weight: 700;
+  background: transparent;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .dark .md-table thead .md-table-cell {
-  background: color-mix(in oklab, rgb(39 39 42) 88%, rgb(24 24 27));
+  background: transparent;
 }
 
 /* Per-column alignment from `:---:` syntax. Marked / our parser map
@@ -123,18 +107,18 @@
   justify-content: center;
 }
 
-/* "Total" / summary rows — when ≥50 % of a row's formula cells are
-   aggregates (`SUM`, `AVG`, …) the renderer tags the `<tr>` with this
-   class. Body cells in such rows render with bumped weight + a stable
-   tile bg one shade darker than the regular zinc-50 floor, so the
-   summary visually anchors the bottom of the table. */
+/* Summary rows use the same quiet band as a DataTable footer. */
+.md-table tbody tr.md-table-total-row {
+  background: var(--ui-data-header);
+}
+
 .md-table tbody tr.md-table-total-row .md-table-cell {
   font-weight: 600;
-  background: color-mix(in oklab, rgb(244 244 245) 74%, rgb(228 228 231));
+  background: transparent;
 }
 
 .dark .md-table tbody tr.md-table-total-row .md-table-cell {
-  background: color-mix(in oklab, rgb(39 39 42) 88%, rgb(24 24 27));
+  background: transparent;
 }
 
 /* Formula-OK cells: blue text + `ti-math-function` icon prefix so the

@@ -14,7 +14,7 @@ const canonicalSharedStylesheetImports: readonly string[] = [
   "utilities-feedback.css",
   "utilities-detail.css",
   "utilities-data.css",
-  "utilities-table-tile.css",
+  "utilities-markdown-table.css",
   "utilities-script.css",
   "utilities-markdown-editor.css",
   "utilities-completion.css",
