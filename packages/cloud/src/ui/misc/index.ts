@@ -112,6 +112,8 @@ export { default as LinkCard } from "./LinkCard";
 export type { LogTableEntry } from "./LogEntriesTable";
 export { default as LogEntriesTable } from "./LogEntriesTable";
 export { default as MarkdownView } from "./MarkdownView";
+export type { NotFoundStateProps } from "./NotFoundState";
+export { default as NotFoundState } from "./NotFoundState";
 export type { NoticeCardProps, NoticeTone } from "./NoticeCard";
 export { default as NoticeCard } from "./NoticeCard";
 export { Pagination, type PaginationProps } from "./Pagination";

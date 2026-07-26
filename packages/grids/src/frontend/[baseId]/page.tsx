@@ -1,5 +1,6 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { NotFoundState } from "@valentinkolb/cloud/ui";
 import { currentActorUser } from "../../api/permissions";
 import { withInitialGqlResults } from "../../api/workspace-query-preview";
 import { ssr } from "../../config";
@@ -37,11 +38,19 @@ export default ssr<AuthContext>(async (c) => {
   if (loadedState.kind === "redirect") return c.redirect(loadedState.href, 302);
 
   if (loadedState.kind !== "ok") {
+    // A base you may not open is found, just not yours — so no "404" numeral
+    // there. Either way, offer the one place that always works.
+    const denied = loadedState.kind === "accessDenied";
+    if (!denied) c.status(404);
     return () => (
       <Layout c={c} title={loadedState.title}>
-        <div class="paper p-8 max-w-md mx-auto mt-16 text-center text-dimmed">
-          <i class={`ti ${loadedState.kind === "accessDenied" ? "ti-lock" : "ti-alert-circle"} text-sm`} /> {loadedState.message}
-        </div>
+        <NotFoundState
+          code={denied ? undefined : "404"}
+          icon={denied ? "ti ti-lock" : undefined}
+          title={loadedState.message}
+          description={denied ? "Ask a base admin for access, or pick another base." : "This base may have been deleted or renamed."}
+          action={{ label: "All bases", href: "/app/grids", icon: "ti ti-table" }}
+        />
       </Layout>
     );
   }

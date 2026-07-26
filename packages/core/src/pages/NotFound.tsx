@@ -1,4 +1,5 @@
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { NotFoundState } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { coreHelp } from "../help";
 import CoreLayoutHelp from "./CoreLayoutHelp.island";
@@ -9,19 +10,12 @@ export default ssr((c) => {
   return () => (
     <Layout c={c} title="Page Not Found">
       <CoreLayoutHelp documents={coreHelp.manifest} />
-      <div class="max-w-sm mx-auto flex flex-col items-center gap-6 py-16">
-        <div class="text-7xl font-light text-gray-300 dark:text-gray-600">404</div>
-
-        <div class="text-center">
-          <h1 class="text-lg font-medium text-gray-900 dark:text-gray-100">Oops, nothing here!</h1>
-          <p class="mt-1 text-sm text-dimmed">This page took a wrong turn somewhere.</p>
-        </div>
-
-        <a href="/" class="btn-primary btn-sm">
-          <i class="ti ti-home" />
-          <span>Take me home</span>
-        </a>
-      </div>
+      <NotFoundState
+        code="404"
+        title="Oops, nothing here!"
+        description="This page took a wrong turn somewhere."
+        action={{ label: "Take me home", href: "/" }}
+      />
     </Layout>
   );
 });
