@@ -53,6 +53,7 @@
 
 .md-table th,
 .md-table td {
+  position: relative;
   padding: 0;
   vertical-align: top;
   /* The floor keeps columns readable and lets the wrapper own overflow. */
@@ -62,6 +63,8 @@
 /* The inner span remains the alignment and formula-state owner, but no longer
    draws a separate tile around every cell. */
 .md-table-cell {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
@@ -119,6 +122,25 @@
 
 .dark .md-table tbody tr.md-table-total-row .md-table-cell {
   background: transparent;
+}
+
+@media (hover: hover) {
+  .md-table tbody tr:not(.md-table-total-row):hover {
+    background: var(--ui-data-row-hover);
+  }
+
+  /* A cell-sized pseudo-element can span the table vertically without
+     changing its layout. The scroll wrapper clips it to the table frame. */
+  .md-table :is(th, td)::after {
+    content: "";
+    position: absolute;
+    inset: -100vmax 0;
+    pointer-events: none;
+  }
+
+  .md-table :is(th, td):hover::after {
+    background: var(--ui-data-column-hover);
+  }
 }
 
 /* Formula-OK cells: blue text + `ti-math-function` icon prefix so the

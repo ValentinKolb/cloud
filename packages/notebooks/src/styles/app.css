@@ -655,19 +655,27 @@
 .md-data-key,
 .md-data-value,
 .md-data-empty {
+  --md-data-cell-base: transparent;
+  --md-data-column-highlight: transparent;
+  --md-data-row-highlight: transparent;
+
   display: block;
   min-height: 2rem;
   box-sizing: border-box;
   border: 0;
   border-radius: 0;
   padding: 0.5rem 0.75rem;
-  background: transparent;
+  background:
+    linear-gradient(var(--md-data-row-highlight), var(--md-data-row-highlight)),
+    linear-gradient(var(--md-data-column-highlight), var(--md-data-column-highlight)), var(--md-data-cell-base);
   box-shadow: none;
   font-size: 0.75rem;
   line-height: 1rem;
 }
 
 .md-data-key {
+  --md-data-cell-base: var(--ui-data-header);
+
   font-weight: 600;
   white-space: nowrap;
 }
@@ -703,6 +711,17 @@
 .dark .md-data-chip {
   background: rgb(30 58 138 / 0.35);
   color: rgb(147 197 253);
+}
+
+@media (hover: hover) {
+  .md-data-row:hover > :is(.md-data-key, .md-data-value) {
+    --md-data-row-highlight: var(--ui-data-row-hover);
+  }
+
+  .md-data-grid:has(.md-data-key:hover) .md-data-key,
+  .md-data-grid:has(.md-data-value:hover) .md-data-value {
+    --md-data-column-highlight: var(--ui-data-column-hover);
+  }
 }
 
 .md-table-progress {
