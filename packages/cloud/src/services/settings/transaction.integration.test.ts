@@ -21,6 +21,9 @@ const canUseSettingsTable = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseSettingsTable()) ? describe : describe.skip;
+
 const probeKey = () => `test.transaction_probe_${crypto.randomUUID().replaceAll("-", "")}`;
 
 const rowFor = async (key: string) => {
@@ -28,9 +31,8 @@ const rowFor = async (key: string) => {
   return row ?? null;
 };
 
-describe("settings writes inside a caller's transaction", () => {
+suite("settings writes inside a caller's transaction", () => {
   test("a later failure rolls the earlier write back", async () => {
-    if (!(await canUseSettingsTable())) return;
 
     const key = probeKey();
     registerSettings([{ key, kind: "string", default: "", label: "Transaction probe", description: "Test only.", group: "test" }]);
@@ -54,7 +56,6 @@ describe("settings writes inside a caller's transaction", () => {
   });
 
   test("a transaction that commits keeps every write", async () => {
-    if (!(await canUseSettingsTable())) return;
 
     const first = probeKey();
     const second = probeKey();

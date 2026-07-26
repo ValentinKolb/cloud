@@ -34,6 +34,9 @@ const canUseDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
 const insertUser = async (suffix: string, label: string) => {
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO auth.users (uid, provider, profile, display_name, mail)
@@ -148,12 +151,8 @@ const cleanupFixture = async (fixture: Fixture) => {
   }
 };
 
-describe("Spaces assignable users", () => {
+suite("Spaces assignable users", () => {
   test("lists only users with effective space access and rejects invalid assignees", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping Spaces assignable users DB test: auth/spaces tables are not available.");
-      return;
-    }
 
     const fixture = await createFixture();
     try {
@@ -225,10 +224,6 @@ describe("Spaces assignable users", () => {
   });
 
   test("keeps item assignees and tags consistent across create and replacement writes", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping Spaces item relation DB test: auth/spaces tables are not available.");
-      return;
-    }
 
     const fixture = await createFixture();
     try {

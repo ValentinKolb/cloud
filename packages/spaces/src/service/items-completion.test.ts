@@ -16,12 +16,11 @@ const canUseDatabase = async () => {
   }
 };
 
-describe("Spaces item completion workflow", () => {
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
+suite("Spaces item completion workflow", () => {
   test("moves items between active and completed workflow columns", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping Spaces completion DB test: spaces tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const [space] = await sql<{ id: string }[]>`

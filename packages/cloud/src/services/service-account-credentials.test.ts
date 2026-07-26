@@ -31,6 +31,9 @@ const canUseDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
 const insertUser = async () => {
   const suffix = crypto.randomUUID();
   const [row] = await sql<{ id: string }[]>`
@@ -74,12 +77,8 @@ const deniedAuthenticationEvents = async (credentialId: string): Promise<number>
   return Number.parseInt(row?.count ?? "0", 10);
 };
 
-describe("serviceAccountCredentials", () => {
+suite("serviceAccountCredentials", () => {
   test("creates, authenticates, lists, and revokes user delegated API keys", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping service account credential DB test: auth/audit tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     try {
@@ -175,10 +174,6 @@ describe("serviceAccountCredentials", () => {
   });
 
   test("upgrades legacy hashes and coalesces concurrent successful authentication activity", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping service account credential concurrency DB test: auth/audit tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     try {
@@ -283,10 +278,6 @@ describe("serviceAccountCredentials", () => {
   });
 
   test("creates, authenticates, lists, and revokes resource-bound API keys", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping resource service account credential DB test: auth/audit tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     const resourceId = crypto.randomUUID();

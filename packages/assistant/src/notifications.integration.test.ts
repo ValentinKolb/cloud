@@ -21,9 +21,11 @@ const canRun = async (): Promise<boolean> => {
   }
 };
 
-describe("Assistant completion notifications", () => {
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canRun()) ? describe : describe.skip;
+
+suite("Assistant completion notifications", () => {
   test("recovers each completed direct chat once and skips non-chat resources", async () => {
-    if (!(await canRun())) return;
 
     const suffix = crypto.randomUUID();
     const [user] = await sql<{ id: string }[]>`

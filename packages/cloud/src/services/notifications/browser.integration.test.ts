@@ -16,7 +16,10 @@ const canUseNotificationDatabase = async (): Promise<boolean> => {
   }
 };
 
-describe("browser notification endpoints", () => {
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseNotificationDatabase()) ? describe : describe.skip;
+
+suite("browser notification endpoints", () => {
   test("rejects private push endpoints before persistence", async () => {
     await expect(
       browserNotifications.registerEndpoint({
@@ -32,7 +35,6 @@ describe("browser notification endpoints", () => {
   });
 
   test("encrypts subscriptions and atomically rebinds a browser to the latest user", async () => {
-    if (!(await canUseNotificationDatabase())) return;
 
     const suffix = crypto.randomUUID();
     const users = await sql<{ id: string }[]>`

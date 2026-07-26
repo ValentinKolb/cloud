@@ -43,6 +43,9 @@ const canUseNotificationBatchDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseAuthDatabase()) && (await canUseNotificationBatchDatabase()) ? describe : describe.skip;
+
 const insertUser = async (suffix: string, label: string) => {
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn)
@@ -82,7 +85,7 @@ const cleanupAuthFixture = async (userIds: string[], groupIds: string[]) => {
   }
 };
 
-describe("notification batch selections", () => {
+suite("notification batch selections", () => {
   test("normalizes duplicate and unordered ids for stable drafts", () => {
     const selection = __notificationBatchTest.normalizeSelection({
       userIds: ["user-b", "user-a", "user-a"],
@@ -167,10 +170,6 @@ describe("notification batch selections", () => {
   });
 
   test("resolves explicit users and recursive group members", async () => {
-    if (!(await canUseAuthDatabase())) {
-      console.warn("Skipping notification batch DB test: auth tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const explicitUserId = await insertUser(suffix, "explicit-user");
@@ -203,10 +202,6 @@ describe("notification batch selections", () => {
   });
 
   test("finalize rejects legacy rule drafts without creating a recipient snapshot", async () => {
-    if (!(await canUseNotificationBatchDatabase())) {
-      console.warn("Skipping notification batch DB test: auth and notification tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const actorId = await insertUser(suffix, "legacy-actor");

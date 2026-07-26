@@ -15,12 +15,11 @@ const canUseTraceDatabase = async (): Promise<boolean> => {
   }
 };
 
-describe("logging.trace", () => {
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseTraceDatabase()) ? describe : describe.skip;
+
+suite("logging.trace", () => {
   test("starts one keyed span safely under concurrency", async () => {
-    if (!(await canUseTraceDatabase())) {
-      console.warn("Skipping trace DB test: logging trace tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const source = `test:trace:concurrent:${suffix}`;
@@ -53,10 +52,6 @@ describe("logging.trace", () => {
   });
 
   test("records span events and redacts sensitive metadata", async () => {
-    if (!(await canUseTraceDatabase())) {
-      console.warn("Skipping trace DB test: logging trace tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const source = `test:trace:${suffix}`;
@@ -121,10 +116,6 @@ describe("logging.trace", () => {
   });
 
   test("persists completed spans in one operation", async () => {
-    if (!(await canUseTraceDatabase())) {
-      console.warn("Skipping trace DB test: logging trace tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const source = `test:trace:complete:${suffix}`;
@@ -159,10 +150,6 @@ describe("logging.trace", () => {
   });
 
   test("source groups keep latest status separate from window error stats", async () => {
-    if (!(await canUseTraceDatabase())) {
-      console.warn("Skipping trace DB test: logging trace tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const source = `test:trace:latest:${suffix}`;
@@ -201,10 +188,6 @@ describe("logging.trace", () => {
   });
 
   test("cleanup removes only completed traces outside retention", async () => {
-    if (!(await canUseTraceDatabase())) {
-      console.warn("Skipping trace DB test: logging trace tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const source = `test:trace:cleanup:${suffix}`;

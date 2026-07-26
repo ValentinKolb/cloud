@@ -78,6 +78,9 @@ const canRun = async (): Promise<boolean> => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canRun()) ? describe : describe.skip;
+
 beforeAll(() => {
   mockServer = Bun.serve({
     port: 0,
@@ -145,12 +148,8 @@ const createExecutor = (leaseOwner: string, onTurnFinalized?: (event: AiTurnFina
     onTurnFinalized,
   });
 
-describe("AI executor integration", () => {
+suite("AI executor integration", () => {
   test("runs a chat turn end to end: claim, stream, persist, finish", async () => {
-    if (!(await canRun())) {
-      console.warn("Skipping executor integration test: DB not available.");
-      return;
-    }
     const userId = await insertUser();
     const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
@@ -209,7 +208,6 @@ describe("AI executor integration", () => {
   });
 
   test("a fresh claim after a crash re-runs without duplicating the user message", async () => {
-    if (!(await canRun())) return;
     const userId = await insertUser();
     const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
@@ -264,7 +262,6 @@ describe("AI executor integration", () => {
   });
 
   test("steering submitted during the final provider response continues the same turn", async () => {
-    if (!(await canRun())) return;
     const userId = await insertUser();
     const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
 

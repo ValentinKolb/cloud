@@ -37,9 +37,11 @@ const canUseNotificationDatabase = async (): Promise<boolean> => {
   }
 };
 
-describe("typed notification delivery integration", () => {
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseNotificationDatabase()) ? describe : describe.skip;
+
+suite("typed notification delivery integration", () => {
   test("persists encrypted delivery state and deduplicates sends", async () => {
-    if (!(await canUseNotificationDatabase())) return;
 
     const suffix = crypto.randomUUID();
     const rows = await sql<{ id: string }[]>`

@@ -16,6 +16,9 @@ const canUseAiDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseAiDatabase()) ? describe : describe.skip;
+
 const insertUser = async (name: string) => {
   const suffix = crypto.randomUUID();
   const [row] = await sql<{ id: string }[]>`
@@ -44,12 +47,8 @@ const deleteSkill = async (skillId: string) => {
   await sql`DELETE FROM ai.skills WHERE id = ${skillId}::uuid`;
 };
 
-describe("builtin skill seeding", () => {
+suite("builtin skill seeding", () => {
   test("seeds calc as a workspace skill once; admin deletion sticks", async () => {
-    if (!(await canUseAiDatabase())) {
-      console.warn("Skipping builtin seeding DB test: tables are not available.");
-      return;
-    }
     // Migration already seeded — calc exists as an ordinary workspace skill
     // with its SKILL.md, unless an admin deleted it (then the marker remains).
     const [marker] = await sql<{ id: string }[]>`
@@ -82,12 +81,8 @@ describe("builtin skill seeding", () => {
   });
 });
 
-describe("aiSkillStore integration", () => {
+suite("aiSkillStore integration", () => {
   test("tree replacement is atomic, conflict-aware, additive by default, and explicitly prunable", async () => {
-    if (!(await canUseAiDatabase())) {
-      console.warn("Skipping AI skill tree DB test: tables are not available.");
-      return;
-    }
     const adminId = await insertUser("tree-admin");
     const skill = await aiSkillStore.create({ slug: uniqueSlug("tree"), ownerUserId: null, actorUserId: adminId });
 
@@ -155,10 +150,6 @@ describe("aiSkillStore integration", () => {
   });
 
   test("code approval binds to the content hash and revokes on change", async () => {
-    if (!(await canUseAiDatabase())) {
-      console.warn("Skipping AI skills DB test: tables are not available.");
-      return;
-    }
     const adminId = await insertUser("admin");
     const skill = await aiSkillStore.create({ slug: uniqueSlug("wsp"), ownerUserId: null, actorUserId: adminId });
 
@@ -200,7 +191,6 @@ describe("aiSkillStore integration", () => {
   });
 
   test("visibility: own + workspace are default-enabled, foreign shares are consent-gated offers", async () => {
-    if (!(await canUseAiDatabase())) return;
     const ownerId = await insertUser("owner");
     const otherId = await insertUser("other");
     const ownSkill = await aiSkillStore.create({ slug: uniqueSlug("own"), ownerUserId: ownerId, actorUserId: ownerId });
@@ -245,7 +235,6 @@ describe("aiSkillStore integration", () => {
   });
 
   test("visibility resolves nested group grants from the authoritative membership graph", async () => {
-    if (!(await canUseAiDatabase())) return;
     const ownerId = await insertUser("nested-owner");
     const memberId = await insertUser("nested-member");
     const parentGroupId = await insertGroup("parent");
@@ -281,7 +270,6 @@ describe("aiSkillStore integration", () => {
   });
 
   test("disabled skills leave every catalog; revoked shares disappear", async () => {
-    if (!(await canUseAiDatabase())) return;
     const ownerId = await insertUser("owner2");
     const otherId = await insertUser("other2");
     const skill = await aiSkillStore.create({ slug: uniqueSlug("gone"), ownerUserId: ownerId, actorUserId: ownerId });

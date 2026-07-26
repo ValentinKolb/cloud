@@ -23,6 +23,9 @@ const canUseDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
 const insertUser = async () => {
   const suffix = crypto.randomUUID();
   const [row] = await sql<{ id: string }[]>`
@@ -43,12 +46,8 @@ const insertGroup = async () => {
   return row!.id;
 };
 
-describe("Proxy Auth service", () => {
+suite("Proxy Auth service", () => {
   test("does not persist a new client when allowed groups are invalid", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping Proxy Auth service DB test: auth/proxy_auth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     const name = `Invalid proxy client ${crypto.randomUUID()}`;
@@ -71,10 +70,6 @@ describe("Proxy Auth service", () => {
   });
 
   test("keeps existing allowed groups when an update references invalid groups", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping Proxy Auth service DB test: auth/proxy_auth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     const groupId = await insertGroup();

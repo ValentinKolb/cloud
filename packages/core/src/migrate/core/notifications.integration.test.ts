@@ -12,9 +12,11 @@ const canRun = async (): Promise<boolean> => {
   }
 };
 
-describe("notification migration", () => {
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canRun()) ? describe : describe.skip;
+
+suite("notification migration", () => {
   test("scrubs legacy terminal payloads and requires payloads for retryable states", async () => {
-    if (!(await canRun())) return;
     await migrate();
 
     const suffix = crypto.randomUUID();

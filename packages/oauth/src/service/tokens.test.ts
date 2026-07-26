@@ -34,6 +34,9 @@ const canUseDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
 const insertUser = async () => {
   const suffix = crypto.randomUUID();
   const [row] = await sql<{ id: string }[]>`
@@ -87,12 +90,8 @@ const actorProbe = () =>
     });
   });
 
-describe("OAuth resource access tokens", () => {
+suite("OAuth resource access tokens", () => {
   test("authorization-code access tokens resolve as user actors in Core auth", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth user token DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     let clientId: string | null = null;
@@ -143,10 +142,6 @@ describe("OAuth resource access tokens", () => {
   });
 
   test("authorization codes can only be consumed once under concurrent exchange", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth authorization code race DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     let clientId: string | null = null;
@@ -199,10 +194,6 @@ describe("OAuth resource access tokens", () => {
   });
 
   test("authorization requests without scope use conservative default scopes", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth authorization scope default DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     const sessionToken = await createSessionToken(userId);
@@ -258,10 +249,6 @@ describe("OAuth resource access tokens", () => {
   });
 
   test("refresh tokens rotate and reused tokens revoke the token family", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth refresh token DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     let clientId: string | null = null;
@@ -389,10 +376,6 @@ describe("OAuth resource access tokens", () => {
   });
 
   test("public clients must use PKCE S256", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth public PKCE DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     let clientId: string | null = null;
@@ -443,10 +426,6 @@ describe("OAuth resource access tokens", () => {
   });
 
   test("refresh tokens keep the original grant audiences after client changes", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth refresh audience DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     let clientId: string | null = null;
@@ -519,10 +498,6 @@ describe("OAuth resource access tokens", () => {
   });
 
   test("refresh token revocation invalidates the grant without exposing token details", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth refresh token revocation DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     let clientId: string | null = null;
@@ -596,10 +571,6 @@ describe("OAuth resource access tokens", () => {
   });
 
   test("specific client access allows direct users and recursive group members only", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth specific access DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const creatorId = await insertUser();
     const directUserId = await insertUser();
@@ -644,10 +615,6 @@ describe("OAuth resource access tokens", () => {
   });
 
   test("client credentials resolve as resource service-account actors and validate scope/resource", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping OAuth client credentials DB test: auth/oauth tables are not available.");
-      return;
-    }
 
     const userId = await insertUser();
     let clientId: string | null = null;

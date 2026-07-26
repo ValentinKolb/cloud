@@ -32,6 +32,9 @@ const canUseAiDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseAiDatabase()) ? describe : describe.skip;
+
 const insertUser = async () => {
   const suffix = crypto.randomUUID();
   const [row] = await sql<{ id: string }[]>`
@@ -58,9 +61,8 @@ const assistantMessage = (text: string): Message => ({
 
 const runConfig = { kind: "chat" as const, input: "hi", toolSource: { kind: "none" as const } };
 
-describe("AI conversation store integration", () => {
+suite("AI conversation store integration", () => {
   test("preserves full and historical tool results while keeping turn usage separate from loop usage", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -141,10 +143,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("submitChatTurn persists user message and turn transactionally", async () => {
-    if (!(await canUseAiDatabase())) {
-      console.warn("Skipping AI store DB test: auth/ai tables are not available.");
-      return;
-    }
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -194,7 +192,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("claimTurn increments attempts, enforces caps, and hands out run config", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -294,7 +291,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("suspend, resolve, and continuation claim flow", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -406,7 +402,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("durable steering is ordered, idempotent, and atomically persisted before completion", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -507,7 +502,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("abort request marks ownerless turns for caller finalization", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -557,7 +551,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("sweepTurns requeues crashed turns and finalizes over-budget or cancelled ones", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -652,7 +645,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("session store guards turn-owned appends by lease and skips user messages", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -709,7 +701,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("compaction archives in place and reuses the checkpoint seq for the summary", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -770,7 +761,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("projects stable conversation organization and durable run attention state", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
@@ -860,7 +850,6 @@ describe("AI conversation store integration", () => {
   });
 
   test("tool approval preferences remember and forget approvals", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
 
     try {

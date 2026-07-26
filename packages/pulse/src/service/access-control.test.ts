@@ -15,6 +15,9 @@ const canUseDatabase = async (): Promise<boolean> => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
 const insertUser = async (suffix: string): Promise<string> => {
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO auth.users (uid, provider, profile, display_name, mail)
@@ -67,12 +70,8 @@ const resourceScope = (params: {
   scopes: params.scopes,
 });
 
-describe("Pulse base access", () => {
+suite("Pulse base access", () => {
   test("uses effective groups and caps resource service accounts by binding and scopes", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping Pulse access DB test: required tables are not available.");
-      return;
-    }
 
     const suffix = crypto.randomUUID();
     const baseId = crypto.randomUUID();

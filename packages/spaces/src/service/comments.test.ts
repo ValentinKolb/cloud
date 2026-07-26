@@ -12,12 +12,11 @@ const canUseDatabase = async () => {
   }
 };
 
-describe("Spaces comment pagination", () => {
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
+suite("Spaces comment pagination", () => {
   test("returns the newest bounded page in chronological display order", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping Spaces comments DB test: spaces tables are not available.");
-      return;
-    }
 
     const [space] = await sql<{ id: string }[]>`
       INSERT INTO spaces.spaces (name, description, color)

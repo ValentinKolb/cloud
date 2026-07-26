@@ -22,6 +22,9 @@ const canUseAiDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseAiDatabase()) ? describe : describe.skip;
+
 const insertUser = async () => {
   const suffix = crypto.randomUUID();
   const [row] = await sql<{ id: string }[]>`
@@ -62,12 +65,8 @@ const runBash = async (input: { command: string; stdin?: string }, ctx: { actor:
   return (await tool.run(input, ctx)) as { stdout: string; stderr: string; exitCode: number };
 };
 
-describe("bash tool end-to-end", () => {
+suite("bash tool end-to-end", () => {
   test("reads uploads, writes workspace files, mounts active skills, presents results", async () => {
-    if (!(await canUseAiDatabase())) {
-      console.warn("Skipping bash tool DB test: tables are not available.");
-      return;
-    }
     const userId = await insertUser();
     const conversation = await aiConversationStore.createConversation({ appId: "ai-bash-test", ownerUserId: userId });
     const skill = await aiSkillStore.create({
@@ -137,7 +136,6 @@ describe("bash tool end-to-end", () => {
   });
 
   test("code-approved workspace skill exposes its scripts", async () => {
-    if (!(await canUseAiDatabase())) return;
     const adminId = await insertUser();
     const skill = await aiSkillStore.create({
       slug: `bash-code-${crypto.randomUUID().slice(0, 8)}`,

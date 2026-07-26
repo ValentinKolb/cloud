@@ -16,6 +16,9 @@ const canUseAiDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseAiDatabase()) ? describe : describe.skip;
+
 const insertUser = async () => {
   const suffix = crypto.randomUUID();
   const [row] = await sql<{ id: string }[]>`
@@ -28,7 +31,7 @@ const insertUser = async () => {
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
-describe("normalizeAiFilePath", () => {
+suite("normalizeAiFilePath", () => {
   test("accepts absolute clean paths and rejects traversal", () => {
     expect(normalizeAiFilePath("/files/a.txt")).toBe("/files/a.txt");
     expect(normalizeAiFilePath("/files//b/./c.txt")).toBe("/files/b/c.txt");
@@ -38,12 +41,8 @@ describe("normalizeAiFilePath", () => {
   });
 });
 
-describe("aiFileStore integration", () => {
+suite("aiFileStore integration", () => {
   test("write, stat, slice reads, rename, remove, totals", async () => {
-    if (!(await canUseAiDatabase())) {
-      console.warn("Skipping AI files DB test: tables are not available.");
-      return;
-    }
     const userId = await insertUser();
     const conversation = await aiConversationStore.createConversation({ appId: "ai-files-test", ownerUserId: userId });
 
@@ -85,7 +84,6 @@ describe("aiFileStore integration", () => {
   });
 
   test("enforces per-file and per-conversation limits in the store", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversation = await aiConversationStore.createConversation({ appId: "ai-files-test", ownerUserId: userId });
 
@@ -107,7 +105,6 @@ describe("aiFileStore integration", () => {
   });
 
   test("copyToConversation carries the VFS into a fork", async () => {
-    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const source = await aiConversationStore.createConversation({ appId: "ai-files-test", ownerUserId: userId });
     const target = await aiConversationStore.createConversation({ appId: "ai-files-test", ownerUserId: userId });

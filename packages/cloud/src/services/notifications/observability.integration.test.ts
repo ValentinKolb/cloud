@@ -16,9 +16,11 @@ const canUseNotificationDatabase = async (): Promise<boolean> => {
   }
 };
 
-describe("notification observability", () => {
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseNotificationDatabase()) ? describe : describe.skip;
+
+suite("notification observability", () => {
   test("filters metadata-only deliveries and reports the durable definition registry", async () => {
-    if (!(await canUseNotificationDatabase())) return;
 
     const suffix = crypto.randomUUID();
     const appId = `notification-observability-${suffix}`;

@@ -41,6 +41,9 @@ const canUseDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
 const insertUser = async (suffix: string, label: string) => {
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO auth.users (uid, provider, profile, display_name, mail)
@@ -134,12 +137,8 @@ const cleanupFixture = async (fixture: Fixture) => {
   }
 };
 
-describe("listUsersWithAccess", () => {
+suite("listUsersWithAccess", () => {
   test("expands direct and recursive group access without exposing mail", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping access helper DB test: auth tables are not available.");
-      return;
-    }
 
     const fixture = await createFixture();
     try {
@@ -249,12 +248,8 @@ describe("listUsersWithAccess", () => {
   });
 });
 
-describe("effective access", () => {
+suite("effective access", () => {
   test("resolves nested groups from the database and rejects caller-supplied group escalation", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping effective access DB test: auth tables are not available.");
-      return;
-    }
 
     const fixture = await createFixture();
     try {

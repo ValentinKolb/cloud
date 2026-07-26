@@ -26,6 +26,9 @@ const canUseDatabase = async () => {
   }
 };
 
+/** Reported as skipped rather than silently passing when the backing service is absent. */
+const suite = (await canUseDatabase()) ? describe : describe.skip;
+
 const insertUser = async (suffix: string, label: string) => {
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO auth.users (uid, provider, profile, display_name, mail)
@@ -91,7 +94,7 @@ const actorFor = (fixture: Fixture): WormholeActor => ({
   resourceBoundSpaceId: null,
 });
 
-describe("Spaces wormholes", () => {
+suite("Spaces wormholes", () => {
   test("builds a user actor without account-level access shortcuts", () => {
     expect(actorForUser({ id: crypto.randomUUID() })).toMatchObject({
       subject: { type: "user" },
@@ -100,7 +103,6 @@ describe("Spaces wormholes", () => {
   });
 
   test("does not grant implicit destination access", async () => {
-    if (!(await canUseDatabase())) return;
     const fixture = await createFixture("none");
     const actor = actorForUser({ id: fixture.actorUserId });
     try {
@@ -117,7 +119,6 @@ describe("Spaces wormholes", () => {
   });
 
   test("rejects a wormhole back into its source Space", async () => {
-    if (!(await canUseDatabase())) return;
     const fixture = await createFixture();
     try {
       const created = await create({
@@ -136,10 +137,6 @@ describe("Spaces wormholes", () => {
   });
 
   test("atomically transfers one item and cleans source-scoped relations", async () => {
-    if (!(await canUseDatabase())) {
-      console.warn("Skipping Spaces wormhole DB test: migrated auth/spaces tables are not available.");
-      return;
-    }
     const fixture = await createFixture();
     try {
       const [item] = await sql<{ id: string }[]>`
@@ -220,7 +217,6 @@ describe("Spaces wormholes", () => {
   });
 
   test("requires target admin permission for configuration and rejects resource-bound crossings", async () => {
-    if (!(await canUseDatabase())) return;
     const fixture = await createFixture("write");
     try {
       const denied = await create({
@@ -244,7 +240,6 @@ describe("Spaces wormholes", () => {
   });
 
   test("rejects recurring items without modifying them", async () => {
-    if (!(await canUseDatabase())) return;
     const fixture = await createFixture();
     try {
       const [item] = await sql<{ id: string }[]>`
