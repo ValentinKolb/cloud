@@ -3,7 +3,7 @@
  * All filter values are stored as URL query parameters (SSR-friendly).
  */
 /** Windows offered on the page; the numbers are hours of lookback. */
-export const LOG_WINDOWS = { "1h": 1, "24h": 24, "7d": 168, "30d": 720 } as const;
+export const LOG_WINDOWS = { "1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720 } as const;
 
 export type LogWindow = keyof typeof LOG_WINDOWS;
 

@@ -1,0 +1,42 @@
+import { describe, expect, test } from "bun:test";
+import { sql } from "bun";
+import { getTelemetryTimeseries } from "./service";
+
+const canUseTelemetryDatabase = async (): Promise<boolean> => {
+  try {
+    const [row] = await sql<Array<{ rollups: string | null }>>`
+      SELECT to_regclass('gateway.telemetry_rollups_minute')::text AS rollups
+    `;
+    return Boolean(row?.rollups);
+  } catch {
+    return false;
+  }
+};
+
+const suite = (await canUseTelemetryDatabase()) ? describe : describe.skip;
+
+suite("telemetry timeseries", () => {
+  test("separates server errors from all HTTP errors", async () => {
+    const appId = `timeseries-${crypto.randomUUID()}`;
+
+    try {
+      await sql`
+        INSERT INTO gateway.telemetry_rollups_minute (
+          bucket, app_id, route_prefix, path_template, method, status_code,
+          request_count, error_count, slow_count, total_duration_ms, max_duration_ms
+        )
+        VALUES
+          (date_trunc('minute', now()), ${appId}, '/fixture', '/fixture', 'GET', 200, 2, 0, 0, 20, 10),
+          (date_trunc('minute', now()), ${appId}, '/fixture', '/fixture', 'GET', 404, 3, 3, 0, 30, 10),
+          (date_trunc('minute', now()), ${appId}, '/fixture', '/fixture', 'GET', 503, 4, 4, 0, 40, 10)
+      `;
+
+      const points = await getTelemetryTimeseries({ range: "1h", appId });
+
+      expect(points).toHaveLength(1);
+      expect(points[0]).toMatchObject({ requests: 9, errors: 7, serverErrors: 4 });
+    } finally {
+      await sql`DELETE FROM gateway.telemetry_rollups_minute WHERE app_id = ${appId}`;
+    }
+  });
+});

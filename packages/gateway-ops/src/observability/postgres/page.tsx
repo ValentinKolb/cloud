@@ -272,6 +272,63 @@ export default ssr<AuthContext>(async (c) => {
           </section>
         ) : null}
 
+        <section class="paper p-3">
+          <h2 class="text-xs font-semibold text-primary">Storage view</h2>
+          <p class="text-[10px] text-dimmed">
+            Search and schema update charts and table; sorting orders the table. {formatNumber(filteredTables.length)} of{" "}
+            {formatNumber(diagnostics.tableRows.length)} tables match.
+          </p>
+          <div class="mt-2 flex flex-col gap-2">
+            <SearchBar
+              action={searchAction}
+              value={search}
+              placeholder="Search tables or table signals..."
+              ariaLabel="Search Postgres tables"
+            />
+            <PostgresDataFilters search={search} schema={selectedSchema} sort={selectedSort} schemas={schemas} />
+          </div>
+        </section>
+
+        <section class="grid gap-2 xl:grid-cols-3">
+          <article class="paper p-3">
+            <h2 class="text-xs font-semibold text-primary">Size by schema</h2>
+            <p class="text-[10px] text-dimmed">Top schemas within the current table filters.</p>
+            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaChartData} yFormat="bytes" />
+            <nav class="mt-2 flex flex-wrap gap-1" aria-label="Filter tables by schema">
+              {schemaChartData.slice(0, 5).map((schema) => (
+                <a
+                  href={postgresFilterHref({ schema: schema.label })}
+                  class={`btn-input btn-input-sm ${selectedSchema === schema.label ? "btn-input-active" : ""}`}
+                  aria-current={selectedSchema === schema.label ? "true" : undefined}
+                >
+                  {schema.label}
+                </a>
+              ))}
+            </nav>
+          </article>
+          <article class="paper p-3">
+            <h2 class="text-xs font-semibold text-primary">Largest tables</h2>
+            <p class="text-[10px] text-dimmed">Top 10 within the current table filters.</p>
+            <ObservabilityChart kind="donut" class="mt-2 h-64 text-dimmed" data={tableChartData} legend />
+            <nav class="mt-2 flex flex-wrap gap-1" aria-label="Inspect a large table">
+              {tableChartData.slice(0, 5).map((table) => (
+                <a
+                  href={postgresFilterHref({ search: table.label })}
+                  class="btn-input btn-input-sm max-w-full truncate"
+                  title={table.label}
+                >
+                  {table.label}
+                </a>
+              ))}
+            </nav>
+          </article>
+          <article class="paper p-3">
+            <h2 class="text-xs font-semibold text-primary">Rows by schema</h2>
+            <p class="text-[10px] text-dimmed">Planner row estimates within the current table filters.</p>
+            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaRowsChartData} yFormat="number" />
+          </article>
+        </section>
+
         <DataPanel
           title="Sessions"
           subtitle={
@@ -363,21 +420,9 @@ export default ssr<AuthContext>(async (c) => {
         </DataPanel>
 
         <section class="paper overflow-hidden">
-          <div class="flex flex-col gap-2 px-3 py-2">
-            <div>
-              <h2 class="text-xs font-semibold text-primary">Tables</h2>
-              <p class="text-[10px] text-dimmed">
-                {formatNumber(filteredTables.length)} of {formatNumber(diagnostics.tableRows.length)} tables. Row counts are planner
-                estimates.
-              </p>
-            </div>
-            <SearchBar
-              action={searchAction}
-              value={search}
-              placeholder="Search tables or table signals..."
-              ariaLabel="Search Postgres tables"
-            />
-            <PostgresDataFilters search={search} schema={selectedSchema} sort={selectedSort} schemas={schemas} />
+          <div class="px-3 py-2">
+            <h2 class="text-xs font-semibold text-primary">Tables</h2>
+            <p class="text-[10px] text-dimmed">{formatNumber(filteredTables.length)} matching tables. Row counts are planner estimates.</p>
           </div>
           <DataTable
             rows={filteredTables}
@@ -448,45 +493,6 @@ export default ssr<AuthContext>(async (c) => {
               return render(value);
             }}
           />
-        </section>
-        <section class="grid gap-2 xl:grid-cols-3">
-          <article class="paper p-3">
-            <h2 class="text-xs font-semibold text-primary">Size by schema</h2>
-            <p class="text-[10px] text-dimmed">Top schemas within the current table filters.</p>
-            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaChartData} yFormat="bytes" />
-            <nav class="mt-2 flex flex-wrap gap-1" aria-label="Filter tables by schema">
-              {schemaChartData.slice(0, 5).map((schema) => (
-                <a
-                  href={postgresFilterHref({ schema: schema.label })}
-                  class={`btn-input btn-input-sm ${selectedSchema === schema.label ? "btn-input-active" : ""}`}
-                  aria-current={selectedSchema === schema.label ? "true" : undefined}
-                >
-                  {schema.label}
-                </a>
-              ))}
-            </nav>
-          </article>
-          <article class="paper p-3">
-            <h2 class="text-xs font-semibold text-primary">Largest tables</h2>
-            <p class="text-[10px] text-dimmed">Top 10 within the current table filters.</p>
-            <ObservabilityChart kind="donut" class="mt-2 h-64 text-dimmed" data={tableChartData} legend />
-            <nav class="mt-2 flex flex-wrap gap-1" aria-label="Inspect a large table">
-              {tableChartData.slice(0, 5).map((table) => (
-                <a
-                  href={postgresFilterHref({ search: table.label })}
-                  class="btn-input btn-input-sm max-w-full truncate"
-                  title={table.label}
-                >
-                  {table.label}
-                </a>
-              ))}
-            </nav>
-          </article>
-          <article class="paper p-3">
-            <h2 class="text-xs font-semibold text-primary">Rows by schema</h2>
-            <p class="text-[10px] text-dimmed">Planner row estimates within the current table filters.</p>
-            <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaRowsChartData} yFormat="number" />
-          </article>
         </section>
       </div>
     </AdminLayout>

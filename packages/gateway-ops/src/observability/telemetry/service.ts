@@ -38,6 +38,7 @@ export type TelemetryTimeseriesPoint = {
   at: string;
   requests: number;
   errors: number;
+  serverErrors: number;
 };
 
 export type TelemetryRouteRow = {
@@ -130,17 +131,23 @@ const bucketedSeries = (range: TelemetryRange) => {
 };
 
 export const getTelemetryTimeseries = async (query: TelemetryQuery): Promise<TelemetryTimeseriesPoint[]> => {
-  const rows = await sql<{ at: string; requests: number; errors: number }[]>`
+  const rows = await sql<{ at: string; requests: number; errors: number; server_errors: number }[]>`
     SELECT
       ${bucketedSeries(query.range)}::text AS at,
       COALESCE(SUM(request_count), 0)::int AS requests,
-      COALESCE(SUM(request_count) FILTER (WHERE status_code >= 400), 0)::int AS errors
+      COALESCE(SUM(request_count) FILTER (WHERE status_code >= 400), 0)::int AS errors,
+      COALESCE(SUM(request_count) FILTER (WHERE status_code >= 500), 0)::int AS server_errors
     FROM gateway.telemetry_rollups_minute
     WHERE ${rangeFilter(query.range)} AND ${scopeFilter(query)}
     GROUP BY 1
     ORDER BY 1 ASC
   `;
-  return rows.map((row) => ({ at: row.at, requests: row.requests, errors: row.errors }));
+  return rows.map((row) => ({
+    at: row.at,
+    requests: row.requests,
+    errors: row.errors,
+    serverErrors: row.server_errors,
+  }));
 };
 
 /**
