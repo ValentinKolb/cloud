@@ -70,7 +70,6 @@ const revision: GridsWorkflowRevision = {
   source: workflow.source,
   plan: workflow.plan,
   diagnostics: [],
-  enabled: false,
   position: 0,
   actorUserId: userId,
   createdAt: workflow.createdAt,

@@ -476,7 +476,6 @@ export const listWorkflowRevisions = async (
     // The name is the workflow's current one: versions record plans, not
     // metadata, so a rename does not fork the history.
     name: row.name as string,
-    enabled: true,
     actorUserId: (row.created_by_id as string | null) ?? null,
     createdAt: (row.created_at as Date).toISOString(),
   }));
@@ -500,7 +499,6 @@ export const getWorkflowRevision = async (workflowId: string, revision: number):
     source: row.source,
     plan: row.plan,
     diagnostics: row.diagnostics,
-    enabled: true,
     position: row.position,
     actorUserId: row.created_by_id ?? null,
     createdAt: (row.created_at as Date).toISOString(),

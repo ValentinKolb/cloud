@@ -64,7 +64,6 @@ const revision = (number: number) => ({
   name: `Check in revision ${number}`,
   description: null,
   source: `steps:\n  - succeed:\n      message: "revision ${number}"`,
-  enabled: number === 3,
   position: 0,
   actorUserId: null,
   createdAt: `2026-07-${String(10 + number).padStart(2, "0")}T00:00:00.000Z`,
@@ -267,8 +266,8 @@ describe("Grids workflow CLI", () => {
     await cli.run(history.ctx);
     expect(history.calls.at(-1)?.path).toBe(`/api/grids/workflows/${workflowId}/revisions?limit=2`);
     expect(history.tables[0]).toEqual([
-      expect.objectContaining({ revision: 3, enabled: "yes", name: "Check in revision 3" }),
-      expect.objectContaining({ revision: 2, enabled: "no", name: "Check in revision 2" }),
+      expect.objectContaining({ revision: 3, name: "Check in revision 3" }),
+      expect.objectContaining({ revision: 2, name: "Check in revision 2" }),
     ]);
     expect(history.lines).toContain("next revision: 2");
 

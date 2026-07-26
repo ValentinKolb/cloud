@@ -5,7 +5,6 @@ import type {
   WorkflowJsonValue,
   WorkflowRevision,
   WorkflowRunState,
-  WorkflowStepState,
 } from "@valentinkolb/cloud/workflows";
 import { z } from "zod";
 
@@ -100,16 +99,12 @@ export type GridsWorkflowRevision = {
   source: string;
   plan: WorkflowBoundPlan;
   diagnostics: WorkflowDiagnostic[];
-  enabled: boolean;
   position: number;
   actorUserId: string | null;
   createdAt: string;
 };
 
-export type GridsWorkflowRevisionSummary = Pick<
-  GridsWorkflowRevision,
-  "workflowId" | "revision" | "name" | "enabled" | "actorUserId" | "createdAt"
->;
+export type GridsWorkflowRevisionSummary = Pick<GridsWorkflowRevision, "workflowId" | "revision" | "name" | "actorUserId" | "createdAt">;
 
 export type WorkflowTriggerRuntimeState = {
   schedule: {
@@ -277,7 +272,6 @@ export const GridsWorkflowRevisionSchema = z.object({
   source: z.string(),
   plan: WorkflowPlanSchema,
   diagnostics: z.array(WorkflowDiagnosticSchema),
-  enabled: z.boolean(),
   position: z.number().int().nonnegative(),
   actorUserId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
@@ -287,7 +281,6 @@ export const GridsWorkflowRevisionSummarySchema = GridsWorkflowRevisionSchema.pi
   workflowId: true,
   revision: true,
   name: true,
-  enabled: true,
   actorUserId: true,
   createdAt: true,
 });

@@ -436,7 +436,7 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "agreement_sent",
           name: "Agreement sent",
-          description: "Prevents a successfully completed agreement workflow from being replayed.",
+          description: "Set once the agreement workflow has succeeded, so it is not replayed.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-mail-check",

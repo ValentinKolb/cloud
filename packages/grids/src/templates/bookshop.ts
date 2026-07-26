@@ -346,7 +346,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "invoice_sent",
           name: "Invoice sent",
-          description: "Prevents a completed invoice workflow from being replayed accidentally.",
+          description: "Set once the invoice workflow has succeeded, so it is not replayed accidentally.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-mail-check",

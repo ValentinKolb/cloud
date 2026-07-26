@@ -93,6 +93,37 @@
   @apply rounded inline-flex items-center gap-1 px-1.5 py-0.5 text-xs;
 }
 
+/*
+ * Tone modifiers. Four apps were already asking for these — a status badge is
+ * the one place a colour carries the whole meaning — but only the shape utility
+ * above existed, so every `badge badge-success` rendered in body text and no
+ * status anywhere was distinguishable by colour.
+ */
+@utility badge-neutral {
+  @apply badge;
+  @apply bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300;
+}
+
+@utility badge-success {
+  @apply badge;
+  @apply bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300;
+}
+
+@utility badge-warning {
+  @apply badge;
+  @apply bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300;
+}
+
+@utility badge-danger {
+  @apply badge;
+  @apply bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300;
+}
+
+/** Smaller variant for dense rows; tone-independent. */
+@utility badge-sm {
+  @apply px-1 py-0 text-[0.6875rem];
+}
+
 @utility chip {
   border-radius: var(--ui-radius-surface);
   @apply inline-flex items-center gap-1.5 text-xs transition-colors cursor-pointer px-2 py-1;

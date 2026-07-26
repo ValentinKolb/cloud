@@ -144,7 +144,7 @@ export function WorkflowRevisionHistory(props: {
                     <strong class="block text-primary">Revision {revision.revision}</strong>
                     <span class="text-dimmed">{formatWorkflowRunDate(revision.createdAt)}</span>
                   </span>
-                  <span class={`badge ${revision.enabled ? "badge-success" : "badge-neutral"}`}>{revision.enabled ? "on" : "off"}</span>
+                  <span class="text-dimmed">r{revision.revision}</span>
                 </button>
               )}
             </For>

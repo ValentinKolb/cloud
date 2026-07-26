@@ -184,15 +184,26 @@ export const insertTestWorkflowRun = async (input: TestWorkflowRunInput): Promis
   const db = input.db ?? sql;
   const id = input.id ?? Bun.randomUUIDv7();
   const createdAt = input.createdAt ?? new Date();
+  /*
+   * A `running` row with no lease is exactly what a crashed run looks like, so
+   * any worker sharing this database — the dev container's included — is right
+   * to recover it, and does so within about a second. Hold a lease so the state
+   * the fixture wrote is the state the assertion reads.
+   */
+  const running = (input.state ?? "queued") === "running";
+  const leaseOwner = running ? "test-fixture" : null;
+  const leaseExpiresAt = running ? new Date(Date.now() + 60 * 60_000) : null;
   await db`
     INSERT INTO workflows.run (
       id, app_id, scope_id, workflow_id, workflow_version_id, mode, state, inputs, context,
-      authorization_snapshot, idempotency_key, occurred_at, created_at, started_at, finished_at
+      authorization_snapshot, idempotency_key, occurred_at, created_at, started_at, finished_at,
+      lease_owner, lease_expires_at
     )
     SELECT ${id}::uuid, 'grids', ${input.baseId}, ${input.workflowId}::uuid, version.id,
            ${input.mode ?? "execute"}, ${input.state ?? "queued"}, '{}'::jsonb, '{}'::jsonb,
            ${input.authorization ?? { kind: "workflow" }}, ${input.idempotencyKey ?? id},
-           ${input.occurredAt ?? createdAt}, ${createdAt}, ${input.startedAt ?? null}, ${input.finishedAt ?? null}
+           ${input.occurredAt ?? createdAt}, ${createdAt}, ${input.startedAt ?? null}, ${input.finishedAt ?? null},
+           ${leaseOwner}, ${leaseExpiresAt}
     FROM workflows.version AS version
     WHERE version.workflow_id = ${input.workflowId}::uuid
     ORDER BY version.revision DESC

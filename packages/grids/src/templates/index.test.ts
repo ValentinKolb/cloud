@@ -996,6 +996,25 @@ describe("built-in grid templates", () => {
           validateLauncherConfig({ plan: bound.plan } as Parameters<typeof validateLauncherConfig>[0], launcher.config),
           `${template.id}.${launcher.key} launcher config`,
         ).toEqual([]);
+
+        // `validateLauncherConfig` only asks whether the named input exists and
+        // has the right type. A scanner also reads a field by name at scan
+        // time, and refuses one without a unique constraint — so renaming that
+        // field in the table definition breaks the scanner in every base built
+        // from this template while everything above still passes.
+        const config = launcher.config;
+        if (config.kind !== "scanner" || config.resolve.by !== "field") continue;
+        const scannedInput = bound.plan.inputs.find((item) => item.name === config.input);
+        const tableName = typeof scannedInput?.config.table === "string" ? scannedInput.config.table : "";
+        const scannedTable = template.tables.find((item) => item.name === tableName);
+        expect(scannedTable, `${template.id}.${launcher.key} scanner table "${tableName}"`).toBeDefined();
+        const scannedField = scannedTable?.fields.find((item) => item.name === config.resolve.field);
+        expect(scannedField, `${template.id}.${launcher.key} scanner field "${config.resolve.field}"`).toBeDefined();
+        // An `id` field is given a unique constraint when it is created.
+        expect(
+          scannedField?.type === "id" || scannedField?.uniqueConstraint === true,
+          `${template.id}.${launcher.key} scanner field "${config.resolve.field}" must enforce unique values`,
+        ).toBe(true);
       }
     }
   });

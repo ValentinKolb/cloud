@@ -244,7 +244,7 @@ export const financeTemplate: GridTemplate = {
         {
           key: "receipt_sent",
           name: "Receipt sent",
-          description: "Prevents a completed receipt workflow from being replayed accidentally.",
+          description: "Set once the receipt workflow has succeeded, so it is not replayed accidentally.",
           type: "boolean",
           icon: "ti ti-mail-check",
           defaultValue: false,

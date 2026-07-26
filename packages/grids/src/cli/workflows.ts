@@ -410,14 +410,12 @@ export const workflowCommands = [
         payload,
         payload.items.map((revision) => ({
           revision: revision.revision,
-          enabled: revision.enabled ? "yes" : "no",
           name: revision.name,
           actor: revision.actorUserId ?? "-",
           createdAt: revision.createdAt,
         })),
         [
           { key: "revision", label: "REVISION" },
-          { key: "enabled", label: "ENABLED" },
           { key: "name", label: "NAME" },
           { key: "actor", label: "ACTOR" },
           { key: "createdAt", label: "CREATED" },
