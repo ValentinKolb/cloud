@@ -4,6 +4,7 @@ import { apiClient } from "../../../api/client";
 import type { WorkflowRunEventSummary, WorkflowRunStepSummary } from "../../../lib/workflow-run-events";
 import { errorMessage } from "../utils/api-helpers";
 import { createScannerEngine, type ScannerDetection, type ScannerEngine } from "./scanner-engine";
+import { workflowStepStatusClass as stepStatusClass } from "./workflow-display";
 import { createWorkflowRunEventBuffer } from "./workflow-run-event-buffer";
 
 type WorkflowRunsApi = {
@@ -123,11 +124,7 @@ async function openScanDetails(item: ScanLogItem, retry?: () => void) {
                         <p class="truncate font-medium text-primary">{step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key}</p>
                         <p class="text-xs text-dimmed">{step.action ?? step.kind}</p>
                       </div>
-                      <span
-                        class={`text-xs font-semibold ${statusClass(step.status === "failed" ? "failed" : step.status === "succeeded" ? "succeeded" : "running")}`}
-                      >
-                        {step.status}
-                      </span>
+                      <span class={`text-xs font-semibold ${stepStatusClass(step.status)}`}>{step.status}</span>
                     </div>
                   )}
                 </For>

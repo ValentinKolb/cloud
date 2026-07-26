@@ -7,7 +7,7 @@ import {
   channelLabels,
   formatWorkflowRunDate as formatDate,
   formatWorkflowRunDuration as formatDuration,
-  workflowRunStatusClass as statusClass,
+  workflowStepStatusClass as stepStatusClass,
   workflowStepErrorMessage,
   workflowStepIssueReason,
   workflowStepOutcomeSummary,
@@ -115,7 +115,7 @@ export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; 
             const unresolved = () => workflowStepIssueReason(step.outcome) !== null;
             return (
               <div class="grid grid-cols-[auto_1fr_auto] items-start gap-2 py-1 text-xs">
-                <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
+                <span class={`badge ${stepStatusClass(step.status)}`}>{step.status}</span>
                 <span class="min-w-0 truncate text-primary">
                   {step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key} · {step.action ?? step.kind}
                 </span>

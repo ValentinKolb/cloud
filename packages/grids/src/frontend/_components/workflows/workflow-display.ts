@@ -1,4 +1,4 @@
-import type { GridsWorkflowChannel, GridsWorkflowRun } from "../../../workflows/contracts";
+import type { GridsWorkflowChannel, GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
 
 export const channelLabels: Record<GridsWorkflowChannel, string> = {
   api: "API",
@@ -13,6 +13,20 @@ export const workflowRunStatusClass = (status: GridsWorkflowRun["status"] | stri
   status === "succeeded"
     ? "badge-success"
     : status === "failed" || status === "canceled" || status === "needs_attention"
+      ? "badge-danger"
+      : "badge-neutral";
+
+/**
+ * The same badge vocabulary for a step, whose states are the kernel's.
+ *
+ * A step that ran ends "completed" and one that was only planned ends
+ * "planned"; neither is "succeeded", which is a run's word. Reusing the run's
+ * mapping here rendered every finished step in the neutral "still going" badge.
+ */
+export const workflowStepStatusClass = (status: GridsWorkflowStepRun["status"] | string) =>
+  status === "completed" || status === "planned" || status === "terminal"
+    ? "badge-success"
+    : status === "failed" || status === "canceled" || status === "needs_attention" || status === "unsupported"
       ? "badge-danger"
       : "badge-neutral";
 
@@ -46,9 +60,9 @@ const objectValue = (value: unknown): JsonRecord | null =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 
 // A dry run that cannot evaluate a branch condition plans BOTH branches and
-// records why on the control step's `issues`. Those steps persist as
-// "succeeded", so without this the panel shows mutually exclusive branches as
-// green with no hint that only one of them can actually run.
+// records why on the control step's `issues`. Those steps persist as "planned",
+// so without this the panel shows mutually exclusive branches as green with no
+// hint that only one of them can actually run.
 export const workflowStepIssueReason = (outcome: unknown): string | null => {
   const value = objectValue(outcome);
   if (!value || !Array.isArray(value.issues)) return null;

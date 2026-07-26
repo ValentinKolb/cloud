@@ -191,6 +191,8 @@ export type GridsWorkflowRun = {
   finishedAt: string | null;
 };
 
+export type GridsWorkflowStepStatus = z.infer<typeof GridsWorkflowStepStatusSchema>;
+
 export type GridsWorkflowStepRun = {
   runId: string;
   key: string;
@@ -198,7 +200,7 @@ export type GridsWorkflowStepRun = {
   iterationPath: number[];
   kind: string;
   action: string | null;
-  status: WorkflowStepState | "waiting" | "needs_attention" | "unsupported";
+  status: GridsWorkflowStepStatus;
   outcome: WorkflowJsonValue | null;
   executionGeneration: number;
   startedAt: string | null;
@@ -453,6 +455,25 @@ export const GridsWorkflowRunListSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+/*
+ * A step's states are the kernel's, not the run's. An executed step ends
+ * "completed" and a planned one "planned" — neither is "succeeded", which is a
+ * run's word. Restating the run vocabulary here is how a finished step ended up
+ * rendered as though it were still going.
+ */
+export const GridsWorkflowStepStatusSchema = z.enum([
+  "running",
+  "completed",
+  "waiting",
+  "failed",
+  "needs_attention",
+  "terminal",
+  "planned",
+  "unsupported",
+  "indeterminate",
+  "canceled",
+]);
+
 export const GridsWorkflowStepRunSchema = z.object({
   runId: z.string().uuid(),
   key: z.string(),
@@ -460,18 +481,7 @@ export const GridsWorkflowStepRunSchema = z.object({
   iterationPath: z.array(z.number().int().nonnegative()),
   kind: z.string(),
   action: z.string().nullable(),
-  status: z.enum([
-    "queued",
-    "running",
-    "waiting",
-    "succeeded",
-    "failed",
-    "canceled",
-    "needs_attention",
-    "unsupported",
-    "indeterminate",
-    "skipped",
-  ]),
+  status: GridsWorkflowStepStatusSchema,
   outcome: z.json().nullable(),
   executionGeneration: z.number().int().nonnegative(),
   startedAt: z.string().datetime().nullable(),
