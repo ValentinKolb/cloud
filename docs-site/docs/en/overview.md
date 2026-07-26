@@ -10,7 +10,7 @@ updated: 2026-07-26
 
 # Platform overview
 
-Cloud is an open-source, on-premises application platform for internal tools. It provides the
+Cloud is an open-source, on-premises application platform. It provides the
 cross-cutting capabilities that applications otherwise implement separately:
 authentication, authorization, settings, notifications, logging, search,
 shared UI, administration, and service discovery.

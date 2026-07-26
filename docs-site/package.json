@@ -4,16 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "fibel dev --config fibel.config.ts",
+    "dev": "bun --watch --preload ./src/preload.ts ./src/dev.ts",
     "typecheck": "tsc --noEmit",
-    "build": "fibel build --config fibel.config.ts",
-    "start": "bun dist/server.ts"
+    "build": "NODE_ENV=production bun ./src/build.ts",
+    "start": "bun dist/server.js"
   },
   "dependencies": {
-    "@valentinkolb/fibel": "0.0.9"
+    "@valentinkolb/cloud": "file:../packages/cloud",
+    "@valentinkolb/fibel": "0.0.9",
+    "@valentinkolb/ssr": "0.11.0",
+    "hono": "^4.11.1",
+    "solid-js": "1.9.12"
   },
   "devDependencies": {
     "@types/bun": "1.3.9",
+    "bun-plugin-tailwind": "^0.1.2",
+    "tailwindcss": "^4.1.18",
     "typescript": "5.9.3"
   },
   "packageManager": "bun@1.3.14"

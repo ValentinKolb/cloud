@@ -4,10 +4,12 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["fibel.config.ts", "plugins/**/*.ts"]
+  "include": ["fibel.config.ts", "plugins/**/*.ts", "src/**/*.ts", "src/**/*.tsx"]
 }
