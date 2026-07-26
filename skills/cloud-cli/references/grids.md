@@ -27,7 +27,9 @@ Grids stores structured operational data in bases made of tables, fields, record
 - A **form** writes records through a configured set of fields. A table also has a virtual default form.
 - A **dashboard** contains configured widgets that reference resources by UUID.
 - A **document template** renders GQL data through Liquid HTML and Gotenberg. A generated document keeps a recursive record snapshot.
-- A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and dashboard interactions.
+- A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and dashboard
+  interactions. Grids contributes the actions and the events; the runs themselves live in Cloud's shared workflow kernel, so
+  `cld grids workflow-runs` reads one base while `cld admin workflows` reads every app.
 
 Permissions are enforced by the backend on every command. Listing or resolving a resource does not grant access to it.
 
@@ -438,11 +440,15 @@ Run or validate queries with:
 
 ```bash
 cld grids gql preview --query-file authors.gql --limit 100 --json
-cld grids gql run --query-file authors.gql --limit 1000 --json
+cld grids gql run --query-file authors.gql --page-size 500 --json
+cld grids gql run --query-file authors.gql --all --max-rows 1000 --json
 cld grids gql compile-view --query-file authors.gql --json
 ```
 
-`gql preview` caps `--limit` at 500; `gql run` caps it at 10,000. Both execute with current permissions. `gql compile-view` canonicalizes valid source and returns diagnostics with a nonzero exit status for invalid source. `gql autocomplete` accepts a UTF-16 `--caret` offset and returns permission-safe completion items.
+`gql preview` caps `--limit` at 500. `gql run` has no `--limit`: it reads one page with `--page-size` (1–1000, default 100) and `--cursor`,
+or follows cursors with `--all` up to `--max-rows` (1–10,000, default 10,000). `--max-rows` without `--all` is an error. Both execute with
+current permissions. `gql compile-view` canonicalizes valid source and returns diagnostics with a nonzero exit status for invalid source.
+`gql autocomplete` accepts a UTF-16 `--caret` offset and returns permission-safe completion items.
 
 Use exact source and field names when unambiguous, quote names containing spaces, and use `{uuid}` references where renames must not break saved automation.
 
@@ -568,8 +574,10 @@ cld grids dashboards create \
   --json
 ```
 
-Commands are `dashboards reference|list|get|create|update|delete|restore` and `dashboards widgets resolve|run|scan`. Use `widgets resolve`
-to inspect one configured widget, `widgets run` for a workflow-button widget, and `widgets scan --code <value>` for its scanner flow.
+Commands are `dashboards reference|list|get|create|update|delete|restore` and `dashboards widgets resolve|run|scan`. `widgets resolve`
+resolves a widget configuration you supply as JSON (`--body`, `--body-file`, or `--stdin`) against one dashboard — it does not look an
+existing widget up by id. `widgets run` executes a workflow-button widget and `widgets scan --code <value>` drives its scanner flow; both
+take the stored widget's id.
 Scanner retries should reuse `--operation-id`; when omitted, the CLI generates a new idempotency id. Pass `--expected-revision` when a
 caller must reject a launcher that was revalidated against a different workflow revision. Otherwise, the server uses the launcher's
 current validated revision without requiring direct workflow access from the dashboard reader.
@@ -654,6 +662,10 @@ cld grids workflows reference --json
 
 The shipped inputs are `record`, `recordList`, `text`, `number`, `boolean`, `date`, `dateTime`, and `select`. Triggers are `schedule` and `recordEvent`. Actions are `updateRecord`, `createRecord`, `generateDocument`, `createDocumentLink`, `sendEmail`, `httpRequest`, `setVariable`, `fail`, and `succeed`. Control flow supports `if/then/else`, `switch/cases/default`, and `forEach/as/do`.
 
+`schedule` and `recordEvent` are the only triggers written in YAML. A direct invocation and a launcher press are API and CLI operations, not
+YAML — but they are still events, and a workflow is always listening for them, so nothing has to be declared to make it invocable.
+Disabling a workflow silences all four: a disabled workflow refuses `--mode execute` and still accepts `--mode dryRun`.
+
 ### Workflow YAML language reference
 
 The root accepts only `inputs`, `triggers`, and `steps`. `steps` is required and non-empty; omit optional sections instead of writing an
@@ -709,6 +721,17 @@ Action fields are:
 
 `sendEmail.to` entries contain exactly one of `email` or `user`. HTTP methods are `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`; requests
 carry optional JSON only. Field, table, document-template, and email-template references accept an unambiguous name, short id, or UUID.
+
+`httpRequest` reaches public addresses only. A URL whose host is `localhost`, ends in `.localhost` or `.internal`, or resolves to a
+loopback, private, carrier-NAT, link-local, multicast, or reserved address is rejected — every DNS answer is checked, not only the one
+dialled — as is a URL carrying credentials or a scheme other than `http`/`https`. There is no setting that widens this. Transport headers
+are rejected (`accept-encoding`, `connection`, `content-length`, `host`, `proxy-authorization`, `proxy-connection`, `te`, `trailer`,
+`transfer-encoding`, `upgrade`); an `Authorization` header of your own is passed through. Grids sends its own `Idempotency-Key` so a
+receiver can deduplicate, defaults `content-type` to `application/json`, and caps the request and response bodies at 64 KiB each.
+
+`httpRequest` is the one action whose outcome cannot be checked afterwards. If a request leaves the process and no complete answer comes
+back, the step is neither retried nor failed: the run stops at `needs_attention` and the effect appears in `cld admin workflows effects`
+for a person to settle. Repeating it automatically is how the same webhook fires twice.
 
 Control flow uses these exact shapes:
 
@@ -770,8 +793,17 @@ Saved document outputs expose `id`, `shortId`, `templateId`, `workflowRunId`, `s
 and `status`. HTTP outputs expose `status`, `ok`, and `body`.
 
 Limits are 100 inputs, 1,000 total steps, nesting depth 20, 1,000 conditions, condition depth 20, 10,000 loop or record-list items, and
-200,000 YAML characters. Run modes are `execute` and `dryRun`; statuses are `queued`, `running`, `waiting`, `succeeded`, `failed`,
-`canceled`, and `needs_attention`. Invocation channels are `api`, `dashboard`, `scanner`, `bulk`, `schedule`, and `recordEvent`.
+200,000 YAML characters. Run modes are `execute` and `dryRun`. Invocation channels are `api`, `dashboard`, `scanner`, `bulk`, `schedule`,
+and `recordEvent`.
+
+A run and a step do not share a vocabulary, and reading one as the other is how a finished step gets reported as still going:
+
+- A **run** is `queued`, `running`, `waiting`, `succeeded`, `failed`, `canceled`, or `needs_attention`. That set, and only that set, is what
+  `workflow-runs list --status` accepts.
+- A **step** is `running`, `completed`, `waiting`, `failed`, `needs_attention`, `terminal`, `planned`, `unsupported`, `indeterminate`, or
+  `canceled`. A step *completes* where a run *succeeds*. `terminal` is the step that ended the run early — a `succeed` step, or one cut
+  short by a cancel request; a `fail` step records `failed`. A dry run records `planned` steps, or `unsupported`/`indeterminate` where it
+  could not say what would happen. `cld grids workflow-runs steps <run-uuid>` prints these.
 
 A minimal manually invoked workflow is:
 
@@ -812,6 +844,12 @@ Restore copies the selected definition into a new current revision. It uses the 
 
 ### Invoke and inspect runs
 
+Everything that starts a run is an event. A direct invocation records `grids.invoked`, a scanner, bulk, or dashboard launcher records
+`grids.launcherPressed`, a schedule slot records `grids.scheduleTick`, and a watched row records `grids.recordChanged`. The kernel matches
+the event against the workflow's activations and materializes the run, so a run has an inspectable cause rather than only a channel label.
+A dry run is deliberately not an event: nothing happened, somebody is asking what would, so it is created directly against the workflow's
+newest version.
+
 Direct CLI invocation requires a stable idempotency key. Reuse a key only for the same logical invocation.
 
 ```bash
@@ -828,7 +866,11 @@ cld grids workflows invoke "Check in" \
   --json
 ```
 
-`--expected-revision` rejects an invocation when a different workflow revision is active. A dry run reports supported effects without committing them; consult the run result because actions declare different dry-run support in `workflows reference`.
+The idempotency key is scoped to the workflow, not to the channel: repeating it answers with the run it already started and reports
+`"created": false`, while reusing it for a different mode, actor, or inputs is rejected as a conflict rather than silently ignored. Launcher
+invocations key on their own `operationId` instead. `--expected-revision` rejects the invocation when a different workflow revision is
+active; it is not part of the idempotency key. A dry run plans each step's effects rather than performing them; consult the run's steps,
+because actions declare different dry-run support in `workflows reference`.
 
 Inspect execution with:
 
@@ -840,13 +882,22 @@ cld grids workflow-runs documents <run-uuid> --json
 cld grids workflow-emails list --workflow "Check in" --json
 ```
 
+`workflow-runs list` filters on `--status` (a run state), `--channel`, `--mode`, `--workflow`, and pages with `--cursor` and `--limit` up to
+200. `workflow-runs steps` prints step states and an `ATTEMPT` count that starts at 0 and rises each time that one step is re-run; it
+returns at most 500 steps and says so when it truncates. These commands see one base. For the kernel-wide view — every app's runs, the event
+that caused a run, its effect budget, stranded effects, and events that never turned into runs — use `cld admin workflows` or
+`/admin/observability/workflows`. Grids keeps no run list of its own.
+
 Cancel a queued, running, or waiting run explicitly:
 
 ```bash
 cld grids workflow-runs cancel <run-uuid> --yes --json
 ```
 
-Cancellation prevents later steps and late worker completion from replacing the canceled state. It does not undo effects that already completed. Run commands are `workflow-runs list|get|cancel|steps|documents|download-documents`. Email delivery history uses `workflow-emails list`.
+Cancellation is a request, not a write. A queued run is canceled at once; a running or waiting one stops when the worker holding it next
+checks in, so the command may return the run still `running` and the state settles shortly after. It does not undo effects that already
+happened. Run commands are `workflow-runs list|get|cancel|steps|documents|download-documents`. Email delivery history uses
+`workflow-emails list`.
 
 ### Run options and email templates
 

@@ -80,7 +80,7 @@ cld admin workflows effects --json
 cld admin workflows events --json
 ```
 
-Every app's workflow runs live in one schema, so these read across all of them; `--app` narrows to one. Start with `workflows health`, which is one row per app.
+Every app's workflow runs live in one schema, so these read across all of them; `--app` narrows `runs`, `effects`, and `events` to one. Start with `workflows health`, which is one row per app and takes only `--window`. Windows here are `1h`, `24h`, `7d`, and `30d` — a narrower set than the background-job windows above.
 
 Four columns there are the ones worth acting on:
 
@@ -89,7 +89,11 @@ Four columns there are the ones worth acting on:
 - **attention** — runs that need a decision rather than a retry.
 - **worst lag** — the gap between the occurrence that caused a run and the run actually starting. A growing lag means the workers are behind, not that anything failed.
 
-`workflows runs` hides the child runs of a fan-out unless `--children` is passed; a bulk operation over ten thousand records is ten thousand runs and would bury everything else. `workflows show` gives one run with its steps, the event that caused it, and its effect budget as `used/limit`. All read-only — cancelling a run or settling a stranded effect stays a deliberate action in the admin UI.
+`workflows runs` hides the child runs of a fan-out unless `--children` is passed; a bulk operation over ten thousand records is ten thousand runs and would bury everything else. `workflows show` gives one run with its steps, the event that caused it, and its effect budget as `used/limit`. All read-only — cancelling a run or settling a stranded effect stays a deliberate action in the admin UI, or `cld grids workflow-runs cancel` for a Grids run.
+
+Mind the vocabulary in these outputs. A **run** is `queued`, `running`, `waiting`, `succeeded`, `failed`, `canceled`, or `needs_attention`, and `--state` accepts exactly those. A **step** in `workflows show` has its own set — `running`, `completed`, `waiting`, `failed`, `needs_attention`, `terminal`, `planned`, `unsupported`, `indeterminate`, `canceled` — so a finished step reads `completed`, never `succeeded`. The `Effect` column beside it is the effect journal's state, not the step's.
+
+The same runs are visible in the browser at `/admin/observability/workflows`. Apps do not keep their own run tables, so there is no per-app equivalent of these commands; an app CLI only reads its own scope, as `cld grids workflow-runs` does for one base.
 
 ## Notifications and announcements
 
@@ -134,7 +138,8 @@ Run `cld admin <command> --help` for flags, filters, pagination, and confirmatio
 | Logs | `logs list`, `logs summary`, `logs stats`, `logs errors`, `logs problems`, `logs show`, `logs explain`, `logs tail`, `logs sources`, `logs cleanup` |
 | Telemetry | `telemetry routes`, `telemetry overview`, `telemetry timeseries`, `telemetry explain`, `telemetry summary`, `telemetry events`, `telemetry apps` |
 | Background jobs | `jobs list`, `jobs stats`, `jobs runs`, `jobs show` |
-| Postgres diagnostics | `postgres summary`, `postgres tables`, `postgres schemas`, `postgres extensions` |
+| Workflows | `workflows health`, `workflows runs`, `workflows show`, `workflows effects`, `workflows events` |
+| Postgres diagnostics | `postgres summary`, `postgres tables`, `postgres schemas`, `postgres extensions`, `postgres indexes`, `postgres sessions` |
 | Redis diagnostics | `redis summary`, `redis prefixes` |
 | Notifications | `notifications list`, `notifications summary`, `notifications get`, `notifications resend`, `notifications pending-system`, `notifications send-pending-system` |
 | Notification batches | `notification-batches list`, `notification-batches preview`, `notification-batches create`, `notification-batches get`, `notification-batches finalize`, `notification-batches recipients`, `notification-batches retry-failed`, `notification-batches retry-recipient`, `notification-batches delete-draft` |
