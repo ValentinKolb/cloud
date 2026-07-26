@@ -20,13 +20,15 @@ An application owns its domain, routes, data model, deployment, and release cycl
 
 ## What this documentation will cover
 
-| Area | What you will find here |
+| Start here | What it answers |
 | --- | --- |
-| Applications | `defineApp()`, lifecycle, routes, configuration, and service discovery |
-| Identity and access | Sessions, actors, service identities, roles, and resource permissions |
-| Interface | SSR shells, navigation, settings, search, administration, and shared components |
-| Data and automation | App-owned persistence, jobs, schedules, queues, and durable workflows |
-| Communication | Notifications, email, Web Push, and application events |
-| Operations | Logging, tracing, health, metrics, graceful shutdown, and scaling |
+| [Platform overview](/docs/en/overview) | Where an application ends and the platform begins |
+| [Platform APIs](/docs/en/platform) | Which shared capability to use from application code |
+| [Settings](/docs/en/platform/settings) | How an app declares, reads, and changes runtime configuration |
+| [Logging](/docs/en/platform/logging) | How an app writes structured operational events |
+| [Notifications](/docs/en/platform/notifications) | How an app defines and sends typed user or email notifications |
 
-The first detailed reference is the [platform overview](/docs/en/overview). The [UI catalog](/ui) already renders components directly from the shared Cloud package.
+The [UI catalog](/ui) renders components directly from the shared Cloud
+package. Additional guides will cover identity, data, jobs, schedules, queues,
+durable workflows, and operations without mixing those concerns into the
+application foundation.
