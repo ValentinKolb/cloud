@@ -74,3 +74,10 @@ export {
   type TemplateVariableKind,
 } from "./TemplateEditor";
 export { default as TextInput } from "./TextInput";
+export {
+  buildWorkflowAutocompleteCompletions,
+  createWorkflowYamlHighlighter,
+  type WorkflowAutocompleteRequest,
+  type WorkflowAutocompleteResponse,
+  workflowCompletionItemToSuggestion,
+} from "./workflow-authoring";

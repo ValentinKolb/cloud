@@ -1,4 +1,12 @@
 export {
+  buildWorkflowManifestCompletions,
+  type WorkflowCompletionContext,
+  type WorkflowCompletionItem,
+  type WorkflowCompletionKind,
+  workflowCompletionContext,
+  workflowCompletionItem,
+} from "./authoring";
+export {
   createWorkflowBuiltinActionPorts,
   renderWorkflowTextTemplate,
   type WorkflowBuiltinActionAuthorize,

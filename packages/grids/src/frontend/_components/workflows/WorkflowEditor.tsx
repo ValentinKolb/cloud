@@ -1,6 +1,6 @@
 import { AutocompleteEditor, CheckboxCard, confirmDiscardIfDirty, PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { createWorkflowYamlHighlighter } from "@valentinkolb/cloud/ui/workflow-authoring";
 import type { WorkflowBoundPlan, WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
-import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -58,23 +58,7 @@ class WorkflowConflictError extends Error {
 
 class WorkflowDiagnosticsError extends Error {}
 
-const workflowHighlight = highlight.compile(
-  [
-    { kind: "placeholder", match: /\$\{\{\s*[^{}]+?\s*\}\}/ },
-    { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/ },
-    {
-      kind: "keyword",
-      match:
-        /\b(?:inputs|triggers|steps|type|table|required|options|schedule|recordEvent|with|field|event|cron|timezone|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|switch|cases|default|forEach|as|do|record|recordList|text|number|boolean|date|dateTime|select|method|url|headers|json|timeoutMs|saveAs|set|values|template|document|expiresIn|comment|to|email|user|data|batch|filename|tags|message|name|description)\b/,
-    },
-    { kind: "function", match: /\bnow\(\)/ },
-    { kind: "placeholder", match: /\binputs\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_ -]+)?\b/ },
-    { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
-    { kind: "operator", match: /[:{}\[\],-]/ },
-    { kind: "comment", match: /#[^\n]*/ },
-  ],
-  { classPrefix: "doc-token-" },
-);
+const workflowHighlight = createWorkflowYamlHighlighter();
 
 const workflowReferenceHref = (_baseShortId: string) => "/app/grids/help/grids-workflows";
 

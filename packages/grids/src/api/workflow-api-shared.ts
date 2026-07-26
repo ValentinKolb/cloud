@@ -1,4 +1,5 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { buildWorkflowManifestCompletions, workflowCompletionContext, workflowCompletionItem } from "@valentinkolb/cloud/workflows";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import type { Context } from "hono";
 import { z } from "zod";
@@ -187,75 +188,31 @@ const uniqueEntries = <T extends WorkflowCatalogEntry>(index: { refs: Map<string
     (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
   );
 
-const replacementRange = (source: string, caret: number): { start: number; end: number } => {
-  const lineStart = source.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
-  const lineEnd = source.indexOf("\n", caret);
-  const end = lineEnd === -1 ? source.length : lineEnd;
-  const lineBeforeCaret = source.slice(lineStart, caret);
-  const colon = lineBeforeCaret.indexOf(":");
-  if (colon >= 0) {
-    const valueStart = lineStart + colon + 1 + (lineBeforeCaret.slice(colon + 1).match(/^\s*/)?.[0].length ?? 0);
-    return { start: valueStart, end };
-  }
-  const token = /[A-Za-z0-9_-]*$/.exec(lineBeforeCaret)?.[0] ?? "";
-  return { start: caret - token.length, end: caret };
-};
-
-const completion = (
-  range: { start: number; end: number },
-  kind: WorkflowCompletionItem["kind"],
-  label: string,
-  insertText: string,
-  detail?: string,
-): WorkflowCompletionItem => ({
-  label,
-  kind,
-  insertText,
-  textEdit: { ...range, text: insertText },
-  ...(detail ? { detail } : {}),
-});
-
 export const buildWorkflowCompletions = (source: string, caret: number, catalog: WorkflowCatalog): WorkflowCompletionItem[] => {
-  const clampedCaret = Math.min(Math.max(caret, 0), source.length);
-  const range = replacementRange(source, clampedCaret);
-  const lineStart = source.lastIndexOf("\n", Math.max(0, clampedCaret - 1)) + 1;
-  const line = source.slice(lineStart, clampedCaret);
-  const key = /^\s*(?:-\s*)?([A-Za-z][A-Za-z0-9]*)\s*:/.exec(line)?.[1];
+  const context = workflowCompletionContext(source, caret);
 
-  if (key === "table") {
-    return uniqueEntries(catalog.tables).map((entry) => completion(range, "source", entry.name, entry.name, `Table ${entry.shortId}`));
+  if (context.key === "table") {
+    return uniqueEntries(catalog.tables).map((entry) =>
+      workflowCompletionItem(context, "source", entry.name, entry.name, `Table ${entry.shortId}`),
+    );
   }
-  if (key === "field") {
+  if (context.key === "field") {
     const fields = [...catalog.fieldsByTable.values()].flatMap(uniqueEntries);
     return [...new Map(fields.map((entry) => [entry.id, entry])).values()].map((entry) =>
-      completion(range, "field", entry.name, entry.name, `Field ${entry.shortId}`),
+      workflowCompletionItem(context, "field", entry.name, entry.name, `Field ${entry.shortId}`),
     );
   }
-  if (key === "template") {
+  if (context.key === "template") {
     return [
-      ...uniqueEntries(catalog.templates).map((entry) => completion(range, "source", entry.name, entry.name, "Document template")),
-      ...uniqueEntries(catalog.emailTemplates).map((entry) => completion(range, "source", entry.name, entry.name, "Email template")),
+      ...uniqueEntries(catalog.templates).map((entry) =>
+        workflowCompletionItem(context, "source", entry.name, entry.name, "Document template"),
+      ),
+      ...uniqueEntries(catalog.emailTemplates).map((entry) =>
+        workflowCompletionItem(context, "source", entry.name, entry.name, "Email template"),
+      ),
     ];
   }
-  if (key === "type") {
-    return gridsWorkflowManifest.inputs.map((input) => completion(range, "literal", input.kind, input.kind, input.description));
-  }
-  if (/^\s*-\s*[A-Za-z0-9_]*$/.test(line)) {
-    return gridsWorkflowManifest.actions.map((action) =>
-      completion(range, "keyword", action.kind, `${action.kind}:\n    `, action.description),
-    );
-  }
-  const prefix = source.slice(0, lineStart);
-  if (/^triggers:\s*$/m.test(prefix) && !/^\S/m.test(source.slice(prefix.lastIndexOf("triggers:"), lineStart).replace("triggers:", ""))) {
-    return gridsWorkflowManifest.triggers.map((trigger) =>
-      completion(range, "keyword", trigger.kind, trigger.snippet ?? `${trigger.kind}:\n  `, trigger.description),
-    );
-  }
-  return [
-    completion(range, "keyword", "inputs", "inputs:\n  ", "Declare typed inputs"),
-    completion(range, "keyword", "triggers", "triggers:\n  ", "Declare automatic triggers"),
-    completion(range, "keyword", "steps", "steps:\n  - ", "Declare workflow steps"),
-  ];
+  return buildWorkflowManifestCompletions(source, caret, gridsWorkflowManifest);
 };
 
 export const baseExists = async (baseId: string): Promise<boolean> => Boolean(await getBase(baseId));
