@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
+import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan } from "../contracts";
 import type { WorkflowRuntimeStepIdentity } from "../runtime/ports";
 import {
@@ -51,10 +52,11 @@ const ready = (): Promise<boolean> => {
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
 
 const PLAN = { steps: [] } as unknown as WorkflowBoundPlan;
+const testData = createWorkflowIntegrationFixture();
 
 /** A workflow with one immutable version, isolated per test by a unique scope. */
 const fixture = async () => {
-  const scopeId = `scope-${crypto.randomUUID()}`;
+  const scopeId = testData.scope();
   const [workflow] = await sql<{ id: string }[]>`
     INSERT INTO workflows.workflow (app_id, scope_id, key, name, created_by_kind)
     VALUES ('probe', ${scopeId}, 'wf', 'Probe', 'system')

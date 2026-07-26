@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { buildNotebookExportFiles, createZip, exportFilename } from "./export";
 import type { AttachmentContent } from "./attachments";
+import { buildNotebookExportFiles, createZip, exportFilename } from "./export";
 import type { Notebook } from "./notebooks";
 import type { Note } from "./notes";
 

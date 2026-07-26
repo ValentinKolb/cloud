@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { materializeTemplate, templates, type TemplateNoteContentContext } from ".";
+import { deriveNoteTitle } from "../lib/note-title";
 import type { Notebook } from "../service/notebooks";
 import type { Note } from "../service/notes";
-import { deriveNoteTitle } from "../lib/note-title";
+import { materializeTemplate, type TemplateNoteContentContext, templates } from ".";
 
 const assertUnique = (values: string[], label: string) => {
   expect(new Set(values).size, `${label} must be unique`).toBe(values.length);

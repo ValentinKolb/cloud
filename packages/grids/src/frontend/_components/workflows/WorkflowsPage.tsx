@@ -26,6 +26,7 @@ import type {
   GridsWorkflowRunStatsWindow as WorkflowRunStatsWindow,
   WorkflowTriggerRuntimeState,
 } from "../../../workflows/contracts";
+import { scannerLauncherPromptInputSources } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceWorkflowOverview } from "../workspace/workspace-state-model";
 import { WorkflowAutomaticTriggerState } from "./WorkflowAutomaticTriggerState";
@@ -512,6 +513,7 @@ export default function WorkflowsPage(props: Props) {
 
   const openScanner = async (workflow: Workflow, launcher: GridsWorkflowLauncher) => {
     if (launcher.config.kind !== "scanner" || !props.canRunActiveWorkflow) return;
+    const scannerConfig = launcher.config;
     await dialogCore.open<void>(
       (close) => (
         <PanelDialog surface="floating">
@@ -536,6 +538,11 @@ export default function WorkflowsPage(props: Props) {
                     workflowDescription: workflow.description,
                     initialCode: null,
                     returnHref: scannerReturnHref(workflow),
+                    inputContract: {
+                      workflow: { id: workflow.id, name: workflow.name, plan: workflow.plan },
+                      tables: props.tables,
+                      inputSources: scannerLauncherPromptInputSources(scannerConfig),
+                    },
                   } satisfies WorkflowScannerState
                 }
               />

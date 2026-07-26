@@ -8,7 +8,7 @@ export const inventoryTemplate: GridTemplate = {
   highlights: [
     "Assets, kits, locations, and loan requests",
     "Availability and loan workload overview",
-    "Guided agreement delivery and asset-label defect reporting",
+    "Guided agreement delivery, returns, and asset-label defect reporting",
   ],
   icon: "ti ti-packages",
   baseName: "Inventory",
@@ -375,6 +375,14 @@ export const inventoryTemplate: GridTemplate = {
           config: { targetTableId: table("kits"), cardinality: "multiple" },
         },
         {
+          key: "items",
+          name: "Loaned items",
+          description: "Specific inventory records handed out under this loan.",
+          type: "relation",
+          icon: "ti ti-packages",
+          config: { targetTableId: table("items"), cardinality: "multiple" },
+        },
+        {
           key: "start_date",
           name: "Requested from",
           description: "Requested start date for the loan.",
@@ -488,7 +496,7 @@ export const inventoryTemplate: GridTemplate = {
         name: "Sony A7 body",
         category: [record("categories.cameras")],
         location: [record("locations.studio")],
-        status: ["available"],
+        status: ["in_use"],
         condition: ["good"],
         serial_no: "A7-001",
         tags: ["fragile", "portable"],
@@ -567,9 +575,10 @@ export const inventoryTemplate: GridTemplate = {
         requester_email: "mara@example.test",
         organization: "Design team",
         kits: [record("kits.video")],
+        items: [record("items.camera")],
         start_date: currentMonthDate(10),
         due_date: currentMonthDate(12),
-        status: ["requested"],
+        status: ["active"],
         availability_confirmed: true,
         agreement_sent: false,
         purpose: "Record a short product interview.",
@@ -1021,7 +1030,16 @@ export const inventoryTemplate: GridTemplate = {
                 description: "Choose an approved loan to generate and email its agreement.",
                 buttonLabel: "Choose loan",
                 launcherId: launcher("send_loan_agreement_dashboard"),
-                span: 6,
+                span: 4,
+              },
+              {
+                id: "w_return_item",
+                kind: "workflow-button",
+                title: "Return loaned items",
+                description: "Choose an active loan, scan each returned item, and assess its condition.",
+                buttonLabel: "Open return scanner",
+                launcherId: launcher("return_loan_item_scanner"),
+                span: 4,
               },
               {
                 id: "w_report_defect",
@@ -1030,7 +1048,7 @@ export const inventoryTemplate: GridTemplate = {
                 description: "Scan the barcode on an inventory label to move the item into maintenance.",
                 buttonLabel: "Open asset scanner",
                 launcherId: launcher("report_item_defect_scanner"),
-                span: 6,
+                span: 4,
               },
             ],
           },
@@ -1221,6 +1239,76 @@ steps:
       message: "Item \${{ inputs.item.Asset ID }} · \${{ inputs.item.Name }} moved to maintenance."`,
       enabled: true,
     },
+    {
+      key: "return_loan_item",
+      name: "Mark loan item as returned",
+      description: "Uses one selected loan for the scanner session, then records the condition of every scanned item.",
+      source: `inputs:
+  loan:
+    type: record
+    table: Loans
+    label: Loan agreement
+    description: Select the active loan being returned.
+    required: true
+  item:
+    type: record
+    table: Items
+    label: Returned item
+    required: true
+  condition:
+    type: select
+    label: Returned condition
+    description: Assess this item after scanning it.
+    options:
+      - good
+      - used
+      - repair
+    required: true
+steps:
+  - if:
+      notEquals:
+        - \${{ inputs.loan.Status }}
+        - [active]
+    then:
+      - fail:
+          message: "Loan \${{ inputs.loan.Loan number }} is not active."
+  - if:
+      not:
+        contains:
+          - \${{ inputs.loan.Loaned items }}
+          - \${{ inputs.item.recordId }}
+    then:
+      - fail:
+          message: "Item \${{ inputs.item.Asset ID }} does not belong to loan \${{ inputs.loan.Loan number }}."
+  - if:
+      notEquals:
+        - \${{ inputs.item.Status }}
+        - [in_use]
+    then:
+      - fail:
+          message: "Item \${{ inputs.item.Asset ID }} is not currently in use."
+  - if:
+      equals:
+        - \${{ inputs.condition }}
+        - repair
+    then:
+      - updateRecord:
+          record: inputs.item
+          set:
+            Status: [maintenance]
+            Condition: [repair]
+      - succeed:
+          message: "Item \${{ inputs.item.Asset ID }} returned for loan \${{ inputs.loan.Loan number }} and moved to maintenance."
+  - updateRecord:
+      record: inputs.item
+      set:
+        Status: [available]
+        Condition:
+          - \${{ inputs.condition }}
+  - succeed:
+      message: "Item \${{ inputs.item.Asset ID }} returned for loan \${{ inputs.loan.Loan number }} in \${{ inputs.condition }} condition."`,
+      enabled: true,
+    },
   ],
   workflowLaunchers: [
     {
@@ -1235,6 +1323,20 @@ steps:
       workflow: "report_item_defect",
       name: "Scan damaged inventory item",
       config: { kind: "scanner", input: "item", resolve: { by: "field", field: "Asset ID" } },
+      enabled: true,
+    },
+    {
+      key: "return_loan_item_scanner",
+      workflow: "return_loan_item",
+      name: "Return items for one loan",
+      config: {
+        kind: "scanner",
+        inputSources: {
+          loan: { kind: "session" },
+          item: { kind: "scan", value: "record", resolve: { by: "field", field: "Asset ID" } },
+          condition: { kind: "afterScan" },
+        },
+      },
       enabled: true,
     },
   ],

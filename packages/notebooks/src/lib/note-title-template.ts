@@ -1,5 +1,5 @@
 import { renderLiquidTemplate, validateLiquidTemplate } from "@valentinkolb/cloud/shared";
-import { dates, type DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { normalizeNoteTitle } from "./note-title";
 
 export const DEFAULT_NOTE_TITLE_TEMPLATE = "New Document";

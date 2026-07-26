@@ -1,6 +1,6 @@
 import type { MutationResult, PaginationParams } from "@valentinkolb/cloud/contracts";
-import { get as settingsGet, logger, toPgTextArray } from "@valentinkolb/cloud/services";
-import { dates, fromBase64Strict, type DateContext } from "@valentinkolb/stdlib";
+import { logger, get as settingsGet, toPgTextArray } from "@valentinkolb/cloud/services";
+import { type DateContext, dates, fromBase64Strict } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import * as Y from "yjs";
 import {
@@ -241,7 +241,10 @@ const initialContentForNote = async (params: {
           id: parent.id,
           short_id: parent.short_id,
           title: parent.title,
-          path: [...ancestors].reverse().map((ancestor) => ancestor.title).join(" / "),
+          path: [...ancestors]
+            .reverse()
+            .map((ancestor) => ancestor.title)
+            .join(" / "),
         }
       : undefined,
     dateConfig: params.dateConfig ?? (await defaultDateConfig()),
@@ -650,7 +653,11 @@ export const getWithContentByIdOrShortId = async (params: { idOrShortId: string 
 /**
  * Create a new note.
  */
-export const create = async (params: { data: CreateNote; creatorId: string | null; dateConfig?: DateContext }): Promise<MutationResult<Note>> => {
+export const create = async (params: {
+  data: CreateNote;
+  creatorId: string | null;
+  dateConfig?: DateContext;
+}): Promise<MutationResult<Note>> => {
   const { data, creatorId } = params;
   let createdNoteId: string | null = null;
 

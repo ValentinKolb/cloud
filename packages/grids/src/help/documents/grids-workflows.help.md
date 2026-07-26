@@ -78,7 +78,7 @@ This is why an occurrence that nothing is listening for produces no run at all r
 
 A **dry run is not an event**. Nothing happened; somebody is asking what would. It is created directly against the workflow's newest published revision and never consults a trigger, which is why a disabled workflow can still be dry-run while its execute runs are refused.
 
-Scanner, bulk, and dashboard run options are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner resolves scanned text into one record input, bulk supplies one record-list input, and a dashboard option either keeps fixed values for one-click use or asks for the declared inputs when it runs.
+Scanner, bulk, and dashboard run options are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner maps one input to scanned text or a resolved record and can collect other inputs once before scanning, after every scan, or from fixed values. Bulk supplies one record-list input, and a dashboard option either keeps fixed values for one-click use or asks for the declared inputs when it runs.
 
 ## Understand a run {icon="layout-grid"}
 
@@ -224,13 +224,13 @@ steps:
 :::
 
 :::note Required inputs
-Direct callers can provide every declared input. Run options provide their configured binding plus any invocation inputs. Each automatic trigger must use `with` to provide all required inputs from compatible trigger values.
+Direct callers can provide every declared input. Run options accept only the inputs their saved configuration assigns to the user. Each automatic trigger must use `with` to provide all required inputs from compatible trigger values.
 :::
 
 ## Run option reference {icon="book-2"}
 
 :::reference
-- **Scanner:** Binds one record input. Resolve scanned text by a generated scan code or by a configured field that enforces unique values. The scanner surface shows the camera and a running log of accepted, failed, and completed scans.
+- **Scanner:** Maps exactly one text or record input to the scan. Record scans resolve by generated scan code or a configured unique field. Any other workflow input can be asked once before scanning, asked after every scan, or fixed by the run option.
 - **Bulk:** Binds one recordList input from explicit record IDs or a row-shaped table query, with at most 10,000 records per run.
 - **Dashboard:** Exposes the workflow as a dashboard action and may save input bindings such as a fixed reporting range.
 - **Lifecycle:** Each option has its own name, enabled state, validated workflow revision, and diagnostics. Source changes can make an option unavailable until it is reviewed and saved again.
@@ -336,7 +336,7 @@ Control flow is still a normal step. That keeps nested behavior explicit and mak
 - **switch:** Requires a value and at least one `cases` entry. Every case has `when` and a non-empty `do` list. `default` is optional.
 - **forEach:** Requires a raw `recordList` reference, an `as` identifier, and a non-empty `do` list. It preserves list order.
 - **Value comparisons:** `equals` and `notEquals` take exactly two literal or dynamic values.
-- **Text comparisons:** `contains`, `startsWith`, and `endsWith` take exactly two text values.
+- **Text and list comparisons:** `startsWith` and `endsWith` take two text values. `contains` accepts either two text values or a list and one exact value.
 - **Presence and nesting:** `exists` takes one raw value reference. `all` and `any` require at least one condition. `not` wraps one condition.
 :::
 
@@ -428,7 +428,7 @@ steps:
 
 :::reference
 - **Literal strings:** Plain strings are always literal values. Write `Checked`, URLs, email addresses, and dotted text directly when the workflow should use that exact text.
-- **Dynamic values:** A dynamic value must be the whole `${{ ... }}` string. Use `${{ inputs.name }}`, append a record field such as `${{ inputs.item.Status }}`, read a saved value with `${{ savedValue }}`, or evaluate `${{ now() }}`. The expression language does not perform arithmetic, concatenate text, or call other functions.
+- **Dynamic values:** A dynamic value must be the whole `${{ ... }}` string. Use `${{ inputs.name }}`, append a record field such as `${{ inputs.item.Status }}`, use `${{ inputs.item.recordId }}` for the stable record UUID, read a saved value with `${{ savedValue }}`, or evaluate `${{ now() }}`. The expression language does not perform arithmetic, concatenate text, or call other functions.
 - **Dedicated references:** Reference-only slots stay raw: `record: inputs.item`, `forEach: inputs.items`, `document: savedDocument`, and `exists: inputs.item.Field`. Do not wrap these slots in expression syntax.
 - **Scope:** Inputs are available for the whole run. `saveAs` and `setVariable` names are available only after their step. A `forEach` alias exists only inside its `do` steps; values created inside branches and loops do not escape that scope.
 - **Result messages:** `succeed` and `fail` messages are literal text that may embed one or more expressions, for example `Processed ${{ inputs.item.Name }}`.
@@ -575,7 +575,7 @@ steps:
 ```
 
 :::note Scanner run option
-Add a scanner run option for the `item` record input. Choose generated scan-code resolution or configure a unique field such as `Label code`. The option remains outside this YAML.
+Add a scanner run option that maps `item` to a scanned record. Choose generated scan-code resolution or configure a unique field such as `Label code`. The option remains outside this YAML.
 :::
 
 ## Bulk document example {icon="file-description"}

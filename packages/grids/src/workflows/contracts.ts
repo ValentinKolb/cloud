@@ -122,12 +122,41 @@ export type WorkflowTriggerRuntimeState = {
   }>;
 };
 
-export type GridsWorkflowLauncherConfig =
+export type GridsScannerResolve = { by: "scanCode" | "field"; field?: string };
+
+export type GridsScannerInputSource =
+  | { kind: "scan"; value: "text" }
+  | { kind: "scan"; value: "record"; resolve: GridsScannerResolve }
+  | { kind: "session" }
+  | { kind: "afterScan" }
+  | { kind: "fixed"; value: WorkflowJsonValue };
+
+export type GridsScannerPromptInputSource = Extract<GridsScannerInputSource, { kind: "session" | "afterScan" }>;
+
+export type GridsScannerLauncherConfig =
   | {
+      /** Legacy single-record scanner config. Kept readable for stored launchers. */
       kind: "scanner";
       input: string;
-      resolve: { by: "scanCode" | "field"; field?: string };
+      resolve: GridsScannerResolve;
     }
+  | {
+      kind: "scanner";
+      inputSources: Record<string, GridsScannerInputSource>;
+    };
+
+export const scannerLauncherInputSources = (config: GridsScannerLauncherConfig): Record<string, GridsScannerInputSource> =>
+  "inputSources" in config ? config.inputSources : { [config.input]: { kind: "scan", value: "record", resolve: config.resolve } };
+
+export const scannerLauncherPromptInputSources = (config: GridsScannerLauncherConfig): Record<string, GridsScannerPromptInputSource> =>
+  Object.fromEntries(
+    Object.entries(scannerLauncherInputSources(config)).filter(
+      (entry): entry is [string, GridsScannerPromptInputSource] => entry[1].kind === "session" || entry[1].kind === "afterScan",
+    ),
+  );
+
+export type GridsWorkflowLauncherConfig =
+  | GridsScannerLauncherConfig
   | { kind: "bulk"; input: string }
   | {
       kind: "dashboard";
@@ -316,26 +345,57 @@ export const WorkflowTriggerRuntimeStateSchema = z.object({
   ),
 });
 
-const ScannerLauncherConfigSchema = z
+const ScannerResolveSchema = z
+  .object({
+    by: z.enum(["scanCode", "field"]),
+    field: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict()
+  .superRefine((resolve, ctx) => {
+    if (resolve.by === "field" && !resolve.field) {
+      ctx.addIssue({ code: "custom", path: ["field"], message: "field resolution requires a field" });
+    }
+    if (resolve.by === "scanCode" && resolve.field !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["field"], message: "scan-code resolution does not accept a field" });
+    }
+  });
+
+const LegacyScannerLauncherConfigSchema = z
   .object({
     kind: z.literal("scanner"),
     input: z.string().trim().min(1).max(120),
-    resolve: z
-      .object({
-        by: z.enum(["scanCode", "field"]),
-        field: z.string().trim().min(1).max(200).optional(),
-      })
-      .strict(),
+    resolve: ScannerResolveSchema,
+  })
+  .strict();
+
+const ScannerInputSourceSchema = z.union([
+  z.object({ kind: z.literal("scan"), value: z.literal("text") }).strict(),
+  z.object({ kind: z.literal("scan"), value: z.literal("record"), resolve: ScannerResolveSchema }).strict(),
+  z.object({ kind: z.literal("session") }).strict(),
+  z.object({ kind: z.literal("afterScan") }).strict(),
+  z.object({ kind: z.literal("fixed"), value: z.json() }).strict(),
+]);
+
+const StagedScannerLauncherConfigSchema = z
+  .object({
+    kind: z.literal("scanner"),
+    inputSources: z.record(z.string().trim().min(1).max(120), ScannerInputSourceSchema),
   })
   .strict()
   .superRefine((config, ctx) => {
-    if (config.resolve.by === "field" && !config.resolve.field) {
-      ctx.addIssue({ code: "custom", path: ["resolve", "field"], message: "field resolution requires a field" });
+    const entries = Object.entries(config.inputSources);
+    if (entries.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["inputSources"], message: "scanner requires input sources" });
     }
-    if (config.resolve.by === "scanCode" && config.resolve.field !== undefined) {
-      ctx.addIssue({ code: "custom", path: ["resolve", "field"], message: "scan-code resolution does not accept a field" });
+    if (entries.length > 100) {
+      ctx.addIssue({ code: "custom", path: ["inputSources"], message: "scanner supports at most 100 input sources" });
+    }
+    if (entries.filter(([, source]) => source.kind === "scan").length !== 1) {
+      ctx.addIssue({ code: "custom", path: ["inputSources"], message: "scanner requires exactly one scan input source" });
     }
   });
+
+const ScannerLauncherConfigSchema = z.union([LegacyScannerLauncherConfigSchema, StagedScannerLauncherConfigSchema]);
 
 const BulkLauncherConfigSchema = z
   .object({
@@ -362,7 +422,7 @@ const DashboardLauncherConfigSchema = z
     }
   });
 
-export const GridsWorkflowLauncherConfigSchema = z.discriminatedUnion("kind", [
+export const GridsWorkflowLauncherConfigSchema = z.union([
   ScannerLauncherConfigSchema,
   BulkLauncherConfigSchema,
   DashboardLauncherConfigSchema,

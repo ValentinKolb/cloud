@@ -9,16 +9,18 @@ import {
   type GridsWorkflow,
   type GridsWorkflowLauncher,
   type GridsWorkflowLauncherConfig,
+  GridsWorkflowLauncherConfigSchema,
   type GridsWorkflowPrincipal,
   GridsWorkflowPrincipalSchema,
+  scannerLauncherInputSources,
 } from "../workflows/contracts";
 import { list as listRecords } from "./records";
 import { authorizeWorkflowTarget, revalidateWorkflowPrincipal, workflowPermissionAllows } from "./workflow-authorization";
 import { loadWorkflowCatalog, resolveWorkflowFieldRef } from "./workflow-catalog";
 import { getWorkflow } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
-import { invokeGridsWorkflow } from "./workflow-runtime";
 import { getLauncher } from "./workflow-launchers";
+import { invokeGridsWorkflow } from "./workflow-runtime";
 
 export const MAX_BULK_LAUNCHER_RECORDS = 10_000;
 
@@ -83,52 +85,7 @@ export const BulkLauncherInvocationSchema = z.union([BulkRecordIdsLauncherInvoca
 
 export const DashboardLauncherInvocationSchema = z.object(invocationFields).strict();
 
-const ScannerLauncherConfigSchema = z
-  .object({
-    kind: z.literal("scanner"),
-    input: z.string().trim().min(1).max(120),
-    resolve: z
-      .object({
-        by: z.enum(["scanCode", "field"]),
-        field: z.string().trim().min(1).max(200).optional(),
-      })
-      .strict(),
-  })
-  .strict()
-  .superRefine((config, ctx) => {
-    if (config.resolve.by === "field" && !config.resolve.field) {
-      ctx.addIssue({ code: "custom", path: ["resolve", "field"], message: "field resolution requires a field" });
-    }
-    if (config.resolve.by === "scanCode" && config.resolve.field !== undefined) {
-      ctx.addIssue({ code: "custom", path: ["resolve", "field"], message: "scan-code resolution does not accept a field" });
-    }
-  });
-
-const BulkLauncherConfigSchema = z.object({ kind: z.literal("bulk"), input: z.string().trim().min(1).max(120) }).strict();
-
-const DashboardLauncherConfigSchema = z
-  .object({
-    kind: z.literal("dashboard"),
-    label: z.string().trim().min(1).max(80).optional(),
-    inputMode: z.enum(["fixed", "prompt"]).default("fixed"),
-    inputBindings: jsonInputsSchema.optional(),
-  })
-  .strict()
-  .superRefine((config, ctx) => {
-    if (config.inputMode === "prompt" && Object.keys(config.inputBindings ?? {}).length > 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["inputBindings"],
-        message: "prompt dashboard launchers do not accept fixed input bindings",
-      });
-    }
-  });
-
-const StrictLauncherConfigSchema = z.discriminatedUnion("kind", [
-  ScannerLauncherConfigSchema,
-  BulkLauncherConfigSchema,
-  DashboardLauncherConfigSchema,
-]);
+const StrictLauncherConfigSchema = GridsWorkflowLauncherConfigSchema;
 
 export type ScannerLauncherInvocation = z.infer<typeof ScannerLauncherInvocationSchema>;
 export type BulkLauncherInvocation = z.infer<typeof BulkLauncherInvocationSchema>;
@@ -336,13 +293,24 @@ const loadLauncherContext = async (
   }
 
   let tableId: string | null = null;
-  if (config.data.kind === "scanner" || config.data.kind === "bulk") {
-    const inputName = config.data.input;
+  if (config.data.kind === "scanner") {
+    const scanEntries = Object.entries(scannerLauncherInputSources(config.data)).filter(([, source]) => source.kind === "scan");
+    const [scanEntry] = scanEntries;
+    if (!scanEntry || scanEntries.length !== 1) return fail(err.badInput("scanner launcher must define exactly one scan input"));
+    const [inputName, source] = scanEntry;
     const input = workflow.plan.inputs.find((candidate) => candidate.name === inputName);
-    const expectedType = config.data.kind === "scanner" ? "record" : "recordList";
-    if (!input || input.type !== expectedType) return fail(err.badInput(`${config.data.kind} launcher input contract is invalid`));
-    tableId = boundTableId(workflow, inputName);
-    if (!tableId) return fail(err.badInput(`${config.data.kind} launcher input has no bound table`));
+    const expectedType = source.kind === "scan" && source.value === "record" ? "record" : "text";
+    if (!input || input.type !== expectedType) return fail(err.badInput("scanner launcher input contract is invalid"));
+    if (source.kind === "scan" && source.value === "record") {
+      tableId = boundTableId(workflow, inputName);
+      if (!tableId) return fail(err.badInput("scanner launcher input has no bound table"));
+    }
+  } else if (config.data.kind === "bulk") {
+    const bulkInputName = config.data.input;
+    const input = workflow.plan.inputs.find((candidate) => candidate.name === bulkInputName);
+    if (!input || input.type !== "recordList") return fail(err.badInput("bulk launcher input contract is invalid"));
+    tableId = boundTableId(workflow, bulkInputName);
+    if (!tableId) return fail(err.badInput("bulk launcher input has no bound table"));
   } else {
     const inputNames = new Set(workflow.plan.inputs.map((input) => input.name));
     const unknownBinding = Object.keys(config.data.inputBindings ?? {}).find((name) => !inputNames.has(name));
@@ -399,7 +367,18 @@ export const invokeScannerLauncher = async (
   const loaded = await loadLauncherContext(input.data.launcherId, "scanner", input.data.expectedRevision, deps);
   if (!loaded.ok) return loaded;
   const ctx = loaded.data;
-  if (ctx.config.kind !== "scanner" || !ctx.tableId) return fail(err.internal("scanner launcher context is invalid"));
+  if (ctx.config.kind !== "scanner") return fail(err.internal("scanner launcher context is invalid"));
+  const sources = scannerLauncherInputSources(ctx.config);
+  const scanEntry = Object.entries(sources).find(([, source]) => source.kind === "scan");
+  if (!scanEntry) return fail(err.internal("scanner launcher context has no scan input"));
+  const [scanInputName, scanSource] = scanEntry;
+  const suppliedInputName = Object.keys(input.data.inputs).find((name) => {
+    const source = sources[name];
+    return !source || (source.kind !== "session" && source.kind !== "afterScan");
+  });
+  if (suppliedInputName) {
+    return fail(err.badInput(`workflow input "${suppliedInputName}" is not supplied by the scanner user`));
+  }
   const authorized = await deps.authorize({
     workflow: ctx.workflow,
     principal: input.data.principal,
@@ -408,12 +387,24 @@ export const invokeScannerLauncher = async (
   });
   if (!authorized.ok) return authorized;
   const scannedText = normalizeScannedText(input.data.scannedText);
-  const recordId =
-    ctx.config.resolve.by === "field"
-      ? await deps.resolveUniqueField(ctx.workflow.baseId, ctx.tableId, ctx.config.resolve.field!, scannedText)
-      : await deps.resolveScanCode(ctx.workflow.baseId, ctx.tableId, scannedText);
-  if (!recordId.ok) return recordId;
-  const inputs = mergeInputs({ [ctx.config.input]: recordId.data }, input.data.inputs);
+  const controlledInputs: Record<string, WorkflowJsonValue> = Object.fromEntries(
+    Object.entries(sources)
+      .filter(([, source]) => source.kind === "fixed")
+      .map(([name, source]) => [name, source.kind === "fixed" ? source.value : null]),
+  );
+  if (scanSource.kind !== "scan") return fail(err.internal("scanner launcher scan input is invalid"));
+  if (scanSource.value === "text") {
+    controlledInputs[scanInputName] = scannedText;
+  } else {
+    if (!ctx.tableId) return fail(err.internal("scanner record input has no table"));
+    const recordId =
+      scanSource.resolve.by === "field"
+        ? await deps.resolveUniqueField(ctx.workflow.baseId, ctx.tableId, scanSource.resolve.field!, scannedText)
+        : await deps.resolveScanCode(ctx.workflow.baseId, ctx.tableId, scannedText);
+    if (!recordId.ok) return recordId;
+    controlledInputs[scanInputName] = recordId.data;
+  }
+  const inputs = mergeInputs(controlledInputs, input.data.inputs);
   return inputs.ok ? invoke(ctx, { ...input.data, inputs: inputs.data }, deps) : inputs;
 };
 

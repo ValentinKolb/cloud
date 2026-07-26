@@ -7,7 +7,7 @@
 
 import type { SsrConfig } from "@valentinkolb/ssr";
 import { createConfig as createSsrConfig } from "@valentinkolb/ssr";
-import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
+import { routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
 import { env } from "../config/env";
@@ -35,6 +35,7 @@ import { themeBootstrapScript } from "../shared/theme";
 import { createHeartbeat } from "./heartbeat";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 import { servePublicAsset } from "./static-assets";
+import { createStatusPreservingSsrHandler } from "./status-preserving-ssr";
 
 /** Cache-busting version stamp — changes on every server start / rebuild. */
 const v = Date.now();
@@ -195,7 +196,7 @@ export type StartResult = {
 export type AppDefinition<S extends AppSettingsMap = {}, N extends NotificationDefinitionMap = {}, AppId extends string = string> = {
   // Bind the generic explicitly — without it, ssr collapses to the constraint
   // `object` and apps lose the typed `c.get("page")` (title/description/theme).
-  ssr: ReturnType<typeof createSSRHandler<PageOptions>>;
+  ssr: ReturnType<typeof createStatusPreservingSsrHandler<PageOptions>>;
   plugin: () => import("bun").BunPlugin;
   config: SsrConfig;
   meta: AppMeta;
@@ -277,7 +278,7 @@ export const defineApp = <
   // Pass PageOptions explicitly so c.get("page") in apps' SSR handlers is
   // typed as Partial<PageOptions> (with title/description/theme), not the
   // bare `object` fallback the constraint would otherwise produce.
-  const ssr = createSSRHandler<PageOptions>(html);
+  const ssr = createStatusPreservingSsrHandler<PageOptions>(html);
 
   // ── 2. Meta ───────────────────────────────────────────────────────────
   const meta: AppMeta = {

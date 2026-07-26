@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
+import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan } from "../contracts";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
@@ -28,9 +29,10 @@ const ready = (): Promise<boolean> => {
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
 const PLAN = { steps: [] } as unknown as WorkflowBoundPlan;
+const testData = createWorkflowIntegrationFixture();
 
 const listening = async (appId: string, eventType: string) => {
-  const scopeId = `scope-${crypto.randomUUID()}`;
+  const scopeId = testData.scope(appId);
   const workflow = await createWorkflow({ appId, scopeId, key: "wf", name: "Nightly digest", author: { kind: "system" } });
   await publishWorkflowVersion({
     workflowId: workflow.id,

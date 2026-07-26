@@ -149,7 +149,16 @@ const setup = (
 
 describe("workflow kernel scanner launchers", () => {
   test("resolves opaque scan URLs and uses stable per-operation idempotency", async () => {
-    const item = setup(launcher({ kind: "scanner", input: "record", resolve: { by: "scanCode" } }), workflow());
+    const item = setup(
+      launcher({
+        kind: "scanner",
+        inputSources: {
+          record: { kind: "scan", value: "record", resolve: { by: "scanCode" } },
+          note: { kind: "session" },
+        },
+      }),
+      workflow(),
+    );
     const input = scannerInput({
       scannedText: "https://cloud.example/app/grids/scan?code=gsc_opaque",
       inputs: { note: "accepted" },
@@ -183,6 +192,42 @@ describe("workflow kernel scanner launchers", () => {
     expect(result.ok).toBe(true);
     expect(item.resolveUniqueField).toHaveBeenCalledWith(baseId, tableId, "Asset code", "A-42");
     expect(item.resolveScanCode).not.toHaveBeenCalled();
+  });
+
+  test("passes arbitrary session and after-scan values while protecting scan and fixed inputs", async () => {
+    const item = setup(
+      launcher({
+        kind: "scanner",
+        inputSources: {
+          target: { kind: "scan", value: "text" },
+          context: { kind: "session" },
+          assessment: { kind: "afterScan" },
+          station: { kind: "fixed", value: "north" },
+        },
+      }),
+      workflow("target", "text"),
+    );
+
+    const result = await invokeScannerLauncher(
+      scannerInput({
+        scannedText: "  ITEM-42  ",
+        inputs: { context: "agreement-1", assessment: "damaged" },
+      }),
+      item.deps,
+    );
+    const override = await invokeScannerLauncher(scannerInput({ inputs: { target: "forged" } }), item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.resolveScanCode).not.toHaveBeenCalled();
+    expect(item.resolveUniqueField).not.toHaveBeenCalled();
+    expect(item.invokeWorkflow.mock.calls[0]?.[0].inputs).toEqual({
+      target: "ITEM-42",
+      context: "agreement-1",
+      assessment: "damaged",
+      station: "north",
+    });
+    expect(override.ok).toBe(false);
+    if (!override.ok) expect(override.error.message).toContain('"target" is not supplied by the scanner user');
   });
 
   test("checks current workflow and table permissions before resolution", async () => {

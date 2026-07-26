@@ -194,6 +194,9 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
     fallback: () => WorkflowJsonValue | undefined;
   }): Promise<WorkflowValueResolution> {
     const { value, remaining } = rootValue(input.invocation, input.variables, input.reference);
+    if (isRecordReference(value) && remaining.length === 1 && remaining[0] === "recordId") {
+      return { state: "resolved", value: value.recordId };
+    }
     if (!isRecordReference(value) || remaining.length === 0) return valueResolution(input.fallback());
     const fieldId = input.plan.bindings[workflowPathKey(input.path)];
     if (typeof fieldId !== "string") throw new Error(`workflow field binding is unavailable at "${workflowPathKey(input.path)}"`);

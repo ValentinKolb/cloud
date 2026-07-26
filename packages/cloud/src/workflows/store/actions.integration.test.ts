@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
+import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan, WorkflowIrStep } from "../contracts";
 import { workflowAction } from "../definition";
 import { createWorkflowActionPort, createWorkflowDryRunPort } from "./actions";
@@ -39,6 +40,7 @@ const ready = (): Promise<boolean> => {
 };
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
+const testData = createWorkflowIntegrationFixture();
 
 const CONFIG = { kind: "object", properties: { to: { kind: "string" } } } as const;
 
@@ -72,7 +74,7 @@ const queued = async (
   bindings: Record<string, string> = {},
 ) => {
   const appId = `decl-${crypto.randomUUID().slice(0, 8)}`;
-  const scopeId = `scope-${crypto.randomUUID()}`;
+  const scopeId = testData.scope(appId);
   const workflow = await createWorkflow({ appId, scopeId, key: "wf", name: "Declared", author: { kind: "system" } });
   await publishWorkflowVersion({
     workflowId: workflow.id,

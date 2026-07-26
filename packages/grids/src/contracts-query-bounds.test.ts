@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type FilterTree,
   MAX_FILTER_DEPTH,
   MAX_QUERY_AGGREGATIONS,
   MAX_QUERY_COLUMNS,
   MAX_QUERY_SORTS,
   RecordQuerySchema,
-  type FilterTree,
 } from "./contracts";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";

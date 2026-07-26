@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
+import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan, WorkflowJsonValue } from "../contracts";
 import { createWorkflow, deleteWorkflowScope, publishWorkflowVersion } from "./definitions";
 import { dispatchPendingWorkflowEvents, emitWorkflowEvent, listUndispatchedWorkflowEvents } from "./events";
@@ -30,6 +31,7 @@ const ready = (): Promise<boolean> => {
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
 const PLAN = { steps: [] } as unknown as WorkflowBoundPlan;
+const testData = createWorkflowIntegrationFixture();
 
 /** A workflow listening for one event type, isolated by a unique scope. */
 const listeningInScope = async (scopeId: string, eventType: string, options: { activations?: number } = {}) => {
@@ -54,8 +56,7 @@ const listeningInScope = async (scopeId: string, eventType: string, options: { a
   return { scopeId, workflowId: workflow.id, versionId: version.id };
 };
 
-const listening = (eventType: string, options: { activations?: number } = {}) =>
-  listeningInScope(`scope-${crypto.randomUUID()}`, eventType, options);
+const listening = (eventType: string, options: { activations?: number } = {}) => listeningInScope(testData.scope(), eventType, options);
 
 describe("workflow events", () => {
   test("workflow schema upgrades are idempotent and include runtime columns", async () => {
@@ -98,7 +99,7 @@ describe("workflow events", () => {
 
   test("an event nothing listens for is recorded rather than dropped", async () => {
     if (!(await ready())) return;
-    const scopeId = `scope-${crypto.randomUUID()}`;
+    const scopeId = testData.scope();
     const emission = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.unheard" }, { dispatch: "now" });
 
     // Nothing ran, but the occurrence exists — an operator can see that the
@@ -178,7 +179,7 @@ describe("workflow events", () => {
 
   test("one poison event does not block later events in the batch", async () => {
     if (!(await ready())) return;
-    const scopeId = `scope-${crypto.randomUUID()}`;
+    const scopeId = testData.scope();
     await listeningInScope(scopeId, "probe.poison");
     await listeningInScope(scopeId, "probe.healthy");
     const poison = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.poison" });
@@ -244,7 +245,7 @@ describe("workflow events", () => {
 
   test("a targeted event reaches only the workflow it names", async () => {
     if (!(await ready())) return;
-    const scopeId = `scope-${crypto.randomUUID()}`;
+    const scopeId = testData.scope();
     const [mine, other] = await Promise.all([listeningInScope(scopeId, "probe.targeted"), listeningInScope(scopeId, "probe.targeted")]);
 
     // An app that evaluated its own trigger filter has already decided who
@@ -262,7 +263,7 @@ describe("workflow events", () => {
 
   test("a targeted deferred event stays targeted after the dispatcher re-reads it", async () => {
     if (!(await ready())) return;
-    const scopeId = `scope-${crypto.randomUUID()}`;
+    const scopeId = testData.scope();
     const mine = await listeningInScope(scopeId, "probe.deferred-target");
     await listeningInScope(scopeId, "probe.deferred-target");
 
@@ -327,17 +328,27 @@ describe("workflow events", () => {
     expect(emission.runIds).toEqual([]);
   });
 
-  test("a workflow that has run can still be deleted", async () => {
+  test("scope deletion removes workflows, runs, and events without touching another scope", async () => {
     if (!(await ready())) return;
     const { workflowId, scopeId } = await listening("probe.deletable");
     const emission = await emitWorkflowEvent({ appId: "probe", scopeId, type: "probe.deletable" }, { dispatch: "now" });
+    const neighbour = await listening("probe.neighbour");
+    const neighbourEmission = await emitWorkflowEvent(
+      { appId: "probe", scopeId: neighbour.scopeId, type: "probe.neighbour" },
+      { dispatch: "now" },
+    );
     expect(emission.runIds).toHaveLength(1);
 
     // The run's version FK used to RESTRICT while versions cascade from the
-    // workflow, which made every workflow that had ever run undeletable.
+    // workflow, which made every workflow that had ever run undeletable. Event
+    // rows are scope-owned too and must not become detached history.
     expect(await deleteWorkflowScope({ appId: "probe", scopeId })).toBe(1);
     const left = await sql<{ id: string }[]>`SELECT id FROM workflows.run WHERE workflow_id = ${workflowId}::uuid`;
+    const events = await sql<{ id: string }[]>`
+      SELECT id FROM workflows.event WHERE id IN (${emission.eventId}::uuid, ${neighbourEmission.eventId}::uuid) ORDER BY id
+    `;
     expect(left).toHaveLength(0);
+    expect(events.map((event) => event.id)).toEqual([neighbourEmission.eventId]);
   });
 
   test("publishing a new version re-points activations with no window", async () => {

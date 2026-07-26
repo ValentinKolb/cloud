@@ -194,6 +194,7 @@ const resolveReference = (
 
   if (fieldParts.length === 0) return value;
   if (value.type === "grids.record") {
+    if (fieldParts.length === 1 && fieldParts[0] === "recordId") return valueDescriptor("core.text");
     if (value.tableId) bindField(context, value.tableId, fieldParts.join("."), path);
     return valueDescriptor("core.value");
   }

@@ -441,13 +441,42 @@ describe("dashboard-scoped workflow execution", () => {
     );
   });
 
-  test("invokes the saved scanner launcher without accepting arbitrary workflow inputs", async () => {
+  test("returns staged scanner inputs and forwards only user-supplied scanner values", async () => {
     const user = testUser(uuid());
     const baseId = uuid();
     const dashboardId = uuid();
     const workflowId = uuid();
     const launcherId = uuid();
     const widgetId = "widget-scanner";
+    const plan = dashboardWorkflowPlan();
+    plan.inputs = [
+      { name: "context", type: "text", config: { label: "Context", required: true } },
+      { name: "target", type: "record", config: { label: "Target", required: true, table: "Items" } },
+      { name: "assessment", type: "select", config: { label: "Assessment", required: true, options: ["good", "damaged"] } },
+    ];
+    plan.bindings = { "inputs.target.table": uuid() };
+    const workflow = {
+      id: workflowId,
+      shortId: "W1234",
+      baseId,
+      name: "Staged scanner workflow",
+      description: null,
+      source: "private workflow source",
+      plan,
+      diagnostics: [],
+      enabled: true,
+      position: 0,
+      revision: 2,
+      ownerUserId: null,
+      deletedAt: null,
+      createdAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:00.000Z",
+    };
+    const inputSources = {
+      context: { kind: "session" as const },
+      target: { kind: "scan" as const, value: "record" as const, resolve: { by: "scanCode" as const } },
+      assessment: { kind: "afterScan" as const },
+    };
     const invokeScannerLauncher = mock<typeof invokeScannerLauncherService>(async () =>
       ok({
         runId: uuid(),
@@ -470,7 +499,7 @@ describe("dashboard-scoped workflow execution", () => {
           baseId,
           workflowId,
           name: "Scanner launcher",
-          config: { kind: "scanner" as const, input: "record", resolve: { by: "scanCode" as const } },
+          config: { kind: "scanner" as const, inputSources },
           enabled: true,
           validatedRevision: 2,
           diagnostics: [],
@@ -478,10 +507,23 @@ describe("dashboard-scoped workflow execution", () => {
           createdAt: "2026-07-15T00:00:00.000Z",
           updatedAt: "2026-07-15T00:00:00.000Z",
         })),
+        getWorkflow: mock(async () => workflow),
         invokeScannerLauncher,
         canReadDashboard: mock(async () => true),
       }),
     );
+
+    const contractResponse = await app.request(`/api/dashboards/${dashboardId}/widgets/${widgetId}/input-contract`);
+    expect(contractResponse.status).toBe(200);
+    expect(await contractResponse.json()).toEqual({
+      workflow: {
+        id: workflowId,
+        name: "Staged scanner workflow",
+        plan: { inputs: [plan.inputs[0], plan.inputs[2]], bindings: {} },
+      },
+      tables: [],
+      inputSources: { context: inputSources.context, assessment: inputSources.assessment },
+    });
 
     const rejected = await app.request(
       `/api/dashboards/${dashboardId}/widgets/${widgetId}/scan`,
@@ -492,7 +534,7 @@ describe("dashboard-scoped workflow execution", () => {
 
     const response = await app.request(
       `/api/dashboards/${dashboardId}/widgets/${widgetId}/scan`,
-      jsonPost({ code: "asset-42", operationId: "scan-42" }),
+      jsonPost({ code: "asset-42", operationId: "scan-42", inputs: { context: "loan-1", assessment: "good" } }),
     );
 
     expect(response.status).toBe(200);
@@ -502,7 +544,7 @@ describe("dashboard-scoped workflow execution", () => {
       operationId: "scan-42",
       mode: "execute",
       expectedRevision: 2,
-      inputs: {},
+      inputs: { context: "loan-1", assessment: "good" },
       scannedText: "asset-42",
       authorization: { kind: "dashboard-widget", dashboardId, dashboardWidgetId: widgetId },
     });
@@ -595,7 +637,16 @@ describe("dashboard-scoped workflow execution", () => {
       const status = await app.request(`/api/dashboards/${fixture.dashboardId}/widgets/${fixture.widgetId}/runs/${body.id}`);
       expect(status.status).toBe(200);
       const statusBody = (await status.json()) as {
-        run: { id: string; status: string; launcherId: string; mode: string; inputs?: unknown; error?: unknown; resultMessage?: unknown };
+        run: {
+          id: string;
+          status: string;
+          launcherId: string;
+          mode: string;
+          operatorMessage?: unknown;
+          inputs?: unknown;
+          error?: unknown;
+          resultMessage?: unknown;
+        };
         steps: Array<{ outcome?: unknown; sourcePath?: unknown; iterationPath?: unknown }>;
       };
       expect(statusBody.run).toMatchObject({
@@ -607,6 +658,7 @@ describe("dashboard-scoped workflow execution", () => {
       expect(statusBody.run.inputs).toBeUndefined();
       expect(statusBody.run.error).toBeUndefined();
       expect(statusBody.run.resultMessage).toBeUndefined();
+      expect(statusBody.run.operatorMessage).toBeNull();
       expect(statusBody.steps[0]?.outcome).toBeUndefined();
       expect(statusBody.steps[0]?.sourcePath).toBeUndefined();
       expect(statusBody.steps[0]?.iterationPath).toBeUndefined();

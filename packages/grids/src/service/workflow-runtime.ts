@@ -8,9 +8,21 @@
  * generation fence are all the kernel's — there is no second copy here.
  */
 import { createRuntimeLifecycle, createRuntimeTaskTracker, logger, stopRuntimeResources, trace } from "@valentinkolb/cloud/services";
-import type { WorkflowInvocationMode, WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import {
+  createWorkflowBuiltinActionPorts,
+  type WorkflowExecutionError,
+  type WorkflowInvocationMode,
+  type WorkflowInvocationReceipt,
+  type WorkflowJsonValue,
+} from "@valentinkolb/cloud/workflows";
 import { hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
-import { evaluateWorkflowTriggerInputs, type WorkflowTraceEvent, type WorkflowTracePort } from "@valentinkolb/cloud/workflows/runtime";
+import {
+  evaluateWorkflowTriggerInputs,
+  type WorkflowDryRunActionPort,
+  type WorkflowExecuteActionPort,
+  type WorkflowTraceEvent,
+  type WorkflowTracePort,
+} from "@valentinkolb/cloud/workflows/runtime";
 import {
   createWorkflowActionPort,
   createWorkflowDryRunPort,
@@ -37,14 +49,6 @@ import { authorizeWorkflowTarget } from "./workflow-authorization";
 import { getWorkflow, listScheduledWorkflows } from "./workflow-definitions";
 import { workflowConflict } from "./workflow-errors";
 import { createWorkflowRecordEventRuntime } from "./workflow-record-events";
-import {
-  createGridsWorkflowValueResolver,
-  createGridsWorkflowValueResolverPort,
-  createWorkflowInputPreparationDeps,
-  loadWorkflowUserGroupIds,
-  prepareWorkflowInputs,
-  WorkflowInputPreparationError,
-} from "./workflow-values";
 import { notifyWorkflowRunEvent } from "./workflow-run-events";
 import {
   GRIDS_APP_ID,
@@ -55,6 +59,14 @@ import {
   startWorkflowRun,
 } from "./workflow-runs";
 import { latestWorkflowRuntimeEventCursor, liveWorkflowRuntimeEvents } from "./workflow-runtime-events";
+import {
+  createGridsWorkflowValueResolver,
+  createGridsWorkflowValueResolverPort,
+  createWorkflowInputPreparationDeps,
+  loadWorkflowUserGroupIds,
+  prepareWorkflowInputs,
+  WorkflowInputPreparationError,
+} from "./workflow-values";
 
 const log = logger("grids:workflows");
 const workflowScheduler = scheduler({ id: "grids:workflows" });
@@ -320,8 +332,22 @@ const workerId = `grids:${Bun.env.HOSTNAME ?? "local"}:${process.pid}`;
  * `src/workflows.ts` be a plain vocabulary rather than a factory — and what
  * lets one port serve every run this worker claims.
  */
-const workflowActions = createWorkflowActionPort(GRIDS_WORKFLOW_ACTIONS);
-const workflowDryRunActions = createWorkflowDryRunPort(GRIDS_WORKFLOW_ACTIONS);
+const declaredWorkflowActions = createWorkflowActionPort(GRIDS_WORKFLOW_ACTIONS);
+const declaredWorkflowDryRunActions = createWorkflowDryRunPort(GRIDS_WORKFLOW_ACTIONS);
+const builtinWorkflowActions = createWorkflowBuiltinActionPorts({
+  authorize: async (context): Promise<WorkflowExecutionError | undefined> => {
+    const scope = await getWorkflowRunScope(context.run.runId);
+    if (!scope) return { code: "NOT_FOUND", message: "Workflow run is no longer available.", retryable: false };
+    if (await canExecuteWorkflow({ ...scope, workflowId: scope.workflow.id })) return undefined;
+    return { code: "FORBIDDEN", message: "Workflow actor cannot run this workflow.", retryable: false };
+  },
+});
+const workflowActions: WorkflowExecuteActionPort = {
+  get: (action) => declaredWorkflowActions.get(action) ?? builtinWorkflowActions.execute.get(action),
+};
+const workflowDryRunActions: WorkflowDryRunActionPort = {
+  get: (action) => declaredWorkflowDryRunActions.get(action) ?? builtinWorkflowActions.dryRun.get(action),
+};
 
 const workflowValues = (claim: WorkflowRunClaim) =>
   createGridsWorkflowValueResolverPort(async () => {
@@ -610,9 +636,7 @@ const workflowRuntimeLifecycle = createRuntimeLifecycle({
     }, WORKER_INTERVAL_MS);
     reconcileTimer = setInterval(() => {
       workflowRuntimeTasks.run(async () => {
-        await reconcileWorkflowRuntime().catch((error) =>
-          log.warn("Workflow runtime reconcile failed", { error: errorMessage(error) }),
-        );
+        await reconcileWorkflowRuntime().catch((error) => log.warn("Workflow runtime reconcile failed", { error: errorMessage(error) }));
       });
     }, RECONCILE_INTERVAL_MS);
   },

@@ -47,7 +47,9 @@ export const buildPersistedUpdateData = (
   fields: Field[],
 ): Record<string, unknown> => {
   const persistableFieldIds = new Set(
-    fields.filter((field) => isRecordWritableFieldType(field.type) && field.type !== "relation").map((field) => field.id),
+    fields
+      .filter((field) => (isRecordWritableFieldType(field.type) && field.type !== "relation") || field.type === "id")
+      .map((field) => field.id),
   );
   const merged = {
     ...Object.fromEntries(Object.entries(existingData).filter(([fieldId]) => persistableFieldIds.has(fieldId))),

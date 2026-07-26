@@ -1,0 +1,978 @@
+/* ---------------------------------------------------------------------------
+   Cloud site
+   Light is the design; dark is the same design in a second palette.
+   The recurring artifact is machine text on paper: route tables, registry
+   entries, resolved identity. Everything else is quiet.
+   --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/assets/fonts/bricolage-grotesque-latin-wght-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/assets/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+/* --- palette ------------------------------------------------------------- */
+
+:root {
+  --c-canvas: #fbfaf8;
+  --c-surface: #ffffff;
+  --c-sunken: #f3f1ec;
+  --c-ink: #17171b;
+  --c-ink-2: #45454d;
+  --c-muted: #74747d;
+  --c-faint: #9a9aa2;
+  --c-line: #e4e0d9;
+  --c-line-2: #d2cec5;
+  --c-accent: #1b5fd9;
+  --c-accent-ink: #1550bd;
+  --c-accent-soft: #e9f0fd;
+  --c-live: #1c8256;
+  --c-live-soft: #e3f2ea;
+  --c-bevel: inset 0 1px 0 rgb(255 255 255 / 0.9);
+  --c-recess: inset 0 1px 2px rgb(24 24 27 / 0.05);
+  --c-shell: 84rem;
+  --c-gutter: 1.5rem;
+  --c-sans: "IBM Plex Sans", "Aptos", "Segoe UI", sans-serif;
+  --c-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --c-display: "Bricolage Grotesque", "IBM Plex Sans", sans-serif;
+}
+
+.dark {
+  --c-canvas: #0e0f12;
+  --c-surface: #17191e;
+  --c-sunken: #121419;
+  --c-ink: #f1f2f5;
+  --c-ink-2: #c2c5cd;
+  --c-muted: #8b909a;
+  --c-faint: #6a6f79;
+  --c-line: #25282f;
+  --c-line-2: #343841;
+  --c-accent: #74abff;
+  --c-accent-ink: #9cc4ff;
+  --c-accent-soft: #14243b;
+  --c-live: #4cc38a;
+  --c-live-soft: #10261c;
+  --c-bevel: inset 0 1px 0 rgb(255 255 255 / 0.045);
+  --c-recess: inset 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --c-gutter: 2rem;
+  }
+}
+
+/* --- fibel shell --------------------------------------------------------- */
+
+.cloud-site {
+  background: var(--c-canvas);
+  font-family: var(--c-sans);
+}
+
+.cloud-site .fibel-topbar {
+  border-color: var(--c-line);
+  background: color-mix(in srgb, var(--c-canvas) 90%, transparent);
+  font-family: var(--c-sans);
+}
+
+/* Header, footer and page content share one container, so the wordmark stays
+   on the shell edge instead of drifting to the viewport edge on wide screens. */
+.cloud-site .fibel-topbar > div,
+.cloud-site footer > div {
+  width: min(100% - (var(--c-gutter) * 2), var(--c-shell));
+  max-width: none;
+  margin-inline: auto;
+  padding-inline: 0;
+}
+
+.cloud-site footer {
+  border-color: var(--c-line);
+  background: var(--c-canvas);
+  color: var(--c-muted);
+  font-family: var(--c-sans);
+}
+
+.cloud-site .fibel-topbar > div > a {
+  gap: 0.55rem;
+  color: var(--c-ink) !important;
+  font-size: 0;
+  font-weight: 600;
+}
+
+.cloud-site .fibel-topbar > div > a::before {
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: 0 0 auto;
+  background: url("/assets/logo.svg") center / contain no-repeat;
+  content: "";
+}
+
+.cloud-site .fibel-topbar > div > a::after {
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  content: "Cloud";
+}
+
+.cloud-site .fibel-topbar > div > a span {
+  display: none;
+}
+
+.cloud-site .fibel-header-link.is-active {
+  border-color: var(--c-accent);
+}
+
+.cloud-site .fibel-control-icon-button:focus-visible,
+.cloud-site .fibel-icon-button:focus-visible,
+.cloud-site .fibel-search-button:focus-visible,
+.cloud-site a:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.cloud-site .fibel-sidebar a.font-semibold {
+  border-color: var(--c-accent) !important;
+}
+
+.cloud-site .page-chip-accent {
+  border-color: color-mix(in srgb, var(--c-accent) 26%, var(--c-line));
+  background: var(--c-accent-soft);
+  color: var(--c-accent-ink);
+}
+
+.cloud-site .fibel-prose a:not(.cloud-btn):not(.cloud-link) {
+  color: var(--c-accent-ink);
+  text-decoration-color: color-mix(in srgb, var(--c-accent) 40%, transparent);
+}
+
+/* Documentation pages sit in the same container as the header. */
+.cloud-site:not(.cloud-home-page) .fibel-app > div:first-of-type {
+  width: min(100% - (var(--c-gutter) * 2), var(--c-shell));
+  max-width: none;
+  margin-inline: auto;
+  padding-inline: 0;
+}
+
+.cloud-site:not(.cloud-home-page) main {
+  padding-inline: 0;
+}
+
+@media (min-width: 80rem) {
+  .cloud-site:not(.cloud-home-page) main article {
+    max-width: 52rem;
+    margin-right: auto;
+    margin-left: 0;
+  }
+}
+
+/* --- homepage frame ------------------------------------------------------ */
+
+.cloud-home-page .fibel-app > div:first-of-type {
+  display: block;
+  max-width: none;
+}
+
+.cloud-home-page .fibel-sidebar,
+.cloud-home-page [data-sidebar-backdrop],
+.cloud-home-page [data-nav-toggle] {
+  display: none;
+}
+
+.cloud-home-page main {
+  padding: 0;
+}
+
+.cloud-home-page article {
+  max-width: none;
+}
+
+.cloud-home-page main > article > div:first-child,
+.cloud-home-page main > article > nav,
+.cloud-home-page .fibel-prose + * {
+  display: none;
+}
+
+.cloud-home-page .fibel-prose {
+  color: var(--c-ink);
+  font-family: var(--c-sans);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.cloud-home-page .fibel-prose > * + * {
+  margin-top: 0;
+}
+
+.cloud-home-page .fibel-prose a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cloud-home {
+  background: var(--c-canvas);
+  color: var(--c-ink);
+}
+
+.cloud-home *,
+.cloud-home *::before,
+.cloud-home *::after {
+  box-sizing: border-box;
+}
+
+.cloud-home code {
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--c-mono);
+}
+
+.cloud-shell {
+  width: min(100% - (var(--c-gutter) * 2), var(--c-shell));
+  margin-inline: auto;
+}
+
+.cloud-home section {
+  padding-block: clamp(4rem, 7vw, 6.5rem);
+}
+
+/* --- shared type --------------------------------------------------------- */
+
+.cloud-home h1,
+.cloud-home h2 {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  color: var(--c-ink);
+  font-family: var(--c-display);
+  font-weight: 500;
+  letter-spacing: -0.028em;
+}
+
+.cloud-home h1 {
+  max-width: 16ch;
+  font-size: clamp(2.35rem, 4.1vw, 3.5rem);
+  line-height: 1.06;
+}
+
+.cloud-home h2 {
+  max-width: 24ch;
+  font-size: clamp(1.65rem, 2.4vw, 2.15rem);
+  line-height: 1.14;
+}
+
+.cloud-home h3 {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  color: var(--c-ink);
+  font-family: var(--c-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+.cloud-home p {
+  margin: 0;
+}
+
+.cloud-lead {
+  max-width: 46ch;
+  margin-top: 1.4rem;
+  color: var(--c-ink-2);
+  font-size: 1.08rem;
+  line-height: 1.62;
+}
+
+.cloud-head {
+  display: grid;
+  gap: 1.1rem 3.5rem;
+  align-items: start;
+}
+
+.cloud-head > p {
+  max-width: 58ch;
+  color: var(--c-ink-2);
+  line-height: 1.62;
+}
+
+@media (min-width: 60rem) {
+  .cloud-head {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  }
+
+  .cloud-head > p {
+    padding-top: 0.35rem;
+  }
+}
+
+/* --- buttons and links --------------------------------------------------- */
+
+.cloud-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1.9rem;
+}
+
+.cloud-home-page .fibel-prose .cloud-btn {
+  display: inline-flex;
+  min-height: 2.7rem;
+  align-items: center;
+  border: 1px solid var(--c-line-2);
+  border-radius: 0.45rem;
+  padding: 0.6rem 1.05rem;
+  background: var(--c-surface);
+  box-shadow: var(--c-bevel);
+  color: var(--c-ink);
+  font-size: 0.925rem;
+  font-weight: 500;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.cloud-home-page .fibel-prose .cloud-btn:hover {
+  border-color: var(--c-faint);
+  background: var(--c-canvas);
+}
+
+.cloud-home-page .fibel-prose .cloud-btn-primary {
+  border-color: var(--c-ink);
+  background: var(--c-ink);
+  box-shadow: none;
+  color: var(--c-canvas);
+}
+
+.cloud-home-page .fibel-prose .cloud-btn-primary:hover {
+  border-color: var(--c-ink-2);
+  background: var(--c-ink-2);
+}
+
+.cloud-home-page .fibel-prose .cloud-link {
+  display: inline-block;
+  color: var(--c-accent-ink);
+  font-size: 0.925rem;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--c-accent) 35%, transparent);
+  text-underline-offset: 0.25em;
+}
+
+.cloud-home-page .fibel-prose .cloud-link:hover {
+  text-decoration-color: var(--c-accent);
+}
+
+.cloud-home a:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 3px;
+}
+
+/* --- artifacts: machine text on paper ------------------------------------ */
+
+.cloud-artifact {
+  margin: 0;
+  border: 1px solid var(--c-line);
+  border-radius: 0.6rem;
+  background: var(--c-sunken);
+  box-shadow: var(--c-recess);
+  font-family: var(--c-mono);
+  font-size: 0.795rem;
+  line-height: 1.45;
+}
+
+.cloud-artifact figcaption,
+.cloud-code-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.95rem 0.55rem;
+  color: var(--c-faint);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.cloud-artifact-title {
+  color: var(--c-muted);
+}
+
+.cloud-artifact-note {
+  margin-left: auto;
+}
+
+.cloud-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--c-live);
+}
+
+.cloud-artifact dl {
+  display: grid;
+  margin: 0;
+  gap: 0.3rem;
+}
+
+.cloud-artifact dl div {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.cloud-artifact dt {
+  color: var(--c-faint);
+}
+
+.cloud-artifact dd {
+  margin: 0;
+  color: var(--c-ink);
+  text-align: right;
+}
+
+/* route table ------------------------------------------------------------- */
+
+.cloud-routes table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: inherit;
+}
+
+.cloud-routes th {
+  padding: 0.3rem 0.95rem 0.5rem;
+  color: var(--c-faint);
+  font-weight: 400;
+  text-align: left;
+}
+
+.cloud-routes td {
+  padding: 0.42rem 0.95rem;
+  border: 0;
+  color: var(--c-ink-2);
+  white-space: nowrap;
+}
+
+.cloud-routes tbody tr:nth-child(odd) td {
+  background: color-mix(in srgb, var(--c-ink) 3%, transparent);
+}
+
+.cloud-routes td:first-child {
+  color: var(--c-ink);
+}
+
+.cloud-num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-routes .cloud-row-yours td {
+  background: var(--c-accent-soft);
+  color: var(--c-accent-ink);
+}
+
+.cloud-row-tag {
+  width: 0;
+  padding-left: 0 !important;
+  color: var(--c-accent-ink) !important;
+  font-size: 0.72rem;
+}
+
+.cloud-artifact-foot {
+  padding: 0.85rem 0.95rem 0.95rem;
+  color: var(--c-muted);
+  font-family: var(--c-sans);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+/* --- hero ---------------------------------------------------------------- */
+
+.cloud-hero {
+  padding-top: clamp(3.5rem, 6vw, 5.5rem) !important;
+}
+
+.cloud-hero-grid {
+  display: grid;
+  gap: clamp(2.5rem, 5vw, 4rem);
+  align-items: center;
+}
+
+@media (min-width: 62rem) {
+  .cloud-hero-grid {
+    grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+  }
+}
+
+.cloud-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.15rem;
+  margin-top: 2.1rem;
+  color: var(--c-muted);
+  font-family: var(--c-mono);
+  font-size: 0.755rem;
+}
+
+.cloud-stack span + span::before {
+  margin-right: 1.15rem;
+  color: var(--c-line-2);
+  content: "·";
+}
+
+/* --- day one ------------------------------------------------------------- */
+
+.cloud-dayone {
+  border-block: 1px solid var(--c-line);
+  background: color-mix(in srgb, var(--c-sunken) 55%, var(--c-canvas));
+}
+
+.cloud-dayone-grid {
+  display: grid;
+  gap: clamp(2.5rem, 5vw, 4rem);
+  margin-top: clamp(2.5rem, 4vw, 3.5rem);
+}
+
+@media (min-width: 66rem) {
+  .cloud-dayone-grid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  }
+}
+
+.cloud-apps {
+  display: grid;
+  gap: 2.2rem;
+}
+
+.cloud-apps-group h3 {
+  color: var(--c-muted);
+  font-size: 0.755rem;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.cloud-apps ul {
+  margin: 0.9rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cloud-apps li {
+  display: grid;
+  padding: 0.5rem 0;
+  gap: 0.15rem 0.85rem;
+  align-items: baseline;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.cloud-apps li b {
+  color: var(--c-ink);
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.cloud-apps li code {
+  color: var(--c-faint);
+  font-family: var(--c-mono);
+  font-size: 0.755rem;
+}
+
+.cloud-apps li span {
+  color: var(--c-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+@media (min-width: 34rem) {
+  .cloud-apps li {
+    grid-template-columns: 7.5rem 6rem minmax(0, 1fr);
+  }
+
+  .cloud-apps li span {
+    grid-column: 3;
+  }
+}
+
+.cloud-inherits {
+  align-self: start;
+  border: 1px solid var(--c-line);
+  border-radius: 0.7rem;
+  padding: clamp(1.4rem, 2.4vw, 1.9rem);
+  background: var(--c-surface);
+  box-shadow: var(--c-bevel);
+}
+
+.cloud-inherits > p {
+  margin-top: 0.7rem;
+  color: var(--c-muted);
+  font-size: 0.885rem;
+  line-height: 1.55;
+}
+
+.cloud-inherits dl {
+  margin: 1.6rem 0 0;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.cloud-inherits dt {
+  color: var(--c-accent-ink);
+  font-family: var(--c-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.cloud-inherits dd {
+  margin: 0.3rem 0 0;
+  color: var(--c-ink-2);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+/* --- request path -------------------------------------------------------- */
+
+.cloud-path {
+  display: grid;
+  margin: clamp(2.5rem, 4vw, 3.5rem) 0 0;
+  padding: 0;
+  gap: 1.5rem;
+  list-style: none;
+  counter-reset: none;
+}
+
+@media (min-width: 62rem) {
+  .cloud-path {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.75rem;
+  }
+}
+
+.cloud-step {
+  display: grid;
+  align-content: start;
+  gap: 0.85rem;
+}
+
+.cloud-mono-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.95rem;
+}
+
+.cloud-req-line {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  color: var(--c-ink);
+}
+
+.cloud-req-line b {
+  color: var(--c-accent-ink);
+  font-weight: 500;
+}
+
+.cloud-req-line code {
+  overflow-wrap: anywhere;
+}
+
+.cloud-grant {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  border-radius: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--c-live-soft);
+  color: var(--c-ink);
+}
+
+.cloud-grant b {
+  margin-left: auto;
+  color: var(--c-live);
+  font-weight: 500;
+}
+
+.cloud-match {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  color: var(--c-ink);
+}
+
+.cloud-match b {
+  color: var(--c-faint);
+  font-weight: 400;
+}
+
+.cloud-step-note {
+  color: var(--c-muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.cloud-facts {
+  display: grid;
+  margin: 2rem 0 0;
+  gap: 1.25rem 2.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  border-top: 1px solid var(--c-line);
+  padding-top: 1.5rem;
+}
+
+.cloud-facts dt {
+  color: var(--c-faint);
+  font-family: var(--c-mono);
+  font-size: 0.74rem;
+}
+
+.cloud-facts dd {
+  margin: 0.3rem 0 0;
+  color: var(--c-ink);
+  font-size: 0.94rem;
+  font-weight: 500;
+}
+
+/* --- boundary ------------------------------------------------------------ */
+
+.cloud-boundary {
+  border-block: 1px solid var(--c-line);
+  background: color-mix(in srgb, var(--c-sunken) 55%, var(--c-canvas));
+}
+
+.cloud-boundary-grid,
+.cloud-contract-grid {
+  display: grid;
+  gap: clamp(2.25rem, 4.5vw, 3.75rem);
+  align-items: start;
+}
+
+@media (min-width: 62rem) {
+  .cloud-boundary-grid,
+  .cloud-contract-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  }
+}
+
+.cloud-boundary-copy h2 {
+  max-width: 20ch;
+}
+
+.cloud-boundary-copy p {
+  max-width: 52ch;
+  margin-top: 1.15rem;
+  color: var(--c-ink-2);
+  line-height: 1.62;
+}
+
+.cloud-choices {
+  display: grid;
+  margin: 0;
+  gap: 1.35rem;
+}
+
+.cloud-choices > div {
+  display: grid;
+  gap: 0.2rem 1.5rem;
+}
+
+@media (min-width: 34rem) {
+  .cloud-choices > div {
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+}
+
+.cloud-choices dt {
+  color: var(--c-muted);
+  font-family: var(--c-mono);
+  font-size: 0.755rem;
+  letter-spacing: 0.03em;
+  padding-top: 0.15rem;
+}
+
+.cloud-choices dd {
+  margin: 0;
+}
+
+.cloud-choices b {
+  display: block;
+  color: var(--c-ink);
+  font-size: 0.96rem;
+  font-weight: 600;
+}
+
+.cloud-choices span {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--c-muted);
+  font-size: 0.88rem;
+}
+
+.cloud-choices code {
+  font-family: var(--c-mono);
+  font-size: 0.9em;
+}
+
+/* --- contract ------------------------------------------------------------ */
+
+.cloud-contract-copy h2 {
+  max-width: 18ch;
+}
+
+.cloud-contract-copy p {
+  max-width: 52ch;
+  margin-top: 1.15rem;
+  color: var(--c-ink-2);
+  line-height: 1.62;
+}
+
+.cloud-contract-copy code {
+  font-family: var(--c-mono);
+  font-size: 0.9em;
+}
+
+.cloud-contract-copy .cloud-link {
+  margin-top: 1.5rem;
+}
+
+.cloud-contract-stack {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.cloud-code pre {
+  overflow-x: auto;
+  margin: 0;
+  border: 0;
+  padding: 0.25rem 0.95rem 1.1rem;
+  background: transparent;
+  font-size: inherit;
+  line-height: 1.6;
+}
+
+.cloud-code code {
+  color: var(--c-ink-2);
+  font-family: var(--c-mono);
+}
+
+.cloud-code i {
+  color: var(--c-accent-ink);
+  font-style: normal;
+}
+
+.cloud-code u {
+  color: var(--c-live);
+  text-decoration: none;
+}
+
+.cloud-entry dl {
+  padding: 0.25rem 0.95rem 1rem;
+}
+
+.cloud-entry dd {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* --- cta ----------------------------------------------------------------- */
+
+.cloud-cta {
+  border-top: 1px solid var(--c-line);
+}
+
+.cloud-cta-grid {
+  display: grid;
+  gap: 1.2rem 3.5rem;
+  align-items: center;
+}
+
+.cloud-cta-grid > p {
+  max-width: 52ch;
+  color: var(--c-ink-2);
+  line-height: 1.62;
+}
+
+.cloud-cta-grid .cloud-btn {
+  justify-self: start;
+}
+
+@media (min-width: 62rem) {
+  .cloud-cta-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .cloud-cta-grid h2 {
+    max-width: 15ch;
+  }
+}
+
+.cloud-cta code {
+  font-family: var(--c-mono);
+  font-size: 0.9em;
+}
+
+/* --- narrow -------------------------------------------------------------- */
+
+@media (max-width: 33.99rem) {
+  .cloud-artifact {
+    font-size: 0.735rem;
+  }
+
+  .cloud-routes td,
+  .cloud-routes th {
+    padding-inline: 0.7rem;
+  }
+
+  .cloud-routes td:nth-child(2) {
+    color: var(--c-muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cloud-home * {
+    transition: none !important;
+  }
+}

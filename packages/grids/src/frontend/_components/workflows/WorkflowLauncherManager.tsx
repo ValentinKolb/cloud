@@ -15,10 +15,12 @@ import { apiClient } from "../../../api/client";
 import type { Table } from "../../../service";
 import type {
   CreateGridsWorkflowLauncherInput,
+  GridsScannerInputSource,
   GridsWorkflow,
   GridsWorkflowLauncher,
   GridsWorkflowLauncherKind,
 } from "../../../workflows/contracts";
+import { scannerLauncherInputSources } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { WorkflowInputFields } from "./WorkflowInputFields";
 import { dashboardLauncherConfigForSave, missingLauncherRequiredInputs } from "./workflow-launcher-draft";
@@ -27,6 +29,8 @@ import {
   type WorkflowRunInputDraft,
   type WorkflowRunInputDraftValue,
   workflowInputDraftFromValues,
+  workflowInputLabel,
+  workflowInputRequired,
 } from "./workflow-trigger-actions";
 
 type WorkflowLauncherApi = {
@@ -58,7 +62,10 @@ const launcherKindLabel = (kind: GridsWorkflowLauncherKind) => launcherKindOptio
 
 const launcherConfigurationSummary = (launcher: GridsWorkflowLauncher): string => {
   if (launcher.config.kind === "scanner") {
-    return `${launcher.config.input} · ${launcher.config.resolve.by === "field" ? `field ${launcher.config.resolve.field}` : "generated scan code"}`;
+    const sources = Object.values(scannerLauncherInputSources(launcher.config));
+    return `${sources.filter((source) => source.kind === "session").length} before · ${
+      sources.filter((source) => source.kind === "afterScan").length
+    } after each scan`;
   }
   if (launcher.config.kind === "bulk") return `Supplies ${launcher.config.input}`;
   return launcher.config.inputMode === "prompt" ? "Asks for input when run" : "Uses fixed input values";
@@ -66,7 +73,29 @@ const launcherConfigurationSummary = (launcher: GridsWorkflowLauncher): string =
 
 const defaultDraft = (workflow: GridsWorkflow): LauncherDraft => {
   const recordInput = workflow.plan.inputs.find((input) => input.type === "record")?.name ?? "";
-  return { name: "", enabled: true, config: { kind: "scanner", input: recordInput, resolve: { by: "scanCode" } } };
+  const textInput = workflow.plan.inputs.find((input) => input.type === "text")?.name ?? "";
+  const scanInput = recordInput || textInput;
+  return {
+    name: "",
+    enabled: true,
+    config: {
+      kind: "scanner",
+      inputSources: scanInput
+        ? {
+            [scanInput]:
+              scanInput === recordInput ? { kind: "scan", value: "record", resolve: { by: "scanCode" } } : { kind: "scan", value: "text" },
+          }
+        : {},
+    },
+  };
+};
+
+type ScannerSourceDraft = "unused" | "scanRecord" | "scanText" | "session" | "afterScan" | "fixed";
+
+const scannerSourceDraft = (source: GridsScannerInputSource | undefined): ScannerSourceDraft => {
+  if (!source) return "unused";
+  if (source.kind === "scan") return source.value === "record" ? "scanRecord" : "scanText";
+  return source.kind;
 };
 
 function LauncherEditor(props: {
@@ -80,11 +109,38 @@ function LauncherEditor(props: {
   const [enabled, setEnabled] = createSignal(initial.enabled ?? true);
   const [kind, setKind] = createSignal<GridsWorkflowLauncherKind>(initial.config.kind);
   const [input, setInput] = createSignal("input" in initial.config ? initial.config.input : "");
+  const initialScannerSources =
+    initial.config.kind === "scanner" ? scannerLauncherInputSources(initial.config) : ({} as Record<string, GridsScannerInputSource>);
+  const [scannerSources, setScannerSources] = createSignal<Record<string, ScannerSourceDraft>>(
+    Object.fromEntries(
+      props.workflow.plan.inputs.map((candidate) => [candidate.name, scannerSourceDraft(initialScannerSources[candidate.name])]),
+    ),
+  );
   const [resolveBy, setResolveBy] = createSignal<"scanCode" | "field">(
-    initial.config.kind === "scanner" ? initial.config.resolve.by : "scanCode",
+    initial.config.kind === "scanner"
+      ? (Object.values(initialScannerSources).find(
+          (source): source is Extract<GridsScannerInputSource, { kind: "scan"; value: "record" }> =>
+            source.kind === "scan" && source.value === "record",
+        )?.resolve.by ?? "scanCode")
+      : "scanCode",
   );
   const [field, setField] = createSignal(
-    initial.config.kind === "scanner" && initial.config.resolve.by === "field" ? (initial.config.resolve.field ?? "") : "",
+    initial.config.kind === "scanner"
+      ? (Object.values(initialScannerSources).find(
+          (source): source is Extract<GridsScannerInputSource, { kind: "scan"; value: "record" }> =>
+            source.kind === "scan" && source.value === "record" && source.resolve.by === "field",
+        )?.resolve.field ?? "")
+      : "",
+  );
+  const [scannerFixedDraft, setScannerFixedDraft] = createSignal<WorkflowRunInputDraft>(
+    workflowInputDraftFromValues(
+      props.workflow.plan.inputs,
+      Object.fromEntries(
+        Object.entries(initialScannerSources)
+          .filter(([, source]) => source.kind === "fixed")
+          .map(([name, source]) => [name, source.kind === "fixed" ? source.value : null]),
+      ),
+    ),
   );
   const [dashboardInputMode, setDashboardInputMode] = createSignal<"fixed" | "prompt">(
     initial.config.kind === "dashboard" ? initial.config.inputMode : "fixed",
@@ -97,19 +153,38 @@ function LauncherEditor(props: {
   );
   const inputOptions = createMemo(() =>
     props.workflow.plan.inputs
-      .filter((candidate) => candidate.type === (kind() === "scanner" ? "record" : "recordList"))
+      .filter((candidate) => candidate.type === "recordList")
       .map((candidate) => ({ id: candidate.name, label: candidate.config.label?.toString() || candidate.name })),
   );
   const missingRequiredInputs = createMemo(() => missingLauncherRequiredInputs(props.workflow.plan.inputs, kind(), input()));
   const dashboardValidation = createMemo(() => buildWorkflowRunInput(props.workflow.plan.inputs, dashboardBindings()));
+  const fixedScannerInputs = createMemo(() =>
+    props.workflow.plan.inputs.filter((candidate) => scannerSources()[candidate.name] === "fixed"),
+  );
+  const scannerFixedValidation = createMemo(() => buildWorkflowRunInput(fixedScannerInputs(), scannerFixedDraft()));
+  const scannerScanCount = createMemo(
+    () => Object.values(scannerSources()).filter((source) => source === "scanRecord" || source === "scanText").length,
+  );
+  const missingScannerInputs = createMemo(() =>
+    props.workflow.plan.inputs
+      .filter((candidate) => workflowInputRequired(candidate) && scannerSources()[candidate.name] === "unused")
+      .map(workflowInputLabel),
+  );
+  const fixedScannerValuesComplete = createMemo(() => {
+    const validation = scannerFixedValidation();
+    return validation.ok && fixedScannerInputs().every((candidate) => Object.hasOwn(validation.input, candidate.name));
+  });
   const valid = createMemo(
     () =>
       name().trim().length > 0 &&
       (kind() === "dashboard"
         ? dashboardInputMode() === "prompt" || dashboardValidation().ok
-        : input().length > 0 &&
-          missingRequiredInputs().length === 0 &&
-          (kind() !== "scanner" || resolveBy() !== "field" || field().trim().length > 0)),
+        : kind() === "scanner"
+          ? scannerScanCount() === 1 &&
+            missingScannerInputs().length === 0 &&
+            fixedScannerValuesComplete() &&
+            (Object.values(scannerSources()).includes("scanRecord") ? resolveBy() !== "field" || field().trim().length > 0 : true)
+          : input().length > 0 && missingRequiredInputs().length === 0),
   );
   const dashboardErrors = () => {
     const validation = dashboardValidation();
@@ -117,10 +192,37 @@ function LauncherEditor(props: {
   };
   const setDashboardBinding = (name: string, value: WorkflowRunInputDraftValue) =>
     setDashboardBindings((current) => ({ ...current, [name]: value }));
+  const setScannerFixedValue = (name: string, value: WorkflowRunInputDraftValue) =>
+    setScannerFixedDraft((current) => ({ ...current, [name]: value }));
 
   const submit = () => {
     if (!valid()) return;
     const bindings = dashboardValidation();
+    const fixedScannerValues = scannerFixedValidation();
+    const scannerInputSources = (): Record<string, GridsScannerInputSource> => {
+      const entries: Array<[string, GridsScannerInputSource]> = [];
+      for (const candidate of props.workflow.plan.inputs) {
+        const source = scannerSources()[candidate.name] ?? "unused";
+        if (source === "unused") continue;
+        if (source === "scanRecord") {
+          entries.push([
+            candidate.name,
+            {
+              kind: "scan",
+              value: "record",
+              resolve: resolveBy() === "field" ? { by: "field", field: field().trim() } : { by: "scanCode" },
+            },
+          ]);
+        } else if (source === "scanText") {
+          entries.push([candidate.name, { kind: "scan", value: "text" }]);
+        } else if (source === "fixed" && fixedScannerValues.ok) {
+          entries.push([candidate.name, { kind: "fixed", value: fixedScannerValues.input[candidate.name]! }]);
+        } else if (source === "session" || source === "afterScan") {
+          entries.push([candidate.name, { kind: source }]);
+        }
+      }
+      return Object.fromEntries(entries);
+    };
     const config: LauncherDraft["config"] =
       kind() === "dashboard"
         ? dashboardLauncherConfigForSave(
@@ -130,11 +232,7 @@ function LauncherEditor(props: {
           )
         : kind() === "bulk"
           ? { kind: "bulk", input: input() }
-          : {
-              kind: "scanner",
-              input: input(),
-              resolve: resolveBy() === "field" ? { by: "field", field: field().trim() } : { by: "scanCode" },
-            };
+          : { kind: "scanner", inputSources: scannerInputSources() };
     props.close({ name: name().trim(), enabled: enabled(), config });
   };
 
@@ -165,9 +263,9 @@ function LauncherEditor(props: {
               }
             }}
           />
-          <Show when={kind() !== "dashboard"}>
+          <Show when={kind() === "bulk"}>
             <SelectInput
-              label={kind() === "scanner" ? "Record input" : "Record-list input"}
+              label="Record-list input"
               description="The run option supplies this workflow input."
               required
               options={inputOptions()}
@@ -180,6 +278,57 @@ function LauncherEditor(props: {
                 {missingRequiredInputs().join(", ")}. Use a dashboard run option or make the inputs optional.
               </div>
             </Show>
+          </Show>
+          <Show when={kind() === "scanner"}>
+            <div class="flex flex-col gap-3">
+              <p class="text-sm text-dimmed">
+                Choose where each workflow input comes from. Input names are workflow-defined and have no special meaning.
+              </p>
+              <For each={props.workflow.plan.inputs}>
+                {(candidate) => (
+                  <SelectInput
+                    label={workflowInputLabel(candidate)}
+                    description={`${candidate.type}${workflowInputRequired(candidate) ? " · required" : ""}`}
+                    required={workflowInputRequired(candidate)}
+                    options={[
+                      { id: "unused", label: "Not supplied" },
+                      ...(candidate.type === "record" ? [{ id: "scanRecord", label: "Scanned record" }] : []),
+                      ...(candidate.type === "text" ? [{ id: "scanText", label: "Scanned text" }] : []),
+                      { id: "session", label: "Ask before scanning" },
+                      { id: "afterScan", label: "Ask after every scan" },
+                      { id: "fixed", label: "Fixed value" },
+                    ]}
+                    value={() => scannerSources()[candidate.name] ?? "unused"}
+                    onChange={(value) => setScannerSources((current) => ({ ...current, [candidate.name]: value as ScannerSourceDraft }))}
+                  />
+                )}
+              </For>
+              <Show when={scannerScanCount() !== 1}>
+                <div class="info-block-danger text-sm" role="alert">
+                  Choose exactly one workflow input as the scanned value.
+                </div>
+              </Show>
+              <Show when={missingScannerInputs().length > 0}>
+                <div class="info-block-danger text-sm" role="alert">
+                  Choose a source for the required {missingScannerInputs().length === 1 ? "input" : "inputs"}:{" "}
+                  {missingScannerInputs().join(", ")}.
+                </div>
+              </Show>
+              <Show when={fixedScannerInputs().length > 0}>
+                <WorkflowInputFields
+                  workflow={{
+                    plan: { inputs: fixedScannerInputs(), bindings: props.workflow.plan.bindings },
+                  }}
+                  tables={props.tables}
+                  draft={scannerFixedDraft}
+                  onValueChange={setScannerFixedValue}
+                  errors={() => {
+                    const result = scannerFixedValidation();
+                    return result.ok ? {} : result.errors;
+                  }}
+                />
+              </Show>
+            </div>
           </Show>
           <Show when={kind() === "dashboard"}>
             <SelectInput
@@ -209,7 +358,7 @@ function LauncherEditor(props: {
               </Show>
             </Show>
           </Show>
-          <Show when={kind() === "scanner"}>
+          <Show when={kind() === "scanner" && Object.values(scannerSources()).includes("scanRecord")}>
             <SelectInput
               label="Resolve scanned values by"
               required

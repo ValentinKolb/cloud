@@ -31,9 +31,62 @@ describe("workflow launcher validation", () => {
     ).toEqual([
       expect.objectContaining({
         code: "launcher.input.unsupplied",
-        message: 'scanner run option cannot supply required workflow input "confirm"',
+        message: 'scanner launcher cannot supply required workflow input "confirm"',
       }),
     ]);
+  });
+
+  test("accepts arbitrary staged scanner input names and validates each source against its input", () => {
+    const stagedWorkflow = {
+      plan: {
+        inputs: [
+          { name: "agreement", type: "record", config: { required: true } },
+          { name: "asset", type: "record", config: { required: true } },
+          { name: "assessment", type: "select", config: { required: true, options: ["good", "damaged"] } },
+          { name: "operatorNote", type: "text", config: {} },
+        ],
+      },
+    } as unknown as GridsWorkflow;
+
+    expect(
+      validateLauncherConfig(stagedWorkflow, {
+        kind: "scanner",
+        inputSources: {
+          agreement: { kind: "session" },
+          asset: { kind: "scan", value: "record", resolve: { by: "scanCode" } },
+          assessment: { kind: "afterScan" },
+          operatorNote: { kind: "fixed", value: "scanner station 1" },
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  test("rejects missing, mistyped, and multiple scan sources", () => {
+    const stagedWorkflow = {
+      plan: {
+        inputs: [
+          { name: "code", type: "text", config: { required: true } },
+          { name: "confirm", type: "boolean", config: { required: true } },
+        ],
+      },
+    } as unknown as GridsWorkflow;
+
+    expect(
+      validateLauncherConfig(stagedWorkflow, {
+        kind: "scanner",
+        inputSources: {
+          code: { kind: "scan", value: "record", resolve: { by: "scanCode" } },
+          other: { kind: "scan", value: "text" },
+        },
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "launcher.scan.count" }),
+        expect.objectContaining({ code: "launcher.input.type" }),
+        expect.objectContaining({ code: "launcher.input.unknown" }),
+        expect.objectContaining({ code: "launcher.input.unsupplied", message: expect.stringContaining('"confirm"') }),
+      ]),
+    );
   });
 
   test("requires complete type-safe dashboard input bindings", () => {

@@ -9,21 +9,27 @@
  * ports, and the assertions are about rows.
  */
 import { beforeAll, describe, expect } from "bun:test";
-import type { WorkflowBoundPlan, WorkflowIrStep, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import {
+  type WorkflowBoundPlan,
+  type WorkflowIrStep,
+  type WorkflowJsonValue,
+  workflowBuiltinActionDescriptors,
+} from "@valentinkolb/cloud/workflows";
 import { createWorkflowRun, workflowActionDescriptors } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
-import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-runtime";
 import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
+import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-runtime";
 import { deleteTestWorkflowScope, insertTestWorkflow, publishTestWorkflowVersion } from "./workflow-test-fixture";
 
 type Fixture = {
   actorId: string;
   baseId: string;
   tableId: string;
+  assetIdFieldId: string;
   nameFieldId: string;
   statusFieldId: string;
   recordId: string;
@@ -36,6 +42,7 @@ const createFixture = (): Fixture => ({
   actorId: uuid(),
   baseId: uuid(),
   tableId: uuid(),
+  assetIdFieldId: uuid(),
   nameFieldId: uuid(),
   statusFieldId: uuid(),
   recordId: uuid(),
@@ -60,15 +67,16 @@ const insertFixture = async (fixture: Fixture): Promise<void> => {
   await sql`
     INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
     VALUES
-      (${fixture.nameFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Name', 'text', '{}'::jsonb, 0),
-      (${fixture.statusFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Status', 'text', '{}'::jsonb, 1)
+      (${fixture.assetIdFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Asset ID', 'id', '{"strategy":"sequence","prefix":"ITEM-","padding":4}'::jsonb, 0),
+      (${fixture.nameFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Name', 'text', '{}'::jsonb, 1),
+      (${fixture.statusFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Status', 'text', '{}'::jsonb, 2)
   `;
   await sql`
     INSERT INTO grids.records (id, table_id, data, created_by, updated_by)
     VALUES (
       ${fixture.recordId}::uuid,
       ${fixture.tableId}::uuid,
-      ${{ [fixture.nameFieldId]: "Draft task", [fixture.statusFieldId]: "Open" }}::jsonb,
+      ${{ [fixture.assetIdFieldId]: "ITEM-0001", [fixture.nameFieldId]: "Draft task", [fixture.statusFieldId]: "Open" }}::jsonb,
       ${fixture.actorId}::uuid,
       ${fixture.actorId}::uuid
     )
@@ -122,7 +130,7 @@ const hash = (seed: string): string => new Bun.CryptoHasher("sha256").update(see
  * would test a runtime nobody ships.
  */
 const ACTION_POLICIES = Object.fromEntries(
-  workflowActionDescriptors(GRIDS_WORKFLOW_ACTIONS).map((descriptor) => [
+  [...workflowActionDescriptors(GRIDS_WORKFLOW_ACTIONS), ...workflowBuiltinActionDescriptors].map((descriptor) => [
     descriptor.kind,
     { effect: descriptor.effect, dryRun: descriptor.dryRun },
   ]),
@@ -200,6 +208,10 @@ const queueRun = async (fixture: Fixture, input: QueuedRun): Promise<string> => 
  */
 const drive = async (runId: string, mode: "execute" | "dryRun" = "execute"): Promise<string> => {
   const outcome = mode === "execute" ? await runGridsWorkflowRun(runId) : await dryRunGridsWorkflowRun(runId);
+  if (outcome.state === "idle") {
+    const state = (await runRow(runId)).state;
+    if (["succeeded", "failed", "canceled", "needs_attention"].includes(state)) return state;
+  }
   if (outcome.state !== "finished") throw new Error(`Workflow run ${runId} did not finish: ${outcome.state}`);
   return (await runRow(runId)).state;
 };
@@ -260,6 +272,29 @@ beforeAll(async () => {
 });
 
 describe("declared Grids workflow actions", () => {
+  postgresTest("kernel builtin actions are wired into the Grids worker", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const executeRunId = await queueRun(fixture, {
+        plan: boundPlan([actionStep(0, "succeed", { message: "Item returned" })], {}),
+      });
+      const dryRunId = await queueRun(fixture, {
+        mode: "dryRun",
+        plan: boundPlan([actionStep(0, "succeed", { message: "Item would be returned" })], {}),
+      });
+
+      expect(await drive(executeRunId)).toBe("succeeded");
+      expect(await drive(dryRunId, "dryRun")).toBe("succeeded");
+      expect((await runRow(executeRunId)).result).toBeNull();
+      expect((await runRow(dryRunId)).result).toEqual({ effects: [] });
+      expect((await stepRuns(executeRunId))[0]).toMatchObject({ state: "terminal" });
+      expect((await stepRuns(dryRunId))[0]).toMatchObject({ state: "terminal" });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
   postgresTest("updateRecord writes under the bound field id and journals the effect it committed", async () => {
     const fixture = createFixture();
     try {
@@ -278,6 +313,7 @@ describe("declared Grids workflow actions", () => {
       // The source wrote "Status"; publishing froze which field that was. A
       // value stored under the written name would be invisible to every reader.
       expect(data.Status).toBeUndefined();
+      expect(data[fixture.assetIdFieldId]).toBe("ITEM-0001");
       expect(data[fixture.nameFieldId]).toBe("Draft task");
 
       const [step] = await stepRuns(runId);

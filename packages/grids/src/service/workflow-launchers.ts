@@ -8,7 +8,7 @@ import type {
   GridsWorkflowLauncherConfig,
   UpdateGridsWorkflowLauncherInput,
 } from "../workflows/contracts";
-import { GridsWorkflowLauncherConfigSchema } from "../workflows/contracts";
+import { GridsWorkflowLauncherConfigSchema, scannerLauncherInputSources } from "../workflows/contracts";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
@@ -48,9 +48,9 @@ export const validateLauncherConfig = (workflow: GridsWorkflow, config: GridsWor
   const add = (code: string, message: string, path: Array<string | number>): void => {
     diagnostics.push({ code, message, severity: "error", path });
   };
-  if (config.kind === "scanner" || config.kind === "bulk") {
+  if (config.kind === "bulk") {
     const input = inputByName(workflow, config.input);
-    const expected = config.kind === "scanner" ? "record" : "recordList";
+    const expected = "recordList";
     if (!input) add("launcher.input.unknown", `Unknown workflow input "${config.input}"`, ["config", "input"]);
     else if (input.type !== expected) {
       add("launcher.input.type", `${config.kind} requires a ${expected} input`, ["config", "input"]);
@@ -66,8 +66,51 @@ export const validateLauncherConfig = (workflow: GridsWorkflow, config: GridsWor
       }
     }
   }
-  if (config.kind === "scanner" && config.resolve.by === "field" && !config.resolve.field) {
-    add("launcher.field.required", "Field resolution requires a field", ["config", "resolve", "field"]);
+  if (config.kind === "scanner") {
+    const sources = scannerLauncherInputSources(config);
+    const sourceEntries = Object.entries(sources);
+    const sourcePath = (name: string): Array<string | number> =>
+      "inputSources" in config ? ["config", "inputSources", name] : ["config", "input"];
+    const scanEntries = sourceEntries.filter(([, source]) => source.kind === "scan");
+    if (scanEntries.length !== 1) {
+      add("launcher.scan.count", "Scanner launchers require exactly one scan input source", ["config", "inputSources"]);
+    }
+    for (const [name, source] of sourceEntries) {
+      const input = inputByName(workflow, name);
+      if (!input) {
+        add("launcher.input.unknown", `Unknown workflow input "${name}"`, sourcePath(name));
+        continue;
+      }
+      if (source.kind === "scan") {
+        const expected = source.value === "record" ? "record" : "text";
+        if (input.type !== expected) {
+          add("launcher.input.type", `Scanned ${source.value} requires a ${expected} input`, sourcePath(name));
+        }
+      }
+      if (
+        (source.kind === "session" || source.kind === "afterScan") &&
+        !["record", "recordList", "text", "number", "boolean", "date", "dateTime", "select"].includes(input.type)
+      ) {
+        add("launcher.input.type", `Scanner prompts do not support workflow input type "${input.type}"`, sourcePath(name));
+      }
+      if (source.kind === "fixed") {
+        const message = workflowInputShapeError(input, source.value);
+        if (message) add("launcher.input.invalid", `Workflow input "${name}" ${message}`, sourcePath(name));
+      }
+      if (source.kind === "scan" && source.value === "record" && source.resolve.by === "field" && !source.resolve.field) {
+        add("launcher.field.required", "Field resolution requires a field", [...sourcePath(name), "resolve", "field"]);
+      }
+    }
+    for (const input of workflow.plan.inputs) {
+      if (Object.hasOwn(sources, input.name)) continue;
+      if (workflowInputShapeError(input, undefined)) {
+        add("launcher.input.unsupplied", `scanner launcher cannot supply required workflow input "${input.name}"`, [
+          "config",
+          "inputSources",
+          input.name,
+        ]);
+      }
+    }
   }
   if (config.kind === "dashboard") {
     for (const name of Object.keys(config.inputBindings ?? {})) {

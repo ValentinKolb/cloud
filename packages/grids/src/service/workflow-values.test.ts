@@ -140,6 +140,10 @@ describe("workflow kernel value resolver", () => {
       state: "resolved",
       value: "Returned",
     });
+    expect(await resolve("inputs.item.recordId", ["steps", 0, "if", "contains", 1], undefined)).toEqual({
+      state: "resolved",
+      value: recordId,
+    });
     expect(await resolve("inputs.item.Name", ["steps", 0, "setVariable", "value"], undefined)).toEqual({
       state: "resolved",
       value: "Returned",

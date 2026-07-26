@@ -30,7 +30,9 @@ export type WorkflowRunEventSummary = Pick<
   | "createdAt"
   | "startedAt"
   | "finishedAt"
->;
+> & {
+  operatorMessage?: string | null;
+};
 
 export type GridsWorkflowRunEvent = {
   v: 1;
@@ -41,7 +43,9 @@ export type GridsWorkflowRunEvent = {
   scope: WorkflowRunEventScope;
 };
 
-export type DashboardWorkflowRunSummary = Omit<WorkflowRunEventSummary, "error" | "resultMessage">;
+export type DashboardWorkflowRunSummary = Omit<WorkflowRunEventSummary, "error" | "resultMessage" | "operatorMessage"> & {
+  operatorMessage: string | null;
+};
 export type DashboardWorkflowRunStepSummary = Omit<WorkflowRunStepSummary, "sourcePath" | "iterationPath" | "outcome">;
 export type DashboardWorkflowRunEvent = Omit<GridsWorkflowRunEvent, "run" | "steps"> & {
   run: DashboardWorkflowRunSummary;
@@ -98,7 +102,18 @@ export const toWorkflowRunStepSummary = ({
   finishedAt,
 });
 
-export const toDashboardWorkflowRunSummary = ({ error: _error, resultMessage: _resultMessage, ...run }: WorkflowRunEventSummary) => run;
+const operatorMessage = (run: WorkflowRunEventSummary): string | null =>
+  run.error?.code === "WORKFLOW_FAILED" && run.error.message.trim().length > 0 ? run.error.message : null;
+
+export const toDashboardWorkflowRunSummary = ({
+  error: _error,
+  resultMessage: _resultMessage,
+  operatorMessage: _operatorMessage,
+  ...run
+}: WorkflowRunEventSummary): DashboardWorkflowRunSummary => ({
+  ...run,
+  operatorMessage: operatorMessage({ ...run, error: _error, resultMessage: _resultMessage }),
+});
 
 export const toDashboardWorkflowRunStepSummary = ({
   sourcePath: _sourcePath,

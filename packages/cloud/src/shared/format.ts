@@ -31,8 +31,10 @@ export type FormatOptions = {
  * Grouped count. `compact` switches to `1.2k` / `3.4M` for dense surfaces
  * where the exact figure is not the point.
  */
-export const formatNumber = (value: number | null | undefined, options: FormatOptions & { compact?: boolean; decimals?: number } = {}): string =>
-  text.pprintNumber(value, options);
+export const formatNumber = (
+  value: number | null | undefined,
+  options: FormatOptions & { compact?: boolean; decimals?: number } = {},
+): string => text.pprintNumber(value, options);
 
 /**
  * Percentage from a ratio in 0..1.
@@ -41,8 +43,10 @@ export const formatNumber = (value: number | null | undefined, options: FormatOp
  * old copies disagreed about which they expected, which is a silent factor-100
  * bug rather than a visible one.
  */
-export const formatPercent = (ratio: number | null | undefined, options: FormatOptions & { decimals?: number; clamp?: boolean } = {}): string =>
-  text.pprintPercent(ratio, { decimals: 1, ...options });
+export const formatPercent = (
+  ratio: number | null | undefined,
+  options: FormatOptions & { decimals?: number; clamp?: boolean } = {},
+): string => text.pprintPercent(ratio, { decimals: 1, ...options });
 
 /** Share of a total, guarding the zero-total case the copies kept getting wrong. */
 export const formatRatio = (

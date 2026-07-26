@@ -2,8 +2,8 @@ import { extractNamedBlockSummaries, type NamedBlockSummary } from "../lib/named
 import { hasOnlyNavigatorQuery, parseNavigatorQuery, withNavigatorQuery } from "../lib/navigator-url";
 import { extractTaskProgress, extractTocFromMarkdown, type TaskProgress, type TocItem } from "../lib/note-insights";
 import type { Attachment } from "./attachments";
-import type { Backlink } from "./links";
 import { notebooksService } from "./index";
+import type { Backlink } from "./links";
 import type { NoteWithContent } from "./notes";
 
 export type SelectedNoteRouteState = {

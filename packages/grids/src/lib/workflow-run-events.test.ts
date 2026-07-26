@@ -51,7 +51,7 @@ describe("workflow run event visibility", () => {
     ).toBe(true);
   });
 
-  test("dashboard projection removes internal errors, messages, paths, and outcomes", () => {
+  test("dashboard projection exposes only explicit operator failures and removes internal run details", () => {
     const source = event({ kind: "dashboard-widget", dashboardId: "dashboard-a", dashboardWidgetId: "widget-a" });
     source.run.error = { code: "SECRET", message: "internal detail", retryable: false };
     source.run.resultMessage = "private result";
@@ -75,10 +75,14 @@ describe("workflow run event visibility", () => {
 
     expect(projected.run).not.toHaveProperty("error");
     expect(projected.run).not.toHaveProperty("resultMessage");
+    expect(projected.run.operatorMessage).toBeNull();
     expect(projected.steps[0]).not.toHaveProperty("sourcePath");
     expect(projected.steps[0]).not.toHaveProperty("iterationPath");
     expect(projected.steps[0]).not.toHaveProperty("outcome");
     expect(projectWorkflowRunEvent(source, { id: "dashboard-a", widgetId: "widget-a" })).toEqual(projected);
     expect(projectWorkflowRunEvent(source, { id: "dashboard-b", widgetId: "widget-a" })).toBeNull();
+
+    source.run.error = { code: "WORKFLOW_FAILED", message: "Item ITEM-0001 is already in maintenance.", retryable: false };
+    expect(toDashboardWorkflowRunEvent(source).run.operatorMessage).toBe("Item ITEM-0001 is already in maintenance.");
   });
 });

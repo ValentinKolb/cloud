@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
 import { deriveNoteTitle } from "./lib/note-title";
 import { backfillShortIds, type ShortIdTable } from "./lib/short-id";
 

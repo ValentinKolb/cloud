@@ -1,8 +1,8 @@
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import { auth, jsonResponse, respond, v, type AuthContext } from "@valentinkolb/cloud/server";
 import { notebooksService } from "../service";
 
 const TemplateSummarySchema = z.object({

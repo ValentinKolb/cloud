@@ -15,6 +15,10 @@ type Props = {
   tables: Array<Pick<Table, "id" | "shortId" | "name">>;
   mode: "execute" | "dryRun";
   initialValues?: Record<string, WorkflowJsonValue>;
+  title?: string;
+  subtitle?: string;
+  submitLabel?: string;
+  icon?: string;
   close: (input?: Record<string, WorkflowJsonValue>) => void;
 };
 
@@ -37,9 +41,9 @@ function WorkflowRunInputDialog(props: Props) {
   return (
     <PanelDialog>
       <PanelDialog.Header
-        title={`${props.mode === "dryRun" ? "Dry run" : "Run"} ${props.workflow.name}`}
-        subtitle={props.mode === "dryRun" ? "Provide the inputs for this dry run." : "Provide the inputs for this run."}
-        icon={props.mode === "dryRun" ? "ti ti-flask" : "ti ti-player-play"}
+        title={props.title ?? `${props.mode === "dryRun" ? "Dry run" : "Run"} ${props.workflow.name}`}
+        subtitle={props.subtitle ?? (props.mode === "dryRun" ? "Provide the inputs for this dry run." : "Provide the inputs for this run.")}
+        icon={props.icon ?? (props.mode === "dryRun" ? "ti ti-flask" : "ti ti-player-play")}
         close={() => props.close()}
       />
       <PanelDialog.Body>
@@ -53,7 +57,7 @@ function WorkflowRunInputDialog(props: Props) {
           </button>
           <button type="button" class="btn-primary btn-sm" disabled={!validation().ok} onClick={submit}>
             <i class={props.mode === "dryRun" ? "ti ti-flask" : "ti ti-player-play"} />
-            {props.mode === "dryRun" ? "Start dry run" : "Run workflow"}
+            {props.submitLabel ?? (props.mode === "dryRun" ? "Start dry run" : "Run workflow")}
           </button>
         </div>
       </PanelDialog.Footer>
@@ -66,6 +70,10 @@ export const requestWorkflowRunInput = async (args: {
   tables: Array<Pick<Table, "id" | "shortId" | "name">>;
   mode: "execute" | "dryRun";
   initialValues?: Record<string, WorkflowJsonValue>;
+  title?: string;
+  subtitle?: string;
+  submitLabel?: string;
+  icon?: string;
 }): Promise<Record<string, WorkflowJsonValue> | undefined> => {
   if (args.workflow.plan.inputs.length === 0) return args.initialValues ?? {};
   return dialogCore.open<Record<string, WorkflowJsonValue>>(

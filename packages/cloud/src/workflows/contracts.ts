@@ -205,7 +205,17 @@ export type WorkflowInvocationReceipt = {
   status: WorkflowRunState;
 };
 
-export type WorkflowStepState = "queued" | "running" | "waiting" | "succeeded" | "failed" | "skipped" | "indeterminate";
+export type WorkflowStepState =
+  | "running"
+  | "completed"
+  | "waiting"
+  | "failed"
+  | "needs_attention"
+  | "terminal"
+  | "planned"
+  | "unsupported"
+  | "indeterminate"
+  | "canceled";
 export type WorkflowRunState = "queued" | "running" | "waiting" | "succeeded" | "failed" | "canceled" | "needs_attention";
 
 export type WorkflowExecutionError = {

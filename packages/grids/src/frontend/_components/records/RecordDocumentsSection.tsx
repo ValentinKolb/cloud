@@ -1,13 +1,13 @@
 import {
-  dialogCore,
   Dropdown,
+  dialogCore,
   PanelDialog,
   PdfPreview,
   panelDialogOptions,
   prompts,
   StructuredDataPreview,
-  toast,
   Tooltip,
+  toast,
 } from "@valentinkolb/cloud/ui";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -270,8 +270,7 @@ export default function RecordDocumentsSection(props: {
     if (generated) await refreshDocumentsMut.mutate(undefined);
   };
 
-  const availableTemplates = () =>
-    props.templates.filter((template) => template.enabled);
+  const availableTemplates = () => props.templates.filter((template) => template.enabled);
   const generatedRuns = runs;
   const manualSnapshots = snapshots;
   const generationActions = () =>
@@ -295,11 +294,7 @@ export default function RecordDocumentsSection(props: {
                 disabled={createSnapshotMut.loading()}
                 aria-busy={createSnapshotMut.loading()}
               >
-                {createSnapshotMut.loading() ? (
-                  <i class="ti ti-loader-2 animate-spin" />
-                ) : (
-                  <i class="ti ti-camera" />
-                )}
+                {createSnapshotMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
                 Create snapshot
               </button>
             </Show>
@@ -319,45 +314,27 @@ export default function RecordDocumentsSection(props: {
               >
                 <i
                   aria-hidden="true"
-                  class={
-                    activeSnapshotId() === snapshot.id
-                      ? "ti ti-loader-2 shrink-0 animate-spin"
-                      : "ti ti-camera shrink-0 text-dimmed"
-                  }
+                  class={activeSnapshotId() === snapshot.id ? "ti ti-loader-2 shrink-0 animate-spin" : "ti ti-camera shrink-0 text-dimmed"}
                 />
                 <span class="min-w-0 flex-1 truncate font-mono text-secondary transition-colors group-hover:text-primary">
                   SNAP-{snapshot.id.slice(0, 8).toUpperCase()}
                 </span>
-                <span class="shrink-0 text-xs text-dimmed">
-                  {formatRecordRelativeTime(snapshot.createdAt)}
-                </span>
-                <i
-                  aria-hidden="true"
-                  class="ti ti-chevron-right shrink-0 text-dimmed"
-                />
+                <span class="shrink-0 text-xs text-dimmed">{formatRecordRelativeTime(snapshot.createdAt)}</span>
+                <i aria-hidden="true" class="ti ti-chevron-right shrink-0 text-dimmed" />
               </button>
             )}
           </For>
         </section>
       </Show>
 
-      <Show
-        when={
-          generatedRuns().length > 0 ||
-          (props.live && availableTemplates().length > 0)
-        }
-      >
+      <Show when={generatedRuns().length > 0 || (props.live && availableTemplates().length > 0)}>
         <section class="detail-section flex flex-col gap-3">
           <div class="flex items-center justify-between gap-2">
             <h3 class="detail-section-label mb-0">Documents</h3>
             <Show when={props.live && availableTemplates().length > 0}>
               <Dropdown
                 trigger={
-                  <button
-                    type="button"
-                    class="btn-secondary btn-sm"
-                    disabled={refreshDocumentsMut.loading()}
-                  >
+                  <button type="button" class="btn-secondary btn-sm" disabled={refreshDocumentsMut.loading()}>
                     <i class="ti ti-file-plus" />
                     Generate
                     <i class="ti ti-chevron-down text-xs" />
@@ -394,16 +371,9 @@ export default function RecordDocumentsSection(props: {
                         })} shrink-0 text-base`
                   }
                 />
-                <span class="min-w-0 flex-1 truncate text-secondary transition-colors group-hover:text-primary">
-                  {run.filename}
-                </span>
-                <span class="shrink-0 text-xs text-dimmed">
-                  {formatRecordRelativeTime(run.generatedAt)}
-                </span>
-                <i
-                  aria-hidden="true"
-                  class="ti ti-download shrink-0 text-dimmed"
-                />
+                <span class="min-w-0 flex-1 truncate text-secondary transition-colors group-hover:text-primary">{run.filename}</span>
+                <span class="shrink-0 text-xs text-dimmed">{formatRecordRelativeTime(run.generatedAt)}</span>
+                <i aria-hidden="true" class="ti ti-download shrink-0 text-dimmed" />
               </button>
             )}
           </For>

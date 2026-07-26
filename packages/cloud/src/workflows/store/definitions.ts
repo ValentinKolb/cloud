@@ -140,11 +140,13 @@ export const renameWorkflow = async (
  * the dependency — so an app calls this when one of its scopes goes away.
  */
 export const deleteWorkflowScope = async (scope: { appId: string; scopeId: string }, options: { db?: SQL } = {}): Promise<number> => {
-  const db = options.db ?? sql;
-  const rows = await db<{ id: string }[]>`
-    DELETE FROM workflows.workflow WHERE app_id = ${scope.appId} AND scope_id = ${scope.scopeId} RETURNING id
-  `;
-  return rows.length;
+  return withTransaction(options.db, async (tx) => {
+    const rows = await tx<{ id: string }[]>`
+      DELETE FROM workflows.workflow WHERE app_id = ${scope.appId} AND scope_id = ${scope.scopeId} RETURNING id
+    `;
+    await tx`DELETE FROM workflows.event WHERE app_id = ${scope.appId} AND scope_id = ${scope.scopeId}`;
+    return rows.length;
+  });
 };
 
 // ─── Versions ────────────────────────────────────────────────────────────────

@@ -340,6 +340,7 @@ steps:
   - if:
       all:
         - contains: ["\${{ inputs.item.Name }}", "\${{ inputs.label }}"]
+        - contains: ["known-record-id", "\${{ inputs.item.recordId }}"]
         - not:
             any:
               - startsWith: ["\${{ inputs.count }}", "1"]
@@ -357,11 +358,11 @@ steps:
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({
         code: "condition.type",
-        path: ["steps", 0, "if", "all", 1, "not", "any", 0, "startsWith", 0],
+        path: ["steps", 0, "if", "all", 2, "not", "any", 0, "startsWith", 0],
       }),
     );
     expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: "condition.type", path: ["steps", 0, "if", "all", 2, "endsWith", 0] }),
+      expect.objectContaining({ code: "condition.type", path: ["steps", 0, "if", "all", 3, "endsWith", 0] }),
     );
     expect(result.diagnostics).not.toContainEqual(expect.objectContaining({ code: "reference.unknown" }));
   });

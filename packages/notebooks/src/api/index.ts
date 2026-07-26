@@ -472,9 +472,7 @@ const getNotebookAccessSubject = (c: Context<AuthContext>) => {
   };
 };
 
-const getCollectionNotebookBinding = (
-  subject: ReturnType<typeof getNotebookAccessSubject>,
-): Result<string | null> => {
+const getCollectionNotebookBinding = (subject: ReturnType<typeof getNotebookAccessSubject>): Result<string | null> => {
   if (!subject.serviceAccountId) return ok(null);
   if (
     subject.serviceAccount?.kind !== "resource_bound" ||

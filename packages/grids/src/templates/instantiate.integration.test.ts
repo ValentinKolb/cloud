@@ -129,8 +129,9 @@ describe("built-in template instantiation", () => {
           workflows: [
             { name: "Send approved loan agreement", steps: 11 },
             { name: "Report damaged item", steps: 3 },
+            { name: "Mark loan item as returned", steps: 6 },
           ],
-          launchers: ["Choose loan to send agreement", "Scan damaged inventory item"],
+          launchers: ["Choose loan to send agreement", "Scan damaged inventory item", "Return items for one loan"],
         },
       ];
 

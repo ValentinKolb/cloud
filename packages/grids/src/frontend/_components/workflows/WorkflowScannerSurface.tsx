@@ -1,7 +1,10 @@
 import { dialogCore, PanelDialog, panelDialogOptions, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { WorkflowRunEventSummary, WorkflowRunStepSummary } from "../../../lib/workflow-run-events";
+import type { Table } from "../../../service";
+import type { GridsScannerPromptInputSource } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { createScannerEngine, type ScannerDetection, type ScannerEngine } from "./scanner-engine";
 import { workflowStepStatusTextClass as stepStatusTextClass } from "./workflow-display";
@@ -31,10 +34,35 @@ type DashboardWorkflowRunsApi = {
 const workflowRunsApi = apiClient.workflows.runs as unknown as WorkflowRunsApi;
 const dashboardWorkflowRunsApi = apiClient.dashboards as unknown as DashboardWorkflowRunsApi;
 
+type DashboardWorkflowInputContractApi = {
+  [":dashboardId"]: {
+    widgets: {
+      [":widgetId"]: {
+        "input-contract": {
+          $get: (input: { param: { dashboardId: string; widgetId: string } }) => Promise<Response>;
+        };
+      };
+    };
+  };
+};
+
+const dashboardWorkflowInputContractApi = apiClient.dashboards as unknown as DashboardWorkflowInputContractApi;
+
+import { requestWorkflowRunInput } from "./WorkflowRunInputDialog";
 import { createWorkflowRunEventsProvider, isTerminalWorkflowRunLiveErrorCode } from "./workflow-run-events-provider";
 import { acquireScannerStream, stopScannerStream } from "./workflow-scanner-camera";
 import { retainVisibleScannerLogs } from "./workflow-scanner-log";
 import { invokeWorkflowScannerRequest, type WorkflowScannerTransport, workflowScannerResponseKind } from "./workflow-scanner-request";
+
+export type WorkflowScannerInputContract = {
+  workflow: {
+    id: string;
+    name: string;
+    plan: Pick<WorkflowBoundPlan, "inputs" | "bindings">;
+  };
+  tables: Array<Pick<Table, "id" | "shortId" | "name">>;
+  inputSources: Record<string, GridsScannerPromptInputSource>;
+};
 
 export type WorkflowScannerState = {
   baseShortId: string;
@@ -48,6 +76,7 @@ export type WorkflowScannerState = {
   workflowDescription: string | null;
   initialCode: string | null;
   returnHref: string | null;
+  inputContract?: WorkflowScannerInputContract;
 };
 
 type ScanStatus = "queued" | "running" | "succeeded" | "failed";
@@ -61,6 +90,7 @@ type ScanLogItem = {
   runId: string | null;
   run: WorkflowRunEventSummary | null;
   steps: WorkflowRunStepSummary[];
+  inputs: Record<string, WorkflowJsonValue>;
   createdAt: number;
 };
 
@@ -121,7 +151,7 @@ async function openScanDetails(item: ScanLogItem, retry?: () => void) {
                   {(step) => (
                     <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 py-1 text-sm">
                       <div class="min-w-0">
-                        <p class="truncate font-medium text-primary">{step.sourcePath.length > 0 ? step.sourcePath.join(".") : step.key}</p>
+                        <p class="truncate font-medium text-primary">{step.sourcePath?.length ? step.sourcePath.join(".") : step.key}</p>
                         <p class="text-xs text-dimmed">{step.action ?? step.kind}</p>
                       </div>
                       <span class={`text-xs font-semibold ${stepStatusTextClass(step.status)}`}>{step.status}</span>
@@ -179,6 +209,11 @@ export default function WorkflowScannerSurface(props: Props) {
   const [activeScanIds, setActiveScanIds] = createSignal<Set<string>>(new Set());
   const [announcements, setAnnouncements] = createSignal<ScanAnnouncement[]>([]);
   const [manualCode, setManualCode] = createSignal("");
+  const [inputContract, setInputContract] = createSignal<WorkflowScannerInputContract | null>(props.state.inputContract ?? null);
+  const [sessionInputs, setSessionInputs] = createSignal<Record<string, WorkflowJsonValue>>({});
+  const [setupReady, setSetupReady] = createSignal(false);
+  const [setupError, setSetupError] = createSignal<string | null>(null);
+  const [collectingInput, setCollectingInput] = createSignal(false);
   const [videoBox, setVideoBox] = createSignal<VideoBox>({ x: 0, y: 0, width: 1, height: 1 });
   const recentCodes = new Map<string, number>();
   const scanStatuses = new Map<string, ScanStatus>();
@@ -189,6 +224,66 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const counts = () => ({ ...completedCounts(), active: activeScanIds().size });
+  const promptContract = (kind: "session" | "afterScan") => {
+    const contract = inputContract();
+    if (!contract) return null;
+    const inputs = contract.workflow.plan.inputs.filter((candidate) => contract.inputSources[candidate.name]?.kind === kind);
+    return {
+      workflow: {
+        ...contract.workflow,
+        plan: {
+          inputs,
+          bindings: Object.fromEntries(
+            inputs.flatMap((candidate) => {
+              const key = `inputs.${candidate.name}.table`;
+              const value = contract.workflow.plan.bindings[key];
+              return value === undefined ? [] : [[key, value]];
+            }),
+          ),
+        },
+      },
+      tables: contract.tables,
+    };
+  };
+
+  const loadInputContract = async (): Promise<WorkflowScannerInputContract> => {
+    if (props.state.inputContract) return props.state.inputContract;
+    if (!props.state.dashboardId || !props.state.dashboardWidgetId) {
+      throw new Error("Scanner input contract is unavailable.");
+    }
+    const res = await dashboardWorkflowInputContractApi[":dashboardId"].widgets[":widgetId"]["input-contract"].$get({
+      param: { dashboardId: props.state.dashboardId, widgetId: props.state.dashboardWidgetId },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "Scanner inputs could not be loaded"));
+    return (await res.json()) as WorkflowScannerInputContract;
+  };
+
+  const requestSessionInputs = async (changing = false): Promise<boolean> => {
+    const contract = promptContract("session");
+    if (!contract || contract.workflow.plan.inputs.length === 0) {
+      setSetupReady(true);
+      return true;
+    }
+    setCollectingInput(true);
+    try {
+      const prompted = await requestWorkflowRunInput({
+        ...contract,
+        mode: "execute",
+        initialValues: sessionInputs(),
+        title: changing ? "Change scanner context" : "Set up scanner",
+        subtitle: "These values stay active until you change or close the scanner.",
+        submitLabel: changing ? "Apply" : "Start scanning",
+        icon: "ti ti-adjustments",
+      });
+      if (prompted === undefined) return false;
+      setSessionInputs(prompted);
+      setSetupReady(true);
+      setSetupError(null);
+      return true;
+    } finally {
+      setCollectingInput(false);
+    }
+  };
   const announceLog = (item: ScanLogItem) => {
     const announcement = {
       id: ++announcementId,
@@ -265,7 +360,10 @@ export default function WorkflowScannerSurface(props: Props) {
       status,
       runId: run.id,
       message:
-        run.resultMessage ?? run.error?.message ?? (status === "succeeded" ? "Succeeded" : status === "failed" ? "Failed" : "Running"),
+        run.resultMessage ??
+        run.error?.message ??
+        run.operatorMessage ??
+        (status === "succeeded" ? "Succeeded" : status === "failed" ? "Workflow failed" : "Running"),
       ...(steps ? { steps } : {}),
     });
   };
@@ -381,7 +479,7 @@ export default function WorkflowScannerSurface(props: Props) {
     },
   });
 
-  const submitScan = async (item: Pick<ScanLogItem, "id" | "code">) => {
+  const submitScan = async (item: Pick<ScanLogItem, "id" | "code" | "inputs">) => {
     try {
       const res = await invokeWorkflowScannerRequest(
         scannerTransport,
@@ -390,7 +488,7 @@ export default function WorkflowScannerSurface(props: Props) {
           dashboardId: props.state.dashboardId,
           dashboardWidgetId: props.state.dashboardWidgetId,
         },
-        { operationId: item.id, expectedRevision: props.state.expectedRevision, code: item.code },
+        { operationId: item.id, expectedRevision: props.state.expectedRevision, code: item.code, inputs: item.inputs },
       );
       const responseKind = workflowScannerResponseKind(res);
       if (responseKind === "revision-conflict") {
@@ -424,13 +522,32 @@ export default function WorkflowScannerSurface(props: Props) {
 
   const runScan = async (code: string, format: string | null) => {
     const trimmed = code.trim();
-    if (!trimmed || pauseReason()) return;
+    if (!trimmed || pauseReason() || !setupReady() || collectingInput()) return;
     const now = Date.now();
     const last = recentCodes.get(trimmed) ?? 0;
     if (now - last < 2500) return;
     recentCodes.set(trimmed, now);
 
     const busy = activeScanIds().size >= MAX_ACTIVE_SCAN_RUNS;
+    let afterScanInputs: Record<string, WorkflowJsonValue> = {};
+    const afterScanContract = promptContract("afterScan");
+    if (!busy && afterScanContract && afterScanContract.workflow.plan.inputs.length > 0) {
+      setCollectingInput(true);
+      try {
+        const prompted = await requestWorkflowRunInput({
+          ...afterScanContract,
+          mode: "execute",
+          title: "Complete scan",
+          subtitle: "Provide the values for this scanned item.",
+          submitLabel: "Run workflow",
+          icon: "ti ti-clipboard-check",
+        });
+        if (prompted === undefined) return;
+        afterScanInputs = prompted;
+      } finally {
+        setCollectingInput(false);
+      }
+    }
     const item: ScanLogItem = {
       id: crypto.randomUUID(),
       code: trimmed,
@@ -440,6 +557,7 @@ export default function WorkflowScannerSurface(props: Props) {
       runId: null,
       run: null,
       steps: [],
+      inputs: { ...sessionInputs(), ...afterScanInputs },
       createdAt: now,
     };
     if (!busy) setActiveScanIds((ids) => new Set(ids).add(item.id));
@@ -483,7 +601,7 @@ export default function WorkflowScannerSurface(props: Props) {
 
   const tick = async () => {
     if (disposed || !cameraRunning()) return;
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || decoding || !engine) {
+    if (collectingInput() || !video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || decoding || !engine) {
       window.setTimeout(() => void tick(), 220);
       return;
     }
@@ -550,17 +668,39 @@ export default function WorkflowScannerSurface(props: Props) {
     void runScan(code, "link");
   };
 
+  const initializeScanner = async () => {
+    try {
+      setSetupError(null);
+      setInputContract(await loadInputContract());
+      const configured = await requestSessionInputs();
+      if (!configured) {
+        setSetupError("Scanner setup was canceled.");
+        return;
+      }
+      submitInitialCode();
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("Camera scanning is not supported in this browser.");
+        return;
+      }
+      await startCamera();
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : "Scanner inputs could not be loaded.");
+    }
+  };
+
+  const changeSessionInputs = async () => {
+    if (collectingInput()) return;
+    const wasRunning = cameraRunning();
+    const changed = await requestSessionInputs(true);
+    if (changed && wasRunning && !cameraRunning()) await startCamera();
+  };
+
   onMount(() => {
     window.addEventListener("resize", updateVideoBox);
     document.addEventListener("visibilitychange", syncLiveVisibility);
     runEvents.connect();
     startWatchdog();
-    submitInitialCode();
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Camera scanning is not supported in this browser.");
-      return;
-    }
-    void startCamera();
+    void initializeScanner();
   });
 
   onCleanup(() => {
@@ -576,12 +716,12 @@ export default function WorkflowScannerSurface(props: Props) {
 
   const shellClass =
     props.mode === "page"
-      ? "flex h-[100dvh] min-h-0 flex-col bg-zinc-950 text-zinc-50"
-      : "flex h-full min-h-0 flex-1 flex-col bg-zinc-950 text-zinc-50";
+      ? "flex h-[100dvh] min-h-0 flex-col bg-[var(--ui-bg)] text-primary"
+      : "flex h-full min-h-0 flex-1 flex-col bg-transparent text-primary";
   const mainClass =
     props.mode === "page"
-      ? "grid min-h-0 flex-1 grid-rows-[minmax(14rem,45dvh)_minmax(0,1fr)] gap-2 p-2 md:p-3"
-      : "grid min-h-0 flex-1 grid-rows-2 gap-2 p-2 md:p-3";
+      ? "grid min-h-0 flex-1 grid-rows-[minmax(12rem,40dvh)_minmax(0,1fr)] gap-3 p-3 md:p-4"
+      : "grid min-h-0 flex-1 grid-rows-[minmax(12rem,42%)_minmax(0,1fr)] gap-3 p-2 md:p-3";
 
   return (
     <div class={shellClass}>
@@ -593,7 +733,7 @@ export default function WorkflowScannerSurface(props: Props) {
                 props.state.returnHref ??
                 `/app/grids/${props.state.baseShortId}/workflows/${props.state.workflowShortId ?? props.state.workflowId}`
               }
-              class="icon-btn text-zinc-200 hover:text-white"
+              class="icon-btn"
               aria-label="Back to workflow"
             >
               <i class="ti ti-arrow-left" />
@@ -601,7 +741,7 @@ export default function WorkflowScannerSurface(props: Props) {
           </Tooltip>
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-semibold">{props.state.workflowName}</p>
-            <p class="truncate text-xs text-zinc-400">Scanner</p>
+            <p class="truncate text-xs text-dimmed">Scanner</p>
           </div>
         </header>
       </Show>
@@ -610,7 +750,7 @@ export default function WorkflowScannerSurface(props: Props) {
         <div class="sr-only" aria-live="polite" aria-relevant="additions text">
           <For each={announcements()}>{(announcement) => <p>{announcement.text}</p>}</For>
         </div>
-        <section ref={cameraFrame} class="paper relative min-h-0 overflow-hidden border-zinc-800 bg-black">
+        <section ref={cameraFrame} class="relative min-h-0 overflow-hidden rounded-xl bg-black shadow-sm">
           <video ref={video} class="h-full w-full object-contain" playsinline autoplay muted />
           <div class="pointer-events-none absolute inset-0">
             <For each={detections()}>
@@ -666,28 +806,49 @@ export default function WorkflowScannerSurface(props: Props) {
               </button>
             </Show>
           </div>
+          <Show when={!setupReady() || setupError()}>
+            <div class="absolute inset-0 flex items-center justify-center bg-black/70 p-6 text-center text-white">
+              <div class="max-w-md">
+                <i class={`ti ${setupError() ? "ti-alert-circle" : "ti-adjustments"} mb-3 text-2xl`} aria-hidden="true" />
+                <p class="text-sm font-semibold">{setupError() ?? "Preparing scanner..."}</p>
+                <Show when={setupError()}>
+                  <button
+                    type="button"
+                    class="btn-input btn-sm mt-4 bg-white text-zinc-900 hover:bg-zinc-100"
+                    disabled={collectingInput()}
+                    onClick={() => void initializeScanner()}
+                  >
+                    <i class="ti ti-refresh" aria-hidden="true" /> Set up
+                  </button>
+                </Show>
+              </div>
+            </div>
+          </Show>
         </section>
 
-        <section class="paper flex min-h-0 flex-col overflow-hidden border-zinc-800 bg-zinc-950">
-          <div class="grid shrink-0 grid-cols-4 px-2 py-1 text-center">
-            <div class="p-2">
-              <p class="text-lg font-semibold">{counts().total}</p>
-              <p class="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Scans</p>
+        <section class="flex min-h-0 flex-col overflow-hidden">
+          <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 px-1 pb-2">
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-dimmed">
+              <span>
+                <strong class="text-primary">{counts().total}</strong> scans
+              </span>
+              <span>
+                <strong class="text-emerald-700 dark:text-emerald-300">{counts().ok}</strong> ok
+              </span>
+              <span>
+                <strong class="text-blue-700 dark:text-blue-300">{counts().active}</strong> active
+              </span>
+              <span>
+                <strong class="text-red-700 dark:text-red-300">{counts().failed}</strong> errors
+              </span>
             </div>
-            <div class="p-2">
-              <p class="text-lg font-semibold text-emerald-400">{counts().ok}</p>
-              <p class="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Ok</p>
-            </div>
-            <div class="p-2">
-              <p class="text-lg font-semibold text-blue-400">{counts().active}</p>
-              <p class="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Active</p>
-            </div>
-            <div class="p-2">
-              <p class="text-lg font-semibold text-red-400">{counts().failed}</p>
-              <p class="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Errors</p>
-            </div>
+            <Show when={(promptContract("session")?.workflow.plan.inputs.length ?? 0) > 0}>
+              <button type="button" class="btn-input btn-sm" disabled={collectingInput()} onClick={() => void changeSessionInputs()}>
+                <i class="ti ti-adjustments" aria-hidden="true" /> Change context
+              </button>
+            </Show>
           </div>
-          <form class="flex shrink-0 items-center gap-2 px-2 pb-2" onSubmit={submitManual}>
+          <form class="flex shrink-0 items-center gap-2 px-1 pb-2" onSubmit={submitManual}>
             <div class="min-w-0 flex-1">
               <TextInput
                 value={manualCode}
@@ -697,26 +858,30 @@ export default function WorkflowScannerSurface(props: Props) {
                 icon="ti ti-keyboard"
                 name="manual-scan-code"
                 autocomplete="off"
-                disabled={Boolean(pauseReason())}
+                disabled={Boolean(pauseReason()) || !setupReady() || collectingInput()}
               />
             </div>
-            <button type="submit" class="btn-input btn-sm shrink-0" disabled={!manualCode().trim() || Boolean(pauseReason())}>
+            <button
+              type="submit"
+              class="btn-input btn-sm shrink-0"
+              disabled={!manualCode().trim() || Boolean(pauseReason()) || !setupReady() || collectingInput()}
+            >
               <i class="ti ti-scan" aria-hidden="true" /> Scan
             </button>
           </form>
           <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
             <Show when={counts().total > logs().length}>
-              <p class="px-3 py-1 text-[11px] text-zinc-500">Showing the latest {MAX_VISIBLE_SCAN_LOGS} scans.</p>
+              <p class="px-3 py-1 text-[11px] text-dimmed">Showing the latest {MAX_VISIBLE_SCAN_LOGS} scans.</p>
             </Show>
             <Show
               when={logs().length > 0}
-              fallback={<div class="flex h-full items-center justify-center px-4 text-center text-sm text-zinc-500">No scans yet.</div>}
+              fallback={<div class="flex h-full items-center justify-center px-4 text-center text-sm text-dimmed">No scans yet.</div>}
             >
               <For each={logs()}>
                 {(item) => (
                   <button
                     type="button"
-                    class="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-white/5"
+                    class="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-left transition-colors hover:bg-[var(--ui-surface-subtle)]"
                     onClick={() =>
                       void openScanDetails(
                         item,
@@ -734,10 +899,10 @@ export default function WorkflowScannerSurface(props: Props) {
                       } ${statusClass(item.status)}`}
                     />
                     <span class="min-w-0">
-                      <span class="block truncate text-sm font-medium text-zinc-100">{item.message}</span>
-                      <span class="block truncate font-mono text-[11px] text-zinc-500">{item.code}</span>
+                      <span class="block truncate text-sm font-medium text-primary">{item.message}</span>
+                      <span class="block truncate font-mono text-[11px] text-dimmed">{item.code}</span>
                     </span>
-                    <span class="text-xs text-zinc-500">{displayTime(item.createdAt)}</span>
+                    <span class="text-xs text-dimmed">{displayTime(item.createdAt)}</span>
                   </button>
                 )}
               </For>

@@ -1,7 +1,10 @@
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+
 export type WorkflowScannerRequest = {
   operationId: string;
   expectedRevision: number;
   code: string;
+  inputs?: Record<string, WorkflowJsonValue>;
 };
 
 export type WorkflowScannerRequestTarget = {
@@ -21,7 +24,7 @@ type LauncherRequestInput = {
     operationId: string;
     mode: "execute";
     expectedRevision: number;
-    inputs: Record<string, never>;
+    inputs: Record<string, WorkflowJsonValue>;
     scannedText: string;
   };
 };
@@ -48,7 +51,7 @@ export const invokeWorkflowScannerRequest = (
       operationId: request.operationId,
       mode: "execute",
       expectedRevision: request.expectedRevision,
-      inputs: {},
+      inputs: request.inputs ?? {},
       scannedText: request.code,
     },
   });

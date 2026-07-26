@@ -23,7 +23,7 @@ describe("note title template", () => {
   });
 
   test("renders conditionals and normalizes the first output line", () => {
-    expect(renderNoteTitleTemplate('{% if parent.exists %}{{ parent.title }} - {% endif %}{{ date }}', context)).toBe("Week - 2026-07-15");
+    expect(renderNoteTitleTemplate("{% if parent.exists %}{{ parent.title }} - {% endif %}{{ date }}", context)).toBe("Week - 2026-07-15");
     expect(renderNoteTitleTemplate("\n**Daily** note\nignored", context)).toBe("Daily note");
   });
 

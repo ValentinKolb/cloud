@@ -24,7 +24,7 @@ import type { Field } from "../service/types";
 import { buildWorkflowCatalog } from "../service/workflow-catalog";
 import { validateLauncherConfig } from "../service/workflow-launchers";
 import { bindGridsWorkflow } from "../workflows/binder";
-import { CreateGridsWorkflowSchema } from "../workflows/contracts";
+import { CreateGridsWorkflowSchema, scannerLauncherInputSources } from "../workflows/contracts";
 import { gridsWorkflowManifest } from "../workflows/manifest";
 import { templates } from ".";
 import type { GridTemplate, TemplateDateExpression, TemplateField, TemplateRef } from "./types";
@@ -577,6 +577,18 @@ describe("built-in grid templates", () => {
         key: "report_item_defect_scanner",
         config: { kind: "scanner", input: "item", resolve: { by: "field", field: "Asset ID" } },
       },
+      {
+        template: "inventory",
+        key: "return_loan_item_scanner",
+        config: {
+          kind: "scanner",
+          inputSources: {
+            loan: { kind: "session" },
+            item: { kind: "scan", value: "record", resolve: { by: "field", field: "Asset ID" } },
+            condition: { kind: "afterScan" },
+          },
+        },
+      },
     ]);
   });
 
@@ -1003,17 +1015,23 @@ describe("built-in grid templates", () => {
         // field in the table definition breaks the scanner in every base built
         // from this template while everything above still passes.
         const config = launcher.config;
-        if (config.kind !== "scanner" || config.resolve.by !== "field") continue;
-        const scannedInput = bound.plan.inputs.find((item) => item.name === config.input);
+        if (config.kind !== "scanner") continue;
+        const scanned = Object.entries(scannerLauncherInputSources(config)).find(
+          ([, source]) => source.kind === "scan" && source.value === "record",
+        );
+        if (!scanned) continue;
+        const [scannedInputName, source] = scanned;
+        if (source.kind !== "scan" || source.value !== "record" || source.resolve.by !== "field") continue;
+        const scannedInput = bound.plan.inputs.find((item) => item.name === scannedInputName);
         const tableName = typeof scannedInput?.config.table === "string" ? scannedInput.config.table : "";
         const scannedTable = template.tables.find((item) => item.name === tableName);
         expect(scannedTable, `${template.id}.${launcher.key} scanner table "${tableName}"`).toBeDefined();
-        const scannedField = scannedTable?.fields.find((item) => item.name === config.resolve.field);
-        expect(scannedField, `${template.id}.${launcher.key} scanner field "${config.resolve.field}"`).toBeDefined();
+        const scannedField = scannedTable?.fields.find((item) => item.name === source.resolve.field);
+        expect(scannedField, `${template.id}.${launcher.key} scanner field "${source.resolve.field}"`).toBeDefined();
         // An `id` field is given a unique constraint when it is created.
         expect(
           scannedField?.type === "id" || scannedField?.uniqueConstraint === true,
-          `${template.id}.${launcher.key} scanner field "${config.resolve.field}" must enforce unique values`,
+          `${template.id}.${launcher.key} scanner field "${source.resolve.field}" must enforce unique values`,
         ).toBe(true);
       }
     }

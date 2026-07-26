@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
+import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan, WorkflowIrStep } from "../contracts";
 import type { WorkflowExecuteActionHandler, WorkflowExecuteActionPort } from "../runtime/ports";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
@@ -34,6 +35,7 @@ const ready = (): Promise<boolean> => {
 };
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
+const testData = createWorkflowIntegrationFixture();
 
 const actionStep = (index: number, action: string, config: Record<string, string> = {}): WorkflowIrStep => ({
   kind: "action",
@@ -65,7 +67,7 @@ const workflowListening = async (eventType: string, plan: WorkflowBoundPlan) => 
   // A fresh app per test: the worker drains by app, and a leftover run from a
   // neighbouring test would otherwise be claimed by a port that cannot serve it.
   const appId = `probe-${crypto.randomUUID().slice(0, 8)}`;
-  const scopeId = `scope-${crypto.randomUUID()}`;
+  const scopeId = testData.scope(appId);
   const workflow = await createWorkflow({ appId, scopeId, key: "wf", name: "Probe", author: { kind: "system" } });
   await publishWorkflowVersion({
     workflowId: workflow.id,

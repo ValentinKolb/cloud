@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../../../../core/src/migrate/core/workflows";
+import { createWorkflowIntegrationFixture } from "../../../test/workflows/integration-fixture";
 import type { WorkflowBoundPlan } from "../contracts";
 import {
   budgetError,
@@ -34,9 +35,10 @@ const ready = (): Promise<boolean> => {
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
 const PLAN = { steps: [] } as unknown as WorkflowBoundPlan;
+const testData = createWorkflowIntegrationFixture();
 
 const budgeted = async (effectBudget: Record<string, number>) => {
-  const scopeId = `scope-${crypto.randomUUID()}`;
+  const scopeId = testData.scope();
   const workflow = await createWorkflow({ appId: "probe", scopeId, key: "wf", name: "Probe", author: { kind: "system" } });
   const version = await publishWorkflowVersion({
     workflowId: workflow.id,
