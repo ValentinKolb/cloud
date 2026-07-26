@@ -161,7 +161,7 @@ export default ssr<AuthContext>(async (c) => {
 
         <section class="paper p-3">
           <h2 class="text-xs font-semibold text-primary">Traffic</h2>
-          <p class="text-[10px] text-dimmed">Requests and failing responses over the selected range.</p>
+          <p class="text-[10px] text-dimmed">Requests and failing responses over the selected range. Hover or focus for exact values.</p>
           <ObservabilityChart
             kind="line"
             class="mt-2 h-72 w-full text-dimmed"
@@ -172,6 +172,7 @@ export default ssr<AuthContext>(async (c) => {
             xFormat="datetime"
             legend
             area
+            interactive
           />
         </section>
 

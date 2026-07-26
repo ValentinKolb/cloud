@@ -4,8 +4,12 @@ import { buildJobTimelineRows, TIMELINE_LANES } from "./service";
 const WINDOW = { fromMs: 1_000_000, toMs: 1_000_000 + 3_600_000 };
 
 const span = (over: Partial<Parameters<typeof buildJobTimelineRows>[0][number]> = {}) => ({
+  traceId: "a".repeat(32),
+  spanId: "b".repeat(16),
+  name: "job run",
   source: "job:a",
   status: "ok",
+  statusMessage: null,
   startedAt: new Date(WINDOW.fromMs + 60_000).toISOString(),
   endedAt: new Date(WINDOW.fromMs + 60_022).toISOString(),
   durationMs: 22,
@@ -23,8 +27,16 @@ describe("buildJobTimelineRows", () => {
     expect(interval?.label).toBe("22ms");
   });
 
-  test("marks an unfinished span as stuck rather than running", () => {
+  test("keeps a recent unfinished span running", () => {
     const [row] = buildJobTimelineRows([span({ endedAt: null, durationMs: null })], WINDOW);
+    expect(row?.intervals[0]?.state).toBe("running");
+  });
+
+  test("marks an old unfinished span as stuck", () => {
+    const [row] = buildJobTimelineRows(
+      [span({ startedAt: new Date(WINDOW.fromMs - 500_000).toISOString(), endedAt: null, durationMs: null })],
+      WINDOW,
+    );
     expect(row?.intervals[0]?.state).toBe("stuck");
   });
 
@@ -49,6 +61,7 @@ describe("buildJobTimelineRows", () => {
     const rows = buildJobTimelineRows(spans, WINDOW);
     expect(rows).toHaveLength(TIMELINE_LANES);
     expect(rows[0]?.label).toBe(`job:${TIMELINE_LANES + 4}`);
+    expect(rows[0]?.source).toBe(`job:${TIMELINE_LANES + 4}`);
   });
 
   test("skips spans with no start", () => {

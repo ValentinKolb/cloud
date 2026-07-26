@@ -27,8 +27,6 @@ import {
 } from "../data/service";
 import PostgresDataFilters from "./_components/PostgresDataFilters.island";
 
-const numberFormat = new Intl.NumberFormat("de-DE");
-
 const normalize = (value: string): string => value.toLowerCase();
 
 const sortTables = (rows: PostgresTableDiagnostic[], sort: string): PostgresTableDiagnostic[] => {
@@ -117,13 +115,41 @@ export default ssr<AuthContext>(async (c) => {
     ).includes(searchNeedle);
   });
 
-  const schemaChartData = diagnostics.schemaRows.slice(0, 10).map((schema) => ({ label: schema.schema, value: schema.totalBytes }));
-  const schemaRowsChartData = diagnostics.schemaRows.slice(0, 10).map((schema) => ({ label: schema.schema, value: schema.estimatedRows }));
-  const tableChartData = diagnostics.tableRows
+  const filteredSchemaTotals = [
+    ...filteredTables.reduce((bySchema, table) => {
+      const current = bySchema.get(table.schema) ?? { totalBytes: 0, estimatedRows: 0 };
+      current.totalBytes += table.totalBytes;
+      current.estimatedRows += table.estimatedRows;
+      bySchema.set(table.schema, current);
+      return bySchema;
+    }, new Map<string, { totalBytes: number; estimatedRows: number }>()),
+  ]
+    .map(([schema, totals]) => ({ schema, ...totals }))
+    .sort((left, right) => right.totalBytes - left.totalBytes || left.schema.localeCompare(right.schema));
+  const schemaChartData = filteredSchemaTotals.slice(0, 10).map((schema) => ({ label: schema.schema, value: schema.totalBytes }));
+  const schemaRowsChartData = filteredSchemaTotals
     .slice()
-    .sort((a, b) => b.totalBytes - a.totalBytes)
+    .sort((left, right) => right.estimatedRows - left.estimatedRows || left.schema.localeCompare(right.schema))
+    .slice(0, 10)
+    .map((schema) => ({ label: schema.schema, value: schema.estimatedRows }));
+  const tableChartData = filteredTables
+    .slice()
+    .sort((left, right) => right.totalBytes - left.totalBytes)
     .slice(0, 10)
     .map((table) => ({ label: `${table.schema}.${table.name}`, value: table.totalBytes }));
+  const postgresFilterHref = (updates: { schema?: string; search?: string }): string => {
+    const params = new URLSearchParams(url.searchParams);
+    if (updates.schema !== undefined) {
+      if (updates.schema === "all") params.delete("schema");
+      else params.set("schema", updates.schema);
+    }
+    if (updates.search !== undefined) {
+      if (updates.search) params.set("search", updates.search);
+      else params.delete("search");
+    }
+    const query = params.toString();
+    return query ? `/admin/observability/postgres?${query}` : "/admin/observability/postgres";
+  };
 
   const tableColumns: DataTableColumn<PostgresTableDiagnostic>[] = [
     { id: "table", header: "Table", value: (table) => `${table.schema}.${table.name}`, cellClass: "min-w-[220px]" },
@@ -426,17 +452,39 @@ export default ssr<AuthContext>(async (c) => {
         <section class="grid gap-2 xl:grid-cols-3">
           <article class="paper p-3">
             <h2 class="text-xs font-semibold text-primary">Size by schema</h2>
-            <p class="text-[10px] text-dimmed">Top schemas by total relation size.</p>
+            <p class="text-[10px] text-dimmed">Top schemas within the current table filters.</p>
             <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaChartData} yFormat="bytes" />
+            <nav class="mt-2 flex flex-wrap gap-1" aria-label="Filter tables by schema">
+              {schemaChartData.slice(0, 5).map((schema) => (
+                <a
+                  href={postgresFilterHref({ schema: schema.label })}
+                  class={`btn-input btn-input-sm ${selectedSchema === schema.label ? "btn-input-active" : ""}`}
+                  aria-current={selectedSchema === schema.label ? "true" : undefined}
+                >
+                  {schema.label}
+                </a>
+              ))}
+            </nav>
           </article>
           <article class="paper p-3">
             <h2 class="text-xs font-semibold text-primary">Largest tables</h2>
-            <p class="text-[10px] text-dimmed">Top 10 by relation size.</p>
+            <p class="text-[10px] text-dimmed">Top 10 within the current table filters.</p>
             <ObservabilityChart kind="donut" class="mt-2 h-64 text-dimmed" data={tableChartData} legend />
+            <nav class="mt-2 flex flex-wrap gap-1" aria-label="Inspect a large table">
+              {tableChartData.slice(0, 5).map((table) => (
+                <a
+                  href={postgresFilterHref({ search: table.label })}
+                  class="btn-input btn-input-sm max-w-full truncate"
+                  title={table.label}
+                >
+                  {table.label}
+                </a>
+              ))}
+            </nav>
           </article>
           <article class="paper p-3">
             <h2 class="text-xs font-semibold text-primary">Rows by schema</h2>
-            <p class="text-[10px] text-dimmed">Planner row estimates by schema.</p>
+            <p class="text-[10px] text-dimmed">Planner row estimates within the current table filters.</p>
             <ObservabilityChart kind="bar" class="mt-2 h-56 text-dimmed" data={schemaRowsChartData} yFormat="number" />
           </article>
         </section>

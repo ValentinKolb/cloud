@@ -1,19 +1,34 @@
-import { formatDurationMs, formatNumber, formatRelative } from "@valentinkolb/cloud/shared";
+import { formatDurationMs, formatNumber, formatPercent, formatRelative } from "@valentinkolb/cloud/shared";
 import { DataPanel, DataTable, type DataTableColumn, RangePicker, StatusBadge } from "@valentinkolb/cloud/ui";
-import type { StrandedWorkflowEffect, UndispatchedWorkflowEvent, WorkflowRunSummary } from "@valentinkolb/cloud/workflows/store";
+import type {
+  StrandedWorkflowEffect,
+  UndispatchedWorkflowEvent,
+  WorkflowFamilySummary,
+  WorkflowRunSummary,
+} from "@valentinkolb/cloud/workflows/store";
 import type { JSX } from "solid-js";
 import { WINDOWS, type WorkflowsFilterState, workflowsFilter } from "../filters";
-import { EFFECT_TONE, eventState, LAG_WARN_MS, RUN_LABEL, RUN_TONE } from "../presentation";
+import { EFFECT_TONE, eventState, LAG_WARN_MS, RUN_LABEL, runErrorSummary, RUN_TONE } from "../presentation";
+
+const familyColumns: DataTableColumn<WorkflowFamilySummary>[] = [
+  { id: "workflow", header: "Workflow / Trigger", cellClass: "min-w-[280px]" },
+  { id: "latest", header: "Latest", subtitle: "matching run" },
+  { id: "runs", header: "Runs", align: "right" },
+  { id: "failed", header: "Failed", subtitle: "error rate", align: "right" },
+  { id: "runtime", header: "Runtime", subtitle: "avg / p99", align: "right" },
+  { id: "backlog", header: "Backlog", subtitle: "active / oldest", align: "right" },
+  { id: "activity", header: "Last", subtitle: "activity", align: "right" },
+  { id: "open", header: "", align: "right" },
+];
 
 const runColumns: DataTableColumn<WorkflowRunSummary>[] = [
-  { id: "workflow", header: "Workflow", cellClass: "min-w-[220px]" },
-  { id: "app", header: "App" },
+  { id: "workflow", header: "Workflow / Run", cellClass: "min-w-[260px]" },
   { id: "cause", header: "Cause", value: (run) => run.eventType ?? "direct invocation" },
   { id: "state", header: "State" },
-  { id: "lag", header: "Start lag", subtitle: "cause to first attempt", align: "right" },
+  { id: "lag", header: "Start", subtitle: "lag / queued", align: "right" },
   { id: "duration", header: "Duration", align: "right" },
   { id: "attempts", header: "Attempts", align: "right" },
-  { id: "created", header: "Started", align: "right" },
+  { id: "created", header: "Created", align: "right" },
 ];
 
 const effectColumns: DataTableColumn<StrandedWorkflowEffect>[] = [
@@ -43,10 +58,96 @@ type CommonProps = {
   hasNextPage: boolean;
 };
 
-export function WorkflowRunsView(props: CommonProps & { runs: WorkflowRunSummary[] }) {
+const eventTypesLabel = (family: WorkflowFamilySummary): string =>
+  family.eventTypes.length === 0 ? "direct invocation" : family.eventTypes.join(", ");
+
+export function WorkflowFamiliesView(props: CommonProps & { families: WorkflowFamilySummary[] }) {
   return (
     <DataPanel
-      title={props.state.parent ? "Child runs" : "Runs"}
+      title="Workflow families"
+      subtitle={`${formatNumber(props.families.length)}${props.hasNextPage ? "+" : ""} matching definitions in the last ${props.state.window}`}
+      filters={props.filters}
+      isEmpty={props.families.length === 0}
+      empty="No workflows ran in this window."
+      footer={props.footer}
+    >
+      <DataTable
+        rows={props.families}
+        columns={familyColumns}
+        getRowId={(family) => family.workflowId}
+        density="compact"
+        hoverRows
+        highlightColumns={false}
+        class="overflow-x-auto"
+        renderCell={({ row, col }) => {
+          const href = workflowsFilter.build(props.state, { workflow: row.workflowId, run: "", parent: "", page: 1 });
+          if (col.id === "workflow")
+            return (
+              <a class="block min-w-0 hover:text-blue-600 dark:hover:text-blue-300" href={href}>
+                <span class="block truncate text-[11px] font-medium text-primary">{row.workflowName}</span>
+                <span class="block truncate text-[10px] text-dimmed" title={`${row.appId} · ${row.scopeId} · ${eventTypesLabel(row)}`}>
+                  {row.appId} · {eventTypesLabel(row)} · r{row.latestRevision}
+                </span>
+              </a>
+            );
+          if (col.id === "latest")
+            return (
+              <a
+                href={workflowsFilter.build(props.state, {
+                  workflow: row.workflowId,
+                  run: row.latestRunId,
+                  parent: "",
+                  page: 1,
+                })}
+                title="Open latest run"
+              >
+                <StatusBadge tone={RUN_TONE[row.latestState]} label={RUN_LABEL[row.latestState]} variant="dot" />
+              </a>
+            );
+          if (col.id === "runs") return <span class="text-[10px] tabular-nums text-dimmed">{formatNumber(row.runs)}</span>;
+          if (col.id === "failed")
+            return (
+              <span class={`text-[10px] tabular-nums ${row.failed > 0 ? "text-red-500" : "text-dimmed"}`}>
+                {formatNumber(row.failed)} · {formatPercent(row.runs === 0 ? 0 : row.failed / row.runs)}
+              </span>
+            );
+          if (col.id === "runtime")
+            return (
+              <span class="text-[10px] tabular-nums text-dimmed">
+                {formatDurationMs(row.avgDurationMs)} / {formatDurationMs(row.p99DurationMs)}
+              </span>
+            );
+          if (col.id === "backlog") {
+            const queuedAge = row.oldestQueuedAt ? Date.now() - row.oldestQueuedAt.getTime() : null;
+            return (
+              <span
+                class={`text-[10px] tabular-nums ${
+                  row.needsAttention > 0 || (queuedAge ?? 0) > LAG_WARN_MS ? "text-amber-600 dark:text-amber-400" : "text-dimmed"
+                }`}
+                title={row.needsAttention > 0 ? `${formatNumber(row.needsAttention)} need attention` : undefined}
+              >
+                {formatNumber(row.active)} / {queuedAge === null ? "—" : formatDurationMs(queuedAge)}
+              </span>
+            );
+          }
+          if (col.id === "activity") return <span class="text-[10px] text-dimmed">{formatRelative(row.latestRunAt)}</span>;
+          if (col.id === "open")
+            return (
+              <a class="btn-simple btn-sm" href={href}>
+                Open
+              </a>
+            );
+          return "";
+        }}
+      />
+    </DataPanel>
+  );
+}
+
+export function WorkflowRunsView(props: CommonProps & { runs: WorkflowRunSummary[]; workflowName?: string; allWorkflowsHref?: string }) {
+  return (
+    <DataPanel
+      title={props.state.parent ? "Child runs" : props.workflowName ? `${props.workflowName} runs` : "Runs"}
       subtitle={`${formatNumber(props.runs.length)}${props.hasNextPage ? "+" : ""} in the last ${props.state.window}`}
       actions={
         <div class="flex flex-wrap items-center justify-end gap-2">
@@ -56,6 +157,11 @@ export function WorkflowRunsView(props: CommonProps & { runs: WorkflowRunSummary
               href={workflowsFilter.build(props.state, { run: props.state.parent, parent: "", state: "all", page: 1 })}
             >
               Open parent
+            </a>
+          ) : null}
+          {!props.state.parent && props.allWorkflowsHref ? (
+            <a class="text-xs text-secondary hover:underline" href={props.allWorkflowsHref}>
+              All workflows
             </a>
           ) : null}
           <RangePicker
@@ -70,7 +176,7 @@ export function WorkflowRunsView(props: CommonProps & { runs: WorkflowRunSummary
       filters={props.filters}
       isEmpty={props.runs.length === 0}
       empty={
-        workflowsFilter.isActive(props.state, ["view", "window", "page", "run"])
+        workflowsFilter.isActive(props.state, ["view", "window", "app", "state", "mode", "workflow", "parent", "page", "run"])
           ? "No runs match these filters."
           : "No workflow has run in this window."
       }
@@ -83,26 +189,64 @@ export function WorkflowRunsView(props: CommonProps & { runs: WorkflowRunSummary
         density="compact"
         class="overflow-x-auto"
         renderCell={({ row, col, value, render }) => {
-          if (col.id === "workflow")
+          if (col.id === "workflow") {
+            const error = runErrorSummary(row.error);
             return (
-              <a class="block truncate font-medium hover:underline" href={workflowsFilter.build(props.state, { run: row.id })}>
-                {row.workflowName}
-                <span class="ml-1 text-dimmed">r{row.revision}</span>
+              <a class="block min-w-0 hover:underline" href={workflowsFilter.build(props.state, { run: row.id })}>
+                <span class="block truncate font-medium text-primary">
+                  {row.workflowName}
+                  <span class="ml-1 text-dimmed">r{row.revision}</span>
+                </span>
+                <span class="block truncate font-mono text-[9px] text-dimmed" title={row.id}>
+                  {row.appId} · {row.mode} · {row.id.slice(0, 8)}
+                </span>
+                {error ? (
+                  <span class="block truncate text-[9px] text-red-500" title={error.message}>
+                    {error.message}
+                  </span>
+                ) : null}
               </a>
             );
-          if (col.id === "app") return <span class="text-secondary">{row.appId}</span>;
-          if (col.id === "state") return <StatusBadge tone={RUN_TONE[row.state]} label={RUN_LABEL[row.state]} variant="dot" />;
+          }
+          if (col.id === "state") {
+            const queuedMs = row.state === "queued" ? Date.now() - row.createdAt.getTime() : null;
+            return (
+              <div class="flex flex-col items-start gap-0.5">
+                <StatusBadge tone={RUN_TONE[row.state]} label={RUN_LABEL[row.state]} variant="dot" />
+                {queuedMs !== null ? (
+                  <span class={queuedMs > LAG_WARN_MS ? "text-[9px] text-amber-600 dark:text-amber-400" : "text-[9px] text-dimmed"}>
+                    waiting {formatDurationMs(queuedMs)}
+                  </span>
+                ) : null}
+              </div>
+            );
+          }
           if (col.id === "lag")
-            return row.startLagMs === null ? (
-              <span class="text-dimmed">—</span>
+            return row.startedAt === null ? (
+              <span
+                class={
+                  row.state === "queued" && Date.now() - row.createdAt.getTime() > LAG_WARN_MS
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-dimmed"
+                }
+              >
+                not started
+              </span>
             ) : (
-              <span class={row.startLagMs > LAG_WARN_MS ? "text-amber-600 dark:text-amber-400" : "text-secondary"}>
+              <span class={(row.startLagMs ?? 0) > LAG_WARN_MS ? "text-amber-600 dark:text-amber-400" : "text-secondary"}>
                 {formatDurationMs(row.startLagMs)}
               </span>
             );
-          if (col.id === "duration") return <span class="text-secondary">{formatDurationMs(row.durationMs)}</span>;
+          if (col.id === "duration") {
+            const duration = row.durationMs ?? (row.startedAt ? Date.now() - row.startedAt.getTime() : null);
+            return <span class="text-secondary">{formatDurationMs(duration)}</span>;
+          }
           if (col.id === "attempts")
-            return <span class={row.attempt > 1 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}>{row.attempt}</span>;
+            return (
+              <span class={row.attempt > 1 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}>
+                {row.attempt === 0 ? "not started" : row.attempt}
+              </span>
+            );
           if (col.id === "created") return <span class="text-secondary">{formatRelative(row.createdAt)}</span>;
           return render(value);
         }}

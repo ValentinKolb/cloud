@@ -1,4 +1,4 @@
-import type { TraceCategory, TraceSourceGroup } from "@valentinkolb/cloud/services";
+import { TRACE_STUCK_AFTER_MS, type TraceCategory, type TraceSourceGroup } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import {
   type SchedulerControl,
@@ -295,11 +295,32 @@ const TIMELINE_RUNS_PER_LANE = 300;
 /** Each mark spans at least this fraction of the window so it can be seen. */
 const TIMELINE_MIN_MARK_FRACTION = 0.0025;
 
-export type JobTimelineInterval = { from: number; to: number; state: "ok" | "error" | "stuck"; label?: string };
-export type JobTimelineRow = { label: string; intervals: JobTimelineInterval[] };
+export type JobTimelineInterval = {
+  from: number;
+  to: number;
+  state: "ok" | "error" | "running" | "stuck";
+  label?: string;
+  traceId: string;
+  spanId: string;
+  name: string;
+  startedAt: string;
+  durationMs: number | null;
+  statusMessage: string | null;
+};
+export type JobTimelineRow = { source: string; label: string; intervals: JobTimelineInterval[] };
 
 export const buildJobTimelineRows = (
-  spans: { source: string; status: string; startedAt: string | null; endedAt: string | null; durationMs: number | null }[],
+  spans: {
+    traceId: string;
+    spanId: string;
+    name: string;
+    source: string;
+    status: string;
+    statusMessage: string | null;
+    startedAt: string | null;
+    endedAt: string | null;
+    durationMs: number | null;
+  }[],
   window: { fromMs: number; toMs: number },
 ): JobTimelineRow[] => {
   const spanMs = Math.max(1, window.toMs - window.fromMs);
@@ -313,19 +334,35 @@ export const buildJobTimelineRows = (
     const lane = bySource.get(span.source) ?? [];
     if (lane.length >= TIMELINE_RUNS_PER_LANE) continue;
 
-    // An open span that outlived the window is abandoned, not still working.
     const open = !span.endedAt;
-    const state: JobTimelineInterval["state"] = open ? "stuck" : span.status === "error" ? "error" : "ok";
+    const state: JobTimelineInterval["state"] = open
+      ? window.toMs - startedAt >= TRACE_STUCK_AFTER_MS
+        ? "stuck"
+        : "running"
+      : span.status === "error"
+        ? "error"
+        : "ok";
     const from = Math.max(window.fromMs, startedAt);
     const naturalTo = open ? window.toMs : new Date(span.endedAt as string).getTime();
     const to = Math.min(window.toMs, Math.max(from + minMark, Number.isFinite(naturalTo) ? naturalTo : from));
 
-    lane.push({ from, to, state, label: span.durationMs === null ? undefined : `${span.durationMs}ms` });
+    lane.push({
+      from,
+      to,
+      state,
+      label: span.durationMs === null ? undefined : `${span.durationMs}ms`,
+      traceId: span.traceId,
+      spanId: span.spanId,
+      name: span.name,
+      startedAt: span.startedAt,
+      durationMs: span.durationMs,
+      statusMessage: span.statusMessage,
+    });
     bySource.set(span.source, lane);
   }
 
   return [...bySource.entries()]
     .sort((a, b) => b[1].length - a[1].length)
     .slice(0, TIMELINE_LANES)
-    .map(([label, intervals]) => ({ label, intervals }));
+    .map(([source, intervals]) => ({ source, label: source, intervals }));
 };

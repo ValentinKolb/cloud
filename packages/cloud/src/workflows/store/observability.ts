@@ -130,6 +130,166 @@ export const listWorkflowRuns = async (filter: WorkflowRunFilter = {}, options: 
   return rows.map(toSummary);
 };
 
+export type WorkflowFamilySummary = {
+  workflowId: string;
+  appId: string;
+  scopeId: string;
+  workflowName: string;
+  eventTypes: string[];
+  latestRunId: string;
+  latestRevision: number;
+  latestState: WorkflowRunState;
+  latestRunAt: Date;
+  runs: number;
+  failed: number;
+  active: number;
+  needsAttention: number;
+  avgDurationMs: number | null;
+  p99DurationMs: number | null;
+  oldestQueuedAt: Date | null;
+};
+
+export type WorkflowFamilyFilter = Pick<WorkflowRunFilter, "appId" | "workflowId" | "state" | "mode" | "since" | "limit" | "offset">;
+
+type WorkflowFamilyRow = {
+  workflow_id: string;
+  app_id: string;
+  scope_id: string;
+  workflow_name: string;
+  event_types: string[];
+  latest_run_id: string;
+  latest_revision: number;
+  latest_state: WorkflowRunState;
+  latest_run_at: Date;
+  runs: number | string;
+  failed: number | string;
+  active: number | string;
+  needs_attention: number | string;
+  avg_duration_ms: number | string | null;
+  p99_duration_ms: number | string | null;
+  oldest_queued_at: Date | null;
+};
+
+const numberOrNull = (value: number | string | null): number | null => (value === null ? null : Number(value));
+
+/**
+ * One row per workflow definition, analogous to the job-family overview.
+ *
+ * The filter is applied before aggregation, so every number describes the
+ * selected URL scope. Individual runs remain a separate drill-down.
+ */
+export const listWorkflowFamilies = async (
+  filter: WorkflowFamilyFilter = {},
+  options: { db?: SQL } = {},
+): Promise<WorkflowFamilySummary[]> => {
+  const db = options.db ?? sql;
+  const rows = await db<WorkflowFamilyRow[]>`
+    WITH filtered AS (
+      SELECT
+        r.id, r.app_id, r.scope_id, r.workflow_id, w.name AS workflow_name,
+        v.revision, r.state, r.created_at, r.started_at, r.finished_at,
+        e.type AS event_type,
+        EXTRACT(EPOCH FROM (r.finished_at - r.started_at)) * 1000 AS duration_ms
+      ${db.unsafe(RUN_FROM)}
+      WHERE (${filter.appId ?? null}::text IS NULL OR r.app_id = ${filter.appId ?? null})
+        AND (${filter.workflowId ?? null}::uuid IS NULL OR r.workflow_id = ${filter.workflowId ?? null}::uuid)
+        AND (${filter.state ?? null}::text IS NULL OR r.state = ${filter.state ?? null})
+        AND (${filter.mode ?? null}::text IS NULL OR r.mode = ${filter.mode ?? null})
+        AND r.parent_run_id IS NULL
+        AND (${filter.since ?? null}::timestamptz IS NULL OR r.created_at >= ${filter.since ?? null}::timestamptz)
+    ),
+    latest AS (
+      SELECT DISTINCT ON (workflow_id)
+        workflow_id, id AS latest_run_id, revision AS latest_revision,
+        state AS latest_state, created_at AS latest_run_at
+      FROM filtered
+      ORDER BY workflow_id, created_at DESC, id DESC
+    ),
+    families AS (
+      SELECT
+        workflow_id, app_id, scope_id, workflow_name,
+        COALESCE(array_agg(DISTINCT event_type) FILTER (WHERE event_type IS NOT NULL), ARRAY[]::text[]) AS event_types,
+        COUNT(*)::int AS runs,
+        COUNT(*) FILTER (WHERE state = 'failed')::int AS failed,
+        COUNT(*) FILTER (WHERE state IN ('queued', 'running', 'waiting'))::int AS active,
+        COUNT(*) FILTER (WHERE state = 'needs_attention')::int AS needs_attention,
+        AVG(duration_ms)::float AS avg_duration_ms,
+        (percentile_cont(0.99) WITHIN GROUP (ORDER BY duration_ms)
+          FILTER (WHERE duration_ms IS NOT NULL))::float AS p99_duration_ms,
+        MIN(created_at) FILTER (WHERE state = 'queued') AS oldest_queued_at
+      FROM filtered
+      GROUP BY workflow_id, app_id, scope_id, workflow_name
+    )
+    SELECT families.*, latest.latest_run_id, latest.latest_revision, latest.latest_state, latest.latest_run_at
+    FROM families
+    JOIN latest USING (workflow_id)
+    ORDER BY
+      CASE latest.latest_state
+        WHEN 'needs_attention' THEN 0
+        WHEN 'failed' THEN 1
+        WHEN 'running' THEN 2
+        WHEN 'waiting' THEN 2
+        WHEN 'queued' THEN 2
+        ELSE 3
+      END,
+      latest.latest_run_at DESC,
+      families.workflow_name,
+      families.workflow_id
+    LIMIT ${filter.limit ?? 50} OFFSET ${filter.offset ?? 0}
+  `;
+
+  return rows.map((row) => ({
+    workflowId: row.workflow_id,
+    appId: row.app_id,
+    scopeId: row.scope_id,
+    workflowName: row.workflow_name,
+    eventTypes: [...row.event_types].sort(),
+    latestRunId: row.latest_run_id,
+    latestRevision: row.latest_revision,
+    latestState: row.latest_state,
+    latestRunAt: row.latest_run_at,
+    runs: Number(row.runs),
+    failed: Number(row.failed),
+    active: Number(row.active),
+    needsAttention: Number(row.needs_attention),
+    avgDurationMs: numberOrNull(row.avg_duration_ms),
+    p99DurationMs: numberOrNull(row.p99_duration_ms),
+    oldestQueuedAt: row.oldest_queued_at,
+  }));
+};
+
+export type WorkflowRunTimeline = {
+  runs: WorkflowRunSummary[];
+  total: number;
+};
+
+/**
+ * A bounded set of individual runs for charts, plus the uncapped total so the
+ * UI can say when the chart is a sample rather than the complete window.
+ */
+export const listWorkflowRunTimeline = async (
+  filter: Omit<WorkflowRunFilter, "limit" | "offset"> = {},
+  options: { db?: SQL; limit?: number } = {},
+): Promise<WorkflowRunTimeline> => {
+  const db = options.db ?? sql;
+  const limit = Math.min(5_000, Math.max(1, Math.trunc(options.limit ?? 2_000)));
+  const [runs, countRows] = await Promise.all([
+    listWorkflowRuns({ ...filter, limit, offset: 0 }, { db }),
+    db<{ count: number | string }[]>`
+      SELECT COUNT(*)::int AS count FROM workflows.run AS r
+      WHERE (${filter.appId ?? null}::text IS NULL OR r.app_id = ${filter.appId ?? null})
+        AND (${filter.scopeId ?? null}::text IS NULL OR r.scope_id = ${filter.scopeId ?? null})
+        AND (${filter.workflowId ?? null}::uuid IS NULL OR r.workflow_id = ${filter.workflowId ?? null}::uuid)
+        AND (${filter.parentRunId ?? null}::uuid IS NULL OR r.parent_run_id = ${filter.parentRunId ?? null}::uuid)
+        AND (${filter.state ?? null}::text IS NULL OR r.state = ${filter.state ?? null})
+        AND (${filter.mode ?? null}::text IS NULL OR r.mode = ${filter.mode ?? null})
+        AND (${filter.parentRunId !== undefined || filter.includeChildren === true} OR r.parent_run_id IS NULL)
+        AND (${filter.since ?? null}::timestamptz IS NULL OR r.created_at >= ${filter.since ?? null}::timestamptz)
+    `,
+  ]);
+  return { runs, total: Number(countRows[0]?.count ?? 0) };
+};
+
 export type WorkflowStepSummary = {
   stepKey: string;
   /** Where the step sits in the written source, so a view can point at it. */
@@ -353,6 +513,8 @@ export type WorkflowAppHealth = {
   oldestUndispatchedMs: number | null;
   /** Worst gap between an occurrence and the run for it actually starting. */
   worstStartLagMs: number | null;
+  /** How long the oldest run that never started has been queued. */
+  oldestQueuedMs: number | null;
 };
 
 /**
@@ -366,9 +528,19 @@ export const workflowHealth = async (options: { since?: Date; db?: SQL } = {}): 
   const since = options.since ?? new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const [runs, stranded, events] = await Promise.all([
-    db<{ app_id: string; state: WorkflowRunState; count: string; worst_lag_ms: number | null }[]>`
+    db<
+      {
+        app_id: string;
+        state: WorkflowRunState;
+        count: string;
+        worst_lag_ms: number | null;
+        oldest_queued_ms: number | null;
+      }[]
+    >`
       SELECT app_id, state, count(*) AS count,
-             max(EXTRACT(EPOCH FROM (started_at - occurred_at)) * 1000)::bigint AS worst_lag_ms
+             max(EXTRACT(EPOCH FROM (started_at - occurred_at)) * 1000)::bigint AS worst_lag_ms,
+             (max(EXTRACT(EPOCH FROM (now() - created_at)) * 1000)
+               FILTER (WHERE state = 'queued'))::bigint AS oldest_queued_ms
       FROM workflows.run WHERE created_at >= ${since} GROUP BY app_id, state
     `,
     db<{ app_id: string; count: string }[]>`
@@ -395,6 +567,7 @@ export const workflowHealth = async (options: { since?: Date; db?: SQL } = {}): 
         undispatchedEvents: 0,
         oldestUndispatchedMs: null,
         worstStartLagMs: null,
+        oldestQueuedMs: null,
       };
       byApp.set(appId, entry);
     }
@@ -407,6 +580,8 @@ export const workflowHealth = async (options: { since?: Date; db?: SQL } = {}): 
     entry.runs[row.state] = Number(row.count);
     const lag = row.worst_lag_ms === null ? null : Number(row.worst_lag_ms);
     if (lag !== null) entry.worstStartLagMs = Math.max(entry.worstStartLagMs ?? 0, lag);
+    const queued = row.oldest_queued_ms === null ? null : Number(row.oldest_queued_ms);
+    if (queued !== null) entry.oldestQueuedMs = Math.max(entry.oldestQueuedMs ?? 0, queued);
   }
   for (const row of stranded) health(row.app_id).strandedEffects = Number(row.count);
   for (const row of events) {

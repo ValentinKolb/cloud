@@ -10,7 +10,14 @@ import { createWorkflowIntegrationFixture } from "../../../test/workflows/integr
 import type { WorkflowBoundPlan } from "../contracts";
 import { createWorkflow, publishWorkflowVersion } from "./definitions";
 import { emitWorkflowEvent } from "./events";
-import { getWorkflowRun, listStrandedWorkflowEffects, listWorkflowRuns, workflowHealth } from "./observability";
+import {
+  getWorkflowRun,
+  listStrandedWorkflowEffects,
+  listWorkflowFamilies,
+  listWorkflowRunTimeline,
+  listWorkflowRuns,
+  workflowHealth,
+} from "./observability";
 import { beginWorkflowEffect, claimWorkflowRun, createChildWorkflowRuns, createWorkflowRuntimeRepository, finishWorkflowRun } from "./runs";
 
 let readiness: Promise<boolean> | null = null;
@@ -175,5 +182,64 @@ describe("workflow observability", () => {
     const [run] = await listWorkflowRuns({ appId });
     expect(run?.startLagMs).toBeGreaterThan(3_500_000);
     expect((await workflowHealth()).find((entry) => entry.appId === appId)?.worstStartLagMs).toBeGreaterThan(3_500_000);
+  });
+
+  test("families summarize runs while the timeline stays bounded and honest", async () => {
+    if (!(await ready())) return;
+    const appId = `families-${crypto.randomUUID().slice(0, 8)}`;
+    const { scopeId, workflowId } = await listening(appId, "probe.family");
+
+    const succeeded = await emitWorkflowEvent({ appId, scopeId, type: "probe.family", dedupeKey: "succeeded" }, { dispatch: "now" });
+    const succeededClaim = await claimWorkflowRun({ worker: "w1", runId: succeeded.runIds[0]! });
+    await finishWorkflowRun(succeededClaim!, { state: "succeeded", result: { ok: true } });
+
+    const failed = await emitWorkflowEvent({ appId, scopeId, type: "probe.family", dedupeKey: "failed" }, { dispatch: "now" });
+    const failedClaim = await claimWorkflowRun({ worker: "w1", runId: failed.runIds[0]! });
+    await finishWorkflowRun(failedClaim!, { state: "failed", error: { message: "provider refused" } });
+
+    const queued = await emitWorkflowEvent(
+      {
+        appId,
+        scopeId,
+        type: "probe.family",
+        dedupeKey: "queued",
+        occurredAt: new Date(Date.now() - 600_000),
+      },
+      { dispatch: "now" },
+    );
+    await sql`
+      UPDATE workflows.run
+      SET created_at = CASE
+        WHEN id = ${succeeded.runIds[0]!}::uuid THEN now() - INTERVAL '20 minutes'
+        WHEN id = ${queued.runIds[0]!}::uuid THEN now() - INTERVAL '10 minutes'
+        ELSE now()
+      END
+      WHERE id IN (${succeeded.runIds[0]!}::uuid, ${failed.runIds[0]!}::uuid, ${queued.runIds[0]!}::uuid)
+    `;
+
+    expect(await getWorkflowRun(queued.runIds[0]!)).toMatchObject({ appId, workflowId, state: "queued" });
+    expect(await listWorkflowRuns({ appId, workflowId })).toHaveLength(3);
+    const [family] = await listWorkflowFamilies({ appId, workflowId });
+    expect(family).toMatchObject({
+      appId,
+      workflowId,
+      workflowName: "Nightly digest",
+      runs: 3,
+      failed: 1,
+      active: 1,
+      needsAttention: 0,
+      latestState: "failed",
+      eventTypes: ["probe.family"],
+    });
+    expect(family?.avgDurationMs).toBeGreaterThanOrEqual(0);
+    expect(family?.p99DurationMs).toBeGreaterThanOrEqual(0);
+    expect(family?.oldestQueuedAt).toBeInstanceOf(Date);
+
+    const timeline = await listWorkflowRunTimeline({ appId, workflowId }, { limit: 2 });
+    expect(timeline.total).toBe(3);
+    expect(timeline.runs).toHaveLength(2);
+
+    const health = (await workflowHealth()).find((entry) => entry.appId === appId);
+    expect(health?.oldestQueuedMs).toBeGreaterThan(500_000);
   });
 });

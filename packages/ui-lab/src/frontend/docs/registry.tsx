@@ -33,6 +33,7 @@ import {
   ChartLine,
   ChartLive,
   ChartSparkline,
+  ChartStateTimeline,
   CodeDisplayDemo,
   DataTableAdminPatternDemo,
   DataTableFullDemo,
@@ -858,12 +859,13 @@ export const uiLabDocs: UiLabDocSection[] = [
         "charts",
         "Chart",
         "ti ti-chart-line",
-        "Line, bar, donut, sparkline, live, and empty chart states.",
-        ["chart-line", "chart-bar", "chart-donut", "chart-sparkline", "chart-live", "chart-empty"],
+        "Line, bar, donut, interactive timeline, sparkline, live, and empty chart states.",
+        ["chart-line", "chart-state-timeline", "chart-bar", "chart-donut", "chart-sparkline", "chart-live", "chart-empty"],
         () => (
           <DemoGrid columns="one">
             <ChartLive />
             <ChartLine />
+            <ChartStateTimeline />
             <ChartBar />
             <ChartDonut />
             <ChartSparkline />

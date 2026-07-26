@@ -139,6 +139,53 @@ export const ChartLine = () => {
   );
 };
 
+export const ChartStateTimeline = () => (
+  <DemoCard
+    id="chart-state-timeline"
+    variant="interactive state timeline"
+    chip={{ kind: "component", name: "Chart", from: FROM_UI }}
+    description="Shared timeline interaction: drag or arrow keys pan, Ctrl/⌘ + wheel and +/- zoom, 0 resets. Labels and marks may link and expose tooltips."
+    code={`<Chart
+  kind="stateTimeline"
+  rows={rows}
+  domain={[0, 100]}
+  states={[
+    { state: "ok", label: "Succeeded", color: "#10b981" },
+    { state: "error", label: "Failed", color: "#ef4444" },
+  ]}
+  interactive
+/>`}
+  >
+    <Chart
+      kind="stateTimeline"
+      class="w-full text-dimmed"
+      rows={[
+        {
+          label: "Notification delivery recovery",
+          tooltip: "Notification delivery recovery",
+          intervals: [
+            { from: 8, to: 10, state: "ok", tooltip: "Succeeded in 42ms" },
+            { from: 46, to: 49, state: "error", tooltip: "Failed after 1.2s" },
+          ],
+        },
+        {
+          label: "Authentication synchronisation",
+          intervals: [{ from: 68, to: 71, state: "running", tooltip: "Running since 14:32" }],
+        },
+      ]}
+      domain={[0, 100]}
+      states={[
+        { state: "ok", label: "Succeeded", color: "#10b981" },
+        { state: "error", label: "Failed", color: "#ef4444" },
+        { state: "running", label: "Running", color: "#3b82f6" },
+      ]}
+      xAxis={{ format: (value) => `${value}m` }}
+      interactive
+      legend
+    />
+  </DemoCard>
+);
+
 export const ChartBar = () => {
   const data = [
     { label: "Mon", value: 42 },
@@ -679,6 +726,7 @@ export const ContentTab = (props: { markdownHtml: string }) => (
     <PdfPreviewDemo />
     <ChartLive />
     <ChartLine />
+    <ChartStateTimeline />
     <ChartBar />
     <ChartDonut />
     <ChartSparkline />

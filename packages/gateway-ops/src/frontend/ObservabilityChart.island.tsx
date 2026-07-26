@@ -14,20 +14,27 @@ import { Chart } from "@valentinkolb/cloud/ui";
  * format rather than a function.
  */
 
-export type ObservabilityChartFormat = "number" | "bytes" | "datetime";
+export type ObservabilityChartFormat = "number" | "bytes" | "datetime" | "timeline";
 
 export type ObservabilityChartProps = {
   kind: "line" | "bar" | "donut" | "stateTimeline";
   class?: string;
-  /** Lane charts size by row count, so height comes from the caller. */
+  /** Optional explicit size override. State timelines size by row count. */
   style?: string;
   /** `line` only. */
   series?: { label?: string; data: { x: number; y: number }[] }[];
   /** `bar` and `donut`. */
   data?: { label: string; value: number }[];
   /** `stateTimeline` — one lane per row, marks positioned on the time axis. */
-  rows?: { label: string; intervals: { from: number; to: number; state: string; label?: string }[] }[];
+  rows?: {
+    label: string;
+    href?: string;
+    tooltip?: string;
+    intervals: { from: number; to: number; state: string; label?: string; href?: string; tooltip?: string }[];
+  }[];
   states?: { state: string; label?: string; color?: string }[];
+  domain?: readonly [number, number];
+  interactive?: boolean;
   xFormat?: ObservabilityChartFormat;
   yFormat?: ObservabilityChartFormat;
   legend?: boolean;
@@ -35,14 +42,32 @@ export type ObservabilityChartProps = {
 };
 
 /** Chart axes hand over a raw number, so each shared helper is adapted to that. */
-const formatterFor = (format: ObservabilityChartFormat | undefined): ((value: number) => string) => {
+const formatterFor = (format: ObservabilityChartFormat | undefined, domain?: readonly [number, number]): ((value: number) => string) => {
   if (format === "bytes") return (value) => formatBytes(value);
   if (format === "datetime") return (value) => formatDateTime(new Date(value));
+  if (format === "timeline") {
+    const span = domain ? Math.abs(domain[1] - domain[0]) : 0;
+    const formatter = new Intl.DateTimeFormat(undefined, {
+      ...(span > 24 * 60 * 60 * 1000 ? { day: "2-digit", month: "short" } : {}),
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return (value) => formatter.format(new Date(value));
+  }
   return (value) => formatNumber(value);
 };
 
 export default function ObservabilityChart(props: ObservabilityChartProps) {
   const cls = () => props.class ?? "h-64 text-dimmed";
+  const lineDomain = (): readonly [number, number] | undefined => {
+    if (props.kind !== "line") return undefined;
+    const values = props.series?.flatMap((series) => series.data.map((point) => point.x)).filter(Number.isFinite) ?? [];
+    if (values.length === 0) return undefined;
+    return values.reduce<readonly [number, number]>(
+      ([min, max], value) => [Math.min(min, value), Math.max(max, value)],
+      [values[0]!, values[0]!],
+    );
+  };
 
   if (props.kind === "line") {
     return (
@@ -50,10 +75,11 @@ export default function ObservabilityChart(props: ObservabilityChartProps) {
         kind="line"
         class={cls()}
         series={props.series ?? []}
-        xAxis={{ format: formatterFor(props.xFormat) }}
+        xAxis={{ format: formatterFor(props.xFormat, lineDomain()) }}
         yAxis={{ format: formatterFor(props.yFormat) }}
         legend={props.legend}
         area={props.area}
+        interactive={props.interactive}
       />
     );
   }
@@ -66,8 +92,10 @@ export default function ObservabilityChart(props: ObservabilityChartProps) {
         style={props.style}
         rows={props.rows ?? []}
         states={props.states}
-        xAxis={{ format: formatterFor(props.xFormat) }}
+        domain={props.domain}
+        xAxis={{ format: formatterFor(props.xFormat, props.domain) }}
         legend={props.legend}
+        interactive={props.interactive}
       />
     );
   }

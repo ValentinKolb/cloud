@@ -45,8 +45,15 @@ export const loggingService = {
   },
   stats: {
     summary: async () => logging.summary(),
-    by: async (config: { groupBy: "source" | "level"; sinceHours?: number; limit?: number }) =>
-      logging.statsBy(config.groupBy, { sinceHours: config.sinceHours, limit: config.limit }),
+    by: async (config: {
+      groupBy: "source" | "level";
+      sinceHours?: number;
+      limit?: number;
+      sources?: string[];
+      level?: string;
+      search?: string;
+    }) => logging.statsBy(config.groupBy, config),
+    timeseries: async (config: { sinceHours: number; sources?: string[]; level?: string; search?: string }) => logging.timeseries(config),
   },
 };
 

@@ -166,6 +166,13 @@ const runUrl = (filter: JobsFilterState, span: TraceSpan): string => buildJobsFi
 
 const closeRunUrl = (filter: JobsFilterState): string => buildJobsFilterUrl(baseUrl, { run: null }, filter);
 
+const timelineStateLabel = {
+  ok: "Succeeded",
+  error: "Failed",
+  running: "Running",
+  stuck: "Never finished",
+} as const;
+
 const statsGrid = (stats: TraceRunStats, filter: JobsFilterState) => (
   <StatGrid columns={6}>
     <StatCell label="Sources" value={formatNumber(stats.sources)} sub={filter.source ? "selected source" : "job families"} />
@@ -540,7 +547,7 @@ export default ssr<AuthContext>(async (c) => {
   ]);
   const windowSeconds = jobsWindowOptions.find((option) => option.value === filter.window)?.seconds ?? 86_400;
   const timelineWindow = { fromMs: Date.now() - windowSeconds * 1000, toMs: Date.now() };
-  const timelineRows = buildJobTimelineRows(timelineResult.spans, timelineWindow);
+  const rawTimelineRows = buildJobTimelineRows(timelineResult.spans, timelineWindow);
 
   const pagination = createPagination(paginationInput, listResult.total);
   const selectedRunKey = selectedSpan ? runKey(selectedSpan) : filter.run;
@@ -549,6 +556,32 @@ export default ssr<AuthContext>(async (c) => {
     type: filter.type,
     health: filter.health,
     requireTraceMatch: filter.duration !== "all",
+  });
+  const labelsBySource = new Map(overviewRows.map((row) => [row.source, row.label]));
+  const timelineRows = rawTimelineRows.map((row) => {
+    const label = labelsBySource.get(row.source) ?? row.label;
+    return {
+      label,
+      href: sourceUrl(filter, row.source),
+      tooltip: label === row.source ? row.source : `${label} (${row.source})`,
+      intervals: row.intervals.map((interval) => {
+        const statusMessage = interval.statusMessage?.trim();
+        const tooltip = [
+          interval.name,
+          timelineStateLabel[interval.state],
+          formatTimestamp(new Date(interval.startedAt)),
+          interval.durationMs === null ? null : formatMs(interval.durationMs),
+          statusMessage ? statusMessage.slice(0, 160) : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return {
+          ...interval,
+          href: buildJobsFilterUrl(baseUrl, { source: row.source, run: `${interval.traceId}:${interval.spanId}`, page: 1 }, filter),
+          tooltip,
+        };
+      }),
+    };
   });
 
   return () => (
@@ -580,23 +613,31 @@ export default ssr<AuthContext>(async (c) => {
           <h2 class="text-xs font-semibold text-primary">Run timeline</h2>
           <p class="text-[10px] text-dimmed">
             One lane per job, busiest first. Marks sit where the run started; their width is a readability floor, not a duration — most runs
-            finish in milliseconds. Red is a failure, amber a run that never finished.
+            finish in milliseconds. Drag to pan; use Ctrl/⌘ + wheel or the controls to zoom.
           </p>
+          {timelineResult.total > timelineResult.spans.length ? (
+            <p class="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+              Showing the latest {formatNumber(timelineResult.spans.length)} of {formatNumber(timelineResult.total)} matching runs. The
+              timeline reflects this loaded sample.
+            </p>
+          ) : null}
           {timelineRows.length === 0 ? (
             <Placeholder variant="compact" description="No runs recorded in this window." />
           ) : (
             <ObservabilityChart
               kind="stateTimeline"
               class="mt-2 w-full text-dimmed"
-              style={`height:${Math.max(160, 56 + timelineRows.length * 22)}px`}
               rows={timelineRows}
+              domain={[timelineWindow.fromMs, timelineWindow.toMs]}
               states={[
-                { state: "ok", label: "Succeeded" },
-                { state: "error", label: "Failed" },
-                { state: "stuck", label: "Never finished" },
+                { state: "ok", label: "Succeeded", color: "#10b981" },
+                { state: "error", label: "Failed", color: "#ef4444" },
+                { state: "running", label: "Running", color: "#3b82f6" },
+                { state: "stuck", label: "Never finished", color: "#f59e0b" },
               ]}
-              xFormat="datetime"
+              xFormat="timeline"
               legend
+              interactive
             />
           )}
         </section>

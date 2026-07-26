@@ -50,6 +50,13 @@ export type {
 export { default as Calendar } from "./Calendar";
 export type { ChartKind, ChartProps } from "./Chart";
 export { default as Chart } from "./Chart";
+export type {
+  StateTimelineChartOptions,
+  StateTimelineDomain,
+  StateTimelineInterval,
+  StateTimelineRow,
+  StateTimelineState,
+} from "./chart-state-timeline";
 export type { CodeDisplayLanguage, CodeDisplayProps } from "./CodeDisplay";
 export { default as CodeDisplay } from "./CodeDisplay";
 export { default as ContextMenu } from "./ContextMenu";

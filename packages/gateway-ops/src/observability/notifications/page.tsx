@@ -8,6 +8,7 @@ import type { JSX } from "solid-js";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { gatewayOpsHelp } from "../../help";
 import DeliveryFilterBar from "./_components/DeliveryFilterBar.island";
 import {
@@ -128,18 +129,20 @@ export default ssr<AuthContext>(async (c) => {
     const status = parseDeliveryStatus(c.req.query("status") ?? undefined);
     const channels = parseFilterList(c.req.query("channels") ?? undefined);
     const appIds = parseFilterList(c.req.query("apps") ?? undefined);
-    const [result, summary, facets, liveApps] = await Promise.all([
+    const deliveryFilter = {
+      search: search || undefined,
+      statuses: status === "all" ? undefined : [status],
+      channels,
+      appIds,
+    };
+    const [result, summary, timeseries, facets, liveApps] = await Promise.all([
       notificationsService.delivery.list({
         page,
         perPage,
-        filter: {
-          search: search || undefined,
-          statuses: status === "all" ? undefined : [status],
-          channels,
-          appIds,
-        },
+        filter: deliveryFilter,
       }),
-      notificationsService.delivery.summary({ days: 7 }),
+      notificationsService.delivery.summary({ days: 7, filter: deliveryFilter }),
+      notificationsService.delivery.timeseries({ days: 7, filter: deliveryFilter }),
       notificationsService.facets(),
       listApps().catch(() => []),
     ]);
@@ -147,6 +150,23 @@ export default ssr<AuthContext>(async (c) => {
     const appById = new Map(appOptions.map((app) => [app.id, app]));
     const pagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, result.total);
     const baseUrl = paginationBase(buildDeliveryNotificationsUrl({ search, status, channels, appIds }));
+    const deliverySeries = (
+      [
+        ["Delivered", "delivered"],
+        ["Active", "active"],
+        ["Suppressed", "suppressed"],
+        ["Failed", "failed"],
+      ] as const
+    )
+      .filter(([, outcome]) => {
+        if (status === "all") return true;
+        if (status === "deferred" || status === "pending" || status === "sending") return outcome === "active";
+        return outcome === status;
+      })
+      .map(([label, outcome]) => ({
+        label,
+        data: timeseries.map((point) => ({ x: point.at.getTime(), y: point[outcome] })),
+      }));
     const columns: DataTableColumn<DeliveryItem>[] = [
       { id: "status", header: "Status", value: (item) => item.status },
       { id: "notification", header: "Notification", value: (item) => item.title, cellClass: "max-w-[24rem]" },
@@ -183,6 +203,20 @@ export default ssr<AuthContext>(async (c) => {
           />
           <StatCell label="Suppressed 7d" value={formatNumber(summary.suppressed)} sub="policy or fallback" />
         </StatGrid>
+
+        <section class="paper p-3">
+          <h2 class="text-xs font-semibold text-primary">Delivery outcomes over time</h2>
+          <p class="text-[10px] text-dimmed">Six-hour buckets across the last 7 days, scoped to the current delivery filters.</p>
+          <ObservabilityChart
+            kind="line"
+            class="mt-2 h-64 w-full text-dimmed"
+            series={deliverySeries}
+            xFormat="timeline"
+            yFormat="number"
+            legend
+            interactive
+          />
+        </section>
 
         <section class="paper overflow-hidden" style="view-transition-name: admin-notification-deliveries-table">
           <div class="flex flex-col gap-2 px-3 py-2">

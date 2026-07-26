@@ -51,14 +51,19 @@ export {
 } from "./events";
 export {
   getWorkflowRun,
+  listWorkflowFamilies,
+  listWorkflowRunTimeline,
   listStrandedWorkflowEffects,
   listWorkflowRunSteps,
   listWorkflowRuns,
   type StrandedWorkflowEffect,
   type WorkflowAppHealth,
+  type WorkflowFamilyFilter,
+  type WorkflowFamilySummary,
   type WorkflowRunDetail,
   type WorkflowRunFilter,
   type WorkflowRunSummary,
+  type WorkflowRunTimeline,
   type WorkflowStepSummary,
   workflowHealth,
 } from "./observability";

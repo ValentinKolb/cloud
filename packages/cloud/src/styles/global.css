@@ -178,6 +178,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.stdlib-chart a {
+  cursor: pointer;
+}
+
+.stdlib-chart a:hover .stdlib-chart-state-region,
+.stdlib-chart a:focus .stdlib-chart-state-region {
+  opacity: 0.8;
+  outline: none;
+}
+
 *::-webkit-scrollbar {
   width: 0.5rem;
   height: 0.5rem;

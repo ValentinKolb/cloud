@@ -7,13 +7,16 @@
  * explicit decision about an ambiguous external effect.
  */
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { formatDurationMs, formatNumber } from "@valentinkolb/cloud/shared";
+import { formatDateTime, formatDurationMs, formatNumber } from "@valentinkolb/cloud/shared";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { NoticeCard, Pagination, RangePicker, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { NoticeCard, Pagination, Placeholder, RangePicker, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import {
+  getWorkflow,
   getWorkflowRun,
   listStrandedWorkflowEffects,
   listUndispatchedWorkflowEvents,
+  listWorkflowFamilies,
+  listWorkflowRunTimeline,
   listWorkflowRuns,
   type WorkflowAppHealth,
   workflowHealth,
@@ -21,21 +24,25 @@ import {
 import type { JSX } from "solid-js";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import ObservabilityChart from "../../frontend/ObservabilityChart.island";
 import { gatewayOpsHelp } from "../../help";
-import { WorkflowEffectsView, WorkflowEventsView, WorkflowRunsView } from "./_components/WorkflowQueues";
+import { WorkflowEffectsView, WorkflowEventsView, WorkflowFamiliesView, WorkflowRunsView } from "./_components/WorkflowQueues";
 import WorkflowRunDetailView from "./_components/WorkflowRunDetail";
 import WorkflowsFilterBar from "./_components/WorkflowsFilterBar.island";
 import { FINDINGS_PER_PAGE, RUN_STATES, RUNS_PER_PAGE, type WorkflowView, windowStart, workflowsFilter } from "./filters";
-import { LAG_WARN_MS } from "./presentation";
+import { LAG_WARN_MS, RUN_LABEL } from "./presentation";
+import { buildWorkflowTimelineRows } from "./timeline";
 
 type WorkflowTotals = {
   runs: number;
   failed: number;
   attention: number;
   active: number;
+  queued: number;
   stranded: number;
   undispatched: number;
   worstLagMs: number;
+  oldestQueuedMs: number;
 };
 
 const totalsFor = (health: WorkflowAppHealth[]): WorkflowTotals =>
@@ -45,17 +52,28 @@ const totalsFor = (health: WorkflowAppHealth[]): WorkflowTotals =>
       failed: sum.failed + entry.runs.failed,
       attention: sum.attention + entry.runs.needs_attention,
       active: sum.active + entry.runs.running + entry.runs.queued + entry.runs.waiting,
+      queued: sum.queued + entry.runs.queued,
       stranded: sum.stranded + entry.strandedEffects,
       undispatched: sum.undispatched + entry.undispatchedEvents,
       worstLagMs: Math.max(sum.worstLagMs, entry.worstStartLagMs ?? 0),
+      oldestQueuedMs: Math.max(sum.oldestQueuedMs, entry.oldestQueuedMs ?? 0),
     }),
-    { runs: 0, failed: 0, attention: 0, active: 0, stranded: 0, undispatched: 0, worstLagMs: 0 },
+    { runs: 0, failed: 0, attention: 0, active: 0, queued: 0, stranded: 0, undispatched: 0, worstLagMs: 0, oldestQueuedMs: 0 },
   );
 
 const WorkflowStats = (props: { totals: WorkflowTotals; window: string }) => (
   <StatGrid columns={6}>
     <StatCell label="Runs" value={formatNumber(props.totals.runs)} sub={`last ${props.window}`} />
-    <StatCell label="In flight" value={formatNumber(props.totals.active)} sub="queued, running or waiting" />
+    <StatCell
+      label="In flight"
+      value={formatNumber(props.totals.active)}
+      sub={
+        props.totals.queued === 0
+          ? "running or waiting"
+          : `${formatNumber(props.totals.queued)} queued · oldest ${formatDurationMs(props.totals.oldestQueuedMs)}`
+      }
+      valueClass={props.totals.oldestQueuedMs > LAG_WARN_MS ? "text-amber-600 dark:text-amber-400" : undefined}
+    />
     <StatCell
       label="Failed"
       value={formatNumber(props.totals.failed)}
@@ -121,21 +139,38 @@ export default ssr<AuthContext>(async (c) => {
   const state = workflowsFilter.parse(new URL(c.req.url));
   const since = windowStart(state.window);
   const offset = (state.page - 1) * (state.view === "runs" ? RUNS_PER_PAGE : FINDINGS_PER_PAGE);
+  const showRunList = state.view === "runs" && Boolean(state.workflow || state.parent);
+  const showFamilyOverview = state.view === "runs" && !showRunList;
+  const runFilter = {
+    appId: state.app || undefined,
+    workflowId: state.workflow || undefined,
+    state: state.state === "all" ? undefined : state.state,
+    mode: state.mode === "all" ? undefined : state.mode,
+    since,
+  };
 
-  const [detail, health, runRows, effectRows, eventRows] = await Promise.all([
+  const [detail, selectedWorkflow, health, familyRows, runRows, timelineResult, effectRows, eventRows] = await Promise.all([
     state.run ? getWorkflowRun(state.run) : Promise.resolve(null),
+    state.workflow ? getWorkflow(state.workflow) : Promise.resolve(null),
     workflowHealth({ since }),
-    !state.run && state.view === "runs"
-      ? listWorkflowRuns({
-          appId: state.app || undefined,
-          parentRunId: state.parent || undefined,
-          state: state.state === "all" ? undefined : state.state,
-          mode: state.mode === "all" ? undefined : state.mode,
-          since,
+    !state.run && showFamilyOverview
+      ? listWorkflowFamilies({
+          ...runFilter,
           limit: RUNS_PER_PAGE + 1,
           offset,
         })
       : Promise.resolve([]),
+    !state.run && showRunList
+      ? listWorkflowRuns({
+          ...runFilter,
+          parentRunId: state.parent || undefined,
+          limit: RUNS_PER_PAGE + 1,
+          offset,
+        })
+      : Promise.resolve([]),
+    !state.run && state.view === "runs" && !state.parent
+      ? listWorkflowRunTimeline(runFilter, { limit: 2_000 })
+      : Promise.resolve({ runs: [], total: 0 }),
     !state.run && state.view === "effects"
       ? listStrandedWorkflowEffects({
           appId: state.app || undefined,
@@ -153,18 +188,56 @@ export default ssr<AuthContext>(async (c) => {
   ]);
 
   const pageSize = state.view === "runs" ? RUNS_PER_PAGE : FINDINGS_PER_PAGE;
-  const rowsForView = state.view === "runs" ? runRows : state.view === "effects" ? effectRows : eventRows;
+  const rowsForView =
+    state.view === "runs" ? (showFamilyOverview ? familyRows : runRows) : state.view === "effects" ? effectRows : eventRows;
   const hasNextPage = rowsForView.length > pageSize;
+  const families = familyRows.slice(0, RUNS_PER_PAGE);
   const runs = runRows.slice(0, RUNS_PER_PAGE);
   const effects = effectRows.slice(0, FINDINGS_PER_PAGE);
   const events = eventRows.slice(0, FINDINGS_PER_PAGE);
   const apps = [...new Set(health.map((entry) => entry.appId))].sort();
-  const totals = totalsFor(health);
+  const totals = totalsFor(state.app ? health.filter((entry) => entry.appId === state.app) : health);
+  const nowMs = Date.now();
+  const timelineWindow = { fromMs: since.getTime(), toMs: nowMs };
+  const timelineRows = buildWorkflowTimelineRows(timelineResult.runs, timelineWindow).map((row) => ({
+    label: row.label,
+    href: workflowsFilter.build(state, { workflow: row.workflowId, run: "", parent: "", page: 1 }),
+    tooltip: `${row.label} · ${row.appId}`,
+    intervals: row.intervals.map(({ run, ...interval }) => {
+      const activeMs = nowMs - (run.startedAt ?? run.createdAt).getTime();
+      const timing =
+        run.state === "queued"
+          ? `queued ${formatDurationMs(nowMs - run.createdAt.getTime())}`
+          : run.durationMs !== null
+            ? formatDurationMs(run.durationMs)
+            : run.startedAt
+              ? `active ${formatDurationMs(activeMs)}`
+              : "not started";
+      return {
+        ...interval,
+        label: timing,
+        href: workflowsFilter.build(state, {
+          workflow: run.workflowId,
+          run: run.id,
+          parent: "",
+          page: 1,
+        }),
+        tooltip: [
+          run.workflowName,
+          RUN_LABEL[run.state],
+          run.eventType ?? "direct invocation",
+          formatDateTime(run.createdAt),
+          timing,
+          run.attempt === 0 ? "not attempted" : `attempt ${run.attempt}`,
+        ].join(" · "),
+      };
+    }),
+  }));
 
   const hrefFor = {
     app: Object.fromEntries([
-      ["", workflowsFilter.build(state, { app: "", page: 1, run: "" })],
-      ...apps.map((app) => [app, workflowsFilter.build(state, { app, page: 1, run: "" })] as const),
+      ["", workflowsFilter.build(state, { app: "", workflow: "", page: 1, run: "" })],
+      ...apps.map((app) => [app, workflowsFilter.build(state, { app, workflow: "", page: 1, run: "" })] as const),
     ]),
     state: Object.fromEntries(
       RUN_STATES.map((value) => [value, workflowsFilter.build(state, { state: value, page: 1, run: "" })] as const),
@@ -178,14 +251,14 @@ export default ssr<AuthContext>(async (c) => {
 
   const viewOptions = (
     [
-      ["runs", "Runs"],
+      ["runs", "Workflows"],
       ["effects", `Effects${totals.stranded ? ` (${formatNumber(totals.stranded)})` : ""}`],
       ["events", `Events${totals.undispatched ? ` (${formatNumber(totals.undispatched)})` : ""}`],
     ] as const
   ).map(([view, label]) => ({
     value: view,
     label,
-    href: workflowsFilter.build(state, { view, run: "", parent: "", page: 1 }),
+    href: workflowsFilter.build(state, { view, workflow: "", run: "", parent: "", page: 1 }),
   }));
 
   const pagination = (view: WorkflowView): JSX.Element | undefined =>
@@ -207,11 +280,31 @@ export default ssr<AuthContext>(async (c) => {
       showRunFilters={showRunFilters}
     />
   );
+  const allWorkflowsHref = workflowsFilter.build(state, { workflow: "", run: "", parent: "", page: 1 });
+  const title = selectedWorkflow?.name ?? detail?.workflowName ?? "Workflows";
 
   return () => (
     <AdminLayout c={c} title="Workflows">
       <GatewayOpsLayoutHelp documents={gatewayOpsHelp.manifest} />
-      <div class="flex flex-col gap-4">
+      <div class="app-rows">
+        <div class="min-w-0" style="view-transition-name: admin-workflows-title">
+          <div class="flex items-center gap-2">
+            {state.workflow || state.parent ? (
+              <a class="btn-simple btn-sm text-dimmed" href={allWorkflowsHref} aria-label="Back to all workflows">
+                <i class="ti ti-arrow-left" />
+              </a>
+            ) : null}
+            <div class="min-w-0">
+              <h1 class="truncate text-base font-semibold text-primary">{title}</h1>
+              <p class="mt-1 text-xs text-dimmed">
+                {selectedWorkflow
+                  ? `Runs for this workflow in the last ${state.window}.`
+                  : "Cross-app workflow health, runtime history, and operator findings."}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <WorkflowStats totals={totals} window={state.window} />
         <div class="flex flex-wrap items-center justify-between gap-2">
           <RangePicker label={null} ariaLabel="Workflow observability view" options={viewOptions} value={state.view} />
@@ -224,9 +317,47 @@ export default ssr<AuthContext>(async (c) => {
         {!detail && state.view === "runs" ? (
           <FindingNotices
             totals={totals}
-            effectsHref={workflowsFilter.build(state, { view: "effects", page: 1 })}
-            eventsHref={workflowsFilter.build(state, { view: "events", page: 1 })}
+            effectsHref={workflowsFilter.build(state, { view: "effects", workflow: "", run: "", parent: "", page: 1 })}
+            eventsHref={workflowsFilter.build(state, { view: "events", workflow: "", run: "", parent: "", page: 1 })}
           />
+        ) : null}
+
+        {!detail && state.view === "runs" && !state.parent ? (
+          <section class="paper p-3">
+            <h2 class="text-xs font-semibold text-primary">Run timeline</h2>
+            <p class="text-[10px] text-dimmed">
+              One lane per workflow, busiest first. Completed runs use their execution time; queued and active runs extend to now. Drag to
+              pan; use Ctrl/⌘ + wheel or the controls to zoom.
+            </p>
+            {timelineResult.total > timelineResult.runs.length ? (
+              <p class="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                Showing the latest {formatNumber(timelineResult.runs.length)} of {formatNumber(timelineResult.total)} matching runs. The
+                timeline reflects this loaded sample.
+              </p>
+            ) : null}
+            {timelineRows.length === 0 ? (
+              <Placeholder variant="compact" description="No workflow runs recorded in this window." />
+            ) : (
+              <ObservabilityChart
+                kind="stateTimeline"
+                class="mt-2 w-full text-dimmed"
+                rows={timelineRows}
+                domain={[timelineWindow.fromMs, timelineWindow.toMs]}
+                states={[
+                  { state: "queued", label: "Queued", color: "#71717a" },
+                  { state: "running", label: "Running", color: "#3b82f6" },
+                  { state: "waiting", label: "Waiting", color: "#8b5cf6" },
+                  { state: "succeeded", label: "Succeeded", color: "#10b981" },
+                  { state: "failed", label: "Failed", color: "#ef4444" },
+                  { state: "needs_attention", label: "Needs attention", color: "#f59e0b" },
+                  { state: "canceled", label: "Canceled", color: "#a1a1aa" },
+                ]}
+                xFormat="timeline"
+                legend
+                interactive
+              />
+            )}
+          </section>
         ) : null}
 
         {state.run && !detail ? (
@@ -241,8 +372,36 @@ export default ssr<AuthContext>(async (c) => {
           />
         ) : detail ? (
           <WorkflowRunDetailView detail={detail} state={state} />
+        ) : state.workflow && !selectedWorkflow ? (
+          <NoticeCard
+            tone="error"
+            title="Workflow not found"
+            detail={
+              <a class="font-medium hover:underline" href={allWorkflowsHref}>
+                Return to all workflows
+              </a>
+            }
+          />
         ) : state.view === "runs" ? (
-          <WorkflowRunsView runs={runs} state={state} filters={filters(true)} footer={pagination("runs")} hasNextPage={hasNextPage} />
+          showFamilyOverview ? (
+            <WorkflowFamiliesView
+              families={families}
+              state={state}
+              filters={filters(true)}
+              footer={pagination("runs")}
+              hasNextPage={hasNextPage}
+            />
+          ) : (
+            <WorkflowRunsView
+              runs={runs}
+              workflowName={selectedWorkflow?.name}
+              allWorkflowsHref={allWorkflowsHref}
+              state={state}
+              filters={filters(true)}
+              footer={pagination("runs")}
+              hasNextPage={hasNextPage}
+            />
+          )
         ) : state.view === "effects" ? (
           <WorkflowEffectsView
             effects={effects}

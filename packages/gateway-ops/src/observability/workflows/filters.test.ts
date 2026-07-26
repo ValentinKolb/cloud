@@ -11,6 +11,7 @@ describe("workflow observability URL state", () => {
       state: "all",
       mode: "all",
       window: "24h",
+      workflow: "",
       run: "",
       parent: "",
       page: 1,
@@ -22,9 +23,10 @@ describe("workflow observability URL state", () => {
     expect(workflowsFilter.parse(new URL(`http://cloud${workflowsFilter.build(state)}`))).toEqual(state);
   });
 
-  test("keeps parent navigation shareable and rejects unknown views", () => {
+  test("keeps workflow and parent navigation shareable and rejects unknown views", () => {
+    expect(parse("?workflow=ad383f55-c5e5-4893-a15d-607181ab6863").workflow).toBe("ad383f55-c5e5-4893-a15d-607181ab6863");
     expect(parse("?parent=5de41b38-a3ac-47f3-b47c-da6472afbb42").parent).toBe("5de41b38-a3ac-47f3-b47c-da6472afbb42");
     expect(parse("?view=unknown").view).toBe("runs");
-    expect(parse("?run=not-a-uuid&parent=also-invalid")).toMatchObject({ run: "", parent: "" });
+    expect(parse("?workflow=nope&run=not-a-uuid&parent=also-invalid")).toMatchObject({ workflow: "", run: "", parent: "" });
   });
 });

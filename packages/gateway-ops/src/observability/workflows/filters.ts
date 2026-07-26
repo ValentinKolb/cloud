@@ -43,6 +43,8 @@ export const workflowsFilter = createUrlFilter(WORKFLOWS_BASE_PATH, {
   state: oneOf<RunStateFilter>("state", RUN_STATES, "all"),
   mode: oneOf("mode", ["all", "execute", "dryRun"] as const, "all"),
   window: oneOf<WindowFilter>("window", WINDOWS, "24h"),
+  /** Narrows the overview to one workflow definition and reveals its runs. */
+  workflow: uuid("workflow"),
   /** Opens the detail view for one run, keeping the list's filters behind it. */
   run: uuid("run"),
   /** Lists only direct children of the selected fan-out parent. */

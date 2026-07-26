@@ -10,21 +10,7 @@ import { gatewayOpsHelp } from "../../help";
 import { getRedisDiagnostics, type RedisPrefixDiagnostic } from "../data/service";
 import RedisDataFilters from "./_components/RedisDataFilters.island";
 
-const numberFormat = new Intl.NumberFormat("de-DE");
-const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
-
 const normalize = (value: string): string => value.toLowerCase();
-
-const formatTtl = (ms: number): string => {
-  if (!Number.isFinite(ms) || ms <= 0) return "-";
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 120) return `${seconds}s`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 120) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 72) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
-};
 
 /**
  * The service marks fatal problems (diagnostics unreachable) red and routine
@@ -60,10 +46,16 @@ export default ssr<AuthContext>(async (c) => {
     return normalize(prefix.prefix).includes(searchNeedle);
   });
 
-  const prefixChartData = diagnostics.prefixes
-    .filter((prefix) => prefix.depth === selectedDepth)
+  const prefixChartData = filteredPrefixes
+    .slice()
+    .sort((left, right) => right.count - left.count || left.prefix.localeCompare(right.prefix))
     .slice(0, 10)
     .map((prefix) => ({ label: prefix.prefix, value: prefix.count }));
+  const redisPrefixHref = (prefix: string): string => {
+    const params = new URLSearchParams(url.searchParams);
+    params.set("search", prefix);
+    return `/admin/observability/redis?${params.toString()}`;
+  };
 
   const expiringKeys = diagnostics.keyspace.reduce((sum, row) => sum + row.expires, 0);
   const runtime = diagnostics.runtime;
@@ -77,9 +69,6 @@ export default ssr<AuthContext>(async (c) => {
       : runtime.usedMemoryBytes === null
         ? "unavailable"
         : "no maxmemory set";
-  const keyspaceKeys = diagnostics.keyspace.reduce((sum, row) => sum + row.keys, 0);
-  const expirySub = keyspaceKeys > 0 ? `${Math.round((expiringKeys / keyspaceKeys) * 100)}% expiring` : "no keyspace";
-
   const prefixColumns: DataTableColumn<RedisPrefixDiagnostic>[] = [
     { id: "prefix", header: "Prefix", value: (prefix) => prefix.prefix, cellClass: "font-mono text-[11px] min-w-[220px]" },
     { id: "depth", header: "Depth", value: (prefix) => prefix.depth, headerClass: "text-right", cellClass: "text-right" },
@@ -151,6 +140,13 @@ export default ssr<AuthContext>(async (c) => {
               : `${formatNumber(diagnostics.sampledKeys)} of ${formatNumber(diagnostics.dbSize)} keys sampled.`}
           </p>
           <ObservabilityChart kind="donut" class="mt-2 h-72 text-dimmed" data={prefixChartData} legend />
+          <nav class="mt-2 flex flex-wrap gap-1" aria-label="Filter sampled keys by prefix">
+            {prefixChartData.slice(0, 6).map((prefix) => (
+              <a href={redisPrefixHref(prefix.label)} class="btn-input btn-input-sm max-w-full truncate" title={prefix.label}>
+                {prefix.label}
+              </a>
+            ))}
+          </nav>
         </section>
 
         <section class="paper overflow-hidden">

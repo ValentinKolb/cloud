@@ -627,6 +627,7 @@ export { notificationBatches } from "./batches";
 export {
   type NotificationDefinitionObservabilityItem,
   type NotificationDeliveryObservabilityItem,
+  type NotificationDeliveryTimeseriesPoint,
   notificationObservability,
 } from "./observability";
 export { userNotifications } from "./user";

@@ -3,7 +3,7 @@ import type { PaginationParams } from "../../contracts/shared";
 import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "../postgres";
 import { registerSettings } from "../settings/defaults";
 import { redactMetadata } from "./redaction";
-import { trace } from "./trace";
+import { TRACE_STUCK_AFTER_MS, trace } from "./trace";
 
 export type {
   TraceAttributes,
@@ -21,7 +21,7 @@ export type {
   TraceSummary,
   TraceWindow,
 } from "./trace";
-export { trace };
+export { TRACE_STUCK_AFTER_MS, trace };
 
 // ── Settings Registration ──────────────────────────────────────────────
 
@@ -85,6 +85,15 @@ export type LogStatsGroupBy = "source" | "level";
 export type LogStatsRow = {
   key: string;
   count: number;
+};
+
+export type LogTimeseriesPoint = {
+  at: Date;
+  debug: number;
+  info: number;
+  warn: number;
+  error: number;
+  total: number;
 };
 
 // ==========================
@@ -257,22 +266,112 @@ const normalizeSinceHours = (sinceHours: number | undefined): number | null =>
 
 const normalizeStatsLimit = (limit: number | undefined): number => Math.min(Math.max(Math.trunc(limit ?? 50), 1), 200);
 
+const logBucketMinutes = (sinceHours: number): number => {
+  if (sinceHours <= 1) return 5;
+  if (sinceHours <= 24) return 60;
+  if (sinceHours <= 168) return 360;
+  return 1_440;
+};
+
+/**
+ * Gap-filled log volume by level for operator charts.
+ *
+ * The lookback is capped at 30 days and the bucket ladder keeps the response
+ * between 12 and 31 points for every window exposed by Gateway Ops.
+ */
+const timeseries = async (
+  options: { source?: string; sources?: string[]; level?: string; search?: string; sinceHours?: number } = {},
+): Promise<LogTimeseriesPoint[]> => {
+  const sinceHours = Math.min(720, Math.max(1, normalizeSinceHours(options.sinceHours) ?? 24));
+  const bucketMinutes = logBucketMinutes(sinceHours);
+  const requestedSources = options.source
+    ? [options.source]
+    : [...new Set((options.sources ?? []).map((value) => value.trim()).filter(Boolean))].slice(0, 100);
+  const hasSources = requestedSources.length > 0;
+  const sourceLiteral = toPgTextArray(requestedSources);
+  const level = options.level && options.level !== "all" ? options.level : null;
+  const search = options.search?.trim().slice(0, 200);
+  const searchPattern = search ? `%${escapeLikePattern(search)}%` : null;
+
+  return sql<LogTimeseriesPoint[]>`
+    WITH bounds AS (
+      SELECT
+        now() AS end_at,
+        now() - (${sinceHours}::int * INTERVAL '1 hour') AS start_at,
+        ${bucketMinutes}::int * INTERVAL '1 minute' AS bucket
+    ),
+    buckets AS (
+      SELECT generate_series(
+        date_bin(bucket, start_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        date_bin(bucket, end_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        bucket
+      ) AS at
+      FROM bounds
+    ),
+    counts AS (
+      SELECT
+        date_bin(bounds.bucket, entries.created_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS at,
+        entries.level,
+        COUNT(*)::int AS count
+      FROM logging.entries AS entries
+      CROSS JOIN bounds
+      WHERE entries.created_at >= bounds.start_at
+        AND entries.created_at <= bounds.end_at
+        AND (${hasSources}::boolean = false OR entries.source = ANY(${sourceLiteral}::text[]))
+        AND (${level}::text IS NULL OR entries.level = ${level})
+        AND (
+          ${searchPattern}::text IS NULL
+          OR entries.message ILIKE ${searchPattern} ESCAPE '\'
+          OR entries.metadata::text ILIKE ${searchPattern} ESCAPE '\'
+        )
+      GROUP BY at, entries.level
+    )
+    SELECT
+      buckets.at,
+      COALESCE(SUM(counts.count) FILTER (WHERE counts.level = 'debug'), 0)::int AS debug,
+      COALESCE(SUM(counts.count) FILTER (WHERE counts.level = 'info'), 0)::int AS info,
+      COALESCE(SUM(counts.count) FILTER (WHERE counts.level = 'warn'), 0)::int AS warn,
+      COALESCE(SUM(counts.count) FILTER (WHERE counts.level = 'error'), 0)::int AS error,
+      COALESCE(SUM(counts.count), 0)::int AS total
+    FROM buckets
+    LEFT JOIN counts USING (at)
+    GROUP BY buckets.at
+    ORDER BY buckets.at
+  `;
+};
+
 /** Group log volume by source or level for admin diagnostics. */
 const statsBy = async (
   groupBy: LogStatsGroupBy,
   options?: {
     sinceHours?: number;
     limit?: number;
+    sources?: string[];
+    level?: string;
+    search?: string;
   },
 ): Promise<LogStatsRow[]> => {
   const filterSinceHours = normalizeSinceHours(options?.sinceHours);
   const limit = normalizeStatsLimit(options?.limit);
+  const sources = [...new Set((options?.sources ?? []).map((value) => value.trim()).filter(Boolean))].slice(0, 100);
+  const hasSources = sources.length > 0;
+  const sourceLiteral = toPgTextArray(sources);
+  const level = options?.level && options.level !== "all" ? options.level : null;
+  const search = options?.search?.trim().slice(0, 200);
+  const searchPattern = search ? `%${escapeLikePattern(search)}%` : null;
 
   if (groupBy === "level") {
     const rows = await sql<{ key: string; count: number }[]>`
       SELECT level as key, COUNT(*)::int as count
       FROM logging.entries
       WHERE (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
+        AND (${hasSources}::boolean = false OR source = ANY(${sourceLiteral}::text[]))
+        AND (${level}::text IS NULL OR level = ${level})
+        AND (
+          ${searchPattern}::text IS NULL
+          OR message ILIKE ${searchPattern} ESCAPE '\'
+          OR metadata::text ILIKE ${searchPattern} ESCAPE '\'
+        )
       GROUP BY level
       ORDER BY count DESC, key ASC
       LIMIT ${limit}
@@ -284,6 +383,13 @@ const statsBy = async (
     SELECT source as key, COUNT(*)::int as count
     FROM logging.entries
     WHERE (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
+      AND (${hasSources}::boolean = false OR source = ANY(${sourceLiteral}::text[]))
+      AND (${level}::text IS NULL OR level = ${level})
+      AND (
+        ${searchPattern}::text IS NULL
+        OR message ILIKE ${searchPattern} ESCAPE '\'
+        OR metadata::text ILIKE ${searchPattern} ESCAPE '\'
+      )
     GROUP BY source
     ORDER BY count DESC, key ASC
     LIMIT ${limit}
@@ -366,5 +472,6 @@ export const logging = {
   cleanup,
   summary,
   statsBy,
+  timeseries,
   trace,
 };

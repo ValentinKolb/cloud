@@ -28,6 +28,15 @@ export type NotificationDeliveryObservabilityItem = {
   deliveredAt: Date | null;
 };
 
+export type NotificationDeliveryTimeseriesPoint = {
+  at: Date;
+  total: number;
+  active: number;
+  delivered: number;
+  suppressed: number;
+  failed: number;
+};
+
 export type NotificationDefinitionObservabilityItem = {
   id: string;
   appId: string;
@@ -47,6 +56,12 @@ export type NotificationDefinitionObservabilityItem = {
 
 type PageInput = { page?: number; perPage?: number };
 type PageResult<T> = { items: T[]; page: number; perPage: number; total: number; hasNext: boolean };
+type DeliveryFilter = {
+  search?: string;
+  statuses?: readonly NotificationDeliveryStatus[];
+  channels?: readonly string[];
+  appIds?: readonly string[];
+};
 
 type DeliveryRow = {
   id: string;
@@ -98,12 +113,7 @@ const normalizePage = (input: PageInput): { page: number; perPage: number; offse
 const normalizeValues = (values: readonly string[] | undefined): string[] =>
   [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].slice(0, 100);
 
-const deliveryWhere = (filter: {
-  search?: string;
-  statuses?: readonly NotificationDeliveryStatus[];
-  channels?: readonly string[];
-  appIds?: readonly string[];
-}): SQL.Query<unknown> => {
+const deliveryWhere = (filter: DeliveryFilter): SQL.Query<unknown> => {
   const conditions: SQL.Query<unknown>[] = [sql`TRUE`];
   const statuses = normalizeValues(filter.statuses).filter((status): status is NotificationDeliveryStatus =>
     DELIVERY_STATUSES.has(status as NotificationDeliveryStatus),
@@ -138,12 +148,7 @@ const deliveryWhere = (filter: {
 const listDeliveries = async (input: {
   page?: number;
   perPage?: number;
-  filter?: {
-    search?: string;
-    statuses?: readonly NotificationDeliveryStatus[];
-    channels?: readonly string[];
-    appIds?: readonly string[];
-  };
+  filter?: DeliveryFilter;
 }): Promise<PageResult<NotificationDeliveryObservabilityItem>> => {
   const { page, perPage, offset } = normalizePage(input);
   const where = deliveryWhere(input.filter ?? {});
@@ -206,7 +211,7 @@ const listDeliveries = async (input: {
 };
 
 const deliverySummary = async (
-  input: { days?: number } = {},
+  input: { days?: number; filter?: DeliveryFilter } = {},
 ): Promise<{
   total: number;
   active: number;
@@ -215,17 +220,73 @@ const deliverySummary = async (
   failed: number;
 }> => {
   const days = Number.isFinite(input.days) ? Math.min(3_650, Math.max(1, Math.trunc(input.days ?? 7))) : 7;
+  const where = deliveryWhere(input.filter ?? {});
   const rows = await sql<Array<{ total: number; active: number; delivered: number; suppressed: number; failed: number }>>`
     SELECT
       COUNT(*)::int AS total,
-      COUNT(*) FILTER (WHERE status IN ('deferred', 'pending', 'sending'))::int AS active,
-      COUNT(*) FILTER (WHERE status = 'delivered')::int AS delivered,
-      COUNT(*) FILTER (WHERE status = 'suppressed')::int AS suppressed,
-      COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
-    FROM notifications.deliveries
-    WHERE created_at >= now() - (${days}::int * INTERVAL '1 day')
+      COUNT(*) FILTER (WHERE d.status IN ('deferred', 'pending', 'sending'))::int AS active,
+      COUNT(*) FILTER (WHERE d.status = 'delivered')::int AS delivered,
+      COUNT(*) FILTER (WHERE d.status = 'suppressed')::int AS suppressed,
+      COUNT(*) FILTER (WHERE d.status = 'failed')::int AS failed
+    FROM notifications.deliveries d
+    JOIN notifications.events e ON e.id = d.event_id
+    JOIN notifications.definitions n ON n.id = e.definition_id
+    LEFT JOIN auth.users u ON u.id = e.recipient_user_id
+    WHERE ${where}
+      AND d.created_at >= now() - (${days}::int * INTERVAL '1 day')
   `;
   return rows[0] ?? { total: 0, active: 0, delivered: 0, suppressed: 0, failed: 0 };
+};
+
+const deliveryTimeseries = async (
+  input: { days?: number; filter?: DeliveryFilter } = {},
+): Promise<NotificationDeliveryTimeseriesPoint[]> => {
+  const days = Number.isFinite(input.days) ? Math.min(90, Math.max(1, Math.trunc(input.days ?? 7))) : 7;
+  const bucketHours = days <= 2 ? 1 : days <= 14 ? 6 : 24;
+  const where = deliveryWhere(input.filter ?? {});
+
+  return sql<NotificationDeliveryTimeseriesPoint[]>`
+    WITH bounds AS (
+      SELECT
+        now() AS end_at,
+        now() - (${days}::int * INTERVAL '1 day') AS start_at,
+        ${bucketHours}::int * INTERVAL '1 hour' AS bucket
+    ),
+    buckets AS (
+      SELECT generate_series(
+        date_bin(bucket, start_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        date_bin(bucket, end_at, TIMESTAMPTZ '1970-01-01 00:00:00+00'),
+        bucket
+      ) AS at
+      FROM bounds
+    ),
+    counts AS (
+      SELECT
+        date_bin(bounds.bucket, d.created_at, TIMESTAMPTZ '1970-01-01 00:00:00+00') AS at,
+        d.status,
+        COUNT(*)::int AS count
+      FROM notifications.deliveries d
+      JOIN notifications.events e ON e.id = d.event_id
+      JOIN notifications.definitions n ON n.id = e.definition_id
+      LEFT JOIN auth.users u ON u.id = e.recipient_user_id
+      CROSS JOIN bounds
+      WHERE ${where}
+        AND d.created_at >= bounds.start_at
+        AND d.created_at <= bounds.end_at
+      GROUP BY at, d.status
+    )
+    SELECT
+      buckets.at,
+      COALESCE(SUM(counts.count), 0)::int AS total,
+      COALESCE(SUM(counts.count) FILTER (WHERE counts.status IN ('deferred', 'pending', 'sending')), 0)::int AS active,
+      COALESCE(SUM(counts.count) FILTER (WHERE counts.status = 'delivered'), 0)::int AS delivered,
+      COALESCE(SUM(counts.count) FILTER (WHERE counts.status = 'suppressed'), 0)::int AS suppressed,
+      COALESCE(SUM(counts.count) FILTER (WHERE counts.status = 'failed'), 0)::int AS failed
+    FROM buckets
+    LEFT JOIN counts USING (at)
+    GROUP BY buckets.at
+    ORDER BY buckets.at
+  `;
 };
 
 const facets = async (): Promise<{ channels: string[]; appIds: string[] }> => {
@@ -340,7 +401,7 @@ const registrySummary = async (): Promise<{ total: number; active: number; apps:
 };
 
 export const notificationObservability = {
-  deliveries: { list: listDeliveries, summary: deliverySummary },
+  deliveries: { list: listDeliveries, summary: deliverySummary, timeseries: deliveryTimeseries },
   registry: { list: listDefinitions, summary: registrySummary },
   facets,
 } as const;

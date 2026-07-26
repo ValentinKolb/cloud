@@ -3,6 +3,16 @@ import { charts } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { DEFAULT_MAP_VIEWPORT, normalizeMapViewport, panMapViewport, zoomMapViewport } from "./chart-map-viewport";
+import {
+  panStateTimelineViewport,
+  renderStateTimelineSvg,
+  type StateTimelineChartOptions,
+  type StateTimelineDomain,
+  stateTimelineDomain,
+  stateTimelineHeight,
+  zoomStateTimelineViewport,
+} from "./chart-state-timeline";
+import { positionTooltipSurface } from "./tooltip-position";
 
 /**
  * Chart — minimal Solid wrapper around `stdlib.charts`.
@@ -28,9 +38,9 @@ import { DEFAULT_MAP_VIEWPORT, normalizeMapViewport, panMapViewport, zoomMapView
  * **Why so thin.** The props are a discriminated union over each
  * stdlib chart function — `kind: "line"` brings in exactly the params
  * `charts.line` expects, `kind: "bar"` brings in `charts.bar`'s, etc.
- * Options stay aligned with stdlib without renaming. The sole wrapper
- * extension is `interactive` for maps, which adds bounded pan / zoom
- * controls while keeping stdlib's viewport as the rendering contract.
+ * Options stay aligned with stdlib without renaming. Shared interactive
+ * layers add bounded pan / zoom controls to maps and state timelines, plus
+ * nearest-point hover and keyboard inspection for line charts.
  * If stdlib gains a new option, it's automatically available at every
  * callsite.
  *
@@ -68,8 +78,9 @@ export type ChartProps = {
     kind: K;
     class?: string;
     style?: JSX.CSSProperties | string;
-  } & Omit<Parameters<(typeof charts)[K]>[0], "width" | "height"> &
-    (K extends "map" ? { interactive?: boolean } : {});
+  } & (K extends "stateTimeline"
+    ? StateTimelineChartOptions
+    : Omit<Parameters<(typeof charts)[K]>[0], "width" | "height"> & (K extends "map" | "line" ? { interactive?: boolean } : {}));
 }[ChartKind];
 
 /**
@@ -79,12 +90,26 @@ export type ChartProps = {
  * types; an explicit per-kind switch would type it but balloon the
  * component for no runtime benefit.
  */
-const renderSvg = (props: ChartProps, width: number, height: number, viewport?: MapViewport): string => {
+const renderSvg = (
+  props: ChartProps,
+  width: number,
+  height: number,
+  mapViewport?: MapViewport,
+  timelineViewport?: StateTimelineDomain,
+): string => {
   const { kind, class: _class, style: _style, interactive: _interactive, ...opts } = props as ChartProps & { interactive?: boolean };
+  if (kind === "stateTimeline") {
+    return renderStateTimelineSvg({
+      ...(opts as StateTimelineChartOptions),
+      width,
+      height,
+      viewport: timelineViewport,
+    });
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (charts[kind] as (o: unknown) => string)({
     ...(opts as any),
-    ...(kind === "map" && viewport ? { viewport } : {}),
+    ...(kind === "map" && mapViewport ? { viewport: mapViewport } : {}),
     width,
     height,
   });
@@ -107,17 +132,27 @@ const isEmpty = (props: ChartProps): boolean => {
   if (props.kind === "boxplot") {
     return !props.groups?.length;
   }
+  if (props.kind === "stateTimeline") {
+    return !props.rows?.length || props.rows.every((row) => !row.intervals.length);
+  }
   return false;
 };
 
 const Chart = (props: ChartProps): JSX.Element => {
   let containerRef: HTMLDivElement | undefined;
+  let chartTooltipRef: HTMLSpanElement | undefined;
+  let lineAnchorRef: HTMLSpanElement | undefined;
   // Initial size matches stdlib's chart-function defaults so the SSR
   // render is sensible. The observer updates this on the first
   // client-side frame; the SVG re-renders reactively via innerHTML.
-  const [size, setSize] = createSignal({ width: 480, height: 280 });
+  const initialHeight = props.kind === "stateTimeline" ? stateTimelineHeight(props.rows.length, props.legend !== false) : 280;
+  const [size, setSize] = createSignal({ width: 480, height: initialHeight });
   const initialMapViewport = props.kind === "map" ? normalizeMapViewport(props.viewport) : DEFAULT_MAP_VIEWPORT;
   const [mapViewport, setMapViewport] = createSignal<MapViewport>(initialMapViewport);
+  const initialTimelineViewport =
+    props.kind === "stateTimeline" ? stateTimelineDomain(props.rows, props.domain) : ([0, 1] as StateTimelineDomain);
+  const [timelineViewport, setTimelineViewport] = createSignal<StateTimelineDomain>(initialTimelineViewport);
+  const [linePointIndex, setLinePointIndex] = createSignal(0);
   const [dragging, setDragging] = createSignal(false);
   let drag:
     | {
@@ -129,8 +164,22 @@ const Chart = (props: ChartProps): JSX.Element => {
         viewport: MapViewport;
       }
     | undefined;
+  let timelineDrag:
+    | {
+        pointerId: number;
+        x: number;
+        width: number;
+        viewport: StateTimelineDomain;
+      }
+    | undefined;
 
   const interactiveMap = () => props.kind === "map" && props.interactive === true;
+  const interactiveTimeline = () => props.kind === "stateTimeline" && props.interactive === true;
+  const interactiveLine = () => props.kind === "line" && props.interactive === true;
+  const interactive = () => interactiveMap() || interactiveTimeline() || interactiveLine();
+  const draggable = () => interactiveMap() || interactiveTimeline();
+  const timelineFullDomain = (): StateTimelineDomain =>
+    props.kind === "stateTimeline" ? stateTimelineDomain(props.rows, props.domain) : [0, 1];
 
   const mapDimensions = () => {
     const viewportElement = containerRef?.querySelector(".stdlib-chart-map-viewport");
@@ -142,15 +191,32 @@ const Chart = (props: ChartProps): JSX.Element => {
   };
 
   const zoom = (delta: number) => {
-    setMapViewport((current) => zoomMapViewport(current, delta));
+    if (interactiveMap()) {
+      setMapViewport((current) => zoomMapViewport(current, delta));
+    } else if (interactiveTimeline()) {
+      setTimelineViewport((current) => zoomStateTimelineViewport(current, timelineFullDomain(), delta));
+    }
   };
 
   const reset = () => {
-    setMapViewport(initialMapViewport);
+    if (interactiveMap()) setMapViewport(initialMapViewport);
+    if (interactiveTimeline()) setTimelineViewport(timelineFullDomain());
   };
 
   const handlePointerDown: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
-    if (!interactiveMap() || event.button !== 0 || (event.target as Element).closest("button")) {
+    if (!draggable() || event.button !== 0 || (event.target as Element).closest("button, a")) {
+      return;
+    }
+    closeChartTooltip();
+    if (interactiveTimeline()) {
+      timelineDrag = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        width: Math.max(1, event.currentTarget.getBoundingClientRect().width),
+        viewport: timelineViewport(),
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDragging(true);
       return;
     }
     const dimensions = mapDimensions();
@@ -167,11 +233,29 @@ const Chart = (props: ChartProps): JSX.Element => {
   };
 
   const handlePointerMove: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
+    if (interactiveLine()) {
+      showLineTooltip(event);
+      return;
+    }
+    if (timelineDrag?.pointerId === event.pointerId) {
+      setTimelineViewport(
+        panStateTimelineViewport(timelineDrag.viewport, timelineFullDomain(), event.clientX - timelineDrag.x, timelineDrag.width),
+      );
+      return;
+    }
     if (!drag || drag.pointerId !== event.pointerId) return;
     setMapViewport(panMapViewport(drag.viewport, event.clientX - drag.x, event.clientY - drag.y, drag.width, drag.height));
   };
 
   const stopDragging: JSX.EventHandlerUnion<HTMLDivElement, PointerEvent> = (event) => {
+    if (timelineDrag?.pointerId === event.pointerId) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      timelineDrag = undefined;
+      setDragging(false);
+      return;
+    }
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -181,13 +265,49 @@ const Chart = (props: ChartProps): JSX.Element => {
   };
 
   const handleWheel: JSX.EventHandlerUnion<HTMLDivElement, WheelEvent> = (event) => {
-    if (!interactiveMap() || (!event.ctrlKey && !event.metaKey)) return;
-    event.preventDefault();
-    zoom(event.deltaY < 0 ? 1 : -1);
+    if (interactiveMap() && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      zoom(event.deltaY < 0 ? 1 : -1);
+      return;
+    }
+    if (!interactiveTimeline()) return;
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const anchor = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5;
+      setTimelineViewport((current) => zoomStateTimelineViewport(current, timelineFullDomain(), event.deltaY < 0 ? 1 : -1, anchor));
+    } else if (event.shiftKey) {
+      event.preventDefault();
+      setTimelineViewport((current) =>
+        panStateTimelineViewport(current, timelineFullDomain(), -event.deltaY, event.currentTarget.getBoundingClientRect().width),
+      );
+    }
   };
 
   const handleKeyDown: JSX.EventHandlerUnion<HTMLDivElement, KeyboardEvent> = (event) => {
-    if (!interactiveMap()) return;
+    if (!interactive()) return;
+    if (interactiveLine()) {
+      const values = lineXValues();
+      if (values.length === 0) return;
+      if (event.key === "Escape") {
+        closeChartTooltip();
+        return;
+      }
+      const next =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? values.length - 1
+            : event.key === "ArrowLeft"
+              ? Math.max(0, linePointIndex() - 1)
+              : event.key === "ArrowRight"
+                ? Math.min(values.length - 1, linePointIndex() + 1)
+                : null;
+      if (next === null) return;
+      event.preventDefault();
+      showLinePoint(next);
+      return;
+    }
     if (event.key === "+" || event.key === "=") {
       event.preventDefault();
       zoom(1);
@@ -203,6 +323,18 @@ const Chart = (props: ChartProps): JSX.Element => {
       reset();
       return;
     }
+    if (interactiveTimeline() && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      setTimelineViewport((current) =>
+        panStateTimelineViewport(
+          current,
+          timelineFullDomain(),
+          event.key === "ArrowLeft" ? 80 : -80,
+          event.currentTarget.getBoundingClientRect().width,
+        ),
+      );
+      return;
+    }
     const delta: readonly [number, number] | undefined = {
       ArrowLeft: [40, 0],
       ArrowRight: [-40, 0],
@@ -213,6 +345,95 @@ const Chart = (props: ChartProps): JSX.Element => {
     event.preventDefault();
     const dimensions = mapDimensions();
     setMapViewport((current) => panMapViewport(current, delta[0], delta[1], dimensions.width, dimensions.height));
+  };
+
+  const closeChartTooltip = () => {
+    if (!chartTooltipRef) return;
+    try {
+      if (chartTooltipRef.matches(":popover-open")) chartTooltipRef.hidePopover();
+    } catch {
+      // A disconnect can race with the Popover API.
+    }
+  };
+
+  const showTimelineTooltip = (target: Element | null) => {
+    if (!interactiveTimeline() || !chartTooltipRef) return;
+    const trigger = target?.closest<HTMLElement>("[data-chart-tooltip]");
+    const content = trigger?.dataset.chartTooltip;
+    if (!trigger || !content) return;
+    chartTooltipRef.textContent = content;
+    try {
+      if (!chartTooltipRef.matches(":popover-open")) chartTooltipRef.showPopover();
+      positionTooltipSurface(chartTooltipRef, trigger);
+    } catch {
+      // SVG <title> remains as the fallback on browsers without Popover.
+    }
+  };
+
+  const lineXValues = (): number[] => {
+    if (props.kind !== "line") return [];
+    return [...new Set(props.series.flatMap((series) => series.data.map((point) => point.x)).filter(Number.isFinite))].sort(
+      (left, right) => left - right,
+    );
+  };
+
+  const linePlotBounds = (): { left: number; right: number } => {
+    if (props.kind !== "line") return { left: 0, right: size().width };
+    const padding = props.padding;
+    const left = (typeof padding === "number" ? padding : padding?.left) ?? 40;
+    const rightInset = (typeof padding === "number" ? padding : padding?.right) ?? 16;
+    return {
+      left: left + (props.yAxis?.label ? 14 : 0),
+      right: Math.max(left + 1, size().width - rightInset),
+    };
+  };
+
+  const showLinePoint = (index: number, pointerY?: number) => {
+    if (props.kind !== "line" || !chartTooltipRef || !lineAnchorRef) return;
+    const values = lineXValues();
+    const x = values[Math.min(values.length - 1, Math.max(0, index))];
+    if (x === undefined) return;
+    const points = props.series
+      .map((series) => {
+        const point = series.data.find((candidate) => candidate.x === x && Number.isFinite(candidate.y));
+        return point ? { label: series.label ?? "Series", point } : null;
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    if (points.length === 0) return;
+
+    const xFormat = props.xAxis?.format ?? String;
+    const yFormat = props.yAxis?.format ?? String;
+    chartTooltipRef.textContent = [xFormat(x), ...points.map((entry) => `${entry.label}: ${yFormat(entry.point.y)}`)].join(" · ");
+
+    const [min, max] = [values[0] ?? x, values.at(-1) ?? x];
+    const bounds = linePlotBounds();
+    const ratio = max === min ? 0.5 : (x - min) / (max - min);
+    lineAnchorRef.style.left = `${bounds.left + ratio * (bounds.right - bounds.left)}px`;
+    lineAnchorRef.style.top = `${Math.min(size().height - 8, Math.max(8, pointerY ?? 24))}px`;
+    setLinePointIndex(values.indexOf(x));
+    try {
+      if (!chartTooltipRef.matches(":popover-open")) chartTooltipRef.showPopover();
+      positionTooltipSurface(chartTooltipRef, lineAnchorRef);
+    } catch {
+      // The chart remains readable on browsers without Popover support.
+    }
+  };
+
+  const showLineTooltip = (event: PointerEvent) => {
+    const values = lineXValues();
+    if (values.length === 0) return;
+    const rect =
+      event.currentTarget instanceof Element ? event.currentTarget.getBoundingClientRect() : containerRef?.getBoundingClientRect();
+    if (!rect) return;
+    const bounds = linePlotBounds();
+    const localX = event.clientX - rect.left;
+    const ratio = Math.min(1, Math.max(0, (localX - bounds.left) / Math.max(1, bounds.right - bounds.left)));
+    const target = (values[0] ?? 0) + ratio * ((values.at(-1) ?? 0) - (values[0] ?? 0));
+    const index = values.reduce(
+      (nearest, value, current) => (Math.abs(value - target) < Math.abs(values[nearest]! - target) ? current : nearest),
+      0,
+    );
+    showLinePoint(index, event.clientY - rect.top);
   };
 
   onMount(() => {
@@ -239,14 +460,28 @@ const Chart = (props: ChartProps): JSX.Element => {
       }
     });
     ro.observe(containerRef);
-    onCleanup(() => ro.disconnect());
+    window.addEventListener("scroll", closeChartTooltip, true);
+    window.addEventListener("resize", closeChartTooltip);
+    onCleanup(() => {
+      ro.disconnect();
+      window.removeEventListener("scroll", closeChartTooltip, true);
+      window.removeEventListener("resize", closeChartTooltip);
+    });
   });
+
+  const chartStyle = () =>
+    props.style ??
+    (props.kind === "stateTimeline"
+      ? {
+          height: `${stateTimelineHeight(props.rows.length, props.legend !== false)}px`,
+        }
+      : undefined);
 
   return (
     <Show
       when={!isEmpty(props)}
       fallback={
-        <div ref={containerRef} class={`flex items-center justify-center text-xs text-dimmed ${props.class ?? ""}`} style={props.style}>
+        <div ref={containerRef} class={`flex items-center justify-center text-xs text-dimmed ${props.class ?? ""}`} style={chartStyle()}>
           No data
         </div>
       }
@@ -260,24 +495,53 @@ const Chart = (props: ChartProps): JSX.Element => {
       <div
         ref={containerRef}
         class={`relative block ${
-          interactiveMap() ? (dragging() ? "cursor-grabbing select-none" : "cursor-grab") : ""
+          draggable() ? (dragging() ? "cursor-grabbing select-none" : "cursor-grab") : interactiveLine() ? "cursor-crosshair" : ""
         } ${props.class ?? ""}`}
-        style={props.style}
+        style={chartStyle()}
         role="group"
-        aria-label={interactiveMap() ? "Interactive map" : undefined}
-        tabIndex={interactiveMap() ? 0 : undefined}
+        aria-label={
+          interactiveMap()
+            ? "Interactive map"
+            : interactiveTimeline()
+              ? "Interactive timeline"
+              : interactiveLine()
+                ? "Interactive line chart"
+                : undefined
+        }
+        tabIndex={interactive() ? 0 : undefined}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={stopDragging}
         onPointerCancel={stopDragging}
+        onPointerOver={(event) => showTimelineTooltip(event.target as Element)}
+        onPointerOut={(event) => {
+          const trigger = (event.target as Element).closest("[data-chart-tooltip]");
+          if (trigger && !trigger.contains(event.relatedTarget as Node | null)) closeChartTooltip();
+        }}
+        onPointerLeave={closeChartTooltip}
+        onFocusIn={(event) => {
+          if (interactiveLine()) showLinePoint(lineXValues().length - 1);
+          else showTimelineTooltip(event.target as Element);
+        }}
+        onFocusOut={closeChartTooltip}
         onWheel={handleWheel}
         onKeyDown={handleKeyDown}
       >
         <div
           class="h-full w-full"
-          innerHTML={renderSvg(props, size().width, size().height, interactiveMap() ? mapViewport() : undefined)}
+          innerHTML={renderSvg(
+            props,
+            size().width,
+            size().height,
+            interactiveMap() ? mapViewport() : undefined,
+            interactiveTimeline() ? timelineViewport() : undefined,
+          )}
         />
-        <Show when={interactiveMap()}>
+        <Show when={interactiveTimeline() || interactiveLine()}>
+          <span ref={lineAnchorRef} class="pointer-events-none absolute size-px" aria-hidden="true" />
+          <span ref={chartTooltipRef} role="tooltip" popover="manual" class="tooltip-surface" />
+        </Show>
+        <Show when={draggable()}>
           <div class="absolute right-2 top-2 z-10 flex items-center gap-1">
             <button type="button" class="icon-btn bg-[var(--ui-field)]" aria-label="Zoom in" title="Zoom in (+)" onClick={() => zoom(1)}>
               <i class="ti ti-plus" aria-hidden="true" />
@@ -288,8 +552,8 @@ const Chart = (props: ChartProps): JSX.Element => {
             <button
               type="button"
               class="icon-btn bg-[var(--ui-field)]"
-              aria-label="Reset map view"
-              title="Reset map view (0)"
+              aria-label={interactiveMap() ? "Reset map view" : "Reset timeline view"}
+              title={interactiveMap() ? "Reset map view (0)" : "Reset timeline view (0)"}
               onClick={reset}
             >
               <i class="ti ti-focus-centered" aria-hidden="true" />

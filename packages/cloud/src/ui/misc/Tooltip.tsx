@@ -1,6 +1,7 @@
 import { type JSX, onCleanup, onMount, type ParentProps } from "solid-js";
+import { positionTooltipSurface, type TooltipPlacement } from "./tooltip-position";
 
-export type TooltipPlacement = "top" | "bottom";
+export type { TooltipPlacement } from "./tooltip-position";
 
 export type TooltipProps = ParentProps<{
   content: JSX.Element;
@@ -9,9 +10,6 @@ export type TooltipProps = ParentProps<{
   disabled?: boolean;
   class?: string;
 }>;
-
-const VIEWPORT_PADDING = 8;
-const TRIGGER_GAP = 6;
 
 /** Non-interactive hint for an existing control. Use a popover when the content contains actions. */
 export default function Tooltip(props: TooltipProps) {
@@ -44,37 +42,7 @@ export default function Tooltip(props: TooltipProps) {
 
   const position = () => {
     if (!tooltipRef.matches(":popover-open")) return;
-    const triggerRect = targetRef.getBoundingClientRect();
-    const initialTooltipRect = tooltipRef.getBoundingClientRect();
-    const initialLeft = Math.max(
-      VIEWPORT_PADDING,
-      Math.min(
-        triggerRect.left + triggerRect.width / 2 - initialTooltipRect.width / 2,
-        window.innerWidth - initialTooltipRect.width - VIEWPORT_PADDING,
-      ),
-    );
-    tooltipRef.style.left = `${Math.round(initialLeft)}px`;
-
-    // Positioning fixes the available width. Measure again so wrapped content
-    // cannot leave the tooltip vertically offset from its trigger.
-    const tooltipRect = tooltipRef.getBoundingClientRect();
-    const topPosition = triggerRect.top - tooltipRect.height - TRIGGER_GAP;
-    const bottomPosition = triggerRect.bottom + TRIGGER_GAP;
-    const preferTop = (props.placement ?? "top") === "top";
-    const topFits = topPosition >= VIEWPORT_PADDING;
-    const bottomFits = bottomPosition + tooltipRect.height <= window.innerHeight - VIEWPORT_PADDING;
-    const useTop = preferTop ? topFits || !bottomFits : !bottomFits && topFits;
-    const left = Math.max(
-      VIEWPORT_PADDING,
-      Math.min(triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2, window.innerWidth - tooltipRect.width - VIEWPORT_PADDING),
-    );
-    const desiredTop = useTop ? topPosition : bottomPosition;
-    const maxTop = Math.max(VIEWPORT_PADDING, window.innerHeight - tooltipRect.height - VIEWPORT_PADDING);
-    const top = Math.max(VIEWPORT_PADDING, Math.min(desiredTop, maxTop));
-
-    tooltipRef.style.left = `${Math.round(left)}px`;
-    tooltipRef.style.top = `${Math.round(top)}px`;
-    tooltipRef.dataset.placement = useTop ? "top" : "bottom";
+    positionTooltipSurface(tooltipRef, targetRef, props.placement);
   };
 
   const open = () => {

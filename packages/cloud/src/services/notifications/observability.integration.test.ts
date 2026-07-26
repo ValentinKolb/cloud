@@ -21,7 +21,6 @@ const suite = (await canUseNotificationDatabase()) ? describe : describe.skip;
 
 suite("notification observability", () => {
   test("filters metadata-only deliveries and reports the durable definition registry", async () => {
-
     const suffix = crypto.randomUUID();
     const appId = `notification-observability-${suffix}`;
     const definitionId = `${appId}.completed`;
@@ -80,6 +79,15 @@ suite("notification observability", () => {
         }),
       );
       expect(deliveries.items[0] && "body" in deliveries.items[0]).toBe(false);
+
+      const filter = { appIds: [appId], channels: ["browser"], statuses: ["failed"] as const };
+      const summary = await notificationObservability.deliveries.summary({ days: 7, filter });
+      expect(summary).toMatchObject({ total: 1, failed: 1, active: 0, delivered: 0 });
+      const timeseries = await notificationObservability.deliveries.timeseries({ days: 7, filter });
+      expect(timeseries.length).toBeGreaterThanOrEqual(28);
+      expect(timeseries.length).toBeLessThanOrEqual(30);
+      expect(timeseries.reduce((sum, point) => sum + point.total, 0)).toBe(1);
+      expect(timeseries.reduce((sum, point) => sum + point.failed, 0)).toBe(1);
 
       const registry = await notificationObservability.registry.list({ filter: { appIds: [appId], active: true } });
       expect(registry.total).toBe(1);
