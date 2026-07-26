@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrate } from "../migrate";
 import { getWorkflowRunStats } from "./workflow-runs";
-import { insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
+import { deleteTestWorkflowScope, insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -117,6 +117,7 @@ describe("workflow run statistics integration", () => {
         latestStatus: "failed",
       });
     } finally {
+      await deleteTestWorkflowScope(baseId);
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }
   });

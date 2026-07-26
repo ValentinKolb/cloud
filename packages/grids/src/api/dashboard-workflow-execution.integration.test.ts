@@ -15,7 +15,7 @@ import type {
   invokeScannerLauncher as invokeScannerLauncherService,
 } from "../service/workflow-kernel-launchers";
 import { runGridsWorkflowRun } from "../service/workflow-kernel-runtime";
-import { insertTestWorkflow, insertTestWorkflowRun } from "../service/workflow-test-fixture";
+import { deleteTestWorkflowScope, insertTestWorkflow, insertTestWorkflowRun } from "../service/workflow-test-fixture";
 import { canReadDashboardForRequest, createDashboardsApi } from "./dashboards";
 import { createWorkflowsApi } from "./workflows";
 
@@ -248,6 +248,7 @@ const insertFixture = async (userId: string): Promise<DashboardWorkflowFixture> 
 };
 
 const cleanupFixture = async (fixture: DashboardWorkflowFixture): Promise<void> => {
+  await deleteTestWorkflowScope(fixture.baseId);
   await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
   for (const accessId of fixture.accessIds) {
     await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;

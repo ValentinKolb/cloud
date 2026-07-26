@@ -10,6 +10,7 @@ import { getTemplate as getDocumentTemplate } from "../service/document-template
 import { get as getRecord } from "../service/records";
 import { get as getTable } from "../service/tables";
 import { instantiate } from "../service/templates";
+import { deleteTestWorkflowScope } from "../service/workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
@@ -221,6 +222,7 @@ describe("built-in template instantiation", () => {
           expect(documentAudit?.action).toBe("document_template.created");
           await verifyRuntimeSurfaces(created.data.id, true);
         } finally {
+          await deleteTestWorkflowScope(created.data.id);
           await sql`DELETE FROM grids.bases WHERE id = ${created.data.id}::uuid`;
         }
 
@@ -234,6 +236,7 @@ describe("built-in template instantiation", () => {
         try {
           await verifyRuntimeSurfaces(empty.data.id, false);
         } finally {
+          await deleteTestWorkflowScope(empty.data.id);
           await sql`DELETE FROM grids.bases WHERE id = ${empty.data.id}::uuid`;
         }
       }

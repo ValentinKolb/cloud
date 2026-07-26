@@ -11,7 +11,7 @@ import {
   getTemplate,
   updateRunMetadata,
 } from "./documents";
-import { insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
+import { deleteTestWorkflowScope, insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 type Fixture = {
   actorId: string;
@@ -81,6 +81,7 @@ const cleanupFixture = async (fixture: Fixture): Promise<void> => {
   await sql`DELETE FROM grids.audit_log WHERE base_id = ${fixture.baseId}::uuid`;
   await sql`DELETE FROM grids.document_runs WHERE base_id = ${fixture.baseId}::uuid`;
   await sql`DELETE FROM grids.record_snapshots WHERE base_id = ${fixture.baseId}::uuid`;
+  await deleteTestWorkflowScope(fixture.baseId);
   await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
   await sql`DELETE FROM auth.users WHERE id = ${fixture.actorId}::uuid`;
 };

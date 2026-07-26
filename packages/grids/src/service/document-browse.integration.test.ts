@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { browseRunsForTemplate, listRunsForRecord, listRunsForTemplate, listRunsForWorkflowRun } from "./document-browse";
-import { insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
+import { deleteTestWorkflowScope, insertTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 type Fixture = {
   baseId: string;
@@ -78,6 +78,7 @@ const insertFixture = async (): Promise<Fixture> => {
 const cleanupFixture = async (fixture: Fixture): Promise<void> => {
   await sql`DELETE FROM grids.document_runs WHERE template_id = ${fixture.templateId}::uuid`;
   await sql`DELETE FROM grids.record_snapshots WHERE id = ${fixture.snapshotId}::uuid`;
+  await deleteTestWorkflowScope(fixture.baseId);
   await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
 };
 

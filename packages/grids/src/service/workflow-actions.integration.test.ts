@@ -18,7 +18,7 @@ import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-kernel-runtime";
 import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
-import { insertTestWorkflow, publishTestWorkflowVersion } from "./workflow-test-fixture";
+import { deleteTestWorkflowScope, insertTestWorkflow, publishTestWorkflowVersion } from "./workflow-test-fixture";
 
 type Fixture = {
   actorId: string;
@@ -107,6 +107,7 @@ const insertFixture = async (fixture: Fixture): Promise<void> => {
 
 const cleanupFixture = async (fixture: Fixture): Promise<void> => {
   await sql`DELETE FROM grids.audit_log WHERE base_id = ${fixture.baseId}::uuid`;
+  await deleteTestWorkflowScope(fixture.baseId);
   await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
   await sql`DELETE FROM workflows.workflow WHERE id = ${fixture.workflowId}::uuid`;
   await sql`DELETE FROM auth.access WHERE user_id = ${fixture.actorId}::uuid`;

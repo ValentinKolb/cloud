@@ -131,6 +131,19 @@ export const deleteTestWorkflow = async (id: string): Promise<void> => {
   `;
 };
 
+/**
+ * Drops everything the kernel holds for one base.
+ *
+ * Deleting `grids.bases` cascades the Grids profile, but nothing in the kernel
+ * references a Grids table — deliberately, so the kernel does not depend on its
+ * apps. A test that only drops its base therefore leaves the workflow, its
+ * versions, activations, events and runs behind in a database every other test
+ * shares, and they accumulate run after run.
+ */
+export const deleteTestWorkflowScope = async (baseId: string): Promise<void> => {
+  await sql`DELETE FROM workflows.workflow WHERE app_id = 'grids' AND scope_id = ${baseId}`;
+};
+
 /** Renames it. The name lives on the kernel row, not on the profile. */
 export const renameTestWorkflow = async (id: string, name: string): Promise<void> => {
   await sql`UPDATE workflows.workflow SET name = ${name}, updated_at = now() WHERE id = ${id}::uuid`;

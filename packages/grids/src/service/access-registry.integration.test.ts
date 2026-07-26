@@ -17,7 +17,7 @@ import {
   resolveAccessBinding,
   resolveResourceBinding,
 } from "./access";
-import { insertTestWorkflow } from "./workflow-test-fixture";
+import { deleteTestWorkflowScope, insertTestWorkflow } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const uuid = () => Bun.randomUUIDv7();
@@ -79,6 +79,7 @@ const resources = (item: Fixture): Array<{ type: AccessBinding["resourceType"]; 
 
 const cleanup = async (item: Fixture, accessIds: string[]) => {
   await sql`DELETE FROM grids.audit_log WHERE base_id = ${item.baseId}::uuid`;
+  await deleteTestWorkflowScope(item.baseId);
   await sql`DELETE FROM grids.bases WHERE id = ${item.baseId}::uuid`;
   for (const accessId of accessIds) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
 };

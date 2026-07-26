@@ -7,7 +7,7 @@ import {
   getOrCreateWorkflowEmailDeliveryIntent,
   getWorkflowEmailDeliveryIntent,
 } from "./workflow-email-deliveries";
-import { insertTestWorkflow } from "./workflow-test-fixture";
+import { deleteTestWorkflowScope, insertTestWorkflow } from "./workflow-test-fixture";
 
 type Fixture = {
   baseId: string;
@@ -68,6 +68,7 @@ describe("workflow email delivery intents integration", () => {
         "does not match the interrupted step",
       );
     } finally {
+      await deleteTestWorkflowScope(fixture.baseId);
       await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
     }
   });
@@ -101,6 +102,7 @@ describe("workflow email delivery intents integration", () => {
         finishWorkflowEmailDeliveryIntent(testUuid(), { notificationId: null, providerStatus: "missing", status: "failed" }),
       ).rejects.toThrow("not found");
     } finally {
+      await deleteTestWorkflowScope(fixture.baseId);
       await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
     }
   });
@@ -116,6 +118,7 @@ describe("workflow email delivery intents integration", () => {
       `;
       expect(count).toBe(1);
     } finally {
+      await deleteTestWorkflowScope(fixture.baseId);
       await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
     }
   });

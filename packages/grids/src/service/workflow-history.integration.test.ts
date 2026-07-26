@@ -4,7 +4,7 @@ import { migrate } from "../migrate";
 import { createWorkflow, listWorkflows } from "./workflow-definitions";
 import { listWorkflowEmailDeliveriesPage } from "./workflow-email-deliveries";
 import { getWorkflowRunStats, listWorkflowRunsPage } from "./workflow-runs";
-import { deleteTestWorkflow, insertTestWorkflowRun } from "./workflow-test-fixture";
+import { deleteTestWorkflow, deleteTestWorkflowScope, insertTestWorkflowRun } from "./workflow-test-fixture";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const uuid = () => Bun.randomUUIDv7();
@@ -62,6 +62,7 @@ describe("workflow history integration", () => {
       expect(stats.total).toBe(1);
       expect(stats.succeeded).toBe(1);
     } finally {
+      await deleteTestWorkflowScope(baseId);
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
     }
   });
