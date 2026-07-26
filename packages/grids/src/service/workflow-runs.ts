@@ -321,10 +321,20 @@ export const getWorkflowRunScope = async (runId: string, client?: SqlClient): Pr
  * worker is how an effect ends up performed by a run that claims it was
  * cancelled before it happened.
  */
-export const cancelWorkflowRun = async (runId: string, actorUserId: string | null): Promise<GridsWorkflowRun | null> => {
+/**
+ * `notFound` and `notCancelable` are separate answers on purpose: the kernel
+ * refuses a terminal run by changing no rows, and reporting that as success
+ * tells somebody their finished run was just cancelled.
+ */
+export type CancelWorkflowRunOutcome =
+  | { state: "canceled"; run: GridsWorkflowRun }
+  | { state: "notFound" }
+  | { state: "notCancelable"; run: GridsWorkflowRun };
+
+export const cancelWorkflowRun = async (runId: string, actorUserId: string | null): Promise<CancelWorkflowRunOutcome> => {
   const run = await getWorkflowRun(runId);
-  if (!run) return null;
-  if (!(await requestWorkflowRunCancel(runId))) return run;
+  if (!run) return { state: "notFound" };
+  if (!(await requestWorkflowRunCancel(runId))) return { state: "notCancelable", run };
   await logAudit({
     baseId: run.baseId,
     userId: actorUserId,
@@ -343,7 +353,7 @@ export const cancelWorkflowRun = async (runId: string, actorUserId: string | nul
       },
     },
   });
-  return (await getWorkflowRun(runId)) ?? run;
+  return { state: "canceled", run: (await getWorkflowRun(runId)) ?? run };
 };
 
 // ─── Provenance and statistics ───────────────────────────────────────────────

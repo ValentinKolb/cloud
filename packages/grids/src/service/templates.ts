@@ -1,5 +1,6 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { parseDataUrl } from "@valentinkolb/cloud/shared";
+import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { documentTemplateStarterById } from "../document-template-starters";
@@ -19,6 +20,7 @@ import type { Base, Field } from "./types";
 import * as views from "./views";
 import { createWorkflow } from "./workflow-definitions";
 import { createLauncher } from "./workflow-launchers";
+import { GRIDS_APP_ID } from "./workflow-runs";
 
 const log = logger("grids:templates");
 
@@ -517,6 +519,11 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
     }
     return ok(resultBase);
   } catch (error) {
+    // Nothing in the kernel references a Grids table, so dropping the base does
+    // not cascade into it. Without this every failed instantiation leaves the
+    // template's workflows, versions and activations behind for good — with an
+    // enabled `grids.invoked` activation pointing at a base that is gone.
+    await deleteWorkflowScope({ appId: GRIDS_APP_ID, scopeId: base.id }).catch(() => {});
     await sql`DELETE FROM grids.bases WHERE id = ${base.id}::uuid`.catch(() => {});
     log.error("Template instantiation failed", {
       templateId,

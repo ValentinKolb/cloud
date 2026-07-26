@@ -10,8 +10,10 @@
  * compilation — a test asserting run behaviour should not also depend on its
  * source compiling.
  */
+import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
 import { type SQL, sql } from "bun";
 import { GRIDS_EVENT } from "../workflows/events";
+import { GRIDS_APP_ID } from "./workflow-runs";
 
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
 
@@ -141,7 +143,7 @@ export const deleteTestWorkflow = async (id: string): Promise<void> => {
  * shares, and they accumulate run after run.
  */
 export const deleteTestWorkflowScope = async (baseId: string): Promise<void> => {
-  await sql`DELETE FROM workflows.workflow WHERE app_id = 'grids' AND scope_id = ${baseId}`;
+  await deleteWorkflowScope({ appId: GRIDS_APP_ID, scopeId: baseId });
 };
 
 /** Renames it. The name lives on the kernel row, not on the profile. */

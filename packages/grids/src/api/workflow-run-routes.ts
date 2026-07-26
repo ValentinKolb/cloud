@@ -230,9 +230,12 @@ export const createWorkflowRunRoutes = () =>
         if (!workflow) return c.json({ message: "Workflow run not found" }, 404);
         const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "write");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const canceled = await cancelWorkflowRun(runId, currentActorUserId(c));
-        if (!canceled) return c.json({ message: "Only queued, running, or waiting runs can be canceled." }, 400);
-        return c.json(canceled);
+        const outcome = await cancelWorkflowRun(runId, currentActorUserId(c));
+        if (outcome.state === "notFound") return c.json({ message: "Workflow run not found" }, 404);
+        if (outcome.state === "notCancelable") {
+          return c.json({ message: "Only queued, running, or waiting runs can be canceled." }, 400);
+        }
+        return c.json(outcome.run);
       },
     )
     .get(
