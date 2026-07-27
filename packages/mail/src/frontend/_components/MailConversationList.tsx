@@ -305,29 +305,31 @@ export default function MailConversationList(props: {
         </Show>
         <Show when={healthPresentation()}>
           {(health) => (
-            <div
-              class={`info-block-${health().tone} flex items-center justify-between gap-3 text-xs`}
-              role="status"
-              data-mailbox-health={props.mailbox.health}
-            >
-              <span class="flex min-w-0 items-start gap-2">
+            <div class={`info-block-${health().tone} text-xs`} role="status" data-mailbox-health={props.mailbox.health}>
+              <div class="flex min-w-0 items-start gap-2">
                 <i
                   class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
                   aria-hidden="true"
                 />
-                <span>
-                  <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
-                </span>
-              </span>
-              <Show when={props.canAdmin && health().action && health().actionLabel}>
-                <button
-                  type="button"
-                  class="btn-secondary btn-sm shrink-0"
-                  onClick={() => (health().action === "delivery" ? props.onOpenDeliverySettings() : props.onOpenHealth())}
-                >
-                  {health().actionLabel}
-                </button>
-              </Show>
+                <div class="min-w-0">
+                  <p>
+                    <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
+                  </p>
+                  <Show when={props.canAdmin && health().action && health().actionLabel}>
+                    <button
+                      type="button"
+                      class="k2b-status-badge focus-ui mt-2 cursor-pointer transition-colors hover:bg-[var(--ui-hover)]"
+                      data-tone="neutral"
+                      aria-label={health().actionLabel ?? undefined}
+                      title={health().actionLabel ?? undefined}
+                      onClick={() => (health().action === "delivery" ? props.onOpenDeliverySettings() : props.onOpenHealth())}
+                    >
+                      <i class="ti ti-activity" aria-hidden="true" />
+                      {health().action === "health" ? "Status" : health().actionLabel}
+                    </button>
+                  </Show>
+                </div>
+              </div>
             </div>
           )}
         </Show>
