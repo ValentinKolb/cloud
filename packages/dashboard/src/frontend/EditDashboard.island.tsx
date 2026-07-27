@@ -1,19 +1,19 @@
 import type { DashboardWidgetSpan, DashboardWidgetZone } from "@valentinkolb/cloud/contracts";
 import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
-import { IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, toast, Tooltip } from "@valentinkolb/cloud/ui";
+import { IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import {
+  DASHBOARD_MAX_HREF_LENGTH,
+  DASHBOARD_MAX_TITLE_LENGTH,
   type DashboardAppSummary,
   type DashboardLegalLink,
   type DashboardSettings,
   type DashboardShortcut,
   type DashboardWidgetLayoutOverride,
   type DashboardWidgetSummary,
-  DASHBOARD_MAX_HREF_LENGTH,
-  DASHBOARD_MAX_TITLE_LENGTH,
   isSafeDashboardShortcutHref,
   normalizeDashboardShortcutHref,
   resolveDashboardWidgetLayout,
@@ -48,22 +48,16 @@ const saveSettings = async (settings: DashboardSettings): Promise<void> => {
 const isExternalHref = (href: string): boolean => /^https?:\/\//i.test(href);
 
 const ShortcutBadge = (props: { icon: string; title: string; href?: string; accent?: boolean; onClick?: () => void }) => {
-  const iconClass = () => {
-    if (props.accent) return "app-accent-text";
-    return "bg-[var(--ui-surface-muted)] text-secondary";
-  };
+  const iconClass = () => (props.accent ? "app-accent-text" : "text-dimmed");
   const content = (
     <>
-      <span
-        class={`grid h-7 w-7 shrink-0 place-items-center rounded-[var(--ui-radius-control)] text-sm ${iconClass()}`}
-        style={props.accent ? "background-color: color-mix(in srgb, var(--app-accent) 12%, var(--ui-surface))" : undefined}
-      >
+      <span class={`grid h-5 w-5 shrink-0 place-items-center text-sm ${iconClass()}`}>
         <i class={props.icon} />
       </span>
       <span class="max-w-36 truncate text-sm font-medium text-primary">{props.title}</span>
     </>
   );
-  const className = "btn-input btn-input-sm h-9 max-w-full gap-2 px-1.5 pr-2.5";
+  const className = "btn-input btn-input-sm h-9 max-w-full gap-2 px-2.5";
 
   return props.href ? (
     <a
@@ -169,9 +163,7 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
     return "Use an HTTPS URL, an internal path beginning with /, or a mailto link.";
   };
   const canSubmit = () =>
-    kind() === "app"
-      ? Boolean(appId())
-      : title().trim().length > 0 && href().trim().length > 0 && hrefError() === undefined;
+    kind() === "app" ? Boolean(appId()) : title().trim().length > 0 && href().trim().length > 0 && hrefError() === undefined;
 
   const save = mutations.create<void, void>({
     mutation: async () => {

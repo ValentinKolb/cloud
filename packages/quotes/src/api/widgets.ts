@@ -28,10 +28,10 @@ const app = new Hono().get("/quote", async (c) => {
         icon: "ti ti-quote",
         blocks: [
           {
-            kind: "hero",
+            kind: "placeholder",
             icon: "ti ti-cloud-off",
             title: "No quote right now",
-            subtitle: "Provider unreachable — try again in a minute",
+            description: "Provider unreachable — try again in a minute",
           },
         ],
       };

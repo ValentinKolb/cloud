@@ -2,12 +2,12 @@ import { type DashboardWidget, listApps, listLegalLinks, listWidgets } from "@va
 import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
 import { type AppRegistryEntry, hasRole, type Role, type User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { logger } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Placeholder, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { dashboardHelp } from "@/help";
 import { ssr } from "../config";
 import { dashboardSettingsService } from "../service";
@@ -136,9 +136,27 @@ const renderBlock = (block: WidgetBlock): JSX.Element => {
     case "list":
       return <WidgetList items={block.items} emptyMessage={block.emptyMessage} grow={block.grow} />;
     case "status":
-      return <WidgetStatus tone={block.tone} title={block.title} message={block.message} icon={block.icon} grow={block.grow} />;
+      return (
+        <div class="dashboard-widget-status">
+          <WidgetStatus tone={block.tone} title={block.title} message={block.message} icon={block.icon} grow={block.grow} />
+        </div>
+      );
     case "pills":
-      return <WidgetPills pills={block.pills} grow={block.grow} />;
+      return (
+        <div class="dashboard-widget-pills">
+          <WidgetPills pills={block.pills} grow={block.grow} />
+        </div>
+      );
+    case "placeholder":
+      return (
+        <Placeholder
+          title={block.title}
+          description={block.description}
+          icon={block.icon}
+          variant="compact"
+          class="dashboard-widget-placeholder flex-1 justify-center"
+        />
+      );
     case "hero":
       return <WidgetHero title={block.title} subtitle={block.subtitle} icon={block.icon} tone={block.tone} />;
     default: {

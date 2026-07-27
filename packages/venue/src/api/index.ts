@@ -211,7 +211,7 @@ const widgetRoutes = new Hono<AuthContext>().get("/today", auth.requireRole("aut
               },
             ],
           }
-        : { kind: "hero", title: "No upcoming shifts", icon: "ti ti-calendar-off", tone: "zinc" },
+        : { kind: "placeholder", title: "No upcoming shifts", icon: "ti ti-calendar-off" },
     ],
   };
   return respond(c, ok(response));

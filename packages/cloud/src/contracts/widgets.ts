@@ -93,9 +93,20 @@ export type WidgetPillsBlock = {
 };
 
 /**
+ * Compact empty state for unavailable or absent widget content.
+ * The dashboard renders this through the shared Core Placeholder component.
+ */
+export type WidgetPlaceholderBlock = {
+  kind: "placeholder";
+  title: string;
+  description?: string;
+  /** Tabler icon class shown above the title. */
+  icon?: string;
+};
+
+/**
  * Hero block — single big centred message. Use for spotlight content like a
- * quote, a single weather location, or empty-state messages ("All clear",
- * "No locations saved yet"). Always grows to fill available space.
+ * quote or a single weather location. Always grows to fill available space.
  */
 export type WidgetHeroBlock = {
   kind: "hero";
@@ -110,7 +121,13 @@ export type WidgetHeroBlock = {
 };
 
 /** Discriminated union of every block type the dashboard can render. */
-export type WidgetBlock = WidgetStatBlock | WidgetListBlock | WidgetStatusBlock | WidgetPillsBlock | WidgetHeroBlock;
+export type WidgetBlock =
+  | WidgetStatBlock
+  | WidgetListBlock
+  | WidgetStatusBlock
+  | WidgetPillsBlock
+  | WidgetPlaceholderBlock
+  | WidgetHeroBlock;
 
 /**
  * Top-level shape returned by a widget endpoint. The dashboard renders the
