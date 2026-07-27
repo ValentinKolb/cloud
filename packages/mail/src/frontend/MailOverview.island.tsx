@@ -1,7 +1,7 @@
 import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { listenPopState, navigate, navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type { DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";
 import { readApiError } from "./_components/api-response";
@@ -18,12 +18,31 @@ export default function MailOverview(props: {
   currentUserEmail: string | null;
 }) {
   const [query, setQuery] = createSignal(props.initialQuery);
+  const [mailboxes, setMailboxes] = createSignal(props.mailboxes);
   const [deletedMailboxes, setDeletedMailboxes] = createSignal(props.deletedMailboxes);
   const [deletedCursor, setDeletedCursor] = createSignal(props.initialDeletedCursor);
-  const filtered = createMemo(() => {
-    const normalized = query().trim().toLowerCase();
-    if (!normalized) return props.mailboxes;
-    return props.mailboxes.filter((mailbox) => `${mailbox.name} ${mailbox.description ?? ""}`.toLowerCase().includes(normalized));
+  let queryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const mailboxSearch = mutations.create<
+    MailboxWithPermission[],
+    { query: string; href: string; history: "replace" | "none" },
+    { href: string; history: "replace" | "none" }
+  >({
+    onBefore: ({ href, history }) => ({ href, history }),
+    mutation: async ({ query }, { abortSignal }) => {
+      const response = await apiClient.mailboxes.$get(
+        { query: { limit: "200", q: query.trim() || undefined } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to search mailboxes"));
+      const items = await response.json();
+      return items.filter((mailbox): mailbox is MailboxWithPermission => mailbox.permission !== "none");
+    },
+    onSuccess: (items, context) => {
+      setMailboxes(items);
+      if (context?.history === "replace") navigate(context.href, { replace: true, scroll: "preserve" });
+    },
+    onError: (error) => toast.error(error.message),
   });
 
   const createMailbox = mutations.create<Mailbox | null, void>({
@@ -104,24 +123,45 @@ export default function MailOverview(props: {
     onError: (error) => prompts.error(error.message),
   });
   onCleanup(() => {
+    if (queryTimer) clearTimeout(queryTimer);
+    mailboxSearch.abort();
     createMailbox.abort();
     restoreMailbox.abort();
     loadDeletedMailboxes.abort();
   });
 
-  const updateQuery = (value: string) => {
-    setQuery(value);
+  const queryHref = (value: string): string => {
     const url = new URL(window.location.href);
     if (value.trim()) url.searchParams.set("q", value.trim());
     else url.searchParams.delete("q");
-    window.history.replaceState({}, "", url);
+    return `${url.pathname}${url.search}`;
   };
+  const loadQuery = (value: string, history: "replace" | "none") => {
+    setQuery(value);
+    void mailboxSearch.mutate({ query: value, href: queryHref(value), history });
+  };
+  const updateQuery = (value: string) => {
+    setQuery(value);
+    if (queryTimer) clearTimeout(queryTimer);
+    queryTimer = setTimeout(() => {
+      queryTimer = null;
+      loadQuery(value, "replace");
+    }, 200);
+  };
+  onMount(() => {
+    const stop = listenPopState(({ url }) => {
+      if (queryTimer) clearTimeout(queryTimer);
+      queryTimer = null;
+      loadQuery(url.searchParams.get("q") ?? "", "none");
+    });
+    onCleanup(stop);
+  });
 
   return (
     <AppOverview title="Mail" subtitle="Shared mailboxes with durable search, synchronization, and delivery." icon="ti ti-mail">
       <AppOverview.Main
         title="Your mailboxes"
-        description={`${props.mailboxes.length} mailbox${props.mailboxes.length === 1 ? "" : "es"} available`}
+        description={`${mailboxes().length} mailbox${mailboxes().length === 1 ? "" : "es"} available`}
         toolbar={
           <TextInput
             type="search"
@@ -132,58 +172,66 @@ export default function MailOverview(props: {
             activeIcon="ti ti-search"
             value={query}
             onInput={updateQuery}
+            suffix={
+              <Show when={mailboxSearch.loading()}>
+                <i class="ti ti-loader-2 animate-spin text-dimmed" aria-hidden="true" />
+              </Show>
+            }
             clearable
             onClear={() => updateQuery("")}
           />
         }
       >
         <Show
-          when={props.mailboxes.length > 0}
+          when={mailboxes().length > 0}
           fallback={
             <AppOverview.EmptyState
-              title="No mailboxes yet"
-              description="Create a mailbox, then connect its IMAP and SMTP provider."
-              icon="ti ti-mail-off"
+              title={query().trim() ? "No matching mailboxes" : "No mailboxes yet"}
+              description={query().trim() ? "Try a different search term." : "Create a mailbox, then connect its IMAP and SMTP provider."}
+              icon={query().trim() ? "ti ti-search" : "ti ti-mail-off"}
               class="min-h-72"
             >
-              <button type="button" class="btn-secondary btn-sm" onClick={() => createMailbox.mutate()} disabled={createMailbox.loading()}>
-                <i class="ti ti-mail-plus" aria-hidden="true" /> Create mailbox
-              </button>
-            </AppOverview.EmptyState>
-          }
-        >
-          <Show
-            when={filtered().length > 0}
-            fallback={
-              <AppOverview.EmptyState title="No matching mailboxes" description="Try a different search term." icon="ti ti-search">
+              <Show
+                when={query().trim()}
+                fallback={
+                  <button
+                    type="button"
+                    class="btn-secondary btn-sm"
+                    onClick={() => createMailbox.mutate()}
+                    disabled={createMailbox.loading()}
+                  >
+                    <i class="ti ti-mail-plus" aria-hidden="true" /> Create mailbox
+                  </button>
+                }
+              >
                 <button type="button" class="btn-secondary btn-sm" onClick={() => updateQuery("")}>
                   <i class="ti ti-x" aria-hidden="true" /> Clear search
                 </button>
-              </AppOverview.EmptyState>
-            }
-          >
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <For each={filtered()}>
-                {(mailbox) => (
-                  <a
-                    href={`/app/mail/${mailbox.id}`}
-                    class="paper group flex items-center gap-3 p-4 no-underline transition-all hover:paper-highlighted"
-                    style={`view-transition-name: mail-mailbox-${mailbox.id}`}
-                  >
-                    <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
-                      <i class="ti ti-mail text-lg text-[var(--app-accent)]" aria-hidden="true" />
-                    </span>
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate text-sm font-semibold text-primary">{mailbox.name}</span>
-                      <span class="block truncate text-xs text-dimmed">{mailbox.description || mailbox.health.replaceAll("_", " ")}</span>
-                    </span>
-                    <span class={`badge ${mailbox.health === "active" ? "badge-success" : ""}`}>{mailbox.permission}</span>
-                    <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-                  </a>
-                )}
-              </For>
-            </div>
-          </Show>
+              </Show>
+            </AppOverview.EmptyState>
+          }
+        >
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <For each={mailboxes()}>
+              {(mailbox) => (
+                <a
+                  href={`/app/mail/${mailbox.id}`}
+                  class="paper group flex items-center gap-3 p-4 no-underline transition-all hover:paper-highlighted"
+                  style={`view-transition-name: mail-mailbox-${mailbox.id}`}
+                >
+                  <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                    <i class="ti ti-mail text-lg text-[var(--app-accent)]" aria-hidden="true" />
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-semibold text-primary">{mailbox.name}</span>
+                    <span class="block truncate text-xs text-dimmed">{mailbox.description || mailbox.health.replaceAll("_", " ")}</span>
+                  </span>
+                  <span class={`badge ${mailbox.health === "active" ? "badge-success" : ""}`}>{mailbox.permission}</span>
+                  <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                </a>
+              )}
+            </For>
+          </div>
         </Show>
       </AppOverview.Main>
 

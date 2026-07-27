@@ -1,22 +1,14 @@
+import {
+  CONTACTS_MAIL_SUGGESTIONS_PATH,
+  type ContactMailSuggestion,
+  ContactMailSuggestionsResponseSchema,
+} from "@valentinkolb/cloud-app-contacts/integration";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { z } from "zod";
 import { formatMailRecipient, parseMailRecipient, parseMailRecipients } from "./mail-recipient";
-
-const searchResponseSchema = z.object({
-  data: z.array(
-    z.object({
-      label: z.string().nullable(),
-      firstName: z.string().nullable(),
-      lastName: z.string().nullable(),
-      companyName: z.string().nullable(),
-      emails: z.array(z.object({ email: z.email() })),
-    }),
-  ),
-});
 
 type RecipientSuggestion = { label: string; address: string };
 
-const displayName = (contact: z.infer<typeof searchResponseSchema>["data"][number]): string =>
+const displayName = (contact: ContactMailSuggestion): string =>
   contact.label ||
   [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
   contact.companyName ||
@@ -68,9 +60,9 @@ export default function MailRecipientInput(props: {
       controller = request;
       try {
         const params = new URLSearchParams({ q: value, email: "yes", per_page: "8", page: "1" });
-        const response = await fetch(`/api/contacts/search?${params}`, { signal: request.signal });
+        const response = await fetch(`${CONTACTS_MAIL_SUGGESTIONS_PATH}?${params}`, { signal: request.signal });
         if (!response.ok) throw new Error("Contacts unavailable");
-        const result = searchResponseSchema.parse(await response.json());
+        const result = ContactMailSuggestionsResponseSchema.parse(await response.json());
         if (disposed || controller !== request) return;
         const seen = new Set<string>();
         setSuggestions(

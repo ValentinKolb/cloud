@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const CONTACTS_MAIL_RESOLVE_PATH = "/api/contacts/integrations/mail/resolve-participants";
+export const CONTACTS_MAIL_SUGGESTIONS_PATH = "/api/contacts/search";
 export const CONTACTS_CREATE_PATH = "/app/contacts";
 export const CONTACTS_CREATE_QUERY_KEYS = ["createContact", "email", "name"] as const;
 
@@ -52,6 +53,18 @@ export const ResolveMailParticipantsResponseSchema = z
   })
   .strict();
 
+export const ContactMailSuggestionSchema = z.object({
+  label: z.string().nullable(),
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
+  companyName: z.string().nullable(),
+  emails: z.array(z.object({ email: z.email() })),
+});
+
+export const ContactMailSuggestionsResponseSchema = z.object({
+  data: z.array(ContactMailSuggestionSchema),
+});
+
 export const ContactCreateSeedSchema = z
   .object({
     email: NormalizedParticipantEmailSchema,
@@ -78,6 +91,7 @@ export const parseContactCreateSeed = (query: URLSearchParams): ContactCreateSee
 export type ResolveMailParticipantsInput = z.infer<typeof ResolveMailParticipantsInputSchema>;
 export type ContactMailMatch = z.infer<typeof ContactMailMatchSchema>;
 export type ResolveMailParticipantsResponse = z.infer<typeof ResolveMailParticipantsResponseSchema>;
+export type ContactMailSuggestion = z.infer<typeof ContactMailSuggestionSchema>;
 export type ContactCreateSeed = z.infer<typeof ContactCreateSeedSchema>;
 
 export {

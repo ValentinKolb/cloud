@@ -28,12 +28,12 @@ import {
   createSavedConversationViewSchema,
   createSenderIdentityInputSchema,
   defaultSenderSetupInputSchema,
-  deleteSenderIdentityTransportInputSchema,
   deleteConversationCommentSchema,
   deleteSavedConversationViewSchema,
+  deleteSenderIdentityTransportInputSchema,
+  deriveDraftFromMessageInputSchema,
   draftContentInputSchema,
   draftEditableContentInputSchema,
-  deriveDraftFromMessageInputSchema,
   draftLeaseTokenSchema,
   mailCommandInputSchema,
   mailConversationContextQuerySchema,
@@ -113,6 +113,7 @@ const limitQuerySchema = z.object({
 });
 const mailboxListQuerySchema = limitQuerySchema.extend({
   name: z.string().trim().min(1).max(160).optional(),
+  q: z.string().trim().min(1).max(200).optional(),
 });
 const conversationDraftsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
@@ -356,7 +357,7 @@ const mailOperationsApi = new Hono<AuthContext>()
   })
   .get("/mailboxes", v("query", mailboxListQuerySchema), async (c) => {
     const query = c.req.valid("query");
-    return respond(c, mailboxes.listMailboxes(requestContext(c), query.limit, query.name));
+    return respond(c, mailboxes.listMailboxes(requestContext(c), query.limit, query.name, query.q));
   })
   .post("/mailboxes", v("json", createMailboxInputSchema), async (c) =>
     respond(c, mailboxes.createMailbox(requestContext(c), c.req.valid("json"))),
@@ -1219,17 +1220,13 @@ const mailOperationsApi = new Hono<AuthContext>()
     };
     return respond(c, messageInspector.inspectMessage({ context: requestContext(c), ...params }));
   })
-  .get(
-    "/mailboxes/:mailboxId/messages/:messageId/source-preview",
-    v("param", mailboxAndIdParamSchema("messageId")),
-    async (c) => {
-      const params = c.req.valid("param") as {
-        mailboxId: string;
-        messageId: string;
-      };
-      return respond(c, messageInspector.previewMessageSource({ context: requestContext(c), ...params }));
-    },
-  )
+  .get("/mailboxes/:mailboxId/messages/:messageId/source-preview", v("param", mailboxAndIdParamSchema("messageId")), async (c) => {
+    const params = c.req.valid("param") as {
+      mailboxId: string;
+      messageId: string;
+    };
+    return respond(c, messageInspector.previewMessageSource({ context: requestContext(c), ...params }));
+  })
   .get(
     "/mailboxes/:mailboxId/messages/:messageId/source",
     v("param", mailboxAndIdParamSchema("messageId")),

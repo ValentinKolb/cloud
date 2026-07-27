@@ -296,15 +296,23 @@ export const listMailboxes = async (
   context: MailRequestContext,
   limit = 100,
   exactName?: string,
+  search?: string,
 ): Promise<Result<Array<Mailbox & { permission: PermissionLevel }>>> => {
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 200);
   const normalizedExactName = exactName?.trim() || null;
+  const normalizedSearch = search?.trim() || null;
   if (context.actor.kind === "service_account" && context.actor.serviceAccount.kind === "resource_bound") {
     const mailboxId = context.actor.serviceAccount.resourceId;
     if (!mailboxId || !isResourceBoundToMailbox(context, mailboxId)) return ok([]);
     const mailbox = await getMailbox(context, mailboxId);
     if (!mailbox.ok) return mailbox.error.code === "FORBIDDEN" || mailbox.error.code === "NOT_FOUND" ? ok([]) : mailbox;
     if (normalizedExactName && mailbox.data.name !== normalizedExactName) return ok([]);
+    if (
+      normalizedSearch &&
+      !`${mailbox.data.name} ${mailbox.data.description ?? ""}`.toLocaleLowerCase().includes(normalizedSearch.toLocaleLowerCase())
+    ) {
+      return ok([]);
+    }
     const permission = await getMailboxPermission(context, mailboxId);
     return permission === "none" ? ok([]) : ok([{ ...mailbox.data, permission }]);
   }
@@ -326,6 +334,11 @@ export const listMailboxes = async (
     JOIN ranked ON ranked.mailbox_id = m.id AND ranked.permission_rank >= 1
     WHERE m.deleted_at IS NULL
       AND (${normalizedExactName}::text IS NULL OR m.name = ${normalizedExactName})
+      AND (
+        ${normalizedSearch}::text IS NULL
+        OR m.name ILIKE '%' || ${normalizedSearch} || '%'
+        OR coalesce(m.description, '') ILIKE '%' || ${normalizedSearch} || '%'
+      )
     ORDER BY m.updated_at DESC, m.id DESC
     LIMIT ${boundedLimit}
   `;

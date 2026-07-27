@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildContactCreateHref,
   ContactMailMatchSchema,
+  ContactMailSuggestionsResponseSchema,
   parseContactCreateSeed,
   ResolveMailParticipantsInputSchema,
   ResolveMailParticipantsResponseSchema,
@@ -10,6 +11,34 @@ import {
 const UUID = "11111111-1111-4111-8111-111111111111";
 
 describe("Contacts Mail integration contracts", () => {
+  test("parses the narrow Mail recipient suggestion contract", () => {
+    expect(
+      ContactMailSuggestionsResponseSchema.parse({
+        data: [
+          {
+            label: "Ada",
+            firstName: "Ada",
+            lastName: "Lovelace",
+            companyName: null,
+            emails: [{ email: "ada@example.com" }],
+            ignoredContactField: true,
+          },
+        ],
+        pagination: { page: 1 },
+      }),
+    ).toEqual({
+      data: [
+        {
+          label: "Ada",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          companyName: null,
+          emails: [{ email: "ada@example.com" }],
+        },
+      ],
+    });
+  });
+
   test("normalizes, de-duplicates, and bounds participant addresses", () => {
     expect(ResolveMailParticipantsInputSchema.parse({ emails: [" ADA@Example.COM ", "ada@example.com"] }).emails).toEqual([
       "ada@example.com",

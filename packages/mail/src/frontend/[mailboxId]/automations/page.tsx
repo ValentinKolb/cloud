@@ -5,10 +5,8 @@ import { mailHelp } from "../../../help";
 import type { MailRequestContext } from "../../../service";
 import { loadMailAutomationWorkspace } from "../../../service/automation-workspace";
 import MailLayoutHelp from "../../_components/help/MailLayoutHelp.island";
+import { resolveMailAutomationSection } from "../../_components/mail-automation-sections";
 import MailAutomationWorkspace from "../../MailAutomationWorkspace.island";
-
-const sections = new Set(["overview", "automatic-replies", "sender-rules", "workflows", "runs", "references"]);
-const adminSections = new Set(["sender-rules", "workflows", "runs", "references", "schedules"]);
 
 export default ssr<AuthContext>(async (c) => {
   const mailboxId = c.req.param("mailboxId") ?? "";
@@ -23,9 +21,7 @@ export default ssr<AuthContext>(async (c) => {
   };
   const result = await loadMailAutomationWorkspace(context, mailboxId);
   if (!result.ok) return c.redirect(`/app/mail/${mailboxId}`);
-  const requestedSection = c.req.query("section") ?? "overview";
-  const initialSection =
-    sections.has(requestedSection) && (!adminSections.has(requestedSection) || result.data.advanced) ? requestedSection : "overview";
+  const initialSection = resolveMailAutomationSection(c.req.query("section"), Boolean(result.data.advanced));
 
   return () => (
     <Layout

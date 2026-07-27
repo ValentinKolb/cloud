@@ -16,7 +16,8 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
-  const result = await mailboxes.listMailboxes(context, 200);
+  const query = c.req.query("q")?.trim() || undefined;
+  const result = await mailboxes.listMailboxes(context, 200, undefined, query);
   const deletedResult = await mailboxes.listDeletedMailboxes(context, { limit: 200 });
   const list = result.ok
     ? result.data.filter((mailbox): mailbox is typeof mailbox & { permission: "read" | "write" | "admin" } => mailbox.permission !== "none")
@@ -28,7 +29,7 @@ export default ssr<AuthContext>(async (c) => {
         mailboxes={list}
         deletedMailboxes={deletedResult.ok ? deletedResult.data.items : []}
         initialDeletedCursor={deletedResult.ok ? deletedResult.data.nextCursor : null}
-        initialQuery={c.req.query("q") ?? ""}
+        initialQuery={query ?? ""}
         currentUserEmail={user.mail}
       />
     </Layout>

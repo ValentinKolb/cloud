@@ -8,7 +8,8 @@ import {
   parseContactLiveServerMessage,
 } from "@valentinkolb/cloud-app-contacts/integration";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { type MailConversationContext, mailConversationContextSchema, type RelatedMailPage, relatedMailPageSchema } from "../../contracts";
+import { apiClient } from "../../api/client";
+import type { MailConversationContext, RelatedMailPage } from "../../contracts";
 import { readApiError } from "./api-response";
 import { buildMailContactParticipantRows } from "./mail-contact-context";
 
@@ -43,14 +44,22 @@ function RelatedMail(props: {
     setLoading(true);
     setError(null);
     try {
-      const query = new URLSearchParams({ limit: "10" });
-      if (cursor) query.set("cursor", cursor);
-      const response = await fetch(
-        `/api/mail/mailboxes/${props.mailboxId}/conversations/${props.conversationId}/contacts/${encodeURIComponent(props.bookId)}/${props.contactId}/history?${query}`,
-        { signal: currentController.signal },
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].contacts[":bookId"][
+        ":contactId"
+      ].history.$get(
+        {
+          param: {
+            mailboxId: props.mailboxId,
+            conversationId: props.conversationId,
+            bookId: props.bookId,
+            contactId: props.contactId,
+          },
+          query: { limit: "10", cursor },
+        },
+        { init: { signal: currentController.signal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load related Mail"));
-      const next = relatedMailPageSchema.parse(await response.json());
+      const next = await response.json();
       if (disposed || controller !== currentController) return;
       setPage((current) => ({ items: cursor ? [...current.items, ...next.items] : next.items, nextCursor: next.nextCursor }));
     } catch (cause) {
@@ -146,18 +155,19 @@ export default function MailConversationContext(props: {
     controller = currentController;
     const generation = loadGeneration;
     const conversationId = props.conversationId;
-    const isCurrent = () =>
-      controller === currentController && generation === loadGeneration && conversationId === props.conversationId;
+    const isCurrent = () => controller === currentController && generation === loadGeneration && conversationId === props.conversationId;
     setLoading(true);
     setError(null);
     try {
-      const query = new URLSearchParams({ contactsLimit: "50" });
-      if (contactsCursor) query.set("contactsCursor", contactsCursor);
-      const response = await fetch(`/api/mail/mailboxes/${props.mailboxId}/conversations/${conversationId}/context?${query}`, {
-        signal: currentController.signal,
-      });
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].context.$get(
+        {
+          param: { mailboxId: props.mailboxId, conversationId },
+          query: { contactsLimit: "50", contactsCursor },
+        },
+        { init: { signal: currentController.signal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load Contacts"));
-      const next = mailConversationContextSchema.parse(await response.json());
+      const next = await response.json();
       if (!isCurrent()) return false;
       setContext((current) => ({
         ...next,

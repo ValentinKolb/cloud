@@ -1,4 +1,5 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { type LinkNavigateEvent, listenPopState, navigate } from "@valentinkolb/ssr/nav";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { MailAutomationWorkspaceData } from "../service/automation-workspace";
 import MailAutomaticReplySettings, { type AutomaticReplyPresetId } from "./_components/MailAutomaticReplySettings";
@@ -6,25 +7,20 @@ import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import MailResponsePolicySettings from "./_components/MailResponsePolicySettings";
 import MailSenderRuleSettings from "./_components/MailSenderRuleSettings";
 import MailWorkflowSettings from "./_components/MailWorkflowSettings";
-
-const SECTIONS = ["overview", "automatic-replies", "sender-rules", "workflows", "references"] as const;
-type Section = (typeof SECTIONS)[number];
-type AdminSection = Extract<Section, "sender-rules" | "workflows" | "references">;
-
-const ADMIN_SECTIONS = new Set<Section>(["sender-rules", "workflows", "references"]);
-const isSection = (value: string): value is Section => SECTIONS.some((section) => section === value);
-const isAdminSection = (value: Section): value is AdminSection => ADMIN_SECTIONS.has(value);
+import {
+  isMailAutomationAdminSection,
+  type MailAutomationSection,
+  resolveMailAutomationSection,
+} from "./_components/mail-automation-sections";
 
 export default function MailAutomationWorkspace(props: {
   data: MailAutomationWorkspaceData;
   initialSection: string;
   currentUserEmail: string | null;
 }) {
-  const resolveSection = (value: string): Section => {
-    if (!isSection(value)) return "overview";
-    return isAdminSection(value) && !props.data.advanced ? "overview" : value;
-  };
-  const [section, setSection] = createSignal<Section>(resolveSection(props.initialSection));
+  const resolveSection = (value: string | null | undefined): MailAutomationSection =>
+    resolveMailAutomationSection(value, Boolean(props.data.advanced));
+  const [section, setSection] = createSignal<MailAutomationSection>(resolveSection(props.initialSection));
   const [settingsOpening, setSettingsOpening] = createSignal(false);
   const [automaticReplies, setAutomaticReplies] = createSignal(props.data.automaticReplies);
   const [automaticReplyPresetRequest, setAutomaticReplyPresetRequest] = createSignal<{
@@ -42,23 +38,21 @@ export default function MailAutomationWorkspace(props: {
   const mailboxHref = `/app/mail/${props.data.mailbox.id}`;
   const activeReply = () => automaticReplies().find((configuration) => configuration.enabled) ?? null;
 
-  const selectSection = (next: Section, historyMode: "push" | "none" = "push") => {
-    if (isAdminSection(next) && !props.data.advanced) return;
+  const sectionHref = (next: MailAutomationSection) => `${mailboxHref}/automations?section=${next}`;
+  const selectSection = (next: MailAutomationSection, historyMode: "push" | "none" = "push") => {
+    if (isMailAutomationAdminSection(next) && !props.data.advanced) return;
     setSection(next);
-    if (historyMode === "push") window.history.pushState({}, "", `${mailboxHref}/automations?section=${next}`);
+    if (historyMode === "push") navigate(sectionHref(next), { scroll: "preserve" });
   };
-  const navigateSection = (event: MouseEvent, next: Section) => {
-    event.preventDefault();
-    selectSection(next);
+  const navigateSection = (event: LinkNavigateEvent, next: MailAutomationSection) => {
+    if (isMailAutomationAdminSection(next) && !props.data.advanced) return event.fallback();
+    setSection(next);
+    event.push(undefined, { scroll: "preserve" });
   };
 
   onMount(() => {
-    const restoreSection = () => {
-      const value = new URL(window.location.href).searchParams.get("section");
-      selectSection(resolveSection(value ?? "overview"), "none");
-    };
-    window.addEventListener("popstate", restoreSection);
-    onCleanup(() => window.removeEventListener("popstate", restoreSection));
+    const stop = listenPopState(({ url }) => selectSection(resolveSection(url.searchParams.get("section")), "none"));
+    onCleanup(stop);
   });
 
   const openSettings = async (initialTab?: string) => {
@@ -81,7 +75,7 @@ export default function MailAutomationWorkspace(props: {
         href={`${mailboxHref}/automations?section=overview`}
         icon="ti ti-layout-dashboard"
         active={section() === "overview"}
-        onClick={(event) => navigateSection(event, "overview")}
+        onNavigate={(event) => navigateSection(event, "overview")}
         viewTransitionName={`mail-automations-overview-${suffix}`}
       >
         Overview
@@ -90,7 +84,7 @@ export default function MailAutomationWorkspace(props: {
         href={`${mailboxHref}/automations?section=automatic-replies`}
         icon="ti ti-message-cog"
         active={section() === "automatic-replies"}
-        onClick={(event) => navigateSection(event, "automatic-replies")}
+        onNavigate={(event) => navigateSection(event, "automatic-replies")}
         viewTransitionName={`mail-automations-replies-${suffix}`}
       >
         Automatic replies
@@ -104,7 +98,7 @@ export default function MailAutomationWorkspace(props: {
         href={`${mailboxHref}/automations?section=sender-rules`}
         icon="ti ti-filter-cog"
         active={section() === "sender-rules"}
-        onClick={(event) => navigateSection(event, "sender-rules")}
+        onNavigate={(event) => navigateSection(event, "sender-rules")}
         viewTransitionName={`mail-automations-sender-rules-${suffix}`}
       >
         Sender rules
@@ -113,7 +107,7 @@ export default function MailAutomationWorkspace(props: {
         href={`${mailboxHref}/automations?section=workflows`}
         icon="ti ti-route"
         active={section() === "workflows"}
-        onClick={(event) => navigateSection(event, "workflows")}
+        onNavigate={(event) => navigateSection(event, "workflows")}
         viewTransitionName={`mail-automations-workflows-${suffix}`}
       >
         Workflows
@@ -122,7 +116,7 @@ export default function MailAutomationWorkspace(props: {
         href={`${mailboxHref}/automations?section=references`}
         icon="ti ti-hash"
         active={section() === "references"}
-        onClick={(event) => navigateSection(event, "references")}
+        onNavigate={(event) => navigateSection(event, "references")}
         viewTransitionName={`mail-automations-references-${suffix}`}
       >
         Reference numbers
