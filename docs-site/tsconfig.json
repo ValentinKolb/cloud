@@ -11,5 +11,12 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["examples/**/*.ts", "fibel.config.ts", "plugins/**/*.ts", "src/**/*.ts", "src/**/*.tsx"]
+  "include": [
+    "examples/**/*.ts",
+    "fibel.config.ts",
+    "plugins/**/*.ts",
+    "scripts/**/*.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ]
 }

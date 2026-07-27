@@ -30,15 +30,13 @@ export default function ComponentNavigation(props: ComponentNavigationProps) {
   const matches = createMemo(() => {
     const normalized = query().trim().toLowerCase();
     if (!normalized) return components;
-    return components.filter((component) =>
-      `${component.name} ${component.keywords}`.toLowerCase().includes(normalized),
-    );
+    return components.filter((component) => `${component.name} ${component.keywords}`.toLowerCase().includes(normalized));
   });
 
   const linkClass = (active: boolean) =>
-    `block border-l-2 py-1.5 pl-4 text-[0.98rem] leading-6 ${
+    `fibel-sidebar-link block border-l-2 py-1.5 pl-4 text-[0.98rem] leading-6 ${
       active
-        ? "border-[#d69e2e] font-semibold text-zinc-950 dark:border-[#f6c453] dark:text-white"
+        ? "is-active font-semibold text-zinc-950 dark:text-white"
         : "border-transparent text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white"
     }`;
 

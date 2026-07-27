@@ -1,5 +1,4 @@
 import { For } from "solid-js";
-import SiteHeader from "../components/SiteHeader";
 import HomeShortcuts from "./HomeShortcuts.client";
 
 const applications = [
@@ -49,7 +48,6 @@ export const { ssr, plugin } = app;`;
 export default function HomePage() {
   return (
     <>
-      <SiteHeader active="home" />
       <main class="cloud-home">
         <section class="cloud-hero">
           <div class="cloud-shell cloud-hero-grid">
@@ -64,8 +62,8 @@ export default function HomePage() {
                 your infrastructure.
               </h1>
               <p class="cloud-lead">
-                Cloud gives every application identity, permissions, product UI, data, automation, and operations. Use the
-                building blocks you need and keep each service independent.
+                Cloud gives every application identity, permissions, product UI, data, automation, and operations. Use the building blocks
+                you need and keep each service independent.
               </p>
               <div class="cloud-actions">
                 <a class="cloud-btn cloud-btn-primary" href="/docs/en/overview">
@@ -101,8 +99,8 @@ export default function HomePage() {
             <div class="cloud-head">
               <h2>A working platform from day one.</h2>
               <p>
-                Cloud includes useful applications and the shared systems behind them. Your own applications use the same
-                platform building blocks.
+                Cloud includes useful applications and the shared systems behind them. Your own applications use the same platform building
+                blocks.
               </p>
             </div>
             <div class="cloud-dayone-grid">
@@ -110,7 +108,14 @@ export default function HomePage() {
                 <div class="cloud-apps-group">
                   <h3>Applications included</h3>
                   <ul>
-                    <For each={applications}>{([name, description]) => <li><b>{name}</b><span>{description}</span></li>}</For>
+                    <For each={applications}>
+                      {([name, description]) => (
+                        <li>
+                          <b>{name}</b>
+                          <span>{description}</span>
+                        </li>
+                      )}
+                    </For>
                   </ul>
                 </div>
               </div>
@@ -118,7 +123,14 @@ export default function HomePage() {
                 <h3>Platform building blocks</h3>
                 <p>Use them together or adopt only what an application needs. Cloud never takes ownership of your code.</p>
                 <dl>
-                  <For each={buildingBlocks}>{([name, description]) => <div><dt>{name}</dt><dd>{description}</dd></div>}</For>
+                  <For each={buildingBlocks}>
+                    {([name, description]) => (
+                      <div>
+                        <dt>{name}</dt>
+                        <dd>{description}</dd>
+                      </div>
+                    )}
+                  </For>
                 </dl>
               </aside>
             </div>
@@ -138,7 +150,14 @@ export default function HomePage() {
                     <h3>{step[0]}</h3>
                     <div class="cloud-artifact cloud-mono-card">
                       <dl>
-                        <For each={step.slice(1)}>{(entry) => <div><dt>{entry[0]}</dt><dd>{entry[1]}</dd></div>}</For>
+                        <For each={step.slice(1)}>
+                          {(entry) => (
+                            <div>
+                              <dt>{entry[0]}</dt>
+                              <dd>{entry[1]}</dd>
+                            </div>
+                          )}
+                        </For>
                       </dl>
                     </div>
                   </li>
@@ -153,13 +172,23 @@ export default function HomePage() {
             <div class="cloud-boundary-copy">
               <h2>Use the platform. Keep your choices.</h2>
               <p>
-                The TypeScript packages are the shortest path to full integration, not a cage. Any service that speaks the
-                platform's HTTP contract can become a first-class application.
+                The TypeScript packages are the shortest path to full integration, not a cage. Any service that speaks the platform's HTTP
+                contract can become a first-class application.
               </p>
-              <p>Cloud is open source, runs on premises, and can be extended or forked without permission.</p>
+              <p>Cloud is open source, runs on your infrastructure, and can be extended or forked without permission.</p>
             </div>
             <dl class="cloud-choices">
-              <For each={choices}>{([label, preferred, alternative]) => <div><dt>{label}</dt><dd><b>{preferred}</b><span>{alternative}</span></dd></div>}</For>
+              <For each={choices}>
+                {([label, preferred, alternative]) => (
+                  <div>
+                    <dt>{label}</dt>
+                    <dd>
+                      <b>{preferred}</b>
+                      <span>{alternative}</span>
+                    </dd>
+                  </div>
+                )}
+              </For>
             </dl>
           </div>
         </section>
@@ -169,8 +198,12 @@ export default function HomePage() {
             <h2>Build on the platform.</h2>
             <p>Read the application model or inspect the real components applications share.</p>
             <div class="cloud-actions">
-              <a class="cloud-btn cloud-btn-primary" href="/docs/en/overview">Open the docs</a>
-              <a class="cloud-btn" href="/ui">Explore the UI</a>
+              <a class="cloud-btn cloud-btn-primary" href="/docs/en/overview">
+                Open the docs
+              </a>
+              <a class="cloud-btn" href="/ui">
+                Explore the UI
+              </a>
             </div>
           </div>
         </section>

@@ -1,7 +1,6 @@
 import { PanelHeader, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
-import SiteHeader from "../components/SiteHeader";
 import ComponentNavigation from "./ComponentNavigation.client";
 
 const panelHeaderCode = `import { PanelHeader } from "@valentinkolb/cloud/ui";
@@ -69,7 +68,6 @@ const componentName = (component: CatalogComponent) =>
 export default function UiCatalogPage(props: UiCatalogPageProps) {
   return (
     <>
-      <SiteHeader active="ui" />
       <div class="ui-layout">
         <aside class="fibel-sidebar ui-sidebar overflow-y-auto border-r border-zinc-200 bg-white p-5 pt-6 dark:border-white/10 dark:bg-zinc-950 lg:sticky lg:top-16 lg:h-[calc(100vh-4rem)] lg:pt-9">
           <ComponentNavigation active={props.focus} />
@@ -81,8 +79,8 @@ export default function UiCatalogPage(props: UiCatalogPageProps) {
               <h1>{props.focus ? componentName(props.focus) : "The UI primitives Cloud applications are built from."}</h1>
             </div>
             <p>
-              Every example imports the component from <code>@valentinkolb/cloud/ui</code>. Use this catalog to choose a
-              primitive, inspect its states, and prototype package changes against the real implementation.
+              Every example imports the component from <code>@valentinkolb/cloud/ui</code>. Use this catalog to choose a primitive, inspect
+              its states, and prototype package changes against the real implementation.
             </p>
           </header>
 
@@ -99,7 +97,11 @@ export default function UiCatalogPage(props: UiCatalogPageProps) {
                 <PanelHeader
                   title="Applications"
                   subtitle="17 connected services"
-                  actions={<a class="btn-input btn-input-sm" href="/ui/panel-header">Open registry</a>}
+                  actions={
+                    <a class="btn-input btn-input-sm" href="/ui/panel-header">
+                      Open registry
+                    </a>
+                  }
                 />
               </div>
             </Example>

@@ -22,11 +22,9 @@ export async function buildAssets() {
   await cp(join(tablerRoot, "tabler-icons.min.css"), join(generated, "tabler-icons.min.css"), { force: true });
   await mkdir(join(generated, "fonts"), { recursive: true });
   for (const extension of ["woff2", "woff", "ttf"]) {
-    await cp(
-      join(tablerRoot, "fonts", `tabler-icons.${extension}`),
-      join(generated, "fonts", `tabler-icons.${extension}`),
-      { force: true },
-    );
+    await cp(join(tablerRoot, "fonts", `tabler-icons.${extension}`), join(generated, "fonts", `tabler-icons.${extension}`), {
+      force: true,
+    });
   }
 }
 
