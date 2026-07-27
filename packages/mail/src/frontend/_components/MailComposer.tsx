@@ -16,10 +16,9 @@ import {
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
-  AcquiredDraftLease,
   ComposePreview,
   ComposeSafetyApproval,
   ComposeSafetyReview,
@@ -39,26 +38,12 @@ import { promptAttachmentLinkOptions } from "./attachment-link-ui";
 import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
-import { type MailDraftJournal, promoteMailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
+import { type ComposerSeed, createMailDraftSession } from "./mail-draft-session";
 import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
 
-type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
 type UploadState = { file: File; progress: number; error: string | null; uploadId: string | null; draftId: string | null };
-type LeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: "rejected" } | { kind: "unavailable" };
 class ComposeSafetyCancelled extends Error {}
 class ComposeSafetyAttachmentRequested extends Error {}
-
-type ComposerSeed = {
-  intent: DraftIntent;
-  senderIdentityId?: string | null;
-  conversationId?: string | null;
-  sourceMessageId?: string | null;
-  to?: string[];
-  cc?: string[];
-  subject?: string;
-  body?: string;
-  sourceAttachmentCount?: number;
-};
 
 const intentLabel = (intent: DraftIntent): string =>
   intent === "reply" ? "Reply" : intent === "reply_all" ? "Reply all" : intent === "forward" ? "Forward" : "Send";
@@ -71,10 +56,6 @@ const intentIcon = (intent: DraftIntent): string =>
       : intent === "forward"
         ? "ti-arrow-forward-up"
         : "ti-send";
-
-const journalKey = (mailboxId: string, draftId: string): string => `cloud:mail:draft:${mailboxId}:${draftId}`;
-const pendingJournalKey = (mailboxId: string, seed?: ComposerSeed): string =>
-  `cloud:mail:draft:${mailboxId}:pending:${seed?.conversationId ?? "new"}:${seed?.sourceMessageId ?? "new"}:${seed?.intent ?? "new"}`;
 
 const paneElementVisible = (node: PanesNode, elementId: string): boolean => {
   if (node.type === "split") return node.children.some((child) => paneElementVisible(child, elementId));
@@ -100,10 +81,6 @@ export default function MailComposer(props: {
   const verifiedIdentities = () => props.identities.filter((identity) => identity.status === "verified");
   const defaultIdentity = () => verifiedIdentities().find((identity) => identity.isDefault) ?? verifiedIdentities()[0];
   const preferences = readMailUserPreferences(props.mailboxId);
-  const [draft, setDraft] = createSignal<MailDraft | null>(props.initialDraft ?? null);
-  const [lease, setLease] = createSignal<AcquiredDraftLease | null>(null);
-  const [status, setStatus] = createSignal<ComposerStatus>("preparing");
-  const [statusMessage, setStatusMessage] = createSignal("Preparing draft...");
   const [identityId, setIdentityId] = createSignal(
     props.initialDraft?.senderIdentityId ??
       (props.seed?.senderIdentityId !== undefined ? (props.seed.senderIdentityId ?? "") : (defaultIdentity()?.id ?? "")),
@@ -143,28 +120,12 @@ export default function MailComposer(props: {
   const [composerPanes, setComposerPanes] = createSignal<PanesValue>(readMailComposerPanes());
   const [preview, setPreview] = createSignal<ComposePreview | null>(null);
   const [previewRevision, setPreviewRevision] = createSignal(0);
-  const [initialized, setInitialized] = createSignal(false);
   const [handoffInProgress, setHandoffInProgress] = createSignal(false);
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
-  let draftMutationQueue: Promise<void> = Promise.resolve();
-  let initializePromise: Promise<MailDraft | null> | null = null;
   let recoveryController: AbortController | null = null;
   let disposed = false;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   let panePersistenceTimer: ReturnType<typeof setTimeout> | null = null;
   const uploadControllers = new Map<File, AbortController>();
-  let lastSavedContent = "";
-  const pendingKey = pendingJournalKey(props.mailboxId, props.seed);
-
-  const serializeDraftMutation = <T,>(operation: () => Promise<T>): Promise<T> => {
-    const result = draftMutationQueue.then(operation, operation);
-    draftMutationQueue = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  };
 
   const content = (): DraftEditableContent => ({
     senderIdentityId: identityId(),
@@ -180,6 +141,48 @@ export default function MailComposer(props: {
   });
 
   const serializedContent = () => JSON.stringify(content());
+  const applyDraftContent = (value: DraftEditableContent) => {
+    setIdentityId(value.senderIdentityId);
+    setTo(formatMailRecipients(value.to));
+    setCc(formatMailRecipients(value.cc));
+    setBcc(formatMailRecipients(value.bcc));
+    setShowCc(Boolean(value.cc.length || value.bcc.length));
+    setSubject(value.subject);
+    setBody(value.body);
+    setFormat(value.format);
+    setPriority(value.priority);
+    setRequestDeliveryReceipt(value.requestDeliveryReceipt);
+    setRequestReadReceipt(value.requestReadReceipt);
+  };
+  const draftSession = createMailDraftSession({
+    mailboxId: props.mailboxId,
+    initialDraft: props.initialDraft,
+    seed: props.seed,
+    hasVerifiedIdentity: () => verifiedIdentities().length > 0,
+    includeSourceAttachments,
+    content,
+    applyDraftContent,
+    isDisposed: () => disposed,
+    onRecovered: () => toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" }),
+  });
+  const {
+    draft,
+    setDraft,
+    lease,
+    status,
+    setStatus,
+    statusMessage,
+    setStatusMessage,
+    beginDraft,
+    persist,
+    serializeMutation: serializeDraftMutation,
+    stopScheduledSave,
+    stopHeartbeat,
+    acquireLease,
+    releaseLease,
+    resumeCurrentLease,
+  } = draftSession;
+  const pendingKey = draftSession.pendingKey;
   const previewMutation = mutations.create<ComposePreview, { draft: DraftEditableContentInput; conversationId: string | null }>({
     mutation: async (input, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["compose-preview"].$post(
@@ -203,87 +206,10 @@ export default function MailComposer(props: {
       (Boolean(lease()) || !draft()),
   );
 
-  const stopHeartbeat = () => {
-    if (heartbeatTimer) clearTimeout(heartbeatTimer);
-    heartbeatTimer = null;
-  };
-
-  const stopScheduledSave = () => {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = null;
-  };
-
   const stopPreview = () => {
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = null;
     previewMutation.abort();
-  };
-
-  const releaseLeaseOnExit = (): Promise<void> => {
-    const currentDraft = draft();
-    const currentLease = lease();
-    if (!currentDraft || !currentLease) return Promise.resolve();
-    return fetch(`/api/mail/mailboxes/${props.mailboxId}/drafts/${currentDraft.id}/lease`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: currentLease.token }),
-      credentials: "same-origin",
-      keepalive: true,
-    })
-      .then(() => undefined)
-      .catch(() => undefined);
-  };
-
-  const heartbeatLease = async (currentDraft: MailDraft, currentLease: AcquiredDraftLease): Promise<LeaseHeartbeatResult> => {
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$put({
-        param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-        json: { token: currentLease.token },
-      });
-      return response.ok ? { kind: "ok", lease: await response.json() } : { kind: "rejected" };
-    } catch {
-      return { kind: "unavailable" };
-    }
-  };
-
-  const onPageHide = (event: PageTransitionEvent) => {
-    if (event.persisted) {
-      if (!draft() || !lease()) return;
-      stopHeartbeat();
-      setStatus("preparing");
-      return;
-    }
-    void releaseLeaseOnExit();
-  };
-
-  const resumeCurrentLease = async () => {
-    const currentDraft = draft();
-    const currentLease = lease();
-    if (disposed || !currentDraft) return;
-    if (!currentLease) return void (await ensureDraft());
-    setStatus("preparing");
-    const heartbeat = await heartbeatLease(currentDraft, currentLease);
-    if (disposed) return;
-    if (heartbeat.kind === "ok") {
-      setLease(heartbeat.lease);
-      setStatus("saved");
-      setStatusMessage("");
-      startHeartbeat();
-      return;
-    }
-    if (heartbeat.kind === "unavailable") {
-      setStatus("readonly");
-      setStatusMessage("Connection lost. Retry to resume editing.");
-      return;
-    }
-    setLease(null);
-    await ensureDraft();
-  };
-
-  const onPageShow = (event: PageTransitionEvent) => {
-    if (event.persisted) {
-      void resumeCurrentLease();
-    }
   };
 
   const updateComposerPanes = (value: PanesValue) => {
@@ -293,234 +219,6 @@ export default function MailComposer(props: {
       setComposerPanes(writeMailComposerPanes(value));
       panePersistenceTimer = null;
     }, 150);
-  };
-
-  const applyDraftContent = (value: MailDraft) => {
-    setIdentityId(value.senderIdentityId);
-    setTo(formatMailRecipients(value.to));
-    setCc(formatMailRecipients(value.cc));
-    setBcc(formatMailRecipients(value.bcc));
-    setShowCc(Boolean(value.cc.length || value.bcc.length));
-    setSubject(value.subject);
-    setBody(value.body);
-    setFormat(value.format);
-    setPriority(value.priority);
-    setRequestDeliveryReceipt(value.requestDeliveryReceipt);
-    setRequestReadReceipt(value.requestReadReceipt);
-  };
-
-  const startHeartbeat = () => {
-    stopHeartbeat();
-    heartbeatTimer = setTimeout(async () => {
-      heartbeatTimer = null;
-      const activeDraft = draft();
-      const activeLease = lease();
-      if (!activeDraft || !activeLease) return;
-      const heartbeat = await heartbeatLease(activeDraft, activeLease);
-      if (disposed) return;
-      if (heartbeat.kind === "unavailable") {
-        stopHeartbeat();
-        setStatus("readonly");
-        setStatusMessage("Connection lost. Retry to resume editing.");
-        return;
-      }
-      if (heartbeat.kind === "rejected") {
-        stopHeartbeat();
-        setLease(null);
-        setStatus("readonly");
-        setStatusMessage("Editing lease expired. Reload or take over the draft.");
-        return;
-      }
-      setLease(heartbeat.lease);
-      startHeartbeat();
-    }, 10_000);
-  };
-
-  const acquireLease = async (currentDraft: MailDraft, takeover = false): Promise<AcquiredDraftLease | null> => {
-    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$post({
-      param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-      json: { takeover },
-    });
-    if (disposed) return null;
-    if (!response.ok) {
-      setStatus("readonly");
-      setStatusMessage(await readApiError(response, "Draft is open elsewhere"));
-      return null;
-    }
-    const acquired = await response.json();
-    if (disposed) {
-      await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$delete({
-        param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-        json: { token: acquired.token },
-      });
-      return null;
-    }
-    setLease(acquired);
-    startHeartbeat();
-    return acquired;
-  };
-
-  const recoverJournal = (key: string, minimumRevision: number): boolean => {
-    const journal = readMailDraftJournal(localStorage, key);
-    if (!journal || journal.revision < minimumRevision) return false;
-    setIdentityId(journal.content.senderIdentityId);
-    setTo(formatMailRecipients(journal.content.to));
-    setCc(formatMailRecipients(journal.content.cc));
-    setBcc(formatMailRecipients(journal.content.bcc));
-    setShowCc(Boolean(journal.content.cc.length || journal.content.bcc.length));
-    setSubject(journal.content.subject);
-    setBody(journal.content.body);
-    setFormat(journal.content.format);
-    setPriority(journal.content.priority);
-    setRequestDeliveryReceipt(journal.content.requestDeliveryReceipt);
-    setRequestReadReceipt(journal.content.requestReadReceipt);
-    return true;
-  };
-
-  const initialize = async (): Promise<MailDraft | null> => {
-    if (verifiedIdentities().length === 0) {
-      setStatus("readonly");
-      setStatusMessage("Configure and verify an identity before composing mail.");
-      return null;
-    }
-    let currentDraft = draft();
-    const isExistingDraft = Boolean(currentDraft);
-    let submittedContent: DraftEditableContent | null = null;
-    let serverContent: DraftEditableContent | null = null;
-    if (!currentDraft) {
-      setStatusMessage("Preparing draft...");
-      submittedContent = content();
-      const response = await apiClient.mailboxes[":mailboxId"].drafts.$post({
-        param: { mailboxId: props.mailboxId },
-        json: {
-          conversationId: props.seed?.conversationId ?? null,
-          intent: props.seed?.intent ?? "new",
-          sourceMessageId: props.seed?.sourceMessageId ?? null,
-          includeSourceAttachments: includeSourceAttachments(),
-          ...submittedContent,
-        },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to create draft"));
-      currentDraft = await response.json();
-      if (disposed) return null;
-      const currentContent = content();
-      if (JSON.stringify(currentContent) === JSON.stringify(submittedContent)) {
-        applyDraftContent(currentDraft);
-      } else if (
-        currentContent.senderIdentityId === submittedContent.senderIdentityId &&
-        currentDraft.senderIdentityId === submittedContent.senderIdentityId &&
-        currentDraft.initialSignatureSource
-      ) {
-        const signature = currentDraft.initialSignatureSource;
-        if (!currentContent.body.endsWith(signature)) {
-          setBody([currentContent.body.trimEnd(), signature].filter(Boolean).join("\n\n"));
-        }
-      }
-      serverContent = {
-        senderIdentityId: currentDraft.senderIdentityId,
-        to: currentDraft.to,
-        cc: currentDraft.cc,
-        bcc: currentDraft.bcc,
-        subject: currentDraft.subject,
-        body: currentDraft.body,
-        format: currentDraft.format,
-        priority: currentDraft.priority,
-        requestDeliveryReceipt: currentDraft.requestDeliveryReceipt,
-        requestReadReceipt: currentDraft.requestReadReceipt,
-      };
-    }
-    if (disposed) return null;
-    const acquired = await acquireLease(currentDraft);
-    if (disposed) return null;
-    if (submittedContent && serverContent) {
-      promoteMailDraftJournal({
-        storage: localStorage,
-        pendingKey,
-        draftKey: journalKey(props.mailboxId, currentDraft.id),
-        revision: currentDraft.revision,
-        submittedContent,
-        currentContent: content(),
-        serverContent,
-      });
-    }
-    const recovered = recoverJournal(journalKey(props.mailboxId, currentDraft.id), currentDraft.revision);
-    lastSavedContent = JSON.stringify({
-      senderIdentityId: currentDraft.senderIdentityId,
-      to: currentDraft.to,
-      cc: currentDraft.cc,
-      bcc: currentDraft.bcc,
-      subject: currentDraft.subject,
-      body: currentDraft.body,
-      format: currentDraft.format,
-      priority: currentDraft.priority,
-      requestDeliveryReceipt: currentDraft.requestDeliveryReceipt,
-      requestReadReceipt: currentDraft.requestReadReceipt,
-    });
-    setDraft(currentDraft);
-    setInitialized(true);
-    if (acquired) {
-      setStatus("saved");
-      setStatusMessage("");
-      if (recovered && isExistingDraft) {
-        toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" });
-      }
-    }
-    return currentDraft;
-  };
-
-  const ensureDraft = (): Promise<MailDraft | null> => {
-    if (draft() && lease()) return Promise.resolve(draft());
-    if (initializePromise) return initializePromise;
-    initializePromise = initialize()
-      .catch((error: unknown) => {
-        if (!disposed) {
-          setStatus("error");
-          setStatusMessage(error instanceof Error ? error.message : "Draft could not be prepared");
-        }
-        return null;
-      })
-      .finally(() => {
-        initializePromise = null;
-      });
-    return initializePromise;
-  };
-
-  const beginDraft = () => {
-    if (!draft()) void ensureDraft();
-  };
-
-  const persist = async (): Promise<MailDraft | null> => {
-    if (!draft() || !lease()) await ensureDraft();
-    return await serializeDraftMutation(async () => {
-      const currentDraft = draft();
-      if (!currentDraft || !lease()) return null;
-      const nextContent = content();
-      const serialized = JSON.stringify(nextContent);
-      if (serialized === lastSavedContent) return currentDraft;
-      setStatus("saving");
-      setStatusMessage("Saving draft...");
-      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].$put({
-        param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-        json: { expectedRevision: currentDraft.revision, draft: nextContent },
-      });
-      if (disposed) return null;
-      if (!response.ok) {
-        const message = await readApiError(response, "Draft could not be saved");
-        setStatus("error");
-        setStatusMessage(message);
-        if (message.includes("recovery copy")) {
-          setDraft((current) => (current ? { ...current, recoveryCopyCount: current.recoveryCopyCount + 1 } : current));
-        }
-        return null;
-      }
-      const saved = await response.json();
-      setDraft(saved);
-      lastSavedContent = serialized;
-      localStorage.removeItem(journalKey(props.mailboxId, saved.id));
-      setStatus("saved");
-      setStatusMessage("");
-      return saved;
-    });
   };
 
   const restoreRecoveryCopy = async () => {
@@ -587,8 +285,8 @@ export default function MailComposer(props: {
       if (disposed || recoveryController !== controller) return;
       setDraft(restored);
       applyDraftContent(restored);
-      lastSavedContent = JSON.stringify(content());
-      localStorage.removeItem(journalKey(props.mailboxId, restored.id));
+      draftSession.markCurrentContentSaved();
+      localStorage.removeItem(draftSession.draftKey(restored.id));
       setStatus("saved");
       setStatusMessage("");
       toast.success("Draft changes restored");
@@ -600,20 +298,6 @@ export default function MailComposer(props: {
       if (recoveryController === controller) recoveryController = null;
     }
   };
-
-  createEffect(() => {
-    const serialized = serializedContent();
-    const currentDraft = draft();
-    if (!initialized() || serialized === lastSavedContent) return;
-    localStorage.setItem(
-      currentDraft ? journalKey(props.mailboxId, currentDraft.id) : pendingKey,
-      JSON.stringify({ revision: currentDraft?.revision ?? 0, content: content() } satisfies MailDraftJournal),
-    );
-    if (!currentDraft) beginDraft();
-    if (!lease()) return;
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => void persist(), 700);
-  });
 
   createEffect(() => {
     if (typeof window === "undefined") return;
@@ -635,46 +319,17 @@ export default function MailComposer(props: {
     );
   });
 
-  onMount(() => {
-    window.addEventListener("pagehide", onPageHide);
-    window.addEventListener("pageshow", onPageShow);
-    if (verifiedIdentities().length === 0) {
-      setStatus("readonly");
-      setStatusMessage("Configure and verify an identity before composing mail.");
-      return;
-    }
-    if (draft()) {
-      void ensureDraft();
-      return;
-    }
-    const recoveredPendingDraft = recoverJournal(pendingKey, 0);
-    lastSavedContent = serializedContent();
-    setInitialized(true);
-    setStatus("local");
-    setStatusMessage("");
-    if (recoveredPendingDraft) {
-      toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" });
-      void ensureDraft();
-    }
-  });
-
   onCleanup(() => {
     disposed = true;
     recoveryController?.abort();
     recoveryController = null;
     for (const controller of uploadControllers.values()) controller.abort();
     uploadControllers.clear();
-    if (typeof window === "undefined") return;
-    window.removeEventListener("pagehide", onPageHide);
-    window.removeEventListener("pageshow", onPageShow);
-    stopScheduledSave();
-    stopHeartbeat();
     stopPreview();
     if (panePersistenceTimer) {
       clearTimeout(panePersistenceTimer);
       writeMailComposerPanes(composerPanes());
     }
-    void releaseLeaseOnExit();
   });
 
   const uploadFile = async (file: File) => {
@@ -895,7 +550,7 @@ export default function MailComposer(props: {
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to queue message"));
       const command = await response.json();
-      localStorage.removeItem(journalKey(props.mailboxId, saved.id));
+      localStorage.removeItem(draftSession.draftKey(saved.id));
       return command;
     },
     onSuccess: (command, delivery) => {
@@ -1020,7 +675,7 @@ export default function MailComposer(props: {
           { init: { signal: abortSignal } },
         );
         if (!response.ok) throw new Error(await readApiError(response, "Failed to discard draft"));
-        localStorage.removeItem(journalKey(props.mailboxId, currentDraft.id));
+        localStorage.removeItem(draftSession.draftKey(currentDraft.id));
         localStorage.removeItem(pendingKey);
       });
       return true;
@@ -1043,9 +698,9 @@ export default function MailComposer(props: {
     if (uploads().length > 0) {
       return await prompts.error("Finish or cancel attachment uploads before closing this draft.");
     }
-    const hasDraftWork = Boolean(draft() || initializePromise || localStorage.getItem(pendingKey));
+    const hasDraftWork = Boolean(draft() || draftSession.initializing() || localStorage.getItem(pendingKey));
     if (!hasDraftWork) return props.onClose?.();
-    if (draft() && !lease() && serializedContent() === lastSavedContent) return props.onClose?.();
+    if (draft() && !lease() && serializedContent() === draftSession.lastSavedContent()) return props.onClose?.();
     setHandoffInProgress(true);
     stopScheduledSave();
     try {
@@ -1059,23 +714,6 @@ export default function MailComposer(props: {
       if (disposed) return;
       setHandoffInProgress(false);
       await prompts.error(error instanceof Error ? error.message : "Draft could not be closed safely");
-    }
-  };
-
-  const releaseLease = async (currentDraft: MailDraft): Promise<void> => {
-    const currentLease = lease();
-    if (!currentLease) return;
-    stopHeartbeat();
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$delete({
-        param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-        json: { token: currentLease.token },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Could not transfer draft editing"));
-      setLease(null);
-    } catch (error) {
-      startHeartbeat();
-      throw error;
     }
   };
 
