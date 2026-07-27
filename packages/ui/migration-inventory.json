@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "source": "packages/cloud/src/ui/index.ts",
+  "generic": {
+    "actions": [
+      { "source": "./filter/FilterChip", "status": "planned" },
+      { "source": "./input/SegmentedControl", "status": "implemented" },
+      { "source": "./misc/ContextMenu", "status": "planned" },
+      { "source": "./misc/CopyButton", "status": "implemented" },
+      { "source": "./misc/Dropdown", "status": "planned" },
+      { "source": "./misc/RemoveBtn", "status": "planned" },
+      { "source": "./misc/SpotlightSearch", "status": "planned" }
+    ],
+    "inputs": [
+      { "source": "./completion", "status": "planned" },
+      { "source": "./input/AutocompleteEditor", "status": "planned" },
+      { "source": "./input/Checkbox", "status": "implemented" },
+      { "source": "./input/CheckboxCard", "status": "planned" },
+      { "source": "./input/ColorInput", "status": "planned" },
+      { "source": "./input/Combobox", "status": "planned" },
+      { "source": "./input/DatePicker", "status": "planned" },
+      { "source": "./input/DateTimeInput", "status": "planned" },
+      { "source": "./input/FileDropzone", "status": "planned" },
+      { "source": "./input/IconInput", "status": "planned" },
+      { "source": "./input/ImageCropper", "status": "planned" },
+      { "source": "./input/ImageInput", "status": "planned" },
+      { "source": "./input/MultiSelectInput", "status": "planned" },
+      { "source": "./input/NumberInput", "status": "implemented" },
+      { "source": "./input/PinInput", "status": "planned" },
+      { "source": "./input/Select", "status": "implemented" },
+      { "source": "./input/SelectChip", "status": "planned" },
+      { "source": "./input/Slider", "status": "planned" },
+      { "source": "./input/Switch", "status": "implemented" },
+      { "source": "./input/TagsInput", "status": "planned" },
+      { "source": "./input/TemplateEditor", "status": "planned" },
+      { "source": "./input/TextInput", "status": "implemented" },
+      { "source": "./input/image-crop", "status": "planned" },
+      { "source": "./input/markdown/MarkdownEditor", "status": "planned" }
+    ],
+    "layout": [
+      { "source": "./admin-settings", "status": "planned" },
+      { "source": "./misc/AppOverview", "status": "planned" },
+      { "source": "./misc/AppWorkspace", "status": "implemented" },
+      { "source": "./misc/DataPanel", "status": "planned" },
+      { "source": "./misc/FloatingWindow", "status": "planned" },
+      { "source": "./misc/PanelDialog", "status": "planned" },
+      { "source": "./misc/PanelHeader", "status": "planned" },
+      { "source": "./misc/Panes", "status": "planned" },
+      { "source": "./misc/SettingsModal", "status": "planned" }
+    ],
+    "surfaces": [
+      { "source": "./misc/Avatar", "status": "planned" },
+      { "source": "./misc/LinkCard", "status": "planned" },
+      { "source": "./misc/NotFoundState", "status": "planned" },
+      { "source": "./misc/NoticeCard", "status": "implemented" },
+      { "source": "./misc/Placeholder", "status": "implemented" },
+      { "source": "./misc/ProgressBar", "status": "implemented" },
+      { "source": "./misc/StatCell", "status": "planned" },
+      { "source": "./misc/StatGrid", "status": "planned" },
+      { "source": "./misc/StatusBadge", "status": "implemented" }
+    ],
+    "feedback": [
+      { "source": "./dialog-core", "status": "implemented" },
+      { "source": "./prompts", "status": "implemented" },
+      { "source": "./toast", "status": "planned" },
+      { "source": "./misc/Tooltip", "status": "planned" },
+      { "source": "./misc/avatar-upload-dialog", "status": "planned" }
+    ],
+    "content": [
+      { "source": "./misc/Calendar", "status": "planned" },
+      { "source": "./misc/Chart", "status": "implemented" },
+      { "source": "./misc/CodeDisplay", "status": "planned" },
+      { "source": "./misc/DataTable", "status": "planned" },
+      { "source": "./misc/Docs", "status": "planned" },
+      { "source": "./misc/FileBrowser", "status": "planned" },
+      { "source": "./misc/FileTree", "status": "planned" },
+      { "source": "./misc/FileView", "status": "planned" },
+      { "source": "./misc/Lightbox", "status": "planned" },
+      { "source": "./misc/LogEntriesTable", "status": "planned" },
+      { "source": "./misc/MarkdownView", "status": "planned" },
+      { "source": "./misc/Pagination", "status": "planned" },
+      { "source": "./misc/PdfPreview", "status": "planned" },
+      { "source": "./misc/RangePicker", "status": "planned" },
+      { "source": "./misc/StructuredDataPreview", "status": "planned" },
+      { "source": "./misc/avatar-upload", "status": "planned" },
+      { "source": "./misc/chart-state-timeline", "status": "planned" }
+    ],
+    "widgets": [
+      { "source": "./widgets/Widget", "status": "planned" },
+      { "source": "./widgets/WidgetCard", "status": "planned" },
+      { "source": "./widgets/WidgetHero", "status": "planned" },
+      { "source": "./widgets/WidgetList", "status": "planned" },
+      { "source": "./widgets/WidgetPills", "status": "planned" },
+      { "source": "./widgets/WidgetStat", "status": "planned" },
+      { "source": "./widgets/WidgetStatus", "status": "planned" }
+    ]
+  },
+  "cloudSpecific": [
+    "./layout",
+    "./input/workflow-authoring",
+    "./misc/AiSkillsManager",
+    "./misc/EntitySearch",
+    "./misc/PermissionEditor",
+    "./misc/ResourceApiKeys"
+  ],
+  "deprecated": ["./misc/DockWorkspace"]
+}

@@ -11,7 +11,7 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { AppWorkspace, Chart, Placeholder } = await import("./index");
+const { AppWorkspace, Button, Chart, NoticeCard, Placeholder, ProgressBar, StatusBadge, TextInput } = await import("./index");
 
 describe("@k2b/ui scaffold SSR", () => {
   test("renders the scoped placeholder contract", () => {
@@ -66,6 +66,50 @@ describe("@k2b/ui scaffold SSR", () => {
     expect(html).toContain('data-chart-kind="line"');
     expect(html).toContain("<svg");
     expect(html).toContain('aria-label="Requests"');
+  });
+
+  test("renders accessible foundation controls", () => {
+    const button = renderToString(() =>
+      createComponent(Button, {
+        loading: true,
+        loadingLabel: "Saving",
+        children: "Save",
+      }),
+    );
+    const input = renderToString(() =>
+      createComponent(TextInput, {
+        label: "Email",
+        description: "Used for updates.",
+        error: "Enter a valid address.",
+        value: "invalid",
+      }),
+    );
+
+    expect(button).toContain('aria-busy="true"');
+    expect(button).toContain("Saving");
+    expect(input).toContain('aria-invalid="true"');
+    expect(input).toContain("Used for updates.");
+    expect(input).toContain("Enter a valid address.");
+    expect(input).toMatch(/aria-describedby="[^"]+-description [^"]+-error"/);
+  });
+
+  test("renders semantic status surfaces", () => {
+    const badge = renderToString(() => createComponent(StatusBadge, { tone: "success", dot: true, children: "Healthy" }));
+    const progress = renderToString(() => createComponent(ProgressBar, { label: "Readiness", value: 42 }));
+    const notice = renderToString(() =>
+      createComponent(NoticeCard, {
+        title: "Package boundary",
+        tone: "danger",
+        children: "No Cloud dependency.",
+      }),
+    );
+
+    expect(badge).toContain('data-tone="success"');
+    expect(badge).toContain("Healthy");
+    expect(progress).toContain('role="progressbar"');
+    expect(progress).toContain('aria-valuenow="42"');
+    expect(notice).toContain('role="alert"');
+    expect(notice).toContain("No Cloud dependency.");
   });
 
   test("keeps the stylesheet free of global resets", () => {

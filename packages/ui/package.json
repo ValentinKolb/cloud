@@ -17,18 +17,21 @@
   "exports": {
     ".": "./src/index.ts",
     "./styles.css": "./dist/styles.css",
-    "./fonts/plex.css": "./src/fonts/plex.css",
-    "./icons/tabler.css": "./src/icons/tabler.css"
+    "./fonts/plex.css": "./dist/plex.css",
+    "./icons/tabler.css": "./dist/tabler.css"
   },
   "files": [
     "src",
     "dist",
     "README.md",
+    "MIGRATION.md",
+    "migration-inventory.json",
     "!src/**/*.test.ts",
     "!src/**/*.test.tsx"
   ],
   "scripts": {
     "build": "bun run scripts/build.ts",
+    "check:migration": "bun run scripts/check-migration-inventory.ts",
     "test": "bun run build && bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
     "prepack": "bun run build"

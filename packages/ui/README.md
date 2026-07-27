@@ -6,7 +6,7 @@ styles without a global reset.
 
 ```ts
 import "@k2b/ui/styles.css";
-import { AppWorkspace, Chart, Placeholder, prompts } from "@k2b/ui";
+import { AppWorkspace, Button, TextInput, StatusBadge, prompts } from "@k2b/ui";
 ```
 
 Wrap the rendered application in the UI scope:
@@ -40,9 +40,37 @@ Tabler's webfont is the supported icon preset:
 import "@k2b/ui/icons/tabler.css";
 ```
 
+## Foundation
+
+The first standalone component tranche covers common application primitives:
+
+- Actions: `Button`, `IconButton`, `CopyButton`, `SegmentedControl`
+- Inputs: `TextInput`, `NumberInput`, `Checkbox`, `Switch`, `Select`
+- Surfaces: `StatusBadge`, `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`
+
+Components use direct controlled values and small callback contracts:
+
+```tsx
+const [name, setName] = createSignal("");
+
+<TextInput
+  label="Display name"
+  value={name()}
+  onValueChange={setName}
+  description="Shown to other members."
+/>;
+```
+
+The package does not read Cloud routes, services, permissions, or application
+state. Product-specific composition stays with the consuming application.
+
 ## Catalog groups
 
 The source tree and component documentation use the same groups as the Cloud
 UI showcase: AI, Inputs, Actions, Layout, Surfaces, Feedback, Content, and
 Widgets. Cloud-specific integrations are intentionally not part of this
 package.
+
+Cloud stays on its existing UI until this package is complete. The
+[migration inventory](./MIGRATION.md) records the generic, Cloud-specific, and
+deprecated boundaries without compatibility shims.

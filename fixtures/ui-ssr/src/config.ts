@@ -6,7 +6,7 @@ type PageOptions = {
   title?: string;
 };
 
-export const { config, html, plugin } = createConfig<PageOptions>({
+const fixture = createConfig<PageOptions>({
   dev: process.env.NODE_ENV === "development",
   rootDir: resolve(import.meta.dir, ".."),
   template: ({ body, scripts, title }) => `<!doctype html>
@@ -25,5 +25,7 @@ export const { config, html, plugin } = createConfig<PageOptions>({
 </html>`,
 });
 
+export const { config, plugin } = fixture;
+const { html } = fixture;
 export const ssr = createSSRHandler(html);
 export { routes };
