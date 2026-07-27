@@ -187,33 +187,47 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
 ) => {
   const basePath = normalizePath(definition.path);
 
+  const loadPolicy = async (c: Context<AuthContext>) => {
+    const loaded = await loadResourceRequestContext(c, definition);
+    if (loaded instanceof Response) return loaded;
+    const policy = normalizePolicy(await resolveValue(definition.modelPolicy, loaded.hook, { kind: "platform-default" }));
+    return { loaded, policy };
+  };
+
   const routes = createAiChatRoutes({
     appId: definition.appId,
     defaultTitle: (ctx) => (ctx.resource?.kind === "resource" ? ctx.resource.title : undefined),
+    modelListPolicy: async (c) => {
+      const resolved = await loadPolicy(c);
+      if (resolved instanceof Response) return resolved;
+      return policyForModelList(resolved.policy);
+    },
     resolveContext: async (c): Promise<AiChatRequestContext | Response> => {
-      const loaded = await loadResourceRequestContext(c, definition);
-      if (loaded instanceof Response) return loaded;
-      const policy = normalizePolicy(await resolveValue(definition.modelPolicy, loaded.hook, { kind: "platform-default" }));
-      const systemPrompt = await resolveValue(definition.systemPrompt, loaded.hook, undefined as string | undefined);
+      const resolved = await loadPolicy(c);
+      if (resolved instanceof Response) return resolved;
+      const systemPrompt = await resolveValue(definition.systemPrompt, resolved.loaded.hook, undefined as string | undefined);
       return {
-        actor: loaded.actor,
-        ownerUserId: loaded.ownerUserId,
-        resource: loaded.conversationResource,
-        toolSource: { kind: "resource", resourceKey: aiResourceKey(definition), params: loaded.params },
+        actor: resolved.loaded.actor,
+        ownerUserId: resolved.loaded.ownerUserId,
+        resource: resolved.loaded.conversationResource,
+        toolSource: { kind: "resource", resourceKey: aiResourceKey(definition), params: resolved.loaded.params },
         systemPrompt,
-        modelPolicy: policy,
-        toolApprovalContext: { actorUserId: loaded.ownerUserId, appId: definition.appId, resource: loaded.conversationResource },
+        modelPolicy: resolved.policy,
+        toolApprovalContext: {
+          actorUserId: resolved.loaded.ownerUserId,
+          appId: definition.appId,
+          resource: resolved.loaded.conversationResource,
+        },
       };
     },
   });
 
   // A dedicated status route exposes the resource descriptor + effective policy.
   const statusRoutes = new Hono<AuthContext>().get(`${basePath}/status`, async (c) => {
-    const ctx = await loadResourceRequestContext(c, definition);
-    if (ctx instanceof Response) return ctx;
-    const policy = normalizePolicy(await resolveValue(definition.modelPolicy, ctx.hook, { kind: "platform-default" }));
-    const [status, models] = await Promise.all([toPublicAiSettingsState(), listAiModels(policyForModelList(policy))]);
-    return respond(c, ok({ ...status, models, resource: ctx.descriptor, modelPolicy: policy }));
+    const resolved = await loadPolicy(c);
+    if (resolved instanceof Response) return resolved;
+    const [status, models] = await Promise.all([toPublicAiSettingsState(), listAiModels(policyForModelList(resolved.policy))]);
+    return respond(c, ok({ ...status, models, resource: resolved.loaded.descriptor, modelPolicy: resolved.policy }));
   });
 
   return new Hono<AuthContext>().route("/", statusRoutes).route(basePath, routes);

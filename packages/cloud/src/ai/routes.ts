@@ -50,7 +50,7 @@ export type AiChatRoutesConfig = {
   /** Default title for created conversations. */
   defaultTitle?: (ctx: AiChatRequestContext) => string | undefined;
   /** Policy used to list selectable models on /models. */
-  modelListPolicy?: AiModelPolicy;
+  modelListPolicy?: AiModelPolicy | ((c: Context<AuthContext>) => AiModelPolicy | Response | Promise<AiModelPolicy | Response>);
   /** System prompt mutation for retry modes (details/concise). */
   retryInstruction?: (mode: "retry" | "details" | "concise") => string | null;
   /** Authorize the request and produce its run context, or return an error Response. */
@@ -131,6 +131,11 @@ const conversationDetail = async (conversation: AiConversation) => {
  * fork/retry, and compaction.
  */
 export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
+  const resolveModelListPolicy = async (c: Context<AuthContext>): Promise<AiModelPolicy | Response> => {
+    if (typeof config.modelListPolicy === "function") return config.modelListPolicy(c);
+    return config.modelListPolicy ?? { kind: "selectable", requiredCapabilities: ["streaming"] };
+  };
+
   const loadConversation = async (c: Context<AuthContext>, ctx: AiChatRequestContext): Promise<AiConversation | null> => {
     const conversationId = c.req.param("conversationId");
     if (!conversationId) return null;
@@ -145,9 +150,11 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
   return (
     new Hono<AuthContext>()
       .get("/status", async (c) => respond(c, ok(await toPublicAiSettingsState())))
-      .get("/models", async (c) =>
-        respond(c, ok(await listAiModels(config.modelListPolicy ?? { kind: "selectable", requiredCapabilities: ["streaming"] }))),
-      )
+      .get("/models", async (c) => {
+        const policy = await resolveModelListPolicy(c);
+        if (policy instanceof Response) return policy;
+        return respond(c, ok(await listAiModels(policy)));
+      })
       .get("/prefs", async (c) => {
         const ctx = await config.resolveContext(c);
         if (ctx instanceof Response) return ctx;

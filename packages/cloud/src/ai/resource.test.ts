@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AuthContext } from "../server";
 import { defineAiResource, requireAiResourceAccess } from "./resource";
 import { aiResourceKey, resolveAiResourceRunContext } from "./resource-runner";
+import * as aiSettings from "./settings";
 import { defineAiTool } from "./tools";
+import type { AiPublicModelProfile } from "./types";
 
 const actor = {
   kind: "user",
@@ -148,6 +150,7 @@ describe("AI resource adapters", () => {
 
     const requests: Array<[string, RequestInit | undefined]> = [
       ["/ai/bases/base-1/status", undefined],
+      ["/ai/bases/base-1/models", undefined],
       ["/ai/bases/base-1/conversations", undefined],
       [
         "/ai/bases/base-1/conversations",
@@ -195,6 +198,81 @@ describe("AI resource adapters", () => {
       context: 0,
       tools: 0,
     });
+  });
+
+  test("resource model routes apply access and the effective model policy", async () => {
+    const models: AiPublicModelProfile[] = [
+      {
+        id: "private-fast",
+        label: "Private Fast",
+        provider: "openai-compatible",
+        model: "private-fast",
+        capabilities: ["streaming"],
+        dataBoundary: "private",
+      },
+      {
+        id: "hosted-fast",
+        label: "Hosted Fast",
+        provider: "openai",
+        model: "hosted-fast",
+        capabilities: ["streaming"],
+        dataBoundary: "hosted",
+      },
+    ];
+    const listModels = spyOn(aiSettings, "listAiModels").mockImplementation(async (policy = { kind: "selectable" }) =>
+      models.filter(
+        (model) =>
+          (!("allowedModelIds" in policy) || !policy.allowedModelIds || policy.allowedModelIds.includes(model.id)) &&
+          (!policy.allowedDataBoundaries || policy.allowedDataBoundaries.includes(model.dataBoundary)) &&
+          (!policy.requiredCapabilities || policy.requiredCapabilities.every((capability) => model.capabilities.includes(capability))),
+      ),
+    );
+
+    try {
+      let accessCalls = 0;
+      let policyCalls = 0;
+      const resource = defineAiResource({
+        appId: "grids",
+        id: "base-model-policy",
+        path: "/bases/:baseId",
+        params: z.object({ baseId: z.string() }),
+        access: async ({ params }) => {
+          accessCalls += 1;
+          return { allowed: true, data: { modelId: params.baseId === "base-1" ? "private-fast" : "hosted-fast" } };
+        },
+        modelPolicy: ({ access }) => {
+          policyCalls += 1;
+          return {
+            kind: "selectable",
+            allowedModelIds: [access.modelId],
+            allowedDataBoundaries: ["private"],
+            requiredCapabilities: ["streaming"],
+          };
+        },
+      });
+
+      const app = new Hono<AuthContext>()
+        .use("*", async (c, next) => {
+          c.set("actor", actor);
+          await next();
+        })
+        .route("/ai", resource.routes());
+
+      const response = await app.request("/ai/bases/base-1/models");
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([models[0]]);
+      expect(accessCalls).toBe(1);
+      expect(policyCalls).toBe(1);
+      expect(listModels).toHaveBeenCalledWith({
+        kind: "selectable",
+        allowedModelIds: ["private-fast"],
+        allowedDataBoundaries: ["private"],
+        requiredCapabilities: ["streaming"],
+      });
+    } finally {
+      listModels.mockRestore();
+    }
   });
 
   test("resource runner rehydrates registered context and guards server tools", async () => {
