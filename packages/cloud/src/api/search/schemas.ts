@@ -1,6 +1,20 @@
 import { z } from "zod";
 
 const TAG_PATTERN = /^[^\s#]+$/;
+const SEARCH_BASE_URL = "https://cloud.invalid";
+
+const isSameOriginPath = (value: string): boolean => {
+  if (!value.startsWith("/")) return false;
+  try {
+    return new URL(value, SEARCH_BASE_URL).origin === SEARCH_BASE_URL;
+  } catch {
+    return false;
+  }
+};
+
+const SameOriginPathSchema = z.string().refine(isSameOriginPath, {
+  message: "Expected a root-relative same-origin path",
+});
 
 const TagArraySchema = z.preprocess(
   (value) => {
@@ -27,12 +41,12 @@ export const SearchItemSchema = z.object({
   appIcon: z.string(),
   id: z.string(),
   title: z.string(),
-  href: z.string().startsWith("/"),
+  href: SameOriginPathSchema,
   preview: z.string().optional(),
   icon: z.string().optional(),
   priority: z.number().int().min(0).max(9).optional(),
   metadata: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
-  previewUrl: z.string().startsWith("/").optional(),
+  previewUrl: SameOriginPathSchema.optional(),
 });
 
 export const SearchResponseSchema = z.object({
