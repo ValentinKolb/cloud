@@ -22,7 +22,7 @@ import { openMailRemoteContentRulesDialog } from "./_components/MailRemoteConten
 import MailScheduledView from "./_components/MailScheduledView";
 import MailSidebar from "./_components/MailSidebar";
 import { buildMailActionInput, getMailAction, type MailActionId } from "./_components/mail-actions";
-import { executeMailBulkAction, type MailBulkTarget } from "./_components/mail-bulk-actions";
+import type { MailBulkTarget } from "./_components/mail-bulk-actions";
 import {
   emptyMailConversationSelection,
   findMailFocusAfterRemoval,
@@ -39,6 +39,7 @@ import {
 } from "./_components/mail-list-optimistic";
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
 import { buildMailListHref } from "./_components/mail-navigation";
+import { type MailWorkspaceActionOptions, runMailWorkspaceAction } from "./_components/mail-workspace-action-controller";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
@@ -1078,154 +1079,110 @@ export default function MailWorkspace(props: {
     }
   };
 
-  const runAction = async (
-    actionId: MailActionId,
-    options: {
-      targets?: MailBulkTarget[];
-      destinationFolderId?: string;
-      silent?: boolean;
-    } = {},
-  ) => {
-    if (!canWrite() || actionPending()) return;
-    let targets = options.targets ?? actionTargets(actionId);
-    if (targets.length === 0) {
-      if (!options.silent) {
+  const runAction = (actionId: MailActionId, options: MailWorkspaceActionOptions = {}) =>
+    runMailWorkspaceAction(actionId, options, {
+      canRun: () => canWrite() && !actionPending(),
+      resolveTargets: actionTargets,
+      chooseDestinationFolder,
+      isDisposed: () => disposed,
+      begin: (controller) => {
+        actionController = controller;
+        setActionPending(true);
+      },
+      isCurrent: (controller) => !disposed && actionController === controller,
+      finish: (controller) => {
+        if (disposed || actionController !== controller) return;
+        actionController = null;
+        setActionPending(false);
+      },
+      isAbortError,
+      applyOptimistic: (nextActionId, targets) => {
+        if (nextActionId === "mark_read" || nextActionId === "mark_unread") {
+          const unread = nextActionId === "mark_unread";
+          for (const target of targets) {
+            rememberPendingListState(target.conversationId, { unread });
+            setConversationUnread(target.conversationId, unread);
+          }
+        }
+        if (nextActionId === "flag" || nextActionId === "unflag") {
+          const flagged = nextActionId === "flag";
+          for (const target of targets) {
+            rememberPendingListState(target.conversationId, { flagged });
+            setConversationFlagged(target.conversationId, flagged);
+          }
+        }
+      },
+      clearOptimistic: (conversationIds, fields) => {
+        for (const conversationId of conversationIds) clearPendingListState(conversationId, [...fields]);
+      },
+      submit: async ({ actionId: nextActionId, target, sourceFolderId, destinationFolderId, correlationId, signal }) => {
+        const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post(
+          {
+            param: { mailboxId, conversationId: target.conversationId },
+            json: buildMailActionInput({
+              actionId: nextActionId,
+              sourceFolderId,
+              destinationFolderId,
+              correlationId,
+              idempotencyKey: crypto.randomUUID(),
+            }),
+          },
+          { init: { signal } },
+        );
+        if (!response.ok)
+          throw new Error(await readApiError(response, `Could not ${getMailAction(nextActionId).label.toLocaleLowerCase()}`));
+      },
+      pruneSelection: (succeeded) => {
+        const current = conversationSelection();
+        const ids = new Set([...current.ids].filter((id) => !succeeded.has(id)));
+        setConversationSelection({
+          ids,
+          anchorId: current.anchorId && !succeeded.has(current.anchorId) ? current.anchorId : null,
+        });
+        if (ids.size === 0) setSelectionMode(false);
+      },
+      removesActiveConversation: (nextActionId, succeeded) =>
+        ["archive", "junk", "not_spam", "trash", "move"].includes(nextActionId) &&
+        Boolean(data.selectedConversationId && succeeded.has(data.selectedConversationId)),
+      refreshAfterSuccess: async ({ removesActiveConversation, succeededConversationIds }) => {
+        if (!removesActiveConversation) return reconcileWorkspace();
+        const focusAfterRemoval = findMailFocusAfterRemoval({
+          orderedConversationIds: orderedConversationIds(),
+          activeConversationId: data.selectedConversationId,
+          removedConversationIds: succeededConversationIds,
+        });
+        await openWorkspaceHref(buildMailListHref(new URL(requestUrl())), true);
+        if (!disposed && focusAfterRemoval) focusConversation(focusAfterRemoval, "row");
+      },
+      reconcile: reconcileWorkspace,
+      showMissingTarget: async () => {
         await prompts.error("Open the conversation from a mailbox folder, then try this action again.", {
           title: "Choose a folder first",
         });
-      }
-      return;
-    }
-    const destinationFolderId = actionId === "move" ? (options.destinationFolderId ?? (await chooseDestinationFolder())) : undefined;
-    if (disposed || (actionId === "move" && !destinationFolderId)) return;
-
-    if (actionId === "move") {
-      targets = targets
-        .map((target) => ({
-          ...target,
-          sourceFolderIds: target.sourceFolderIds.filter((sourceFolderId) => sourceFolderId !== destinationFolderId),
-        }))
-        .filter((target) => target.sourceFolderIds.length > 0);
-      if (targets.length === 0) {
-        if (!options.silent) toast("The selected conversations are already in this folder", { title: "Nothing to move" });
-        return;
-      }
-    }
-
-    const correlationId = crypto.randomUUID();
-    const controller = new AbortController();
-    actionController = controller;
-    setActionPending(true);
-    if (actionId === "mark_read" || actionId === "mark_unread") {
-      const unread = actionId === "mark_unread";
-      for (const target of targets) {
-        rememberPendingListState(target.conversationId, { unread });
-        setConversationUnread(target.conversationId, unread);
-      }
-    }
-    if (actionId === "flag" || actionId === "unflag") {
-      const flagged = actionId === "flag";
-      for (const target of targets) {
-        rememberPendingListState(target.conversationId, { flagged });
-        setConversationFlagged(target.conversationId, flagged);
-      }
-    }
-
-    try {
-      const result = await executeMailBulkAction({
-        actionId,
-        targets,
-        submit: async (target, sourceFolderId) => {
-          const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post(
-            {
-              param: { mailboxId, conversationId: target.conversationId },
-              json: buildMailActionInput({
-                actionId,
-                sourceFolderId,
-                destinationFolderId: destinationFolderId ?? undefined,
-                correlationId,
-                idempotencyKey: crypto.randomUUID(),
-              }),
-            },
-            { init: { signal: controller.signal } },
-          );
-          if (!response.ok) throw new Error(await readApiError(response, `Could not ${getMailAction(actionId).label.toLocaleLowerCase()}`));
-        },
-      });
-      if (disposed || actionController !== controller) return;
-
-      const succeeded = new Set(result.succeededConversationIds);
-      const optimisticFields: Array<"unread" | "flagged"> = ["mark_read", "mark_unread"].includes(actionId)
-        ? ["unread"]
-        : ["flag", "unflag"].includes(actionId)
-          ? ["flagged"]
-          : [];
-      for (const failure of result.failures) clearPendingListState(failure.conversationId, optimisticFields);
-      const currentSelection = conversationSelection();
-      const remainingIds = new Set([...currentSelection.ids].filter((id) => !succeeded.has(id)));
-      setConversationSelection({
-        ids: remainingIds,
-        anchorId: currentSelection.anchorId && !succeeded.has(currentSelection.anchorId) ? currentSelection.anchorId : null,
-      });
-      if (remainingIds.size === 0) setSelectionMode(false);
-
-      const removesActiveConversation =
-        (actionId === "archive" || actionId === "junk" || actionId === "not_spam" || actionId === "trash" || actionId === "move") &&
-        Boolean(data.selectedConversationId && succeeded.has(data.selectedConversationId!));
-      if (result.succeededConversationIds.length > 0) {
-        if (removesActiveConversation) {
-          const focusAfterRemoval = findMailFocusAfterRemoval({
-            orderedConversationIds: orderedConversationIds(),
-            activeConversationId: data.selectedConversationId,
-            removedConversationIds: succeeded,
-          });
-          await openWorkspaceHref(buildMailListHref(new URL(requestUrl())), true);
-          if (disposed || actionController !== controller) return;
-          if (focusAfterRemoval) focusConversation(focusAfterRemoval, "row");
-        } else {
-          await reconcileWorkspace();
-          if (disposed || actionController !== controller) return;
-        }
-        if (!options.silent) {
-          toast.success(
-            targets.length === 1
-              ? `${getMailAction(actionId).label} queued`
-              : `${getMailAction(actionId).label} queued for ${result.succeededConversationIds.length} conversations`,
-          );
-        }
-      } else if (["mark_read", "mark_unread", "flag", "unflag"].includes(actionId)) {
-        await reconcileWorkspace();
-        if (disposed || actionController !== controller) return;
-      }
-      if (result.failures.length > 0) {
-        const details = result.failures
-          .slice(0, 5)
-          .map(
-            (failure) =>
-              `${failure.label}: ${failure.message}${failure.submittedPlacements > 0 ? " (some placements were already queued)" : ""}`,
-          )
-          .join("\n");
-        await prompts.error(details, {
-          title: `${result.failures.length} of ${targets.length} conversations failed`,
-        });
-      }
-    } catch (error) {
-      if (disposed || actionController !== controller || isAbortError(error)) return;
-      const optimisticFields: Array<"unread" | "flagged"> = ["mark_read", "mark_unread"].includes(actionId)
-        ? ["unread"]
-        : ["flag", "unflag"].includes(actionId)
-          ? ["flagged"]
-          : [];
-      for (const target of targets) clearPendingListState(target.conversationId, optimisticFields);
-      await reconcileWorkspace();
-      if (!options.silent) await prompts.error(error instanceof Error ? error.message : "Could not update conversations");
-    } finally {
-      if (!disposed && actionController === controller) {
-        actionController = null;
-        setActionPending(false);
-      }
-    }
-  };
+      },
+      showNothingToMove: () => toast("The selected conversations are already in this folder", { title: "Nothing to move" }),
+      showSuccess: (nextActionId, targetCount, successCount) =>
+        toast.success(
+          targetCount === 1
+            ? `${getMailAction(nextActionId).label} queued`
+            : `${getMailAction(nextActionId).label} queued for ${successCount} conversations`,
+        ),
+      showFailures: async (failures, targetCount) => {
+        await prompts.error(
+          failures
+            .slice(0, 5)
+            .map(
+              (failure) =>
+                `${failure.label}: ${failure.message}${failure.submittedPlacements > 0 ? " (some placements were already queued)" : ""}`,
+            )
+            .join("\n"),
+          { title: `${failures.length} of ${targetCount} conversations failed` },
+        );
+      },
+      showError: async (error) => {
+        await prompts.error(error instanceof Error ? error.message : "Could not update conversations");
+      },
+    });
 
   const addTagsToSelection = async () => {
     if (!canWrite() || actionPending()) return;
