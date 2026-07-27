@@ -12,6 +12,7 @@ import {
   rewriteRemoteImageSources,
   splitPlainMessageSegments,
 } from "./mail-message-presentation";
+import { mergeMailRemoteImageUrls } from "./mail-remote-image-batch";
 
 const MAX_INLINE_IMAGE_COUNT = 32;
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
@@ -126,10 +127,10 @@ export default function MailMessageBody(props: {
         const imageId = pending[index];
         if (!imageId) return;
         try {
-          const response = await fetch(
-            `/api/mail/mailboxes/${props.mailboxId}/messages/${props.messageId}/remote-images/${imageId}`,
-            { credentials: "same-origin", signal: controller.signal },
-          );
+          const response = await fetch(`/api/mail/mailboxes/${props.mailboxId}/messages/${props.messageId}/remote-images/${imageId}`, {
+            credentials: "same-origin",
+            signal: controller.signal,
+          });
           if (!response.ok) continue;
           const blob = await response.blob();
           if (disposed || controller.signal.aborted) return;
@@ -141,7 +142,6 @@ export default function MailMessageBody(props: {
           const objectUrl = URL.createObjectURL(blob);
           remoteObjectUrls.add(objectUrl);
           loaded.push([imageId, objectUrl]);
-          setRemoteUrls((current) => new Map([...current, [imageId, objectUrl]]));
         } catch (error) {
           if (!disposed && !controller.signal.aborted) {
             console.warn("Could not load remote email image", error);
@@ -153,6 +153,9 @@ export default function MailMessageBody(props: {
     };
     try {
       await Promise.all(Array.from({ length: Math.min(REMOTE_IMAGE_WORKERS, pending.length) }, worker));
+      if (loaded.length > 0 && !disposed && !controller.signal.aborted) {
+        setRemoteUrls((current) => mergeMailRemoteImageUrls(current, loaded));
+      }
       if (loaded.length === 0 && !disposed && !controller.signal.aborted) {
         void prompts.error("The remote images could not be loaded safely.");
       } else if (budgetExhausted && !disposed && !controller.signal.aborted) {
