@@ -47,6 +47,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
   );
   const [items, setItems] = createSignal(initialItems);
   const [nextCursor, setNextCursor] = createSignal(props.data.subscriptions.nextCursor);
+  const [pendingAction, setPendingAction] = createSignal<string | null>(null);
   const canWrite = createMemo(() => props.data.permission === "write" || props.data.permission === "admin");
   let markLiveApplied: (cursor: string) => void = () => undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -166,40 +167,52 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
   });
 
   const requestUnsubscribe = async (item: MailSubscriptionSummary) => {
-    if (!item.unsubscribe || !canWrite()) return;
-    const confirmed = await prompts.confirm(
-      item.unsubscribe.kind === "one_click"
-        ? `Ask ${item.name} to stop sending messages to this mailbox? Existing messages will remain in Mail.`
-        : item.unsubscribe.kind === "web"
-          ? `Open ${item.name}'s unsubscribe page in a new tab?`
-          : `Open a new email using ${item.name}'s advertised unsubscribe address?`,
-      {
-        title: `Unsubscribe from ${item.name}?`,
-        icon: "ti ti-mail-off",
-        confirmText: item.unsubscribe.kind === "one_click" ? "Unsubscribe" : "Continue",
-      },
-    );
-    if (!confirmed || disposed) return;
-    if (item.unsubscribe.kind === "one_click") {
-      await unsubscribe.mutate(item);
-      return;
+    if (!item.unsubscribe || !canWrite() || pendingAction()) return;
+    const reservation = `unsubscribe:${item.listKey}`;
+    setPendingAction(reservation);
+    try {
+      const confirmed = await prompts.confirm(
+        item.unsubscribe.kind === "one_click"
+          ? `Ask ${item.name} to stop sending messages to this mailbox? Existing messages will remain in Mail.`
+          : item.unsubscribe.kind === "web"
+            ? `Open ${item.name}'s unsubscribe page in a new tab?`
+            : `Open a new email using ${item.name}'s advertised unsubscribe address?`,
+        {
+          title: `Unsubscribe from ${item.name}?`,
+          icon: "ti ti-mail-off",
+          confirmText: item.unsubscribe.kind === "one_click" ? "Unsubscribe" : "Continue",
+        },
+      );
+      if (!confirmed || disposed) return;
+      if (item.unsubscribe.kind === "one_click") {
+        await unsubscribe.mutate(item);
+        return;
+      }
+      if (item.unsubscribe.kind === "email") window.location.href = item.unsubscribe.href;
+      else window.open(item.unsubscribe.href, "_blank", "noopener,noreferrer");
+    } finally {
+      if (!disposed && pendingAction() === reservation) setPendingAction(null);
     }
-    if (item.unsubscribe.kind === "email") window.location.href = item.unsubscribe.href;
-    else window.open(item.unsubscribe.href, "_blank", "noopener,noreferrer");
   };
 
   const requestDisposition = async (item: MailSubscriptionSummary, disposition: "archive" | "trash") => {
-    if (!canWrite()) return;
-    const confirmed = await prompts.confirm(
-      `${disposition === "archive" ? "Archive" : "Move to Trash"} up to 500 existing messages identified as ${item.name}?`,
-      {
-        title: `${disposition === "archive" ? "Archive" : "Trash"} existing messages?`,
-        icon: disposition === "archive" ? "ti ti-archive" : "ti ti-trash",
-        variant: disposition === "trash" ? "danger" : undefined,
-        confirmText: disposition === "archive" ? "Archive messages" : "Move to Trash",
-      },
-    );
-    if (!disposed && confirmed) await dispose.mutate({ item, disposition });
+    if (!canWrite() || pendingAction()) return;
+    const reservation = `${disposition}:${item.listKey}`;
+    setPendingAction(reservation);
+    try {
+      const confirmed = await prompts.confirm(
+        `${disposition === "archive" ? "Archive" : "Move to Trash"} up to 500 existing messages identified as ${item.name}?`,
+        {
+          title: `${disposition === "archive" ? "Archive" : "Trash"} existing messages?`,
+          icon: disposition === "archive" ? "ti ti-archive" : "ti ti-trash",
+          variant: disposition === "trash" ? "danger" : undefined,
+          confirmText: disposition === "archive" ? "Archive messages" : "Move to Trash",
+        },
+      );
+      if (!disposed && confirmed) await dispose.mutate({ item, disposition });
+    } finally {
+      if (!disposed && pendingAction() === reservation) setPendingAction(null);
+    }
   };
 
   onMount(() => {
@@ -367,7 +380,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
                             <button
                               type="button"
                               class="btn-secondary btn-sm"
-                              disabled={unsubscribe.loading()}
+                              disabled={Boolean(pendingAction()) || unsubscribe.loading() || dispose.loading()}
                               onClick={() => void requestUnsubscribe(item)}
                             >
                               <i class="ti ti-mail-off" aria-hidden="true" />
@@ -397,7 +410,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
                               <button
                                 type="button"
                                 class="btn-simple btn-sm"
-                                disabled={dispose.loading()}
+                                disabled={Boolean(pendingAction()) || unsubscribe.loading() || dispose.loading()}
                                 onClick={() => void requestDisposition(item, "archive")}
                               >
                                 <i class="ti ti-archive" aria-hidden="true" />
@@ -406,7 +419,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
                               <button
                                 type="button"
                                 class="btn-simple btn-sm"
-                                disabled={dispose.loading()}
+                                disabled={Boolean(pendingAction()) || unsubscribe.loading() || dispose.loading()}
                                 onClick={() => void requestDisposition(item, "trash")}
                               >
                                 <i class="ti ti-trash" aria-hidden="true" />

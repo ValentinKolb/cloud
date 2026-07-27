@@ -94,7 +94,6 @@ export default function MailWorkspace(props: {
   let actionController: AbortController | null = null;
   let disposed = false;
   const focusFrames = new Set<number>();
-  const pendingReadConversationIds = new Set<string>();
   let pendingListState = new Map<string, PendingMailListState>();
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
   const selectedConversationId = createMemo(() => data.selectedConversationId);
@@ -562,6 +561,18 @@ export default function MailWorkspace(props: {
 
   const canWrite = createMemo(() => rank(data.permission) >= 2);
   const canAdmin = createMemo(() => rank(data.permission) >= 3);
+  const reserveWorkspaceAction = (): AbortController | null => {
+    if (!canWrite() || actionPending() || disposed) return null;
+    const controller = new AbortController();
+    actionController = controller;
+    setActionPending(true);
+    return controller;
+  };
+  const releaseWorkspaceAction = (controller: AbortController) => {
+    if (disposed || actionController !== controller) return;
+    actionController = null;
+    setActionPending(false);
+  };
   const hasSelection = createMemo(() => Boolean(data.selectedConversationId || data.selectedMessageId));
   const selectedListItem = createMemo(() => data.listItems.find((item) => item.conversationId === data.selectedConversationId));
   const selectedUnread = createMemo(
@@ -624,46 +635,6 @@ export default function MailWorkspace(props: {
       setData("collaborationState", (current) =>
         current?.conversationId === next.conversationId ? { ...current, revision: next.conversationRevision } : current,
       );
-    }
-  };
-
-  const persistConversationRead = async (item: MailListItem) => {
-    const conversationId = item.conversationId;
-    if (!canWrite() || !conversationId || !item.unread || pendingReadConversationIds.has(conversationId)) return;
-    const sourceFolderIds = item.unreadFolderIds.length > 0 ? item.unreadFolderIds : item.sourceFolderId ? [item.sourceFolderId] : [];
-    if (sourceFolderIds.length === 0) return;
-
-    pendingReadConversationIds.add(conversationId);
-    rememberPendingListState(conversationId, { unread: false });
-    setConversationUnread(conversationId, false);
-    try {
-      const results = await Promise.allSettled(
-        sourceFolderIds.map(async (sourceFolderId) => {
-          const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post({
-            param: { mailboxId: data.mailbox.id, conversationId },
-            json: {
-              kind: "change_state",
-              sourceFolderId,
-              change: {
-                addFlags: ["seen"],
-                removeFlags: [],
-                addKeywords: [],
-                removeKeywords: [],
-              },
-              idempotencyKey: crypto.randomUUID(),
-            },
-          });
-          if (!response.ok) throw new Error(await readApiError(response, "Could not mark conversation as read"));
-        }),
-      );
-      const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-      if (failure) throw failure.reason;
-    } catch (error) {
-      clearPendingListState(conversationId, ["unread"]);
-      setConversationUnread(conversationId, true);
-      toast.error(error instanceof Error ? error.message : "Could not mark conversation as read");
-    } finally {
-      pendingReadConversationIds.delete(conversationId);
     }
   };
 
@@ -743,7 +714,6 @@ export default function MailWorkspace(props: {
           selectedSubject: detail.selectedSubject || item.subject || "Message",
         });
       });
-      void persistConversationRead(item);
       prefetchNeighbors(item.conversationId);
       if (activation === "keyboard") focusConversation(item.conversationId, "reader");
       return "applied";
@@ -923,23 +893,21 @@ export default function MailWorkspace(props: {
   };
 
   const mergeConversation = async (source: { conversationId: string; revision: number; subject: string }) => {
-    if (!canWrite() || actionPending()) return;
+    const controller = reserveWorkspaceAction();
+    if (!controller) return;
     const { conversationId: sourceConversationId, revision: sourceRevision } = source;
-    const target = await chooseConversationTarget(sourceConversationId);
-    if (!target || disposed) return;
-    const confirmed = await prompts.confirm(
-      `Move every message, comment, draft, tag, and reference from “${source.subject || "this conversation"}” into “${target.subject || "the selected conversation"}”?`,
-      {
-        title: "Merge conversations?",
-        icon: "ti ti-git-merge",
-        confirmText: "Merge conversations",
-      },
-    );
-    if (!confirmed || disposed) return;
-    const controller = new AbortController();
-    actionController = controller;
-    setActionPending(true);
     try {
+      const target = await chooseConversationTarget(sourceConversationId);
+      if (!target || disposed || actionController !== controller) return;
+      const confirmed = await prompts.confirm(
+        `Move every message, comment, draft, tag, and reference from “${source.subject || "this conversation"}” into “${target.subject || "the selected conversation"}”?`,
+        {
+          title: "Merge conversations?",
+          icon: "ti ti-git-merge",
+          confirmText: "Merge conversations",
+        },
+      );
+      if (!confirmed || disposed || actionController !== controller) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].merge.$post(
         {
           param: { mailboxId, conversationId: target.conversationId },
@@ -965,10 +933,7 @@ export default function MailWorkspace(props: {
         title: "Conversation was not changed",
       });
     } finally {
-      if (!disposed && actionController === controller) {
-        actionController = null;
-        setActionPending(false);
-      }
+      releaseWorkspaceAction(controller);
     }
   };
 
@@ -982,28 +947,27 @@ export default function MailWorkspace(props: {
   const reassignMessage = async (messageId: string) => {
     const sourceConversationId = data.selectedConversationId;
     const sourceRevision = selectedConversationRevision();
-    if (!canWrite() || !sourceConversationId || !sourceRevision || actionPending()) return;
-    if ((selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1) {
-      await prompts.error("This is the only message in the conversation. Merge the whole conversation instead.", {
-        title: "Message cannot be moved on its own",
-      });
-      return;
-    }
-    const target = await chooseConversationTarget(sourceConversationId);
-    if (!target || disposed) return;
-    const confirmed = await prompts.confirm(
-      `Move this message and its linked internal comments into “${target.subject || "the selected conversation"}”?`,
-      {
-        title: "Move message?",
-        icon: "ti ti-message-forward",
-        confirmText: "Move message",
-      },
-    );
-    if (!confirmed || disposed) return;
-    const controller = new AbortController();
-    actionController = controller;
-    setActionPending(true);
+    if (!canWrite() || !sourceConversationId || !sourceRevision) return;
+    const controller = reserveWorkspaceAction();
+    if (!controller) return;
     try {
+      if ((selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1) {
+        await prompts.error("This is the only message in the conversation. Merge the whole conversation instead.", {
+          title: "Message cannot be moved on its own",
+        });
+        return;
+      }
+      const target = await chooseConversationTarget(sourceConversationId);
+      if (!target || disposed || actionController !== controller) return;
+      const confirmed = await prompts.confirm(
+        `Move this message and its linked internal comments into “${target.subject || "the selected conversation"}”?`,
+        {
+          title: "Move message?",
+          icon: "ti ti-message-forward",
+          confirmText: "Move message",
+        },
+      );
+      if (!confirmed || disposed || actionController !== controller) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].messages[":messageId"].reassign.$post(
         {
           param: { mailboxId, conversationId: sourceConversationId, messageId },
@@ -1029,10 +993,7 @@ export default function MailWorkspace(props: {
         title: "Message was not moved",
       });
     } finally {
-      if (!disposed && actionController === controller) {
-        actionController = null;
-        setActionPending(false);
-      }
+      releaseWorkspaceAction(controller);
     }
   };
 
@@ -1043,20 +1004,18 @@ export default function MailWorkspace(props: {
       !canWrite() ||
       !conversationId ||
       !revision ||
-      (selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1 ||
-      actionPending()
+      (selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1
     )
       return;
-    const confirmed = await prompts.confirm("Create a separate conversation from this message and its linked internal comments?", {
-      title: "Start a new conversation?",
-      icon: "ti ti-arrows-split-2",
-      confirmText: "Create conversation",
-    });
-    if (!confirmed || disposed) return;
-    const controller = new AbortController();
-    actionController = controller;
-    setActionPending(true);
+    const controller = reserveWorkspaceAction();
+    if (!controller) return;
     try {
+      const confirmed = await prompts.confirm("Create a separate conversation from this message and its linked internal comments?", {
+        title: "Start a new conversation?",
+        icon: "ti ti-arrows-split-2",
+        confirmText: "Create conversation",
+      });
+      if (!confirmed || disposed || actionController !== controller) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].split.$post(
         {
           param: { mailboxId, conversationId },
@@ -1082,10 +1041,7 @@ export default function MailWorkspace(props: {
         title: "Conversation was not changed",
       });
     } finally {
-      if (!disposed && actionController === controller) {
-        actionController = null;
-        setActionPending(false);
-      }
+      releaseWorkspaceAction(controller);
     }
   };
 
@@ -1195,15 +1151,14 @@ export default function MailWorkspace(props: {
     });
 
   const addTagsToSelection = async () => {
-    if (!canWrite() || actionPending()) return;
+    if (!canWrite()) return;
     const conversationIds = [...selectedConversationIds()];
     if (conversationIds.length === 0) return;
-    const tagIds = await chooseBulkTags(data.localTags);
-    if (!tagIds?.length || disposed) return;
-    const controller = new AbortController();
-    actionController = controller;
-    setActionPending(true);
+    const controller = reserveWorkspaceAction();
+    if (!controller) return;
     try {
+      const tagIds = await chooseBulkTags(data.localTags);
+      if (!tagIds?.length || disposed || actionController !== controller) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations["local-tags"].$post(
         {
           param: { mailboxId },
@@ -1240,21 +1195,17 @@ export default function MailWorkspace(props: {
       if (disposed || actionController !== controller || isAbortError(error)) return;
       await prompts.error(error instanceof Error ? error.message : "Could not add tags");
     } finally {
-      if (!disposed && actionController === controller) {
-        actionController = null;
-        setActionPending(false);
-      }
+      releaseWorkspaceAction(controller);
     }
   };
 
   const manageConversationTags = async (item: MailListItem) => {
-    if (!canWrite() || actionPending() || !item.conversationId) return;
-    const tagIds = await chooseConversationTags(data.localTags, item.localTags);
-    if (tagIds === undefined || tagIds === null || disposed) return;
-    const controller = new AbortController();
-    actionController = controller;
-    setActionPending(true);
+    if (!canWrite() || !item.conversationId) return;
+    const controller = reserveWorkspaceAction();
+    if (!controller) return;
     try {
+      const tagIds = await chooseConversationTags(data.localTags, item.localTags);
+      if (tagIds === undefined || tagIds === null || disposed || actionController !== controller) return;
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put(
         {
           param: { mailboxId, conversationId: item.conversationId },
@@ -1273,21 +1224,24 @@ export default function MailWorkspace(props: {
       if (disposed || actionController !== controller) return;
       await prompts.error(error instanceof Error ? error.message : "Could not update tags", { title: "Conversation changed" });
     } finally {
-      if (!disposed && actionController === controller) {
-        actionController = null;
-        setActionPending(false);
-      }
+      releaseWorkspaceAction(controller);
     }
   };
 
   let autoReadSelectionId: string | null = null;
   createEffect(() => {
+    const pending = actionPending();
     const item = selectedListItem();
     const conversationId = item?.conversationId ?? data.selectedConversationId;
-    if (conversationId === autoReadSelectionId) return;
+    if (!conversationId) {
+      autoReadSelectionId = null;
+      return;
+    }
+    if (pending || conversationId === autoReadSelectionId || !selectedUnread()) return;
+    const target = item ? actionTargetForItem(item, "mark_read") : actionTargets("mark_read")[0];
+    if (!target || target.sourceFolderIds.length === 0) return;
     autoReadSelectionId = conversationId;
-    if (item?.unread) void persistConversationRead(item);
-    else if (conversationId && selectedUnread()) void runAction("mark_read", { silent: true });
+    void runAction("mark_read", { silent: true, targets: [target] });
   });
 
   createEffect(() => {

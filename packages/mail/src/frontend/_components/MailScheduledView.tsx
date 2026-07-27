@@ -53,12 +53,12 @@ export default function MailScheduledView(props: {
 
   const cancel = async (scheduledSendId: string) => {
     if (cancellingId()) return;
-    const disposition = await chooseDisposition();
-    if (!disposition || disposed) return;
     const currentController = new AbortController();
     controller = currentController;
     setCancellingId(scheduledSendId);
     try {
+      const disposition = await chooseDisposition();
+      if (!disposition || disposed) return;
       const response = await apiClient.mailboxes[":mailboxId"]["scheduled-sends"][":scheduledSendId"].cancel.$post(
         {
           param: { mailboxId: props.mailboxId, scheduledSendId },
@@ -160,7 +160,7 @@ export default function MailScheduledView(props: {
                       <button
                         type="button"
                         class="btn-secondary btn-sm shrink-0"
-                        disabled={cancellingId() === item.id}
+                        disabled={Boolean(cancellingId())}
                         onClick={() => void cancel(item.id)}
                       >
                         <i

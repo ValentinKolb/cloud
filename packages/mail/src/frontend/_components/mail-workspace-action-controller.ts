@@ -68,23 +68,25 @@ export const runMailWorkspaceAction = async (
     return;
   }
 
-  const destinationFolderId = actionId === "move" ? (options.destinationFolderId ?? (await host.chooseDestinationFolder())) : undefined;
-  if (host.isDisposed() || (actionId === "move" && !destinationFolderId)) return;
-  if (actionId === "move") {
-    targets = removeDestinationPlacements(targets, destinationFolderId!);
-    if (targets.length === 0) {
-      if (!options.silent) host.showNothingToMove();
-      return;
-    }
-  }
-
   const controller = new AbortController();
-  const correlationId = crypto.randomUUID();
   const optimisticFields = mailOptimisticFields(actionId);
+  let optimisticApplied = false;
   host.begin(controller);
-  host.applyOptimistic(actionId, targets);
 
   try {
+    const destinationFolderId = actionId === "move" ? (options.destinationFolderId ?? (await host.chooseDestinationFolder())) : undefined;
+    if (!host.isCurrent(controller) || host.isDisposed() || (actionId === "move" && !destinationFolderId)) return;
+    if (actionId === "move") {
+      targets = removeDestinationPlacements(targets, destinationFolderId!);
+      if (targets.length === 0) {
+        if (!options.silent) host.showNothingToMove();
+        return;
+      }
+    }
+
+    const correlationId = crypto.randomUUID();
+    host.applyOptimistic(actionId, targets);
+    optimisticApplied = true;
     const result = await executeMailBulkAction({
       actionId,
       targets,
@@ -121,11 +123,14 @@ export const runMailWorkspaceAction = async (
     if (result.failures.length > 0) await host.showFailures(result.failures, targets.length);
   } catch (error) {
     if (!host.isCurrent(controller) || host.isAbortError(error)) return;
-    host.clearOptimistic(
-      targets.map((target) => target.conversationId),
-      optimisticFields,
-    );
-    await host.reconcile();
+    if (optimisticApplied) {
+      host.clearOptimistic(
+        targets.map((target) => target.conversationId),
+        optimisticFields,
+      );
+      await host.reconcile();
+      if (!host.isCurrent(controller)) return;
+    }
     if (!options.silent) await host.showError(error);
   } finally {
     host.finish(controller);
