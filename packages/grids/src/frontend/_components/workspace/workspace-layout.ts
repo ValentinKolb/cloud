@@ -6,9 +6,9 @@ type WorkspaceSurface = "edge-to-edge" | "inset";
 const WORKSPACE_SURFACES = {
   queryResultView: "inset",
   dashboard: "inset",
-  // The file browser and query panes own their full workbench gutters.
-  documentTemplate: "edge-to-edge",
+  documentTemplate: "inset",
   empty: "inset",
+  // Query panes own their full workbench gutters.
   query: "edge-to-edge",
   records: "inset",
   workflows: "inset",
