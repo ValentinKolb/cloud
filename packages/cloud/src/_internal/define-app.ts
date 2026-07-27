@@ -107,7 +107,8 @@ export type AppOptions<S extends AppSettingsMap = {}, N extends NotificationDefi
    * Dashboard widget endpoints this app exposes. Each entry references an
    * HTTP path on this app that returns a `WidgetResponse`. The dashboard
    * fetches them with the user's cookie forwarded; the endpoint is
-   * responsible for permission gating (200 = render, 204 = skip silently).
+   * responsible for permission gating (200 = render, 403 = unavailable at the
+   * user's access level, 204 = no content).
    */
   widgets?: ReadonlyArray<WidgetEndpoint>;
   /**

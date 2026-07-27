@@ -347,7 +347,7 @@ Props: `initialEntries: AccessEntry[]`, `canEdit?`, `grantAccess(principal, perm
 
 The permission type is grantable-only. **Do not import `GrantableLevel`** — it is local to the component. Use inference, or `Exclude<PermissionLevel, "none">` with `PermissionLevel` from `@valentinkolb/cloud/contracts`.
 
-It never creates API keys, shows raw tokens, or owns credential revocation — that is `ResourceApiKeys`. See `api-keys.md`.
+It never creates API keys, shows raw tokens, or owns credential revocation — that is `ResourceApiKeys`. See `auth.md`.
 
 ## Inputs
 

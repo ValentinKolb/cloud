@@ -1,34 +1,41 @@
 ---
-title: Developer documentation
+title: Cloud developer documentation
 navTitle: Introduction
 section: Start
 order: 10
-description: Understand the Cloud application model and choose the platform building blocks your service needs.
+description: Find the Cloud guide or API reference for an application task.
 tags: [cloud, platform, applications]
-updated: 2026-07-26
+updated: 2026-07-27
 ---
 
-# Developer documentation
+# Cloud developer documentation
 
-Cloud is an open-source application platform that runs on your infrastructure. It supplies shared capabilities around independent services: identity, permissions, interface foundations, data services, background work, notifications, and operations.
+Cloud applications are independent services that use shared platform APIs.
 
-## Start with the application model
+This documentation defines the application contract and those APIs.
 
-An application owns its domain, routes, data model, deployment, and release cycle. Cloud connects it to the rest of the platform through a small application contract.
+## Start with a task
 
-[Read the platform overview](/docs/en/overview)
-
-## What this documentation will cover
-
-| Start here | What it answers |
+| Task | Page |
 | --- | --- |
-| [Platform overview](/docs/en/overview) | Where an application ends and the platform begins |
-| [Platform APIs](/docs/en/platform) | Which shared capability to use from application code |
-| [Settings](/docs/en/platform/settings) | How an app declares, reads, and changes runtime configuration |
-| [Logging](/docs/en/platform/logging) | How an app writes structured operational events |
-| [Notifications](/docs/en/platform/notifications) | How an app defines and sends typed user or email notifications |
+| See what Cloud and applications own | [Platform model](/docs/en/overview) |
+| Create a working service | [First application](/docs/en/build/getting-started) |
+| Find a platform API | [Building blocks](/docs/en/building-blocks) |
+| Handle HTTP requests | [Server requests](/docs/en/server) |
+| Protect routes and resources | [Identity and access](/docs/en/identity) |
+| Store application data | [Data ownership](/docs/en/data) |
+| Use a shared service | [Platform services](/docs/en/platform) |
+| Run background or durable work | [Automation](/docs/en/automation) |
+| Build an application UI | [Frontend](/docs/en/frontend) |
+| Add an AI feature | [AI](/docs/en/ai) |
+| Develop or deploy an application | [Operations](/docs/en/operations) |
+| Look up an import | [API surface](/docs/en/reference/api-surface) |
+| Inspect shared components | [UI catalog](/ui) |
 
-The [UI catalog](/ui) renders components directly from the shared Cloud
-package. Additional guides will cover identity, data, jobs, schedules, queues,
-durable workflows, and operations without mixing those concerns into the
-application foundation.
+## Use the Markdown source
+
+Append `.md` to a documentation URL, for example
+`/docs/en/identity.md`.
+
+[llms.txt](/docs/llms.txt) lists all visible pages.
+[llms-full.txt](/docs/llms-full.txt) contains their Markdown.

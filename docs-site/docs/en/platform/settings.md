@@ -1,24 +1,25 @@
 ---
 title: Settings
 navTitle: Settings
-section: Platform APIs
-order: 120
-description: Declare typed runtime configuration and read it consistently inside or outside a request.
+section: Platform services
+order: 510
+description: Define application settings and access them in requests, jobs, and lifecycle hooks.
 tags: [settings, configuration, typescript]
 updated: 2026-07-26
 ---
 
 # Settings
 
-Use a setting when an operator should be able to change application behavior
-without rebuilding the service. The application owns the key, type, default,
-and UI metadata. Cloud validates values, stores overrides encrypted in
-Postgres, and coordinates reads through a shared cache.
+Use settings for configuration that operators can change at runtime.
 
-## Declare settings with the app
+The application defines each key, type, default, and form label. Cloud
+validates and stores the value. Cloud also keeps reads consistent across app
+instances.
 
-Settings use app-prefixed dotted keys. TypeScript derives both the flat async
-API and the nested request snapshot from this declaration.
+## Declare settings
+
+Prefix every key with the application ID. Cloud derives the TypeScript API from
+this declaration.
 
 ```ts
 import { defineApp } from "@valentinkolb/cloud";
@@ -49,15 +50,16 @@ export const app = defineApp({
 });
 ```
 
-Available kinds are `string`, `text`, `email`, `url`, `secret`, `image`,
-`cron`, `timezone`, `template`, `boolean`, `number`, `enum`, `string_list`,
-and `number_list`. Kind-specific fields such as `min`, `max`, `options`, and
-`templateVars` are checked at the declaration boundary.
+Choose the kind that matches the runtime value. Every definition requires
+`kind` and `default`.
 
-## Read one snapshot per request
+[Settings kinds and environment](/docs/en/reference/settings-kinds-and-environment)
+lists every kind, field, validation rule, and environment option.
 
-Add the settings middleware to routes that need configuration and use
-`AppContext<typeof app>` for the inferred shape:
+## Access settings
+
+Add `middleware.settings()` to the router. Then read settings from the request
+context:
 
 ```ts
 import { type AppContext, middleware } from "@valentinkolb/cloud/server";
@@ -75,17 +77,15 @@ const api = new Hono<AppContext<typeof app>>()
   });
 ```
 
-The nested object is read-only and stays unchanged for the lifetime of the
-request. This prevents one handler from observing two configurations if an
-operator changes a value while the request is running.
+The object is read-only. Its values do not change during the request.
 
-Cloud does not add the middleware implicitly. Scope it to the router or path
-that reads settings; static asset paths do not need a snapshot.
+Cloud does not add this middleware automatically. See
+[Request middleware](/docs/en/server/middleware) for the full middleware list
+and the recommended order.
 
-## Read or write outside a request
+## Access settings outside a request
 
-Use the typed async API returned by `defineApp()` in lifecycle hooks, workers,
-or other long-running code:
+Use the async app API in lifecycle hooks, workers, and jobs:
 
 ```ts
 const threshold = await app.settings.get("inventory.low_stock_threshold");
@@ -95,10 +95,13 @@ await app.settings.set("inventory.low_stock_threshold", 10);
 await app.settings.remove("inventory.low_stock_threshold");
 ```
 
-`remove()` deletes the stored override. The next read resolves the environment
-fallback or code default.
+`remove()` deletes the stored override. The next read uses the fallback or
+default.
 
-## Resolution and persistence
+The server API validates writes against the declaration. It rejects unknown
+keys and values of the wrong type.
+
+## Setting precedence
 
 Cloud resolves each key in this order:
 
@@ -106,22 +109,22 @@ Cloud resolves each key in this order:
 2. `envFallback`, when defined
 3. code default
 
-`envBootstrap` is different: on the first boot without a persisted value, a
-valid non-empty environment value is written into the settings store. Use it
-only when an existing deployment must migrate environment configuration into
-operator-managed settings. Use `envFallback` when the environment should
-remain a fallback rather than become persisted state.
+`envBootstrap` copies an environment value at startup when no persisted value
+exists. Use it to migrate existing environment configuration.
 
-All containers in one deployment must use the same `APP_SECRET`; settings are
-encrypted at rest. A write validates the value, updates Postgres, and
-invalidates the shared cache. New requests then build a fresh snapshot.
+Use `envFallback` when the environment should remain a fallback.
 
-## Ownership rules
+All app instances must use the same `APP_SECRET`. Cloud encrypts stored values
+with that secret. See
+[Runtime configuration](/docs/en/operations/runtime-configuration) for
+deployment-wide environment variables.
+
+## Setting ownership
 
 - Prefix keys with the application ID.
 - Declare a key once, in the application that owns its behavior.
 - Keep secrets in `secret` settings, but do not return them to browser code.
 - Use settings for runtime configuration, not domain records or per-user
   preferences.
-- Use the request snapshot for normal handlers and the async API when fresh
-  state is required during long-running work.
+- Use the request context in handlers.
+- Use the async API outside requests.

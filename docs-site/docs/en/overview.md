@@ -1,162 +1,69 @@
 ---
-title: Platform overview
-navTitle: Overview
+title: Platform model
+navTitle: Platform model
 section: Start
 order: 20
-description: Understand the Cloud application model, platform boundary, and runtime request flow.
+description: See what Cloud owns and what each application owns.
 tags: [architecture, apps, runtime]
-updated: 2026-07-26
+updated: 2026-07-27
 ---
 
-# Platform overview
+# Platform model
 
-Cloud is an open-source, on-premises application platform. It provides the
-cross-cutting capabilities that applications otherwise implement separately:
-authentication, authorization, settings, notifications, logging, search,
-shared UI, administration, and service discovery.
+A Cloud application is an independently deployed HTTP service.
 
-An application remains an independent Bun service with its own domain logic,
-HTTP routes, frontend pages, lifecycle, and optional Postgres schema. Cloud
-connects that service to the rest of the platform.
+It declares its public route prefixes and one stable service address. The
+gateway forwards matching requests to that address. The orchestrator
+distributes requests across replicas.
 
-## The application boundary
-
-Cloud separates platform semantics from application behavior.
+## Separate platform and application code
 
 | Cloud owns | An app owns |
 | --- | --- |
-| Accounts, sessions, actors, roles, and credentials | Domain resources and business rules |
-| Resource permission primitives | Permission checks for its resources |
-| Settings, notifications, logging, and search contracts | Definitions and implementations contributed to those contracts |
-| Shared SSR shells, UI components, and navigation | Pages, islands, and interaction flows |
-| Service registry and gateway routing | The URL prefixes it declares |
-| Runtime lifecycle and graceful shutdown | Migrations, scheduled work, and cleanup hooks |
+| Accounts, sessions, credentials, roles, and groups | Domain resources and business rules |
+| Principal and permission semantics | The permission required for each domain operation |
+| Gateway, registry, and shared runtime services | HTTP routes and middleware |
+| Shared UI and administration surfaces | Application pages and interactions |
+| Platform schemas | An optional application-owned Postgres schema |
+| Settings, notifications, logging, and other shared services | Application-specific definitions and domain events |
 
-Auth flows, session semantics, roles, principals, and credentials belong to the
-platform. An app can grant a principal access to one of its resources, but it
-does not create a competing identity model.
+An application uses Cloud's identity model and shared services. Its domain
+behavior stays in the application.
 
-## Runtime shape
+## Handle a request
 
-The gateway holds one in-memory prefix trie, rebuilt from the registry. Nothing
-below it is compiled in:
-
-| Prefix | Upstream | Instances |
-| --- | --- | --- |
-| `/app/mail` | `app-mail:3000` | 1 |
-| `/app/notebooks` | `app-notebooks:3000` | 3 |
-| `/app/grids` | `app-grids:3000` | 1 |
-| `/admin/gateway` | `app-gateway-ops:3000` | 1 |
-| `/app/inventory` | `app-inventory:3000` | 2 |
-
-Every upstream is a separate container. At startup it publishes a registry entry
-containing its identity, internal base URL, declared routes, navigation
-metadata, and optional capabilities, and it refreshes that entry every 60
-seconds. An entry that stops being refreshed expires after 180 seconds and the
-gateway drops it from the trie.
-
-Upstreams reach Valkey for shared runtime state and, if they own durable data,
-Postgres. Adding an app therefore changes the app and the deployment
-configuration — never the gateway router.
-
-## The app contract
-
-`defineApp()` is the declaration boundary. It describes what the platform must
-know about the service:
-
-```ts
-import { defineApp } from "@valentinkolb/cloud";
-
-export const app = defineApp({
-  id: "inventory",
-  name: "Inventory",
-  icon: "ti ti-packages",
-  description: "Track stock and warehouse movements.",
-  basePath: "/app/inventory",
-  baseUrl: "http://app-inventory:3000",
-  nav: {
-    href: "/app/inventory",
-    section: "primary",
-    requiresAuth: true,
-  },
-  routes: [
-    "/api/inventory",
-    "/app/inventory",
-    "/admin/inventory",
-    "/public/inventory",
-  ],
-});
-
-export const { ssr, plugin } = app;
+```text
+client
+  → gateway
+  → application router
+  → domain service
+  → application data or platform service
 ```
 
-The app then composes its own Hono router. Cloud does not inject request
-middleware implicitly:
+The gateway chooses the application by URL prefix. The application chooses its
+middleware, validates input, checks resource access, and runs the domain
+operation.
 
-```ts
-import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
-import { Hono } from "hono";
-import { app } from "./config";
+## Connect an application
 
-const router = new Hono<AuthContext>()
-  .use("*", middleware.runtime())
-  .use("*", middleware.settings())
-  .route("/api/inventory", apiRoutes)
-  .route("/app/inventory", pageRoutes);
+An application connects to Cloud through three APIs:
 
-export default await app.start({
-  fetch: router.fetch,
-  lifecycle: {
-    setup: async () => {
-      await migrate();
-    },
-  },
-});
-```
-
-`app.start()` registers the service, mounts framework-owned SSR and static asset
-routes, starts declared capabilities, runs lifecycle hooks, and coordinates
-graceful shutdown.
-
-## Request identity
-
-Authenticated requests resolve two related values:
-
-- `actor` describes which credential performed the request.
-- `accessSubject` describes whose resource grants apply.
-
-Authorization uses `accessSubject`. This gives a browser session and a
-user-bound API key the same effective access, while resource-bound service
-accounts remain distinct principals. Application services should therefore
-accept an access subject instead of a bare user ID.
-
-## Data and process ownership
-
-Most persistent apps own one Postgres schema and migrate it idempotently during
-their setup lifecycle. Platform schemas such as `auth`, `settings`,
-`notifications`, `logging`, and `audit` remain core-owned.
-
-Valkey carries shared runtime state such as the app registry, sessions, caches,
-rate limits, and distributed coordination. Durable application data belongs in
-Postgres or another explicit application store, not in process memory.
-
-Apps should remain stateless at the HTTP process boundary. This allows several
-instances of one app to register concurrently and receive traffic through the
-same route prefixes.
-
-## Shared packages
-
-Cloud builds on three focused packages:
-
-| Package | Responsibility |
+| API | Responsibility |
 | --- | --- |
-| `@valentinkolb/stdlib` | Results, mutations, formatting, browser helpers, and general utilities |
-| `@valentinkolb/sync` | Topics, jobs, queues, schedulers, rate limits, and distributed coordination |
-| `@valentinkolb/ssr` | SolidJS server rendering, islands, assets, and navigation |
+| `defineApp()` | Declare identity, routes, navigation, and platform definitions |
+| Hono router | Handle requests and compose middleware |
+| `app.start()` | Register the service and run its lifecycle |
 
-Applications use these packages directly rather than reimplementing their
-primitives inside the app.
+These APIs do not generate or load application code into the gateway.
 
-The [Cloud repository](https://github.com/ValentinKolb/cloud) contains the
-platform package, built-in applications, gateway, operations surfaces, and the
-development stack.
+## Run application instances
+
+Several instances of one application can run at the same time. Store durable
+state in Postgres or another explicit store. Do not store it in process memory
+or container files.
+
+Built-in and standalone applications use the same contract. Their repository
+and release ownership differ; their runtime model does not.
+
+Continue with [Build an application](/docs/en/build). Use
+[Building blocks](/docs/en/building-blocks) to find a platform API.

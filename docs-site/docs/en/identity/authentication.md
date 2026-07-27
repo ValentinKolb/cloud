@@ -1,0 +1,184 @@
+---
+title: Request identity
+navTitle: Request identity
+section: Identity and access
+order: 310
+description: Resolve Cloud credentials into the actor and access subject used by an application.
+tags: [identity, authentication, sessions, middleware]
+updated: 2026-07-27
+---
+
+# Request identity
+
+Cloud turns a browser session or bearer token into a request actor.
+Applications select an auth policy. They do not parse or store credentials.
+
+Add the policy to the Hono router:
+
+```ts
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { Hono } from "hono";
+
+const routes = new Hono<AuthContext>()
+  .use("*", auth.requireRole("authenticated"))
+  .get("/items", (c) => {
+    const actor = c.get("actor");
+    return c.json({ actor: actor.kind });
+  });
+```
+
+See [Request middleware](/docs/en/server/middleware) for the complete router
+order.
+
+## Accepted credentials
+
+Cloud resolves credentials in this order:
+
+1. `session_token` cookie;
+2. a `cld_<prefix>_<secret>` API key in `Authorization: Bearer`;
+3. any other bearer token as an OAuth access token.
+
+The first valid credential becomes the request actor.
+
+| Credential | Typical caller | Actor |
+| --- | --- | --- |
+| Session cookie | Browser | User |
+| Personal API key | CLI or personal automation | Service account with delegated user |
+| Resource API key | Integration bound to one resource | Resource-bound service account |
+| OAuth authorization-code token | App acting for a user | User |
+| OAuth client-credentials token | Service integration | Resource-bound service account |
+
+All branches produce the same `actor` and `accessSubject` contract.
+
+## Use actor and access subject
+
+Every authenticated request exposes:
+
+```ts
+const actor = c.get("actor");
+const accessSubject = c.get("accessSubject");
+```
+
+`actor` identifies the credential that acted:
+
+```ts
+type RequestActor =
+  | {
+      kind: "user";
+      user: User;
+    }
+  | {
+      kind: "service_account";
+      serviceAccount: ServiceAccount;
+      delegatedUser: User | null;
+      scopes: string[];
+      credentialId?: string | null;
+      credentialExpiresAt?: string | null;
+    };
+```
+
+Use it for audit records, credential scope caps, expiry, and exact resource
+binding.
+
+`accessSubject` identifies whose grants apply:
+
+```ts
+type AccessSubject =
+  | { type: "user"; userId: string }
+  | { type: "service_account"; serviceAccountId: string };
+```
+
+| Caller | Actor | Access subject |
+| --- | --- | --- |
+| Session or authorization-code token | User | User |
+| Personal API key | Service account with delegated user | User |
+| Resource API key or client credentials | Resource-bound service account | Service account |
+
+A delegated credential uses only its user's grants. Do not merge them with
+service-account grants.
+
+## Get a user only when required
+
+Display names, avatars, and roles require a user:
+
+```ts
+import {
+  expectUserBackedActor,
+  userFromActor,
+} from "@valentinkolb/cloud/server";
+
+const optionalUser = userFromActor(c.get("actor"));
+const user = expectUserBackedActor(c);
+```
+
+Use `expectUserBackedActor()` only after a user-backed
+[route policy](/docs/en/identity/route-policies).
+
+> **Authorize with the access subject.**
+>
+> A resource-bound service account has no user. Code based on a request user
+> rejects valid machine credentials.
+>
+> Do not authorize from `User.memberofGroupIds`. It is display metadata. Cloud
+> resolves direct and nested memberships from the authoritative tables.
+
+## Browser sessions
+
+Cloud creates and removes browser sessions. The cookie is:
+
+- HTTP-only;
+- `SameSite=Lax`;
+- secure outside development;
+- valid for the configured `user.session.expiry_hours`.
+
+Signing out removes the current session. Revoking all sessions for a user
+invalidates every older session.
+
+An application should not read the cookie value or use `sessionToken` as a
+domain identifier.
+
+## Bearer authentication
+
+Send API keys and OAuth access tokens in the standard header:
+
+```http
+Authorization: Bearer <token>
+```
+
+An API key is stored as a hash. The raw value is returned only when the key is
+created.
+
+OAuth access tokens must have:
+
+- the deployment issuer;
+- the `cloud` audience;
+- `token_use: "access"`;
+- a valid current signing key.
+
+Applications do not verify these claims themselves.
+
+## Authentication does not grant resource access
+
+Credential scopes can reduce a resource permission. They cannot create one.
+
+After authentication:
+
+1. route middleware decides whether the caller may enter;
+2. the service resolves the resource grant;
+3. resource-bound credentials are checked against their exact app, resource
+   type, and resource ID;
+4. the service applies the credential scope as a cap.
+
+Continue with [Resource authorization](/docs/en/identity/authorization).
+
+## Authentication failures
+
+The default middleware response is:
+
+| Condition | Status | Body |
+| --- | --- | --- |
+| No valid credential | `401` | `{ "message": "Authentication required" }` |
+| Valid caller without the required policy | `403` | `{ "message": "Insufficient permissions" }` |
+
+SSR routes can redirect instead. See
+[Route policies](/docs/en/identity/route-policies).

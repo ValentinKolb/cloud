@@ -20,7 +20,7 @@ const expectedSkills = ["cloud-cli", "cloud-dev"] as const;
 const MAX_SKILL_LINES = 260;
 
 /** Paths in documentation examples that intentionally do not exist on disk. */
-const isPlaceholderPath = (path: string): boolean => /^packages\/(my-app|<)/.test(path);
+const isPlaceholderPath = (path: string): boolean => /^packages\/(?:my-app|inventory)(?:\/|$)/.test(path) || path.startsWith("packages/<");
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
 

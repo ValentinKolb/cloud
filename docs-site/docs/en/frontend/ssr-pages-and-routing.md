@@ -1,0 +1,107 @@
+---
+title: SSR pages and routing
+navTitle: SSR pages and routing
+section: Frontend
+order: 810
+description: Render application pages on the server and map them to explicit routes.
+tags: [ssr, routing, solidjs]
+updated: 2026-07-27
+---
+
+# SSR pages and routing
+
+An SSR page loads authorized data and returns a synchronous SolidJS render
+function.
+
+## Render a page
+
+```tsx
+import { Layout } from "@valentinkolb/cloud/ssr";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { ssr } from "../config";
+
+export default ssr<AuthContext>(async (c) => {
+  const accessSubject = c.get("accessSubject");
+  const url = new URL(c.req.url);
+  const items = await inventory.list({
+    accessSubject,
+    search: url.searchParams.get("search") ?? undefined,
+  });
+
+  c.get("page").title = "Inventory";
+
+  return () => (
+    <Layout c={c} title="Inventory">
+      <InventoryPage items={items} />
+    </Layout>
+  );
+});
+```
+
+Load data, redirect, and set metadata before the returned function.
+
+The returned function must be synchronous. Solid SSR creates JSX inside
+`renderToString()`.
+
+## Authorize page data
+
+An SSR page calls a service directly. API route middleware does not run for
+that call.
+
+Pass `accessSubject` into the service and repeat every resource permission
+check needed for the rendered data.
+
+Use `expectUserBackedActor(c)` only when the page truly requires a user. A
+resource-bound service account has no user.
+
+See [Request identity](/docs/en/identity/authentication) and
+[Resource authorization](/docs/en/identity/authorization).
+
+## Map routes explicitly
+
+```ts
+import {
+  type AuthContext,
+  auth,
+} from "@valentinkolb/cloud/server";
+import { Hono } from "hono";
+import detailPage from "./detail/page";
+import listPage from "./page";
+
+export default new Hono<AuthContext>()
+  .get(
+    "/",
+    auth.requireRole("user", auth.redirectToLogin),
+    ...listPage,
+  )
+  .get(
+    "/:id",
+    auth.requireRole("user", auth.redirectToLogin),
+    ...detailPage,
+  );
+```
+
+The file tree does not create routes. Spread the middleware array returned by
+`ssr()`.
+
+Register fixed routes before dynamic or catch-all routes.
+
+## Serve anonymous pages
+
+Use an application-owned prefix such as `/share/inventory`. Add it to
+`defineApp().routes`.
+
+`/public/<app>` is reserved for generated static assets. Application pages
+registered there are not reached.
+
+Use `auth.requireRole("*")` when a page accepts both anonymous and signed-in
+requests. That middleware does not grant resource access. Validate the share
+token or public grant in the service.
+
+## Verify the page
+
+Test the page route with and without a valid session. Verify denied data never
+appears in the HTML.
+
+The page must remain correct on reload and without JavaScript. Islands are an
+enhancement, not the only rendering path.

@@ -33,6 +33,8 @@ dist
 **/dist
 build
 **/build
+!docs-site/docs/en/build/
+!docs-site/docs/en/build/**
 _ssr
 **/_ssr
 /public

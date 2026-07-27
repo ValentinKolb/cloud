@@ -13,6 +13,8 @@ dist
 **/dist
 build
 **/build
+!docs-site/docs/en/build
+!docs-site/docs/en/build/**
 _ssr
 **/_ssr
 public                          # workspace-root public/ is a dev runtime artefact

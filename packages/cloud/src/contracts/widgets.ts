@@ -6,8 +6,9 @@
  * The dashboard fetches each widget endpoint with the user's cookie forwarded;
  * the endpoint is responsible for permission gating:
  *   - `200` + body  → render
- *   - `204`         → skip silently (user has no permission / no content)
- *   - anything else → log and skip
+ *   - `403`         → list as unavailable at the user's access level
+ *   - `204`         → skip silently because there is no content
+ *   - anything else → log and render an error placeholder
  */
 
 export type WidgetTone = "emerald" | "amber" | "red" | "blue" | "zinc";

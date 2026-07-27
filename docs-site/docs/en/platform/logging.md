@@ -1,20 +1,21 @@
 ---
 title: Structured logging
 navTitle: Logging
-section: Platform APIs
-order: 130
-description: Write structured operational events without coupling application code to log storage.
+section: Platform services
+order: 520
+description: Write structured application logs with safe metadata.
 tags: [logging, observability, operations]
 updated: 2026-07-26
 ---
 
 # Structured logging
 
-Application logs should explain what happened in the domain and provide the
-identifiers needed to investigate it. Cloud mirrors each event to the process
-console and stores a structured copy for the operations interface.
+Logs explain what happened. Add the IDs needed to investigate it.
 
-## Create a source-bound logger
+Cloud writes each event to the process console. It also stores a structured
+copy for the operations interface.
+
+## Create a logger
 
 ```ts
 import { logger } from "@valentinkolb/cloud/services";
@@ -28,9 +29,8 @@ log.info("Stock adjusted", {
 });
 ```
 
-A logger is stateless and exposes `debug`, `info`, `warn`, and `error`. The
-first argument is a concise human-readable message. The optional second
-argument is structured metadata.
+A logger exposes `debug`, `info`, `warn`, and `error`. Pass a short message
+first. Pass structured metadata second.
 
 Name sources as `app` or `app:area`. A stable source lets operators filter
 events without parsing messages:
@@ -40,7 +40,7 @@ const importLog = logger("inventory:import");
 const stockLog = logger("inventory:stock");
 ```
 
-## Choose the level by operational meaning
+## Choose a level
 
 | Level | Use it when |
 | --- | --- |
@@ -49,10 +49,10 @@ const stockLog = logger("inventory:stock");
 | `warn` | Work continued, but an expected dependency or invariant degraded |
 | `error` | The operation failed and needs investigation or recovery |
 
-Do not log the same failure at every layer. Add context where the error becomes
-operationally meaningful, then either recover or propagate it.
+Do not log the same failure at every layer. Log it where you can add useful
+context.
 
-## Metadata and sensitive values
+## Add safe metadata
 
 Prefer IDs, counts, durations, state names, and bounded error messages:
 
@@ -69,12 +69,17 @@ try {
 }
 ```
 
-Cloud recursively redacts metadata keys containing terms such as `password`,
+Cloud redacts metadata keys containing terms such as `password`,
 `secret`, `token`, `cookie`, `authorization`, `apiKey`, `privateKey`, or
-`session`. Redaction is a safety net, not permission to attach request bodies,
-credentials, or personal records to logs.
+`session`.
 
-## Delivery behavior
+Do not log request bodies, credentials, or personal records. Redaction is only
+a safety net.
+
+Metadata must be JSON-serializable. Do not pass circular objects, `BigInt`
+values, request objects, or full error objects.
+
+## Log delivery
 
 Logging is fire-and-forget:
 
@@ -83,10 +88,16 @@ Logging is fire-and-forget:
 - a persistence failure is reported to the process console;
 - the application operation is not failed because log storage is unavailable.
 
-Use domain persistence, an outbox, or a durable workflow when an event must be
-recorded transactionally. Logs are operational evidence, not a business
-source of truth.
+Logs are not a business record. Store important domain events in the domain
+database or a durable workflow.
 
 The broader `logging` service exported from `/services` supports Cloud's admin
 and operations surfaces. Application code should normally depend only on
 `logger()`.
+
+To log failed HTTP requests, add `middleware.logger()`. See
+[Request middleware](/docs/en/server/middleware#log-policy-and-server-responses).
+
+Use [Tracing](/docs/en/platform/tracing) when several events belong to one
+operation. Use [Audit events](/docs/en/platform/audit-events) when a record must
+show who performed a security-relevant action.

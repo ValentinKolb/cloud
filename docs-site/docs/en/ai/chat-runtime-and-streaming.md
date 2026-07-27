@@ -1,0 +1,146 @@
+---
+title: Chat runtime and streaming
+navTitle: Chat and streaming
+section: AI
+order: 1030
+description: Run bounded chat sessions and stream model output to an application.
+tags: [ai, chat, streaming]
+updated: 2026-07-27
+---
+
+# Chat runtime and streaming
+
+`createAiChatRoutes()` provides the shared conversation and turn API.
+
+Use it for a standalone chat. Use
+[`defineAiResource()`](/docs/en/ai/resources-and-access) when the chat belongs
+to a domain resource.
+
+## Create chat routes
+
+```ts
+import {
+  aiMaintenanceJobs,
+  createAiChatRoutes,
+  migrateCloudAi,
+  startAiRuntime,
+} from "@valentinkolb/cloud/ai";
+import {
+  auth,
+  expectUserBackedActor,
+  middleware,
+  type AuthContext,
+} from "@valentinkolb/cloud/server";
+import { Hono } from "hono";
+
+const chatRoutes = createAiChatRoutes({
+  appId: "assistant",
+  allowConversationManagement: true,
+  modelListPolicy: {
+    kind: "selectable",
+    requiredCapabilities: ["streaming"],
+  },
+  resolveContext: async (c) => {
+    const actor = c.get("actor");
+    const user = expectUserBackedActor(c);
+
+    return {
+      actor,
+      ownerUserId: user.id,
+      toolSource: { kind: "default" },
+      systemPrompt: "Help with writing and planning.",
+      modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
+      toolApprovalContext: {
+        actorUserId: user.id,
+        appId: "assistant",
+        resource: { kind: "direct" },
+      },
+    };
+  },
+});
+
+const chatApi = new Hono<AuthContext>()
+  .use("*", auth.requireRole("authenticated"))
+  .use("*", auth.requireUser())
+  .route("/", chatRoutes);
+
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())
+  .use("*", middleware.settings())
+  .route("/api/assistant", chatApi);
+```
+
+Protect the entire mount. `/status` and `/models` return sanitized state but do
+not call `resolveContext()`.
+
+## Chat route groups
+
+| Group | Purpose |
+| --- | --- |
+| `/status`, `/models` | Read sanitized runtime and model state |
+| `/prefs` | Read or update user instructions and memory |
+| `/conversations` | List and create conversations |
+| `/conversations/:id` | Read or manage one conversation |
+| `/conversations/:id/turns` | Start, steer, or stop work |
+| `/conversations/:id/stream` | Receive Server-Sent Events |
+| `/conversations/:id/files` | Manage conversation files |
+
+The router also supports message retry, forks, compaction, pending tool
+actions, conversation enrichment, and paged history.
+
+`allowConversationManagement` enables metadata editing, pinning, archiving,
+and restore for direct chats.
+
+## Start the runtime
+
+Chat routes enqueue work. A running service must also start the worker:
+
+```ts
+let stopAiRuntime: (() => void) | undefined;
+
+await app.start({
+  fetch: router.fetch,
+  lifecycle: {
+    setup: migrateCloudAi,
+    start: async () => {
+      stopAiRuntime = startAiRuntime({ concurrency: 4 });
+      await aiMaintenanceJobs.start();
+    },
+    stop: async () => {
+      stopAiRuntime?.();
+      await aiMaintenanceJobs.stop();
+    },
+  },
+});
+```
+
+`startAiRuntime()` is process-wide and reference-counted. The returned function
+releases one caller. The last release stops the workers.
+
+The runtime leases queued turns, recovers interrupted work, and sweeps stale
+turns. Set concurrency for the deployment, not per request.
+
+## Stream state
+
+The stream uses versioned Server-Sent Events. Clients receive a full state
+event and then ordered updates for messages, text, tools, approvals, and turn
+completion.
+
+Use `parseAiSse()` for a low-level client. Solid applications should use
+`createAiChatController()` from `@valentinkolb/cloud/ai/solid`.
+
+The controller reconnects the stream and folds events into one projection. It
+also exposes conversation history, send, steer, abort, retry, fork, compaction,
+approval, file, and frontend-tool actions.
+
+Do not maintain a second client-side chat state machine.
+
+## Treat turns as asynchronous
+
+Starting a turn does not mean it completed. The API returns the persisted turn,
+then the stream reports progress.
+
+Use the final turn status for completion. Handle `failed` and `aborted`
+explicitly.
+
+For the UI layer, see [AI user interface](/docs/en/ai/ui-and-operations).

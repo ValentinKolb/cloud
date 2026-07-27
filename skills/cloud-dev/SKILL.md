@@ -1,209 +1,95 @@
 ---
 name: cloud-dev
 description: >
-  Build and maintain apps on the Cloud platform — the self-hosted Bun + Hono + SolidJS application platform
-  (`@valentinkolb/cloud`). Covers app anatomy, backend services and Hono APIs, SolidJS SSR pages and islands,
-  the shared UI component system and visual design language, auth and resource permissions, app Help, app CLI
-  modules, and the dev/deploy loop. Use this skill whenever creating a new Cloud app, adding features to an
-  existing one, writing API routes, service logic, SQL or migrations, building frontend pages or islands,
-  working with the UI kit, or running and deploying the platform. Applies equally to built-in apps inside the
-  Cloud monorepo and standalone third-party apps built against the published npm package. For *using* an
-  existing Cloud instance from the terminal, use the `cloud-cli` skill instead.
+  Build and maintain applications on Cloud, the open-source Bun, Hono, and
+  SolidJS application platform that runs on your infrastructure. Use this
+  skill for application declarations, server routes, services, data, identity
+  and access, platform services, automation, frontend work, AI, operations, or
+  deployment. It applies to built-in monorepo applications and standalone
+  applications that use @valentinkolb/cloud. Use cloud-cli instead when the
+  task is to operate an existing Cloud installation from the terminal.
 ---
 
-# Building on Cloud
+# Build on Cloud
 
-Cloud is a **modular application platform** — an internet OS for internal tools. It is not a storage product. It provides authentication, authorization, notifications, logging, settings, a UI kit, search, and admin surfaces, so that an app only has to bring its domain logic.
+Cloud gives independently deployed applications a shared platform for
+identity, permissions, data, UI, settings, notifications, automation, and
+operations.
 
-## One flow, two homes
+The developer documentation is the canonical source for the contracts in this
+skill. The files in `references/` are generated from that documentation unless
+their header says otherwise.
 
-An app is the same thing whether it lives inside the Cloud monorepo or in its own repository against the published npm package. Same `defineApp`, same services, same UI, same auth, same deployment model. **Everything in this skill applies to both** unless a block is explicitly marked.
+## Establish the contract
 
-Only three things fork:
+Use sources in this order:
 
-| | Built-in (monorepo) | Standalone (npm) |
-|---|---|---|
-| Where the app lives | `packages/<id>/`, depending on `"@valentinkolb/cloud": "workspace:*"` | your own repo root, depending on `"@valentinkolb/cloud": "^0.5"` plus its peers — `solid-js`, `hono` and `zod` |
-| How it registers with the stack | service block in `compose.dev.yml` + a `COPY` line in `Dockerfile.dev` | your own compose file, pulling prebuilt platform images from ghcr |
-| Dev command | `bun run dev:start <id>` | `docker compose up` |
+1. public package exports and types;
+2. implementation and tests of the public contract;
+3. shared primitive documentation;
+4. generated references in this skill;
+5. existing applications as examples.
 
-The starter for standalone apps is [cloud-template](https://github.com/ValentinKolb/cloud-template) — platform images from ghcr plus your app built locally, no monorepo and no workspace. Details for both in `ops.md`.
+An existing application is not authoritative when it conflicts with a public
+contract or shared primitive.
 
-Framework-maintainer tooling (`check:cycles`, `check:ui-lab`, `check:css`, `check:service-api-contracts`) is not app-author tooling and is not part of this flow.
+Cloud applications can live in `packages/<id>/` in this monorepo or in a
+standalone repository. Both use `defineApp()`, the same server and frontend
+APIs, and the same runtime model. Deployment setup is the main difference.
 
-## Use the libraries; do not rebuild them
+## Keep these boundaries
 
-Cloud sits on three standalone packages. They are the default, not an implementation detail, and **nothing they provide should be reimplemented in Cloud or in an app.** Each has its own skill — use it for API detail.
+1. Resolve request identity through `actor` and `accessSubject`. Do not
+   authorize from `c.get("user")` or `User.memberofGroupIds`.
+2. Protect routes with route policy middleware. Check resource access again in
+   the service or query that reads or changes the resource.
+3. Repeat permission checks in SSR pages because they call services directly.
+4. Keep filtering, sorting, pagination, and aggregation on the server. Put
+   shareable user intent in the URL.
+5. Use the typed Hono client for application JSON APIs.
+6. Wrap user-initiated frontend writes in `mutation.create()`.
+7. Keep migrations idempotent. Do not add and then drop a column.
+8. Keep authentication, sessions, roles, principals, and credentials in the
+   platform.
+9. Keep workflow runs, leases, retry, recovery, and the effect journal in the
+   workflow kernel.
+10. Treat logs as operational evidence, not as a durable business record.
 
-| Package | You get | Skill |
-|---|---|---|
-| `@valentinkolb/stdlib` | `Result`/`ok`/`fail`/`err`, `mutation.create`, date helpers, `hotkeys`, `detailPanel`, encoding/hashing/crypto, browser helpers | `stdlib` |
-| `@valentinkolb/sync` | Distributed primitives: `topic`, `job`, `queue`, `scheduler`, `ephemeral`, rate limits, mutexes | `sync` |
-| `@valentinkolb/ssr` | The islands SSR framework, plus all navigation helpers (`navigateTo`, `refreshCurrentPath`, `navigate`, `Link`, …) | `ssr` |
+## Use the shared libraries
 
-Install the skills — this works in Claude Code, Codex, and any other agent that reads the standard skills directory:
+Do not rebuild functionality already owned by these packages:
 
-```bash
-bunx skills add valentinkolb/stdlib
-bunx skills add valentinkolb/sync
-bunx skills add valentinkolb/ssr
-```
+| Package | Responsibility |
+| --- | --- |
+| `@valentinkolb/stdlib` | Results, mutations, dates, browser helpers, encoding, and crypto |
+| `@valentinkolb/sync` | Jobs, queues, schedulers, topics, rate limits, and mutexes |
+| `@valentinkolb/ssr` | SolidJS islands SSR and navigation |
 
-Cloud re-exports a few of these for convenience — `ok`/`fail`/`err` are available from `@valentinkolb/cloud/server`. **Navigation helpers are not re-exported:** import them from `@valentinkolb/ssr/nav`.
+Import navigation helpers from `@valentinkolb/ssr/nav`. Cloud does not
+re-export them.
 
-Before writing a helper, check whether one of these already owns it. A local reimplementation of a queue, a debounce, a date formatter, or a scroll restorer is a bug.
+## Read only what the task needs
 
-## App anatomy
+| Reference | Use it for |
+| --- | --- |
+| `architecture.md` | Platform boundary, application definition, lifecycle, routing, and discovery |
+| `backend.md` | Hono middleware, HTTP APIs, services, results, SQL, migrations, and state |
+| `auth.md` | Authentication, actors, route policies, resource access, API keys, and OAuth |
+| `platform.md` | Settings, logging, tracing, audit, search, widgets, PDF, and templates |
+| `notifications.md` | Typed notification definitions, delivery, results, and recovery |
+| `help.md` | In-product Help collections, routes, rendering, and Markdown |
+| `cli.md` | Application CLI modules, flags, input, output, and access commands |
+| `workflows.md` | Jobs, queues, schedulers, coordination, and durable workflows |
+| `frontend.md` | SSR, shells, islands, clients, URL state, realtime UI, forms, and testing |
+| `components.md` | Exact shared component and utility APIs |
+| `design.md` | Visual and interaction decisions |
+| `ai.md` | AI resources, model policy, chat, tools, files, skills, memory, and background work |
+| `ops.md` | Local development, containers, configuration, deployment, scaling, and observability |
+| `reference.md` | Supported imports, route conventions, setting kinds, statuses, and migrations |
+| `checklist.md` | Final verification before handing off a change |
 
-```
-<app-root>/
-├── package.json
-├── tsconfig.json
-└── src/
-    ├── config.ts            # defineApp() — identity, settings, widgets, notifications
-    ├── index.ts             # app.start() — the entry point
-    ├── contracts.ts         # Zod schemas for input/output
-    ├── migrate.ts           # idempotent DDL, runs on every startup
-    ├── notifications.ts     # typed end-user notification definitions
-    ├── api/
-    │   ├── index.ts         # Hono router; exports ApiType
-    │   ├── client.ts        # typed Hono client for the frontend
-    │   └── items.ts         # one file per resource
-    ├── service/             # business logic, stateless functions
-    ├── styles/app.css       # Tailwind entrypoint — required
-    └── frontend/
-        ├── index.ts         # explicit route → page mapping
-        ├── page.tsx
-        └── _components/
-            └── ItemList.island.tsx
-```
+## Finish the change
 
-### config.ts
-
-```typescript
-import { defineApp } from "@valentinkolb/cloud";
-import { NOTIFICATIONS } from "./notifications";
-
-export const app = defineApp({
-  id: "my-app",                        // unique; used in URLs and the registry
-  name: "My App",
-  icon: "ti ti-star",                  // Tabler icon class
-  description: "What this app does.",
-  basePath: "/app/my-app",             // SSR asset prefix
-  baseUrl: "http://app-my-app:3000",   // container URL for service discovery
-  routes: ["/api/my-app", "/app/my-app", "/admin/my-app", "/public/my-app"],
-  //        └ API        └ pages        └ admin pages    └ STATIC ASSETS ONLY — see below
-  nav: { href: "/app/my-app", section: "primary", requiresAuth: true },
-  adminHref: "/admin/my-app",
-  appearance: { accent: "#217346", background: { from: "#217346", strength: 20 } },
-  widgets: [{ id: "today", path: "/api/my-app/widget/today" }],
-  notifications: NOTIFICATIONS,
-  settings: {
-    "my-app.feature_enabled": {
-      kind: "boolean",
-      label: "Enable feature X",
-      default: true,
-      description: "Whether feature X is active.",
-    },
-  },
-  openapi: "/api/my-app/openapi.json",  // opt into the platform API-docs aggregator
-});
-
-export const { ssr, plugin } = app;
-```
-
-`routes` is **required** — it declares the top-level URL prefixes the gateway routes to this container. `nav.section` is `"primary"` (in the rail), `"more"` (launchpad only), or `"hidden"`.
-
-> **`/public/<id>` is framework-owned static asset delivery, not a page namespace.** The framework mounts `/public/*` *before* your fetch and it is terminal, so a page you register there is unreachable. Anonymous-facing HTML needs its own prefix — `/share/my-app` is the established choice — declared in `routes` like any other. It still does its own token or resource validation server-side; `auth.requireRole("*")` is the route shape for a page that serves both anonymous and signed-in visitors.
-
-All app identity lives here, in one place: nav, widgets, notifications, settings, admin links, appearance. `defineApp()` returns the SSR config, the island bundler plugin, and the `ssr` page wrapper.
-
-### index.ts
-
-```typescript
-import { Hono } from "hono";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
-import { app } from "./config";
-import apiRoutes from "./api";
-import pageRoutes, { adminPages } from "./frontend";
-import { migrate } from "./migrate";
-
-const router = new Hono<AuthContext>()
-  .use("*", middleware.runtime())    // c.get("runtime") — required by Layout
-  .use("*", middleware.settings())   // c.get("settings") — typed snapshot
-  .route("/api/my-app", apiRoutes)
-  .route("/app/my-app", pageRoutes)
-  .route("/admin/my-app", adminPages);
-
-export default await app.start({
-  fetch: router.fetch,
-  openapi: apiRoutes,                 // pair with defineApp({ openapi })
-  lifecycle: {
-    setup: async () => { await migrate(); },
-    start: async (ctx) => { /* background jobs */ },
-    stop: async (ctx) => { /* cleanup */ },
-  },
-  // capabilities: { search: … }  ← optional; contract in backend.md
-});
-
-export type { ApiType } from "./api";
-```
-
-**The framework injects no middleware implicitly.** You compose your own router and hand `.fetch` to `app.start()`. The framework only mounts `/_ssr/*`, `/public/*`, `/api/_internal/search` (when `capabilities.search` is set), and the OpenAPI spec — all before your fetch, so the spec is public.
-
-`app.start()` also owns the registry heartbeat, static files, and graceful shutdown.
-
-### styles/app.css
-
-```css
-@import "tailwindcss/utilities.css" layer(utilities);
-@source "../**/*.{ts,tsx}";
-@custom-variant dark (&:where(.dark, .dark *));
-```
-
-Required — the CSS build needs it. The `@source` scan is deliberately scoped to **this app's own** files: framework classes arrive via `global.css`, served by the core container. Never scan another app's source, and never import framework styles here.
-
-## The rules that matter most
-
-Violating these produces code that looks fine and is wrong.
-
-1. **Resolve every request through `actor` and `accessSubject`.** `c.get("user")` no longer exists in app code — `check:boundaries` fails on it — because it was typed `User` while being `undefined` for a resource-bound principal, so checks written against it compiled and silently excluded API keys. When a feature needs the user for roles or display, derive it from the actor with `expectUserBackedActor`. The related trap: never authorize from `User.memberofGroupIds`, which is display metadata the access helpers ignore. → `auth.md`
-2. **SSR pages must repeat their permission checks.** They call services directly, so route middleware never ran. → `backend.md`
-3. **Never filter, sort, paginate, or aggregate in the browser.** The client owns *intent*; the server owns the *result set*. A client-side filter sees only the rows it was already given, cannot apply access conditions, and breaks reload and sharing. Push it into the URL, then into SQL. → `frontend.md`
-4. **Every user-initiated write goes inside `mutation.create()`** — including the `prompts.form()` that precedes it, because the prompt can fail or be cancelled too. Never hand-roll loading/error signals. (Read-only route-state loaders and live-stream sync own their own lifecycle and are the documented exception.) → `frontend.md`
-5. **Use the typed Hono client, never raw `fetch()`, for app JSON APIs.** If the client's types are weak, fix the route — do not cast. → `backend.md`
-6. **Never group ordinary content with horizontal lines.** No `<hr>`, `divide-y`, or full-width `border-t`/`border-b`. → `design.md`
-7. **Migrations are idempotent and never add-then-drop a column.** Postgres counts dropped columns against the 1600 limit. → `backend.md`
-8. **Auth, sessions, roles, principals, and credentials are core.** An app that implements one of those is in the wrong place. → `architecture.md`
-9. **Workflow runs, leases, retry, crash recovery and the effect journal are the kernel's.** An app brings action implementations and an event vocabulary; a run table, a lease or a `beginEffect`/`settleEffect` pair in an app is a rewrite of something that already exists. → `workflows.md`
-
-## Where to look
-
-Read a reference when its condition applies. Do not preload them.
-
-| Read | When |
-|---|---|
-| `architecture.md` | You need the platform shape — gateway, registry, containers, schema ownership — or you are unsure whether something belongs in core or in an app. |
-| `backend.md` | Writing services, SQL, migrations, Hono routes, contracts, background jobs, logging, or the typed client. |
-| `frontend.md` | Building any UI: SSR pages, choosing a shell, islands, mutations, navigation, URL state. **Start here for frontend work**, then go to `components.md` for a specific component. |
-| `components.md` | You need the exact props of a shared component, an input, or a CSS utility class. Lookup reference — do not read end to end. |
-| `design.md` | Making a visual or interaction decision: hierarchy, spacing, surfaces, colour, states, responsive, dark mode. Read **before** styling anything new. |
-| `auth.md` | Protecting a route, checking a resource permission, or working on accounts, sessions, groups, or service accounts. |
-| `api-keys.md` | An app resource needs API keys for automation or integrations. |
-| `help.md` | Writing or changing end-user Help for an app. |
-| `workflows.md` | The app needs user-authored automation. Declaring actions and events, wiring them into a worker, emitting events, effects and budgets. **Never write a run engine — the kernel owns runs, leases, retry, recovery and the effect journal.** |
-| `cli.md` | Adding or changing an app's `cld` CLI module. |
-| `ops.md` | Running the stack, adding a container, env vars and settings, building, or deploying. |
-| `checklist.md` | Before calling any change done. |
-
-## Judging existing code
-
-This repository is a working codebase, not a reference implementation. Apps drift, and some patterns in them are wrong.
-
-When you need to know how something should be done, the order is: **the shared primitive's source**, then **`design.md`**, then an existing app as an *example*. An app that contradicts the first two is a bug in that app. Where two apps disagree, neither is authority — derive the answer from the primitive. Size is not quality: the largest and newest packages are also the ones most in flux.
-
-## Next steps
-
-- **New app?** Follow `architecture.md` for the boundary, then `backend.md` and `frontend.md`, then `ops.md` to run it.
-- **Existing app?** Go straight to the reference for the layer you are touching.
-- **Using a Cloud instance rather than building one?** That is the `cloud-cli` skill.
+Read `checklist.md` before declaring work complete. Run the narrowest relevant
+checks first, then the package or repository checks required by the affected
+area.
