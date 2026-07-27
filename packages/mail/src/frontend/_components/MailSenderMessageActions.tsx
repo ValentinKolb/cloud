@@ -1,4 +1,4 @@
-import { Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, type DropdownItem, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, on, onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -23,6 +23,7 @@ export default function MailSenderMessageActions(props: {
   message: MessageDetail;
   totalMessageCount: number;
   identities: SenderIdentity[];
+  primaryActions?: DropdownItem[];
   onReconcile: () => Promise<void>;
   onReassignMessage: (messageId: string) => void | Promise<void>;
   onSplitMessage: (messageId: string) => void | Promise<void>;
@@ -226,13 +227,14 @@ export default function MailSenderMessageActions(props: {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn icon-btn-sm" aria-label="Message organization actions" disabled={pending()}>
+        <button type="button" class="icon-btn icon-btn-sm" aria-label="Message actions" disabled={pending()}>
           <i class={`ti ${pending() ? "ti-loader-2 animate-spin" : "ti-dots"}`} aria-hidden="true" />
         </button>
       }
       position="bottom-left"
       width="w-64"
       elements={[
+        ...(props.primaryActions ?? []),
         ...(sender()
           ? [
               {

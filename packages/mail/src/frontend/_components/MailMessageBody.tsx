@@ -21,7 +21,7 @@ const REMOTE_IMAGE_REQUEST_GAP_MS = 350;
 
 const sleep = (durationMs: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, durationMs));
 
-export const normalizeMessageBodyHeight = (value: number): number => Math.min(Math.max(Math.ceil(value), 32), 100_000);
+export const normalizeMessageBodyHeight = (value: number): number => (Number.isFinite(value) ? Math.max(Math.ceil(value), 32) : 32);
 
 export const buildMessageDocument = (html: string, channel: string): string => {
   const channelLiteral = JSON.stringify(channel).replaceAll("<", "\\u003c");
@@ -60,7 +60,7 @@ export const buildMessageDocument = (html: string, channel: string): string => {
         const details = document.createElement("details");
         details.className = "mail-quoted-history";
         const summary = document.createElement("summary");
-        summary.textContent = "Show quoted history";
+        summary.textContent = "Show quoted text";
         node.replaceWith(details);
         details.append(summary, node);
       }
@@ -113,6 +113,16 @@ export default function MailMessageBody(props: {
     const withCidImages = rewriteCidSources(props.html ?? "", cidUrls());
     return buildMessageDocument(rewriteRemoteImageSources(withCidImages, remoteUrls()), channel);
   });
+  let plainBody: HTMLDivElement | undefined;
+
+  const reportPlainSelection = () => {
+    const selection = window.getSelection();
+    const value =
+      selection?.anchorNode && selection.focusNode && plainBody?.contains(selection.anchorNode) && plainBody.contains(selection.focusNode)
+        ? selection.toString().trim().slice(0, 10_000)
+        : "";
+    props.onSelectionChange(value);
+  };
 
   const loadRemoteImages = async () => {
     if (remoteLoading() || remoteImagesRemaining() === 0) return;
@@ -213,6 +223,7 @@ export default function MailMessageBody(props: {
 
   onMount(() => {
     window.addEventListener("message", receiveMessage);
+    if (!props.html && props.plainText) document.addEventListener("selectionchange", reportPlainSelection);
     const controller = new AbortController();
     const objectUrls = new Set<string>();
     const loadCidImages = async () => {
@@ -259,6 +270,7 @@ export default function MailMessageBody(props: {
       objectUrls.clear();
       remoteObjectUrls.clear();
       window.removeEventListener("message", receiveMessage);
+      document.removeEventListener("selectionchange", reportPlainSelection);
       props.onSelectionChange("");
     });
   });
@@ -268,12 +280,14 @@ export default function MailMessageBody(props: {
       when={props.html}
       fallback={
         <Show when={props.plainText}>
-          <div class="flex flex-col gap-2">
+          <div ref={plainBody} class="flex max-w-[72ch] flex-col gap-2">
             <For each={plainSegments()}>
               {(segment) =>
                 segment.kind === "quote" ? (
                   <details class="text-secondary">
-                    <summary class="cursor-pointer select-none text-xs font-medium">Show quoted history</summary>
+                    <summary class="w-fit cursor-pointer select-none rounded-[var(--ui-radius-control)] px-2 py-1 text-xs font-medium hover:bg-[var(--ui-hover)]">
+                      Show quoted text
+                    </summary>
                     <pre class="mt-2 whitespace-pre-wrap break-words border-l-2 border-default pl-3 font-sans text-sm">{segment.text}</pre>
                   </details>
                 ) : (

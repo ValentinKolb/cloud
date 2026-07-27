@@ -202,6 +202,17 @@ const createFixture = async (): Promise<Fixture> => {
     message: envelope,
     captureWorkflowTriggers: false,
   });
+  const messageBody = [
+    "Please confirm that the reply composer stays focused.",
+    "",
+    ...Array.from(
+      { length: 24 },
+      (_, index) =>
+        `Operational note ${index + 1}: keep the message readable in the conversation without introducing a nested vertical scrollbar.`,
+    ),
+    "",
+    "> Previous message content remains available on demand.",
+  ].join("\r\n");
   const source = Buffer.from(
     [
       `Message-ID: ${envelope.messageId}`,
@@ -211,7 +222,7 @@ const createFixture = async (): Promise<Fixture> => {
       `Subject: ${subject}`,
       "Content-Type: text/plain; charset=utf-8",
       "",
-      "Please confirm that the reply composer stays focused.",
+      messageBody,
     ].join("\r\n"),
   );
   await hydrateMessageFromSource({
@@ -321,12 +332,25 @@ const runSmoke = async (fixture: Fixture) => {
       (url) => url.searchParams.get("conversation") === fixture.conversationId,
       "conversation navigation updates the URL",
     );
-    await page
-      .locator("pre")
-      .getByText("Please confirm that the reply composer stays focused.", {
-        exact: true,
-      })
-      .waitFor();
+    const messageCard = page.locator(`[data-mail-message-id="${fixture.messageId}"]`);
+    await messageCard.getByText("Please confirm that the reply composer stays focused.", { exact: false }).waitFor();
+    if ((await messageCard.getAttribute("data-mail-direction")) !== "incoming") fail("incoming message direction is not exposed");
+    const readerScroll = page.locator(`[data-scroll-preserve="mail-reader-${fixture.conversationId}"]`);
+    const readerState = await readerScroll.evaluate((element) => {
+      const message = element.querySelector<HTMLElement>("[data-mail-message-id]");
+      const body = element.querySelector<HTMLElement>(".mail-message-body");
+      if (!message || !body) return null;
+      return {
+        messageOffset: Math.round(message.getBoundingClientRect().top - element.getBoundingClientRect().top),
+        nestedVerticalScroll: body.scrollHeight > body.clientHeight + 1,
+      };
+    });
+    if (!readerState || readerState.messageOffset < -1 || readerState.messageOffset > 24)
+      fail(`long message did not open at its header: ${JSON.stringify(readerState)}`);
+    if (readerState.nestedVerticalScroll) fail("long message body introduced a nested vertical scrollbar");
+    await page.getByText("Show quoted text", { exact: true }).click();
+    await page.getByText("Previous message content remains available on demand.", { exact: false }).waitFor();
+    ok("long messages open at the header and reveal quoted text without nested scrolling");
 
     await page.getByRole("button", { name: "Reply", exact: true }).click();
     const body = page.getByRole("combobox", { name: "Message body" });
@@ -390,6 +414,12 @@ const runSmoke = async (fixture: Fixture) => {
       (response) =>
         response.request().method() === "POST" && /\/api\/mail\/mailboxes\/[^/]+\/commands$/.test(new URL(response.url()).pathname),
     );
+    const readerHasHistory = await readerScroll.evaluate((element) => {
+      element.scrollTop = 0;
+      element.dispatchEvent(new Event("scroll"));
+      return element.scrollHeight - element.clientHeight > 96;
+    });
+    if (!readerHasHistory) fail("long-message fixture did not create a meaningful reader scroll range");
     await page.getByRole("button", { name: "Reply", exact: true }).last().click();
     const sendAnyway = page.getByRole("button", { name: "Send anyway", exact: true });
     await sendAnyway
@@ -398,7 +428,26 @@ const runSmoke = async (fixture: Fixture) => {
       .catch(() => undefined);
     await sendResponse;
     await body.waitFor({ state: "detached" });
-    ok("saved reply queues and closes without stale reactive access");
+    const newMessageJump = page.getByRole("button", { name: "1 new message", exact: true });
+    await newMessageJump.waitFor();
+    await newMessageJump.click();
+    if ((await page.locator('[data-mail-direction="outgoing"]').count()) !== 1) {
+      fail("the queued reply did not appear as an outgoing message");
+    }
+    await page.getByRole("button", { name: "Undo send", exact: true }).waitFor();
+    if ((await messageCard.locator("[data-mail-direct-actions]").count()) !== 0) {
+      fail("an older message still exposes direct response actions");
+    }
+    await messageCard.getByRole("button", { name: "Message actions", exact: true }).click();
+    const openMessageMenu = page.locator('[role="menu"]:popover-open');
+    await openMessageMenu.waitFor();
+    const openMessageMenuText = await openMessageMenu.innerText();
+    if (!openMessageMenuText.split("\n").includes("Reply")) {
+      fail(`an older message lost its Reply action from the message menu: ${openMessageMenuText}`);
+    }
+    await page.keyboard.press("Escape");
+    ok("older message response actions move into the message menu");
+    ok("saved reply queues, announces its live append, and closes without stale reactive access");
 
     if (errors.length > 0) fail(`browser errors:\n${errors.join("\n")}`);
     ok("browser smoke complete");

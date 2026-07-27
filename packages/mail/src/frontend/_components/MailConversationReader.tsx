@@ -2,7 +2,7 @@ import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
   ConversationDraftSummary,
@@ -17,6 +17,7 @@ import { readApiError } from "./api-response";
 import type { MailConversationActiveComposer, MailConversationComposerRequest } from "./MailConversationComposerDrawer";
 import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
+import { initialConversationMessageId, isNearConversationEnd } from "./mail-conversation-history";
 import { buildMailListHref } from "./mail-navigation";
 
 type DraftLookup = {
@@ -60,14 +61,75 @@ export default function MailConversationReader(props: {
   onComposerChange: (composer: MailConversationActiveComposer | null) => void;
   onClose: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
-  const [expandedMessages, setExpandedMessages] = createSignal(new Set(props.messages.slice(-1).map((message) => message.id)));
+  const initialMessageId = initialConversationMessageId(props.messages, props.identities);
+  const [expandedMessages, setExpandedMessages] = createSignal(new Set(initialMessageId ? [initialMessageId] : []));
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
+  const [pendingNewMessages, setPendingNewMessages] = createSignal(0);
   const [openingDraft, setOpeningDraft] = createSignal(false);
   const closeHref = () => buildMailListHref(new URL(props.requestUrl));
   let draftLoadController: AbortController | null = null;
   let closeDraftDialog: ((value: ConversationDraftSummary | null | undefined) => void) | null = null;
   let cleanupPrint: (() => void) | null = null;
+  let historyScroller: HTMLDivElement | undefined;
+  let readerScrollFrame: number | null = null;
+  let followingNewest = true;
   let disposed = false;
+  const scrollPositions = new Map<string, number>();
+  const expandedBySelection = new Map<string, Set<string>>();
+
+  const rememberReaderState = (selectionKey: string, scrollTop: number, expanded: Set<string>) => {
+    scrollPositions.delete(selectionKey);
+    scrollPositions.set(selectionKey, scrollTop);
+    expandedBySelection.delete(selectionKey);
+    expandedBySelection.set(selectionKey, new Set(expanded));
+    if (scrollPositions.size <= 50) return;
+    const oldest = scrollPositions.keys().next().value;
+    if (!oldest) return;
+    scrollPositions.delete(oldest);
+    expandedBySelection.delete(oldest);
+  };
+
+  const scheduleReaderScroll = (options: {
+    selectionKey: string | null;
+    messageId?: string | null;
+    scrollTop?: number;
+    behavior?: ScrollBehavior;
+  }) => {
+    if (readerScrollFrame !== null) cancelAnimationFrame(readerScrollFrame);
+    readerScrollFrame = requestAnimationFrame(() => {
+      readerScrollFrame = null;
+      if (disposed || props.selectionKey !== options.selectionKey || !historyScroller) return;
+      if (options.scrollTop !== undefined) {
+        historyScroller.scrollTop = options.scrollTop;
+      } else if (options.messageId) {
+        const message = historyScroller.querySelector<HTMLElement>(`[data-mail-message-id="${CSS.escape(options.messageId)}"]`);
+        if (message) {
+          const scrollerBounds = historyScroller.getBoundingClientRect();
+          const messageBounds = message.getBoundingClientRect();
+          historyScroller.scrollTo({
+            top: Math.max(0, historyScroller.scrollTop + messageBounds.top - scrollerBounds.top - 8),
+            behavior: options.behavior ?? "auto",
+          });
+        }
+      }
+      followingNewest = isNearConversationEnd(historyScroller);
+    });
+  };
+
+  const handleReaderScroll = () => {
+    if (!historyScroller) return;
+    followingNewest = isNearConversationEnd(historyScroller);
+    if (followingNewest && pendingNewMessages() > 0) setPendingNewMessages(0);
+  };
+
+  const jumpToNewest = () => {
+    const newest = props.messages.at(-1);
+    if (!newest) return;
+    setExpandedMessages((current) => new Set(current).add(newest.id));
+    setPendingNewMessages(0);
+    followingNewest = true;
+    scheduleReaderScroll({ selectionKey: props.selectionKey, messageId: newest.id, behavior: "smooth" });
+  };
 
   const toggleMessage = (messageId: string) =>
     setExpandedMessages((current) => {
@@ -315,24 +377,63 @@ export default function MailConversationReader(props: {
   const closeComposer = () => props.onComposerChange(null);
 
   let currentSelection = props.selectionKey;
-  let currentNewestMessageId = props.messages.at(-1)?.id ?? null;
-  createEffect(() => {
-    const nextSelection = props.selectionKey;
-    const nextNewestMessageId = props.messages.at(-1)?.id ?? null;
-    if (nextSelection !== currentSelection) {
-      currentSelection = nextSelection;
-      currentNewestMessageId = nextNewestMessageId;
-      conversationDrafts.abort();
-      draftLoadController?.abort();
-      setExpandedMessages(new Set(props.messages.slice(-1).map((message) => message.id)));
-      setMessageSelections({});
-      if (props.composer) closeComposer();
+  let currentMessageIds = new Set(props.messages.map((message) => message.id));
+  const restoreHistorySelection = (nextSelection: string | null, nextMessageIds: Set<string>) => {
+    if (currentSelection && historyScroller) {
+      rememberReaderState(currentSelection, historyScroller.scrollTop, expandedMessages());
+    }
+    currentSelection = nextSelection;
+    currentMessageIds = nextMessageIds;
+    conversationDrafts.abort();
+    draftLoadController?.abort();
+    const savedExpanded = nextSelection ? expandedBySelection.get(nextSelection) : null;
+    const targetMessageId = initialConversationMessageId(props.messages, props.identities);
+    setExpandedMessages(
+      savedExpanded
+        ? new Set([...savedExpanded].filter((messageId) => nextMessageIds.has(messageId)))
+        : new Set(targetMessageId ? [targetMessageId] : []),
+    );
+    setMessageSelections({});
+    setPendingNewMessages(0);
+    followingNewest = true;
+    if (props.composer) closeComposer();
+    const savedScrollTop = nextSelection ? scrollPositions.get(nextSelection) : undefined;
+    scheduleReaderScroll({
+      selectionKey: nextSelection,
+      messageId: savedScrollTop === undefined ? targetMessageId : undefined,
+      scrollTop: savedScrollTop,
+    });
+  };
+
+  const applyAddedMessages = (selectionKey: string | null, nextMessageIds: Set<string>) => {
+    const previousMessageCount = currentMessageIds.size;
+    const addedMessages = props.messages.filter((message) => !currentMessageIds.has(message.id));
+    currentMessageIds = nextMessageIds;
+    if (addedMessages.length === 0) return;
+    const targetMessageId =
+      previousMessageCount === 0 ? initialConversationMessageId(props.messages, props.identities) : props.messages.at(-1)?.id;
+    if (!targetMessageId) return;
+    if (!followingNewest) {
+      setPendingNewMessages((current) => current + addedMessages.length);
       return;
     }
-    if (nextNewestMessageId && nextNewestMessageId !== currentNewestMessageId) {
-      currentNewestMessageId = nextNewestMessageId;
-      setExpandedMessages((current) => new Set(current).add(nextNewestMessageId));
+    setExpandedMessages((current) => new Set(current).add(targetMessageId));
+    setPendingNewMessages(0);
+    scheduleReaderScroll({ selectionKey, messageId: targetMessageId });
+  };
+
+  createEffect(() => {
+    const nextSelection = props.selectionKey;
+    const nextMessageIds = new Set(props.messages.map((message) => message.id));
+    if (nextSelection !== currentSelection) {
+      restoreHistorySelection(nextSelection, nextMessageIds);
+      return;
     }
+    applyAddedMessages(nextSelection, nextMessageIds);
+  });
+
+  onMount(() => {
+    scheduleReaderScroll({ selectionKey: props.selectionKey, messageId: initialMessageId });
   });
 
   onCleanup(() => {
@@ -340,6 +441,7 @@ export default function MailConversationReader(props: {
     closeDraftDialog?.(undefined);
     closeDraftDialog = null;
     cleanupPrint?.();
+    if (readerScrollFrame !== null) cancelAnimationFrame(readerScrollFrame);
     conversationDrafts.abort();
     derivedDraft.abort();
     draftLoadController?.abort();
@@ -351,7 +453,7 @@ export default function MailConversationReader(props: {
     const selectedInFrame = messageSelections()[message.id]?.trim() ?? "";
     const hostSelection = selection?.toString().trim() ?? "";
     const selectedInBody = selection?.anchorNode && body.contains(selection.anchorNode) ? hostSelection : "";
-    const text = hostSelection ? selectedInBody : selectedInFrame;
+    const text = selectedInBody || selectedInFrame;
     if (!text) {
       return prompts.error("Select text in this message first.", {
         title: "Quote in reply",
@@ -368,6 +470,8 @@ export default function MailConversationReader(props: {
   const printConversation = () => {
     cleanupPrint?.();
     const root = document.body;
+    const printSelection = props.selectionKey;
+    const expandedBeforePrint = expandedMessages();
     let active = true;
     let frame: number | null = null;
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -375,18 +479,22 @@ export default function MailConversationReader(props: {
       if (!active) return;
       active = false;
       root.classList.remove("mail-printing-conversation");
+      if (props.selectionKey === printSelection) setExpandedMessages(expandedBeforePrint);
       window.removeEventListener("afterprint", cleanup);
       if (timeout) clearTimeout(timeout);
       if (frame !== null) cancelAnimationFrame(frame);
       if (cleanupPrint === cleanup) cleanupPrint = null;
     };
     cleanupPrint = cleanup;
+    setExpandedMessages(new Set(props.messages.map((message) => message.id)));
     root.classList.add("mail-printing-conversation");
     window.addEventListener("afterprint", cleanup, { once: true });
     timeout = setTimeout(cleanup, 60_000);
     frame = requestAnimationFrame(() => {
-      frame = null;
-      if (active) window.print();
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (active) window.print();
+      });
     });
   };
 
@@ -580,49 +688,72 @@ export default function MailConversationReader(props: {
           </div>
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2 sm:px-5" data-scroll-preserve={`mail-reader-${props.selectionKey}`}>
-          <div class="mx-auto flex w-full max-w-4xl flex-col gap-5">
-            <For each={props.messages}>
-              {(message) => (
-                <MailMessageCard
-                  message={message}
-                  expanded={expandedMessages().has(message.id)}
-                  context={{
-                    mailboxId: props.mailboxId,
-                    requestUrl: props.requestUrl,
-                    canWrite: props.canWrite,
-                    canAdmin: props.canAdmin,
-                    selectionKey: props.selectionKey,
-                    selectedConversationId: props.selectedConversationId,
-                    sourceFolderId: props.sourceFolderId,
-                    totalMessageCount: props.totalMessageCount,
-                    identities: props.identities,
-                    dateConfig: props.dateConfig,
-                    composerBusy: composerBusy(),
-                  }}
-                  actions={{
-                    toggle: toggleMessage,
-                    selectionChange: (messageId, value) =>
-                      setMessageSelections((current) => {
-                        if (current[messageId] === value) return current;
-                        const next = { ...current };
-                        if (value) next[messageId] = value;
-                        else delete next[messageId];
-                        return next;
-                      }),
-                    compose: startComposer,
-                    quoteReply: startQuoteReply,
-                    derive: (kind, selectedMessage) => {
-                      void deriveMessage(kind, selectedMessage);
-                    },
-                    reconcile: props.onReconcile,
-                    reassign: props.onReassignMessage,
-                    split: props.onSplitMessage,
-                  }}
-                />
-              )}
-            </For>
+        <div class="relative min-h-0 flex-1">
+          <div
+            ref={historyScroller}
+            class="h-full min-h-0 overflow-y-auto px-3 py-2 sm:px-5"
+            data-scroll-preserve={`mail-reader-${props.selectionKey}`}
+            onScroll={handleReaderScroll}
+          >
+            <div class="mx-auto flex w-full max-w-4xl flex-col gap-2">
+              <For each={props.messages}>
+                {(message) => (
+                  <MailMessageCard
+                    message={message}
+                    expanded={expandedMessages().has(message.id)}
+                    isLatest={props.messages.at(-1)?.id === message.id}
+                    selectionAvailable={Boolean(messageSelections()[message.id])}
+                    context={{
+                      mailboxId: props.mailboxId,
+                      requestUrl: props.requestUrl,
+                      canWrite: props.canWrite,
+                      canAdmin: props.canAdmin,
+                      selectionKey: props.selectionKey,
+                      selectedConversationId: props.selectedConversationId,
+                      sourceFolderId: props.sourceFolderId,
+                      totalMessageCount: props.totalMessageCount,
+                      identities: props.identities,
+                      dateConfig: props.dateConfig,
+                      composerBusy: composerBusy(),
+                    }}
+                    actions={{
+                      toggle: toggleMessage,
+                      selectionChange: (messageId, value) =>
+                        setMessageSelections((current) => {
+                          if (value)
+                            return current[messageId] === value && Object.keys(current).length === 1 ? current : { [messageId]: value };
+                          if (!(messageId in current)) return current;
+                          const next = { ...current };
+                          delete next[messageId];
+                          return next;
+                        }),
+                      compose: startComposer,
+                      quoteReply: startQuoteReply,
+                      derive: (kind, selectedMessage) => {
+                        void deriveMessage(kind, selectedMessage);
+                      },
+                      reconcile: props.onReconcile,
+                      reassign: props.onReassignMessage,
+                      split: props.onSplitMessage,
+                    }}
+                  />
+                )}
+              </For>
+            </div>
           </div>
+          <Show when={pendingNewMessages()}>
+            {(count) => (
+              <button
+                type="button"
+                class="btn-primary btn-sm absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-[var(--ui-shadow-float)]"
+                aria-live="polite"
+                onClick={jumpToNewest}
+              >
+                {count()} new message{count() === 1 ? "" : "s"}
+                <i class="ti ti-arrow-down" aria-hidden="true" />
+              </button>
+            )}
+          </Show>
         </div>
       </Show>
     </div>

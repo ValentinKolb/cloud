@@ -11,9 +11,18 @@ describe("MailMessageBody sizing", () => {
     expect(document).not.toContain("document.documentElement.scrollHeight");
   });
 
-  test("keeps reported heights finite and bounded", () => {
+  test("keeps reported heights finite without truncating long messages", () => {
     expect(normalizeMessageBodyHeight(1)).toBe(32);
     expect(normalizeMessageBodyHeight(48.2)).toBe(49);
-    expect(normalizeMessageBodyHeight(200_000)).toBe(100_000);
+    expect(normalizeMessageBodyHeight(200_000)).toBe(200_000);
+    expect(normalizeMessageBodyHeight(Number.POSITIVE_INFINITY)).toBe(32);
+    expect(normalizeMessageBodyHeight(Number.NaN)).toBe(32);
+  });
+
+  test("collapses only explicit HTML quote containers", () => {
+    const document = buildMessageDocument('<p>New content</p><blockquote type="cite">Old content</blockquote>', "test-channel");
+
+    expect(document).toContain("Show quoted text");
+    expect(document).toContain('blockquote[type="cite"], .gmail_quote, .yahoo_quoted');
   });
 });

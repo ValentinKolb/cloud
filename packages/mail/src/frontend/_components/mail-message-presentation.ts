@@ -1,3 +1,6 @@
+import type { StatusTone } from "@valentinkolb/cloud/ui";
+import type { MessageDeliveryState } from "../../service/messages";
+
 type PlainMessageSegment = {
   kind: "content" | "quote";
   text: string;
@@ -88,4 +91,42 @@ export const splitPlainMessageSegments = (value: string): PlainMessageSegment[] 
   }
   flush();
   return segments;
+};
+
+export const messagePreviewText = (plainText: string | null, forwardText: string, maxLength = 240): string => {
+  const source = plainText?.trim() ? plainText : forwardText;
+  const content = splitPlainMessageSegments(source).find((segment) => segment.kind === "content" && segment.text.trim())?.text ?? source;
+  const normalized = content.replace(/\s+/gu, " ").trim();
+  return normalized.length > maxLength ? `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…` : normalized;
+};
+
+export const messageDeliveryPresentation = (state: MessageDeliveryState): { label: string; icon: string; tone: StatusTone } | null => {
+  switch (state) {
+    case "scheduled":
+      return { label: "Scheduled", icon: "ti ti-clock", tone: "neutral" };
+    case "undo_window":
+      return { label: "Queued", icon: "ti ti-clock-pause", tone: "neutral" };
+    case "sending":
+      return { label: "Sending", icon: "ti ti-loader-2", tone: "running" };
+    case "accepted":
+    case "sent_sync_pending":
+    case "sent":
+    case "reconciled_accepted":
+      return null;
+    case "failed":
+    case "reconciled_unsent":
+      return { label: "Send failed", icon: "ti ti-alert-circle", tone: "error" };
+    case "unknown":
+    case "needs_attention":
+      return { label: "Needs attention", icon: "ti ti-alert-triangle", tone: "warn" };
+    case "cancelled":
+      return { label: "Cancelled", icon: "ti ti-ban", tone: "neutral" };
+  }
+};
+
+export const messageDeliveryControlLabel = (state: MessageDeliveryState, canWrite: boolean): string | null => {
+  if (!canWrite) return null;
+  if (state === "undo_window") return "Undo send";
+  if (state === "scheduled") return "Cancel send";
+  return null;
 };

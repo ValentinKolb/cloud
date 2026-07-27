@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { attachmentPreviewSignatureMatches } from "../../attachment-preview-policy";
 import {
   attachmentPreviewKind,
+  messageDeliveryControlLabel,
+  messageDeliveryPresentation,
+  messagePreviewText,
   normalizeContentId,
   referencedContentIds,
   referencedRemoteImageIds,
@@ -34,6 +37,28 @@ describe("mail message presentation", () => {
       { kind: "quote", text: "> first\n\n\n> second" },
       { kind: "content", text: "After" },
     ]);
+  });
+
+  test("builds a bounded one-line preview from new content rather than quoted history", () => {
+    expect(messagePreviewText("Short answer\n\n> much older text", "")).toBe("Short answer");
+    expect(messagePreviewText(null, "HTML fallback\nwith spacing")).toBe("HTML fallback with spacing");
+    expect(messagePreviewText("123456789", "", 6)).toBe("12345…");
+  });
+
+  test("keeps normal sent delivery quiet and presents exceptional delivery states", () => {
+    expect(messageDeliveryPresentation("accepted")).toBeNull();
+    expect(messageDeliveryPresentation("sent_sync_pending")).toBeNull();
+    expect(messageDeliveryPresentation("sent")).toBeNull();
+    expect(messageDeliveryPresentation("reconciled_accepted")).toBeNull();
+    expect(messageDeliveryPresentation("sending")).toMatchObject({ label: "Sending", tone: "running" });
+    expect(messageDeliveryPresentation("failed")).toMatchObject({ label: "Send failed", tone: "error" });
+  });
+
+  test("offers cancellation only while a queued delivery remains controllable", () => {
+    expect(messageDeliveryControlLabel("undo_window", true)).toBe("Undo send");
+    expect(messageDeliveryControlLabel("scheduled", true)).toBe("Cancel send");
+    expect(messageDeliveryControlLabel("sending", true)).toBeNull();
+    expect(messageDeliveryControlLabel("undo_window", false)).toBeNull();
   });
 
   test("allows only bounded browser-safe attachment previews", () => {
