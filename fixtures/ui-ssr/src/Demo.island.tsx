@@ -1,21 +1,38 @@
 import {
+  AppOverview,
   AppWorkspace,
+  Avatar,
   Button,
   Chart,
   Checkbox,
   CopyButton,
+  DataPanel,
+  dialogCore,
   IconButton,
+  LinkCard,
   NoticeCard,
   NoticeGrid,
   NumberInput,
+  PanelDialog,
   Placeholder,
   ProgressBar,
+  panelDialogOptions,
   prompts,
   SegmentedControl,
   Select,
+  StatCell,
+  StatGrid,
   StatusBadge,
   Switch,
   TextInput,
+  Tooltip,
+  toast,
+  Widget,
+  WidgetHero,
+  WidgetList,
+  WidgetPills,
+  WidgetStat,
+  WidgetStatus,
 } from "@k2b/ui";
 import { createSignal, type JSX } from "solid-js";
 
@@ -38,6 +55,7 @@ export default function Demo() {
   const [enabled, setEnabled] = createSignal(true);
   const [accepted, setAccepted] = createSignal(false);
   const [role, setRole] = createSignal<"member" | "admin">("member");
+  const [dialogTab, setDialogTab] = createSignal<"details" | "history">("details");
 
   const confirmAction = async () => {
     const result = await prompts.confirm("The dialog is rendered in the scoped @k2b/ui portal root.", {
@@ -47,11 +65,46 @@ export default function Demo() {
     setConfirmed(result);
   };
 
+  const openPanel = () =>
+    dialogCore.open<void>(
+      (close) => (
+        <PanelDialog surface="floating">
+          <PanelDialog.Header
+            title="Reusable panel dialog"
+            subtitle="Layout supplied by @k2b/ui, data supplied by the consumer."
+            icon="ti ti-layout"
+            close={() => close()}
+          />
+          <PanelDialog.Tabs
+            value={dialogTab()}
+            onValueChange={setDialogTab}
+            options={[
+              { value: "details", label: "Details", icon: "ti ti-info-circle" },
+              { value: "history", label: "History", icon: "ti ti-history" },
+            ]}
+          />
+          <PanelDialog.Body>
+            <PanelDialog.Section title={dialogTab() === "details" ? "Package boundary" : "Recent activity"}>
+              {dialogTab() === "details"
+                ? "This dialog has no knowledge of Cloud routes, permissions, or stores."
+                : "The active tab is controlled by the consuming application."}
+            </PanelDialog.Section>
+          </PanelDialog.Body>
+          <PanelDialog.Footer>
+            <Button variant="secondary" onClick={() => close()}>
+              Close
+            </Button>
+          </PanelDialog.Footer>
+        </PanelDialog>
+      ),
+      panelDialogOptions,
+    );
+
   return (
     <div
       class="k2b-ui"
       data-theme={theme()}
-      style="--k2b-accent-500:#8b5cf6;--k2b-accent-600:#7c3aed;--k2b-accent-700:#6d28d9;height:calc(100dvh - 45px);padding:16px"
+      style="--k2b-accent-50:#f5f3ff;--k2b-accent-100:#ede9fe;--k2b-accent-300:#c4b5fd;--k2b-accent-400:#a78bfa;--k2b-accent-500:#8b5cf6;--k2b-accent-600:#7c3aed;--k2b-accent-700:#6d28d9;--k2b-accent-900:#4c1d95;--k2b-accent-950:#2e1065;height:calc(100dvh - 45px);padding:16px"
     >
       <AppWorkspace>
         <AppWorkspace.Sidebar>
@@ -69,6 +122,12 @@ export default function Demo() {
               </AppWorkspace.SidebarItem>
               <AppWorkspace.SidebarItem href="#content" navigation="document" icon="ti ti-chart-line">
                 Content
+              </AppWorkspace.SidebarItem>
+              <AppWorkspace.SidebarItem href="#composition" navigation="document" icon="ti ti-layout-dashboard">
+                Composition
+              </AppWorkspace.SidebarItem>
+              <AppWorkspace.SidebarItem href="#widgets" navigation="document" icon="ti ti-box-multiple">
+                Widgets
               </AppWorkspace.SidebarItem>
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
@@ -100,10 +159,18 @@ export default function Demo() {
                   <Button loading loadingLabel="Saving">
                     Save
                   </Button>
-                  <IconButton label="Settings" variant="secondary">
-                    <i class="ti ti-settings" aria-hidden="true" />
-                  </IconButton>
+                  <Tooltip content="A keyboard-accessible tooltip">
+                    <IconButton label="Settings" variant="secondary">
+                      <i class="ti ti-settings" aria-hidden="true" />
+                    </IconButton>
+                  </Tooltip>
                   <CopyButton value="bun add @k2b/ui" variant="secondary" />
+                  <Button variant="secondary" onClick={() => toast.success("The package owns this scoped toast.")}>
+                    Show toast
+                  </Button>
+                  <Button variant="secondary" onClick={openPanel}>
+                    Open panel
+                  </Button>
                   <SegmentedControl
                     label="Layout"
                     value={view()}
@@ -199,6 +266,78 @@ export default function Demo() {
                     },
                   ]}
                 />
+              </Section>
+
+              <Section id="composition" title="Application composition">
+                <AppOverview title="Operations" subtitle="A generic overview shell" icon="ti ti-activity">
+                  <AppOverview.Main title="Runtime" description="Useful structure without product assumptions.">
+                    <DataPanel
+                      title="Services"
+                      subtitle="Three monitored services"
+                      actions={
+                        <StatusBadge tone="success" dot>
+                          Healthy
+                        </StatusBadge>
+                      }
+                    >
+                      <StatGrid columns={3}>
+                        <StatCell label="Requests" value="12.4k" sub="last 24 hours" tone="info" trend={[8, 11, 9, 14, 12]} />
+                        <StatCell label="Success" value="99.8%" sub="within SLO" tone="success" />
+                        <StatCell label="Latency" value="84ms" sub="p95" tone="warning" />
+                      </StatGrid>
+                    </DataPanel>
+                  </AppOverview.Main>
+                  <AppOverview.Aside title="People" description="Generic identity surfaces">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                      <Avatar name="Ada Lovelace" />
+                      <span style="font-size:12px">Ada Lovelace</span>
+                    </div>
+                    <LinkCard
+                      href="#widgets"
+                      title="Open dashboard"
+                      description="Composable widget family"
+                      icon="ti ti-layout-dashboard"
+                      tone="info"
+                    />
+                  </AppOverview.Aside>
+                </AppOverview>
+              </Section>
+
+              <Section id="widgets" title="Dashboard widgets">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">
+                  <Widget title="Platform health" subtitle="Last checked just now" icon="ti ti-heartbeat" size="compact">
+                    <WidgetStatus
+                      title="All systems operational"
+                      description="No active incidents"
+                      icon="ti ti-circle-check"
+                      tone="success"
+                    />
+                    <WidgetPills
+                      items={[
+                        { label: "Apps", value: 12, tone: "info" },
+                        { label: "Checks", value: 48, tone: "success" },
+                      ]}
+                    />
+                  </Widget>
+                  <Widget title="Requests" subtitle="Last 24 hours" icon="ti ti-chart-line" size="compact">
+                    <WidgetStat
+                      label="Total"
+                      value="12,420"
+                      description="Across all services"
+                      tone="info"
+                      accent={{ text: "+8.2%", icon: "ti ti-trending-up", tone: "success" }}
+                    />
+                  </Widget>
+                  <Widget title="Activity" subtitle="Most recent" icon="ti ti-list" size="compact">
+                    <WidgetHero title="2 actions need review" subtitle="Oldest item is 18 minutes old" icon="ti ti-bolt" tone="warning" />
+                    <WidgetList
+                      items={[
+                        { label: "Deployment completed", description: "API", meta: "2m", icon: "ti ti-check", tone: "success" },
+                        { label: "Configuration changed", description: "Worker", meta: "9m", icon: "ti ti-settings", tone: "info" },
+                      ]}
+                    />
+                  </Widget>
+                </div>
               </Section>
             </div>
           </AppWorkspace.Main>

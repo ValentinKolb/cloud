@@ -1,0 +1,43 @@
+import { type JSX, Show } from "solid-js";
+
+export type NotFoundStateAction = {
+  label: string;
+  href: string;
+  icon?: string;
+};
+
+export type NotFoundStateProps = {
+  code?: string;
+  title: JSX.Element;
+  description?: JSX.Element;
+  icon?: string;
+  action?: NotFoundStateAction;
+  class?: string;
+};
+
+export function NotFoundState(props: NotFoundStateProps): JSX.Element {
+  return (
+    <main class={`k2b-not-found ${props.class ?? ""}`}>
+      <Show
+        when={props.code}
+        fallback={<Show when={props.icon}>{(icon) => <i class={`k2b-not-found__icon ${icon()}`} aria-hidden="true" />}</Show>}
+      >
+        {(code) => <div class="k2b-not-found__code">{code()}</div>}
+      </Show>
+      <div class="k2b-not-found__copy">
+        <h1>{props.title}</h1>
+        <Show when={props.description}>
+          <p>{props.description}</p>
+        </Show>
+      </div>
+      <Show when={props.action}>
+        {(action) => (
+          <a href={action().href} class="k2b-button" data-size="sm" data-variant="primary">
+            <i class={action().icon ?? "ti ti-arrow-left"} aria-hidden="true" />
+            <span>{action().label}</span>
+          </a>
+        )}
+      </Show>
+    </main>
+  );
+}

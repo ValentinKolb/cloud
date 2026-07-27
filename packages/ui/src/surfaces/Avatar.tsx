@@ -1,0 +1,66 @@
+import { createEffect, createSignal, type JSX, on, Show } from "solid-js";
+
+export type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
+
+export type AvatarProps = {
+  name: string;
+  src?: string | null;
+  alt?: string;
+  fallback?: string;
+  size?: AvatarSize;
+  loading?: "eager" | "lazy";
+  class?: string;
+  style?: JSX.CSSProperties | string;
+};
+
+const initialsFor = (name: string): string => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]?.slice(0, 2).toUpperCase() ?? "?";
+  return `${parts[0]?.[0] ?? ""}${parts.at(-1)?.[0] ?? ""}`.toUpperCase();
+};
+
+export function Avatar(props: AvatarProps): JSX.Element {
+  const [failed, setFailed] = createSignal(false);
+  const label = () => props.name.trim() || "Unknown user";
+  const fallback = () => props.fallback ?? initialsFor(label());
+  const className = () => `k2b-avatar ${props.class ?? ""}`;
+
+  createEffect(
+    on(
+      () => props.src,
+      () => setFailed(false),
+      { defer: true },
+    ),
+  );
+
+  return (
+    <Show
+      when={!failed() ? props.src || undefined : undefined}
+      fallback={
+        <span
+          class={className()}
+          data-size={props.size ?? "md"}
+          style={props.style}
+          role="img"
+          aria-label={props.alt ?? `${label()} avatar`}
+        >
+          {fallback()}
+        </span>
+      }
+    >
+      {(src) => (
+        <img
+          src={src()}
+          alt={props.alt ?? `${label()} avatar`}
+          class={className()}
+          data-size={props.size ?? "md"}
+          style={props.style}
+          loading={props.loading ?? "lazy"}
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </Show>
+  );
+}

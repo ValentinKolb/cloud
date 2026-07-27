@@ -1,0 +1,49 @@
+import { type JSX, Show } from "solid-js";
+import Placeholder from "../surfaces/Placeholder";
+import { PanelHeader } from "./PanelHeader";
+
+export type DataPanelProps = {
+  title: JSX.Element;
+  subtitle?: JSX.Element;
+  actions?: JSX.Element;
+  search?: JSX.Element;
+  filters?: JSX.Element;
+  children?: JSX.Element;
+  error?: JSX.Element;
+  empty?: JSX.Element;
+  isEmpty?: boolean;
+  footer?: JSX.Element;
+  as?: "h1" | "h2" | "h3";
+  class?: string;
+};
+
+export function DataPanel(props: DataPanelProps): JSX.Element {
+  const hasToolbar = () => Boolean(props.search || props.filters);
+
+  return (
+    <section class={`k2b-data-panel ${props.class ?? ""}`}>
+      <div class="k2b-data-panel__header">
+        <PanelHeader title={props.title} subtitle={props.subtitle} actions={props.actions} as={props.as} />
+        <Show when={hasToolbar()}>
+          <div class="k2b-data-panel__toolbar">
+            <Show when={props.search}>{props.search}</Show>
+            <Show when={props.filters}>{props.filters}</Show>
+          </div>
+        </Show>
+      </div>
+      <div class="k2b-data-panel__body">
+        <Show
+          when={!props.error}
+          fallback={<Placeholder state="error" variant="compact" title="Could not load this data" description={props.error} />}
+        >
+          <Show when={!props.isEmpty} fallback={<Placeholder variant="compact" description={props.empty ?? "Nothing to show."} />}>
+            {props.children}
+          </Show>
+        </Show>
+      </div>
+      <Show when={props.footer}>
+        <footer class="k2b-data-panel__footer">{props.footer}</footer>
+      </Show>
+    </section>
+  );
+}

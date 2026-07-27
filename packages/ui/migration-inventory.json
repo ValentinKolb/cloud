@@ -39,31 +39,31 @@
     ],
     "layout": [
       { "source": "./admin-settings", "status": "planned" },
-      { "source": "./misc/AppOverview", "status": "planned" },
+      { "source": "./misc/AppOverview", "status": "implemented" },
       { "source": "./misc/AppWorkspace", "status": "implemented" },
-      { "source": "./misc/DataPanel", "status": "planned" },
+      { "source": "./misc/DataPanel", "status": "implemented" },
       { "source": "./misc/FloatingWindow", "status": "planned" },
-      { "source": "./misc/PanelDialog", "status": "planned" },
-      { "source": "./misc/PanelHeader", "status": "planned" },
+      { "source": "./misc/PanelDialog", "status": "implemented" },
+      { "source": "./misc/PanelHeader", "status": "implemented" },
       { "source": "./misc/Panes", "status": "planned" },
       { "source": "./misc/SettingsModal", "status": "planned" }
     ],
     "surfaces": [
-      { "source": "./misc/Avatar", "status": "planned" },
-      { "source": "./misc/LinkCard", "status": "planned" },
-      { "source": "./misc/NotFoundState", "status": "planned" },
+      { "source": "./misc/Avatar", "status": "implemented" },
+      { "source": "./misc/LinkCard", "status": "implemented" },
+      { "source": "./misc/NotFoundState", "status": "implemented" },
       { "source": "./misc/NoticeCard", "status": "implemented" },
       { "source": "./misc/Placeholder", "status": "implemented" },
       { "source": "./misc/ProgressBar", "status": "implemented" },
-      { "source": "./misc/StatCell", "status": "planned" },
-      { "source": "./misc/StatGrid", "status": "planned" },
+      { "source": "./misc/StatCell", "status": "implemented" },
+      { "source": "./misc/StatGrid", "status": "implemented" },
       { "source": "./misc/StatusBadge", "status": "implemented" }
     ],
     "feedback": [
       { "source": "./dialog-core", "status": "implemented" },
       { "source": "./prompts", "status": "implemented" },
-      { "source": "./toast", "status": "planned" },
-      { "source": "./misc/Tooltip", "status": "planned" },
+      { "source": "./toast", "status": "implemented" },
+      { "source": "./misc/Tooltip", "status": "implemented" },
       { "source": "./misc/avatar-upload-dialog", "status": "planned" }
     ],
     "content": [
@@ -86,13 +86,13 @@
       { "source": "./misc/chart-state-timeline", "status": "planned" }
     ],
     "widgets": [
-      { "source": "./widgets/Widget", "status": "planned" },
-      { "source": "./widgets/WidgetCard", "status": "planned" },
-      { "source": "./widgets/WidgetHero", "status": "planned" },
-      { "source": "./widgets/WidgetList", "status": "planned" },
-      { "source": "./widgets/WidgetPills", "status": "planned" },
-      { "source": "./widgets/WidgetStat", "status": "planned" },
-      { "source": "./widgets/WidgetStatus", "status": "planned" }
+      { "source": "./widgets/Widget", "status": "implemented" },
+      { "source": "./widgets/WidgetCard", "status": "implemented" },
+      { "source": "./widgets/WidgetHero", "status": "implemented" },
+      { "source": "./widgets/WidgetList", "status": "implemented" },
+      { "source": "./widgets/WidgetPills", "status": "implemented" },
+      { "source": "./widgets/WidgetStat", "status": "implemented" },
+      { "source": "./widgets/WidgetStatus", "status": "implemented" }
     ]
   },
   "cloudSpecific": [

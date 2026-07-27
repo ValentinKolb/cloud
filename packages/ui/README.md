@@ -23,8 +23,14 @@ JavaScript:
 ```css
 .k2b-ui {
   --k2b-font-sans: Inter, sans-serif;
+  --k2b-accent-50: #f5f3ff;
+  --k2b-accent-100: #ede9fe;
+  --k2b-accent-300: #c4b5fd;
+  --k2b-accent-400: #a78bfa;
   --k2b-accent-500: #8b5cf6;
   --k2b-accent-600: #7c3aed;
+  --k2b-accent-700: #6d28d9;
+  --k2b-accent-950: #2e1065;
 }
 ```
 
@@ -40,13 +46,19 @@ Tabler's webfont is the supported icon preset:
 import "@k2b/ui/icons/tabler.css";
 ```
 
-## Foundation
+## Component tranches
 
-The first standalone component tranche covers common application primitives:
+The standalone package currently covers foundation and application composition:
 
 - Actions: `Button`, `IconButton`, `CopyButton`, `SegmentedControl`
 - Inputs: `TextInput`, `NumberInput`, `Checkbox`, `Switch`, `Select`
-- Surfaces: `StatusBadge`, `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`
+- Layout: `AppWorkspace`, `AppOverview`, `DataPanel`, `PanelHeader`, `PanelDialog`
+- Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
+  `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`, `NotFoundState`
+- Feedback: scoped dialogs and prompts, `Tooltip`, and scoped `toast`
+- Content: the stdlib-backed `Chart`
+- Widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
+  `WidgetStat`, and `WidgetStatus`
 
 Components use direct controlled values and small callback contracts:
 
@@ -63,6 +75,16 @@ const [name, setName] = createSignal("");
 
 The package does not read Cloud routes, services, permissions, or application
 state. Product-specific composition stays with the consuming application.
+
+Composition components intentionally use semantic data instead of application
+stores:
+
+```tsx
+<Widget title="Platform health" icon="ti ti-heartbeat">
+  <WidgetStatus title="Operational" tone="success" />
+  <WidgetPills items={[{ label: "Checks", value: 48, tone: "success" }]} />
+</Widget>
+```
 
 ## Catalog groups
 

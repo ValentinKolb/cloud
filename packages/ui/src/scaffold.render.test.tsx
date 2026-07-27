@@ -11,7 +11,25 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { AppWorkspace, Button, Chart, NoticeCard, Placeholder, ProgressBar, StatusBadge, TextInput } = await import("./index");
+const {
+  AppOverview,
+  AppWorkspace,
+  Button,
+  Chart,
+  DataPanel,
+  NoticeCard,
+  PanelDialog,
+  Placeholder,
+  ProgressBar,
+  StatCell,
+  StatGrid,
+  StatusBadge,
+  TextInput,
+  toast,
+  Widget,
+  WidgetStat,
+  WidgetStatus,
+} = await import("./index");
 
 describe("@k2b/ui scaffold SSR", () => {
   test("renders the scoped placeholder contract", () => {
@@ -110,6 +128,75 @@ describe("@k2b/ui scaffold SSR", () => {
     expect(progress).toContain('aria-valuenow="42"');
     expect(notice).toContain('role="alert"');
     expect(notice).toContain("No Cloud dependency.");
+  });
+
+  test("renders application composition without Cloud contracts", () => {
+    const html = renderToString(() =>
+      createComponent(AppOverview, {
+        title: "Operations",
+        subtitle: "Generic overview",
+        get children() {
+          return createComponent(AppOverview.Main, {
+            title: "Runtime",
+            get children() {
+              return createComponent(DataPanel, {
+                title: "Services",
+                get children() {
+                  return createComponent(StatGrid, {
+                    columns: 2,
+                    get children() {
+                      return createComponent(StatCell, {
+                        label: "Requests",
+                        value: "12k",
+                        tone: "info",
+                      });
+                    },
+                  });
+                },
+              });
+            },
+          });
+        },
+      }),
+    );
+
+    expect(html).toContain("k2b-app-overview__main");
+    expect(html).toContain("k2b-data-panel");
+    expect(html).toContain("--k2b-stat-columns:2");
+    expect(html).toContain("Requests");
+  });
+
+  test("renders the generic panel and widget families", () => {
+    const panel = renderToString(() =>
+      createComponent(PanelDialog, {
+        get children() {
+          return [createComponent(PanelDialog.Header, { title: "Details" }), createComponent(PanelDialog.Body, { children: "Body" })];
+        },
+      }),
+    );
+    const widget = renderToString(() =>
+      createComponent(Widget, {
+        title: "Health",
+        get children() {
+          return [
+            createComponent(WidgetStatus, { title: "Operational", tone: "success" }),
+            createComponent(WidgetStat, { label: "Checks", value: 42 }),
+          ];
+        },
+      }),
+    );
+
+    expect(panel).toContain("k2b-panel-dialog__header");
+    expect(panel).toContain("k2b-panel-dialog__body");
+    expect(widget).toContain("k2b-widget-status");
+    expect(widget).toContain("Operational");
+    expect(widget).toContain("Checks");
+  });
+
+  test("makes toast calls SSR-safe", () => {
+    const handle = toast.success("Saved");
+    expect(() => handle.update("Updated")).not.toThrow();
+    expect(() => handle.dismiss()).not.toThrow();
   });
 
   test("keeps the stylesheet free of global resets", () => {

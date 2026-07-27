@@ -18,6 +18,9 @@ describe("@k2b/ui standalone SSR fixture", () => {
     expect(html).toContain("Display name");
     expect(html).toContain("Migration readiness");
     expect(html).toContain("Generic by design");
+    expect(html).toContain("Application composition");
+    expect(html).toContain("Platform health");
+    expect(html).toContain("All systems operational");
     expect(html).toContain('const p="/_ssr"');
     expect(html).toContain("<solid-island");
 
