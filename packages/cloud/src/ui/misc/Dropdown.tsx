@@ -57,26 +57,11 @@ type DropdownProps = {
 // ==========================
 
 const POSITION_STYLES: Record<string, string> = {
-  "bottom-right":
-    "top: anchor(bottom); left: anchor(left); margin-top: 4px;" +
-    "position-try-fallbacks: --flip-block;" +
-    "position-try: --flip-block { bottom: anchor(top); top: auto; margin-top: 0; margin-bottom: 4px; };",
-  "bottom-left":
-    "top: anchor(bottom); right: anchor(right); margin-top: 4px;" +
-    "position-try-fallbacks: --flip-block-left;" +
-    "position-try: --flip-block-left { bottom: anchor(top); top: auto; margin-top: 0; margin-bottom: 4px; };",
-  "top-right":
-    "bottom: anchor(top); left: anchor(left); margin-bottom: 4px;" +
-    "position-try-fallbacks: --flip-block-down;" +
-    "position-try: --flip-block-down { top: anchor(bottom); bottom: auto; margin-bottom: 0; margin-top: 4px; };",
-  "top-left":
-    "bottom: anchor(top); right: anchor(right); margin-bottom: 4px;" +
-    "position-try-fallbacks: --flip-block-down-left;" +
-    "position-try: --flip-block-down-left { top: anchor(bottom); bottom: auto; margin-bottom: 0; margin-top: 4px; };",
-  "right-start":
-    "top: anchor(top); left: anchor(right); margin-left: 6px;" +
-    "position-try-fallbacks: --flip-inline-start;" +
-    "position-try: --flip-inline-start { right: anchor(left); left: auto; margin-left: 0; margin-right: 6px; };",
+  "bottom-right": "top: anchor(bottom); left: anchor(left); margin-top: 4px; position-try-fallbacks: flip-block, flip-inline;",
+  "bottom-left": "top: anchor(bottom); right: anchor(right); margin-top: 4px; position-try-fallbacks: flip-block, flip-inline;",
+  "top-right": "bottom: anchor(top); left: anchor(left); margin-bottom: 4px; position-try-fallbacks: flip-block, flip-inline;",
+  "top-left": "bottom: anchor(top); right: anchor(right); margin-bottom: 4px; position-try-fallbacks: flip-block, flip-inline;",
+  "right-start": "top: anchor(top); left: anchor(right); margin-left: 6px; position-try-fallbacks: flip-inline, flip-block;",
 };
 
 const ITEM_BASE_CLASSES = "menu-item";

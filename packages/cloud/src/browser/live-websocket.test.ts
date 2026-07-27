@@ -112,12 +112,14 @@ describe("createLiveWebSocket", () => {
 
   test("subscribes once and resumes from the last applied cursor", () => {
     installBrowser();
+    const statuses: string[] = [];
     const connection = createLiveWebSocket<{ cursor: string }>({
       url: "/api/example/ws",
       initialCursor: "4-1",
       subscribe: (cursor) => ({ type: "subscribe", payload: { fromCursor: cursor } }),
       parse: (raw) => JSON.parse(raw) as { cursor: string },
       onMessage: (message, controls) => controls.markApplied(message.cursor),
+      onStatus: (status) => statuses.push(status),
     });
 
     connection.connect();
@@ -132,8 +134,10 @@ describe("createLiveWebSocket", () => {
     runNextTimer();
     FakeWebSocket.instances[1]!.open();
     expect(subscribeCursor(FakeWebSocket.instances[1]!)).toBe("4-2");
+    expect(statuses).toEqual(["connecting", "open", "reconnecting", "open"]);
 
     connection.dispose();
+    expect(statuses.at(-1)).toBe("closed");
   });
 
   test("does not advance a cursor until the app marks it applied", () => {
@@ -186,11 +190,13 @@ describe("createLiveWebSocket", () => {
 
   test("pauses hidden tabs and reconnects when they become visible", () => {
     installBrowser();
+    const statuses: string[] = [];
     const connection = createLiveWebSocket({
       url: "/api/example/ws",
       subscribe: (cursor) => ({ payload: { fromCursor: cursor } }),
       parse: () => null,
       onMessage: () => undefined,
+      onStatus: (status) => statuses.push(status),
     });
 
     connection.connect();
@@ -201,6 +207,7 @@ describe("createLiveWebSocket", () => {
 
     document.setVisibility("visible");
     expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(statuses).toEqual(["connecting", "open", "paused", "connecting"]);
     connection.dispose();
   });
 

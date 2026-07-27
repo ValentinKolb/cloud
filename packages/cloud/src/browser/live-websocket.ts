@@ -1,4 +1,5 @@
 export type LiveWebSocketActivity = "always" | "visible";
+export type LiveWebSocketStatus = "connecting" | "open" | "reconnecting" | "paused" | "closed";
 
 export type LiveWebSocketError = {
   code: string;
@@ -22,6 +23,7 @@ export type LiveWebSocketOptions<TMessage> = {
   subscribe: (cursor: string | null) => unknown;
   parse: (raw: string) => TMessage | null;
   onMessage: (message: TMessage, controls: LiveWebSocketControls) => void;
+  onStatus?: (status: LiveWebSocketStatus) => void;
   onFatal?: (error: LiveWebSocketError) => void;
   classifyClose?: (close: LiveWebSocketClose) => LiveWebSocketError | null;
   reconnect?: Partial<{
@@ -78,6 +80,13 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
   let disposed = false;
   let terminated = false;
   let fatalSent = false;
+  let status: LiveWebSocketStatus | null = null;
+
+  const setStatus = (next: LiveWebSocketStatus) => {
+    if (status === next) return;
+    status = next;
+    options.onStatus?.(next);
+  };
 
   const clearReconnect = () => {
     if (reconnectTimer !== null) clearTimeout(reconnectTimer);
@@ -104,6 +113,7 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
     terminated = true;
     clearReconnect();
     closeSocket(close.code, close.reason);
+    setStatus("closed");
     if (!fatalSent) {
       fatalSent = true;
       options.onFatal?.(error);
@@ -120,6 +130,7 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
 
   const scheduleReconnect = () => {
     if (disposed || terminated || !started || !isActive() || reconnectTimer) return;
+    setStatus("reconnecting");
     const exponential = Math.min(reconnect.maxDelayMs, reconnect.baseDelayMs * 2 ** reconnectAttempt);
     const delay = exponential + Math.floor(Math.random() * reconnect.jitterMs);
     reconnectAttempt = Math.min(reconnectAttempt + 1, 5);
@@ -138,6 +149,7 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
     if (!isActive()) return;
 
     let next: WebSocket;
+    setStatus(reconnectAttempt > 0 ? "reconnecting" : "connecting");
     try {
       next = new WebSocket(socketUrl(typeof options.url === "function" ? options.url() : options.url));
     } catch (error) {
@@ -148,6 +160,7 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
 
     next.onopen = () => {
       if (socket !== next || disposed || terminated) return;
+      setStatus("open");
       try {
         const payload = JSON.stringify(options.subscribe(lastAppliedCursor));
         if (payload === undefined) throw new Error("Live WebSocket subscribe payload is not serializable");
@@ -199,6 +212,7 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
     else {
       clearReconnect();
       closeSocket(1000, "inactive");
+      setStatus("paused");
     }
   };
 
@@ -222,6 +236,7 @@ export const createLiveWebSocket = <TMessage>(options: LiveWebSocketOptions<TMes
         document.removeEventListener("visibilitychange", syncVisibility);
       }
       closeSocket();
+      setStatus("closed");
     },
   };
 };
