@@ -38,6 +38,7 @@ import { promptAttachmentLinkOptions } from "./attachment-link-ui";
 import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
+import type { MailComposerNavigationHandoff } from "./mail-composer-navigation";
 import { createMailComposerTransition } from "./mail-composer-transition";
 import { type ComposerSeed, createMailDraftSession } from "./mail-draft-session";
 import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
@@ -78,6 +79,7 @@ export default function MailComposer(props: {
   canShareAttachments?: boolean;
   onClose?: () => void;
   onQueued?: () => Promise<void>;
+  registerNavigationHandoff?: (handoff: MailComposerNavigationHandoff) => () => void;
 }) {
   let attachmentInput: HTMLInputElement | undefined;
   const verifiedIdentities = () => props.identities.filter((identity) => identity.status === "verified");
@@ -767,30 +769,38 @@ export default function MailComposer(props: {
     discard.abort();
   });
 
-  const closeComposer = async () => {
+  const prepareNavigationHandoff = async (): Promise<boolean> => {
     if (uploads().length > 0) {
-      return await prompts.error("Finish or cancel attachment uploads before closing this draft.");
+      await prompts.error("Finish or cancel attachment uploads before leaving this draft.");
+      return false;
     }
     const reservation = composerTransition.reserve("handoff");
-    if (!reservation) return;
+    if (!reservation) return false;
     try {
       const hasDraftWork = Boolean(draft() || draftSession.initializing() || localStorage.getItem(pendingKey));
-      if (!hasDraftWork) return props.onClose?.();
-      if (draft() && !lease() && serializedContent() === draftSession.lastSavedContent()) return props.onClose?.();
+      if (!hasDraftWork) return true;
+      if (draft() && !lease() && serializedContent() === draftSession.lastSavedContent()) return true;
       stopScheduledSave();
       const currentDraft = await persist();
-      if (disposed) return;
+      if (disposed) return false;
       if (!currentDraft) throw new Error(statusMessage() || "Draft could not be saved");
       await releaseLease(currentDraft);
-      if (disposed) return;
-      props.onClose?.();
+      return !disposed;
     } catch (error) {
-      if (disposed) return;
+      if (disposed) return false;
       await prompts.error(error instanceof Error ? error.message : "Draft could not be closed safely");
+      return false;
     } finally {
       composerTransition.release(reservation);
     }
   };
+
+  const closeComposer = async () => {
+    if (await prepareNavigationHandoff()) props.onClose?.();
+  };
+
+  const unregisterNavigationHandoff = props.registerNavigationHandoff?.(prepareNavigationHandoff);
+  onCleanup(() => unregisterNavigationHandoff?.());
 
   const draftHref = (draftId: string, popout = false) =>
     `/app/mail/${props.mailboxId}/compose/${draftId}?return=${encodeURIComponent(props.returnHref)}${popout ? "&window=1" : ""}`;

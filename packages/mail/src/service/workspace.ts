@@ -110,8 +110,19 @@ export type MailboxPageData = {
   activity: MailActivityEvent[];
   reminder: ConversationReminder | null;
   collaborationError: string | null;
+  detailErrors: MailDetailErrors;
   selectedSubject: string;
   selectedReference: string | null;
+};
+
+export type MailDetailErrors = {
+  collaboration: string | null;
+  tags: string | null;
+  comments: string | null;
+  assignableUsers: string | null;
+  activity: string | null;
+  reminder: string | null;
+  reference: string | null;
 };
 
 export type MailSelectionDetail = Pick<
@@ -125,8 +136,19 @@ export type MailSelectionDetail = Pick<
   | "activity"
   | "reminder"
   | "collaborationError"
+  | "detailErrors"
   | "selectedReference"
 >;
+
+const EMPTY_DETAIL_ERRORS: MailDetailErrors = {
+  collaboration: null,
+  tags: null,
+  comments: null,
+  assignableUsers: null,
+  activity: null,
+  reminder: null,
+  reference: null,
+};
 
 const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
   detailMessages: [],
@@ -138,6 +160,7 @@ const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
   activity: [],
   reminder: null,
   collaborationError: null,
+  detailErrors: EMPTY_DETAIL_ERRORS,
   selectedReference: null,
 };
 
@@ -223,7 +246,16 @@ const loadConversationDetails = async (params: {
     assignableUsers: usersResult.ok ? usersResult.data : [],
     activity: activityResult.ok ? activityResult.data.items : [],
     reminder: reminderResult.ok ? reminderResult.data : null,
-    collaborationError: !stateResult.ok ? stateResult.error.message : !commentsResult.ok ? commentsResult.error.message : null,
+    collaborationError: !stateResult.ok ? stateResult.error.message : !tagResult.ok ? tagResult.error.message : null,
+    detailErrors: {
+      collaboration: stateResult.ok ? null : stateResult.error.message,
+      tags: tagResult.ok ? null : tagResult.error.message,
+      comments: commentsResult.ok ? null : commentsResult.error.message,
+      assignableUsers: usersResult.ok ? null : usersResult.error.message,
+      activity: activityResult.ok ? null : activityResult.error.message,
+      reminder: reminderResult.ok ? null : reminderResult.error.message,
+      reference: referenceResult.ok ? null : referenceResult.error.message,
+    },
     selectedReference: referenceResult.ok
       ? ((referenceResult.data.find((reference) => reference.role === "primary") ?? referenceResult.data[0])?.value ?? null)
       : null,

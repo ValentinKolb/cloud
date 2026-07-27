@@ -1,0 +1,67 @@
+import { describe, expect, test } from "bun:test";
+import type { MailSelectionDetail } from "../../service/workspace";
+import { listUnavailableMailDetailSections, preserveUnavailableMailDetail } from "./mail-detail-availability";
+
+const detail = (overrides: Partial<MailSelectionDetail> = {}): MailSelectionDetail => ({
+  detailMessages: [],
+  detailError: null,
+  collaborationState: null,
+  conversationLocalTags: null,
+  comments: [],
+  assignableUsers: [],
+  activity: [],
+  reminder: null,
+  collaborationError: null,
+  detailErrors: {
+    collaboration: null,
+    tags: null,
+    comments: null,
+    assignableUsers: null,
+    activity: null,
+    reminder: null,
+    reference: null,
+  },
+  selectedReference: null,
+  ...overrides,
+});
+
+describe("Mail detail availability", () => {
+  test("keeps last confirmed sections while exposing failed live fields", () => {
+    const current = detail({
+      comments: [{ id: "comment-1" }] as MailSelectionDetail["comments"],
+      activity: [{ id: "activity-1" }] as MailSelectionDetail["activity"],
+      selectedReference: "CASE-42",
+    });
+    const incoming = detail({
+      detailErrors: {
+        ...detail().detailErrors,
+        comments: "Comments timed out",
+        activity: "Activity timed out",
+        reference: "Reference timed out",
+      },
+    });
+
+    const reconciled = preserveUnavailableMailDetail(current, incoming);
+
+    expect(reconciled.comments).toBe(current.comments);
+    expect(reconciled.activity).toBe(current.activity);
+    expect(reconciled.selectedReference).toBe("CASE-42");
+    expect(reconciled.detailErrors.comments).toBe("Comments timed out");
+  });
+
+  test("accepts confirmed empty sections instead of retaining stale data", () => {
+    const current = detail({ comments: [{ id: "comment-1" }] as MailSelectionDetail["comments"] });
+
+    expect(preserveUnavailableMailDetail(current, detail()).comments).toEqual([]);
+  });
+
+  test("names unavailable sections instead of presenting them as empty", () => {
+    expect(
+      listUnavailableMailDetailSections({
+        ...detail().detailErrors,
+        comments: "Comments timed out",
+        reminder: "Reminder timed out",
+      }),
+    ).toEqual(["team notes", "personal reminder"]);
+  });
+});

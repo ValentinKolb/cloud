@@ -21,11 +21,13 @@ import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
 import type { MessageDetail } from "../../service/messages";
 import type { ConversationPresenceParticipant } from "../../service/presence";
 import type { ConversationReminder } from "../../service/reminders";
+import type { MailDetailErrors } from "../../service/workspace";
 import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
 import { openMailMessageInspector } from "./MailMessageInspectorDialog";
 import { getMailAction } from "./mail-actions";
 import { presentMailActivity } from "./mail-activity-presentation";
+import { listUnavailableMailDetailSections } from "./mail-detail-availability";
 import {
   applyMailCollaborationPatch,
   applyMailTagIds,
@@ -58,6 +60,7 @@ export default function MailDetailsPanel(props: {
   presence: ConversationPresenceParticipant[];
   activity: MailActivityEvent[];
   initialReminder: ConversationReminder | null;
+  detailErrors: MailDetailErrors;
   messages: MessageDetail[];
   subject: string;
   flagged: boolean;
@@ -84,6 +87,7 @@ export default function MailDetailsPanel(props: {
   const latestMessage = () => props.messages.at(-1);
   const attachmentCount = () => props.messages.reduce((total, message) => total + message.attachments.length, 0);
   const activityItems = createMemo(() => presentMailActivity(props.activity));
+  const unavailableSections = createMemo(() => listUnavailableMailDetailSections(props.detailErrors));
   const addressList = (addresses: Array<{ name: string | null; address: string }>) =>
     addresses.map((address) => address.name || address.address).join(", ");
 
@@ -449,6 +453,22 @@ export default function MailDetailsPanel(props: {
   return (
     <div class="flex h-full min-h-0 flex-col">
       <div class="detail-stack focus:outline-none" data-mail-details-heading tabIndex={-1}>
+        <Show when={unavailableSections().length > 0}>
+          <section class="detail-section">
+            <Placeholder
+              state="error"
+              variant="compact"
+              align="left"
+              title="Some conversation details are temporarily unavailable"
+              description={`Could not refresh ${unavailableSections().join(", ")}. Previously loaded values remain visible where available.`}
+              action={
+                <button type="button" class="btn-secondary btn-sm" onClick={() => void props.onReconcile()}>
+                  <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                </button>
+              }
+            />
+          </section>
+        </Show>
         <Show when={props.presence.length > 0}>
           <section class="detail-section">
             <h3 class="detail-section-label">Here now</h3>
@@ -518,7 +538,7 @@ export default function MailDetailsPanel(props: {
                 description: user.description,
               }))}
               clearable
-              disabled={!props.canWrite}
+              disabled={!props.canWrite || Boolean(props.detailErrors.assignableUsers)}
             />
             <Select
               label="Status"
@@ -549,10 +569,16 @@ export default function MailDetailsPanel(props: {
                   value={reminderDueAt}
                   onChange={(value) => value && updateReminder(value)}
                   dateConfig={props.dateConfig}
+                  disabled={Boolean(props.detailErrors.reminder)}
                 />
               </div>
               <Show when={reminderDueAt()}>
-                <button type="button" class="btn-secondary btn-sm mb-0.5" onClick={clearReminder}>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm mb-0.5"
+                  disabled={Boolean(props.detailErrors.reminder)}
+                  onClick={clearReminder}
+                >
                   Clear
                 </button>
               </Show>
@@ -572,7 +598,9 @@ export default function MailDetailsPanel(props: {
           <Show
             when={comments().length > 0}
             fallback={
-              <Placeholder title="No team notes" description="Add context for everyone with mailbox access." icon="ti ti-messages" />
+              <Show when={!props.detailErrors.comments}>
+                <Placeholder title="No team notes" description="Add context for everyone with mailbox access." icon="ti ti-messages" />
+              </Show>
             }
           >
             <div class="mb-3 flex flex-col gap-3">
@@ -655,39 +683,41 @@ export default function MailDetailsPanel(props: {
               </For>
             </div>
           </Show>
-          <Show when={replyingTo()}>
-            {(comment) => (
-              <div class="mb-2 flex items-center gap-2 text-xs text-dimmed">
-                <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
-                <Tooltip content="Cancel reply">
-                  <button type="button" class="icon-btn" aria-label="Cancel reply" onClick={() => setReplyingTo(null)}>
-                    <i class="ti ti-x" aria-hidden="true" />
-                  </button>
-                </Tooltip>
-              </div>
-            )}
+          <Show when={!props.detailErrors.comments}>
+            <Show when={replyingTo()}>
+              {(comment) => (
+                <div class="mb-2 flex items-center gap-2 text-xs text-dimmed">
+                  <i class="ti ti-arrow-back-up" aria-hidden="true" />
+                  <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
+                  <Tooltip content="Cancel reply">
+                    <button type="button" class="icon-btn" aria-label="Cancel reply" onClick={() => setReplyingTo(null)}>
+                      <i class="ti ti-x" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                </div>
+              )}
+            </Show>
+            <MarkdownEditor
+              value={commentBody}
+              onInput={setCommentBody}
+              onSubmit={() => addComment.mutate()}
+              placeholder="Add internal comment"
+              ariaLabel="Internal comment"
+              lines={4}
+              noToolbar
+              showStats={false}
+              error={Boolean(commentError())}
+              disabled={addComment.loading()}
+            />
+            <div class="mt-2 flex items-center justify-between gap-2">
+              <p class="text-xs text-red-600 dark:text-red-300" role="alert">
+                {commentError()}
+              </p>
+              <button type="button" class="btn-secondary btn-sm" disabled={addComment.loading()} onClick={() => addComment.mutate()}>
+                <i class="ti ti-send" aria-hidden="true" /> Comment
+              </button>
+            </div>
           </Show>
-          <MarkdownEditor
-            value={commentBody}
-            onInput={setCommentBody}
-            onSubmit={() => addComment.mutate()}
-            placeholder="Add internal comment"
-            ariaLabel="Internal comment"
-            lines={4}
-            noToolbar
-            showStats={false}
-            error={Boolean(commentError())}
-            disabled={addComment.loading()}
-          />
-          <div class="mt-2 flex items-center justify-between gap-2">
-            <p class="text-xs text-red-600 dark:text-red-300" role="alert">
-              {commentError()}
-            </p>
-            <button type="button" class="btn-secondary btn-sm" disabled={addComment.loading()} onClick={() => addComment.mutate()}>
-              <i class="ti ti-send" aria-hidden="true" /> Comment
-            </button>
-          </div>
         </section>
 
         <Show when={props.activity.length > 0}>

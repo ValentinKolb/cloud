@@ -24,6 +24,7 @@ import MailScheduledView from "./_components/MailScheduledView";
 import MailSidebar from "./_components/MailSidebar";
 import { buildMailActionInput, getMailAction, type MailActionId } from "./_components/mail-actions";
 import type { MailBulkTarget } from "./_components/mail-bulk-actions";
+import { createMailComposerNavigation } from "./_components/mail-composer-navigation";
 import {
   emptyMailConversationSelection,
   findMailFocusAfterRemoval,
@@ -32,6 +33,7 @@ import {
 } from "./_components/mail-conversation-selection";
 import { mergeMailCursorPage } from "./_components/mail-cursor-page";
 import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
+import { preserveUnavailableMailDetail } from "./_components/mail-detail-availability";
 import {
   type MailListOptimisticField,
   type MailListOptimisticPatch,
@@ -96,6 +98,7 @@ export default function MailWorkspace(props: {
   const focusFrames = new Set<number>();
   let pendingListState = new Map<string, PendingMailListState>();
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
+  const composerNavigation = createMailComposerNavigation();
   const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
   const composerActive = () => conversationComposer() !== null;
@@ -138,6 +141,20 @@ export default function MailWorkspace(props: {
     return await response.json();
   };
 
+  const preserveCurrentDetail = (next: MailboxPageData): MailboxPageData =>
+    next.selectedConversationId && next.selectedConversationId === data.selectedConversationId
+      ? {
+          ...next,
+          ...preserveUnavailableMailDetail(data, next),
+        }
+      : next;
+
+  const prepareNavigation = async (): Promise<boolean> => {
+    if (!(await composerNavigation.prepare())) return false;
+    setConversationComposer(null);
+    return true;
+  };
+
   const replaceWorkspaceRoute = async (href: string): Promise<"applied" | "failed" | "stale"> => {
     selectionRequest += 1;
     setSelectionLoading(false);
@@ -155,7 +172,7 @@ export default function MailWorkspace(props: {
       const scopeChanged = mailListScope(requestUrl()) !== mailListScope(target.toString());
       batch(() => {
         setRequestUrl(target.toString());
-        setData(reconcile(applyPendingListState(next)));
+        setData(reconcile(applyPendingListState(preserveCurrentDetail(next))));
         setConversationSelection((current) =>
           scopeChanged
             ? emptyMailConversationSelection()
@@ -191,7 +208,7 @@ export default function MailWorkspace(props: {
       // A live event invalidates every cursor after the first page. Keeping an
       // old tail would retain moved or deleted rows with no way to prove their
       // position, so converge on the canonical first page and resume from its cursor.
-      setData(reconcile(applyPendingListState(fresh)));
+      setData(reconcile(applyPendingListState(preserveCurrentDetail(fresh))));
       return "applied";
     } catch (error) {
       return isAbortError(error) ? "stale" : "failed";
@@ -201,12 +218,14 @@ export default function MailWorkspace(props: {
   };
 
   const navigateWorkspace = async (nav: LinkNavigateEvent) => {
+    if (!(await prepareNavigation())) return;
     const result = await replaceWorkspaceRoute(nav.href);
     if (result === "applied") nav.push(undefined, { scroll: "preserve" });
     else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
   };
 
   const closeConversation = async (nav: LinkNavigateEvent) => {
+    if (!(await prepareNavigation())) return;
     const previousConversationId = data.selectedConversationId;
     const result = await replaceWorkspaceRoute(nav.href);
     if (result === "applied") {
@@ -216,6 +235,7 @@ export default function MailWorkspace(props: {
   };
 
   const openWorkspaceHref = async (href: string, replace = false) => {
+    if (!(await prepareNavigation())) return;
     const result = await replaceWorkspaceRoute(href);
     if (result === "applied") navigate(href, { replace, scroll: "preserve" });
     else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
@@ -530,9 +550,17 @@ export default function MailWorkspace(props: {
     });
     markLiveApplied = live.markApplied;
     const stopPopState = listenPopState(({ url }) => {
-      void replaceWorkspaceRoute(`${url.pathname}${url.search}`).then((result) => {
-        if (!disposed && result === "failed") toast.error("Could not restore this mailbox view. Your current view was kept.");
-      });
+      void (async () => {
+        if (!(await prepareNavigation())) {
+          navigate(requestUrl(), { replace: true, scroll: "preserve", viewTransition: false });
+          return;
+        }
+        const result = await replaceWorkspaceRoute(`${url.pathname}${url.search}`);
+        if (!disposed && result === "failed") {
+          navigate(requestUrl(), { replace: true, scroll: "preserve", viewTransition: false });
+          toast.error("Could not restore this mailbox view. Your current view was kept.");
+        }
+      })();
     });
     live.connect();
     onCleanup(() => {
@@ -729,6 +757,7 @@ export default function MailWorkspace(props: {
   };
 
   const navigateConversation = async (href: string, item: MailListItem, activation: "keyboard" | "pointer") => {
+    if (!(await prepareNavigation())) return;
     const result = item.conversationId ? await applyConversationRoute(href, item, activation) : await replaceWorkspaceRoute(href);
     if (result === "applied") navigate(href, { scroll: "preserve", viewTransition: false });
     else if (result === "failed") toast.error("Could not open this conversation. Your current view was kept.");
@@ -1421,7 +1450,14 @@ export default function MailWorkspace(props: {
                 <Placeholder
                   state={selectionLoading() ? "loading" : "error"}
                   title={selectionLoading() ? "Loading conversation details" : "Conversation details are unavailable"}
-                  description={selectionLoading() ? undefined : (data.collaborationError ?? "Try refreshing this conversation.")}
+                  description={
+                    selectionLoading()
+                      ? undefined
+                      : (data.detailErrors.collaboration ??
+                        data.detailErrors.tags ??
+                        data.collaborationError ??
+                        "Try refreshing this conversation.")
+                  }
                 />
               </div>
             }
@@ -1441,6 +1477,7 @@ export default function MailWorkspace(props: {
               presence={presence().participants}
               activity={data.activity}
               initialReminder={data.reminder}
+              detailErrors={data.detailErrors}
               messages={data.detailMessages}
               subject={data.selectedSubject}
               flagged={selectedFlagged()}
@@ -1466,6 +1503,7 @@ export default function MailWorkspace(props: {
             dateConfig={props.dateConfig}
             onClose={() => setConversationComposer(null)}
             onQueued={reconcileWorkspace}
+            registerNavigationHandoff={composerNavigation.register}
           />
         )}
       </Show>

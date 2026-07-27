@@ -4,6 +4,7 @@ import type { DraftIntent, MailDraft, SenderIdentity } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import MailComposer from "./MailComposer";
 import { deriveReplyIdentityId, deriveReplyRecipients } from "./mail-compose-derivation";
+import type { MailComposerNavigationHandoff } from "./mail-composer-navigation";
 
 export type MailConversationComposerRequest = {
   intent: DraftIntent;
@@ -29,6 +30,7 @@ export default function MailConversationComposerDrawer(props: {
   dateConfig: DateContext;
   onClose: () => void;
   onQueued: () => Promise<void>;
+  registerNavigationHandoff: (handoff: MailComposerNavigationHandoff) => () => void;
 }) {
   const recipients =
     props.active.initialDraft || (props.active.intent !== "reply" && props.active.intent !== "reply_all")
@@ -60,6 +62,7 @@ export default function MailConversationComposerDrawer(props: {
         canShareAttachments={props.canAdmin}
         onClose={props.onClose}
         onQueued={props.onQueued}
+        registerNavigationHandoff={props.registerNavigationHandoff}
         seed={seed}
       />
     </AppWorkspace.BottomDrawer>
