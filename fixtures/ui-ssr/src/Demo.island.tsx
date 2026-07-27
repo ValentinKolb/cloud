@@ -5,30 +5,35 @@ import {
   Button,
   Chart,
   Checkbox,
+  CheckboxCard,
+  Combobox,
   ContextMenu,
   CopyButton,
   DataPanel,
-  dialogCore,
   Dropdown,
+  dialogCore,
   FilterChip,
   IconButton,
   LinkCard,
+  MultiSelectInput,
   NoticeCard,
   NoticeGrid,
   NumberInput,
   PanelDialog,
   Placeholder,
   ProgressBar,
-  RemoveBtn,
   panelDialogOptions,
   prompts,
+  RemoveBtn,
   SegmentedControl,
   Select,
+  SelectChip,
+  SpotlightButton,
   StatCell,
   StatGrid,
   StatusBadge,
-  SpotlightButton,
   Switch,
+  TagsInput,
   TextInput,
   Tooltip,
   toast,
@@ -60,6 +65,9 @@ export default function Demo() {
   const [enabled, setEnabled] = createSignal(true);
   const [accepted, setAccepted] = createSignal(false);
   const [role, setRole] = createSignal<"member" | "admin">("member");
+  const [density, setDensity] = createSignal<"compact" | "comfortable">("comfortable");
+  const [tags, setTags] = createSignal(["solid", "ssr"]);
+  const [teams, setTeams] = createSignal(["platform"]);
   const [dialogTab, setDialogTab] = createSignal<"details" | "history">("details");
   const [filters, setFilters] = createSignal<string[]>(["open"]);
   const [actionMessage, setActionMessage] = createSignal("No action yet");
@@ -311,7 +319,8 @@ export default function Demo() {
                   <Select
                     label="Role"
                     value={role()}
-                    onValueChange={setRole}
+                    onValueChange={(value) => value && setRole(value)}
+                    searchable
                     options={[
                       { value: "member", label: "Member" },
                       { value: "admin", label: "Administrator" },
@@ -328,6 +337,41 @@ export default function Demo() {
                     description={enabled() ? "Enabled" : "Disabled"}
                     checked={enabled()}
                     onCheckedChange={setEnabled}
+                  />
+                  <CheckboxCard
+                    label="Early access"
+                    description="Enable preview components for this project."
+                    icon="ti ti-flask"
+                    checked={accepted()}
+                    onCheckedChange={setAccepted}
+                  />
+                  <Combobox
+                    label="Add collaborator"
+                    placeholder="Search people…"
+                    options={[
+                      { value: "ada", label: "Ada Lovelace", description: "Engineering", icon: "ti ti-user" },
+                      { value: "grace", label: "Grace Hopper", description: "Research", icon: "ti ti-user" },
+                    ]}
+                    onSelect={(option) => setActionMessage(`Selected ${option.label}`)}
+                  />
+                  <TagsInput label="Tags" values={tags()} onValuesChange={setTags} placeholder="Add tag" />
+                  <MultiSelectInput
+                    label="Teams"
+                    values={teams()}
+                    onValuesChange={setTeams}
+                    options={[
+                      { value: "platform", label: "Platform", description: "Runtime and infrastructure" },
+                      { value: "design", label: "Design", description: "Product system" },
+                    ]}
+                  />
+                  <SelectChip
+                    label="Display density"
+                    value={density()}
+                    onValueChange={setDensity}
+                    options={[
+                      { value: "compact", label: "Compact" },
+                      { value: "comfortable", label: "Comfortable" },
+                    ]}
                   />
                 </div>
               </Section>

@@ -26,7 +26,14 @@ export function Switch(props: SwitchProps): JSX.Element {
     <div class={`k2b-switch-field ${local.class ?? ""}`}>
       <label class="k2b-switch">
         <span class="k2b-switch__content">
-          <span class="k2b-switch__label">{local.label}</span>
+          <span class="k2b-switch__label">
+            {local.label}
+            <Show when={rest.required}>
+              <span class="k2b-field__required" aria-hidden="true">
+                *
+              </span>
+            </Show>
+          </span>
           <Show when={local.description}>
             <span class="k2b-field__description" id={meta.descriptionId}>
               {local.description}
@@ -48,7 +55,7 @@ export function Switch(props: SwitchProps): JSX.Element {
         </span>
       </label>
       <Show when={local.error}>
-        <p class="k2b-field__error" id={meta.errorId}>
+        <p class="k2b-field__error" id={meta.errorId} role="alert" aria-live="polite">
           {local.error}
         </p>
       </Show>

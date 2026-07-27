@@ -20,6 +20,8 @@ The currently accepted complete migrations are:
 
 - actions: `FilterChip`, `SegmentedControl`, `ContextMenu`, `CopyButton`,
   `Dropdown`, `RemoveBtn`, `SpotlightSearch`;
+- inputs: `Checkbox`, `CheckboxCard`, `Switch`, `Select`, `Combobox`,
+  `MultiSelectInput`, `SelectChip`, `TagsInput`;
 - layout: `AppOverview`, `DataPanel`, `PanelDialog`, `PanelHeader`;
 - surfaces: `NotFoundState`, `Placeholder`;
 - feedback: `dialog-core`, `prompts`, `toast`, `Tooltip`.
