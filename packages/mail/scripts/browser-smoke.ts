@@ -1,0 +1,389 @@
+#!/usr/bin/env bun
+/**
+ * Mail browser regression smoke.
+ *
+ * The fixture is created through the authenticated API and seeded through the
+ * Mail persistence boundary because no public API exists for receiving a
+ * provider message. The exact mailbox is removed in finally.
+ */
+import { Readable } from "node:stream";
+import { sql } from "bun";
+import { type BrowserContext, chromium, type Page } from "playwright";
+import type { ConnectorEnvelope } from "../src/service/connectors";
+import { hydrateMessageFromSource } from "../src/service/message-hydration";
+import { ingestEnvelope } from "../src/service/sync-runtime";
+
+const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "dev-admin";
+const SESSION_TOKEN = process.env.SESSION_TOKEN;
+const HEADLESS = process.env.HEADLESS !== "0";
+const KEEP = process.env.KEEP === "1";
+const TIMEOUT = Number(process.env.BROWSER_SMOKE_TIMEOUT_MS ?? 20_000);
+
+type Fixture = {
+  sessionToken: string;
+  mailboxId: string;
+  conversationId: string;
+  messageId: string;
+  subject: string;
+};
+
+let createdMailboxId: string | null = null;
+
+const ok = (message: string) => console.log(`✓ ${message}`);
+const fail = (message: string): never => {
+  throw new Error(message);
+};
+
+const api = async <T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  sessionToken?: string,
+  expected = method === "DELETE" ? 204 : 200,
+): Promise<T> => {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await response.text();
+  if (response.status !== expected) {
+    fail(`${method} ${path} expected ${expected}, got ${response.status}: ${text.slice(0, 800)}`);
+  }
+  return (text ? JSON.parse(text) : undefined) as T;
+};
+
+const login = async (): Promise<string> => {
+  if (SESSION_TOKEN) return SESSION_TOKEN;
+  const result = await api<{ session_token: string }>("POST", "/api/auth/admin-login", { token: ADMIN_TOKEN });
+  if (!result.session_token) fail("admin-login returned no session token");
+  return result.session_token;
+};
+
+const createFixture = async (): Promise<Fixture> => {
+  const sessionToken = await login();
+  const suffix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  const subject = `Mail browser smoke ${suffix}`;
+  const mailbox = await api<{ id: string }>(
+    "POST",
+    "/api/mail/mailboxes",
+    {
+      name: `Mail browser smoke ${suffix}`,
+      description: "Disposable browser regression fixture",
+    },
+    sessionToken,
+  );
+  createdMailboxId = mailbox.id;
+  const scope = "a".repeat(64);
+
+  const [connection] = await sql<{ id: string }[]>`
+    INSERT INTO mail.provider_connections (
+      owner_mailbox_id, name, email, username, imap_host, imap_port,
+      imap_tls_mode, smtp_host, smtp_port, smtp_tls_mode, secret_kind,
+      encrypted_secret, authenticated_principal, capabilities, server_identity,
+      last_verified_at
+    ) VALUES (
+      ${mailbox.id}::uuid, 'Browser fixture', 'sender@example.test',
+      'sender@example.test', 'imap.example.test', 993, 'implicit',
+      'smtp.example.test', 587, 'starttls', 'password', 'browser-fixture',
+      'sender@example.test', '{}'::jsonb, '{}'::jsonb, now()
+    )
+    RETURNING id
+  `;
+  const [resource] = await sql<{ id: string }[]>`
+    INSERT INTO mail.remote_resources (
+      mailbox_id, remote_locator, server_identity, scope_fingerprint, status
+    ) VALUES (
+      ${mailbox.id}::uuid, '{}'::jsonb, '{}'::jsonb, ${scope}, 'active'
+    )
+    RETURNING id
+  `;
+  const [binding] = await sql<{ id: string }[]>`
+    INSERT INTO mail.provider_bindings (
+      remote_resource_id, connection_id, state, remote_locator, capabilities,
+      rights, verification_evidence, verified_scope_fingerprint,
+      last_verified_at
+    ) VALUES (
+      ${resource!.id}::uuid, ${connection!.id}::uuid, 'active', '{}'::jsonb,
+      '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, ${scope}, now()
+    )
+    RETURNING id
+  `;
+  const [folder] = await sql<{ id: string }[]>`
+    INSERT INTO mail.folders (
+      remote_resource_id, stable_key, name, role, sync_status
+    ) VALUES (
+      ${resource!.id}::uuid, 'browser-inbox', 'Inbox', 'inbox', 'current'
+    )
+    RETURNING id
+  `;
+  await sql`
+    INSERT INTO mail.binding_folder_refs (
+      binding_id, folder_id, remote_path, uid_validity, uid_next,
+      effective_rights, last_verified_at
+    ) VALUES (
+      ${binding!.id}::uuid, ${folder!.id}::uuid, 'INBOX', 1, 2,
+      ARRAY['read', 'write_flags', 'insert', 'move', 'delete_messages']::text[],
+      now()
+    )
+  `;
+  const [identity] = await sql<{ id: string }[]>`
+    INSERT INTO mail.sender_identities (
+      mailbox_id, label, display_name, from_address, automation_policy,
+      is_default, status
+    ) VALUES (
+      ${mailbox.id}::uuid, 'Browser fixture', 'Browser Fixture',
+      'sender@example.test', 'disabled', true, 'verified'
+    )
+    RETURNING id
+  `;
+  await sql`
+    INSERT INTO mail.sender_identity_bindings (
+      sender_identity_id, binding_id, provider_principal, verified_at,
+      saves_sent_automatically
+    ) VALUES (
+      ${identity!.id}::uuid, ${binding!.id}::uuid, 'sender@example.test',
+      now(), true
+    )
+  `;
+  await sql`
+    UPDATE mail.mailboxes
+    SET health = 'active', updated_at = now()
+    WHERE id = ${mailbox.id}::uuid
+  `;
+
+  const internalDate = new Date();
+  const envelope: ConnectorEnvelope = {
+    remoteRef: {
+      folderStableKey: "browser-inbox",
+      uidValidity: "1",
+      uid: "1",
+      modseq: "1",
+    },
+    providerMessageId: null,
+    providerThreadId: null,
+    messageId: `<mail-browser-${suffix}@example.test>`,
+    inReplyTo: null,
+    references: [],
+    subject,
+    sentAt: internalDate,
+    internalDate,
+    sizeBytes: 256,
+    flags: [],
+    labels: [],
+    addresses: {
+      from: [{ name: "Customer", address: "customer@example.test" }],
+      replyTo: [],
+      to: [{ name: "Browser Fixture", address: "sender@example.test" }],
+      cc: [],
+      bcc: [],
+    },
+    mimeStructure: {},
+  };
+  const messageId = await ingestEnvelope({
+    db: sql,
+    mailboxId: mailbox.id,
+    remoteResourceId: resource!.id,
+    folderId: folder!.id,
+    message: envelope,
+    captureWorkflowTriggers: false,
+  });
+  const source = Buffer.from(
+    [
+      `Message-ID: ${envelope.messageId}`,
+      `Date: ${internalDate.toUTCString()}`,
+      "From: Customer <customer@example.test>",
+      "To: Browser Fixture <sender@example.test>",
+      `Subject: ${subject}`,
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "Please confirm that the reply composer stays focused.",
+    ].join("\r\n"),
+  );
+  await hydrateMessageFromSource({
+    messageId,
+    source: Readable.from([source]),
+    expectedSize: source.byteLength,
+  });
+  const [conversation] = await sql<{ id: string }[]>`
+    SELECT conversation_id AS id
+    FROM mail.conversation_messages
+    WHERE message_id = ${messageId}::uuid
+  `;
+  if (!conversation) fail("fixture message has no conversation");
+  ok("fixture created");
+  return {
+    sessionToken,
+    mailboxId: mailbox.id,
+    conversationId: conversation.id,
+    messageId,
+    subject,
+  };
+};
+
+const addSessionCookie = async (context: BrowserContext, sessionToken: string) => {
+  const url = new URL(BASE_URL);
+  await context.addCookies([
+    {
+      name: "session_token",
+      value: sessionToken,
+      domain: url.hostname,
+      path: "/",
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: url.protocol === "https:",
+    },
+  ]);
+};
+
+const watchPage = (page: Page, errors: string[]) => {
+  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("console", (message) => {
+    if (message.type() === "error" && !message.text().startsWith("Failed to load resource:")) {
+      errors.push(`console.error: ${message.text()}`);
+    }
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 500 && !response.url().includes("/favicon")) {
+      errors.push(`http ${response.status()}: ${response.url()}`);
+    }
+  });
+};
+
+const expectUrl = async (page: Page, predicate: (url: URL) => boolean, label: string) => {
+  const deadline = Date.now() + TIMEOUT;
+  while (Date.now() < deadline) {
+    if (predicate(new URL(page.url()))) {
+      ok(label);
+      return;
+    }
+    await page.waitForTimeout(50);
+  }
+  fail(`timed out waiting for ${label}; current URL is ${page.url()}`);
+};
+
+const continueDraft = async (page: Page) => {
+  const dialog = page.getByRole("dialog").filter({ hasText: "Continue a draft?" });
+  await dialog.getByText("Continue", { exact: true }).first().click();
+};
+
+const runSmoke = async (fixture: Fixture) => {
+  const browser = await chromium.launch({ headless: HEADLESS });
+  const context = await browser.newContext({
+    baseURL: BASE_URL,
+    viewport: { width: 1440, height: 900 },
+  });
+  await addSessionCookie(context, fixture.sessionToken);
+  const errors: string[] = [];
+  const page = await context.newPage();
+  page.setDefaultTimeout(TIMEOUT);
+  watchPage(page, errors);
+
+  try {
+    const mailboxPath = `/app/mail/${fixture.mailboxId}`;
+    await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
+    const conversation = page.getByTitle(new RegExp(`${fixture.subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+    await conversation.waitFor({ state: "visible" });
+    await conversation.click();
+    await expectUrl(
+      page,
+      (url) => url.searchParams.get("conversation") === fixture.conversationId,
+      "conversation navigation updates the URL",
+    );
+    await page
+      .locator("pre")
+      .getByText("Please confirm that the reply composer stays focused.", {
+        exact: true,
+      })
+      .waitFor();
+
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    const body = page.getByRole("combobox", { name: "Message body" });
+    await body.waitFor({ state: "visible" }).catch(async () => {
+      fail(`reply composer did not open\n${errors.join("\n")}\n${(await page.locator("body").innerText()).slice(-2_000)}`);
+    });
+    const saveResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" && /\/api\/mail\/mailboxes\/[^/]+\/drafts\/[^/]+$/.test(new URL(response.url()).pathname),
+    );
+    await body.click();
+    await body.pressSequentially("A");
+    if (!(await body.evaluate((element) => document.activeElement === element))) {
+      fail("message body lost focus after the first keystroke");
+    }
+    if (await page.getByText("Draft recovered", { exact: true }).isVisible()) {
+      fail("a fresh reply reported a recovered draft after the first keystroke");
+    }
+    await body.pressSequentially(" stable reply");
+    if ((await body.inputValue()) !== "A stable reply") {
+      fail(`reply body changed unexpectedly: ${await body.inputValue()}`);
+    }
+    ok("reply keeps focus and content across the first keystroke");
+
+    await saveResponse;
+    await page.getByRole("button", { name: "Close composer" }).click();
+    await body.waitFor({ state: "detached" });
+    ok("draft saves and the compact composer closes cleanly");
+
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await continueDraft(page);
+    await body.waitFor({ state: "visible" });
+    await body.click();
+    await body.pressSequentially(" recovered locally");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await continueDraft(page);
+    await body.waitFor({ state: "visible" });
+    await page.getByText("Draft recovered", { exact: true }).waitFor();
+    if (!(await body.inputValue()).endsWith(" recovered locally")) {
+      fail(`recovered draft body is incomplete: ${await body.inputValue()}`);
+    }
+    await page.getByRole("button", { name: "Close composer" }).click();
+    await body.waitFor({ state: "detached" });
+    ok("local draft recovery survives a page lifecycle");
+
+    await page.evaluate(() => history.back());
+    await expectUrl(page, (url) => !url.searchParams.has("conversation"), "browser back restores the list URL");
+    await page.evaluate(() => history.forward());
+    await expectUrl(
+      page,
+      (url) => url.searchParams.get("conversation") === fixture.conversationId,
+      "browser forward restores the conversation URL",
+    );
+    await page.getByText(fixture.subject, { exact: true }).first().waitFor();
+
+    if (errors.length > 0) fail(`browser errors:\n${errors.join("\n")}`);
+    ok("browser smoke complete");
+  } finally {
+    await context.close();
+    await browser.close();
+  }
+};
+
+const cleanup = async (fixture: Fixture | null) => {
+  const mailboxId = fixture?.mailboxId ?? createdMailboxId;
+  if (!mailboxId || KEEP) return;
+  await sql`
+    DELETE FROM mail.mailboxes
+    WHERE id = ${mailboxId}::uuid
+  `;
+  createdMailboxId = null;
+  ok("fixture removed");
+};
+
+let fixture: Fixture | null = null;
+try {
+  fixture = await createFixture();
+  await runSmoke(fixture);
+} catch (error) {
+  console.error(`\nMail browser smoke failed: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+} finally {
+  await cleanup(fixture).catch((error) =>
+    console.warn(`fixture cleanup failed: ${error instanceof Error ? error.message : String(error)}`),
+  );
+}
