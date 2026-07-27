@@ -5,6 +5,9 @@ const workspaceRoot = join(import.meta.dir, "..");
 const sharedStylesRoot = join(workspaceRoot, "packages", "cloud", "src", "styles");
 const packagesRoot = join(workspaceRoot, "packages");
 const globalStylesheet = join(sharedStylesRoot, "global.css");
+const uiStylesRoot = join(packagesRoot, "ui", "src", "styles");
+const uiStylesheet = join(uiStylesRoot, "index.css");
+const uiFontPreset = join(packagesRoot, "ui", "src", "fonts", "plex.css");
 const forbiddenSharedStylesheets = new Set(["theme-modern.css"]);
 const canonicalSharedStylesheetImports: readonly string[] = [
   "tokens.css",
@@ -31,6 +34,47 @@ const report = (file: string, message: string): void => {
 };
 
 const withoutCssComments = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, "");
+
+const checkEmbeddableUiStyles = () => {
+  if (!existsSync(uiStylesheet)) {
+    report(uiStylesheet, "missing @k2b/ui stylesheet entrypoint");
+    return;
+  }
+
+  const source = withoutCssComments(readFileSync(uiStylesheet, "utf8"));
+  if (!source.includes('@reference "tailwindcss";')) {
+    report(uiStylesheet, "use Tailwind as a compile-time reference without emitting utilities or Preflight");
+  }
+  if (/@import\s+["']tailwindcss(?:\/preflight\.css)?["']|@layer\s+base\b/.test(source)) {
+    report(uiStylesheet, "embeddable UI CSS must not import Tailwind globals or define a base layer");
+  }
+  if (/(^|[},])\s*(?:html|body|:root)(?=[\s,{])/m.test(source)) {
+    report(uiStylesheet, "embeddable UI CSS must not style html, body, or :root");
+  }
+
+  for (const line of source.split("\n")) {
+    const selector = line.trim();
+    if (!selector.endsWith("{") || selector.startsWith("@") || selector === "from {" || selector === "to {") continue;
+    if (!selector.includes(".k2b-ui")) {
+      report(uiStylesheet, `selector must stay below .k2b-ui: ${selector.slice(0, -1).trim()}`);
+    }
+  }
+
+  if (!existsSync(uiFontPreset)) {
+    report(uiFontPreset, "missing optional IBM Plex preset");
+  } else {
+    const fontSource = withoutCssComments(readFileSync(uiFontPreset, "utf8"));
+    for (const line of fontSource.split("\n")) {
+      const selector = line.trim();
+      if (!selector.endsWith("{") || selector.startsWith("@")) continue;
+      if (!selector.includes(".k2b-ui")) {
+        report(uiFontPreset, `font preset selector must stay below .k2b-ui: ${selector.slice(0, -1).trim()}`);
+      }
+    }
+  }
+};
+
+checkEmbeddableUiStyles();
 
 const readCssFiles = (dir: string): string[] => {
   if (!existsSync(dir)) return [];

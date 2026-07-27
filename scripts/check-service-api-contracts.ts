@@ -13,9 +13,10 @@ const workspacePackageNames = new Set((rootPackage.workspaces ?? []).map((worksp
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
 
-// Each app lives at packages/<app>/src/ now (cloud-lib at packages/cloud is excluded).
+// Each app lives at packages/<app>/src/ now (shared libraries are excluded).
+const nonAppPackages = new Set(["cloud", "ui"]);
 const appDirs = readdirSync(packagesRoot)
-  .filter((name) => name !== "cloud" && workspacePackageNames.has(name) && isDirectory(join(packagesRoot, name, "src")))
+  .filter((name) => !nonAppPackages.has(name) && workspacePackageNames.has(name) && isDirectory(join(packagesRoot, name, "src")))
   .map((name) => join(packagesRoot, name, "src"))
   .sort();
 

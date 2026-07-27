@@ -26,9 +26,11 @@
     "packages/quotes",
     "packages/spaces",
     "packages/tools",
+    "packages/ui",
     "packages/ui-lab",
     "packages/venue",
-    "packages/weather"
+    "packages/weather",
+    "fixtures/ui-ssr"
   ],
   "scripts": {
     "infra": "docker compose -f compose.yml up -d",

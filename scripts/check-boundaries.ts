@@ -71,7 +71,7 @@ const allowedCloudSubpath = (specifier: string): boolean => {
 const allowedSubpathList = "see the exports map in packages/cloud/package.json";
 
 const APP_PACKAGE_NAMES = readdirSync(join(workspaceRoot, "packages")).filter(
-  (name) => name !== "cloud" && existsSync(join(workspaceRoot, "packages", name, "src")),
+  (name) => name !== "cloud" && name !== "ui" && existsSync(join(workspaceRoot, "packages", name, "src")),
 );
 
 const checkAppsBoundaries = (): Violation[] => {
@@ -158,7 +158,35 @@ const checkAppsBoundaries = (): Violation[] => {
   return violations;
 };
 
-const violations = [...checkAppsBoundaries()];
+const checkUiPackageBoundaries = (): Violation[] => {
+  const violations: Violation[] = [];
+  const roots = [join(workspaceRoot, "packages", "ui", "src"), join(workspaceRoot, "fixtures", "ui-ssr", "src")];
+
+  for (const root of roots) {
+    for (const file of readFiles(root)) {
+      const source = readFileSync(file, "utf8");
+      for (const { specifier, index } of extractSpecifiers(source)) {
+        if (
+          specifier.startsWith("@valentinkolb/cloud") ||
+          specifier.startsWith("@valentinkolb/cloud-app-") ||
+          specifier.includes("../cloud/") ||
+          specifier.includes("../../cloud/")
+        ) {
+          violations.push({
+            file,
+            line: lineFromIndex(source, index),
+            specifier,
+            message: "@k2b/ui and its standalone fixture must not depend on Cloud packages.",
+          });
+        }
+      }
+    }
+  }
+
+  return violations;
+};
+
+const violations = [...checkAppsBoundaries(), ...checkUiPackageBoundaries()];
 
 // Check contracts/shared doesn't have app-domain symbols
 const checkContractsSharedDrift = (): Violation[] => {
@@ -253,7 +281,8 @@ const checkActorUsage = (): Violation[] => {
           file,
           line: index + 1,
           specifier: 'c.get("user")',
-          message: "Apps authorize through actor/accessSubject. For the acting user use expectUserBackedActor from @valentinkolb/cloud/server.",
+          message:
+            "Apps authorize through actor/accessSubject. For the acting user use expectUserBackedActor from @valentinkolb/cloud/server.",
         });
       });
     }

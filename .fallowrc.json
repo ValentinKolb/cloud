@@ -25,6 +25,7 @@
     "styles.css",
     "packages/*/src/config.ts",
     "packages/*/src/styles/app.css",
+    "packages/ui/src/styles/index.css",
     "packages/*/src/**/*.test.ts",
     "packages/*/src/**/*.test.tsx",
     "packages/*/src/**/*.integration.test.ts",
