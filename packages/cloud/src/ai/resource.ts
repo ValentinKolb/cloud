@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
-import { type AuthContext, err, fail, ok, respond } from "../server";
+import { type ApiErrorResponse, type AuthContext, err, fail, ok, respond } from "../server";
 import { aiResourceKey, registerAiResourceDefinition } from "./resource-runner";
 import { type AiChatRequestContext, createAiChatRoutes } from "./routes";
 import { listAiModels, toPublicAiSettingsState } from "./settings";
@@ -141,14 +141,14 @@ type ResourceRequestContext<TParams extends Record<string, string>, TAccess> = {
 const loadResourceRequestContext = async <TParams extends Record<string, string>, TAccess>(
   c: Context<AuthContext>,
   definition: AiResourceDefinition<TParams, TAccess> & { params: z.ZodType },
-): Promise<ResourceRequestContext<TParams, TAccess> | Response> => {
+): Promise<ResourceRequestContext<TParams, TAccess> | ApiErrorResponse> => {
   const actor = readActor(c);
-  if (!actor) return (await respond(c, fail(err.unauthenticated("Authentication required")))) as unknown as Response;
+  if (!actor) return respond(c, fail(err.unauthenticated("Authentication required")));
   const ownerUserId = actorUserId(actor);
-  if (!ownerUserId) return (await respond(c, fail(err.forbidden("AI conversations require a user-backed actor")))) as unknown as Response;
+  if (!ownerUserId) return respond(c, fail(err.forbidden("AI conversations require a user-backed actor")));
 
   const paramsResult = parseResourceParams<TParams>(definition, c.req.param());
-  if (!paramsResult.ok) return (await respond(c, paramsResult)) as unknown as Response;
+  if (!paramsResult.ok) return respond(c, paramsResult);
 
   const accessResult: AiAccessResult<TAccess> = await definition.access({
     params: paramsResult.data,
@@ -156,7 +156,7 @@ const loadResourceRequestContext = async <TParams extends Record<string, string>
     signal: c.req.raw.signal,
   });
   if (!accessResult.allowed) {
-    return (await respond(c, fail(err.forbidden(accessResult.reason || "AI resource access denied")))) as unknown as Response;
+    return respond(c, fail(err.forbidden(accessResult.reason || "AI resource access denied")));
   }
 
   const access = accessResult.data as TAccess;
@@ -202,7 +202,7 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
       if (resolved instanceof Response) return resolved;
       return policyForModelList(resolved.policy);
     },
-    resolveContext: async (c): Promise<AiChatRequestContext | Response> => {
+    resolveContext: async (c): Promise<AiChatRequestContext | ApiErrorResponse> => {
       const resolved = await loadPolicy(c);
       if (resolved instanceof Response) return resolved;
       const systemPrompt = await resolveValue(definition.systemPrompt, resolved.loaded.hook, undefined as string | undefined);

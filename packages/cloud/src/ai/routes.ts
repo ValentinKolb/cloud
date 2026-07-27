@@ -1,6 +1,6 @@
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { type AuthContext, err, fail, ok, type RequestActor, respond, v } from "../server";
+import { type ApiErrorResponse, type AuthContext, err, fail, ok, type RequestActor, respond, v } from "../server";
 import type { AiToolApprovalContext } from "./approvals";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, decodeAiFileContent, guessAiMediaType, normalizeAiFilePath } from "./files-store";
@@ -50,11 +50,13 @@ export type AiChatRoutesConfig = {
   /** Default title for created conversations. */
   defaultTitle?: (ctx: AiChatRequestContext) => string | undefined;
   /** Policy used to list selectable models on /models. */
-  modelListPolicy?: AiModelPolicy | ((c: Context<AuthContext>) => AiModelPolicy | Response | Promise<AiModelPolicy | Response>);
+  modelListPolicy?:
+    | AiModelPolicy
+    | ((c: Context<AuthContext>) => AiModelPolicy | ApiErrorResponse | Promise<AiModelPolicy | ApiErrorResponse>);
   /** System prompt mutation for retry modes (details/concise). */
   retryInstruction?: (mode: "retry" | "details" | "concise") => string | null;
-  /** Authorize the request and produce its run context, or return an error Response. */
-  resolveContext: (c: Context<AuthContext>) => Promise<AiChatRequestContext | Response>;
+  /** Authorize the request and produce its run context, or return a typed API error. */
+  resolveContext: (c: Context<AuthContext>) => Promise<AiChatRequestContext | ApiErrorResponse>;
   /** Enable conversation metadata editing + archiving (direct chats). */
   allowConversationManagement?: boolean;
 };
