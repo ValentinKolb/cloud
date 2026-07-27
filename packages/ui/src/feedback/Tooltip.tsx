@@ -127,3 +127,5 @@ export function Tooltip(props: TooltipProps): JSX.Element {
 }
 
 export type { TooltipPlacement } from "./tooltip-position";
+
+export default Tooltip;

@@ -4,8 +4,13 @@ import * as ts from "typescript";
 
 type MigrationStatus = "implemented" | "planned";
 type GenericEntry = { source: string; status: MigrationStatus };
+type AdditionalSource = {
+  source: string;
+  exports: Array<{ name: string; status: MigrationStatus }>;
+};
 type Inventory = {
   generic: Record<string, GenericEntry[]>;
+  additionalSources?: AdditionalSource[];
   cloudSpecific: string[];
   deprecated: string[];
 };
@@ -55,6 +60,41 @@ const visitBarrel = (file: string) => {
 
 visitBarrel(join(cloudUiRoot, "index.ts"));
 
+const exportedNames = (file: string): Set<string> => {
+  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  const names = new Set<string>();
+
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+      for (const element of statement.exportClause.elements) names.add(element.name.text);
+      continue;
+    }
+
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+    if (!modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
+      }
+      continue;
+    }
+
+    if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement) ||
+        ts.isInterfaceDeclaration(statement) ||
+        ts.isTypeAliasDeclaration(statement) ||
+        ts.isEnumDeclaration(statement)) &&
+      statement.name
+    ) {
+      names.add(statement.name.text);
+    }
+  }
+
+  return names;
+};
+
 const classified = [
   ...Object.values(inventory.generic)
     .flat()
@@ -82,5 +122,32 @@ if (duplicates.length || missing.length || stale.length) {
   process.exit(1);
 }
 
+for (const additional of inventory.additionalSources ?? []) {
+  const file = resolve(packageRoot, "../..", additional.source);
+  if (!existsSync(file)) {
+    console.error(`Additional migration source does not exist: ${additional.source}`);
+    process.exit(1);
+  }
+
+  const actual = exportedNames(file);
+  const classifiedNames = additional.exports.map((entry) => entry.name);
+  const classifiedNameSet = new Set(classifiedNames);
+  const duplicateNames = classifiedNames.filter((name, index) => classifiedNames.indexOf(name) !== index);
+  const missingNames = [...actual].filter((name) => !classifiedNameSet.has(name));
+  const staleNames = [...classifiedNameSet].filter((name) => !actual.has(name));
+
+  if (duplicateNames.length || missingNames.length || staleNames.length) {
+    if (duplicateNames.length) console.error(`Duplicate exports in ${additional.source}:\n- ${[...new Set(duplicateNames)].sort().join("\n- ")}`);
+    if (missingNames.length) console.error(`Missing exports in ${additional.source}:\n- ${missingNames.sort().join("\n- ")}`);
+    if (staleNames.length) console.error(`Stale exports in ${additional.source}:\n- ${staleNames.sort().join("\n- ")}`);
+    process.exit(1);
+  }
+}
+
 const exportCount = [...exportedByModule.values()].reduce((count, exports) => count + exports.size, 0);
-console.log(`Migration inventory covers ${exportCount} public exports from ${publicModules.size} source modules.`);
+const additionalExportCount = (inventory.additionalSources ?? []).reduce((count, source) => count + source.exports.length, 0);
+console.log(
+  `Migration inventory covers ${exportCount} public exports from ${publicModules.size} UI modules and ${additionalExportCount} exports from ${
+    inventory.additionalSources?.length ?? 0
+  } additional source(s).`,
+);

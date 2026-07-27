@@ -4,9 +4,9 @@
   "generic": {
     "actions": [
       { "source": "./filter/FilterChip", "status": "planned" },
-      { "source": "./input/SegmentedControl", "status": "implemented" },
+      { "source": "./input/SegmentedControl", "status": "planned" },
       { "source": "./misc/ContextMenu", "status": "planned" },
-      { "source": "./misc/CopyButton", "status": "implemented" },
+      { "source": "./misc/CopyButton", "status": "planned" },
       { "source": "./misc/Dropdown", "status": "planned" },
       { "source": "./misc/RemoveBtn", "status": "planned" },
       { "source": "./misc/SpotlightSearch", "status": "planned" }
@@ -14,7 +14,7 @@
     "inputs": [
       { "source": "./completion", "status": "planned" },
       { "source": "./input/AutocompleteEditor", "status": "planned" },
-      { "source": "./input/Checkbox", "status": "implemented" },
+      { "source": "./input/Checkbox", "status": "planned" },
       { "source": "./input/CheckboxCard", "status": "planned" },
       { "source": "./input/ColorInput", "status": "planned" },
       { "source": "./input/Combobox", "status": "planned" },
@@ -25,50 +25,49 @@
       { "source": "./input/ImageCropper", "status": "planned" },
       { "source": "./input/ImageInput", "status": "planned" },
       { "source": "./input/MultiSelectInput", "status": "planned" },
-      { "source": "./input/NumberInput", "status": "implemented" },
+      { "source": "./input/NumberInput", "status": "planned" },
       { "source": "./input/PinInput", "status": "planned" },
-      { "source": "./input/Select", "status": "implemented" },
+      { "source": "./input/Select", "status": "planned" },
       { "source": "./input/SelectChip", "status": "planned" },
       { "source": "./input/Slider", "status": "planned" },
-      { "source": "./input/Switch", "status": "implemented" },
+      { "source": "./input/Switch", "status": "planned" },
       { "source": "./input/TagsInput", "status": "planned" },
       { "source": "./input/TemplateEditor", "status": "planned" },
-      { "source": "./input/TextInput", "status": "implemented" },
+      { "source": "./input/TextInput", "status": "planned" },
       { "source": "./input/image-crop", "status": "planned" },
       { "source": "./input/markdown/MarkdownEditor", "status": "planned" }
     ],
     "layout": [
       { "source": "./admin-settings", "status": "planned" },
       { "source": "./misc/AppOverview", "status": "implemented" },
-      { "source": "./misc/AppWorkspace", "status": "implemented" },
+      { "source": "./misc/AppWorkspace", "status": "planned" },
       { "source": "./misc/DataPanel", "status": "implemented" },
       { "source": "./misc/FloatingWindow", "status": "planned" },
-      { "source": "./misc/PanelDialog", "status": "implemented" },
+      { "source": "./misc/PanelDialog", "status": "planned" },
       { "source": "./misc/PanelHeader", "status": "implemented" },
       { "source": "./misc/Panes", "status": "planned" },
       { "source": "./misc/SettingsModal", "status": "planned" }
     ],
     "surfaces": [
-      { "source": "./misc/Avatar", "status": "implemented" },
-      { "source": "./misc/LinkCard", "status": "implemented" },
+      { "source": "./misc/Avatar", "status": "planned" },
+      { "source": "./misc/LinkCard", "status": "planned" },
       { "source": "./misc/NotFoundState", "status": "implemented" },
-      { "source": "./misc/NoticeCard", "status": "implemented" },
+      { "source": "./misc/NoticeCard", "status": "planned" },
       { "source": "./misc/Placeholder", "status": "implemented" },
-      { "source": "./misc/ProgressBar", "status": "implemented" },
-      { "source": "./misc/StatCell", "status": "implemented" },
-      { "source": "./misc/StatGrid", "status": "implemented" },
-      { "source": "./misc/StatusBadge", "status": "implemented" }
+      { "source": "./misc/ProgressBar", "status": "planned" },
+      { "source": "./misc/StatCell", "status": "planned" },
+      { "source": "./misc/StatGrid", "status": "planned" },
+      { "source": "./misc/StatusBadge", "status": "planned" }
     ],
     "feedback": [
-      { "source": "./dialog-core", "status": "implemented" },
-      { "source": "./prompts", "status": "implemented" },
-      { "source": "./toast", "status": "implemented" },
-      { "source": "./misc/Tooltip", "status": "implemented" },
-      { "source": "./misc/avatar-upload-dialog", "status": "planned" }
+      { "source": "./dialog-core", "status": "planned" },
+      { "source": "./prompts", "status": "planned" },
+      { "source": "./toast", "status": "planned" },
+      { "source": "./misc/Tooltip", "status": "implemented" }
     ],
     "content": [
       { "source": "./misc/Calendar", "status": "planned" },
-      { "source": "./misc/Chart", "status": "implemented" },
+      { "source": "./misc/Chart", "status": "planned" },
       { "source": "./misc/CodeDisplay", "status": "planned" },
       { "source": "./misc/DataTable", "status": "planned" },
       { "source": "./misc/Docs", "status": "planned" },
@@ -82,22 +81,49 @@
       { "source": "./misc/PdfPreview", "status": "planned" },
       { "source": "./misc/RangePicker", "status": "planned" },
       { "source": "./misc/StructuredDataPreview", "status": "planned" },
-      { "source": "./misc/avatar-upload", "status": "planned" },
       { "source": "./misc/chart-state-timeline", "status": "planned" }
     ],
     "widgets": [
-      { "source": "./widgets/Widget", "status": "implemented" },
-      { "source": "./widgets/WidgetCard", "status": "implemented" },
-      { "source": "./widgets/WidgetHero", "status": "implemented" },
-      { "source": "./widgets/WidgetList", "status": "implemented" },
-      { "source": "./widgets/WidgetPills", "status": "implemented" },
-      { "source": "./widgets/WidgetStat", "status": "implemented" },
-      { "source": "./widgets/WidgetStatus", "status": "implemented" }
+      { "source": "./widgets/Widget", "status": "planned" },
+      { "source": "./widgets/WidgetCard", "status": "planned" },
+      { "source": "./widgets/WidgetHero", "status": "planned" },
+      { "source": "./widgets/WidgetList", "status": "planned" },
+      { "source": "./widgets/WidgetPills", "status": "planned" },
+      { "source": "./widgets/WidgetStat", "status": "planned" },
+      { "source": "./widgets/WidgetStatus", "status": "planned" }
     ]
   },
+  "additionalSources": [
+    {
+      "source": "packages/cloud/src/ai/ui.tsx",
+      "exports": [
+        { "name": "AiComposer", "status": "planned" },
+        { "name": "AiComposerActions", "status": "planned" },
+        { "name": "AiComposerAttachment", "status": "planned" },
+        { "name": "AiComposerModels", "status": "planned" },
+        { "name": "AiComposerSendInput", "status": "planned" },
+        { "name": "AiComposerState", "status": "planned" },
+        { "name": "AiContextIndicator", "status": "planned" },
+        { "name": "AiForkMessageInput", "status": "planned" },
+        { "name": "AiMessageList", "status": "planned" },
+        { "name": "AiMessageListActions", "status": "planned" },
+        { "name": "AiMessageListSession", "status": "planned" },
+        { "name": "AiRetryMessageInput", "status": "planned" },
+        { "name": "AiSlashCommand", "status": "planned" },
+        { "name": "AiSlashCommandContext", "status": "planned" },
+        { "name": "AiTurnActionRequest", "status": "planned" },
+        { "name": "aiLatestLoopUsage", "status": "planned" },
+        { "name": "aiLatestUsage", "status": "planned" },
+        { "name": "aiLatestUsageSnapshot", "status": "planned" },
+        { "name": "aiMessageText", "status": "planned" }
+      ]
+    }
+  ],
   "cloudSpecific": [
     "./layout",
     "./input/workflow-authoring",
+    "./misc/avatar-upload",
+    "./misc/avatar-upload-dialog",
     "./misc/AiSkillsManager",
     "./misc/EntitySearch",
     "./misc/PermissionEditor",

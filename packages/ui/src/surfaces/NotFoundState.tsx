@@ -33,7 +33,7 @@ export function NotFoundState(props: NotFoundStateProps): JSX.Element {
       <Show when={props.action}>
         {(action) => (
           <a href={action().href} class="k2b-button" data-size="sm" data-variant="primary">
-            <i class={action().icon ?? "ti ti-arrow-left"} aria-hidden="true" />
+            <i class={action().icon ?? "ti ti-home"} aria-hidden="true" />
             <span>{action().label}</span>
           </a>
         )}
@@ -41,3 +41,5 @@ export function NotFoundState(props: NotFoundStateProps): JSX.Element {
     </main>
   );
 }
+
+export default NotFoundState;

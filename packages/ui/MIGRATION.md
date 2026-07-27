@@ -1,22 +1,44 @@
 # Cloud UI migration inventory
 
-Cloud remains on `@valentinkolb/cloud/ui` until the generic package is
-complete. There are no compatibility re-exports and no incremental application
-migration.
+Cloud stays on `@valentinkolb/cloud/ui` until `@k2b/ui` is complete. There are
+no compatibility re-exports and no incremental application migration.
 
-[`migration-inventory.json`](./migration-inventory.json) classifies every
-module contributing public exports to the current Cloud UI barrel:
+[`migration-inventory.json`](./migration-inventory.json) covers the public
+exports of both `packages/cloud/src/ui/index.ts` and
+`packages/cloud/src/ai/ui.tsx`.
 
 - `generic`: belongs in `@k2b/ui`, grouped like the component catalog;
 - `cloudSpecific`: keeps a real Cloud runtime or domain contract;
 - `deprecated`: must not be promoted into the new package.
 
-Every named export inherits the classification of its source module. Run
-`bun run check:migration` from `packages/ui` after changing either public
+`implemented` is intentionally strict. It means the complete public contract,
+behavior, accessibility, responsive behavior, and required styling exist in
+`@k2b/ui` and are covered by a focused test. A smaller component with a similar
+name is still `planned`.
+
+The currently accepted complete migrations are:
+
+- layout: `AppOverview`, `DataPanel`, `PanelHeader`;
+- surfaces: `NotFoundState`, `Placeholder`;
+- feedback: `Tooltip`.
+
+Everything else remains `planned` until it satisfies that same bar. The
+working tree may contain experiments for planned components; those do not
+change their inventory status and must not be released as complete.
+
+Cloud-owned controllers and domain contracts remain outside the package. This
+includes permission and principal editors, resource API keys, workflow
+authoring, stored AI protocols/controllers, and profile-specific avatar writes.
+Generic image inputs and generic AI presentation still belong in `@k2b/ui`,
+but only after their full presentation contracts are migrated.
+
+Run `bun run check:migration` from `packages/ui` after changing either source
 surface. The check follows barrel exports and fails for missing, stale, or
 duplicate classifications.
 
-The `implemented` status means the target package already exposes the intended
-generic capability. It does not promise source or prop compatibility with the
-old Cloud component; the final Cloud migration updates consumers in one hard
-cut.
+## Acceptance sequence
+
+1. Complete and verify `@k2b/ui` through its standalone `@k2b/ssr` fixture.
+2. Migrate the Fibel component showcase as the first external consumer.
+3. Fix package boundaries or APIs found by that migration in the package.
+4. Migrate Cloud and all built-in apps in one hard cut.
