@@ -1,6 +1,6 @@
-import { Dropdown, MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import {
@@ -14,31 +14,12 @@ import {
 } from "../../search-state";
 import type { SavedConversationView } from "../../service/saved-views";
 import MailBulkActionBar from "./MailBulkActionBar";
+import MailConversationRow from "./MailConversationRow";
 import { openMailSearchBuilder } from "./MailSearchBuilder";
-import { getMailAction, type MailActionId, spamActionForFolder } from "./mail-actions";
-import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";
+import type { MailActionId } from "./mail-actions";
 import { mailboxHealthMessage } from "./mail-health-presentation";
-import { buildMailListHref, buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
+import { buildMailListHref, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
-
-const statusLabel = (item: MailListItem): string | null => {
-  if (item.workStatus === "needs_action") return "Needs action";
-  if (item.workStatus === "waiting") return "Waiting for reply";
-  if (item.workStatus === "done") return "Done";
-  if (item.assigneeUserId) return "Assigned";
-  return null;
-};
-
-const statusIcon = (item: MailListItem): string | null => {
-  if (item.workStatus === "needs_action") return "ti ti-message-reply";
-  if (item.workStatus === "waiting") return "ti ti-hourglass";
-  if (item.workStatus === "done") return "ti ti-checkbox";
-  if (item.assigneeUserId) return "ti ti-user-check";
-  return null;
-};
-
-const correspondentLabels = (item: MailListItem): string[] =>
-  item.participantLabels.length > 0 ? item.participantLabels : [item.participantSummary || "Unknown sender"];
 
 const QUICK_SEARCH_FIELD_OPTIONS = [
   { id: "from", label: "Sender", icon: "ti ti-user" },
@@ -367,206 +348,29 @@ export default function MailConversationList(props: {
         ) : (
           <div class="flex flex-col gap-0.5" role="list" aria-label={`${props.title} conversations`}>
             <For each={props.items}>
-              {(item) => {
-                const selected = () => isMailListItemActive(item, props.selectedConversationId, props.selectedMessageId);
-                const state = statusLabel(item);
-                const stateIcon = statusIcon(item);
-                const correspondents = correspondentLabels(item);
-                const primaryCorrespondent = correspondents[0] ?? "Unknown sender";
-                const additionalCorrespondents = Math.max(0, correspondents.length - 1);
-                const tagLabel = item.localTags.map((tag) => tag.name).join(", ");
-                let activation: "keyboard" | "pointer" = "keyboard";
-                let selectRange = false;
-                const bulkSelected = () => Boolean(item.conversationId && props.selectedConversationIds.has(item.conversationId));
-                return (
-                  <div
-                    class="mail-list-entry group relative"
-                    classList={{
-                      "mail-list-entry-active": selected(),
-                      "mail-list-entry-selected": bulkSelected(),
-                      "mail-list-entry-selection-mode": props.selectionMode,
-                    }}
-                    role="listitem"
-                    data-conversation-id={item.conversationId ?? undefined}
-                  >
-                    <Show when={props.canWrite && props.selectionMode && item.conversationId}>
-                      <input
-                        type="checkbox"
-                        class="mail-list-checkbox h-4 w-4"
-                        checked={bulkSelected()}
-                        disabled={!bulkSelected() && props.selectedConversationIds.size >= MAX_MAIL_CONVERSATION_SELECTION}
-                        aria-label={`${bulkSelected() ? "Deselect" : "Select"} ${item.subject || "conversation"}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          selectRange = event.shiftKey;
-                        }}
-                        onChange={() => {
-                          props.onToggleSelection(item, selectRange);
-                          selectRange = false;
-                        }}
-                      />
-                    </Show>
-                    <a
-                      href={buildMailSelectionHref(requestUrl(), item)}
-                      aria-current={selected() ? "page" : undefined}
-                      class="mail-list-row focus-ui"
-                      title={`${correspondents.join(", ")}: ${item.subject || "(no subject)"}`}
-                      draggable={props.canWrite && Boolean(item.conversationId && item.sourceFolderId)}
-                      onClick={(event) => {
-                        activation = event.detail === 0 ? "keyboard" : "pointer";
-                        if (event.defaultPrevented || event.button !== 0 || event.altKey) return;
-                        if (!props.canWrite && (event.shiftKey || event.metaKey || event.ctrlKey)) return;
-                        const select = Boolean(
-                          item.conversationId &&
-                            props.canWrite &&
-                            (props.selectionMode || event.shiftKey || event.metaKey || event.ctrlKey),
-                        );
-                        event.preventDefault();
-                        if (select) props.onToggleSelection(item, event.shiftKey);
-                        else void props.onNavigateItem(event.currentTarget.href, item, activation);
-                      }}
-                      onFocus={() => props.onPrefetch(item)}
-                      onPointerEnter={() => props.onPrefetch(item)}
-                      onDragStart={(event) => {
-                        const transfer = event.dataTransfer;
-                        if (!item.conversationId || !item.sourceFolderId || !transfer) return event.preventDefault();
-                        transfer.effectAllowed = "move";
-                        transfer.setData(
-                          "application/x-cloud-mail-conversation",
-                          JSON.stringify({
-                            conversationId: item.conversationId,
-                            sourceFolderId: item.sourceFolderId,
-                          }),
-                        );
-                      }}
-                    >
-                      <span class="sr-only">
-                        {item.unread ? "Unread conversation. " : "Read conversation. "}
-                        {item.flagged ? "Flagged conversation. " : ""}
-                      </span>
-                      <span class="mail-list-copy">
-                        <span
-                          class="flex min-w-0 items-center gap-1 text-sm text-primary"
-                          classList={{ "font-semibold": item.unread, "font-medium": !item.unread }}
-                        >
-                          <Show when={item.unread}>
-                            <span class="mail-list-unread-dot" aria-hidden="true" />
-                          </Show>
-                          <span class="min-w-0 truncate">{primaryCorrespondent}</span>
-                          <Show when={additionalCorrespondents > 0}>
-                            <Tooltip content={correspondents.join(", ")}>
-                              <span
-                                class="shrink-0 text-xs font-normal text-dimmed"
-                                role="img"
-                                aria-label={`${additionalCorrespondents} additional correspondent${additionalCorrespondents === 1 ? "" : "s"}: ${correspondents
-                                  .slice(1)
-                                  .join(", ")}`}
-                              >
-                                +{additionalCorrespondents}
-                              </span>
-                            </Tooltip>
-                          </Show>
-                        </span>
-                        <span class="min-w-0 truncate text-xs font-medium text-primary">
-                          <Show when={item.primaryReference}>
-                            <span class="mr-1 font-mono text-[0.6875rem] text-dimmed">{item.primaryReference}</span>
-                          </Show>
-                          {item.subject || "(no subject)"}
-                        </span>
-                        <span class="mail-list-preview">{item.preview || "\u00a0"}</span>
-                      </span>
-                      <span class="mail-list-meta">
-                        <time
-                          class="shrink-0 tabular-nums transition-opacity group-focus-within:opacity-0 group-hover:opacity-0 [@media(hover:none)]:opacity-0"
-                          dateTime={item.latestMessageAt}
-                          title={dates.formatDateTime(item.latestMessageAt, props.dateConfig)}
-                        >
-                          {dates.formatDateTimeRelative(item.latestMessageAt, props.dateConfig)}
-                        </time>
-                        <span class="mail-list-meta-icons">
-                          <Show when={item.localTags.length > 0}>
-                            <Tooltip content={`Tags: ${tagLabel}`}>
-                              <span class="mail-list-tag-markers" role="img" aria-label={`Tags: ${tagLabel}`}>
-                                <For each={item.localTags.slice(0, 2)}>
-                                  {(tag) => <span class="mail-list-tag-dot" style={{ "background-color": tag.color }} aria-hidden="true" />}
-                                </For>
-                                <Show when={item.localTags.length > 2}>
-                                  <span class="mail-list-tag-overflow" aria-hidden="true">
-                                    +{item.localTags.length - 2}
-                                  </span>
-                                </Show>
-                              </span>
-                            </Tooltip>
-                          </Show>
-                          <Show when={item.flagged}>
-                            <Tooltip content="Flagged">
-                              <span class="inline-flex text-orange-600 dark:text-orange-400" role="img" aria-label="Flagged conversation">
-                                <i class={getMailAction("flag").icon} aria-hidden="true" />
-                              </span>
-                            </Tooltip>
-                          </Show>
-                          <Show when={state && stateIcon}>
-                            <Tooltip content={state ?? ""}>
-                              <span class="inline-flex" role="img" aria-label={`Status: ${state}`}>
-                                <i class={stateIcon ?? ""} aria-hidden="true" />
-                              </span>
-                            </Tooltip>
-                          </Show>
-                          <Show when={item.hasAttachments}>
-                            <Tooltip content="Has attachments">
-                              <span class="inline-flex" role="img" aria-label="Has attachments">
-                                <i class="ti ti-paperclip" aria-hidden="true" />
-                              </span>
-                            </Tooltip>
-                          </Show>
-                        </span>
-                      </span>
-                    </a>
-                    <Show when={props.canWrite && !props.selectionMode && item.conversationId}>
-                      <div class="absolute right-3 top-2 z-10 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
-                        <Dropdown
-                          trigger={
-                            <button type="button" class="icon-btn icon-btn-sm" aria-label={`Actions for ${item.subject || "conversation"}`}>
-                              <i class="ti ti-dots" aria-hidden="true" />
-                            </button>
-                          }
-                          position="bottom-left"
-                          width="w-52"
-                          elements={[
-                            {
-                              label: getMailAction(item.unread ? "mark_read" : "mark_unread").label,
-                              icon: getMailAction(item.unread ? "mark_read" : "mark_unread").icon,
-                              action: () => props.onItemAction(item, item.unread ? "mark_read" : "mark_unread"),
-                            },
-                            {
-                              label: getMailAction(item.flagged ? "unflag" : "flag").label,
-                              icon: getMailAction(item.flagged ? "unflag" : "flag").icon,
-                              action: () => props.onItemAction(item, item.flagged ? "unflag" : "flag"),
-                            },
-                            {
-                              label: "Manage tags",
-                              icon: "ti ti-tags",
-                              action: () => props.onManageTags(item),
-                            },
-                            ...(["archive", "move", spamActionForFolder(item.sourceFolderId, props.junkFolderIds), "trash"] as const).map(
-                              (actionId) => ({
-                                label: getMailAction(actionId).label,
-                                icon: getMailAction(actionId).icon,
-                                action: () => props.onItemAction(item, actionId),
-                              }),
-                            ),
-                            {
-                              label: "Merge with another conversation",
-                              icon: "ti ti-git-merge",
-                              action: () => props.onMergeItem(item),
-                            },
-                          ]}
-                        />
-                      </div>
-                    </Show>
-                  </div>
-                );
-              }}
+              {(item) => (
+                <MailConversationRow
+                  item={item}
+                  requestUrl={requestUrl()}
+                  state={{
+                    selectedConversationId: props.selectedConversationId,
+                    selectedMessageId: props.selectedMessageId,
+                    selectedConversationIds: props.selectedConversationIds,
+                    selectionMode: props.selectionMode,
+                    canWrite: props.canWrite,
+                    junkFolderIds: props.junkFolderIds,
+                    dateConfig: props.dateConfig,
+                  }}
+                  actions={{
+                    navigate: props.onNavigateItem,
+                    toggleSelection: props.onToggleSelection,
+                    itemAction: props.onItemAction,
+                    manageTags: props.onManageTags,
+                    merge: props.onMergeItem,
+                    prefetch: props.onPrefetch,
+                  }}
+                />
+              )}
             </For>
           </div>
         )}

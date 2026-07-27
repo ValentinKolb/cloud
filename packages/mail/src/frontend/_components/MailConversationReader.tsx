@@ -1,4 +1,4 @@
-import { CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -15,27 +15,13 @@ import type {
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
 import MailComposer from "./MailComposer";
-import MailMessageAttachments from "./MailMessageAttachments";
-import MailMessageBody from "./MailMessageBody";
-import MailSenderMessageActions from "./MailSenderMessageActions";
+import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
 import { deriveReplyIdentityId, deriveReplyRecipients } from "./mail-compose-derivation";
 import { buildMailListHref } from "./mail-navigation";
 
-const formatAddress = (address: { name: string | null; address: string }): string =>
-  address.name ? `${address.name} <${address.address}>` : address.address;
-
 const replySubject = (subject: string): string => (/^re:/i.test(subject) ? subject : `Re: ${subject}`);
 const forwardSubject = (subject: string): string => (/^fwd:/i.test(subject) ? subject : `Fwd: ${subject}`);
-const forwardBody = (message: MessageDetail, dateConfig: DateContext): string => `
-
----------- Forwarded message ----------
-From: ${message.from.map(formatAddress).join(", ") || "Unknown sender"}
-Date: ${dates.formatDateTime(message.internalDate, dateConfig)}
-Subject: ${message.subject || "(no subject)"}
-To: ${message.to.map(formatAddress).join(", ") || "Undisclosed recipients"}
-
-${message.forwardText}`;
 
 type ComposerRequest = {
   intent: DraftIntent;
@@ -620,125 +606,44 @@ export default function MailConversationReader(props: {
         <div class="min-h-0 flex-1 overflow-y-auto px-3 py-2 sm:px-5" data-scroll-preserve={`mail-reader-${props.selectionKey}`}>
           <div class="mx-auto flex w-full max-w-4xl flex-col gap-5">
             <For each={props.messages}>
-              {(message, index) => {
-                let messageBody!: HTMLDivElement;
-                const expanded = () => expandedMessages().has(message.id);
-                return (
-                  <article class="min-w-0 py-2" style={`view-transition-name: mail-message-${message.id}`}>
-                    <button
-                      type="button"
-                      class="flex w-full items-start gap-3 rounded-[var(--ui-radius-control)] p-2 text-left hover:bg-[var(--ui-hover)]"
-                      aria-expanded={expanded()}
-                      onClick={() => toggleMessage(message.id)}
-                    >
-                      <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center rounded-full">
-                        <i class="ti ti-user" aria-hidden="true" />
-                      </span>
-                      <span class="min-w-0 flex-1">
-                        <span class="flex items-baseline justify-between gap-3">
-                          <span class="truncate text-sm font-semibold text-primary">
-                            {message.from.map(formatAddress).join(", ") || "Unknown sender"}
-                          </span>
-                          <time class="shrink-0 text-xs text-dimmed" dateTime={message.internalDate}>
-                            {dates.formatDateTimeRelative(message.internalDate, props.dateConfig)}
-                          </time>
-                        </span>
-                        <span class="block truncate text-xs text-dimmed">
-                          To {message.to.map(formatAddress).join(", ") || "undisclosed recipients"}
-                        </span>
-                      </span>
-                      <i class={`ti ${expanded() ? "ti-chevron-up" : "ti-chevron-down"} mt-1 text-dimmed`} aria-hidden="true" />
-                    </button>
-                    <Show when={expanded()}>
-                      <div class="pb-3 pl-14 pr-2 pt-2">
-                        <div ref={messageBody} class="mail-message-body min-w-0 overflow-x-auto text-sm text-primary">
-                          {message.sanitizedHtml || message.plainText ? (
-                            <MailMessageBody
-                              mailboxId={props.mailboxId}
-                              messageId={message.id}
-                              html={message.sanitizedHtml}
-                              plainText={message.plainText}
-                              attachments={message.attachments}
-                              remoteContent={message.remoteContent}
-                              onSelectionChange={(value) =>
-                                setMessageSelections((current) => {
-                                  if (current[message.id] === value) return current;
-                                  const next = { ...current };
-                                  if (value) next[message.id] = value;
-                                  else delete next[message.id];
-                                  return next;
-                                })
-                              }
-                            />
-                          ) : (
-                            <Placeholder state="loading" title="Body is still synchronizing" />
-                          )}
-                        </div>
-                        <Show when={message.attachments.length > 0}>
-                          <MailMessageAttachments
-                            mailboxId={props.mailboxId}
-                            messageId={message.id}
-                            attachments={message.attachments}
-                            canShare={props.canAdmin}
-                          />
-                        </Show>
-                        <Show when={props.canWrite && props.selectedConversationId}>
-                          <div class="mt-4 flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              class="btn-secondary btn-sm"
-                              disabled={composerBusy()}
-                              onClick={() => startComposer("reply", message)}
-                            >
-                              <i class="ti ti-arrow-back-up" aria-hidden="true" /> Reply
-                            </button>
-                            <button
-                              type="button"
-                              class="btn-simple btn-sm"
-                              disabled={composerBusy()}
-                              onClick={() => startComposer("reply_all", message)}
-                            >
-                              <i class="ti ti-arrow-back-up-double" aria-hidden="true" /> Reply all
-                            </button>
-                            <button
-                              type="button"
-                              class="btn-simple btn-sm"
-                              disabled={composerBusy()}
-                              onClick={() => startComposer("forward", message, forwardBody(message, props.dateConfig))}
-                            >
-                              <i class="ti ti-arrow-forward-up" aria-hidden="true" /> Forward
-                            </button>
-                            <button
-                              type="button"
-                              class="btn-simple btn-sm"
-                              disabled={composerBusy()}
-                              onClick={() => startQuoteReply(message, messageBody)}
-                            >
-                              <i class="ti ti-blockquote" aria-hidden="true" /> Quote selection
-                            </button>
-                            <MailSenderMessageActions
-                              mailboxId={props.mailboxId}
-                              requestUrl={props.requestUrl}
-                              canWrite={props.canWrite}
-                              canAdmin={props.canAdmin}
-                              selectionKey={props.selectionKey}
-                              selectedConversationId={props.selectedConversationId}
-                              sourceFolderId={props.sourceFolderId}
-                              message={message}
-                              totalMessageCount={props.totalMessageCount}
-                              identities={props.identities}
-                              onReconcile={props.onReconcile}
-                              onReassignMessage={props.onReassignMessage}
-                              onSplitMessage={props.onSplitMessage}
-                              onDeriveMessage={deriveMessage}
-                            />
-                          </div>
-                        </Show>
-                      </div>
-                    </Show>
-                  </article>
-                );
-              }}
+              {(message) => (
+                <MailMessageCard
+                  message={message}
+                  expanded={expandedMessages().has(message.id)}
+                  context={{
+                    mailboxId: props.mailboxId,
+                    requestUrl: props.requestUrl,
+                    canWrite: props.canWrite,
+                    canAdmin: props.canAdmin,
+                    selectionKey: props.selectionKey,
+                    selectedConversationId: props.selectedConversationId,
+                    sourceFolderId: props.sourceFolderId,
+                    totalMessageCount: props.totalMessageCount,
+                    identities: props.identities,
+                    dateConfig: props.dateConfig,
+                    composerBusy: composerBusy(),
+                  }}
+                  actions={{
+                    toggle: toggleMessage,
+                    selectionChange: (messageId, value) =>
+                      setMessageSelections((current) => {
+                        if (current[messageId] === value) return current;
+                        const next = { ...current };
+                        if (value) next[messageId] = value;
+                        else delete next[messageId];
+                        return next;
+                      }),
+                    compose: startComposer,
+                    quoteReply: startQuoteReply,
+                    derive: (kind, selectedMessage) => {
+                      void deriveMessage(kind, selectedMessage);
+                    },
+                    reconcile: props.onReconcile,
+                    reassign: props.onReassignMessage,
+                    split: props.onSplitMessage,
+                  }}
+                />
+              )}
             </For>
           </div>
         </div>
@@ -761,7 +666,15 @@ export default function MailConversationReader(props: {
                   sourceAttachmentCount: request.intent === "forward" ? request.message.attachments.length : 0,
                 };
             return (
-              <div class="flex max-h-[52%] min-h-72 shrink-0 overflow-hidden bg-[var(--ui-surface)] shadow-[0_-8px_24px_rgb(0_0_0/0.06)]">
+              <AppWorkspace.BottomDrawer
+                id="mail-composer"
+                open
+                height="lg"
+                minHeight={288}
+                maxHeight={640}
+                resizable
+                class="bg-[var(--ui-surface)]"
+              >
                 <MailComposer
                   mailboxId={props.mailboxId}
                   identities={props.identities}
@@ -773,7 +686,7 @@ export default function MailConversationReader(props: {
                   onClose={closeComposer}
                   seed={seed}
                 />
-              </div>
+              </AppWorkspace.BottomDrawer>
             );
           }}
         </Show>
