@@ -72,4 +72,12 @@ describe("MailMessageCard delivery controls", () => {
   test("offers cancellation for explicitly scheduled delivery", () => {
     expect(renderCard("scheduled")).toContain("Cancel send");
   });
+
+  test("keeps successful delivery as the unlabelled default state", () => {
+    expect(renderCard("accepted")).not.toContain(">Sent<");
+    expect(renderCard("sent_sync_pending")).not.toContain(">Sent<");
+    expect(renderCard("sent")).not.toContain(">Sent<");
+    expect(renderCard("reconciled_accepted")).not.toContain(">Sent<");
+    expect(renderCard("sending")).toContain(">Sending<");
+  });
 });

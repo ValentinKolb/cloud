@@ -1,5 +1,5 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { ephemeral, type Lock, mutex } from "@k2b/sync";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { AcquiredDraftLease, DraftLease, DraftLeaseHolder } from "../contracts";
 import { requireMailboxPermission } from "./access";
@@ -85,6 +85,22 @@ const removeEntry = async (draftId: string, entry: DraftLeaseEntry, reason: stri
   await leaseMutex.release(entry.lock).catch(() => false);
 };
 
+export const invalidateDraftLeaseAfterSend = async (draftId: string): Promise<Result<void>> => {
+  try {
+    return await withLeaseState(draftId, async () => {
+      const [draft] = await sql<{ state: string }[]>`
+        SELECT state FROM mail.drafts WHERE id = ${draftId}::uuid
+      `;
+      if (!draft || draft.state === "draft") return ok();
+      const entry = await currentEntry(draftId);
+      if (entry) await removeEntry(draftId, entry.value, "draft-sent");
+      return ok();
+    });
+  } catch {
+    return fail(err.internal("Failed to invalidate draft lease after send"));
+  }
+};
+
 const currentValidEntry = async (mailboxId: string, draftId: string) => {
   const entry = await currentEntry(draftId);
   if (!entry || entry.value.holder.kind !== "user") return entry;
@@ -123,10 +139,10 @@ export const acquireDraftLease = async (params: {
   draftId: string;
   takeover?: boolean;
 }): Promise<Result<AcquiredDraftLease>> => {
-  const allowed = await authorizeDraft({ ...params, permission: "write" });
-  if (!allowed.ok) return allowed;
   const holder = holderFromContext(params.context);
   return withLeaseState(params.draftId, async () => {
+    const allowed = await authorizeDraft({ ...params, permission: "write" });
+    if (!allowed.ok) return allowed;
     const current = await currentValidEntry(params.mailboxId, params.draftId);
     if (current) {
       if (!params.takeover) {

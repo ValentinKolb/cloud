@@ -8,6 +8,7 @@ import { grantMailboxAccess, listMailboxAccess, revokeMailboxAccess } from "./ac
 import type { MailRequestContext } from "./auth";
 import { executeMutationCommand, executeOutboxSubmission, executeOutboxSubmissionWithHeartbeat } from "./command-runtime";
 import { createActorCommand } from "./commands";
+import { reviewDraftComposeSafety } from "./compose-safety";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
 import { acquireDraftLease, getDraftLease, heartbeatDraftLease, releaseDraftLease } from "./draft-leases";
@@ -32,7 +33,6 @@ import {
   updateDraft,
 } from "./drafts";
 import { resolveMailExecution } from "./execution";
-import { reviewDraftComposeSafety } from "./compose-safety";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
@@ -1276,6 +1276,24 @@ suite("mail PostgreSQL foundation", () => {
     }
     const cancelled = await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: command.data.id });
     expect(cancelled.ok).toBe(true);
+    const restoredLease = await acquireDraftLease({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: draft.data.id,
+    });
+    expect(restoredLease.ok).toBe(true);
+    if (restoredLease.ok) {
+      expect(
+        (
+          await releaseDraftLease({
+            context,
+            mailboxId: mailbox.data.id,
+            draftId: draft.data.id,
+            token: restoredLease.data.token,
+          })
+        ).ok,
+      ).toBe(true);
+    }
     const [cancelledProjection] = await sql<{ message_count: number; conversation_count: number }[]>`
       SELECT
         (SELECT COUNT(*)::int FROM mail.message_contents WHERE id = ${outbox!.message_id}::uuid) AS message_count,

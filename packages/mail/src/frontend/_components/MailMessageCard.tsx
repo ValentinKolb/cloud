@@ -13,7 +13,9 @@ import MailSenderMessageActions from "./MailSenderMessageActions";
 const formatAddress = (address: { name: string | null; address: string }): string =>
   address.name ? `${address.name} <${address.address}>` : address.address;
 
-const deliveryPresentation = (delivery: NonNullable<MessageDetail["delivery"]>): { label: string; icon: string; tone: StatusTone } => {
+const deliveryPresentation = (
+  delivery: NonNullable<MessageDetail["delivery"]>,
+): { label: string; icon: string; tone: StatusTone } | null => {
   switch (delivery.state) {
     case "scheduled":
       return { label: "Scheduled", icon: "ti ti-clock", tone: "neutral" };
@@ -25,7 +27,7 @@ const deliveryPresentation = (delivery: NonNullable<MessageDetail["delivery"]>):
     case "sent_sync_pending":
     case "sent":
     case "reconciled_accepted":
-      return { label: "Sent", icon: "ti ti-check", tone: "ok" };
+      return null;
     case "failed":
     case "reconciled_unsent":
       return { label: "Send failed", icon: "ti ti-alert-circle", tone: "error" };
@@ -131,7 +133,7 @@ export default function MailMessageCard(props: {
           <Show when={props.message.delivery}>
             {(delivery) => {
               const status = deliveryPresentation(delivery());
-              return (
+              return status ? (
                 <StatusBadge
                   tone={status.tone}
                   label={status.label}
@@ -139,7 +141,7 @@ export default function MailMessageCard(props: {
                   title={delivery().lastErrorMessage ?? undefined}
                   class="mt-1"
                 />
-              );
+              ) : null;
             }}
           </Show>
         </span>

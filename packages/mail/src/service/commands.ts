@@ -1,4 +1,4 @@
-import { audit, toPgTextArray } from "@valentinkolb/cloud/services";
+import { audit, logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import {
@@ -19,13 +19,16 @@ import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
 import { validateDraftComposeSafety } from "./compose-safety";
 import { renderComposeDraft } from "./compose-templates";
+import { invalidateDraftLeaseAfterSend } from "./draft-leases";
 import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
 import { resolveMailExecution } from "./execution";
 import { createBlobReadable } from "./message-blobs";
 import { BASE_MAINTENANCE_KINDS, getOperatorActionEligibility } from "./operator-actions";
-import { measureMimeStream, outboundDraftSnapshotSchema } from "./outbound-mime";
 import { materializeOutboundMessage, type OutboundMessageProjection } from "./outbound-message-projection";
+import { measureMimeStream, outboundDraftSnapshotSchema } from "./outbound-mime";
 import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
+
+const log = logger("mail:commands");
 
 type DbCommand = {
   id: string;
@@ -848,9 +851,23 @@ export const enqueueCreatedActorCommands = async (commands: MailCommand[]): Prom
   );
 };
 
+const invalidateSentDraftLeases = async (inputs: ActorCommandInput[]): Promise<void> => {
+  for (const input of inputs) {
+    if (input.kind !== "send") continue;
+    const invalidated = await invalidateDraftLeaseAfterSend(input.draftId);
+    if (!invalidated.ok) {
+      log.warn("Failed to invalidate a consumed Mail draft lease", {
+        draftId: input.draftId,
+        code: invalidated.error.code,
+      });
+    }
+  }
+};
+
 const createActorCommandWithActor = async (params: CreateActorCommandInternalParams): Promise<Result<MailCommand>> => {
   try {
     const result = await sql.begin((tx) => createActorCommandInTransaction(params, tx));
+    if (result.ok) await invalidateSentDraftLeases([params.input]);
     if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
     if (result.ok) await publishCreatedOutboundProjection(result.data);
     if (result.ok && params.input.kind === "send" && params.input.scheduledAt) {
@@ -952,6 +969,7 @@ export const createActorCommands = async (params: {
       const commands = await createActorCommandsInTransaction(params, tx);
       return ok(commands);
     });
+    if (result.ok) await invalidateSentDraftLeases(params.inputs);
     if (result.ok) await enqueueCreatedActorCommands(result.data);
     return result;
   } catch (error) {
