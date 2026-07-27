@@ -336,6 +336,10 @@ export default function MailSenderRuleSettings(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => {
+    toggle.abort();
+    remove.abort();
+  });
 
   const columns: DataTableColumn<SenderRule>[] = [
     { id: "name", header: "Rule", value: (rule) => rule.name },

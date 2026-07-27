@@ -1,7 +1,7 @@
 import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type { DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";
 import { readApiError } from "./_components/api-response";
@@ -99,6 +99,11 @@ export default function MailOverview(props: {
       setDeletedCursor(page.nextCursor);
     },
     onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    createMailbox.abort();
+    restoreMailbox.abort();
+    loadDeletedMailboxes.abort();
   });
 
   const updateQuery = (value: string) => {

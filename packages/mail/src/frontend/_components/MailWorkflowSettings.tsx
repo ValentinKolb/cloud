@@ -230,6 +230,10 @@ function WorkflowEditor(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => {
+    updateDetails.abort();
+    save.abort();
+  });
 
   return (
     <PanelDialog>
@@ -512,6 +516,11 @@ export default function MailWorkflowSettings(props: {
       toast.success("Historical source restored as a new version");
     },
     onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    activate.abort();
+    deactivate.abort();
+    restore.abort();
   });
 
   const openVersion = async (workflow: MailWorkflow, version: MailWorkflowVersion) => {

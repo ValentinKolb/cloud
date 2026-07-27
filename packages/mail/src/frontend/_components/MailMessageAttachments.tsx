@@ -13,7 +13,7 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { For, Show } from "solid-js";
+import { For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CreateAttachmentLinkInput, CreatedAttachmentLink } from "../../contracts";
 import { readApiError } from "./api-response";
@@ -125,6 +125,7 @@ export default function MailMessageAttachments(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => createLink.abort());
 
   const shareAttachment = async (attachment: Attachment) => {
     const input = await promptAttachmentLinkOptions();

@@ -9,7 +9,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, Show } from "solid-js";
+import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
@@ -256,6 +256,13 @@ export default function MailboxSettings(props: {
       if (deleted) props.onDeleted();
     },
     onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    savePreferences.abort();
+    saveMailbox.abort();
+    updateFolderRole.abort();
+    saveAutomaticReplyAccess.abort();
+    deleteMailbox.abort();
   });
 
   return (

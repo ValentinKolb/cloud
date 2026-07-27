@@ -116,6 +116,7 @@ export default function MailOrganizationSettings(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => saveTag.abort());
 
   const removeTag = async (tag: LocalTag) => {
     const confirmed = await prompts.confirm(`Remove “${tag.name}” from every conversation?`, {

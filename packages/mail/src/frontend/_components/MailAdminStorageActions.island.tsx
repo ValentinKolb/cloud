@@ -1,5 +1,6 @@
 import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
+import { onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";
 
@@ -14,6 +15,7 @@ export default function MailAdminStorageActions() {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => reconcile.abort());
 
   return (
     <button type="button" class="btn-secondary btn-sm" disabled={reconcile.loading()} onClick={() => reconcile.mutate()}>

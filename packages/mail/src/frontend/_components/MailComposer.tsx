@@ -990,6 +990,11 @@ export default function MailComposer(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => {
+    shareAttachment.abort();
+    send.abort();
+    discard.abort();
+  });
 
   const closeComposer = async () => {
     if (handoffInProgress()) return;

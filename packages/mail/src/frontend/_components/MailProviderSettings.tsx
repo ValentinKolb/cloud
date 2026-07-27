@@ -365,6 +365,14 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     },
     onError: (error) => prompts.error(`Receiving remains active. ${error.message}`),
   });
+  onCleanup(() => {
+    discover.abort();
+    startOAuth.abort();
+    connect.abort();
+    revoke.abort();
+    finishSetup.abort();
+    setupSender.abort();
+  });
 
   const openConnectionEditor = async () => {
     setEditing(true);
@@ -1065,6 +1073,14 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
       void props.onReload();
     },
     onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    createIdentity.abort();
+    updateIdentity.abort();
+    saveCustomSmtp.abort();
+    removeCustomSmtp.abort();
+    disableIdentity.abort();
+    verifyIdentity.abort();
   });
 
   return (

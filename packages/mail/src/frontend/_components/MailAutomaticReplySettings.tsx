@@ -13,7 +13,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { AutomaticReplyInactiveBehavior, ComposePreview, SenderIdentity } from "../../contracts";
 import { validateResponseScheduleDefinition } from "../../response-schedule-validation";
@@ -313,6 +313,10 @@ function AutomaticReplyEditor(props: {
       props.close();
     },
     onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    loadPreview.abort();
+    save.abort();
   });
 
   return (

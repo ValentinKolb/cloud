@@ -1,7 +1,7 @@
 import { AppWorkspace, Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type LinkNavigateEvent, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationView } from "../../contracts";
 import type { ConversationViewCounts, MailFolderView } from "../../service/messages";
@@ -107,6 +107,7 @@ export default function MailSidebar(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => sync.abort());
 
   const dropConversation = (event: DragEvent, destinationFolderId: string) => {
     event.preventDefault();

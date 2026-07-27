@@ -12,7 +12,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, MailCommand } from "../../contracts";
 import type { MailAdminFolderView } from "../../service/folders";
@@ -171,6 +171,7 @@ function FolderEditor(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => save.abort());
 
   return (
     <PanelDialog>
@@ -343,6 +344,10 @@ export default function MailFolderSettings(props: {
       );
     },
     onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    updateVisibility.abort();
+    folderMutation.abort();
   });
 
   const busy = () => props.reloading || pendingFolderId() !== null;

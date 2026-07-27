@@ -1,6 +1,6 @@
 import { dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
 import { readApiError } from "./api-response";
@@ -42,6 +42,7 @@ function ReferenceConfigurationEditor(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
+  onCleanup(() => save.abort());
 
   return (
     <PanelDialog>

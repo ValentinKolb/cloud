@@ -1,7 +1,7 @@
 import { Placeholder, ProgressBar, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { PROVIDER_LIMIT_MAX_AGE_MS } from "../../contracts";
 import type {
@@ -216,6 +216,13 @@ export default function MailOperationalSettings(props: {
       props.onWorkspaceChange();
     },
     onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    loadMoreAttention.abort();
+    updateSync.abort();
+    command.abort();
+    refreshLimits.abort();
+    operatorCommand.abort();
   });
 
   const pause = async () => {
