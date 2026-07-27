@@ -1,4 +1,4 @@
-import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { createMemo, For, type JSX, Show } from "solid-js";
 
 export type PaginationProps = {

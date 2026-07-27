@@ -1,4 +1,4 @@
-import { topic } from "@valentinkolb/sync";
+import { topic } from "@k2b/sync";
 import type { NotificationLiveEvent } from "../../contracts/notification-live";
 import type { NotificationPresentation } from "../../contracts/notification-types";
 import { logger } from "../logging";

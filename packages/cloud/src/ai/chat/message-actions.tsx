@@ -1,4 +1,4 @@
-import type { Message, Usage } from "@valentinkolb/nessi";
+import type { Message, Usage } from "@k2b/nessi";
 import { clipboard, mutation } from "@valentinkolb/stdlib/solid";
 import { createContext, For, type JSX, Show, useContext } from "solid-js";
 import { dialogCore, PanelDialog, panelDialogOptions, prompts, StatCell, StatGrid } from "../../ui";

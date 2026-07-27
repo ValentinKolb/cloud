@@ -1,5 +1,5 @@
 import { logger } from "@valentinkolb/cloud/services";
-import { topic } from "@valentinkolb/sync";
+import { topic } from "@k2b/sync";
 import type { ContactServiceEvent, ContactServiceEventData } from "../live-events";
 
 const log = logger("contacts:events");

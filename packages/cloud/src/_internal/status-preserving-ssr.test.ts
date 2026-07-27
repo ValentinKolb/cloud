@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { HtmlFn } from "@valentinkolb/ssr";
+import type { HtmlFn } from "@k2b/ssr";
 import { Hono } from "hono";
 import { createStatusPreservingSsrHandler } from "./status-preserving-ssr";
 

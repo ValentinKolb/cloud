@@ -1,5 +1,5 @@
 import { Tooltip } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { forceCenter, forceLink, forceManyBody, forceSimulation, type Simulation } from "d3-force";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { NoteGraph } from "../../../../service/links";

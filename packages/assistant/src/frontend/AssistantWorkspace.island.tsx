@@ -15,7 +15,7 @@ import {
   aiLatestUsageSnapshot,
 } from "@valentinkolb/cloud/ai/ui";
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
-import { navigate, navigateTo } from "@valentinkolb/ssr/nav";
+import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";

@@ -1,5 +1,5 @@
-import type { LoopAggregate, StructuredMeta, Usage } from "@valentinkolb/nessi";
-import { nessi, StructuredOutputError } from "@valentinkolb/nessi";
+import type { LoopAggregate, StructuredMeta, Usage } from "@k2b/nessi";
+import { nessi, StructuredOutputError } from "@k2b/nessi";
 import type { z } from "zod";
 import { coreSettings } from "../services";
 import type { TraceContext } from "../services/logging";

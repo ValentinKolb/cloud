@@ -1,6 +1,6 @@
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { buildGroupsUrl, type GroupsListState } from "../lib/url-state";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 
 type GroupsScopeFilterProps = {
   state: GroupsListState;

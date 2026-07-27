@@ -167,7 +167,7 @@ Then document durable workflows:
 - Waiting, fan-out, and budgets;
 - Observability and testing.
 
-Keep `@valentinkolb/sync` primitives separate from the Cloud workflow kernel.
+Keep `@k2b/sync` primitives separate from the Cloud workflow kernel.
 
 ### 4. Frontend
 

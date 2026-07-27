@@ -8,7 +8,7 @@ import {
   prompts,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 

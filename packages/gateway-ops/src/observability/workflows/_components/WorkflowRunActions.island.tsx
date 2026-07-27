@@ -1,6 +1,6 @@
 import { prompts, toast } from "@valentinkolb/cloud/ui";
 import type { WorkflowJsonValue, WorkflowRunState } from "@valentinkolb/cloud/workflows";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "../api-client";
 

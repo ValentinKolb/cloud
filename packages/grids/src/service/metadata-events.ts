@@ -1,5 +1,5 @@
 import { logger } from "@valentinkolb/cloud/services";
-import { topic } from "@valentinkolb/sync";
+import { topic } from "@k2b/sync";
 import { sql } from "bun";
 
 const log = logger("grids:metadata-events");

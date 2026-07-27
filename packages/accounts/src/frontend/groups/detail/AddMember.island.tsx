@@ -1,6 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { EntitySearch, prompts } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { apiClient } from "@/api/client";
 
 type AddMemberProps = {

@@ -13,7 +13,7 @@ import {
   Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { type DateContext, dates, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";

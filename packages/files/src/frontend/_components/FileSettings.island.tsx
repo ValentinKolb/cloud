@@ -1,5 +1,5 @@
 import { Dropdown, SegmentedControl, Switch, Tooltip } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { createMemo, createSignal, Show } from "solid-js";
 

@@ -6,7 +6,7 @@ import {
   stopRuntimeResources,
 } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
 import type { CommandState, MailCommand, RemoteMessagePrecondition } from "../contracts";

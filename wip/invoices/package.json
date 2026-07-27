@@ -10,7 +10,7 @@
   "dependencies": {
     "@stackforge-eu/factur-x": "1.1.0",
     "@valentinkolb/cloud": "workspace:*",
-    "@valentinkolb/ssr": "0.10.0",
+    "@k2b/ssr": "0.12.0",
     "@valentinkolb/stdlib": "0.15.0",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",

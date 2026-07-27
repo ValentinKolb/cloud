@@ -1,5 +1,5 @@
-import type { HtmlFn, RenderFn } from "@valentinkolb/ssr";
-import { createSSRHandler } from "@valentinkolb/ssr/hono";
+import type { HtmlFn, RenderFn } from "@k2b/ssr";
+import { createSSRHandler } from "@k2b/ssr/hono";
 import type { Context, Env, MiddlewareHandler, TypedResponse } from "hono";
 import type { StatusCode } from "hono/utils/http-status";
 

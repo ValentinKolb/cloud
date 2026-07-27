@@ -1,7 +1,7 @@
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import type { AnnouncementEntry, CreateAnnouncement, UpdateAnnouncement } from "@valentinkolb/cloud/contracts";
 import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 
 const errorMessage = async (response: Response, fallback: string): Promise<string> => {

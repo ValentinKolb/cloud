@@ -18,7 +18,7 @@ provides best-effort fan-out for connected clients.
 ## Publish an event
 
 ```ts
-import { topic } from "@valentinkolb/sync";
+import { topic } from "@k2b/sync";
 
 const inventoryEvents = topic<{
   type: "item.updated";

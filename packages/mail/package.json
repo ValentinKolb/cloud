@@ -19,9 +19,9 @@
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/cloud-app-contacts": "workspace:*",
-    "@valentinkolb/ssr": "0.11.0",
+    "@k2b/ssr": "0.12.0",
     "@valentinkolb/stdlib": "0.16.0",
-    "@valentinkolb/sync": "^5.5.2",
+    "@k2b/sync": "^5.7.0",
     "@zone-eu/mailsplit": "5.4.14",
     "fast-xml-parser": "^5.9.3",
     "hono": "^4.11.1",

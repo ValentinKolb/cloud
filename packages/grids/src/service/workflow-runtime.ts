@@ -33,7 +33,7 @@ import {
   wakeExpiredWorkflowRuns,
 } from "@valentinkolb/cloud/workflows/store";
 import { err, fail, type Result } from "@valentinkolb/stdlib";
-import { scheduler } from "@valentinkolb/sync";
+import { scheduler } from "@k2b/sync";
 import type { WorkflowRunEventScope } from "../lib/workflow-run-events";
 import { GRIDS_WORKFLOW_ACTIONS } from "../workflows";
 import type {

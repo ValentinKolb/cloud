@@ -1,5 +1,5 @@
 import { createRuntimeLifecycle, logger } from "@valentinkolb/cloud/services";
-import { type Lock, type Mutex, mutex } from "@valentinkolb/sync";
+import { type Lock, type Mutex, mutex } from "@k2b/sync";
 import { sql } from "bun";
 import { parseConnectorCapabilities } from "../contracts";
 import { sha256Json } from "./canonical";

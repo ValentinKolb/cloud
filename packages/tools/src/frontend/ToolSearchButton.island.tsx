@@ -5,7 +5,7 @@ import {
   SPOTLIGHT_SHORTCUT_TITLE,
   type SpotlightButtonVariant,
 } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { fuzzy } from "@valentinkolb/stdlib";
 import { onCleanup, onMount } from "solid-js";
 import { categories, categoryOrder, tools, toolSearchText, type ToolDef } from "./tools/registry";

@@ -1,6 +1,6 @@
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { FilterChip, type FilterChipSection, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient as loggingClient } from "../api-client";
 import { buildLogFilterUrl, defaultLogFilter, hasActiveLogFilters, type LogFilterState } from "./types";

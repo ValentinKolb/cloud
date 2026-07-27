@@ -10,7 +10,7 @@ import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services/postg
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
-import { type JobCtx, job, scheduler } from "@valentinkolb/sync";
+import { type JobCtx, job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 import { normalizeEmailAddress } from "./address-normalization";

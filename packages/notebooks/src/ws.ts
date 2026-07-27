@@ -1,7 +1,7 @@
 import type { NotebookPresenceParticipant, User } from "@valentinkolb/cloud/contracts";
 import { auth } from "@valentinkolb/cloud/server";
 import { accounts, logger } from "@valentinkolb/cloud/services";
-import type { TopicLiveEvent } from "@valentinkolb/sync";
+import type { TopicLiveEvent } from "@k2b/sync";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
@@ -704,14 +704,14 @@ const pushTypeForKind = (kind: YjsTopicEvent["kind"]): typeof WS_TYPE.syncPush |
  *
  * Caveat (codex review on commit 3a121e0, finding 1): this remains
  * a wall-clock silence heuristic, not a "stream is actually empty"
- * signal. `@valentinkolb/sync`'s `topic.live()` swallows the
+ * signal. `@k2b/sync`'s `topic.live()` swallows the
  * "XREAD BLOCK timed out" case internally (its impl's
  * `if (!entry) continue`) and never surfaces it to the consumer,
  * so we can't observe "no more retained entries" deterministically
  * from this side. If Redis latency or a transient retry pause
  * exceeds 150 ms between yields, the timer can fire while real
  * backlog is still queued. The proper fix is to either:
- *   1. Add a head-cursor query to `@valentinkolb/sync` so we know
+ *   1. Add a head-cursor query to `@k2b/sync` so we know
  *      a deterministic stop condition at subscribe time, or
  *   2. Surface the empty-read signal from `topic.live()` itself.
  * Both require library changes; deferred. In practice 150 ms is
@@ -873,7 +873,7 @@ const startLiveStream = (
         // when there's no DB cursor yet (fresh note, snapshot worker
         // hasn't fired) we still need to replay every topic event the
         // user produced before reconnecting. Passing `undefined` would
-        // fall through to `@valentinkolb/sync`'s default of `"$"`,
+        // fall through to `@k2b/sync`'s default of `"$"`,
         // which means "deliver only NEW events from now on" and
         // silently drops the in-flight history. Mirrors the pattern
         // used by `yjs-snapshot-worker.ts:waitUntilTargetCursor`.

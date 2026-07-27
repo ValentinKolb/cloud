@@ -1,5 +1,5 @@
-import type { DoneReason, InboundEvent, LoopAggregate, Message, SessionStore, StoreEntry } from "@valentinkolb/nessi";
-import type { Usage } from "@valentinkolb/nessi/ai";
+import type { DoneReason, InboundEvent, LoopAggregate, Message, SessionStore, StoreEntry } from "@k2b/nessi";
+import type { Usage } from "@k2b/nessi/ai";
 import { sql } from "bun";
 import { toPgTextArray } from "../services/postgres";
 import type { AiTurnBlock } from "./protocol";

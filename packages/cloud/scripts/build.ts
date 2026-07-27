@@ -54,7 +54,7 @@ const compressGzip = promisify(gzip);
 await rm(dist, { recursive: true, force: true });
 await mkdir(distPublic, { recursive: true });
 
-// Mirrors @valentinkolb/ssr's island-id (md5 of POSIX path relative to the
+// Mirrors @k2b/ssr's island-id (md5 of POSIX path relative to the
 // SSR plugin's rootDir, truncated to 12 chars). Both this script and the
 // plugin use process.cwd() as the rootDir, so hashes match.
 const islandId = (file: string): string => {

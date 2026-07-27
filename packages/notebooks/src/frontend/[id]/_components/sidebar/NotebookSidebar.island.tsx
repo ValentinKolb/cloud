@@ -1,5 +1,5 @@
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
-import type { LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import type { LinkNavigateEvent } from "@k2b/ssr/nav";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { hasOnlyNavigatorQuery } from "../../../../lib/navigator-url";

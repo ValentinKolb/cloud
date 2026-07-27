@@ -1,4 +1,4 @@
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { onMount } from "solid-js";
 import { CONTACTS_CREATE_QUERY_KEYS, parseContactCreateSeed } from "../../integration";
 import { openContactCreateFlow, type WritableContactBook } from "./ContactCreateFlow";

@@ -541,14 +541,14 @@ the server-side query.
 Use anchors for navigation. Tables, pagination, range controls, and filter
 chips should work without JavaScript.
 
-An island can use `@valentinkolb/ssr/nav` when it can update the visible state
+An island can use `@k2b/ssr/nav` when it can update the visible state
 without a full document render:
 
 ```tsx
 import {
   Link,
   listenPopState,
-} from "@valentinkolb/ssr/nav";
+} from "@k2b/ssr/nav";
 import { onCleanup, onMount } from "solid-js";
 
 onMount(() => {

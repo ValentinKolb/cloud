@@ -1,4 +1,4 @@
-import { topic } from "@valentinkolb/sync";
+import { topic } from "@k2b/sync";
 import { logger } from "../services/logging";
 import {
   type AiStreamSseEvent,

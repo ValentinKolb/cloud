@@ -1,4 +1,4 @@
-import type { Input } from "@valentinkolb/nessi";
+import type { Input } from "@k2b/nessi";
 import { readAiSettingsState, resolveAiModel } from "./settings";
 import type { AiModelPolicy, AiSettingsError, AiSettingsState } from "./types";
 

@@ -1,5 +1,5 @@
 import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { documentNavigate } from "@valentinkolb/ssr/nav";
+import { documentNavigate } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";

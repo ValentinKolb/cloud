@@ -4,7 +4,7 @@ import type { ServiceAccount } from "@valentinkolb/cloud/services";
 import { ok } from "@valentinkolb/stdlib";
 
 const cloudServices = await import("@valentinkolb/cloud/services");
-const sync = await import("@valentinkolb/sync");
+const sync = await import("@k2b/sync");
 const accessModule = await import("./access");
 const noteRefsModule = await import("./note-refs");
 
@@ -113,7 +113,7 @@ mock.module("@valentinkolb/cloud/services", () => ({
   },
 }));
 
-mock.module("@valentinkolb/sync", () => ({
+mock.module("@k2b/sync", () => ({
   ...sync,
   SchedulerControlNotFoundError: class SchedulerControlNotFoundError extends Error {},
   SchedulerControlTimeoutError: class SchedulerControlTimeoutError extends Error {},

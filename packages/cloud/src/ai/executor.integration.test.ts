@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { Message } from "@valentinkolb/nessi";
+import type { Message } from "@k2b/nessi";
 import { sql } from "bun";
 import { AiTurnExecutor } from "./executor";
 import { migrateCloudAi } from "./migrate";

@@ -1,4 +1,4 @@
-import { type Lock, mutex } from "@valentinkolb/sync";
+import { type Lock, mutex } from "@k2b/sync";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 
 export const MAIL_PROVIDER_OPERATION_LEASE_MS = 5 * 60_000;

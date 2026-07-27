@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { JobTraceEvent, SchedulerTraceEvent, TraceHandler } from "@valentinkolb/sync";
+import type { JobTraceEvent, SchedulerTraceEvent, TraceHandler } from "@k2b/sync";
 import { sql } from "bun";
 import type { PaginationParams } from "../../contracts/shared";
 import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "../postgres";

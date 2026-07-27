@@ -10,7 +10,7 @@
  * entry — they auto-appear in this modal without any frontend change.
  */
 import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, toast } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 

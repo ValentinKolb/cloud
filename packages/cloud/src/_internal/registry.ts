@@ -1,9 +1,9 @@
-import { ephemeral } from "@valentinkolb/sync";
+import { ephemeral } from "@k2b/sync";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { DashboardWidgetPresentation } from "../contracts/widgets";
 
 /**
- * Shared app registry backed by Redis via @valentinkolb/sync ephemeral store.
+ * Shared app registry backed by Redis via @k2b/sync ephemeral store.
  * Replaces the v4 `registry` module with `ephemeral<T>` + prefix filter.
  *
  * TTL is 3× the heartbeat interval (see `./heartbeat.ts`).

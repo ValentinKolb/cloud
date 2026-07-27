@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { truncateMiddle } from "@valentinkolb/nessi";
+import { truncateMiddle } from "@k2b/nessi";
 import { z } from "zod";
 import { coreSettings } from "../services";
 import { defineAiTool } from "./tools";

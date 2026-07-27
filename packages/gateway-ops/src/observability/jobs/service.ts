@@ -8,7 +8,7 @@ import {
   SchedulerControlTimeoutError,
   SchedulerControlUnavailableError,
   schedulerControl,
-} from "@valentinkolb/sync";
+} from "@k2b/sync";
 
 export type ScheduleMetadata = {
   appId: string | null;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { StoreEntry } from "@valentinkolb/nessi";
+import type { StoreEntry } from "@k2b/nessi";
 import { __compactionTest } from "./compaction";
 
 describe("AI compaction split", () => {

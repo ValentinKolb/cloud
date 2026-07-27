@@ -1,6 +1,6 @@
 import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
 import { CopyButton, Placeholder, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { MetricsToken } from "../service";
 

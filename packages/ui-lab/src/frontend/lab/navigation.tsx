@@ -33,7 +33,7 @@ import {
   SettingsSaveBar,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import { Link } from "@valentinkolb/ssr/nav";
+import { Link } from "@k2b/ssr/nav";
 import { createSignal, For, Show } from "solid-js";
 import DemoCard from "./DemoCard";
 

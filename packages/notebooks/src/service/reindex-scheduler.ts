@@ -20,7 +20,7 @@
  */
 
 import { logger, get as settingsGet, trace } from "@valentinkolb/cloud/services";
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@k2b/sync";
 import { reindexAll } from "./note-refs";
 
 const log = logger("notebooks:reindex");

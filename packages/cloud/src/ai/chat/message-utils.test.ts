@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { LoopAggregate, Message, Usage } from "@valentinkolb/nessi";
+import type { LoopAggregate, Message, Usage } from "@k2b/nessi";
 import type { AiStoredMessage } from "../types";
 import { latestLoopUsage, latestUsage, latestUsageSnapshot, memoryToolPresentation } from "./message-utils";
 

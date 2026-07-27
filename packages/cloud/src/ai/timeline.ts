@@ -1,4 +1,4 @@
-import type { Message } from "@valentinkolb/nessi";
+import type { Message } from "@k2b/nessi";
 import type { AiTurnBlock } from "./protocol";
 import { buildBlocksFromMessages, steerAppliedBlockId } from "./protocol";
 import type { AiStoredMessage } from "./types";

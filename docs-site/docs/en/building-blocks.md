@@ -28,9 +28,9 @@ Find the task in the table. Use the listed import and reference.
 | Add product guidance | Help collection | `@valentinkolb/cloud/server` | [In-product Help](/docs/en/platform/help) |
 | Render documents | Template and PDF services | `@valentinkolb/cloud/services` | [PDF and templates](/docs/en/platform/pdf-and-templates) |
 | Add CLI commands | CLI module builders | `@valentinkolb/cloud/cli` | [CLI modules](/docs/en/platform/cli-modules) |
-| Run jobs or coordinate instances | Jobs, queues, schedulers, topics, and mutexes | `@valentinkolb/sync` | [Automation](/docs/en/automation) |
+| Run jobs or coordinate instances | Jobs, queues, schedulers, topics, and mutexes | `@k2b/sync` | [Automation](/docs/en/automation) |
 | Add durable workflows | Workflow definitions and runtime adapters | `@valentinkolb/cloud/workflows` | [Workflow overview](/docs/en/automation/workflow-overview) |
-| Render application pages | SSR shells, islands, and navigation | `@valentinkolb/cloud/ssr`, `@valentinkolb/ssr` | [Frontend](/docs/en/frontend) |
+| Render application pages | SSR shells, islands, and navigation | `@valentinkolb/cloud/ssr`, `@k2b/ssr` | [Frontend](/docs/en/frontend) |
 | Use shared components | Cloud UI package | `@valentinkolb/cloud/ui` | [UI catalog](/ui) |
 | Add AI features | AI resources, models, tools, and streaming | `@valentinkolb/cloud/ai` | [AI](/docs/en/ai) |
 

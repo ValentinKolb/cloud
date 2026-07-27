@@ -1,6 +1,6 @@
 {
   "name": "@valentinkolb/cloud",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "description": "Modular Hono+SolidJS framework for building per-app docker services behind a dynamic gateway. Powers cloud.stuve-ulm.de.",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -70,10 +70,10 @@
     "@simplewebauthn/server": "^13.3.1",
     "@tabler/icons-webfont": "^3.36.1",
     "@tailwindcss/typography": "^0.5.19",
-    "@valentinkolb/nessi": "^0.9.1",
-    "@valentinkolb/ssr": "0.11.0",
+    "@k2b/nessi": "^0.10.0",
+    "@k2b/ssr": "0.12.0",
     "@valentinkolb/stdlib": "0.16.0",
-    "@valentinkolb/sync": "^5.5.2",
+    "@k2b/sync": "^5.7.0",
     "bun-plugin-tailwind": "^0.1.2",
     "hono-openapi": "^1.1.2",
     "jose": "^6.1.3",

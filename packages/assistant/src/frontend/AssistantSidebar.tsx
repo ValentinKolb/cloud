@@ -7,7 +7,7 @@ import {
   openSpotlightSearch,
   SPOTLIGHT_SHORTCUT_TITLE,
 } from "@valentinkolb/cloud/ui";
-import { type LinkNavigateEvent, navigate, navigateTo } from "@valentinkolb/ssr/nav";
+import { type LinkNavigateEvent, navigate, navigateTo } from "@k2b/ssr/nav";
 import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantAllChatsDialog } from "./AssistantAllChatsDialog";

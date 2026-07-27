@@ -1,5 +1,5 @@
 import { logger, trace } from "@valentinkolb/cloud/services";
-import { job } from "@valentinkolb/sync";
+import { job } from "@k2b/sync";
 import { sql } from "bun";
 
 const BASE_DELETE_BATCH_SIZE = 50_000;

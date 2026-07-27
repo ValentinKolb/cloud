@@ -1,4 +1,4 @@
-import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { JSX, ParentProps } from "solid-js";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";

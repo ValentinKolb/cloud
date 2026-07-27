@@ -28,7 +28,7 @@ Choose the smallest runtime that preserves the work you cannot lose.
 Lifecycle callbacks belong to the Cloud application contract.
 
 Retries, jobs, queues, schedules, topics, rate limits, mutexes, and ephemeral
-state come from `@valentinkolb/sync`. Distributed primitives use Valkey. These
+state come from `@k2b/sync`. Distributed primitives use Valkey. These
 primitives do not use the Cloud workflow tables.
 
 The workflow kernel comes from `@valentinkolb/cloud/workflows`. It owns

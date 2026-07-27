@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { OutboundEvent, ProviderRequest, StoreEntry } from "@valentinkolb/nessi";
-import { nessi } from "@valentinkolb/nessi";
-import type { Provider } from "@valentinkolb/nessi/ai";
+import type { OutboundEvent, ProviderRequest, StoreEntry } from "@k2b/nessi";
+import { nessi } from "@k2b/nessi";
+import type { Provider } from "@k2b/nessi/ai";
 import { z } from "zod";
 import type { RequestActor } from "../server";
 import { aiToolAllowsAlways, aiToolApprovalScope, aiToolNeedsApproval } from "./approvals";

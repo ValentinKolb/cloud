@@ -1,6 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { dialogCore, panelDialogOptions, prompts, CopyButton } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { apiClient } from "@/api/client";
 import type { OAuthClientWithSecret, CreateOAuthClient } from "@/contracts";
 import OAuthClientDialog from "./OAuthClientDialog";

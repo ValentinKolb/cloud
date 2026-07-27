@@ -1,5 +1,5 @@
 import { fromBase64Strict } from "@valentinkolb/stdlib";
-import { topic } from "@valentinkolb/sync";
+import { topic } from "@k2b/sync";
 import * as Y from "yjs";
 import { notebooksYjs } from "../lib/yjs";
 

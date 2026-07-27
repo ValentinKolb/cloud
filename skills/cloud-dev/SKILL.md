@@ -62,10 +62,10 @@ Do not rebuild functionality already owned by these packages:
 | Package | Responsibility |
 | --- | --- |
 | `@valentinkolb/stdlib` | Results, mutations, dates, browser helpers, encoding, and crypto |
-| `@valentinkolb/sync` | Jobs, queues, schedulers, topics, rate limits, and mutexes |
-| `@valentinkolb/ssr` | SolidJS islands SSR and navigation |
+| `@k2b/sync` | Jobs, queues, schedulers, topics, rate limits, and mutexes |
+| `@k2b/ssr` | SolidJS islands SSR and navigation |
 
-Import navigation helpers from `@valentinkolb/ssr/nav`. Cloud does not
+Import navigation helpers from `@k2b/ssr/nav`. Cloud does not
 re-export them.
 
 ## Read only what the task needs

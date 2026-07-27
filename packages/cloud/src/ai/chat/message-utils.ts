@@ -1,4 +1,4 @@
-import type { Message, Usage } from "@valentinkolb/nessi";
+import type { Message, Usage } from "@k2b/nessi";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { formatBytes as sharedFormatBytes } from "../../shared/format";
 import { type AiAttachmentRef, parseAiAttachmentMarkers } from "../attachments";

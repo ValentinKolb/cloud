@@ -1,4 +1,4 @@
-import type { CompactResult, Message } from "@valentinkolb/nessi";
+import type { CompactResult, Message } from "@k2b/nessi";
 import type { AiConversation, AiFrontendToolMode, AiStoredMessage, AiTurnStatus } from "./types";
 
 /**

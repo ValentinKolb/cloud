@@ -1,7 +1,7 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { layout, prompts, toast } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { encoding } from "@valentinkolb/stdlib";
 import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import { dropzone } from "@valentinkolb/stdlib/solid";

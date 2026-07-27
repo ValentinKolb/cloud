@@ -1,5 +1,5 @@
 import { dialogCore, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "@/api/client";

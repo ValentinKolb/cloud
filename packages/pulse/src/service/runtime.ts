@@ -1,5 +1,5 @@
 import { logger, trace } from "@valentinkolb/cloud/services";
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import {
   resumePulseBaseDataClearJobs,

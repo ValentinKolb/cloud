@@ -1,5 +1,5 @@
-import type { Provider } from "@valentinkolb/nessi/ai";
-import { anthropic, gemini, mistral, ollama, openAICompatible, openai, openrouter } from "@valentinkolb/nessi/ai";
+import type { Provider } from "@k2b/nessi/ai";
+import { anthropic, gemini, mistral, ollama, openAICompatible, openai, openrouter } from "@k2b/nessi/ai";
 import type { AiModelProfile } from "./types";
 
 /** Bound how long a provider may stall: connect within 30s, never silent for more than 60s. */

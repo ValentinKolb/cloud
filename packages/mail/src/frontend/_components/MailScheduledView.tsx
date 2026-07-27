@@ -1,5 +1,5 @@
 import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
-import { Link, type LinkNavigateEvent, navigateTo } from "@valentinkolb/ssr/nav";
+import { Link, type LinkNavigateEvent, navigateTo } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";

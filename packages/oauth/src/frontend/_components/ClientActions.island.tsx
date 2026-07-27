@@ -1,5 +1,5 @@
 import { CopyButton, Dropdown, dialogCore, panelDialogOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";

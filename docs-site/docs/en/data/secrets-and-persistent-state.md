@@ -123,7 +123,7 @@ container configuration.
 
 ## Use Valkey for coordination
 
-Use `@valentinkolb/sync` for:
+Use `@k2b/sync` for:
 
 - durable jobs and queues;
 - schedulers;

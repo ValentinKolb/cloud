@@ -44,7 +44,7 @@ An app that disagrees with 1 or 2 is a bug in that app, not a pattern to copy. W
 - Every created resource has matching edit and delete flows, unless create-only was explicitly requested.
 - Optional resource types are complete: if the UI can create a type, it can also be edited, deleted, and rendered.
 - App-wide settings go in `defineApp({ settings })`. Per-resource settings live in the app's own schema.
-- Scheduled work carries `@valentinkolb/sync` schedule metadata (`appId`, `family`, `label`, `source`) plus `trace.fromSyncSchedule`. Run-now controls belong to Gateway Ops observability, not app-local admin endpoints.
+- Scheduled work carries `@k2b/sync` schedule metadata (`appId`, `family`, `label`, `source`) plus `trace.fromSyncSchedule`. Run-now controls belong to Gateway Ops observability, not app-local admin endpoints.
 
 ## SSR and routing
 

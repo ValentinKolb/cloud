@@ -1,6 +1,6 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { currentPathWithQuery } from "@valentinkolb/ssr/nav";
-import { retry } from "@valentinkolb/sync/browser";
+import { currentPathWithQuery } from "@k2b/ssr/nav";
+import { retry } from "@k2b/sync/browser";
 import { onCleanup, onMount } from "solid-js";
 import {
   CONTACTS_LIVE_WS_TYPE,

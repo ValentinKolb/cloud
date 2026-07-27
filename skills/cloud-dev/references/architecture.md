@@ -91,9 +91,9 @@ Find the task in the table. Use the listed import and reference.
 | Add product guidance | Help collection | `@valentinkolb/cloud/server` | [In-product Help](./help.md#page-platform-help) |
 | Render documents | Template and PDF services | `@valentinkolb/cloud/services` | [PDF and templates](./platform.md#page-platform-pdf-and-templates) |
 | Add CLI commands | CLI module builders | `@valentinkolb/cloud/cli` | [CLI modules](./cli.md#page-platform-cli-modules) |
-| Run jobs or coordinate instances | Jobs, queues, schedulers, topics, and mutexes | `@valentinkolb/sync` | [Automation](./workflows.md#page-automation) |
+| Run jobs or coordinate instances | Jobs, queues, schedulers, topics, and mutexes | `@k2b/sync` | [Automation](./workflows.md#page-automation) |
 | Add durable workflows | Workflow definitions and runtime adapters | `@valentinkolb/cloud/workflows` | [Workflow overview](./workflows.md#page-automation-workflow-overview) |
-| Render application pages | SSR shells, islands, and navigation | `@valentinkolb/cloud/ssr`, `@valentinkolb/ssr` | [Frontend](./frontend.md#page-frontend) |
+| Render application pages | SSR shells, islands, and navigation | `@valentinkolb/cloud/ssr`, `@k2b/ssr` | [Frontend](./frontend.md#page-frontend) |
 | Use shared components | Cloud UI package | `@valentinkolb/cloud/ui` | [UI catalog](./components.md) |
 | Add AI features | AI resources, models, tools, and streaming | `@valentinkolb/cloud/ai` | [AI](./ai.md#page-ai) |
 

@@ -1,5 +1,5 @@
 import { decryptSecret, encryptSecret } from "@valentinkolb/cloud/services";
-import { mutex } from "@valentinkolb/sync";
+import { mutex } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
 import type { MailOAuthProviderId, ProviderSecret } from "../contracts";

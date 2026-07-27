@@ -11,7 +11,7 @@ import {
   retry,
   scheduler,
   topic,
-} from "@valentinkolb/sync";
+} from "@k2b/sync";
 
 export const inventoryJobs = job<{ itemId: string }>({
   id: "inventory.reindex",

@@ -9,7 +9,7 @@ import {
   stopRuntimeResources,
   trace,
 } from "@valentinkolb/cloud/services";
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
 import { hasCurrentMailboxUserPermission } from "./service/collaborators";

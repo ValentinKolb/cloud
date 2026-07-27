@@ -1,6 +1,6 @@
 import { formatNumber } from "@valentinkolb/cloud/shared";
 import { Checkbox, prompts } from "@valentinkolb/cloud/ui";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 

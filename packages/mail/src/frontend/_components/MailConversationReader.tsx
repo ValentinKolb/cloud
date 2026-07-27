@@ -1,5 +1,5 @@
 import { AppWorkspace, CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";

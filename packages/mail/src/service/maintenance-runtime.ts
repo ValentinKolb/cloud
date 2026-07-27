@@ -1,6 +1,6 @@
 import { createRuntimeTaskTracker, stopRuntimeJobs } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
-import { job } from "@valentinkolb/sync";
+import { job } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
 import { type CommandState, type MaintenanceCommandInput, maintenanceCommandInputSchema } from "../contracts";

@@ -1,4 +1,4 @@
-import type { Tool, ToolContext } from "@valentinkolb/nessi";
+import type { Tool, ToolContext } from "@k2b/nessi";
 import type { z } from "zod";
 import type { AuthContext, RequestActor } from "../server";
 import type {

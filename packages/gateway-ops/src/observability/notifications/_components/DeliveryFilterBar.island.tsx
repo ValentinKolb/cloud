@@ -1,6 +1,6 @@
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import {
   buildDeliveryNotificationsUrl,
   type DeliveryStatusFilter,

@@ -1,6 +1,6 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { AppWorkspace, openSpotlightSearch, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
-import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } from "@valentinkolb/ssr/nav";
+import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } from "@k2b/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";

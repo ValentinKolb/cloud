@@ -1,7 +1,7 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
-import { navigate } from "@valentinkolb/ssr/nav";
+import { navigate } from "@k2b/ssr/nav";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type {
   PulseCurrentState,

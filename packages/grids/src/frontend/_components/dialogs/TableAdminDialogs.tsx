@@ -10,7 +10,7 @@ import {
   TextInput,
   Tooltip,
 } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";

@@ -12,13 +12,13 @@ updated: 2026-07-27
 
 Use a scheduler for recurring work shared by every instance of an application.
 
-`@valentinkolb/sync` stores schedule state in Valkey and elects one dispatcher.
+`@k2b/sync` stores schedule state in Valkey and elects one dispatcher.
 All app instances should register the same schedules.
 
 ## Register a schedule
 
 ```ts
-import { scheduler } from "@valentinkolb/sync";
+import { scheduler } from "@k2b/sync";
 
 const inventoryScheduler = scheduler({ id: "inventory" });
 

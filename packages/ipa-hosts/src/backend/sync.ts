@@ -1,6 +1,6 @@
 import { freeipa } from "@valentinkolb/cloud/server/services";
 import { getFreeIpaConfig, logger, get as settingsGet, set as settingsSet, trace } from "@valentinkolb/cloud/services";
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 
 type DbRow = Record<string, unknown>;

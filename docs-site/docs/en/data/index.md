@@ -24,7 +24,7 @@ settings, notifications, and logs.
 | Operator-controlled runtime configuration | Cloud settings |
 | One fixed credential for a setting | A `secret` setting |
 | Credentials created for users or resources | Encrypted application table |
-| Locks, rate limits, queues, topics, and short-lived cache entries | Valkey through `@valentinkolb/sync` or a bounded cache |
+| Locks, rate limits, queues, topics, and short-lived cache entries | Valkey through `@k2b/sync` or a bounded cache |
 | Large files or shared file trees | External storage, with ownership metadata in Postgres |
 
 Postgres is the default for state that must survive a restart.

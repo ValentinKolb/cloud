@@ -1,5 +1,5 @@
 import { MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
-import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";

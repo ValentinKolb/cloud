@@ -1,5 +1,5 @@
 import { logger, trace } from "@valentinkolb/cloud/services";
-import { job } from "@valentinkolb/sync";
+import { job } from "@k2b/sync";
 import { sql } from "bun";
 import type { SqlClient } from "./audit";
 import { type GridsRecordEvent, GridsRecordEventSchema, publishRecordEventWithFederatedTargets } from "./record-events";

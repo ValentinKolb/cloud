@@ -1,5 +1,5 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { ephemeral, type Lock, mutex } from "@valentinkolb/sync";
+import { ephemeral, type Lock, mutex } from "@k2b/sync";
 import { sql } from "bun";
 import type { AcquiredDraftLease, DraftLease, DraftLeaseHolder } from "../contracts";
 import { requireMailboxPermission } from "./access";

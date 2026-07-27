@@ -1,5 +1,5 @@
 import { SegmentedControl } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { buildNotificationViewUrl, type NotificationAdminView } from "./filter-state";
 
 const options = [

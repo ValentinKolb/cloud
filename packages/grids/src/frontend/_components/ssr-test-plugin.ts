@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConfig } from "@valentinkolb/ssr";
+import { createConfig } from "@k2b/ssr";
 
 const root = mkdtempSync(join(tmpdir(), "grids-ssr-render-tests-"));
 const { plugin } = createConfig({ dev: true, rootDir: root });

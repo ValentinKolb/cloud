@@ -1,5 +1,5 @@
 import { logger } from "@valentinkolb/cloud/services";
-import { mutex, type QueueReceived, queue } from "@valentinkolb/sync";
+import { mutex, type QueueReceived, queue } from "@k2b/sync";
 import * as Y from "yjs";
 import * as notes from "./notes";
 import { compareStreamCursor, createYjsTopic, fromBase64, NODE_ID, parseStreamCursor, TOPIC_RETENTION_MS } from "./yjs-sync";

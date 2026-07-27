@@ -18,7 +18,7 @@ import {
   toast,
   Tooltip,
 } from "@valentinkolb/cloud/ui";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";

@@ -1,5 +1,5 @@
 import { Checkbox, CopyButton, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { dates } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onMount, Show } from "solid-js";

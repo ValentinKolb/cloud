@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ProviderEvent } from "@valentinkolb/nessi";
+import type { ProviderEvent } from "@k2b/nessi";
 import { createAiProvider } from "./provider";
 import type { AiModelProfile } from "./types";
 

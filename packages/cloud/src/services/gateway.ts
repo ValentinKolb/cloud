@@ -1,4 +1,4 @@
-import { ephemeral, topic } from "@valentinkolb/sync";
+import { ephemeral, topic } from "@k2b/sync";
 import { logger } from "./logging";
 
 const SNAPSHOT_TTL_MS = 30_000;

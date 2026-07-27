@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { Message } from "@valentinkolb/nessi";
+import type { Message } from "@k2b/nessi";
 import type { z } from "zod";
 import {
   type AiChatEnrichment,

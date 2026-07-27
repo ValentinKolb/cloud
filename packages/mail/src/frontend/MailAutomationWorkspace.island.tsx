@@ -1,5 +1,5 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import { type LinkNavigateEvent, listenPopState, navigate } from "@valentinkolb/ssr/nav";
+import { type LinkNavigateEvent, listenPopState, navigate } from "@k2b/ssr/nav";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { MailAutomationWorkspaceData } from "../service/automation-workspace";
 import MailAutomaticReplySettings, { type AutomaticReplyPresetId } from "./_components/MailAutomaticReplySettings";

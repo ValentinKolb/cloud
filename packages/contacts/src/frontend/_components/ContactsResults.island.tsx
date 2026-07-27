@@ -1,5 +1,5 @@
 import { FilterChip, type FilterChipSection, Pagination, TextInput } from "@valentinkolb/cloud/ui";
-import { documentNavigate, navigate } from "@valentinkolb/ssr/nav";
+import { documentNavigate, navigate } from "@k2b/ssr/nav";
 import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";

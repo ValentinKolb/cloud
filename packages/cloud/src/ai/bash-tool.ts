@@ -1,4 +1,4 @@
-import { truncateMiddle } from "@valentinkolb/nessi";
+import { truncateMiddle } from "@k2b/nessi";
 import { Bash, MountableFs } from "just-bash";
 import { z } from "zod";
 import { PgConversationFs, type SkillFsFile, SkillsFs } from "./bash-fs";

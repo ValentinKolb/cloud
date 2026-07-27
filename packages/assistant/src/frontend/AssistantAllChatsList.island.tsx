@@ -1,7 +1,7 @@
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { formatDateTime as formatUpdatedAt } from "@valentinkolb/cloud/shared";
 import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { assistantApi } from "../api/client";

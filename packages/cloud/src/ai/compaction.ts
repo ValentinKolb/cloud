@@ -1,5 +1,5 @@
-import type { CompactFn, Message, StoreEntry } from "@valentinkolb/nessi";
-import { truncateMiddle } from "@valentinkolb/nessi";
+import type { CompactFn, Message, StoreEntry } from "@k2b/nessi";
+import { truncateMiddle } from "@k2b/nessi";
 import { aiConversationStore } from "./store";
 
 /**

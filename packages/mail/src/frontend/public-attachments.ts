@@ -1,6 +1,6 @@
 import { env } from "@valentinkolb/cloud/config";
 import { type AuthContext, auth, rateLimit } from "@valentinkolb/cloud/server";
-import { ratelimit } from "@valentinkolb/sync";
+import { ratelimit } from "@k2b/sync";
 import { type Context, Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { attachmentLinks, messages } from "../service";

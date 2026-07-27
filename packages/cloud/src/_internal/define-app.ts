@@ -5,9 +5,9 @@
  * Returns `{ ssr, plugin, config, meta, start }`.
  */
 
-import type { SsrConfig } from "@valentinkolb/ssr";
-import { createConfig as createSsrConfig } from "@valentinkolb/ssr";
-import { routes } from "@valentinkolb/ssr/hono";
+import type { SsrConfig } from "@k2b/ssr";
+import { createConfig as createSsrConfig } from "@k2b/ssr";
+import { routes } from "@k2b/ssr/hono";
 import { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
 import { env } from "../config/env";

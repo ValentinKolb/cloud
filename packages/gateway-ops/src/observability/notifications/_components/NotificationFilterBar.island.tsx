@@ -1,6 +1,6 @@
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { buildLegacyNotificationsUrl, type LegacyNotificationStatusFilter, NOTIFICATION_ADMIN_BASE_URL } from "./filter-state";
 import SendAllPending from "./SendAllPending.island";
 

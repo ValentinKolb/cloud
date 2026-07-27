@@ -1,5 +1,5 @@
-import type { Input, Message } from "@valentinkolb/nessi";
-import { type QueueReceived, queue } from "@valentinkolb/sync";
+import type { Input, Message } from "@k2b/nessi";
+import { type QueueReceived, queue } from "@k2b/sync";
 import { z } from "zod";
 import type { RequestActor } from "../server";
 import { logger } from "../services/logging";

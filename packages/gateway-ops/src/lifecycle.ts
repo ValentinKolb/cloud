@@ -1,7 +1,7 @@
 import { appRegistry, listApps, listAppsDetailed } from "@valentinkolb/cloud";
 import type { AppLifecycle } from "@valentinkolb/cloud/contracts";
 import { get as getSetting, logger, trace } from "@valentinkolb/cloud/services";
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@k2b/sync";
 import { runHealthWebhookCheck } from "./health-webhooks";
 import { migrate } from "./migrate";
 import { listRegisteredAppStatus, markOfflineLogged, upsertRegisteredApps } from "./registered-apps";

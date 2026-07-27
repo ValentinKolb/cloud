@@ -1,5 +1,5 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { ephemeral } from "@valentinkolb/sync";
+import { ephemeral } from "@k2b/sync";
 import { sql } from "bun";
 import type { ConversationPresenceHeartbeat, ConversationPresenceMode } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";

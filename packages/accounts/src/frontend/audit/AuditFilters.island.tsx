@@ -1,5 +1,5 @@
 import { EntitySearch, FilterChip, prompts, type EntitySearchPrincipal, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import type { AuditActionGroup, AuditOutcome } from "@valentinkolb/cloud/services";
 import { ACTION_OPTIONS } from "./audit-labels";
 

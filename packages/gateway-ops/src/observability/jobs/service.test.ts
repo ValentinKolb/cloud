@@ -5,7 +5,7 @@ import {
   SchedulerControlNotFoundError,
   SchedulerControlTimeoutError,
   SchedulerControlUnavailableError,
-} from "@valentinkolb/sync";
+} from "@k2b/sync";
 import { buildBackgroundJobRows, filterBackgroundJobRows, normalizeScheduleMetadata, runScheduleNowWithControl } from "./service";
 
 const schedule = (overrides: Partial<SchedulerControlInfo> = {}): SchedulerControlInfo => ({

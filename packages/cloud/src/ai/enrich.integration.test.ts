@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@valentinkolb/nessi";
+import type { Message } from "@k2b/nessi";
 import { sql } from "bun";
 import { migrateCloudAi } from "./migrate";
 import { aiConversationStore } from "./store";

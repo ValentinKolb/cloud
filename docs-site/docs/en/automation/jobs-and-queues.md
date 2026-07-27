@@ -14,7 +14,7 @@ Use a job for one typed background operation. Use a queue when the application
 needs direct control over receive, lease, acknowledge, and dead-letter
 behavior.
 
-Both use `@valentinkolb/sync` and provide at-least-once execution.
+Both use `@k2b/sync` and provide at-least-once execution.
 
 ## Retry an operation
 
@@ -24,7 +24,7 @@ Use `retry()` when one process-local operation can be repeated safely.
 import {
   isRetryableTransportError,
   retry,
-} from "@valentinkolb/sync";
+} from "@k2b/sync";
 
 const response = await retry({
   run: () => fetchInventory(),
@@ -57,7 +57,7 @@ when the work must survive a restart.
 ## Run a job
 
 ```ts
-import { job } from "@valentinkolb/sync";
+import { job } from "@k2b/sync";
 
 const reindexItem = job<{ itemId: string }>({
   id: "inventory.reindex-item",
@@ -107,7 +107,7 @@ The default key TTL is 24 hours. A terminal job releases its key.
 ## Use a queue
 
 ```ts
-import { queue } from "@valentinkolb/sync";
+import { queue } from "@k2b/sync";
 
 const imports = queue<{ fileId: string }>({
   id: "inventory.imports",

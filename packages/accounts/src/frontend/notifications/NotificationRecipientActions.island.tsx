@@ -1,6 +1,6 @@
 import { createSignal, Show } from "solid-js";
 import { dialogCore, PanelDialog, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { apiClient } from "@/api/client";
 
 type Props = {

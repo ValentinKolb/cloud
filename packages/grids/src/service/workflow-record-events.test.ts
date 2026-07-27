@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { QueueReceived } from "@valentinkolb/sync";
+import type { QueueReceived } from "@k2b/sync";
 import type { GridsRecordEvent } from "./record-events";
 import {
   isDeletedRecordEventBaseError,

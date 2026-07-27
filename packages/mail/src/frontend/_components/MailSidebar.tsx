@@ -1,5 +1,5 @@
 import { AppWorkspace, Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
-import { type LinkNavigateEvent, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";

@@ -1,5 +1,5 @@
 import { GATEWAY_TELEMETRY_TENANT, type GatewayTelemetryEvent, gatewayTelemetryTopic, logger } from "@valentinkolb/cloud/services";
-import type { TopicDelivery } from "@valentinkolb/sync";
+import type { TopicDelivery } from "@k2b/sync";
 import { sql } from "bun";
 
 const log = logger("gateway:telemetry");

@@ -1243,7 +1243,7 @@ Native PostgreSQL full-text search requires the database engine to read message 
 
 ## Background work
 
-`@valentinkolb/sync` supplies coordination; PostgreSQL stores domain progress and audit.
+`@k2b/sync` supplies coordination; PostgreSQL stores domain progress and audit.
 
 | Primitive | Use |
 | --- | --- |

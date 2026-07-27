@@ -1,5 +1,5 @@
 import { logger } from "@valentinkolb/cloud/services";
-import { topic } from "@valentinkolb/sync";
+import { topic } from "@k2b/sync";
 
 const log = logger("grids:workflow-runtime-events");
 const TENANT_ID = "global";

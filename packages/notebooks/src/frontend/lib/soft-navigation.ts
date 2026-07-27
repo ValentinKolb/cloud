@@ -1,4 +1,4 @@
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 
 export const SOFT_NOTE_NAVIGATION_REQUEST_EVENT = "notebooks.note.softNavigationRequest";
 const SELECT_INITIAL_TITLE_KEY = "notebooks.selectInitialTitle";

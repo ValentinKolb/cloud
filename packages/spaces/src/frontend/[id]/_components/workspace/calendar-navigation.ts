@@ -1,5 +1,5 @@
 import { prompts } from "@valentinkolb/cloud/ui";
-import { documentNavigate, listenPopState, navigate } from "@valentinkolb/ssr/nav";
+import { documentNavigate, listenPopState, navigate } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { loadSpacesViewSnapshot, SpacesViewUnavailableError } from "./view-refresh";

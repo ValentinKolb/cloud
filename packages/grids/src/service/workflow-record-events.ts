@@ -5,7 +5,7 @@ import type { WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
 import type { Result } from "@valentinkolb/stdlib";
-import { type Lock, mutex, type QueueReceived } from "@valentinkolb/sync";
+import { type Lock, mutex, type QueueReceived } from "@k2b/sync";
 import { sql } from "bun";
 import type { FilterTree } from "../contracts";
 import type { GridsWorkflow } from "../workflows/contracts";

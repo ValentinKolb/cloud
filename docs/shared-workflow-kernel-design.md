@@ -666,7 +666,7 @@ The kernel supplies the opaque dependency contract, waiting execution outcome, a
 
 ### Time and schedules
 
-Current schedule support provides normalization, stable registration and slot keys, and a reconciliation planner. App adapters connect those registrations to `@valentinkolb/sync`, revalidate the current activation before materializing a run, and retain PostgreSQL authority. The current Grids and Mail misfire policy skips cron slots missed while their scheduler process is offline; delivered duplicate slots are deduplicated. A future timer dependency may pause an already-running workflow without letting actions create unmanaged cron schedules.
+Current schedule support provides normalization, stable registration and slot keys, and a reconciliation planner. App adapters connect those registrations to `@k2b/sync`, revalidate the current activation before materializing a run, and retain PostgreSQL authority. The current Grids and Mail misfire policy skips cron slots missed while their scheduler process is offline; delivered duplicate slots are deduplicated. A future timer dependency may pause an already-running workflow without letting actions create unmanaged cron schedules.
 
 An action must not register its own persistent scheduler entry. Recurring starts belong to triggers; delayed continuation belongs to the dependency protocol. This keeps schedules inspectable and prevents orphaned registrations.
 
@@ -872,7 +872,7 @@ The port does not know table names, but its compare-and-set and transaction sema
 The shared runtime must provide these production properties, using the current Grids and Mail implementations as evidence and test sources:
 
 - PostgreSQL is the authority for runs, steps, leases, fences, and durable outcomes.
-- `@valentinkolb/sync` carries run IDs and wakeups, not authoritative workflow state or large payloads.
+- `@k2b/sync` carries run IDs and wakeups, not authoritative workflow state or large payloads.
 - Workers claim with a lease and execution generation; stale workers cannot commit results.
 - Heartbeats and cancellation are checked between steps and during long app operations.
 - Trigger keys are deterministic and unique for their domain event.

@@ -9,7 +9,7 @@ import {
   finishWorkflowRun,
   publishWorkflowVersion,
 } from "@valentinkolb/cloud/workflows/store";
-import { mutex } from "@valentinkolb/sync";
+import { mutex } from "@k2b/sync";
 import { sql } from "bun";
 import { type ConnectorVerification, unavailableProviderLimitSnapshot } from "../contracts";
 import { migrate } from "../migrate";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { LoopAggregate, Message } from "@valentinkolb/nessi";
+import type { LoopAggregate, Message } from "@k2b/nessi";
 import { sql } from "bun";
 import { forgetAiToolApproval, hasRememberedAiToolApproval, rememberAiToolApproval } from "./approvals";
 import { migrateCloudAi } from "./migrate";

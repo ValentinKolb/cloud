@@ -1,4 +1,4 @@
-import type { Usage } from "@valentinkolb/nessi";
+import type { Usage } from "@k2b/nessi";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Dropdown, type DropdownItem, ProgressBar, Tooltip, toast } from "../../ui";
 import type { AiPublicModelProfile, AiUserContentPart } from "../types";

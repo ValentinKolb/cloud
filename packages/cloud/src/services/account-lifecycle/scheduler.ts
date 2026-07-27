@@ -1,4 +1,4 @@
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@k2b/sync";
 import { logger, logging, trace } from "../logging";
 import { providers } from "../providers";
 import { get as getSetting } from "../settings";

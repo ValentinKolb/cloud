@@ -7,7 +7,7 @@ import {
   navigate,
   restoreScroll,
   startViewTransition,
-} from "@valentinkolb/ssr/nav";
+} from "@k2b/ssr/nav";
 import { children, createContext, createMemo, createUniqueId, type JSX, Show, useContext } from "solid-js";
 import {
   APP_WORKSPACE_DETAIL_MAX,

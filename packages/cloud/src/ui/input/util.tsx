@@ -11,7 +11,7 @@ export type InputA11y = {
  * Module-level fallback counter for `createUniqueId`.
  *
  * Solid's `createUniqueId` requires a hydrating render context. The current
- * @valentinkolb/ssr release renders islands via `renderToString` (sync, NOT
+ * @k2b/ssr release renders islands via `renderToString` (sync, NOT
  * hydrating), which throws "getNextContextId cannot be used under
  * non-hydrating context" when an island contains TextInput / similar inputs.
  *

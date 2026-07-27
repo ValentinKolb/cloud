@@ -1,5 +1,5 @@
 import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
-import { listenPopState, navigate, navigateTo } from "@valentinkolb/ssr/nav";
+import { listenPopState, navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";

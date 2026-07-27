@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TopicPayloadError } from "@valentinkolb/sync";
+import { TopicPayloadError } from "@k2b/sync";
 import { type GridsRecordEvent, publishRecordEvent, recordEventReader } from "./record-events";
 
 const redisTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@valentinkolb/nessi";
+import type { Message } from "@k2b/nessi";
 import { buildAiMessageTimeline, copyTextFromAssistantEntries } from "./timeline";
 import type { AiStoredMessage } from "./types";
 

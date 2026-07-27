@@ -1,4 +1,4 @@
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { openContactCreateFlow, type WritableContactBook } from "./ContactCreateFlow";
 
 type Props = {

@@ -7,7 +7,7 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { apiClient as coreClient } from "@valentinkolb/cloud/clients/core";
 import type { EntityKind, EntityListItem } from "@valentinkolb/cloud/contracts";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { onCleanup, onMount } from "solid-js";
 
 type Props = {

@@ -1,4 +1,4 @@
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { onCleanup, onMount } from "solid-js";
 import { type NotebookWorkspaceEvent, notebooksWorkspace } from "../../../../lib/workspace-events";
 import { WORKSPACE_EVENT } from "./workspace-events";

@@ -25,7 +25,7 @@ Choose the smallest runtime that preserves the work you cannot lose.
 Lifecycle callbacks belong to the Cloud application contract.
 
 Retries, jobs, queues, schedules, topics, rate limits, mutexes, and ephemeral
-state come from `@valentinkolb/sync`. Distributed primitives use Valkey. These
+state come from `@k2b/sync`. Distributed primitives use Valkey. These
 primitives do not use the Cloud workflow tables.
 
 The workflow kernel comes from `@valentinkolb/cloud/workflows`. It owns
@@ -125,7 +125,7 @@ Use a job for one typed background operation. Use a queue when the application
 needs direct control over receive, lease, acknowledge, and dead-letter
 behavior.
 
-Both use `@valentinkolb/sync` and provide at-least-once execution.
+Both use `@k2b/sync` and provide at-least-once execution.
 
 <a id="page-automation-jobs-and-queues-retry-an-operation"></a>
 ### Retry an operation
@@ -136,7 +136,7 @@ Use `retry()` when one process-local operation can be repeated safely.
 import {
   isRetryableTransportError,
   retry,
-} from "@valentinkolb/sync";
+} from "@k2b/sync";
 
 const response = await retry({
   run: () => fetchInventory(),
@@ -170,7 +170,7 @@ when the work must survive a restart.
 ### Run a job
 
 ```ts
-import { job } from "@valentinkolb/sync";
+import { job } from "@k2b/sync";
 
 const reindexItem = job<{ itemId: string }>({
   id: "inventory.reindex-item",
@@ -222,7 +222,7 @@ The default key TTL is 24 hours. A terminal job releases its key.
 ### Use a queue
 
 ```ts
-import { queue } from "@valentinkolb/sync";
+import { queue } from "@k2b/sync";
 
 const imports = queue<{ fileId: string }>({
   id: "inventory.imports",
@@ -279,14 +279,14 @@ when a user-authored, multi-step process needs a durable effect journal.
 
 Use a scheduler for recurring work shared by every instance of an application.
 
-`@valentinkolb/sync` stores schedule state in Valkey and elects one dispatcher.
+`@k2b/sync` stores schedule state in Valkey and elects one dispatcher.
 All app instances should register the same schedules.
 
 <a id="page-automation-schedulers-register-a-schedule"></a>
 ### Register a schedule
 
 ```ts
-import { scheduler } from "@valentinkolb/sync";
+import { scheduler } from "@k2b/sync";
 
 const inventoryScheduler = scheduler({ id: "inventory" });
 
@@ -376,7 +376,7 @@ provides best-effort fan-out for connected clients.
 ### Publish an event
 
 ```ts
-import { topic } from "@valentinkolb/sync";
+import { topic } from "@k2b/sync";
 
 const inventoryEvents = topic<{
   type: "item.updated";
@@ -446,7 +446,7 @@ The generic supplies TypeScript types but no runtime payload validation.
 <a id="page-automation-coordination-primitives"></a>
 ## Coordination primitives
 
-Use the `@valentinkolb/sync` primitives when app instances need shared,
+Use the `@k2b/sync` primitives when app instances need shared,
 short-lived coordination state.
 
 These primitives use Valkey. They are not a replacement for durable domain
@@ -456,7 +456,7 @@ records in Postgres.
 ### Use a distributed mutex
 
 ```ts
-import { mutex } from "@valentinkolb/sync";
+import { mutex } from "@k2b/sync";
 
 const stockLock = mutex({
   id: "inventory.stock",
@@ -482,7 +482,7 @@ a database transaction or a workflow effect class for that.
 ### Apply a sliding rate limit
 
 ```ts
-import { ratelimit } from "@valentinkolb/sync";
+import { ratelimit } from "@k2b/sync";
 
 const exports = ratelimit({
   id: "inventory.exports",
@@ -509,7 +509,7 @@ Use the primitive when the limit belongs to domain work outside one router.
 ### Store ephemeral state
 
 ```ts
-import { ephemeral } from "@valentinkolb/sync";
+import { ephemeral } from "@k2b/sync";
 
 const presence = ephemeral<{ userId: string }>({
   id: "inventory.editors",

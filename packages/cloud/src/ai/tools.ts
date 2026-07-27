@@ -1,5 +1,5 @@
-import type { Tool, ToolContext } from "@valentinkolb/nessi";
-import { defineTool as defineNessiTool } from "@valentinkolb/nessi";
+import type { Tool, ToolContext } from "@k2b/nessi";
+import { defineTool as defineNessiTool } from "@k2b/nessi";
 import type { z } from "zod";
 import type { RequestActor } from "../server";
 import { aiToolNeedsApproval } from "./approvals";

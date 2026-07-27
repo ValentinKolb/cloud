@@ -1,5 +1,5 @@
-import type { CompactEvent, NessiLoop, OutboundEvent } from "@valentinkolb/nessi";
-import { compact, nessi } from "@valentinkolb/nessi";
+import type { CompactEvent, NessiLoop, OutboundEvent } from "@k2b/nessi";
+import { compact, nessi } from "@k2b/nessi";
 import type { RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";

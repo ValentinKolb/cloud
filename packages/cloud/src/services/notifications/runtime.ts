@@ -1,4 +1,4 @@
-import { type QueueReceived, queue } from "@valentinkolb/sync";
+import { type QueueReceived, queue } from "@k2b/sync";
 import { logger, trace } from "../logging";
 import { processNotificationDelivery, recoverNotificationDeliveries } from "./dispatcher";
 

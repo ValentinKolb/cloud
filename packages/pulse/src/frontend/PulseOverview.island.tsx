@@ -1,5 +1,5 @@
 import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
-import { navigate, navigateTo } from "@valentinkolb/ssr/nav";
+import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { PulseBase, PulseCapabilitySnapshot } from "../contracts";
 import { jsonFetch } from "./http";

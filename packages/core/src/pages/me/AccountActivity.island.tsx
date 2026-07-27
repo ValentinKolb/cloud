@@ -1,6 +1,6 @@
 import type { AccountActivity as AccountActivityEntry } from "@valentinkolb/cloud/contracts";
 import { DataTable, type DataTableColumn, FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigateTo } from "@k2b/ssr/nav";
 import { dates } from "@valentinkolb/stdlib";
 
 type ActivityDays = 7 | 30 | 90;

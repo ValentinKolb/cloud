@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { OutboundEvent } from "@valentinkolb/nessi";
+import type { OutboundEvent } from "@k2b/nessi";
 import { __aiExecutorTest } from "./executor";
 import { streamBlockId, toolBlockId } from "./protocol";
 

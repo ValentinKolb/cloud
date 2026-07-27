@@ -12,8 +12,8 @@
     "check:skill-references": "bun ./scripts/generate-cloud-dev-references.ts --check",
     "dev": "bun --watch --preload ./src/preload.ts ./src/dev.ts",
     "generate:skill-references": "bun ./scripts/generate-cloud-dev-references.ts",
-    "typecheck": "bun ./scripts/run-typecheck.ts ./tsconfig.json",
-    "typecheck:examples": "bun ./scripts/run-typecheck.ts ../examples/cloud-docs/tsconfig.json",
+    "typecheck": "tsc -p ./tsconfig.json --noEmit --pretty false",
+    "typecheck:examples": "tsc -p ../examples/cloud-docs/tsconfig.json --noEmit --pretty false",
     "build": "NODE_ENV=production bun ./src/build.ts",
     "start": "bun dist/server.js",
     "verify:docs": "bun run check:docs && bun run check:api-surface && bun run check:example-coverage && bun run check:skill-references && bun run check:skills && bun run check:harness && bun run typecheck && bun run typecheck:examples && CLOUD_DOCS_SITE_URL=http://localhost:3000 bun run build"

@@ -1,5 +1,5 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { schedulerControl } from "@valentinkolb/sync";
+import { schedulerControl } from "@k2b/sync";
 import { sql } from "bun";
 import { type MailStorageSummary, mailStorageSummarySchema } from "../contracts";
 import { isCurrentPlatformAdmin } from "./access";

@@ -1,4 +1,4 @@
-import { job, scheduler } from "@valentinkolb/sync";
+import { job, scheduler } from "@k2b/sync";
 import { coreSettings } from "../services";
 import { logger, trace } from "../services/logging";
 import type { AiEnrichmentRunSummary } from "./enrich";

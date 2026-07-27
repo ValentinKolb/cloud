@@ -1,4 +1,4 @@
-import { queue, topic } from "@valentinkolb/sync";
+import { queue, topic } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
 

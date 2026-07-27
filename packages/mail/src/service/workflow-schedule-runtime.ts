@@ -8,7 +8,7 @@ import {
   workflowScheduleSlotKey,
 } from "@valentinkolb/cloud/workflows/runtime";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
-import { type Scheduler, scheduler } from "@valentinkolb/sync";
+import { type Scheduler, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 

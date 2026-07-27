@@ -9,8 +9,8 @@ import type {
   SessionStore,
   Tool,
   ToolContext,
-} from "@valentinkolb/nessi";
-import type { Usage } from "@valentinkolb/nessi/ai";
+} from "@k2b/nessi";
+import type { Usage } from "@k2b/nessi/ai";
 import type { z } from "zod";
 import type { RequestActor } from "../server";
 import type { AiTurnBlock } from "./protocol";

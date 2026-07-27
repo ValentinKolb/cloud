@@ -1,5 +1,5 @@
 import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
-import { routes } from "@valentinkolb/ssr/hono";
+import { routes } from "@k2b/ssr/hono";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { apiRoutes } from "./api";

@@ -10,7 +10,7 @@ updated: 2026-07-27
 
 # Coordination primitives
 
-Use the `@valentinkolb/sync` primitives when app instances need shared,
+Use the `@k2b/sync` primitives when app instances need shared,
 short-lived coordination state.
 
 These primitives use Valkey. They are not a replacement for durable domain
@@ -19,7 +19,7 @@ records in Postgres.
 ## Use a distributed mutex
 
 ```ts
-import { mutex } from "@valentinkolb/sync";
+import { mutex } from "@k2b/sync";
 
 const stockLock = mutex({
   id: "inventory.stock",
@@ -44,7 +44,7 @@ a database transaction or a workflow effect class for that.
 ## Apply a sliding rate limit
 
 ```ts
-import { ratelimit } from "@valentinkolb/sync";
+import { ratelimit } from "@k2b/sync";
 
 const exports = ratelimit({
   id: "inventory.exports",
@@ -70,7 +70,7 @@ Use the primitive when the limit belongs to domain work outside one router.
 ## Store ephemeral state
 
 ```ts
-import { ephemeral } from "@valentinkolb/sync";
+import { ephemeral } from "@k2b/sync";
 
 const presence = ephemeral<{ userId: string }>({
   id: "inventory.editors",

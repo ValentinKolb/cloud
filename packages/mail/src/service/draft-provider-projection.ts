@@ -1,7 +1,7 @@
 import { type Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createRuntimeTaskTracker, logger, stopRuntimeJobs, toPgTextArray } from "@valentinkolb/cloud/services";
-import { job, type Lock } from "@valentinkolb/sync";
+import { job, type Lock } from "@k2b/sync";
 import { Splitter, Streamer } from "@zone-eu/mailsplit";
 import { sql } from "bun";
 import { type AddressObject, type AttachmentStream, type Headers, MailParser, type MessageText } from "mailparser";

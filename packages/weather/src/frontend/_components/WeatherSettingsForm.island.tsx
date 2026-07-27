@@ -9,7 +9,7 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";

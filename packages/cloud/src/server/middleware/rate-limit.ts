@@ -1,4 +1,4 @@
-import { ratelimit } from "@valentinkolb/sync";
+import { ratelimit } from "@k2b/sync";
 import type { Context, MiddlewareHandler } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { MessageResponse } from "../../contracts/shared";
@@ -95,7 +95,7 @@ const resolveIdentifier = async (c: Context<AuthContext>, keyBy: RateLimitConfig
 };
 
 /**
- * Stateless per-route rate limiting middleware backed by @valentinkolb/sync.
+ * Stateless per-route rate limiting middleware backed by @k2b/sync.
  * Keying defaults to user ID (when session exists), otherwise client IP.
  */
 export const rateLimit = (config: RateLimitConfig = {}): MiddlewareHandler<AuthContext> =>

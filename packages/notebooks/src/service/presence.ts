@@ -1,5 +1,5 @@
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
-import { ephemeral } from "@valentinkolb/sync";
+import { ephemeral } from "@k2b/sync";
 import { getNotebookPresenceColor } from "../lib/yjs";
 import { NODE_ID } from "./yjs-sync";
 

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { job } from "@valentinkolb/sync";
+import { job } from "@k2b/sync";
 import { sql } from "bun";
 import { markdown } from "../../shared/markdown";
 import { logger, trace } from "../logging";

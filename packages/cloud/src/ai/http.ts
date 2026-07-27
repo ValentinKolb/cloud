@@ -1,4 +1,4 @@
-import type { Input, Message } from "@valentinkolb/nessi";
+import type { Input, Message } from "@k2b/nessi";
 import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";

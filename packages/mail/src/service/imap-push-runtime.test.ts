@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Lock, Mutex } from "@valentinkolb/sync";
+import type { Lock, Mutex } from "@k2b/sync";
 import type { ProviderConnectionInput } from "../contracts";
 import type { ConnectorChangeHint, ConnectorChangeListener } from "./connectors";
 import {
