@@ -10,8 +10,7 @@ export const deriveReplyIdentityId = (message: MessageDetail, identities: Sender
     const normalized = new Set(addresses.map((item) => item.address.trim().toLowerCase()));
     return verified.filter(
       (identity) =>
-        normalized.has(identity.fromAddress.toLowerCase()) ||
-        (identity.replyTo ? normalized.has(identity.replyTo.toLowerCase()) : false),
+        normalized.has(identity.fromAddress.toLowerCase()) || (identity.replyTo ? normalized.has(identity.replyTo.toLowerCase()) : false),
     );
   };
   const recipientMatches = match([...message.to, ...message.cc]);

@@ -1,8 +1,8 @@
 import {
   CheckboxCard,
   confirmDiscardIfDirty,
-  dialogCore,
   Dropdown,
+  dialogCore,
   FileDropzone,
   NumberInput,
   PanelDialog,

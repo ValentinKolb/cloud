@@ -1,8 +1,8 @@
 import {
   dialogCore,
   PanelDialog,
-  panelDialogFixedOptions,
   Placeholder,
+  panelDialogFixedOptions,
   prompts,
   SelectInput,
   TextInput,

@@ -16,11 +16,9 @@ const event = (metadata: Record<string, unknown> = {}): MailActivityEvent => ({
 
 describe("mail activity presentation", () => {
   test("describes collaboration changes from audit metadata", () => {
-    expect(
-      mailActivityLabel(
-        event({ before: { workStatus: "needs_action" }, after: { workStatus: "waiting" } }),
-      ),
-    ).toBe("marked it Waiting for reply");
+    expect(mailActivityLabel(event({ before: { workStatus: "needs_action" }, after: { workStatus: "waiting" } }))).toBe(
+      "marked it Waiting for reply",
+    );
   });
 
   test("collapses consecutive duplicate events", () => {

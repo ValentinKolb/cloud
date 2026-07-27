@@ -10,12 +10,7 @@ import {
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import {
-  type MessageInspector,
-  type MessageSourcePreview,
-  messageInspectorSchema,
-  messageSourcePreviewSchema,
-} from "../../contracts";
+import { type MessageInspector, type MessageSourcePreview, messageInspectorSchema, messageSourcePreviewSchema } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
 
@@ -27,11 +22,9 @@ const inspectorTabs = [
   { value: "source", label: "Source", icon: "ti ti-code" },
 ] as const;
 
-const messageOptionLabel = (message: MessageDetail, index: number): string =>
-  `${index + 1}. ${message.subject.trim() || "(no subject)"}`;
+const messageOptionLabel = (message: MessageDetail, index: number): string => `${index + 1}. ${message.subject.trim() || "(no subject)"}`;
 
-const sourceHref = (mailboxId: string, messageId: string): string =>
-  `/api/mail/mailboxes/${mailboxId}/messages/${messageId}/source`;
+const sourceHref = (mailboxId: string, messageId: string): string => `/api/mail/mailboxes/${mailboxId}/messages/${messageId}/source`;
 
 const subscriptionsHref = (mailboxId: string, listKey: string): string =>
   `/app/mail/${mailboxId}/subscriptions?list=${encodeURIComponent(listKey)}`;
@@ -137,10 +130,7 @@ function MailMessageInspectorDialog(props: {
           <Show
             when={inspector()}
             fallback={
-              <Show
-                when={loadInspector.error()}
-                fallback={<Placeholder state="loading" variant="panel" title="Loading message details" />}
-              >
+              <Show when={loadInspector.error()} fallback={<Placeholder state="loading" variant="panel" title="Loading message details" />}>
                 {(error) => (
                   <Placeholder
                     state="error"
@@ -423,11 +413,7 @@ function MailMessageInspectorDialog(props: {
                                 Showing {formatFileViewSize(preview().previewByteLength)} of {formatFileViewSize(preview().byteLength)}
                               </p>
                             </div>
-                            <a
-                              class="btn-secondary btn-sm"
-                              href={sourceHref(props.mailboxId, current().id)}
-                              download={downloadName()}
-                            >
+                            <a class="btn-secondary btn-sm" href={sourceHref(props.mailboxId, current().id)} download={downloadName()}>
                               <i class="ti ti-download" aria-hidden="true" /> Download .eml
                             </a>
                           </div>

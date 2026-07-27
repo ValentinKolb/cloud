@@ -141,12 +141,9 @@ describe("deriveReplyIdentityId", () => {
       fromAddress: "support@example.com",
       isDefault: false,
     };
-    expect(
-      deriveReplyIdentityId(
-        message({ to: [{ name: "Support", address: "support@example.com" }] }),
-        [identity, alternate],
-      ),
-    ).toBe(alternate.id);
+    expect(deriveReplyIdentityId(message({ to: [{ name: "Support", address: "support@example.com" }] }), [identity, alternate])).toBe(
+      alternate.id,
+    );
   });
 
   test("requires an explicit choice when duplicate addresses are ambiguous", () => {
@@ -157,10 +154,10 @@ describe("deriveReplyIdentityId", () => {
       isDefault: false,
     };
     expect(
-      deriveReplyIdentityId(
-        message({ to: [{ name: "Team", address: "team@example.com" }] }),
-        [{ ...identity, isDefault: false }, duplicate],
-      ),
+      deriveReplyIdentityId(message({ to: [{ name: "Team", address: "team@example.com" }] }), [
+        { ...identity, isDefault: false },
+        duplicate,
+      ]),
     ).toBeNull();
   });
 });

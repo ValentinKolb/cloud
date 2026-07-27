@@ -47,10 +47,7 @@ export const chooseBulkTags = (tags: LocalTag[]): Promise<string[] | null | unde
     { title: "Add tags", icon: "ti ti-tags", size: "large" },
   );
 
-export const chooseConversationTags = (
-  tags: LocalTag[],
-  selectedTags: LocalTag[],
-): Promise<string[] | null | undefined> =>
+export const chooseConversationTags = (tags: LocalTag[], selectedTags: LocalTag[]): Promise<string[] | null | undefined> =>
   prompts.dialog<string[] | null>(
     (close) => {
       const [selectedTagIds, setSelectedTagIds] = createSignal(selectedTags.map((tag) => tag.id));

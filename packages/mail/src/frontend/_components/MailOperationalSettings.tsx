@@ -3,7 +3,6 @@ import { type DateContext, dates, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import { PROVIDER_LIMIT_MAX_AGE_MS } from "../../contracts";
 import type {
   Mailbox,
   MailboxOperationalHealth,
@@ -13,6 +12,7 @@ import type {
   ProviderConnection,
   RedactedOperatorCommand,
 } from "../../contracts";
+import { PROVIDER_LIMIT_MAX_AGE_MS } from "../../contracts";
 import { readApiError } from "./api-response";
 
 const healthTone = (health: Mailbox["health"]): string =>

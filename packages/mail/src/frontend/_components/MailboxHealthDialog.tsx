@@ -3,12 +3,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type {
-  Mailbox,
-  MailboxOperationalHealth,
-  ProviderBinding,
-  ProviderConnection,
-} from "../../contracts";
+import type { Mailbox, MailboxOperationalHealth, ProviderBinding, ProviderConnection } from "../../contracts";
 import { readApiError } from "./api-response";
 import MailOperationalSettings from "./MailOperationalSettings";
 
