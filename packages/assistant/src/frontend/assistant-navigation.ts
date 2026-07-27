@@ -1,6 +1,11 @@
 const URL_BASE = "http://assistant.local";
 
 const relativeHref = (url: URL): string => `${url.pathname}${url.search}${url.hash}`;
+export type ConversationOpenResult = "opened" | "unchanged" | "stale";
+
+export const shouldCommitConversationNavigation = (result: ConversationOpenResult, currentHref: string, targetHref: string): boolean =>
+  result === "opened" ||
+  (result === "unchanged" && relativeHref(new URL(currentHref, URL_BASE)) !== relativeHref(new URL(targetHref, URL_BASE)));
 
 export const assistantConversationHref = (currentHref: string, conversationId: string | null): string => {
   const url = new URL(currentHref, URL_BASE);

@@ -6,15 +6,17 @@ import type {
   AiEnrichmentStatus,
   AiUserPrefs,
 } from "@valentinkolb/cloud/ai";
+import { api } from "@valentinkolb/cloud/browser";
+import type { ApiType } from ".";
 
-const BASE = "/api/assistant";
+const client = api.create<ApiType>({ baseUrl: "/api/assistant" });
 
 const readError = async (response: Response, fallback: string): Promise<string> => {
   const body = await response.json().catch(() => null);
   return body && typeof body === "object" && "message" in body && typeof body.message === "string" ? body.message : fallback;
 };
 
-/** Minimal typed client for the conversation-management endpoints used by the sidebar/editor. */
+/** Typed conversation-management facade used by the Assistant UI. */
 export const assistantApi = {
   listConversations: async (input: {
     q?: string;
@@ -23,14 +25,19 @@ export const assistantApi = {
     status?: AiConversationStatusFilter;
     signal?: AbortSignal;
   }): Promise<AiConversation[]> => {
-    const params = new URLSearchParams();
-    if (input.q) params.set("q", input.q);
-    if (input.limit) params.set("limit", String(input.limit));
-    if (input.archived) params.set("archived", "true");
-    if (input.status) params.set("status", input.status);
-    const response = await fetch(`${BASE}/conversations?${params.toString()}`, { signal: input.signal });
+    const response = await client.conversations.$get(
+      {
+        query: {
+          q: input.q,
+          limit: input.limit ? String(input.limit) : undefined,
+          archived: input.archived ? "true" : undefined,
+          status: input.status,
+        },
+      },
+      { init: { signal: input.signal } },
+    );
     if (!response.ok) throw new Error(await readError(response, "Failed to search chats"));
-    return (await response.json()) as AiConversation[];
+    return response.json();
   },
 
   listConversationsPage: async (input: {
@@ -41,85 +48,81 @@ export const assistantApi = {
     status?: AiConversationStatusFilter;
     signal?: AbortSignal;
   }): Promise<AiConversationPage> => {
-    const params = new URLSearchParams({ page: String(input.page), perPage: String(input.perPage ?? 20) });
-    if (input.q) params.set("q", input.q);
-    if (input.archived) params.set("archived", "true");
-    if (input.status) params.set("status", input.status);
-    const response = await fetch(`${BASE}/conversations/page?${params.toString()}`, { signal: input.signal });
+    const response = await client.conversations.page.$get(
+      {
+        query: {
+          q: input.q,
+          page: String(input.page),
+          perPage: String(input.perPage ?? 20),
+          archived: input.archived ? "true" : undefined,
+          status: input.status,
+        },
+      },
+      { init: { signal: input.signal } },
+    );
     if (!response.ok) throw new Error(await readError(response, "Failed to load chats"));
-    return (await response.json()) as AiConversationPage;
+    return response.json();
   },
 
   createConversation: async (input: { title?: string } = {}): Promise<AiConversation> => {
-    const response = await fetch(`${BASE}/conversations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
+    const response = await client.conversations.$post({ json: input });
     if (!response.ok) throw new Error(await readError(response, "Failed to create chat"));
-    return (await response.json()) as AiConversation;
+    return response.json();
   },
 
   updateConversation: async (
     conversationId: string,
     input: { title: string; icon?: string; description?: string; pinned?: boolean },
   ): Promise<AiConversation> => {
-    const response = await fetch(`${BASE}/conversations/${conversationId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
+    const response = await client.conversations[":conversationId"].$patch({ param: { conversationId }, json: input });
     if (!response.ok) throw new Error(await readError(response, "Failed to save chat"));
-    return (await response.json()) as AiConversation;
+    return response.json();
   },
 
   getSystemPromptPreview: async (): Promise<{ prompt: string; renderedAt: string }> => {
-    const response = await fetch(`${BASE}/prefs/system-prompt`);
+    const response = await client.prefs["system-prompt"].$get();
     if (!response.ok) throw new Error(await readError(response, "Failed to load system prompt"));
-    return (await response.json()) as { prompt: string; renderedAt: string };
+    return response.json();
   },
 
   getPrefs: async (): Promise<AiUserPrefs> => {
-    const response = await fetch(`${BASE}/prefs`);
+    const response = await client.prefs.$get();
     if (!response.ok) throw new Error(await readError(response, "Failed to load AI preferences"));
-    return (await response.json()) as AiUserPrefs;
+    return response.json();
   },
 
   updatePrefs: async (input: { instructions?: string; memory?: string; memoryEnabled?: boolean }): Promise<AiUserPrefs> => {
-    const response = await fetch(`${BASE}/prefs`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
+    const response = await client.prefs.$put({ json: input });
     if (!response.ok) throw new Error(await readError(response, "Failed to save AI preferences"));
-    return (await response.json()) as AiUserPrefs;
+    return response.json();
   },
 
   setConversationPinned: async (conversationId: string, pinned: boolean): Promise<AiConversation> => {
-    const response = await fetch(`${BASE}/conversations/${conversationId}/pin`, { method: pinned ? "POST" : "DELETE" });
+    const endpoint = client.conversations[":conversationId"].pin;
+    const response = pinned ? await endpoint.$post({ param: { conversationId } }) : await endpoint.$delete({ param: { conversationId } });
     if (!response.ok) throw new Error(await readError(response, pinned ? "Failed to pin chat" : "Failed to unpin chat"));
-    return (await response.json()) as AiConversation;
+    return response.json();
   },
 
   archiveConversation: async (conversationId: string): Promise<void> => {
-    const response = await fetch(`${BASE}/conversations/${conversationId}/archive`, { method: "POST" });
+    const response = await client.conversations[":conversationId"].archive.$post({ param: { conversationId } });
     if (!response.ok) throw new Error(await readError(response, "Failed to archive chat"));
   },
 
   restoreConversation: async (conversationId: string): Promise<AiConversation> => {
-    const response = await fetch(`${BASE}/conversations/${conversationId}/restore`, { method: "POST" });
+    const response = await client.conversations[":conversationId"].restore.$post({ param: { conversationId } });
     if (!response.ok) throw new Error(await readError(response, "Failed to restore chat"));
-    return (await response.json()) as AiConversation;
+    return response.json();
   },
 
   getEnrichment: async (conversationId: string): Promise<{ status: AiEnrichmentStatus | null; runs: AiEnrichmentRun[] }> => {
-    const response = await fetch(`${BASE}/conversations/${conversationId}/enrichment`);
+    const response = await client.conversations[":conversationId"].enrichment.$get({ param: { conversationId } });
     if (!response.ok) throw new Error(await readError(response, "Failed to load index status"));
-    return (await response.json()) as { status: AiEnrichmentStatus | null; runs: AiEnrichmentRun[] };
+    return response.json();
   },
 
   reindexConversation: async (conversationId: string): Promise<void> => {
-    const response = await fetch(`${BASE}/conversations/${conversationId}/reindex`, { method: "POST" });
+    const response = await client.conversations[":conversationId"].reindex.$post({ param: { conversationId } });
     if (!response.ok) throw new Error(await readError(response, "Failed to queue reindex"));
   },
 };

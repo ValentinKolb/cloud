@@ -1,7 +1,7 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 
 export const ASSISTANT_API = "/api/assistant";
-export const SKILLS_API = "/api/ai/skills";
+const SKILLS_API = "/api/ai/skills";
 
 export const queryString = (values: Record<string, string | number | boolean | null | undefined>): string => {
   const search = new URLSearchParams();

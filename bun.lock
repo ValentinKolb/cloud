@@ -54,7 +54,6 @@
         "@k2b/sync": "^5.7.0",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
-        "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
         "zod": "^4.3.4",
       },

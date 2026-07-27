@@ -1,6 +1,6 @@
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 
-export type ConversationGroup = {
+type ConversationGroup = {
   title: string;
   items: AiConversation[];
 };

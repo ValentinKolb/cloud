@@ -205,7 +205,7 @@ function EditConversationForm(props: EditConversationFormProps) {
   const busy = () => save.loading() || archive.loading();
 
   return (
-    <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+    <div class="dialog-fixed-frame flex min-h-0 flex-col overflow-hidden">
       <SettingsModal title="Chat settings" onClose={() => props.close()} closeLabel="Close chat settings">
         <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, icon, description, and list placement.">
           <form

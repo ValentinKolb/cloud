@@ -1,19 +1,36 @@
+import { Link, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { formatDateTime as formatUpdatedAt } from "@valentinkolb/cloud/shared";
 import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
+import { assistantConversationHref, type ConversationOpenResult, shouldCommitConversationNavigation } from "./assistant-navigation";
 import { ConversationStatusMeta } from "./conversation-status";
 
 type Props = {
   conversations: AiConversation[];
   archived?: boolean;
-  onOpenConversation?: (conversation: AiConversation) => void;
+  onOpenConversation: (conversation: AiConversation) => Promise<ConversationOpenResult>;
   onChanged?: () => void;
 };
+
+function ConversationSummary(props: { conversation: AiConversation }) {
+  return (
+    <>
+      <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--ui-surface-subtle)] text-dimmed">
+        <i class={`${conversationIcon(props.conversation)} text-base`} />
+      </span>
+      <span class="min-w-0 flex-1">
+        <span class="block truncate font-medium text-primary">{props.conversation.title}</span>
+        <span class="block truncate text-xs text-dimmed">
+          {props.conversation.description || `Updated ${formatUpdatedAt(props.conversation.updatedAt)}`}
+        </span>
+      </span>
+    </>
+  );
+}
 
 export default function AssistantAllChatsList(props: Props) {
   const [conversations, setConversations] = createSignal(props.conversations);
@@ -52,27 +69,35 @@ export default function AssistantAllChatsList(props: Props) {
     else refreshCurrentPath();
   };
 
+  const openConversation = async (conversation: AiConversation, nav: LinkNavigateEvent) => {
+    const result = await props.onOpenConversation(conversation);
+    if (shouldCommitConversationNavigation(result, window.location.href, nav.url.href)) {
+      nav.push(undefined, { scroll: "manual" });
+    }
+  };
+
   return (
     <div class="space-y-0.5">
       <For each={conversations()}>
         {(conversation) => (
           <div class="group flex min-w-0 items-center gap-3 rounded-md px-2 py-2.5 text-sm transition-colors hover:bg-[var(--ui-surface-subtle)] focus-within:bg-[var(--ui-surface-subtle)]">
-            <button
-              type="button"
-              disabled={props.archived}
-              class={`flex min-w-0 flex-1 items-center gap-3 text-left ${props.archived ? "cursor-default" : ""}`}
-              onClick={() => props.onOpenConversation?.(conversation)}
-            >
-              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--ui-surface-subtle)] text-dimmed">
-                <i class={`${conversationIcon(conversation)} text-base`} />
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="block truncate font-medium text-primary">{conversation.title}</span>
-                <span class="block truncate text-xs text-dimmed">
-                  {conversation.description || `Updated ${formatUpdatedAt(conversation.updatedAt)}`}
+            <Show
+              when={!props.archived}
+              fallback={
+                <span class="flex min-w-0 flex-1 cursor-default items-center gap-3 text-left">
+                  <ConversationSummary conversation={conversation} />
                 </span>
-              </span>
-            </button>
+              }
+            >
+              <Link
+                href={assistantConversationHref("/app/assistant", conversation.id)}
+                scroll="manual"
+                onNavigate={(nav) => openConversation(conversation, nav)}
+                class="flex min-w-0 flex-1 items-center gap-3 text-left"
+              >
+                <ConversationSummary conversation={conversation} />
+              </Link>
+            </Show>
             <ConversationStatusMeta conversation={conversation} labels />
             <span class="hidden shrink-0 text-xs text-dimmed sm:block">{formatUpdatedAt(conversation.updatedAt)}</span>
             <Tooltip content={props.archived ? "Restore chat" : "Edit chat"}>

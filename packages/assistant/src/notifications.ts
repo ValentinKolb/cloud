@@ -1,6 +1,6 @@
+import { scheduler } from "@k2b/sync";
 import { type BoundNotificationMap, notification } from "@valentinkolb/cloud";
 import { coreSettings, logger, notifications, trace } from "@valentinkolb/cloud/services";
-import { scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
 
@@ -41,7 +41,7 @@ type CompletionCandidate = {
   user_id: string;
 };
 
-export type AssistantNotificationRecoverySummary = {
+type AssistantNotificationRecoverySummary = {
   scanned: number;
   sent: number;
   failed: number;

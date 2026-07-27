@@ -4,6 +4,7 @@ import {
   assistantArtifactPathFromHref,
   assistantConversationHref,
   assistantConversationIdFromHref,
+  shouldCommitConversationNavigation,
 } from "./assistant-navigation";
 
 describe("Assistant conversation navigation", () => {
@@ -31,5 +32,14 @@ describe("Assistant conversation navigation", () => {
     expect(assistantArtifactPathFromHref(withArtifact)).toBe("/files/report.md");
     expect(assistantConversationHref(withArtifact, "chat-2")).toBe("/app/assistant?conversation=chat-2");
     expect(assistantArtifactHref(withArtifact, null)).toBe("/app/assistant?conversation=chat-1");
+  });
+
+  test("commits successful opens and in-flight same-target clicks without duplicating the current URL", () => {
+    const current = "/app/assistant?conversation=chat-1";
+    const target = "/app/assistant?conversation=chat-2";
+    expect(shouldCommitConversationNavigation("opened", current, target)).toBe(true);
+    expect(shouldCommitConversationNavigation("unchanged", current, target)).toBe(true);
+    expect(shouldCommitConversationNavigation("unchanged", current, current)).toBe(false);
+    expect(shouldCommitConversationNavigation("stale", current, target)).toBe(false);
   });
 });

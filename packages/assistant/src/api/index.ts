@@ -1,5 +1,5 @@
-import { type AiChatRequestContext, createAiChatRoutes } from "@valentinkolb/cloud/ai";
-import { type AuthContext, type RequestActor, auth, fail, err, rateLimit, respond } from "@valentinkolb/cloud/server";
+import { createAiChatRoutes } from "@valentinkolb/cloud/ai";
+import { type AuthContext, auth, err, fail, type RequestActor, rateLimit, respond } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import { Hono } from "hono";
 
@@ -22,10 +22,10 @@ const chatRoutes = createAiChatRoutes({
   appId: ASSISTANT_APP_ID,
   allowConversationManagement: true,
   retryInstruction,
-  resolveContext: async (c: Context<AuthContext>): Promise<AiChatRequestContext | Response> => {
+  resolveContext: async (c: Context<AuthContext>) => {
     const actor = c.get("actor") as RequestActor;
     const user = actorUser(c);
-    if (!user) return (await respond(c, fail(err.forbidden("Assistant requires a user-backed actor")))) as unknown as Response;
+    if (!user) return respond(c, fail(err.forbidden("Assistant requires a user-backed actor")));
     return {
       actor,
       ownerUserId: user.id,
@@ -40,6 +40,7 @@ const chatRoutes = createAiChatRoutes({
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use("*", auth.requireRole("authenticated"))
+  .use("*", auth.requireUser())
   .route("/", chatRoutes);
 
 export default app;

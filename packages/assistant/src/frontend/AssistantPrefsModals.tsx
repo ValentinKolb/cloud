@@ -10,7 +10,7 @@ import { assistantApi } from "../api/client";
 const INSTRUCTIONS_MAX_CHARS = 4_000;
 const MEMORY_MAX_CHARS = 24_000;
 
-export type AssistantPrefsTab = "personalization" | "memory";
+type AssistantPrefsTab = "personalization" | "memory";
 
 function SystemPromptDisclosure() {
   const [prompt, setPrompt] = createSignal<string | null>(null);
@@ -84,7 +84,7 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
   const busy = () => saveInstructions.loading() || saveMemory.loading();
 
   return (
-    <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+    <div class="dialog-fixed-frame flex min-h-0 flex-col overflow-hidden">
       <SettingsModal title="Personalization" defaultTab={props.initialTab} onClose={props.close} closeLabel="Close personalization">
         <SettingsModal.Tab
           id="personalization"
@@ -179,8 +179,3 @@ export const openAssistantPrefsModal = async (initialTab: AssistantPrefsTab = "p
     size: "large",
   });
 };
-
-/** @deprecated Use openAssistantPrefsModal — both preference areas live in one tabbed dialog now. */
-export const openAssistantPersonalizationModal = (): Promise<void> => openAssistantPrefsModal("personalization");
-/** @deprecated Use openAssistantPrefsModal — both preference areas live in one tabbed dialog now. */
-export const openAssistantMemoryModal = (): Promise<void> => openAssistantPrefsModal("memory");

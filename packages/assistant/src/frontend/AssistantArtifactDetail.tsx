@@ -13,7 +13,7 @@ function AssistantFilesDialog(props: AssistantFilesDialogProps) {
   const source = conversationFileSource("/api/assistant", props.conversationId);
 
   return (
-    <div class="paper relative flex h-[86vh] min-h-0 flex-col overflow-hidden rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]">
+    <div class="dialog-fixed-frame paper relative flex min-h-0 flex-col overflow-hidden rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]">
       <Tooltip content="Close files" class="absolute right-3 top-3 z-20">
         <button type="button" class="icon-btn" onClick={props.close} aria-label="Close files">
           <i class="ti ti-x" aria-hidden="true" />

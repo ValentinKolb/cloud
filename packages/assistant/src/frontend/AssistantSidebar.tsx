@@ -1,3 +1,4 @@
+import { type LinkNavigateEvent, navigate, navigateTo } from "@k2b/ssr/nav";
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import {
   AppWorkspace,
@@ -7,7 +8,6 @@ import {
   openSpotlightSearch,
   SPOTLIGHT_SHORTCUT_TITLE,
 } from "@valentinkolb/cloud/ui";
-import { type LinkNavigateEvent, navigate, navigateTo } from "@k2b/ssr/nav";
 import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantAllChatsDialog } from "./AssistantAllChatsDialog";
@@ -23,7 +23,7 @@ type AssistantSidebarProps = {
   activeView?: "chat" | "all";
   creatingConversation?: Accessor<boolean>;
   onNewConversation?: () => void | Promise<void>;
-  onOpenConversation?: (conversationId: string) => void | Promise<void>;
+  onOpenConversation?: (conversationId: string) => Promise<boolean>;
   canArchiveConversation?: (conversation: AiConversation) => boolean;
   onConversationUpdated?: (conversation: AiConversation) => void;
   onConversationArchived?: (conversation: AiConversation) => void;
@@ -34,7 +34,7 @@ const PER_SPOTLIGHT_PAGE = 20;
 
 function AssistantSpotlightButton(props: {
   registerShortcut?: boolean;
-  openConversation?: (conversation: AiConversation) => void;
+  openConversation?: (conversation: AiConversation) => void | Promise<void>;
   variant?: "item" | "icon";
 }) {
   const openSearch = async () => {
@@ -59,7 +59,7 @@ function AssistantSpotlightButton(props: {
     });
 
     if (!selected?.value) return;
-    if (props.openConversation) props.openConversation(selected.value);
+    if (props.openConversation) await props.openConversation(selected.value);
     else navigateTo(assistantConversationHref("/app/assistant", selected.value.id));
   };
 
@@ -87,15 +87,18 @@ function AssistantSpotlightButton(props: {
 function ConversationSidebarItem(props: {
   conversation: AiConversation;
   active: boolean;
-  open?: (conversation: AiConversation) => void | Promise<void>;
+  open?: (conversation: AiConversation) => Promise<boolean>;
   edit: (conversation: AiConversation) => void;
 }) {
   const href = () => assistantConversationHref("/app/assistant", props.conversation.id);
   const running = () => props.conversation.runStatus === "queued" || props.conversation.runStatus === "running";
-  const handleNavigate = (nav: LinkNavigateEvent) => {
+  const handleNavigate = async (nav: LinkNavigateEvent) => {
     if (props.active || !props.open) return;
-    void props.open(props.conversation);
-    nav.push(undefined, { scroll: "manual" });
+    try {
+      if (await props.open(props.conversation)) nav.push(undefined, { scroll: "manual" });
+    } catch {
+      nav.fallback();
+    }
   };
 
   return (
@@ -127,12 +130,11 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
   const creatingConversation = () => props.creatingConversation?.() ?? false;
   const groups = () => groupRecentConversations(props.conversations());
 
-  const openConversationFromCommand = (conversation: AiConversation) => {
+  const openConversationFromCommand = async (conversation: AiConversation) => {
     if (conversation.id === activeConversationId()) return;
     const href = assistantConversationHref("/app/assistant", conversation.id);
     if (props.onOpenConversation) {
-      void props.onOpenConversation(conversation.id);
-      navigate(href, { scroll: "manual" });
+      if (await props.onOpenConversation(conversation.id)) navigate(href, { scroll: "manual" });
       return;
     }
     navigateTo(href);
@@ -148,7 +150,15 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
     if (result.action === "save") props.onConversationUpdated?.(result.conversation);
     else props.onConversationArchived?.(result.conversation);
   };
-  const openAllChats = () => void openAssistantAllChatsDialog(openConversationFromCommand);
+  const openAllChats = () =>
+    void openAssistantAllChatsDialog(async (conversation) => {
+      if (conversation.id === activeConversationId()) return "unchanged";
+      if (!props.onOpenConversation) {
+        navigateTo(assistantConversationHref("/app/assistant", conversation.id));
+        return "stale";
+      }
+      return (await props.onOpenConversation(conversation.id)) ? "opened" : "stale";
+    });
   const collapsedChatMenu = () => [
     {
       sectionLabel: "Chats",
@@ -201,7 +211,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
                       <ConversationSidebarItem
                         conversation={conversation}
                         active={conversation.id === activeConversationId()}
-                        open={props.onOpenConversation ? (item) => props.onOpenConversation?.(item.id) : undefined}
+                        open={props.onOpenConversation ? (item) => props.onOpenConversation!(item.id) : undefined}
                         edit={(item) => void openEditor(item)}
                       />
                     )}
@@ -252,7 +262,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
                       <ConversationSidebarItem
                         conversation={conversation}
                         active={conversation.id === activeConversationId()}
-                        open={props.onOpenConversation ? (item) => props.onOpenConversation?.(item.id) : undefined}
+                        open={props.onOpenConversation ? (item) => props.onOpenConversation!(item.id) : undefined}
                         edit={(item) => void openEditor(item)}
                       />
                     )}

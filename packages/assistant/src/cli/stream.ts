@@ -1,13 +1,8 @@
+import { type AiStoredMessage, type AiStreamSseEvent, type AiTurnBlock, parseAiSse } from "@valentinkolb/cloud/ai";
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
-import {
-  type AiStoredMessage,
-  type AiStreamSseEvent,
-  type AiTurnBlock,
-  parseAiSse,
-} from "@valentinkolb/cloud/ai";
 import { ASSISTANT_API, jsonRequest } from "./shared";
 
-export type AssistantTurnStreamResult = {
+type AssistantTurnStreamResult = {
   conversationId: string;
   turnId: string | null;
   status: "completed" | "failed" | "aborted" | "needs_attention" | "idle";

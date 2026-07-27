@@ -1,9 +1,10 @@
 import type { AiConversation, AiConversationPage, AiConversationStatusFilter } from "@valentinkolb/cloud/ai";
-import { dialogCore, PanelDialog, panelDialogOptions, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogFixedOptions, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
-import AssistantAllChatsList from "./AssistantAllChatsList.island";
+import AssistantAllChatsList from "./AssistantAllChatsList";
+import type { ConversationOpenResult } from "./assistant-navigation";
 
 type ChatView = "all" | "running" | "needs_attention" | "failed" | "unread" | "archived";
 
@@ -30,13 +31,16 @@ const emptyViewText = (view: ChatView, search: string): string => {
 
 type PageRequest = { requestId: number; query: string; view: ChatView; page: number };
 type PageResult = { requestId: number; page: AiConversationPage };
-
-function AssistantAllChatsDialog(props: { close: () => void; openConversation: (conversation: AiConversation) => void }) {
+function AssistantAllChatsDialog(props: {
+  close: () => void;
+  openConversation: (conversation: AiConversation) => Promise<ConversationOpenResult>;
+}) {
   const [query, setQuery] = createSignal("");
   const [view, setView] = createSignal<ChatView>("all");
   const [page, setPage] = createSignal(1);
   const [result, setResult] = createSignal<AiConversationPage | null>(null);
   let latestRequestId = 0;
+  let latestOpenRequestId = 0;
 
   const load = mutation.create<PageResult, PageRequest>({
     mutation: async (input) => {
@@ -61,10 +65,14 @@ function AssistantAllChatsDialog(props: { close: () => void; openConversation: (
     },
   });
 
-  const refresh = () => void load.mutate({ requestId: ++latestRequestId, query: query().trim(), view: view(), page: page() });
+  const refresh = () => {
+    setResult(null);
+    void load.mutate({ requestId: ++latestRequestId, query: query().trim(), view: view(), page: page() });
+  };
 
   createEffect(() => {
     const request = { requestId: ++latestRequestId, query: query().trim(), view: view(), page: page() };
+    setResult(null);
     const timer = window.setTimeout(() => void load.mutate(request), 180);
     onCleanup(() => window.clearTimeout(timer));
   });
@@ -74,6 +82,16 @@ function AssistantAllChatsDialog(props: { close: () => void; openConversation: (
     setView(next);
   };
   const totalPages = () => Math.max(1, Math.ceil((result()?.total ?? 0) / (result()?.perPage ?? PER_PAGE)));
+  const openConversation = async (conversation: AiConversation): Promise<ConversationOpenResult> => {
+    const requestId = ++latestOpenRequestId;
+    const result = await props.openConversation(conversation);
+    if (requestId !== latestOpenRequestId) return "stale";
+    if (result !== "stale") props.close();
+    return result;
+  };
+  onCleanup(() => {
+    latestOpenRequestId += 1;
+  });
 
   return (
     <PanelDialog>
@@ -136,10 +154,7 @@ function AssistantAllChatsDialog(props: { close: () => void; openConversation: (
             conversations={result()!.items}
             archived={view() === "archived"}
             onChanged={refresh}
-            onOpenConversation={(conversation) => {
-              props.close();
-              props.openConversation(conversation);
-            }}
+            onOpenConversation={openConversation}
           />
         </Show>
       </PanelDialog.Body>
@@ -172,8 +187,10 @@ function AssistantAllChatsDialog(props: { close: () => void; openConversation: (
   );
 }
 
-export const openAssistantAllChatsDialog = (openConversation: (conversation: AiConversation) => void): Promise<void | undefined> =>
+export const openAssistantAllChatsDialog = (
+  openConversation: (conversation: AiConversation) => Promise<ConversationOpenResult>,
+): Promise<void | undefined> =>
   dialogCore.open<void>(
     (close) => <AssistantAllChatsDialog close={() => close()} openConversation={openConversation} />,
-    panelDialogOptions,
+    panelDialogFixedOptions,
   );
