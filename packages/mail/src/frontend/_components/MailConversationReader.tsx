@@ -1,4 +1,4 @@
-import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
+import { documentNavigate, Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -14,11 +14,18 @@ import type {
 } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
-import type { MailConversationActiveComposer, MailConversationComposerRequest } from "./MailConversationComposerDrawer";
 import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
+import { deriveReplyIdentityId, forwardSubject, replySubject } from "./mail-compose-derivation";
+import { mailDraftHref } from "./mail-compose-route";
 import { initialConversationMessageId, isNearConversationEnd } from "./mail-conversation-history";
 import { buildMailListHref } from "./mail-navigation";
+
+type MailConversationComposerRequest = {
+  intent: DraftIntent;
+  message: MessageDetail;
+  quotedBody?: string;
+};
 
 type DraftLookup = {
   conversationId: string;
@@ -57,17 +64,13 @@ export default function MailConversationReader(props: {
   onReassignMessage: (messageId: string) => void | Promise<void>;
   onSplitMessage: (messageId: string) => void | Promise<void>;
   onReconcile: () => Promise<void>;
-  composer: MailConversationActiveComposer | null;
-  onComposerChange: (composer: MailConversationActiveComposer | null) => void;
   onClose: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
   const initialMessageId = initialConversationMessageId(props.messages, props.identities);
   const [expandedMessages, setExpandedMessages] = createSignal(new Set(initialMessageId ? [initialMessageId] : []));
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
   const [pendingNewMessages, setPendingNewMessages] = createSignal(0);
-  const [openingDraft, setOpeningDraft] = createSignal(false);
   const closeHref = () => buildMailListHref(new URL(props.requestUrl));
-  let draftLoadController: AbortController | null = null;
   let closeDraftDialog: ((value: ConversationDraftSummary | null | undefined) => void) | null = null;
   let cleanupPrint: (() => void) | null = null;
   let historyScroller: HTMLDivElement | undefined;
@@ -139,39 +142,16 @@ export default function MailConversationReader(props: {
       return next;
     });
 
-  const showComposer = (request: MailConversationComposerRequest, initialDraft?: MailDraft) =>
-    props.onComposerChange({ ...request, initialDraft });
-
   const isCurrentLookup = (lookup: DraftLookup) => !disposed && props.selectedConversationId === lookup.conversationId;
 
-  const openConversationDraft = async (lookup: DraftLookup, summary: ConversationDraftSummary) => {
-    draftLoadController?.abort();
-    const controller = new AbortController();
-    draftLoadController = controller;
-    setOpeningDraft(true);
-    try {
-      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].$get(
-        { param: { mailboxId: props.mailboxId, draftId: summary.id } },
-        { init: { signal: controller.signal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not open draft"));
-      const selectedDraft = await response.json();
-      if (isCurrentLookup(lookup)) showComposer(lookup.request, selectedDraft);
-    } catch (error) {
-      if (isCurrentLookup(lookup) && !(error instanceof DOMException && error.name === "AbortError")) {
-        await prompts.error(error instanceof Error ? error.message : "Could not open draft");
-      }
-    } finally {
-      if (draftLoadController === controller) {
-        draftLoadController = null;
-        setOpeningDraft(false);
-      }
-    }
+  const openConversationDraft = (lookup: DraftLookup, draftId: string) => {
+    if (!isCurrentLookup(lookup)) return;
+    documentNavigate(mailDraftHref(props.mailboxId, draftId, props.requestUrl));
   };
 
   const chooseConversationDraft = async (lookup: DraftLookup, existingDrafts: ConversationDraftSummary[]) => {
     if (!isCurrentLookup(lookup)) return;
-    if (existingDrafts.length === 0) return showComposer(lookup.request);
+    if (existingDrafts.length === 0) return void createConversationDraft(lookup);
     const selected = await prompts.dialog<ConversationDraftSummary | null>(
       (close) => {
         closeDraftDialog = close;
@@ -241,8 +221,8 @@ export default function MailConversationReader(props: {
     );
     closeDraftDialog = null;
     if (selected === undefined || !isCurrentLookup(lookup)) return;
-    if (selected) return void openConversationDraft(lookup, selected);
-    showComposer(lookup.request);
+    if (selected) return void openConversationDraft(lookup, selected.id);
+    void createConversationDraft(lookup);
   };
 
   const conversationDrafts = mutations.create<ConversationDraftSummary[], DraftLookup, DraftLookup>({
@@ -267,7 +247,86 @@ export default function MailConversationReader(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const composerBusy = () => Boolean(props.composer) || conversationDrafts.loading() || openingDraft();
+  const createdDraft = mutations.create<MailDraft, { lookup: DraftLookup; senderIdentityId: string }, DraftLookup>({
+    onBefore: ({ lookup }) => lookup,
+    mutation: async ({ lookup, senderIdentityId }, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].drafts.$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: {
+            senderIdentityId,
+            to: [],
+            cc: [],
+            bcc: [],
+            subject: lookup.request.intent === "forward" ? forwardSubject(props.subject) : replySubject(props.subject),
+            body: lookup.request.quotedBody ?? "",
+            conversationId: lookup.conversationId,
+            intent: lookup.request.intent,
+            sourceMessageId: lookup.request.message.id,
+            includeSourceAttachments: lookup.request.intent === "forward" && lookup.request.message.attachments.length > 0,
+          },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not create draft"));
+      return response.json();
+    },
+    onSuccess: (draft, lookup) => {
+      if (lookup && isCurrentLookup(lookup)) openConversationDraft(lookup, draft.id);
+    },
+    onError: (error) => prompts.error(error.message, { title: "Could not start message" }),
+  });
+
+  const chooseReplyIdentity = async (lookup: DraftLookup): Promise<string | null> => {
+    const identities = props.identities.filter((identity) => identity.status === "verified");
+    const derived = deriveReplyIdentityId(lookup.request.message, identities);
+    if (derived) return derived;
+    if (identities.length === 0) {
+      await prompts.error("Add a verified sending identity before composing mail.");
+      return null;
+    }
+    const selected = await prompts.dialog<string | null>(
+      (close) => {
+        const [senderIdentityId, setSenderIdentityId] = createSignal(
+          identities.find((identity) => identity.isDefault)?.id ?? identities[0]!.id,
+        );
+        return (
+          <div class="flex flex-col gap-3">
+            <p class="text-sm text-secondary">
+              More than one sender matches this conversation. Choose which identity should own the draft.
+            </p>
+            <Select
+              label="From"
+              value={senderIdentityId}
+              onChange={setSenderIdentityId}
+              options={identities.map((identity) => ({
+                id: identity.id,
+                label: identity.label,
+                description: `${identity.displayName ? `${identity.displayName} · ` : ""}${identity.fromAddress}`,
+              }))}
+            />
+            <div class="flex items-center justify-end gap-2">
+              <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+                Cancel
+              </button>
+              <button type="button" class="btn-primary btn-sm" onClick={() => close(senderIdentityId())}>
+                Continue
+              </button>
+            </div>
+          </div>
+        );
+      },
+      { title: "Choose sender", icon: "ti ti-user", size: "small" },
+    );
+    return selected ?? null;
+  };
+
+  const createConversationDraft = async (lookup: DraftLookup) => {
+    if (!isCurrentLookup(lookup) || createdDraft.loading()) return;
+    const senderIdentityId = await chooseReplyIdentity(lookup);
+    if (!senderIdentityId || !isCurrentLookup(lookup) || createdDraft.loading()) return;
+    createdDraft.mutate({ lookup, senderIdentityId });
+  };
 
   const derivedDraft = mutations.create<
     MailDraft,
@@ -293,12 +352,13 @@ export default function MailConversationReader(props: {
         }
       }
       if (context && props.messages.some((message) => message.id === context.message.id)) {
-        showComposer({ intent: "new", message: context.message }, created);
+        documentNavigate(mailDraftHref(props.mailboxId, created.id, props.requestUrl));
       }
     },
     onError: (error) => prompts.error(error.message),
   });
   const derivationKeys = new Map<string, string>();
+  const composerBusy = () => conversationDrafts.loading() || createdDraft.loading() || derivedDraft.loading();
 
   const startComposer = (intent: DraftIntent, message: MessageDetail, quotedBody?: string) => {
     const conversationId = props.selectedConversationId;
@@ -374,8 +434,6 @@ export default function MailConversationReader(props: {
     }
   };
 
-  const closeComposer = () => props.onComposerChange(null);
-
   let currentSelection = props.selectionKey;
   let currentMessageIds = new Set(props.messages.map((message) => message.id));
   const restoreHistorySelection = (nextSelection: string | null, nextMessageIds: Set<string>) => {
@@ -385,7 +443,7 @@ export default function MailConversationReader(props: {
     currentSelection = nextSelection;
     currentMessageIds = nextMessageIds;
     conversationDrafts.abort();
-    draftLoadController?.abort();
+    createdDraft.abort();
     const savedExpanded = nextSelection ? expandedBySelection.get(nextSelection) : null;
     const targetMessageId = initialConversationMessageId(props.messages, props.identities);
     setExpandedMessages(
@@ -396,7 +454,6 @@ export default function MailConversationReader(props: {
     setMessageSelections({});
     setPendingNewMessages(0);
     followingNewest = true;
-    if (props.composer) closeComposer();
     const savedScrollTop = nextSelection ? scrollPositions.get(nextSelection) : undefined;
     scheduleReaderScroll({
       selectionKey: nextSelection,
@@ -443,9 +500,8 @@ export default function MailConversationReader(props: {
     cleanupPrint?.();
     if (readerScrollFrame !== null) cancelAnimationFrame(readerScrollFrame);
     conversationDrafts.abort();
+    createdDraft.abort();
     derivedDraft.abort();
-    draftLoadController?.abort();
-    if (props.composer) props.onComposerChange(null);
   });
 
   const startQuoteReply = (message: MessageDetail, body: HTMLElement) => {

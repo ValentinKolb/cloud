@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { DraftEditableContent } from "../../contracts";
-import { advanceMailDraftJournalAfterSave, promoteMailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
+import { advanceMailDraftJournalAfterSave, readMailDraftJournal } from "./mail-draft-journal";
 
 const content = (body: string): DraftEditableContent => ({
   senderIdentityId: "00000000-0000-4000-8000-000000000001",
@@ -56,61 +56,6 @@ describe("mail draft journals", () => {
       }),
     ).toBe(false);
     expect(target.getItem("draft")).toBeNull();
-  });
-
-  test("promotes current content to the canonical draft key", () => {
-    const target = storage();
-    target.setItem("pending", JSON.stringify({ revision: 0, content: content("edited before lease") }));
-    expect(
-      promoteMailDraftJournal({
-        storage: target,
-        pendingKey: "pending",
-        draftKey: "draft",
-        revision: 3,
-        submittedContent: content("submitted"),
-        currentContent: content("edited after lease\n\nSignature"),
-        serverContent: content("submitted\n\nSignature"),
-      }),
-    ).toBe(true);
-    expect(readMailDraftJournal(target, "draft")).toEqual({
-      revision: 3,
-      content: content("edited after lease\n\nSignature"),
-    });
-    expect(target.getItem("pending")).toBeNull();
-  });
-
-  test("does not retain a journal when local and server content match", () => {
-    const target = storage();
-    expect(
-      promoteMailDraftJournal({
-        storage: target,
-        pendingKey: "pending",
-        draftKey: "draft",
-        revision: 1,
-        submittedContent: content("same"),
-        currentContent: content("same"),
-        serverContent: content("same"),
-      }),
-    ).toBe(false);
-    expect(target.getItem("draft")).toBeNull();
-  });
-
-  test("keeps server enrichment when pending content matches the submitted draft", () => {
-    const target = storage();
-    target.setItem("pending", JSON.stringify({ revision: 0, content: content("submitted") }));
-    expect(
-      promoteMailDraftJournal({
-        storage: target,
-        pendingKey: "pending",
-        draftKey: "draft",
-        revision: 2,
-        submittedContent: content("submitted"),
-        currentContent: content("submitted"),
-        serverContent: content("submitted\n\nSignature"),
-      }),
-    ).toBe(false);
-    expect(target.getItem("draft")).toBeNull();
-    expect(target.getItem("pending")).toBeNull();
   });
 
   test("removes malformed journals instead of exposing partial content", () => {

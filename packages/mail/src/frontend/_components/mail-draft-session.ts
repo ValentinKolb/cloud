@@ -1,27 +1,10 @@
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { AcquiredDraftLease, DraftEditableContent, DraftIntent, MailDraft } from "../../contracts";
+import type { AcquiredDraftLease, DraftEditableContent, MailDraft } from "../../contracts";
 import { readApiError } from "./api-response";
-import {
-  advanceMailDraftJournalAfterSave,
-  type MailDraftJournal,
-  promoteMailDraftJournal,
-  readMailDraftJournal,
-} from "./mail-draft-journal";
+import { advanceMailDraftJournalAfterSave, type MailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
 
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
-
-export type ComposerSeed = {
-  intent: DraftIntent;
-  senderIdentityId?: string | null;
-  conversationId?: string | null;
-  sourceMessageId?: string | null;
-  to?: string[];
-  cc?: string[];
-  subject?: string;
-  body?: string;
-  sourceAttachmentCount?: number;
-};
 
 export const createSerializedDraftMutationQueue = () => {
   let queue: Promise<void> = Promise.resolve();
@@ -35,31 +18,9 @@ export const createSerializedDraftMutationQueue = () => {
   };
 };
 
-export const mergeCreatedDraftContent = (
-  current: DraftEditableContent,
-  submitted: DraftEditableContent,
-  created: MailDraft,
-): DraftEditableContent | null => {
-  if (JSON.stringify(current) === JSON.stringify(submitted)) return created;
-  if (
-    current.senderIdentityId !== submitted.senderIdentityId ||
-    created.senderIdentityId !== submitted.senderIdentityId ||
-    !created.initialSignatureSource ||
-    current.body.endsWith(created.initialSignatureSource)
-  ) {
-    return null;
-  }
-  return {
-    ...current,
-    body: [current.body.trimEnd(), created.initialSignatureSource].filter(Boolean).join("\n\n"),
-  };
-};
-
 type LeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: "rejected" } | { kind: "unavailable" };
 
 const journalKey = (mailboxId: string, draftId: string): string => `cloud:mail:draft:${mailboxId}:${draftId}`;
-const pendingJournalKey = (mailboxId: string, seed?: ComposerSeed): string =>
-  `cloud:mail:draft:${mailboxId}:pending:${seed?.conversationId ?? "new"}:${seed?.sourceMessageId ?? "new"}:${seed?.intent ?? "new"}`;
 
 const draftEditableContent = (draft: MailDraft): DraftEditableContent => ({
   senderIdentityId: draft.senderIdentityId,
@@ -76,16 +37,14 @@ const draftEditableContent = (draft: MailDraft): DraftEditableContent => ({
 
 export const createMailDraftSession = (options: {
   mailboxId: string;
-  initialDraft?: MailDraft | null;
-  seed?: ComposerSeed;
+  initialDraft: MailDraft;
   hasVerifiedIdentity: () => boolean;
-  includeSourceAttachments: () => boolean;
   content: () => DraftEditableContent;
   applyDraftContent: (content: DraftEditableContent) => void;
   isDisposed: () => boolean;
   onRecovered: () => void;
 }) => {
-  const [draft, setDraft] = createSignal<MailDraft | null>(options.initialDraft ?? null);
+  const [draft, setDraft] = createSignal<MailDraft | null>(options.initialDraft);
   const [lease, setLease] = createSignal<AcquiredDraftLease | null>(null);
   const [status, setStatus] = createSignal<ComposerStatus>("preparing");
   const [statusMessage, setStatusMessage] = createSignal("Preparing draft...");
@@ -95,8 +54,6 @@ export const createMailDraftSession = (options: {
   let heartbeatGeneration = 0;
   let initializePromise: Promise<MailDraft | null> | null = null;
   let lastSavedContent = "";
-  const pendingKey = pendingJournalKey(options.mailboxId, options.seed);
-
   const serializeMutation = createSerializedDraftMutationQueue();
 
   const serializedContent = () => JSON.stringify(options.content());
@@ -218,52 +175,19 @@ export const createMailDraftSession = (options: {
       setStatusMessage("Configure and verify an identity before composing mail.");
       return null;
     }
-    let currentDraft = draft();
-    const isExistingDraft = Boolean(currentDraft);
-    let submittedContent: DraftEditableContent | null = null;
-    if (!currentDraft) {
-      setStatusMessage("Preparing draft...");
-      submittedContent = options.content();
-      const response = await apiClient.mailboxes[":mailboxId"].drafts.$post({
-        param: { mailboxId: options.mailboxId },
-        json: {
-          conversationId: options.seed?.conversationId ?? null,
-          intent: options.seed?.intent ?? "new",
-          sourceMessageId: options.seed?.sourceMessageId ?? null,
-          includeSourceAttachments: options.includeSourceAttachments(),
-          ...submittedContent,
-        },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to create draft"));
-      currentDraft = await response.json();
-      const currentContent = options.isDisposed()
-        ? (readMailDraftJournal(localStorage, pendingKey)?.content ?? submittedContent)
-        : options.content();
-      const mergedContent = mergeCreatedDraftContent(currentContent, submittedContent, currentDraft);
-      if (mergedContent && !options.isDisposed()) options.applyDraftContent(mergedContent);
-      const serverContent = draftEditableContent(currentDraft);
-      promoteMailDraftJournal({
-        storage: localStorage,
-        pendingKey,
-        draftKey: draftKey(currentDraft.id),
-        revision: currentDraft.revision,
-        submittedContent,
-        currentContent: mergedContent ?? currentContent,
-        serverContent,
-      });
-      if (options.isDisposed()) return currentDraft;
-    }
+    const currentDraft = draft();
+    if (!currentDraft) return null;
     if (options.isDisposed()) return null;
     const acquired = await acquireLease(currentDraft);
     if (options.isDisposed()) return null;
-    const recovered = recoverJournal(draftKey(currentDraft.id), currentDraft.revision);
     lastSavedContent = JSON.stringify(draftEditableContent(currentDraft));
     setDraft(currentDraft);
     setInitialized(true);
     if (acquired) {
+      const recovered = recoverJournal(draftKey(currentDraft.id), currentDraft.revision);
       setStatus("saved");
       setStatusMessage("");
-      if (recovered && isExistingDraft) options.onRecovered();
+      if (recovered) options.onRecovered();
     }
     return currentDraft;
   };
@@ -283,10 +207,6 @@ export const createMailDraftSession = (options: {
         initializePromise = null;
       });
     return initializePromise;
-  };
-
-  const beginDraft = () => {
-    if (!draft()) void ensureDraft();
   };
 
   const persist = async (): Promise<MailDraft | null> => {
@@ -378,15 +298,14 @@ export const createMailDraftSession = (options: {
   createEffect(() => {
     const serialized = serializedContent();
     const currentDraft = draft();
-    if (!initialized() || serialized === lastSavedContent) return;
+    if (!initialized() || !currentDraft || serialized === lastSavedContent) return;
     localStorage.setItem(
-      currentDraft ? draftKey(currentDraft.id) : pendingKey,
+      draftKey(currentDraft.id),
       JSON.stringify({
-        revision: currentDraft?.revision ?? 0,
+        revision: currentDraft.revision,
         content: options.content(),
       } satisfies MailDraftJournal),
     );
-    if (!currentDraft) void ensureDraft();
     if (!lease()) return;
     stopScheduledSave();
     saveTimer = setTimeout(() => void persist(), 700);
@@ -400,24 +319,14 @@ export const createMailDraftSession = (options: {
       setStatusMessage("Configure and verify an identity before composing mail.");
       return;
     }
-    if (draft()) {
-      void ensureDraft();
-      return;
-    }
-    const recoveredPendingDraft = recoverJournal(pendingKey, 0);
-    lastSavedContent = serializedContent();
-    setInitialized(true);
-    setStatus("local");
-    setStatusMessage("");
-    if (recoveredPendingDraft) {
-      options.onRecovered();
-      void ensureDraft();
-    }
+    void ensureDraft();
   });
 
   onCleanup(() => {
-    window.removeEventListener("pagehide", onPageHide);
-    window.removeEventListener("pageshow", onPageShow);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
+    }
     stopScheduledSave();
     stopHeartbeat();
     void releaseLeaseOnExit();
@@ -433,7 +342,6 @@ export const createMailDraftSession = (options: {
     statusMessage,
     setStatusMessage,
     ensureDraft,
-    beginDraft,
     persist,
     serializeMutation,
     stopScheduledSave,
@@ -442,10 +350,7 @@ export const createMailDraftSession = (options: {
     releaseLease,
     resumeCurrentLease,
     releaseLeaseOnExit,
-    pendingKey,
     draftKey,
-    initializing: () => Boolean(initializePromise),
-    lastSavedContent: () => lastSavedContent,
     markCurrentContentSaved: () => {
       lastSavedContent = serializedContent();
     },

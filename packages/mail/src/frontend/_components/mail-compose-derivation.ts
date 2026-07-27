@@ -4,6 +4,9 @@ import type { MessageDetail } from "../../service/messages";
 
 type RecipientSeed = { to: string[]; cc: string[] };
 
+export const replySubject = (subject: string): string => (/^re:/i.test(subject) ? subject : `Re: ${subject}`);
+export const forwardSubject = (subject: string): string => (/^fwd:/i.test(subject) ? subject : `Fwd: ${subject}`);
+
 export const deriveReplyIdentityId = (message: MessageDetail, identities: SenderIdentity[]): string | null => {
   const verified = identities.filter((identity) => identity.status === "verified");
   const match = (addresses: Array<{ address: string }>): SenderIdentity[] => {

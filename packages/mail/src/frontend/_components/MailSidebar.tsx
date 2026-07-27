@@ -1,5 +1,5 @@
-import { AppWorkspace, Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
+import { AppWorkspace, Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -7,6 +7,7 @@ import type { ConversationView } from "../../contracts";
 import type { ConversationViewCounts, MailFolderView } from "../../service/messages";
 import type { SavedConversationView } from "../../service/saved-views";
 import { readApiError } from "./api-response";
+import { registerMailtoHandler } from "./mail-compose-route";
 import { buildVisibleMailFolderTree, excludeMailFolderTreeRoles, flattenMailFolderTree, type MailFolderTreeNode } from "./mail-folder-tree";
 
 type MailViewItem = {
@@ -112,6 +113,25 @@ export default function MailSidebar(props: {
   });
   onCleanup(() => sync.abort());
 
+  const registerEmailLinks = async () => {
+    const result = registerMailtoHandler(navigator, window.location.origin);
+    if (result.kind === "registered") {
+      await prompts.alert(
+        "Your browser has been asked to open email links with Cloud Mail. Confirm the browser prompt if one appears. This choice belongs to this browser or device, not to the mailbox.",
+        { title: "Email link registration requested" },
+      );
+      return;
+    }
+    if (result.kind === "unsupported") {
+      await prompts.alert(
+        "This browser cannot register Cloud Mail for email links from the page. You can still open Cloud Mail and compose normally, or choose Cloud Mail through your browser or operating-system app settings when available.",
+        { title: "Email links are not supported here" },
+      );
+      return;
+    }
+    await prompts.error(result.message, { title: "Could not register email links" });
+  };
+
   const dropConversation = (event: DragEvent, destinationFolderId: string) => {
     event.preventDefault();
     setDropFolderId(null);
@@ -193,6 +213,10 @@ export default function MailSidebar(props: {
           ? [{ label: "Sender rules", icon: "ti ti-filter-cog", href: `/app/mail/${props.mailboxId}/automations?section=sender-rules` }]
           : []),
         ...(props.canAdmin ? [{ label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks }] : []),
+        {
+          sectionLabel: "This browser",
+          items: [{ label: "Open email links with Cloud Mail", icon: "ti ti-link", action: () => void registerEmailLinks() }],
+        },
       ]}
       position="top-right"
     />
@@ -348,7 +372,7 @@ export default function MailSidebar(props: {
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
           {props.canWrite && (
-            <a href={`/app/mail/${props.mailboxId}/compose`} class="mail-compose-action sidebar-item-mobile btn-primary btn-sm">
+            <a href={`/app/mail/compose?mailbox=${props.mailboxId}`} class="mail-compose-action sidebar-item-mobile btn-primary btn-sm">
               <i class="ti ti-pencil" aria-hidden="true" /> Compose
             </a>
           )}
@@ -372,7 +396,7 @@ export default function MailSidebar(props: {
       </AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarDesktop>
         {props.canWrite && (
-          <a href={`/app/mail/${props.mailboxId}/compose`} class="mail-compose-action btn-primary btn-sm mx-2 mt-2">
+          <a href={`/app/mail/compose?mailbox=${props.mailboxId}`} class="mail-compose-action btn-primary btn-sm mx-2 mt-2">
             <i class="ti ti-pencil" aria-hidden="true" />
             <span>Compose</span>
           </a>

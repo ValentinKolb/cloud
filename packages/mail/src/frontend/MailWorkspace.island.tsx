@@ -2,7 +2,7 @@ import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } fr
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { AppWorkspace, openSpotlightSearch, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { apiClient } from "../api/client";
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../live-events";
@@ -15,7 +15,6 @@ import { openMailAttachmentLinksDialog } from "./_components/MailAttachmentLinks
 import { chooseBulkTags, chooseConversationTags } from "./_components/MailBulkTagDialog";
 import { openMailboxHealthDialog } from "./_components/MailboxHealthDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
-import MailConversationComposerDrawer, { type MailConversationActiveComposer } from "./_components/MailConversationComposerDrawer";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
@@ -24,7 +23,6 @@ import MailScheduledView from "./_components/MailScheduledView";
 import MailSidebar from "./_components/MailSidebar";
 import { buildMailActionInput, getMailAction, type MailActionId } from "./_components/mail-actions";
 import type { MailBulkTarget } from "./_components/mail-bulk-actions";
-import { createMailComposerNavigation } from "./_components/mail-composer-navigation";
 import {
   emptyMailConversationSelection,
   findMailFocusAfterRemoval,
@@ -32,8 +30,8 @@ import {
   toggleMailConversationSelection,
 } from "./_components/mail-conversation-selection";
 import { mergeMailCursorPage } from "./_components/mail-cursor-page";
-import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
 import { preserveUnavailableMailDetail } from "./_components/mail-detail-availability";
+import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
 import {
   type MailListOptimisticField,
   type MailListOptimisticPatch,
@@ -71,7 +69,6 @@ export default function MailWorkspace(props: {
   const [selectionLoading, setSelectionLoading] = createSignal(false);
   const [listCollapsed, setListCollapsed] = createSignal(props.initialPreferences.listCollapsed);
   const [detailsOpen, setDetailsOpen] = createSignal(props.initialPreferences.detailsOpen);
-  const [conversationComposer, setConversationComposer] = createSignal<MailConversationActiveComposer | null>(null);
   const [presence, setPresence] = createSignal<ConversationPresenceSnapshot>({
     participants: [],
   });
@@ -87,7 +84,6 @@ export default function MailWorkspace(props: {
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
   let liveTransportTimer: ReturnType<typeof setTimeout> | null = null;
   let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
-  let updatePresenceMode: (() => void) | null = null;
   let routeRequest = 0;
   let selectionRequest = 0;
   let liveRequest = 0;
@@ -98,10 +94,8 @@ export default function MailWorkspace(props: {
   const focusFrames = new Set<number>();
   let pendingListState = new Map<string, PendingMailListState>();
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
-  const composerNavigation = createMailComposerNavigation();
   const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
-  const composerActive = () => conversationComposer() !== null;
   const workspaceRefreshBlocked = () => settingsOpening() || managementOpening() !== null || routeLoading() || selectionLoading();
 
   const applyPendingListState = (snapshot: MailboxPageData): MailboxPageData => {
@@ -148,12 +142,6 @@ export default function MailWorkspace(props: {
           ...preserveUnavailableMailDetail(data, next),
         }
       : next;
-
-  const prepareNavigation = async (): Promise<boolean> => {
-    if (!(await composerNavigation.prepare())) return false;
-    setConversationComposer(null);
-    return true;
-  };
 
   const replaceWorkspaceRoute = async (href: string): Promise<"applied" | "failed" | "stale"> => {
     selectionRequest += 1;
@@ -218,14 +206,12 @@ export default function MailWorkspace(props: {
   };
 
   const navigateWorkspace = async (nav: LinkNavigateEvent) => {
-    if (!(await prepareNavigation())) return;
     const result = await replaceWorkspaceRoute(nav.href);
     if (result === "applied") nav.push(undefined, { scroll: "preserve" });
     else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
   };
 
   const closeConversation = async (nav: LinkNavigateEvent) => {
-    if (!(await prepareNavigation())) return;
     const previousConversationId = data.selectedConversationId;
     const result = await replaceWorkspaceRoute(nav.href);
     if (result === "applied") {
@@ -235,7 +221,6 @@ export default function MailWorkspace(props: {
   };
 
   const openWorkspaceHref = async (href: string, replace = false) => {
-    if (!(await prepareNavigation())) return;
     const result = await replaceWorkspaceRoute(href);
     if (result === "applied") navigate(href, { replace, scroll: "preserve" });
     else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
@@ -308,7 +293,6 @@ export default function MailWorkspace(props: {
   createEffect(() => {
     const conversationId = selectedConversationId();
     if (!conversationId) {
-      updatePresenceMode = null;
       setPresence({ participants: [] });
       return;
     }
@@ -324,7 +308,7 @@ export default function MailWorkspace(props: {
             param: { mailboxId, conversationId },
             json: {
               peerId,
-              mode: untrack(composerActive) ? "composing" : "viewing",
+              mode: "viewing",
             },
           });
           if (response.ok && !stopped) setPresence(await response.json());
@@ -333,8 +317,6 @@ export default function MailWorkspace(props: {
         }
       });
     };
-    const updateMode = () => void heartbeat();
-    updatePresenceMode = updateMode;
     void heartbeat();
     const timer = window.setInterval(() => void heartbeat(), 10_000);
     const onVisibility = () => void heartbeat();
@@ -343,7 +325,6 @@ export default function MailWorkspace(props: {
       stopped = true;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
-      if (updatePresenceMode === updateMode) updatePresenceMode = null;
       setPresence({ participants: [] });
       void requestQueue
         .then(() =>
@@ -354,11 +335,6 @@ export default function MailWorkspace(props: {
         )
         .catch(() => undefined);
     });
-  });
-
-  createEffect(() => {
-    composerActive();
-    updatePresenceMode?.();
   });
 
   const liveRefresh = createMailLiveRefreshCoordinator({
@@ -374,9 +350,7 @@ export default function MailWorkspace(props: {
 
   createEffect(() => {
     if (workspaceRefreshBlocked()) {
-      // Dialog flows can own transient state that a route snapshot must not
-      // replace. The conversation composer is mounted outside the snapshot and
-      // can safely remain open while Mail reconciles in the background.
+      // Dialog flows can own transient state that a route snapshot must not replace.
       liveRequest += 1;
       liveController?.abort();
       liveController = null;
@@ -551,10 +525,6 @@ export default function MailWorkspace(props: {
     markLiveApplied = live.markApplied;
     const stopPopState = listenPopState(({ url }) => {
       void (async () => {
-        if (!(await prepareNavigation())) {
-          navigate(requestUrl(), { replace: true, scroll: "preserve", viewTransition: false });
-          return;
-        }
         const result = await replaceWorkspaceRoute(`${url.pathname}${url.search}`);
         if (!disposed && result === "failed") {
           navigate(requestUrl(), { replace: true, scroll: "preserve", viewTransition: false });
@@ -757,7 +727,6 @@ export default function MailWorkspace(props: {
   };
 
   const navigateConversation = async (href: string, item: MailListItem, activation: "keyboard" | "pointer") => {
-    if (!(await prepareNavigation())) return;
     const result = item.conversationId ? await applyConversationRoute(href, item, activation) : await replaceWorkspaceRoute(href);
     if (result === "applied") navigate(href, { scroll: "preserve", viewTransition: false });
     else if (result === "failed") toast.error("Could not open this conversation. Your current view was kept.");
@@ -1029,13 +998,7 @@ export default function MailWorkspace(props: {
   const splitMessage = async (messageId: string) => {
     const conversationId = data.selectedConversationId;
     const revision = selectedConversationRevision();
-    if (
-      !canWrite() ||
-      !conversationId ||
-      !revision ||
-      (selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1
-    )
-      return;
+    if (!canWrite() || !conversationId || !revision || (selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1) return;
     const controller = reserveWorkspaceAction();
     if (!controller) return;
     try {
@@ -1414,8 +1377,6 @@ export default function MailWorkspace(props: {
                   onReassignMessage={reassignMessage}
                   onSplitMessage={splitMessage}
                   onReconcile={reconcileWorkspace}
-                  composer={conversationComposer()}
-                  onComposerChange={setConversationComposer}
                   onClose={closeConversation}
                 />
               </>
@@ -1490,23 +1451,6 @@ export default function MailWorkspace(props: {
           </Show>
         </AppWorkspace.Detail>
       </AppWorkspace.Content>
-      <Show when={conversationComposer()}>
-        {(active) => (
-          <MailConversationComposerDrawer
-            active={active()}
-            mailboxId={data.mailbox.id}
-            requestUrl={requestUrl()}
-            subject={data.selectedSubject}
-            selectedConversationId={data.selectedConversationId}
-            identities={data.identities}
-            canAdmin={canAdmin()}
-            dateConfig={props.dateConfig}
-            onClose={() => setConversationComposer(null)}
-            onQueued={reconcileWorkspace}
-            registerNavigationHandoff={composerNavigation.register}
-          />
-        )}
-      </Show>
     </AppWorkspace>
   );
 }

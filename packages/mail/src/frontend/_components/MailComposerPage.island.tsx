@@ -5,7 +5,7 @@ import MailComposer from "./MailComposer";
 export default function MailComposerPage(props: {
   mailboxId: string;
   identities: SenderIdentity[];
-  initialDraft?: MailDraft | null;
+  initialDraft: MailDraft;
   returnHref: string;
   popout?: boolean;
   dateConfig: DateContext;
@@ -18,8 +18,6 @@ export default function MailComposerPage(props: {
           mailboxId={props.mailboxId}
           identities={props.identities}
           initialDraft={props.initialDraft}
-          seed={props.initialDraft ? undefined : { intent: "new" }}
-          surface="full"
           popout={props.popout}
           returnHref={props.returnHref}
           dateConfig={props.dateConfig}

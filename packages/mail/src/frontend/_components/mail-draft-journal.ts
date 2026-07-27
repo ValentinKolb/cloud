@@ -35,22 +35,3 @@ export const advanceMailDraftJournalAfterSave = (config: {
   config.storage.setItem(config.key, JSON.stringify({ revision: config.revision, content: journal.content } satisfies MailDraftJournal));
   return true;
 };
-
-export const promoteMailDraftJournal = (config: {
-  storage: DraftJournalStorage;
-  pendingKey: string;
-  draftKey: string;
-  revision: number;
-  submittedContent: DraftEditableContent;
-  currentContent: DraftEditableContent;
-  serverContent: DraftEditableContent;
-}): boolean => {
-  const content = config.currentContent;
-  const changedSinceSubmission = JSON.stringify(content) !== JSON.stringify(config.submittedContent);
-  const differsFromServer = JSON.stringify(content) !== JSON.stringify(config.serverContent);
-  if (changedSinceSubmission && differsFromServer) {
-    config.storage.setItem(config.draftKey, JSON.stringify({ revision: config.revision, content } satisfies MailDraftJournal));
-  }
-  config.storage.removeItem(config.pendingKey);
-  return changedSinceSubmission && differsFromServer;
-};

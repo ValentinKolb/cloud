@@ -1,20 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
-import {
-  AutocompleteEditor,
-  CheckboxCard,
-  type Completion,
-  MarkdownEditor,
-  Panes,
-  type PanesNode,
-  type PanesValue,
-  prompts,
-  Select,
-  Switch,
-  TextInput,
-  Tooltip,
-  toast,
-} from "@valentinkolb/cloud/ui";
-import { type DateContext, dates, text } from "@valentinkolb/stdlib";
+import { CheckboxCard, type Completion, type PanesValue, prompts, Select, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -22,8 +8,6 @@ import type {
   ComposePreview,
   ComposeSafetyApproval,
   ComposeSafetyReview,
-  CreateAttachmentLinkInput,
-  CreatedAttachmentLink,
   DraftEditableContent,
   DraftEditableContentInput,
   DraftIntent,
@@ -34,16 +18,17 @@ import type {
   SenderIdentity,
 } from "../../contracts";
 import { readApiError } from "./api-response";
-import { promptAttachmentLinkOptions } from "./attachment-link-ui";
+import MailComposerAttachments from "./MailComposerAttachments";
+import MailComposerEditor, { mailComposerPaneVisible } from "./MailComposerEditor";
 import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
-import type { MailComposerNavigationHandoff } from "./mail-composer-navigation";
+import { mailDraftHref } from "./mail-compose-route";
+import { createMailComposerAttachmentManager } from "./mail-composer-attachment-manager";
 import { createMailComposerTransition } from "./mail-composer-transition";
-import { type ComposerSeed, createMailDraftSession } from "./mail-draft-session";
+import { createMailDraftSession } from "./mail-draft-session";
 import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
 
-type UploadState = { file: File; progress: number; error: string | null; uploadId: string | null; draftId: string | null };
 class ComposeSafetyCancelled extends Error {}
 class ComposeSafetyAttachmentRequested extends Error {}
 
@@ -59,53 +44,29 @@ const intentIcon = (intent: DraftIntent): string =>
         ? "ti-arrow-forward-up"
         : "ti-send";
 
-const paneElementVisible = (node: PanesNode, elementId: string): boolean => {
-  if (node.type === "split") return node.children.some((child) => paneElementVisible(child, elementId));
-  if (!node.elementIds.includes(elementId)) return false;
-  if (node.presentation === "stack") return true;
-  const activeElementId = node.elementIds.includes(node.activeElementId ?? "") ? node.activeElementId : node.elementIds[0];
-  return activeElementId === elementId;
-};
-
 export default function MailComposer(props: {
   mailboxId: string;
   identities: SenderIdentity[];
-  initialDraft?: MailDraft | null;
-  seed?: ComposerSeed;
-  surface: "compact" | "full";
+  initialDraft: MailDraft;
   popout?: boolean;
   returnHref: string;
   dateConfig: DateContext;
   canShareAttachments?: boolean;
-  onClose?: () => void;
-  onQueued?: () => Promise<void>;
-  registerNavigationHandoff?: (handoff: MailComposerNavigationHandoff) => () => void;
 }) {
   let attachmentInput: HTMLInputElement | undefined;
   const verifiedIdentities = () => props.identities.filter((identity) => identity.status === "verified");
-  const defaultIdentity = () => verifiedIdentities().find((identity) => identity.isDefault) ?? verifiedIdentities()[0];
   const preferences = readMailUserPreferences(props.mailboxId);
-  const [identityId, setIdentityId] = createSignal(
-    props.initialDraft?.senderIdentityId ??
-      (props.seed?.senderIdentityId !== undefined ? (props.seed.senderIdentityId ?? "") : (defaultIdentity()?.id ?? "")),
-  );
-  const initialIdentity = () => verifiedIdentities().find((identity) => identity.id === identityId()) ?? defaultIdentity();
+  const [identityId, setIdentityId] = createSignal(props.initialDraft.senderIdentityId);
   const selectedIdentity = () => verifiedIdentities().find((identity) => identity.id === identityId()) ?? null;
-  const [to, setTo] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.to) : (props.seed?.to ?? []));
-  const [cc, setCc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.cc) : (props.seed?.cc ?? []));
-  const [bcc, setBcc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.bcc) : []);
-  const [subject, setSubject] = createSignal(props.initialDraft?.subject ?? props.seed?.subject ?? "");
-  const [body, setBody] = createSignal(props.initialDraft?.body ?? props.seed?.body ?? "");
-  const [format, setFormat] = createSignal<"plain" | "markdown">(
-    props.initialDraft?.format ?? initialIdentity()?.defaultFormat ?? preferences.composeFormat,
-  );
-  const [priority, setPriority] = createSignal(props.initialDraft?.priority ?? initialIdentity()?.defaultPriority ?? "normal");
-  const [requestDeliveryReceipt, setRequestDeliveryReceipt] = createSignal(
-    props.initialDraft?.requestDeliveryReceipt ?? initialIdentity()?.defaultDeliveryReceipt ?? false,
-  );
-  const [requestReadReceipt, setRequestReadReceipt] = createSignal(
-    props.initialDraft?.requestReadReceipt ?? initialIdentity()?.defaultReadReceipt ?? false,
-  );
+  const [to, setTo] = createSignal(formatMailRecipients(props.initialDraft.to));
+  const [cc, setCc] = createSignal(formatMailRecipients(props.initialDraft.cc));
+  const [bcc, setBcc] = createSignal(formatMailRecipients(props.initialDraft.bcc));
+  const [subject, setSubject] = createSignal(props.initialDraft.subject);
+  const [body, setBody] = createSignal(props.initialDraft.body);
+  const [format, setFormat] = createSignal<"plain" | "markdown">(props.initialDraft.format);
+  const [priority, setPriority] = createSignal(props.initialDraft.priority);
+  const [requestDeliveryReceipt, setRequestDeliveryReceipt] = createSignal(props.initialDraft.requestDeliveryReceipt);
+  const [requestReadReceipt, setRequestReadReceipt] = createSignal(props.initialDraft.requestReadReceipt);
   const deliveryOptionsSummary = createMemo(() => {
     const options: string[] = [];
     if (priority() === "high") options.push("high priority");
@@ -114,13 +75,7 @@ export default function MailComposer(props: {
     if (requestReadReceipt()) options.push("read receipt");
     return options;
   });
-  const [includeSourceAttachments, setIncludeSourceAttachments] = createSignal(
-    props.seed?.intent === "forward" && (props.seed.sourceAttachmentCount ?? 0) > 0,
-  );
-  const [uploads, setUploads] = createSignal<UploadState[]>([]);
-  const [showCc, setShowCc] = createSignal(
-    Boolean(props.initialDraft?.cc.length || props.initialDraft?.bcc.length || props.seed?.cc?.length),
-  );
+  const [showCc, setShowCc] = createSignal(Boolean(props.initialDraft.cc.length || props.initialDraft.bcc.length));
   const [composerPanes, setComposerPanes] = createSignal<PanesValue>(readMailComposerPanes());
   const [preview, setPreview] = createSignal<ComposePreview | null>(null);
   const [previewRevision, setPreviewRevision] = createSignal(0);
@@ -129,7 +84,6 @@ export default function MailComposer(props: {
   let disposed = false;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   let panePersistenceTimer: ReturnType<typeof setTimeout> | null = null;
-  const uploadControllers = new Map<File, AbortController>();
 
   const content = (): DraftEditableContent => ({
     senderIdentityId: identityId(),
@@ -144,7 +98,6 @@ export default function MailComposer(props: {
     requestReadReceipt: requestReadReceipt(),
   });
 
-  const serializedContent = () => JSON.stringify(content());
   const applyDraftContent = (value: DraftEditableContent) => {
     setIdentityId(value.senderIdentityId);
     setTo(formatMailRecipients(value.to));
@@ -161,9 +114,7 @@ export default function MailComposer(props: {
   const draftSession = createMailDraftSession({
     mailboxId: props.mailboxId,
     initialDraft: props.initialDraft,
-    seed: props.seed,
     hasVerifiedIdentity: () => verifiedIdentities().length > 0,
-    includeSourceAttachments,
     content,
     applyDraftContent,
     isDisposed: () => disposed,
@@ -177,7 +128,6 @@ export default function MailComposer(props: {
     setStatus,
     statusMessage,
     setStatusMessage,
-    beginDraft,
     persist,
     serializeMutation: serializeDraftMutation,
     stopScheduledSave,
@@ -186,7 +136,6 @@ export default function MailComposer(props: {
     releaseLease,
     resumeCurrentLease,
   } = draftSession;
-  const pendingKey = draftSession.pendingKey;
   const previewMutation = mutations.create<ComposePreview, { draft: DraftEditableContentInput; conversationId: string | null }>({
     mutation: async (input, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["compose-preview"].$post(
@@ -202,13 +151,22 @@ export default function MailComposer(props: {
     onSuccess: setPreview,
   });
   const canEditDraft = createMemo(
-    () =>
-      verifiedIdentities().length > 0 &&
-      status() !== "preparing" &&
-      status() !== "readonly" &&
-      (Boolean(lease()) || !draft()),
+    () => verifiedIdentities().length > 0 && status() !== "preparing" && status() !== "readonly" && (Boolean(lease()) || !draft()),
   );
   const editable = createMemo(() => canEditDraft() && composerTransition.active() === null);
+  const attachments = createMailComposerAttachmentManager({
+    mailboxId: props.mailboxId,
+    draft,
+    setDraft,
+    editable,
+    persist,
+    serializeDraftMutation,
+    transition: composerTransition,
+    format,
+    setBody,
+    isDisposed: () => disposed,
+  });
+  const uploads = attachments.uploads;
 
   const stopPreview = () => {
     if (previewTimer) clearTimeout(previewTimer);
@@ -309,9 +267,8 @@ export default function MailComposer(props: {
   createEffect(() => {
     if (typeof window === "undefined") return;
     const previewDraft = content();
-    serializedContent();
     previewRevision();
-    if (format() !== "markdown" || !paneElementVisible(composerPanes().root, "preview") || !identityId()) {
+    if (format() !== "markdown" || !mailComposerPaneVisible(composerPanes().root, "preview") || !identityId()) {
       stopPreview();
       return;
     }
@@ -320,7 +277,7 @@ export default function MailComposer(props: {
       () =>
         void previewMutation.mutate({
           draft: previewDraft,
-          conversationId: draft()?.conversationId ?? props.seed?.conversationId ?? null,
+          conversationId: draft()?.conversationId ?? props.initialDraft.conversationId,
         }),
       250,
     );
@@ -330,156 +287,12 @@ export default function MailComposer(props: {
     disposed = true;
     recoveryController?.abort();
     recoveryController = null;
-    for (const controller of uploadControllers.values()) controller.abort();
-    uploadControllers.clear();
     stopPreview();
     if (panePersistenceTimer) {
       clearTimeout(panePersistenceTimer);
       writeMailComposerPanes(composerPanes());
     }
   });
-
-  const uploadFile = async (file: File) => {
-    const controller = new AbortController();
-    uploadControllers.get(file)?.abort();
-    uploadControllers.set(file, controller);
-    setUploads((current) => [
-      ...current.filter((entry) => entry.file !== file),
-      { file, progress: 0, error: null, uploadId: null, draftId: null },
-    ]);
-    try {
-      const saved = await persist();
-      if (!saved) throw new Error("Save the draft before attaching files.");
-      const createResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"].$post(
-        {
-          param: { mailboxId: props.mailboxId, draftId: saved.id },
-          json: { filename: file.name, contentType: file.type || "application/octet-stream", byteLength: file.size },
-        },
-        { init: { signal: controller.signal } },
-      );
-      if (!createResponse.ok) throw new Error(await readApiError(createResponse, `Failed to attach ${file.name}`));
-      const upload = await createResponse.json();
-      setUploads((current) => current.map((entry) => (entry.file === file ? { ...entry, uploadId: upload.id, draftId: saved.id } : entry)));
-      for (let offset = 0; offset < file.size; offset += upload.chunkSize) {
-        const chunk = file.slice(offset, Math.min(file.size, offset + upload.chunkSize));
-        const response = await fetch(
-          `/api/mail/mailboxes/${props.mailboxId}/drafts/${saved.id}/attachment-uploads/${upload.id}?offset=${offset}`,
-          { method: "PATCH", headers: { "Content-Type": "application/octet-stream" }, body: chunk, signal: controller.signal },
-        );
-        if (!response.ok) throw new Error(await readApiError(response, `Failed to upload ${file.name}`));
-        const progress = file.size === 0 ? 100 : Math.round((Math.min(file.size, offset + chunk.size) / file.size) * 100);
-        setUploads((current) => current.map((entry) => (entry.file === file ? { ...entry, progress } : entry)));
-      }
-      await serializeDraftMutation(async () => {
-        const latest = draft() ?? saved;
-        const finalizeResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"][
-          ":uploadId"
-        ].finalize.$post(
-          {
-            param: { mailboxId: props.mailboxId, draftId: saved.id, uploadId: upload.id },
-            json: { expectedRevision: latest.revision },
-          },
-          { init: { signal: controller.signal } },
-        );
-        if (!finalizeResponse.ok) throw new Error(await readApiError(finalizeResponse, `Failed to finalize ${file.name}`));
-        setDraft(await finalizeResponse.json());
-      });
-      setUploads((current) => current.filter((entry) => entry.file !== file));
-    } finally {
-      if (uploadControllers.get(file) === controller) uploadControllers.delete(file);
-    }
-  };
-
-  const cancelUpload = async (upload: UploadState) => {
-    uploadControllers.get(upload.file)?.abort();
-    uploadControllers.delete(upload.file);
-    if (upload.uploadId && upload.draftId) {
-      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["attachment-uploads"][":uploadId"].$delete({
-        param: { mailboxId: props.mailboxId, draftId: upload.draftId, uploadId: upload.uploadId },
-      });
-      if (!response.ok) throw new Error(await readApiError(response, `Failed to cancel upload for ${upload.file.name}`));
-    }
-    setUploads((current) => current.filter((entry) => entry.file !== upload.file));
-  };
-
-  const retryUpload = async (upload: UploadState) => {
-    try {
-      await cancelUpload(upload);
-      await uploadFile(upload.file);
-    } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : `Failed to retry ${upload.file.name}`);
-    }
-  };
-
-  const addFiles = async (files: File[]) => {
-    for (const file of files) {
-      try {
-        await uploadFile(file);
-      } catch (error) {
-        if (disposed || (error instanceof DOMException && error.name === "AbortError")) return;
-        setUploads((current) =>
-          current.map((entry) =>
-            entry.file === file ? { ...entry, error: error instanceof Error ? error.message : "Upload failed" } : entry,
-          ),
-        );
-      }
-    }
-  };
-
-  const removeAttachment = async (attachmentId: string) => {
-    if (!editable()) return;
-    const reservation = composerTransition.reserve("attachment");
-    if (!reservation) return;
-    try {
-      await serializeDraftMutation(async () => {
-        const currentDraft = draft();
-        if (!currentDraft) return;
-        const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].attachments[":attachmentId"].$delete({
-          param: { mailboxId: props.mailboxId, draftId: currentDraft.id, attachmentId },
-          query: { expectedRevision: String(currentDraft.revision) },
-        });
-        if (!response.ok) return await prompts.error(await readApiError(response, "Failed to remove attachment"));
-        setDraft(await response.json());
-      });
-    } finally {
-      composerTransition.release(reservation);
-    }
-  };
-
-  const shareAttachment = mutations.create<CreatedAttachmentLink, { attachmentId: string; input: CreateAttachmentLinkInput }>({
-    mutation: async ({ attachmentId, input }, { abortSignal }) => {
-      const currentDraft = draft();
-      if (!currentDraft) throw new Error("Save the draft before sharing an attachment.");
-      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].attachments[":attachmentId"].links.$post(
-        {
-          param: { mailboxId: props.mailboxId, draftId: currentDraft.id, attachmentId },
-          json: input,
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to share attachment"));
-      return response.json();
-    },
-    onSuccess: ({ link, url }) => {
-      const label = link.filename ?? "Download attachment";
-      const insertion = format() === "markdown" ? `[${label.replaceAll("]", "\\]")}](${url})` : url;
-      setBody((current) => `${current}${current.endsWith("\n") || !current ? "" : "\n\n"}${insertion}`);
-      toast.success("Public attachment link inserted");
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const insertAttachmentLink = async (attachmentId: string) => {
-    if (!editable()) return;
-    const reservation = composerTransition.reserve("attachment");
-    if (!reservation) return;
-    try {
-      const input = await promptAttachmentLinkOptions();
-      if (input && !disposed) await shareAttachment.mutate({ attachmentId, input });
-    } finally {
-      composerTransition.release(reservation);
-    }
-  };
 
   const validateDelivery = () => {
     if (uploads().length > 0) throw new Error("Finish or cancel attachment uploads before sending.");
@@ -577,9 +390,6 @@ export default function MailComposer(props: {
       return command;
     },
     onSuccess: (_command, delivery) => {
-      const onClose = props.onClose;
-      const onQueued = props.onQueued;
-      const fullSurface = props.surface === "full";
       const returnHref = props.returnHref;
       const scheduled = Boolean(delivery?.scheduledAt);
       toast.success(
@@ -589,13 +399,7 @@ export default function MailComposer(props: {
             ? "Message queued. You can undo it directly in the conversation."
             : "Message queued",
       );
-      onClose?.();
-      if (onQueued) {
-        void onQueued().catch((error: unknown) => {
-          console.warn("Could not refresh the conversation after queueing a message", error);
-        });
-      }
-      if (fullSurface) navigateTo(returnHref);
+      navigateTo(returnHref);
     },
     onError: (error) => {
       if (error instanceof ComposeSafetyAttachmentRequested) {
@@ -653,7 +457,6 @@ export default function MailComposer(props: {
           setPriority(nextPriority());
           setRequestDeliveryReceipt(nextDeliveryReceipt());
           setRequestReadReceipt(nextReadReceipt());
-          beginDraft();
           close(true);
         };
 
@@ -742,14 +545,12 @@ export default function MailComposer(props: {
         );
         if (!response.ok) throw new Error(await readApiError(response, "Failed to discard draft"));
         localStorage.removeItem(draftSession.draftKey(currentDraft.id));
-        localStorage.removeItem(pendingKey);
       });
       return true;
     },
     onSuccess: (discarded) => {
       if (!discarded) return;
-      props.onClose?.();
-      if (props.surface === "full") navigateTo(props.returnHref);
+      navigateTo(props.returnHref);
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -764,46 +565,11 @@ export default function MailComposer(props: {
     }
   };
   onCleanup(() => {
-    shareAttachment.abort();
     send.abort();
     discard.abort();
   });
 
-  const prepareNavigationHandoff = async (): Promise<boolean> => {
-    if (uploads().length > 0) {
-      await prompts.error("Finish or cancel attachment uploads before leaving this draft.");
-      return false;
-    }
-    const reservation = composerTransition.reserve("handoff");
-    if (!reservation) return false;
-    try {
-      const hasDraftWork = Boolean(draft() || draftSession.initializing() || localStorage.getItem(pendingKey));
-      if (!hasDraftWork) return true;
-      if (draft() && !lease() && serializedContent() === draftSession.lastSavedContent()) return true;
-      stopScheduledSave();
-      const currentDraft = await persist();
-      if (disposed) return false;
-      if (!currentDraft) throw new Error(statusMessage() || "Draft could not be saved");
-      await releaseLease(currentDraft);
-      return !disposed;
-    } catch (error) {
-      if (disposed) return false;
-      await prompts.error(error instanceof Error ? error.message : "Draft could not be closed safely");
-      return false;
-    } finally {
-      composerTransition.release(reservation);
-    }
-  };
-
-  const closeComposer = async () => {
-    if (await prepareNavigationHandoff()) props.onClose?.();
-  };
-
-  const unregisterNavigationHandoff = props.registerNavigationHandoff?.(prepareNavigationHandoff);
-  onCleanup(() => unregisterNavigationHandoff?.());
-
-  const draftHref = (draftId: string, popout = false) =>
-    `/app/mail/${props.mailboxId}/compose/${draftId}?return=${encodeURIComponent(props.returnHref)}${popout ? "&window=1" : ""}`;
+  const draftHref = (draftId: string, popout = false) => mailDraftHref(props.mailboxId, draftId, props.returnHref, { popout });
 
   const handoffTo = async (href: string | ((draftId: string) => string), popup?: Window): Promise<void> => {
     if (uploads().length > 0) {
@@ -826,8 +592,7 @@ export default function MailComposer(props: {
       if (popup) {
         popup.name = `mail-draft-${currentDraft.id}`;
         popup.location.replace(target);
-        props.onClose?.();
-        if (props.surface === "full") navigateTo(props.returnHref);
+        navigateTo(props.returnHref);
         return;
       }
       navigateTo(target);
@@ -842,14 +607,10 @@ export default function MailComposer(props: {
           setStatusMessage("Draft editing could not be restored. Reload or take over the draft.");
         }
       }
-      await prompts.error(error instanceof Error ? error.message : "Could not switch composer surface");
+      await prompts.error(error instanceof Error ? error.message : "Could not open the draft in the requested window");
     } finally {
       composerTransition.release(reservation);
     }
-  };
-
-  const openFullSize = () => {
-    void handoffTo((draftId) => draftHref(draftId));
   };
 
   const openWindow = () => {
@@ -874,7 +635,7 @@ export default function MailComposer(props: {
     }
   };
 
-  const composerIntent = () => draft()?.intent ?? props.seed?.intent ?? "new";
+  const composerIntent = () => draft()?.intent ?? props.initialDraft.intent;
   const retryPreview = () => setPreviewRevision((revision) => revision + 1);
 
   const slashCompletion = createMemo<Completion[]>(() => [
@@ -889,7 +650,7 @@ export default function MailComposer(props: {
             json: {
               query,
               draft: content(),
-              conversationId: draft()?.conversationId ?? props.seed?.conversationId ?? null,
+              conversationId: draft()?.conversationId ?? props.initialDraft.conversationId,
             },
           },
           { init: { signal } },
@@ -910,98 +671,21 @@ export default function MailComposer(props: {
     },
   ]);
 
-  const writeSurface = (fill = false) => (
-    <Show
-      when={format() === "markdown"}
-      fallback={
-        <AutocompleteEditor
-          value={body}
-          onInput={(value) => {
-            setBody(value);
-            beginDraft();
-          }}
-          lines={props.surface === "full" ? 26 : 10}
-          placeholder="Write your message"
-          ariaLabel="Message body"
-          spellcheck
-          disabled={!editable()}
-          completions={slashCompletion()}
-          fill={fill}
-        />
-      }
-    >
-      <MarkdownEditor
-        value={body}
-        onInput={(value) => {
-          setBody(value);
-          beginDraft();
-        }}
-        placeholder="Write your message"
-        ariaLabel="Message body"
-        lines={props.surface === "full" ? 26 : 10}
-        spellcheck
-        disabled={!editable()}
-        completions={slashCompletion()}
-        fill={fill}
-      />
-    </Show>
-  );
-
-  const previewSurface = () => (
-    <div class="relative h-full min-h-72 overflow-hidden bg-white">
-      <Show
-        when={preview()}
-        fallback={
-          <Show
-            when={previewMutation.error()?.message}
-            fallback={<div class="flex h-full min-h-72 items-center justify-center text-sm text-dimmed">Preparing preview...</div>}
-          >
-            {(message) => (
-              <div class="flex h-full min-h-72 flex-col items-center justify-center gap-2 p-4 text-sm text-red-600">
-                <span>{message()}</span>
-                <button type="button" class="btn-secondary btn-sm" onClick={retryPreview}>
-                  Retry
-                </button>
-              </div>
-            )}
-          </Show>
-        }
-      >
-        {(value) => <iframe class="h-full min-h-72 w-full border-0 bg-white" sandbox="" srcdoc={value().html} title="Email preview" />}
-      </Show>
-      <Show when={preview() && previewMutation.error()?.message}>
-        <div class="absolute inset-x-2 top-2 flex items-center gap-2 border border-red-200 bg-white px-2 py-1 text-xs text-red-600 shadow-sm">
-          <span class="min-w-0 flex-1 truncate">{previewMutation.error()?.message}</span>
-          <button type="button" class="btn-simple btn-sm" onClick={retryPreview}>
-            Retry
-          </button>
-        </div>
-      </Show>
-      <Show when={previewMutation.loading()}>
-        <span class="absolute right-2 top-2 text-xs text-dimmed">
-          <i class="ti ti-loader-2 animate-spin" aria-hidden="true" /> Updating
-        </span>
-      </Show>
-    </div>
-  );
-
   return (
     <div class="mail-composer-surface h-full min-w-0 overflow-hidden">
       <Show when={!props.popout}>
-        <header class={`flex shrink-0 items-center gap-2 px-3 py-2 ${props.surface === "full" ? "bg-[var(--ui-surface-subtle)]" : ""}`}>
-          <Show when={props.surface === "full"}>
-            <Tooltip content="Minimize composer">
-              <button
-                type="button"
-                class="icon-btn"
-                aria-label="Minimize composer"
-                disabled={composerTransition.active() !== null}
-                onClick={() => void handoffTo(props.returnHref)}
-              >
-                <i class="ti ti-minimize" aria-hidden="true" />
-              </button>
-            </Tooltip>
-          </Show>
+        <header class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
+          <Tooltip content="Back to mailbox">
+            <button
+              type="button"
+              class="icon-btn"
+              aria-label="Back to mailbox"
+              disabled={composerTransition.active() !== null}
+              onClick={() => void handoffTo(props.returnHref)}
+            >
+              <i class="ti ti-arrow-left" aria-hidden="true" />
+            </button>
+          </Tooltip>
           <span class="min-w-0 flex-1 truncate text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
           <Show when={status() === "error" || status() === "readonly"}>
             <span class="min-w-0 truncate text-xs text-red-600 dark:text-red-300" role="status">
@@ -1019,38 +703,10 @@ export default function MailComposer(props: {
             </button>
           </Show>
           <Tooltip content="Open in new window">
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="Open in new window"
-              disabled={!editable()}
-              onClick={openWindow}
-            >
+            <button type="button" class="icon-btn" aria-label="Open in new window" disabled={!editable()} onClick={openWindow}>
               <i class="ti ti-app-window" aria-hidden="true" />
             </button>
           </Tooltip>
-          <Show when={props.surface === "compact"}>
-            <Tooltip content="Full-size composer">
-              <button
-                type="button"
-                class="icon-btn"
-                aria-label="Open full-size composer"
-                disabled={!editable()}
-                onClick={openFullSize}
-              >
-                <i class="ti ti-maximize" aria-hidden="true" />
-              </button>
-            </Tooltip>
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="Close composer"
-              disabled={composerTransition.active() !== null}
-              onClick={() => void closeComposer()}
-            >
-              <i class="ti ti-x" aria-hidden="true" />
-            </button>
-          </Show>
         </header>
       </Show>
 
@@ -1077,7 +733,7 @@ export default function MailComposer(props: {
         </div>
       </Show>
 
-      <div class={`flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto ${props.surface === "full" ? "px-4" : "px-3"}`}>
+      <div class="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-4">
         <div class="grid shrink-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 py-2 text-sm">
           <span class="text-dimmed">From</span>
           <Select
@@ -1085,16 +741,6 @@ export default function MailComposer(props: {
             value={identityId}
             onChange={(value) => {
               setIdentityId(value);
-              if (!draft()) {
-                const identity = verifiedIdentities().find((candidate) => candidate.id === value);
-                if (identity) {
-                  setFormat(identity.defaultFormat);
-                  setPriority(identity.defaultPriority);
-                  setRequestDeliveryReceipt(identity.defaultDeliveryReceipt);
-                  setRequestReadReceipt(identity.defaultReadReceipt);
-                }
-              }
-              beginDraft();
             }}
             options={verifiedIdentities().map((identity) => ({
               id: identity.id,
@@ -1106,15 +752,7 @@ export default function MailComposer(props: {
           <span class="text-dimmed">To</span>
           <div class="flex min-w-0 items-center gap-2">
             <div class="min-w-0 flex-1">
-              <MailRecipientInput
-                placeholder="Recipients"
-                value={to}
-                onChange={(value) => {
-                  setTo(value);
-                  beginDraft();
-                }}
-                disabled={!editable()}
-              />
+              <MailRecipientInput placeholder="Recipients" value={to} onChange={setTo} disabled={!editable()} />
             </div>
             <Show when={!showCc()}>
               <button type="button" class="btn-simple btn-sm" disabled={!editable()} onClick={() => setShowCc(true)}>
@@ -1124,136 +762,39 @@ export default function MailComposer(props: {
           </div>
           <Show when={showCc()}>
             <span class="text-dimmed">Cc</span>
-            <MailRecipientInput
-              placeholder="Cc recipients"
-              value={cc}
-              onChange={(value) => {
-                setCc(value);
-                beginDraft();
-              }}
-              disabled={!editable()}
-            />
+            <MailRecipientInput placeholder="Cc recipients" value={cc} onChange={setCc} disabled={!editable()} />
             <span class="text-dimmed">Bcc</span>
-            <MailRecipientInput
-              placeholder="Bcc recipients"
-              value={bcc}
-              onChange={(value) => {
-                setBcc(value);
-                beginDraft();
-              }}
-              disabled={!editable()}
-            />
+            <MailRecipientInput placeholder="Bcc recipients" value={bcc} onChange={setBcc} disabled={!editable()} />
           </Show>
           <span class="text-dimmed">Subject</span>
-          <TextInput
-            ariaLabel="Subject"
-            value={subject}
-            onInput={(value) => {
-              setSubject(value);
-              beginDraft();
-            }}
-            maxLength={998}
-            disabled={!editable()}
-          />
+          <TextInput ariaLabel="Subject" value={subject} onInput={setSubject} maxLength={998} disabled={!editable()} />
         </div>
 
-        <div class="min-h-72 flex-1 py-2">
-          <Show when={format() === "markdown"} fallback={<div class="h-full min-h-72 overflow-hidden">{writeSurface(true)}</div>}>
-            <Panes.Root
-              value={composerPanes()}
-              onChange={updateComposerPanes}
-              class="h-full w-full"
-              keepMounted
-              allowResize
-              allowMove
-              allowReorder
-              allowHorizontalSplit
-              allowVerticalSplit={false}
-            >
-              <Panes.Element id="editor" title="Write" icon="ti ti-pencil">
-                <div class="h-full min-h-0 overflow-hidden">{writeSurface(true)}</div>
-              </Panes.Element>
-              <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-                {previewSurface()}
-              </Panes.Element>
-            </Panes.Root>
-          </Show>
-        </div>
+        <MailComposerEditor
+          format={format}
+          body={body}
+          onBodyInput={setBody}
+          editable={editable}
+          completions={slashCompletion}
+          panes={composerPanes}
+          onPanesChange={updateComposerPanes}
+          preview={preview}
+          previewLoading={previewMutation.loading}
+          previewError={() => previewMutation.error()?.message}
+          onRetryPreview={retryPreview}
+        />
 
-        <Show when={(draft()?.attachments.length ?? 0) > 0 || uploads().length > 0}>
-          <div class="flex shrink-0 flex-wrap gap-2 py-2" aria-label="Attached files" role="list">
-            <For each={draft()?.attachments ?? []}>
-              {(attachment) => (
-                <span class="chip max-w-full" role="listitem">
-                  <i class="ti ti-paperclip" aria-hidden="true" />
-                  <span class="max-w-48 truncate">{attachment.filename}</span>
-                  <span class="text-xs text-dimmed">{text.pprintBytes(attachment.byteLength)}</span>
-                  <Show when={props.canShareAttachments}>
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      aria-label={`Insert public link for ${attachment.filename}`}
-                      disabled={!editable() || shareAttachment.loading()}
-                      onClick={() => void insertAttachmentLink(attachment.id)}
-                    >
-                      <i class="ti ti-link" aria-hidden="true" />
-                    </button>
-                  </Show>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    aria-label={`Remove ${attachment.filename}`}
-                    disabled={!editable()}
-                    onClick={() => void removeAttachment(attachment.id)}
-                  >
-                    <i class="ti ti-x" aria-hidden="true" />
-                  </button>
-                </span>
-              )}
-            </For>
-            <For each={uploads()}>
-              {(upload) => (
-                <span class="chip max-w-full" role="listitem">
-                  <i class={`ti ${upload.error ? "ti-alert-circle text-red-500" : "ti-loader-2 animate-spin"}`} aria-hidden="true" />
-                  <span class="max-w-48 truncate">{upload.file.name}</span>
-                  <span class="text-xs text-dimmed">{upload.error ?? `${upload.progress}%`}</span>
-                  <Show when={upload.error}>
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      aria-label={`Retry ${upload.file.name}`}
-                      disabled={!editable()}
-                      onClick={() => void retryUpload(upload)}
-                    >
-                      <i class="ti ti-refresh" aria-hidden="true" />
-                    </button>
-                  </Show>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    aria-label={`Cancel ${upload.file.name}`}
-                    disabled={!editable()}
-                    onClick={() => void cancelUpload(upload).catch((error) => prompts.error(error.message))}
-                  >
-                    <i class="ti ti-x" aria-hidden="true" />
-                  </button>
-                </span>
-              )}
-            </For>
-          </div>
-        </Show>
-        <Show when={!draft() && props.seed?.intent === "forward" && (props.seed.sourceAttachmentCount ?? 0) > 0}>
-          <div class="shrink-0 py-2">
-            <Switch
-              label={`Include ${props.seed?.sourceAttachmentCount} original attachment${
-                props.seed?.sourceAttachmentCount === 1 ? "" : "s"
-              }`}
-              value={includeSourceAttachments}
-              onChange={setIncludeSourceAttachments}
-              disabled={!editable()}
-            />
-          </div>
-        </Show>
+        <MailComposerAttachments
+          attachments={() => draft()?.attachments ?? []}
+          uploads={uploads}
+          editable={editable}
+          canShare={Boolean(props.canShareAttachments)}
+          shareLoading={attachments.shareLoading}
+          onInsertLink={(attachmentId) => void attachments.insertAttachmentLink(attachmentId)}
+          onRemove={(attachmentId) => void attachments.removeAttachment(attachmentId)}
+          onRetryUpload={(upload) => void attachments.retryUpload(upload)}
+          onCancelUpload={(upload) => void attachments.cancelUpload(upload).catch((error) => prompts.error(error.message))}
+        />
       </div>
 
       <footer class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
@@ -1293,7 +834,7 @@ export default function MailComposer(props: {
           onChange={(event) => {
             const files = Array.from(event.currentTarget.files ?? []);
             event.currentTarget.value = "";
-            void addFiles(files);
+            void attachments.addFiles(files);
           }}
         />
         <Select
@@ -1301,7 +842,6 @@ export default function MailComposer(props: {
           value={format}
           onChange={(value) => {
             setFormat(value === "plain" ? "plain" : "markdown");
-            beginDraft();
           }}
           options={[
             { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },

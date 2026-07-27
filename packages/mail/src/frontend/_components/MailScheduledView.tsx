@@ -1,10 +1,11 @@
-import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent, navigateTo } from "@k2b/ssr/nav";
+import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CancelScheduledSendInput, CancelScheduledSendResult, ScheduledSendPage } from "../../contracts";
 import { readApiError } from "./api-response";
+import { mailDraftHref } from "./mail-compose-route";
 
 const recipients = (item: ScheduledSendPage["items"][number]): string => {
   const all = [...item.to, ...item.cc, ...item.bcc];
@@ -71,7 +72,7 @@ export default function MailScheduledView(props: {
       if (disposed || controller !== currentController) return;
       toast.success(disposition === "draft" ? "Scheduled delivery cancelled; draft restored" : "Scheduled message discarded");
       if (result.disposition === "draft") {
-        navigateTo(`/app/mail/${props.mailboxId}/compose/${result.draftId}`);
+        navigateTo(mailDraftHref(props.mailboxId, result.draftId, `/app/mail/${props.mailboxId}?scheduled=1`));
         return;
       }
       await props.onRefresh();

@@ -713,17 +713,17 @@ The UI must make internal comments visually unmistakable from email. A comment c
 
 Drafts store source Markdown/plain text, intent, source-message context, authorship, last editor, and revision. Preview is derived from the current source through the canonical renderer rather than stored as another editable authority. They belong to the mailbox rather than their creator: a reader can inspect the complete draft, including Bcc recipients, and comment on its conversation; a writer can edit, take over, discard, schedule, or send it. Draft creation and autosave do not notify the mailbox. Review requests use the existing internal comment and mention flow.
 
-Opening an empty composer does not create durable clutter. The first meaningful change allocates a draft ID, writes every subsequent edit immediately to a durable browser recovery journal, and saves a coalesced revision to PostgreSQL. Navigation, switching conversations, changing composer surface, reload, browser restart, and temporary network loss never discard a draft. Closing a composer only closes the surface; discard is a separate explicit soft-deletion action with recovery. The UI distinguishes saving, saved, offline, and conflict states without announcing routine successful autosaves.
+Every editor opens a durable draft URL. New messages, replies, forwards, and standard `mailto:` intents create or resolve the draft before navigating to the composer. Subsequent edits are written immediately to a durable browser recovery journal and saved as coalesced PostgreSQL revisions. Reload, browser restart, and temporary network loss never discard a draft. Returning to the mailbox keeps the draft; discard is a separate explicit soft-deletion action with recovery. The UI distinguishes saving, saved, offline, and conflict states without announcing routine successful autosaves.
 
 PostgreSQL is the authoritative collaborative state after a revision is accepted. The browser journal covers edits that have not reached PostgreSQL and is removed when the draft is sent, explicitly discarded after its recovery period, or becomes inaccessible. Access revocation closes active editors and clears their local readable copy. A best-effort save on blur or page hide improves convergence but is never the only recovery mechanism.
 
-The first implementation has one active editor per draft, not simultaneous multi-cursor editing. Opening a reply publishes ephemeral presence; starting to edit acquires a soft lease. Other collaborators see the latest accepted revision read-only and may explicitly **Take over**. A takeover makes the prior editor read-only; any unaccepted local text remains a recoverable copy instead of being merged or overwritten. Inline, full-size, pop-out, and same-user browser tabs are surfaces for one logical editing session rather than competing collaborators.
+The first implementation has one active editor per draft, not simultaneous multi-cursor editing. Opening the draft route acquires a soft lease. Other collaborators see the latest accepted revision read-only and may explicitly **Take over**. A takeover makes the prior editor read-only; any unaccepted local text remains a recoverable copy instead of being merged or overwritten. The focused page, its explicit pop-out, and same-user browser tabs all address the same logical draft rather than becoming competing draft records.
 
 Presence and reply leases use distributed TTL state. Every heartbeat and snapshot rechecks current mailbox access; revoked users disappear immediately, and another eligible writer may recover their stale lease without waiting for the TTL.
 
 Saving requires the expected draft revision. A stale save produces a typed conflict that preserves the user's version as a copy and offers the latest accepted revision; the first implementation does not merge text automatically and does not use Yjs or another CRDT. Routine autosaves update draft revision history but do not create one user-facing activity event per save. Activity records meaningful lifecycle events such as creation, requested review, takeover, discard or restore, scheduling, and send.
 
-Send, Reply, Reply all, and Forward operate on one exact frozen draft revision. Permission, sender identity, provider binding, recipients, rendered signature, and conversation context are rechecked before submission. The first successful idempotent submission wins; every other surface becomes read-only. Activity distinguishes authorship from delivery, for example **Drafted by Alice, sent by Bob**. A newer inbound message or another collaborator's sent reply marks the draft context as changed and requires review rather than silently deleting or rewriting the draft.
+Send, Reply, Reply all, and Forward operate on one exact frozen draft revision. Permission, sender identity, provider binding, recipients, rendered signature, and conversation context are rechecked before submission. The first successful idempotent submission wins; every stale editor becomes read-only. Activity distinguishes authorship from delivery, for example **Drafted by Alice, sent by Bob**. A newer inbound message or another collaborator's sent reply marks the draft context as changed and requires review rather than silently deleting or rewriting the draft.
 
 ### Activity
 
@@ -951,7 +951,7 @@ Compose starts with plain text and Markdown while producing standards-compatible
 - Attribute changes that arrive through an external client to that external provider binding when the protocol cannot identify the human editor. Never claim a specific Cloud actor without evidence.
 - JMAP may improve identity and state-based conflict detection, but it does not change the PostgreSQL authority, permission, activity, or frozen-send contracts.
 
-### Reply quoting, draft intents, and composer surfaces
+### Reply quoting and draft intents
 
 A reply can quote a complete prior message or selected lines from any message in the conversation. Selecting text exposes **Quote in reply** and inserts a localized attribution plus a standards-compatible quote block at the current composer cursor:
 
@@ -966,20 +966,28 @@ Der genaue Prüfungstermin ist:
 
 Users can write before, after, or between several quoted fragments. Plain-text output uses `>` prefixes; sanitized HTML uses semantic quote markup. The draft keeps enough source-message metadata to regenerate attribution without modifying the retained message or changing `In-Reply-To` and `References` behavior.
 
-Each mail draft has one explicit intent: `new`, `reply`, `replyAll`, or `forward`. Intent is independent of where the draft is edited:
+Each mail draft has one explicit intent: `new`, `reply`, `replyAll`, or `forward`:
 
 - `new` starts without a source message or recipients;
 - `reply` addresses the selected message's reply target and preserves reply headers;
 - `replyAll` adds the selected message's visible recipients, removes the active sender identity and actor addresses, and deduplicates normalized addresses;
 - `forward` starts with empty recipients, a `Fwd:` subject, and the selected message as forwarded content. It includes that message's non-inline attachments by default, but each attachment can be excluded before sending.
 
-Forward acts on the selected message, not the entire conversation. **Forward as attachment** is an explicit advanced action. A reply or forward may be opened from a message action, keyboard command, or command palette; changing the editing surface never changes its intent.
+Forward acts on the selected message, not the entire conversation. **Forward as attachment** is an explicit advanced action. A reply or forward may be opened from a message action, keyboard command, or command palette.
 
-The compact reply composer is the default in the split workspace. Expanding it opens a full-size mail composer with explicit From, To, Cc, Bcc, Subject, attachments, body, and its intent-specific primary action. The same draft can open in a dedicated browser window. Inline, full-size, and pop-out surfaces share one draft ID, revision stream, draft lease, permission checks, upload state, and send command; opening another surface never clones the draft. Internal comments are collaboration records edited only in the Details panel. They are never a mail draft intent and never appear as an option in compact, full-size, or pop-out mail composers.
+Every compose action first materializes a durable draft and then opens its canonical route, `/app/mail/:mailboxId/compose/:draftId`. The workspace never embeds a second editor. A draft can be handed off to a dedicated browser window only after pending changes are persisted and the current editing lease is released; both windows still refer to the same draft rather than cloning it. Internal comments are collaboration records edited only in the Details panel. They are never a mail draft intent and never appear in the mail composer.
 
-The default composer keeps only frequent controls visible: sender and recipients, subject on demand in compact mode, body, the primary intent action, delivery options, attachments, and focus or pop-out controls. Formatting and Markdown preview, signatures and snippets, scheduling, subject editing on replies, and discard live in focused toolbar or overflow actions. Future AI drafting will use the same progressive-disclosure boundary. Provider-dependent priority flags and **Forward as attachment** remain advanced actions. Undo send is a post-send action, not another composer mode.
+The composer keeps only frequent controls visible: sender and recipients, subject, body, the primary intent action, delivery options, attachments, and the new-window control. Formatting and Markdown preview, signatures and snippets, scheduling, and discard live in focused toolbar or overflow actions. Future AI drafting will use the same progressive-disclosure boundary. Provider-dependent priority flags and **Forward as attachment** remain advanced actions. Undo send is a post-send action, not another composer mode.
 
-The primary commit action mirrors the draft intent on every surface: **Send** for a new message, **Reply** for reply, **Reply all** for reply-all, and **Forward** for forward. Its icon follows the same intent. The adjacent secondary control is consistently named **Delivery options** and contains scheduling or delivery behavior; it never changes recipients or draft intent.
+The primary commit action mirrors the draft intent: **Send** for a new message, **Reply** for reply, **Reply all** for reply-all, and **Forward** for forward. Its icon follows the same intent. The adjacent secondary control is consistently named **Delivery options** and contains scheduling or delivery behavior; it never changes recipients or draft intent.
+
+### Standard email links
+
+Cloud Mail accepts browser and operating-system email intents through `/app/mail/compose?mailto=<encoded-mailto-uri>`. The mailbox-independent landing page lets the user choose a writable mailbox and one of its verified sender identities, creates an ordinary durable draft, and redirects to the canonical draft route.
+
+The intent accepts bounded standard recipient, Cc, Bcc, subject, and body fields. It never accepts a sender identity, attachments, or an instruction to send automatically. Unsupported fields are ignored, malformed or oversized intents fail closed, and recipients are normalized and deduplicated before draft creation.
+
+Mailbox tools can ask a compatible browser to register Cloud Mail as its `mailto:` handler. This is an explicit, device-local browser choice; Cloud does not claim that the registration succeeded, persist a misleading account preference, or replace operating-system settings.
 
 ### Signatures and snippets
 
@@ -993,7 +1001,7 @@ Mandatory corporate or legal content is intentionally not modeled as a signature
 
 ### Mailbox CSS
 
-Mailbox CSS styles outgoing Markdown HTML only. A minimal readable built-in stylesheet is always applied. Mailbox-admin overrides are parsed, bounded, and allowlisted; imports, active URLs, at-rules, unsafe selectors, and unsupported properties fail closed. Supported declarations are inlined for email-client compatibility. Write, Preview, and resize-only Split views render through the same pipeline used to freeze send output; compact composition exposes Write and Preview without adding another pane.
+Mailbox CSS styles outgoing Markdown HTML only. A minimal readable built-in stylesheet is always applied. Mailbox-admin overrides are parsed, bounded, and allowlisted; imports, active URLs, at-rules, unsafe selectors, and unsupported properties fail closed. Supported declarations are inlined for email-client compatibility. Write, Preview, and resize-only Split views render through the same pipeline used to freeze send output.
 
 Incoming HTML never uses mailbox compose CSS.
 
@@ -1004,7 +1012,7 @@ The app uses `AppWorkspace` as a dense operational workspace, not a landing page
 ```text
 +----------------+---------------------------+--------------------------+------------------+
 | Mailbox nav    | Conversation list         | Reader                   | Optional detail  |
-| Views/folders  | sender · subject · preview | thread · reply composer  | one panel only   |
+| Views/folders  | sender · subject · preview | thread · message actions | one panel only   |
 | Settings       | state · assignee · time    | message actions          | resizable        |
 +----------------+---------------------------+--------------------------+------------------+
 ```
@@ -1019,7 +1027,7 @@ Selecting a row opens the conversation beside the list. Search, filter, and view
 
 The conversation view shows the original message and every inbound or outbound reply in chronological order. The newest relevant message is expanded; older messages remain compact but preserve sender, recipients, timestamp, attachment presence, and delivery direction. Recognized quoted history is collapsed for readability, while the unmodified raw body remains available.
 
-The selected message exposes familiar **Reply**, **Reply all**, and **Forward** actions without opening a generic action drawer. Reply may continue in the compact composer; Reply all and Forward can open the same draft in full-size or pop-out form when more recipient or source context is useful.
+The selected message exposes familiar **Reply**, **Reply all**, and **Forward** actions without opening a generic action drawer. Each action creates or selects a durable draft and opens the focused composer route. Older messages keep the same commands in their message menu.
 
 Internal comments do not enter the email chronology. They live in the optional Details panel beside ownership, compact mail metadata, and recent activity. Its comment input cannot address external recipients. The mail composer cannot silently switch into internal-comment mode.
 
@@ -1045,9 +1053,9 @@ Opening a received file starts from its message row and may use an inline previe
 
 ### Reader width and compose focus
 
-The normal split workspace is optimized for moving between conversations. The conversation list can be hidden and restored independently while mailbox navigation, conversation actions, and the compact composer stay in place. Hiding the list closes the optional detail panel and lets the reader use the remaining workspace width; it is not a separate reader mode. List visibility and width are remembered per user, and restoring the list preserves the selected conversation and reader scroll position.
+The normal split workspace is optimized for moving between conversations. The conversation list can be hidden and restored independently while mailbox navigation and conversation actions stay in place. Hiding the list closes the optional detail panel and lets the reader use the remaining workspace width; it is not a separate reader mode. List visibility and width are remembered per user, and restoring the list preserves the selected conversation and reader scroll position.
 
-**Full-size composer** is a separate editing surface for substantial new messages, replies, reply-all drafts, and forwards. It occupies the complete app viewport: mailbox navigation, conversation list, reader, conversation toolbar, detail panels, and other workspace chrome disappear. The composer header is the topmost UI, identifies the current mail intent, and provides both Exit full size and **Open in new window**. It never offers Internal note as a mode. The dedicated browser window contains the same composer-only surface for comparison with other mail or applications. Returning to split view preserves cursor, selection, scroll position, uploads, and draft revision.
+**Focused composer** is the only mail editing surface for new messages, replies, reply-all drafts, and forwards. It occupies the complete app viewport: mailbox navigation, conversation list, reader, conversation toolbar, detail panels, and other workspace chrome disappear. The composer header is the topmost UI, identifies the current mail intent, and provides **Back to mailbox** and **Open in new window**. It never offers Internal note as a mode. The dedicated browser window contains the same composer-only route for comparison with other mail or applications. Leaving the composer persists current editable content before releasing its draft lease.
 
 ### Command-first interaction
 
@@ -1422,15 +1430,15 @@ The matrix is cumulative. Only generic IMAP/SMTP behavior gates the first comple
 - Received attachments remain attached to their source message; outgoing uploads remain attached to the active draft and never appear in one ambiguous drawer.
 - Reply all excludes active sender and actor addresses, deduplicates recipients, and exposes the final To and Cc lists before sending.
 - Forward starts without recipients, uses the selected message rather than the entire conversation, and lets the sender exclude original non-inline attachments.
-- New, reply, reply-all, and forward composers use Send, Reply, Reply all, and Forward respectively as their primary action on every editing surface.
+- New, reply, reply-all, and forward composers use Send, Reply, Reply all, and Forward respectively as their primary action.
 - Attachment groups retain a visible origin label in normal reader and composer states.
 - The Details badge equals unread internal comments and disappears when no unread comments remain.
 - Hiding and restoring the conversation list preserves the selected conversation, reader scroll position, draft, uploads, and permissions.
-- New, reply, reply-all, and forward drafts retain their intent while inline, full-size, and pop-out surfaces edit one revision-safe draft and cannot send duplicate revisions.
+- New, reply, reply-all, and forward drafts retain their intent on one canonical, revision-safe draft route and cannot send duplicate revisions.
 - Draft text survives navigation, reload, browser restart, an interrupted autosave, and an offline interval without creating empty server drafts or duplicate editing sessions.
 - Direct and resumable attachment uploads use the same durable upload state machine. Sending is rejected while an upload is incomplete, cancellation is retry-safe, and abandoned upload bytes are removed by bounded background cleanup.
 - Readers can inspect mailbox drafts and request review without editing; writers can take over and send. Autosave does not notify the mailbox or flood user-facing activity.
-- A stale editor preserves its local text as a recovery copy, while an explicit takeover and the first successful idempotent send make older surfaces read-only.
+- A stale editor preserves its local text as a recovery copy, while an explicit takeover and the first successful idempotent send make older editors read-only.
 - A Cloud draft appears in the provider Drafts mailbox; a provider-created draft is imported; independent Cloud and external edits produce explicit conflict copies rather than silent last-write-wins behavior.
 - Replacing an IMAP draft snapshot records the new UID before retiring the prior snapshot. Failure between those operations is reconciled without losing the accepted Cloud revision.
 - Remote deletion soft-discards an unchanged projected draft but never deletes a newer Cloud revision. External-client activity is attributed only as precisely as the provider binding permits.

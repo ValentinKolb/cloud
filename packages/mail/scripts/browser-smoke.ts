@@ -351,8 +351,19 @@ const runSmoke = async (fixture: Fixture) => {
     await page.getByText("Show quoted text", { exact: true }).click();
     await page.getByText("Previous message content remains available on demand.", { exact: false }).waitFor();
     ok("long messages open at the header and reveal quoted text without nested scrolling");
+    const readerHasHistory = await readerScroll.evaluate((element) => {
+      element.scrollTop = 0;
+      element.dispatchEvent(new Event("scroll"));
+      return element.scrollHeight - element.clientHeight > 96;
+    });
+    if (!readerHasHistory) fail("long-message fixture did not create a meaningful reader scroll range");
 
     await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await expectUrl(
+      page,
+      (url) => new RegExp(`/app/mail/${fixture.mailboxId}/compose/[^/]+$`).test(url.pathname),
+      "reply opens its canonical draft route",
+    );
     const body = page.getByRole("combobox", { name: "Message body" });
     await body.waitFor({ state: "visible" }).catch(async () => {
       fail(`reply composer did not open\n${errors.join("\n")}\n${(await page.locator("body").innerText()).slice(-2_000)}`);
@@ -376,35 +387,41 @@ const runSmoke = async (fixture: Fixture) => {
     ok("reply keeps focus and content across the first keystroke");
 
     await saveResponse;
-    await page.getByRole("button", { name: "Close composer" }).click();
+    await page.getByRole("button", { name: "Back to mailbox" }).click();
     await body.waitFor({ state: "detached" });
-    ok("draft saves and the compact composer closes cleanly");
+    await expectUrl(
+      page,
+      (url) => url.pathname === mailboxPath && url.searchParams.get("conversation") === fixture.conversationId,
+      "composer returns to the originating conversation",
+    );
+    ok("draft saves and the focused composer closes cleanly");
 
     await page.getByRole("button", { name: "Reply", exact: true }).click();
     await continueDraft(page);
+    await expectUrl(
+      page,
+      (url) => new RegExp(`/app/mail/${fixture.mailboxId}/compose/[^/]+$`).test(url.pathname),
+      "existing reply reopens its canonical draft route",
+    );
     await body.waitFor({ state: "visible" });
     await body.click();
     await body.pressSequentially(" recovered locally");
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Reply", exact: true }).click();
-    await continueDraft(page);
-    await body.waitFor({ state: "visible" });
+    await body.waitFor({ state: "visible" }).catch(async () => {
+      fail(`composer did not recover after reload at ${page.url()}\n${(await page.locator("body").innerText()).slice(-2_000)}`);
+    });
     await page.getByText("Draft recovered", { exact: true }).waitFor();
     if (!(await body.inputValue()).endsWith(" recovered locally")) {
       fail(`recovered draft body is incomplete: ${await body.inputValue()}`);
     }
-    await page.getByRole("button", { name: "Close composer" }).click();
+    await page.getByRole("button", { name: "Back to mailbox" }).click();
     await body.waitFor({ state: "detached" });
-    ok("local draft recovery survives a page lifecycle");
-
-    await page.evaluate(() => history.back());
-    await expectUrl(page, (url) => !url.searchParams.has("conversation"), "browser back restores the list URL");
-    await page.evaluate(() => history.forward());
     await expectUrl(
       page,
-      (url) => url.searchParams.get("conversation") === fixture.conversationId,
-      "browser forward restores the conversation URL",
+      (url) => url.pathname === mailboxPath && url.searchParams.get("conversation") === fixture.conversationId,
+      "recovered composer returns to the conversation",
     );
+    ok("local draft recovery survives a page lifecycle");
     await page.getByText(fixture.subject, { exact: true }).first().waitFor();
 
     await page.getByRole("button", { name: "Reply", exact: true }).click();
@@ -414,23 +431,26 @@ const runSmoke = async (fixture: Fixture) => {
       (response) =>
         response.request().method() === "POST" && /\/api\/mail\/mailboxes\/[^/]+\/commands$/.test(new URL(response.url()).pathname),
     );
-    const readerHasHistory = await readerScroll.evaluate((element) => {
-      element.scrollTop = 0;
-      element.dispatchEvent(new Event("scroll"));
-      return element.scrollHeight - element.clientHeight > 96;
-    });
-    if (!readerHasHistory) fail("long-message fixture did not create a meaningful reader scroll range");
-    await page.getByRole("button", { name: "Reply", exact: true }).last().click();
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
     const sendAnyway = page.getByRole("button", { name: "Send anyway", exact: true });
     await sendAnyway
       .waitFor({ state: "visible", timeout: 1_000 })
       .then(() => sendAnyway.click())
       .catch(() => undefined);
     await sendResponse;
-    await body.waitFor({ state: "detached" });
+    await body.waitFor({ state: "detached" }).catch(async () => {
+      fail(
+        `composer did not close after send at ${page.url()}\n${errors.join("\n")}\n${(await page.locator("body").innerText()).slice(-2_000)}`,
+      );
+    });
+    await expectUrl(
+      page,
+      (url) => url.pathname === mailboxPath && url.searchParams.get("conversation") === fixture.conversationId,
+      "sent reply returns to its conversation",
+    );
     const newMessageJump = page.getByRole("button", { name: "1 new message", exact: true });
-    await newMessageJump.waitFor();
-    await newMessageJump.click();
+    if (await newMessageJump.isVisible()) await newMessageJump.click();
+    await page.locator('[data-mail-direction="outgoing"]').waitFor();
     if ((await page.locator('[data-mail-direction="outgoing"]').count()) !== 1) {
       fail("the queued reply did not appear as an outgoing message");
     }
@@ -447,7 +467,51 @@ const runSmoke = async (fixture: Fixture) => {
     }
     await page.keyboard.press("Escape");
     ok("older message response actions move into the message menu");
-    ok("saved reply queues, announces its live append, and closes without stale reactive access");
+    ok("saved reply queues, returns to the conversation, and announces its live append");
+
+    const mailto = "mailto:recipient@example.test?subject=Browser%20mailto&body=Created%20from%20an%20email%20link";
+    await page.goto(`/app/mail/compose?mailbox=${fixture.mailboxId}&mailto=${encodeURIComponent(mailto)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const continueIntent = page.getByRole("button", { name: "Continue", exact: true });
+    await continueIntent.waitFor();
+    const mailtoDraftRequest = page.waitForRequest(
+      (request) => request.method() === "POST" && /\/api\/mail\/mailboxes\/[^/]+\/drafts$/.test(new URL(request.url()).pathname),
+    );
+    await continueIntent.click();
+    const createdMailtoDraftRequest = await mailtoDraftRequest;
+    const createdMailtoDraftInput = JSON.parse(createdMailtoDraftRequest.postData() ?? "{}") as { body?: unknown };
+    if (createdMailtoDraftInput.body !== "Created from an email link") {
+      fail(`mailto draft request did not preserve the body: ${createdMailtoDraftRequest.postData()}`);
+    }
+    await expectUrl(
+      page,
+      (url) => new RegExp(`/app/mail/${fixture.mailboxId}/compose/[^/]+$`).test(url.pathname),
+      "mailto creates a canonical durable draft",
+    );
+    const mailtoDraftId = new URL(page.url()).pathname.split("/").at(-1);
+    if (!mailtoDraftId) fail("mailto draft route did not contain a draft id");
+    const storedMailtoBody = await page.evaluate(
+      async ({ mailboxId, draftId }) => {
+        const response = await fetch(`/api/mail/mailboxes/${mailboxId}/drafts/${draftId}`);
+        return ((await response.json()) as { body?: unknown }).body;
+      },
+      { mailboxId: fixture.mailboxId, draftId: mailtoDraftId },
+    );
+    if (storedMailtoBody !== "Created from an email link") {
+      fail(`stored mailto draft did not preserve the body: ${JSON.stringify(storedMailtoBody)}`);
+    }
+    await page.getByRole("button", { name: "Remove recipient@example.test", exact: true }).waitFor();
+    if ((await page.getByRole("textbox", { name: "Subject" }).inputValue()) !== "Browser mailto") {
+      fail("mailto subject was not preserved");
+    }
+    const mailtoBody = await body.inputValue();
+    if (!mailtoBody.startsWith("Created from an email link")) fail(`mailto body was not preserved: ${JSON.stringify(mailtoBody)}`);
+    await page.getByRole("button", { name: "Discard draft", exact: true }).click();
+    const discardDialog = page.getByRole("dialog").filter({ hasText: "Discard draft?" });
+    await discardDialog.getByRole("button", { name: "Discard draft", exact: true }).click();
+    await expectUrl(page, (url) => url.pathname === mailboxPath, "discarded mailto draft returns to its mailbox");
+    ok("mailto intent selects mailbox and sender without bypassing the ordinary draft lifecycle");
 
     if (errors.length > 0) fail(`browser errors:\n${errors.join("\n")}`);
     ok("browser smoke complete");

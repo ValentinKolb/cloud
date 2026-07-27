@@ -61,9 +61,9 @@ describe("mailHelp", () => {
   test("registers the same help on every Mail workspace route", async () => {
     const routes = [
       "../frontend/page.tsx",
+      "../frontend/compose/page.tsx",
       "../frontend/[mailboxId]/page.tsx",
       "../frontend/[mailboxId]/automations/page.tsx",
-      "../frontend/[mailboxId]/compose/page.tsx",
       "../frontend/[mailboxId]/compose/[draftId]/page.tsx",
     ];
 

@@ -8,11 +8,17 @@ order: 30
 
 ## Start a message {icon="square-plus"}
 
-Select **Compose** for a new message, or use **Reply**, **Reply all**, **Forward**, or **Quote selection** inside a conversation. Mail keeps the intent of the draft, so the final action button is labeled **Send**, **Reply**, **Reply all**, or **Forward**.
+Select **Compose** for a new message, or use **Reply**, **Reply all**, **Forward**, or **Quote selection** inside a conversation. Mail first creates a shared draft and then opens its focused composer page. Mail keeps the intent of the draft, so the final action button is labeled **Send**, **Reply**, **Reply all**, or **Forward**.
 
 Choose a verified sender in **From**, add recipients, and enter a subject and body. **Cc/Bcc** reveals the additional recipient fields.
 
-The composer can stay attached to the conversation, expand to a full-size composer, or open in a separate browser window. Moving between these surfaces transfers the editing session instead of creating another independent draft.
+The composer is separate from the mailbox workspace. Use **Back to mailbox** to save the latest changes, release the editing lease, and return. **Open in new window** moves the same draft to a dedicated browser window; it never creates a second draft.
+
+## Open email links with Cloud Mail {icon="link"}
+
+Open **Mailbox tools > Open email links with Cloud Mail** to ask the current browser to use Cloud Mail for standard `mailto:` links. Confirm the browser prompt when one appears. This association belongs to the browser or operating system, not to a mailbox or Cloud account, so Cloud does not display a permanent default-app switch.
+
+An email link can supply To, Cc, Bcc, Subject, and plain-text Body. Cloud shows the writable mailbox and verified sender before creating the draft. Links cannot choose a hidden sender, attach local files, or send automatically. Browsers without protocol-handler support can still use **Compose** normally.
 
 ## Choose Markdown or Plain text {icon="route"}
 
@@ -33,7 +39,7 @@ Mail saves the shared draft as you work and keeps a browser recovery journal for
 
 Only one editing session holds the draft lease at a time. If another tab or person is editing it, the composer becomes read-only. Use **Take over** only when you intend to replace the other editing session. Concurrent or stale saves can create recovery copies; use the recovery action in the composer to inspect and restore them.
 
-**Discard draft** removes the shared draft for everyone with mailbox access. Closing or minimizing the composer keeps the draft.
+**Discard draft** removes the shared draft for everyone with mailbox access. Returning to the mailbox keeps the draft.
 
 ## Use signatures and snippets {icon="pencil"}
 
@@ -62,7 +68,7 @@ before SMTP starts and tells you both sizes. Remove attachments or share a large
 file with a public download link instead. An unknown or outdated provider limit
 does not prevent sending.
 
-When forwarding a message with attachments, **Include original attachments** appears before the new draft is created. Turn it off when the forwarded body is enough.
+When forwarding a message with attachments, Mail includes the original files in the new draft by default. Remove individual attachments in the composer when the forwarded body is enough.
 
 ## Review sending warnings {icon="shield-check"}
 
