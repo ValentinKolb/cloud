@@ -1,3 +1,4 @@
+import { navigateTo } from "@k2b/ssr/nav";
 import {
   AutocompleteEditor,
   CheckboxCard,
@@ -13,7 +14,6 @@ import {
   Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@k2b/ssr/nav";
 import { type DateContext, dates, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -554,20 +554,18 @@ export default function MailComposer(props: {
       localStorage.removeItem(draftSession.draftKey(saved.id));
       return command;
     },
-    onSuccess: (command, delivery) => {
+    onSuccess: (_command, delivery) => {
       const onClose = props.onClose;
       const onQueued = props.onQueued;
       const fullSurface = props.surface === "full";
       const returnHref = props.returnHref;
       const scheduled = Boolean(delivery?.scheduledAt);
       toast.success(
-        scheduled ? `Delivery scheduled for ${dates.formatDateTime(delivery!.scheduledAt!, props.dateConfig)}` : "Message queued",
-        !scheduled && preferences.undoSeconds > 0
-          ? {
-              duration: Math.max(5_000, preferences.undoSeconds * 1_000),
-              action: { label: `Undo within ${preferences.undoSeconds} seconds`, href: `/app/mail/${props.mailboxId}?scheduled=1` },
-            }
-          : undefined,
+        scheduled
+          ? `Delivery scheduled for ${dates.formatDateTime(delivery!.scheduledAt!, props.dateConfig)}`
+          : preferences.undoSeconds > 0
+            ? "Message queued. You can undo it directly in the conversation."
+            : "Message queued",
       );
       onClose?.();
       if (onQueued) {

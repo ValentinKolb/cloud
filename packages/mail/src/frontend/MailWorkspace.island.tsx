@@ -1,6 +1,6 @@
+import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } from "@k2b/ssr/nav";
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { AppWorkspace, openSpotlightSearch, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
-import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } from "@k2b/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
@@ -15,6 +15,7 @@ import { openMailAttachmentLinksDialog } from "./_components/MailAttachmentLinks
 import { chooseBulkTags, chooseConversationTags } from "./_components/MailBulkTagDialog";
 import { openMailboxHealthDialog } from "./_components/MailboxHealthDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
+import MailConversationComposerDrawer, { type MailConversationActiveComposer } from "./_components/MailConversationComposerDrawer";
 import MailConversationList from "./_components/MailConversationList";
 import MailConversationReader from "./_components/MailConversationReader";
 import MailDetailsPanel from "./_components/MailDetailsPanel";
@@ -68,18 +69,21 @@ export default function MailWorkspace(props: {
   const [selectionLoading, setSelectionLoading] = createSignal(false);
   const [listCollapsed, setListCollapsed] = createSignal(props.initialPreferences.listCollapsed);
   const [detailsOpen, setDetailsOpen] = createSignal(props.initialPreferences.detailsOpen);
-  const [composerActive, setComposerActive] = createSignal(false);
+  const [conversationComposer, setConversationComposer] = createSignal<MailConversationActiveComposer | null>(null);
   const [presence, setPresence] = createSignal<ConversationPresenceSnapshot>({
     participants: [],
   });
   const [settingsOpening, setSettingsOpening] = createSignal(false);
   const [managementOpening, setManagementOpening] = createSignal<"health" | "links" | "remote-content" | null>(null);
-  const [liveDegraded, setLiveDegraded] = createSignal(false);
+  const [liveTransportDegraded, setLiveTransportDegraded] = createSignal(false);
+  const [liveSnapshotDegraded, setLiveSnapshotDegraded] = createSignal(false);
+  const liveDegraded = createMemo(() => liveTransportDegraded() || liveSnapshotDegraded());
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
   const [selectionMode, setSelectionMode] = createSignal(false);
   const [actionPending, setActionPending] = createSignal(false);
   const mailboxId = props.data.mailbox.id;
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
+  let liveTransportTimer: ReturnType<typeof setTimeout> | null = null;
   let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
   let updatePresenceMode: (() => void) | null = null;
   let routeRequest = 0;
@@ -95,8 +99,8 @@ export default function MailWorkspace(props: {
   const detailCache = createMailDetailPrefetchCache<MailConversationDetailData>(4);
   const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
-  const workspaceRefreshBlocked = () =>
-    composerActive() || settingsOpening() || managementOpening() !== null || routeLoading() || selectionLoading();
+  const composerActive = () => conversationComposer() !== null;
+  const workspaceRefreshBlocked = () => settingsOpening() || managementOpening() !== null || routeLoading() || selectionLoading();
 
   const applyPendingListState = (snapshot: MailboxPageData): MailboxPageData => {
     const reconciled = reconcileMailListOptimisticState(snapshot.listItems, pendingListState);
@@ -343,19 +347,17 @@ export default function MailWorkspace(props: {
     isBlocked: workspaceRefreshBlocked,
     refresh: refreshLiveSnapshot,
     onApplied: (cursor) => {
-      setLiveDegraded(false);
+      setLiveSnapshotDegraded(false);
       markLiveApplied(cursor);
     },
-    onFailed: (attempt) => {
-      setLiveDegraded(true);
-      if (attempt === 1) toast("Live updates are reconnecting. Your current view remains available.", { title: "Mail is reconnecting" });
-    },
+    onFailed: () => setLiveSnapshotDegraded(true),
   });
 
   createEffect(() => {
     if (workspaceRefreshBlocked()) {
-      // A server snapshot must never replace the workspace beneath an active
-      // editor or dialog. Invalidate and abort work that started beforehand.
+      // Dialog flows can own transient state that a route snapshot must not
+      // replace. The conversation composer is mounted outside the snapshot and
+      // can safely remain open while Mail reconciles in the background.
       liveRequest += 1;
       liveController?.abort();
       liveController = null;
@@ -363,10 +365,6 @@ export default function MailWorkspace(props: {
     }
     liveRefresh.resume();
   });
-
-  const updateComposerActive = (active: boolean) => {
-    setComposerActive(active);
-  };
 
   const openSettings = async (initialTab?: string) => {
     if (disposed || settingsOpening()) return;
@@ -474,6 +472,20 @@ export default function MailWorkspace(props: {
         if (!message) throw new Error("Invalid Mail live server message");
         return message;
       },
+      onStatus: (status) => {
+        if (liveTransportTimer) clearTimeout(liveTransportTimer);
+        liveTransportTimer = null;
+        if (status === "reconnecting") {
+          if (!liveTransportDegraded()) {
+            liveTransportTimer = setTimeout(() => {
+              liveTransportTimer = null;
+              if (!disposed) setLiveTransportDegraded(true);
+            }, 2_000);
+          }
+          return;
+        }
+        if (status === "open" || status === "paused" || status === "closed") setLiveTransportDegraded(false);
+      },
       onMessage: (message, controls) => {
         const messageMailboxId = message.payload.mailboxId;
         if (messageMailboxId && messageMailboxId !== props.data.mailbox.id) {
@@ -503,10 +515,7 @@ export default function MailWorkspace(props: {
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.error) {
-          setLiveDegraded(true);
-          if (message.payload.code === "internal_error" || message.payload.code === "stream_failed") {
-            toast("Live updates are reconnecting. Your current view remains available.", { title: "Mail is reconnecting" });
-          }
+          setLiveSnapshotDegraded(true);
         }
       },
       classifyClose: ({ code, reason }) =>
@@ -540,6 +549,7 @@ export default function MailWorkspace(props: {
     selectionRequest += 1;
     liveRequest += 1;
     if (preferenceTimer) clearTimeout(preferenceTimer);
+    if (liveTransportTimer) clearTimeout(liveTransportTimer);
     routeController?.abort();
     liveController?.abort();
     actionController?.abort();
@@ -1421,7 +1431,8 @@ export default function MailWorkspace(props: {
                   onReassignMessage={reassignMessage}
                   onSplitMessage={splitMessage}
                   onReconcile={reconcileWorkspace}
-                  onComposerActiveChange={updateComposerActive}
+                  composer={conversationComposer()}
+                  onComposerChange={setConversationComposer}
                   onClose={closeConversation}
                 />
               </>
@@ -1488,6 +1499,22 @@ export default function MailWorkspace(props: {
           </Show>
         </AppWorkspace.Detail>
       </AppWorkspace.Content>
+      <Show when={conversationComposer()}>
+        {(active) => (
+          <MailConversationComposerDrawer
+            active={active()}
+            mailboxId={data.mailbox.id}
+            requestUrl={requestUrl()}
+            subject={data.selectedSubject}
+            selectedConversationId={data.selectedConversationId}
+            identities={data.identities}
+            canAdmin={canAdmin()}
+            dateConfig={props.dateConfig}
+            onClose={() => setConversationComposer(null)}
+            onQueued={reconcileWorkspace}
+          />
+        )}
+      </Show>
     </AppWorkspace>
   );
 }

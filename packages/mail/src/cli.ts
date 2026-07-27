@@ -5840,7 +5840,7 @@ export default defineCliCommands({
       },
     }),
     command("command cancel", {
-      summary: "Cancel a scheduled send during its undo window",
+      summary: "Undo a queued send before delivery starts",
       args: { commandId: arg.required({ description: "Send command id" }) },
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {

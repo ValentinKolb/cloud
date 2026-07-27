@@ -1,5 +1,5 @@
-import { AppWorkspace, CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
+import { CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
@@ -14,34 +14,15 @@ import type {
 } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
-import MailComposer from "./MailComposer";
+import type { MailConversationActiveComposer, MailConversationComposerRequest } from "./MailConversationComposerDrawer";
 import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
-import { deriveReplyIdentityId, deriveReplyRecipients } from "./mail-compose-derivation";
 import { buildMailListHref } from "./mail-navigation";
-
-const replySubject = (subject: string): string => (/^re:/i.test(subject) ? subject : `Re: ${subject}`);
-const forwardSubject = (subject: string): string => (/^fwd:/i.test(subject) ? subject : `Fwd: ${subject}`);
-
-type ComposerRequest = {
-  intent: DraftIntent;
-  message: MessageDetail;
-  quotedBody?: string;
-};
-
-type ActiveComposer = ComposerRequest & {
-  initialDraft?: MailDraft;
-};
 
 type DraftLookup = {
   conversationId: string;
-  request: ComposerRequest;
+  request: MailConversationComposerRequest;
 };
-
-const composerRecipients = (request: ComposerRequest, identities: SenderIdentity[]): { to: string[]; cc: string[] } =>
-  request.intent === "reply" || request.intent === "reply_all"
-    ? deriveReplyRecipients(request.message, request.intent, identities)
-    : { to: [], cc: [] };
 
 const intentLabel = (intent: DraftIntent): string =>
   intent === "reply" ? "reply" : intent === "reply_all" ? "reply all" : intent === "forward" ? "forward" : "message";
@@ -75,12 +56,12 @@ export default function MailConversationReader(props: {
   onReassignMessage: (messageId: string) => void | Promise<void>;
   onSplitMessage: (messageId: string) => void | Promise<void>;
   onReconcile: () => Promise<void>;
-  onComposerActiveChange: (active: boolean) => void;
+  composer: MailConversationActiveComposer | null;
+  onComposerChange: (composer: MailConversationActiveComposer | null) => void;
   onClose: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
   const [expandedMessages, setExpandedMessages] = createSignal(new Set(props.messages.slice(-1).map((message) => message.id)));
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
-  const [compose, setCompose] = createSignal<ActiveComposer | null>(null);
   const [openingDraft, setOpeningDraft] = createSignal(false);
   const closeHref = () => buildMailListHref(new URL(props.requestUrl));
   let draftLoadController: AbortController | null = null;
@@ -96,10 +77,8 @@ export default function MailConversationReader(props: {
       return next;
     });
 
-  const showComposer = (request: ComposerRequest, initialDraft?: MailDraft) => {
-    setCompose({ ...request, initialDraft });
-    props.onComposerActiveChange(true);
-  };
+  const showComposer = (request: MailConversationComposerRequest, initialDraft?: MailDraft) =>
+    props.onComposerChange({ ...request, initialDraft });
 
   const isCurrentLookup = (lookup: DraftLookup) => !disposed && props.selectedConversationId === lookup.conversationId;
 
@@ -226,7 +205,7 @@ export default function MailConversationReader(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const composerBusy = () => Boolean(compose()) || conversationDrafts.loading() || openingDraft();
+  const composerBusy = () => Boolean(props.composer) || conversationDrafts.loading() || openingDraft();
 
   const derivedDraft = mutations.create<
     MailDraft,
@@ -333,10 +312,7 @@ export default function MailConversationReader(props: {
     }
   };
 
-  const closeComposer = () => {
-    setCompose(null);
-    props.onComposerActiveChange(false);
-  };
+  const closeComposer = () => props.onComposerChange(null);
 
   let currentSelection = props.selectionKey;
   let currentNewestMessageId = props.messages.at(-1)?.id ?? null;
@@ -350,7 +326,7 @@ export default function MailConversationReader(props: {
       draftLoadController?.abort();
       setExpandedMessages(new Set(props.messages.slice(-1).map((message) => message.id)));
       setMessageSelections({});
-      if (compose()) closeComposer();
+      if (props.composer) closeComposer();
       return;
     }
     if (nextNewestMessageId && nextNewestMessageId !== currentNewestMessageId) {
@@ -367,6 +343,7 @@ export default function MailConversationReader(props: {
     conversationDrafts.abort();
     derivedDraft.abort();
     draftLoadController?.abort();
+    if (props.composer) props.onComposerChange(null);
   });
 
   const startQuoteReply = (message: MessageDetail, body: HTMLElement) => {
@@ -647,50 +624,6 @@ export default function MailConversationReader(props: {
             </For>
           </div>
         </div>
-
-        <Show when={compose()}>
-          {(active) => {
-            const request = active();
-            const recipients = request.initialDraft ? null : composerRecipients(request, props.identities);
-            const seed = request.initialDraft
-              ? undefined
-              : {
-                  intent: request.intent,
-                  senderIdentityId: deriveReplyIdentityId(request.message, props.identities),
-                  conversationId: props.selectedConversationId,
-                  sourceMessageId: request.message.id,
-                  to: recipients?.to ?? [],
-                  cc: recipients?.cc ?? [],
-                  subject: request.intent === "forward" ? forwardSubject(props.subject) : replySubject(props.subject),
-                  body: request.quotedBody ?? "",
-                  sourceAttachmentCount: request.intent === "forward" ? request.message.attachments.length : 0,
-                };
-            return (
-              <AppWorkspace.BottomDrawer
-                id="mail-composer"
-                open
-                height="lg"
-                minHeight={288}
-                maxHeight={640}
-                resizable
-                class="bg-[var(--ui-surface)]"
-              >
-                <MailComposer
-                  mailboxId={props.mailboxId}
-                  identities={props.identities}
-                  initialDraft={request.initialDraft}
-                  surface="compact"
-                  returnHref={props.requestUrl}
-                  dateConfig={props.dateConfig}
-                  canShareAttachments={props.canAdmin}
-                  onClose={closeComposer}
-                  onQueued={props.onReconcile}
-                  seed={seed}
-                />
-              </AppWorkspace.BottomDrawer>
-            );
-          }}
-        </Show>
       </Show>
     </div>
   );

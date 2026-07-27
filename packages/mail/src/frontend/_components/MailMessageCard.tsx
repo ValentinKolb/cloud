@@ -1,8 +1,11 @@
-import { Placeholder, StatusBadge, type StatusTone } from "@valentinkolb/cloud/ui";
+import { Placeholder, StatusBadge, type StatusTone, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { Show } from "solid-js";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { onCleanup, Show } from "solid-js";
+import { apiClient } from "../../api/client";
 import type { DraftDerivationKind, DraftIntent, SenderIdentity } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
+import { readApiError } from "./api-response";
 import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
 import MailSenderMessageActions from "./MailSenderMessageActions";
@@ -76,6 +79,31 @@ export default function MailMessageCard(props: {
   actions: MailMessageCardActions;
 }) {
   let messageBody!: HTMLDivElement;
+  const undoSend = mutations.create<void, { submissionId: string }, { reconcile: () => Promise<void> }>({
+    onBefore: () => ({ reconcile: props.actions.reconcile }),
+    mutation: async ({ submissionId }, { abortSignal }) => {
+      const route = apiClient.mailboxes[":mailboxId"]["scheduled-sends"][":scheduledSendId"];
+      const response = await route.cancel.$post(
+        {
+          param: { mailboxId: props.context.mailboxId, scheduledSendId: submissionId },
+          json: { disposition: "draft" },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not undo this send"));
+    },
+    onSuccess: (_result, context) => {
+      toast.success("Send undone. The message was restored as a draft.");
+      if (context)
+        void context.reconcile().catch(() => toast.error("The message changed, but this conversation could not be refreshed yet."));
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const controllableDelivery = () => {
+    const delivery = props.message.delivery;
+    return props.context.canWrite && delivery && (delivery.state === "undo_window" || delivery.state === "scheduled") ? delivery : null;
+  };
+  onCleanup(() => undoSend.abort());
 
   return (
     <article class="min-w-0 py-2" style={`view-transition-name: mail-message-${props.message.id}`}>
@@ -117,6 +145,21 @@ export default function MailMessageCard(props: {
         </span>
         <i class={`ti ${props.expanded ? "ti-chevron-up" : "ti-chevron-down"} mt-1 text-dimmed`} aria-hidden="true" />
       </button>
+      <Show when={controllableDelivery()}>
+        {(delivery) => (
+          <div class="flex flex-wrap items-center gap-2 pl-14 pr-2 pt-1">
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              disabled={undoSend.loading()}
+              onClick={() => undoSend.mutate({ submissionId: delivery().submissionId })}
+            >
+              <i class="ti ti-arrow-back-up" aria-hidden="true" />
+              {delivery().state === "undo_window" ? "Undo send" : "Cancel send"}
+            </button>
+          </div>
+        )}
+      </Show>
       <Show when={props.expanded}>
         <div class="pb-3 pl-14 pr-2 pt-2">
           <div ref={messageBody} class="mail-message-body min-w-0 overflow-x-auto text-sm text-primary">

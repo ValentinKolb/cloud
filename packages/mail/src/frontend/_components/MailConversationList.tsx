@@ -1,5 +1,5 @@
-import { MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
+import { MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
@@ -199,7 +199,7 @@ export default function MailConversationList(props: {
                   </Show>
                   <Show when={props.liveDegraded}>
                     <i class="ti ti-cloud-off" aria-hidden="true" />
-                    <span>Reconnecting</span>
+                    <span>Updates paused</span>
                   </Show>
                 </p>
               </div>
