@@ -5,9 +5,12 @@ import {
   Button,
   Chart,
   Checkbox,
+  ContextMenu,
   CopyButton,
   DataPanel,
   dialogCore,
+  Dropdown,
+  FilterChip,
   IconButton,
   LinkCard,
   NoticeCard,
@@ -16,6 +19,7 @@ import {
   PanelDialog,
   Placeholder,
   ProgressBar,
+  RemoveBtn,
   panelDialogOptions,
   prompts,
   SegmentedControl,
@@ -23,6 +27,7 @@ import {
   StatCell,
   StatGrid,
   StatusBadge,
+  SpotlightButton,
   Switch,
   TextInput,
   Tooltip,
@@ -56,6 +61,9 @@ export default function Demo() {
   const [accepted, setAccepted] = createSignal(false);
   const [role, setRole] = createSignal<"member" | "admin">("member");
   const [dialogTab, setDialogTab] = createSignal<"details" | "history">("details");
+  const [filters, setFilters] = createSignal<string[]>(["open"]);
+  const [actionMessage, setActionMessage] = createSignal("No action yet");
+  const [removed, setRemoved] = createSignal(false);
 
   const confirmAction = async () => {
     const result = await prompts.confirm("The dialog is rendered in the scoped @k2b/ui portal root.", {
@@ -212,6 +220,61 @@ export default function Demo() {
                     </IconButton>
                   </Tooltip>
                   <CopyButton value="bun add @k2b/ui" variant="secondary" />
+                  <Dropdown
+                    label="Project actions"
+                    openOnHover
+                    trigger={<Button variant="secondary">Menu</Button>}
+                    elements={[
+                      { label: "Rename", icon: "ti ti-pencil", action: () => setActionMessage("Renamed") },
+                      {
+                        sectionLabel: "Danger zone",
+                        items: [{ label: "Archive", icon: "ti ti-archive", variant: "danger", action: () => setActionMessage("Archived") }],
+                      },
+                    ]}
+                  />
+                  <FilterChip
+                    label="State"
+                    icon="ti ti-filter"
+                    value={filters()}
+                    onChange={setFilters}
+                    options={[
+                      {
+                        label: "State",
+                        options: [
+                          { value: "open", label: "Open" },
+                          { value: "closed", label: "Closed" },
+                        ],
+                      },
+                      {
+                        label: "Flags",
+                        multiple: true,
+                        options: [
+                          { value: "urgent", label: "Urgent", color: "#ef4444" },
+                          { value: "owned", label: "Owned" },
+                        ],
+                      },
+                    ]}
+                  />
+                  <SpotlightButton onClick={openSearch} variant="chip" />
+                  <RemoveBtn
+                    ariaLabel="Remove example"
+                    disabled={removed()}
+                    onClick={() => {
+                      setRemoved(true);
+                      setActionMessage("Removed");
+                    }}
+                  />
+                  <ContextMenu
+                    label="Example context actions"
+                    items={[
+                      { id: "duplicate", label: "Duplicate", icon: "ti ti-copy", onSelect: () => setActionMessage("Duplicated") },
+                      { id: "delete", label: "Delete", danger: true, onSelect: () => setActionMessage("Deleted") },
+                    ]}
+                  >
+                    <span style="display:inline-flex;min-height:32px;align-items:center;padding:0 10px;border:1px dashed var(--k2b-border);border-radius:var(--k2b-radius-control);font-size:12px">
+                      Right-click me
+                    </span>
+                  </ContextMenu>
                   <Button variant="secondary" onClick={() => toast.success("The package owns this scoped toast.")}>
                     Show toast
                   </Button>
@@ -228,6 +291,9 @@ export default function Demo() {
                     ]}
                   />
                 </div>
+                <p id="action-result" style="margin:10px 0 0;color:var(--k2b-text-muted);font-size:12px">
+                  {actionMessage()} · filters: {filters().join(", ") || "none"}
+                </p>
               </Section>
 
               <Section id="inputs" title="Inputs">

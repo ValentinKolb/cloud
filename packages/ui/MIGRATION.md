@@ -18,6 +18,8 @@ name is still `planned`.
 
 The currently accepted complete migrations are:
 
+- actions: `FilterChip`, `SegmentedControl`, `ContextMenu`, `CopyButton`,
+  `Dropdown`, `RemoveBtn`, `SpotlightSearch`;
 - layout: `AppOverview`, `DataPanel`, `PanelDialog`, `PanelHeader`;
 - surfaces: `NotFoundState`, `Placeholder`;
 - feedback: `dialog-core`, `prompts`, `toast`, `Tooltip`.

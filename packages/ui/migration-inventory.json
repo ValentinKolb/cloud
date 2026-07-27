@@ -3,13 +3,13 @@
   "source": "packages/cloud/src/ui/index.ts",
   "generic": {
     "actions": [
-      { "source": "./filter/FilterChip", "status": "planned" },
-      { "source": "./input/SegmentedControl", "status": "planned" },
-      { "source": "./misc/ContextMenu", "status": "planned" },
-      { "source": "./misc/CopyButton", "status": "planned" },
-      { "source": "./misc/Dropdown", "status": "planned" },
-      { "source": "./misc/RemoveBtn", "status": "planned" },
-      { "source": "./misc/SpotlightSearch", "status": "planned" }
+      { "source": "./filter/FilterChip", "status": "implemented" },
+      { "source": "./input/SegmentedControl", "status": "implemented" },
+      { "source": "./misc/ContextMenu", "status": "implemented" },
+      { "source": "./misc/CopyButton", "status": "implemented" },
+      { "source": "./misc/Dropdown", "status": "implemented" },
+      { "source": "./misc/RemoveBtn", "status": "implemented" },
+      { "source": "./misc/SpotlightSearch", "status": "implemented" }
     ],
     "inputs": [
       { "source": "./completion", "status": "planned" },

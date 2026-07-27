@@ -1,34 +1,72 @@
-import { createUniqueId, For, type JSX } from "solid-js";
+import { createMemo, For, type JSX } from "solid-js";
 
-export type SegmentedControlOption<T extends string = string> = {
+export type SegmentOption<T extends string = string> = {
   value: T;
   label: JSX.Element;
+  icon?: string;
   disabled?: boolean;
 };
 
-export type SegmentedControlProps<T extends string = string> = {
-  options: readonly SegmentedControlOption<T>[];
-  value: T;
-  onValueChange: (value: T) => void;
-  label: string;
+export type SegmentedControlOption<T extends string = string> = SegmentOption<T>;
+
+type SegmentedControlChange<T extends string> =
+  | { onChange: (value: T) => void; onValueChange?: (value: T) => void }
+  | { onChange?: (value: T) => void; onValueChange: (value: T) => void };
+
+export type SegmentedControlProps<T extends string = string> = SegmentedControlChange<T> & {
+  options: readonly SegmentOption<T>[];
+  value: T | (() => T);
   disabled?: boolean;
+  ariaLabel?: string;
+  label?: string;
   size?: "sm" | "md";
   class?: string;
 };
 
+/** Controlled radio group with automatic selection during arrow-key navigation. */
 export function SegmentedControl<T extends string = string>(props: SegmentedControlProps<T>): JSX.Element {
-  const name = `k2b-segment-${createUniqueId()}`;
   const buttons: HTMLButtonElement[] = [];
-
-  const moveFocus = (currentIndex: number, direction: 1 | -1) => {
-    const enabled = props.options.map((option, index) => ({ option, index })).filter(({ option }) => !props.disabled && !option.disabled);
-    const enabledIndex = enabled.findIndex(({ index }) => index === currentIndex);
-    const next = enabled[(enabledIndex + direction + enabled.length) % enabled.length];
-    if (next) buttons[next.index]?.focus();
+  const currentValue = createMemo<T>(() => (typeof props.value === "function" ? props.value() : props.value));
+  const enabled = () =>
+    props.options.map((option, index) => ({ option, index })).filter(({ option }) => !props.disabled && !option.disabled);
+  const emit = (value: T) => {
+    const onChange = props.onChange ?? props.onValueChange;
+    onChange?.(value);
+  };
+  const select = (index: number) => {
+    const option = props.options[index];
+    if (!option || props.disabled || option.disabled) return;
+    emit(option.value);
+    queueMicrotask(() => buttons[index]?.focus());
+  };
+  const selectRelative = (currentIndex: number, direction: 1 | -1) => {
+    const available = enabled();
+    if (available.length === 0) return;
+    const current = available.findIndex(({ index }) => index === currentIndex);
+    const next = available[(current + direction + available.length) % available.length] ?? available[0];
+    if (next) select(next.index);
+  };
+  const edge = (last: boolean) => {
+    const available = enabled();
+    const next = last ? available.at(-1) : available[0];
+    if (next) select(next.index);
+  };
+  const tabIndex = (index: number, value: T) => {
+    if (props.disabled || props.options[index]?.disabled) return -1;
+    if (currentValue() === value) return 0;
+    const selectedEnabled = props.options.some((option) => option.value === currentValue() && !props.disabled && !option.disabled);
+    return !selectedEnabled && enabled()[0]?.index === index ? 0 : -1;
   };
 
   return (
-    <div class={`k2b-segmented-control ${props.class ?? ""}`} data-size={props.size ?? "md"} role="radiogroup" aria-label={props.label}>
+    <div
+      class={`k2b-segmented-control ${props.class ?? ""}`}
+      data-size={props.size ?? "md"}
+      role="radiogroup"
+      aria-label={props.ariaLabel ?? props.label ?? "Options"}
+      aria-orientation="horizontal"
+      aria-disabled={props.disabled ? "true" : undefined}
+    >
       <For each={props.options}>
         {(option, index) => (
           <button
@@ -37,27 +75,32 @@ export function SegmentedControl<T extends string = string>(props: SegmentedCont
             }}
             type="button"
             role="radio"
-            name={name}
             class="k2b-segmented-control__option"
-            aria-checked={props.value === option.value}
-            data-selected={props.value === option.value ? "true" : undefined}
+            aria-checked={currentValue() === option.value}
+            data-selected={currentValue() === option.value ? "true" : undefined}
             disabled={props.disabled || option.disabled}
-            tabIndex={props.value === option.value ? 0 : -1}
-            onClick={() => props.onValueChange(option.value)}
+            tabIndex={tabIndex(index(), option.value)}
+            onClick={() => select(index())}
             onKeyDown={(event) => {
               if (event.key === "ArrowRight" || event.key === "ArrowDown") {
                 event.preventDefault();
-                moveFocus(index(), 1);
+                selectRelative(index(), 1);
               } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
                 event.preventDefault();
-                moveFocus(index(), -1);
+                selectRelative(index(), -1);
+              } else if (event.key === "Home" || event.key === "End") {
+                event.preventDefault();
+                edge(event.key === "End");
               }
             }}
           >
-            {option.label}
+            {option.icon && <i class={option.icon} aria-hidden="true" />}
+            <span>{option.label}</span>
           </button>
         )}
       </For>
     </div>
   );
 }
+
+export default SegmentedControl;
