@@ -19,11 +19,12 @@ import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
 import { validateDraftComposeSafety } from "./compose-safety";
 import { renderComposeDraft } from "./compose-templates";
-import { publishMailMailboxEvent } from "./events";
+import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
 import { resolveMailExecution } from "./execution";
 import { createBlobReadable } from "./message-blobs";
 import { BASE_MAINTENANCE_KINDS, getOperatorActionEligibility } from "./operator-actions";
 import { measureMimeStream, outboundDraftSnapshotSchema } from "./outbound-mime";
+import { materializeOutboundMessage, type OutboundMessageProjection } from "./outbound-message-projection";
 import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
 
 type DbCommand = {
@@ -125,6 +126,7 @@ type PreparedActorCommand = {
 };
 
 type DraftForOutbox = {
+  conversation_id: string | null;
   to_addresses: unknown;
   cc_addresses: unknown;
   bcc_addresses: unknown;
@@ -376,11 +378,12 @@ const createSendOutbox = async (params: {
   selectedBindingId: string;
   prepared: PreparedActorCommand;
   actor: ActorRef;
-}): Promise<void> => {
+}): Promise<OutboundMessageProjection | null> => {
   const { prepared } = params;
-  if (prepared.kind !== "send" || !prepared.draftId || !prepared.senderIdentityId) return;
+  if (prepared.kind !== "send" || !prepared.draftId || !prepared.senderIdentityId) return null;
   const [draft] = await params.db<DraftForOutbox[]>`
     SELECT
+      d.conversation_id,
       d.to_addresses,
       d.cc_addresses,
       d.bcc_addresses,
@@ -546,7 +549,7 @@ const createSendOutbox = async (params: {
     const invalid = err.badInput(error instanceof Error ? error.message : "Message exceeds the provider limit");
     throw Object.assign(new Error(invalid.message), invalid);
   }
-  await params.db`
+  const [outbox] = await params.db<{ id: string }[]>`
     INSERT INTO mail.outbox_submissions (
       mailbox_id,
       draft_id,
@@ -595,12 +598,25 @@ const createSendOutbox = async (params: {
       }}::jsonb,
       ${draft.identity_transport_revision}
     )
+    RETURNING id
   `;
+  if (!outbox) throw new Error("Outbox submission insert returned no row");
+  const projection = await materializeOutboundMessage({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    outboxId: outbox.id,
+    stableMessageId,
+    conversationId: draft.conversation_id,
+    snapshot: snapshot.data,
+    internalDate: effectiveScheduledAt,
+    byteLength,
+  });
   await params.db`
     UPDATE mail.drafts
     SET state = 'scheduled'
     WHERE id = ${prepared.draftId}::uuid
   `;
+  return projection;
 };
 
 type CreateActorCommandParams = {
@@ -742,9 +758,9 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
     RETURNING ${commandColumns}
   `;
   if (!row) throw new Error("Mail command insert returned no row");
-  const command = mapCommand(row);
+  let command = mapCommand(row);
   await params.afterCreate?.(tx, command);
-  await createSendOutbox({
+  const projection = await createSendOutbox({
     db: tx,
     mailboxId: params.mailboxId,
     commandId: row.id,
@@ -752,6 +768,20 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
     prepared,
     actor,
   });
+  if (projection) {
+    const result = {
+      ...command.result,
+      outboxSubmissionId: projection.outboxId,
+      outboundMessageId: projection.messageId,
+      conversationId: projection.conversationId,
+    };
+    await tx`
+      UPDATE mail.commands
+      SET result = ${result}::jsonb
+      WHERE id = ${command.id}::uuid
+    `;
+    command = { ...command, result };
+  }
   await tx`
     INSERT INTO mail.activity_events (
       mailbox_id, command_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
@@ -794,14 +824,35 @@ const createActorCommandInTransaction = async (params: CreateActorCommandInterna
   return ok(command);
 };
 
+const publishCreatedOutboundProjection = async (command: MailCommand): Promise<void> => {
+  if (command.kind !== "send") return;
+  const messageId = command.result.outboundMessageId;
+  const conversationId = command.result.conversationId;
+  const outboxId = command.result.outboxSubmissionId;
+  if (typeof messageId !== "string" || typeof conversationId !== "string" || typeof outboxId !== "string") return;
+  await publishMailCollaborationEvent({
+    mailboxId: command.mailboxId,
+    conversationId,
+    reason: "outbound",
+    targetId: messageId,
+    activityId: `outbound-message-created:${outboxId}`,
+  });
+};
+
 export const enqueueCreatedActorCommands = async (commands: MailCommand[]): Promise<void> => {
-  await Promise.all(commands.map((command) => enqueueMailCommand(command.id, command.kind).catch(() => undefined)));
+  await Promise.all(
+    commands.map(async (command) => {
+      await enqueueMailCommand(command.id, command.kind).catch(() => undefined);
+      await publishCreatedOutboundProjection(command);
+    }),
+  );
 };
 
 const createActorCommandWithActor = async (params: CreateActorCommandInternalParams): Promise<Result<MailCommand>> => {
   try {
     const result = await sql.begin((tx) => createActorCommandInTransaction(params, tx));
     if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
+    if (result.ok) await publishCreatedOutboundProjection(result.data);
     if (result.ok && params.input.kind === "send" && params.input.scheduledAt) {
       await publishMailMailboxEvent({
         mailboxId: params.mailboxId,
@@ -864,6 +915,7 @@ export const createWorkflowCommandInTransaction = (
 
 export const enqueueCreatedWorkflowCommand = async (command: MailCommand, input: ActorCommandInput): Promise<void> => {
   await enqueueMailCommand(command.id, command.kind).catch(() => undefined);
+  await publishCreatedOutboundProjection(command);
   if (input.kind === "send" && input.scheduledAt) {
     await publishMailMailboxEvent({
       mailboxId: command.mailboxId,

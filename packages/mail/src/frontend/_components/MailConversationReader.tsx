@@ -684,6 +684,7 @@ export default function MailConversationReader(props: {
                   dateConfig={props.dateConfig}
                   canShareAttachments={props.canAdmin}
                   onClose={closeComposer}
+                  onQueued={props.onReconcile}
                   seed={seed}
                 />
               </AppWorkspace.BottomDrawer>

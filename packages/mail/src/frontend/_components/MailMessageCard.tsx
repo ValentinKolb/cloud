@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder, StatusBadge, type StatusTone } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import type { DraftDerivationKind, DraftIntent, SenderIdentity } from "../../contracts";
@@ -9,6 +9,30 @@ import MailSenderMessageActions from "./MailSenderMessageActions";
 
 const formatAddress = (address: { name: string | null; address: string }): string =>
   address.name ? `${address.name} <${address.address}>` : address.address;
+
+const deliveryPresentation = (delivery: NonNullable<MessageDetail["delivery"]>): { label: string; icon: string; tone: StatusTone } => {
+  switch (delivery.state) {
+    case "scheduled":
+      return { label: "Scheduled", icon: "ti ti-clock", tone: "neutral" };
+    case "undo_window":
+      return { label: "Queued", icon: "ti ti-clock-pause", tone: "neutral" };
+    case "sending":
+      return { label: "Sending", icon: "ti ti-loader-2", tone: "running" };
+    case "accepted":
+    case "sent_sync_pending":
+    case "sent":
+    case "reconciled_accepted":
+      return { label: "Sent", icon: "ti ti-check", tone: "ok" };
+    case "failed":
+    case "reconciled_unsent":
+      return { label: "Send failed", icon: "ti ti-alert-circle", tone: "error" };
+    case "unknown":
+    case "needs_attention":
+      return { label: "Needs attention", icon: "ti ti-alert-triangle", tone: "warn" };
+    case "cancelled":
+      return { label: "Cancelled", icon: "ti ti-ban", tone: "neutral" };
+  }
+};
 
 const forwardBody = (message: MessageDetail, dateConfig: DateContext): string => `
 
@@ -76,6 +100,20 @@ export default function MailMessageCard(props: {
           <span class="block truncate text-xs text-dimmed">
             To {props.message.to.map(formatAddress).join(", ") || "undisclosed recipients"}
           </span>
+          <Show when={props.message.delivery}>
+            {(delivery) => {
+              const status = deliveryPresentation(delivery());
+              return (
+                <StatusBadge
+                  tone={status.tone}
+                  label={status.label}
+                  icon={status.icon}
+                  title={delivery().lastErrorMessage ?? undefined}
+                  class="mt-1"
+                />
+              );
+            }}
+          </Show>
         </span>
         <i class={`ti ${props.expanded ? "ti-chevron-up" : "ti-chevron-down"} mt-1 text-dimmed`} aria-hidden="true" />
       </button>
@@ -92,6 +130,10 @@ export default function MailMessageCard(props: {
                 remoteContent={props.message.remoteContent}
                 onSelectionChange={(value) => props.actions.selectionChange(props.message.id, value)}
               />
+            ) : props.message.hydrationStatus === "body" || props.message.hydrationStatus === "complete" ? (
+              <Placeholder state="empty" variant="compact" title="This message has no body" />
+            ) : props.message.hydrationStatus === "failed" ? (
+              <Placeholder state="error" variant="compact" title="The message body could not be synchronized" />
             ) : (
               <Placeholder state="loading" title="Body is still synchronizing" />
             )}

@@ -15,7 +15,11 @@ const outboundDraftSnapshotBaseSchema = z.object({
   requestDeliveryReceipt: z.boolean().default(false),
   requestReadReceipt: z.boolean().default(false),
   receiptAddress: z.string().email().max(320).nullable().default(null),
-  vcard: z.string().max(256 * 1024).nullable().default(null),
+  vcard: z
+    .string()
+    .max(256 * 1024)
+    .nullable()
+    .default(null),
   to: z.array(mailAddressSchema).max(200),
   cc: z.array(mailAddressSchema).max(200),
   bcc: z.array(mailAddressSchema).max(200),
@@ -61,7 +65,7 @@ export const outboundDraftSnapshotSchema = z.discriminatedUnion("format", [
   }),
 ]);
 
-type OutboundDraftSnapshot = z.infer<typeof outboundDraftSnapshotSchema>;
+export type OutboundDraftSnapshot = z.infer<typeof outboundDraftSnapshotSchema>;
 
 const formatAddress = (address: { name?: string | null; address: string }) => ({
   name: address.name?.trim() ?? "",
@@ -151,9 +155,7 @@ export const buildMimeSource = async (params: {
   return Buffer.concat(chunks);
 };
 
-export const measureMimeStream = async (
-  params: Parameters<typeof buildMimeStream>[0],
-): Promise<number> => {
+export const measureMimeStream = async (params: Parameters<typeof buildMimeStream>[0]): Promise<number> => {
   let byteLength = 0;
   for await (const value of buildMimeStream(params)) {
     if (Buffer.isBuffer(value) || value instanceof Uint8Array) {

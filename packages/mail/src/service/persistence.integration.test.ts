@@ -37,7 +37,7 @@ import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { recordMessageReceipt } from "./message-receipts";
-import { createAttachmentStream, listConversations, openAttachment } from "./messages";
+import { createAttachmentStream, getMessage, listConversations, openAttachment } from "./messages";
 import { createProviderConnection, listProviderConnections, replaceProviderConnection } from "./provider-connections";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
 import { cancelScheduledSend, cancelSendCommand, listScheduledSends } from "./scheduled-sends";
@@ -699,8 +699,10 @@ suite("mail PostgreSQL foundation", () => {
     if (scheduledConversationDrafts.ok) {
       expect(scheduledConversationDrafts.data.map((draft) => draft.id)).not.toContain(replyDraft.data.id);
     }
-    const [replyOutbox] = await sql<{ id: string; stable_message_id: string; draft_snapshot: Record<string, unknown> | string }[]>`
-      SELECT id, stable_message_id, draft_snapshot
+    const [replyOutbox] = await sql<
+      { id: string; message_id: string; stable_message_id: string; draft_snapshot: Record<string, unknown> | string }[]
+    >`
+      SELECT id, message_id, stable_message_id, draft_snapshot
       FROM mail.outbox_submissions
       WHERE command_id = ${replyCommand.data.id}::uuid
     `;
@@ -708,6 +710,54 @@ suite("mail PostgreSQL foundation", () => {
       typeof replyOutbox?.draft_snapshot === "string" ? JSON.parse(replyOutbox.draft_snapshot) : replyOutbox?.draft_snapshot;
     expect(replySnapshot?.inReplyTo).toBe("<ordering-inbound@example.com>");
     expect(replySnapshot?.references).toContain("<ordering-inbound@example.com>");
+    expect(replyCommand.data.result).toMatchObject({
+      outboxSubmissionId: replyOutbox!.id,
+      outboundMessageId: replyOutbox!.message_id,
+      conversationId: orderedConversation!.id,
+    });
+    const [projectedReply] = await sql<
+      {
+        hydration_status: string;
+        plain_text: string | null;
+        conversation_id: string;
+        address_count: number;
+      }[]
+    >`
+      SELECT
+        message.hydration_status,
+        message.plain_text,
+        link.conversation_id,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.message_addresses address
+          WHERE address.message_id = message.id
+        ) AS address_count
+      FROM mail.message_contents message
+      JOIN mail.conversation_messages link ON link.message_id = message.id
+      WHERE message.id = ${replyOutbox!.message_id}::uuid
+    `;
+    expect(projectedReply).toEqual({
+      hydration_status: "body",
+      plain_text: "Edited reply content",
+      conversation_id: orderedConversation!.id,
+      address_count: 2,
+    });
+    const projectedReplyDetail = await getMessage({
+      context,
+      mailboxId: mailbox.data.id,
+      messageId: replyOutbox!.message_id,
+    });
+    expect(projectedReplyDetail.ok).toBe(true);
+    if (projectedReplyDetail.ok) {
+      expect(projectedReplyDetail.data).toMatchObject({
+        plainText: "Edited reply content",
+        hydrationStatus: "body",
+        delivery: {
+          submissionId: replyOutbox!.id,
+          state: "undo_window",
+        },
+      });
+    }
     const [reportMessage] = await sql<{ id: string }[]>`
       INSERT INTO mail.message_contents (
         mailbox_id, message_id, internal_date, content_hash, hydration_status
@@ -788,7 +838,64 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(postSendRecovery.ok && postSendRecovery.data.filter((copy) => copy.restoredAt === null)).toHaveLength(1);
     if (postSendRecovery.ok) expect(postSendRecovery.data[0]?.content.body).toBe("Typing that arrived after scheduling");
+    const reconciledReplyId = await ingestEnvelope({
+      db: sql,
+      mailboxId: mailbox.data.id,
+      remoteResourceId: resource!.id,
+      folderId: folder!.id,
+      message: {
+        ...orderingEnvelope({
+          uid: 12,
+          messageId: replyOutbox!.stable_message_id,
+          internalDate: new Date(),
+          outbound: true,
+        }),
+        messageId: replyOutbox!.stable_message_id,
+        inReplyTo: "<ordering-inbound@example.com>",
+        references: ["<ordering-inbound@example.com>"],
+        subject: "Re: Ordered newest inbound",
+        addresses: {
+          from: [{ name: "Fixture Sender", address: "sender@example.com" }],
+          replyTo: [],
+          to: [{ name: "Recipient", address: "recipient@example.com" }],
+          cc: [],
+          bcc: [],
+        },
+      },
+    });
+    expect(reconciledReplyId).toBe(replyOutbox!.message_id);
+    const [reconciledProjection] = await sql<{ content_count: number; remote_ref_count: number; hydration_status: string }[]>`
+      SELECT
+        (
+          SELECT COUNT(*)::int
+          FROM mail.message_contents
+          WHERE mailbox_id = ${mailbox.data.id}::uuid
+            AND lower(message_id) = lower(${replyOutbox!.stable_message_id})
+        ) AS content_count,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.remote_message_refs
+          WHERE message_id = ${replyOutbox!.message_id}::uuid
+        ) AS remote_ref_count,
+        hydration_status
+      FROM mail.message_contents
+      WHERE id = ${replyOutbox!.message_id}::uuid
+    `;
+    expect(reconciledProjection).toEqual({ content_count: 1, remote_ref_count: 1, hydration_status: "body" });
+    await sql`
+      DELETE FROM mail.remote_message_refs
+      WHERE message_id = ${replyOutbox!.message_id}::uuid
+        AND folder_id = ${folder!.id}::uuid
+        AND uid_validity = 1
+        AND uid = 12
+    `;
     expect((await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: replyCommand.data.id })).ok).toBe(true);
+    const [cancelledReplyProjection] = await sql<{ message_count: number }[]>`
+      SELECT COUNT(*)::int AS message_count
+      FROM mail.message_contents
+      WHERE id = ${replyOutbox!.message_id}::uuid
+    `;
+    expect(cancelledReplyProjection?.message_count).toBe(0);
     const discardedReply = await discardDraft({
       context,
       mailboxId: mailbox.data.id,
@@ -1108,21 +1215,20 @@ suite("mail PostgreSQL foundation", () => {
     const [outbox] = await sql<
       {
         id: string;
+        message_id: string;
         draft_snapshot: Record<string, unknown> | string;
         state: string;
         mime_date: Date;
         preflight_byte_length: string | number;
       }[]
     >`
-      SELECT id, draft_snapshot, state, mime_date, preflight_byte_length
+      SELECT id, message_id, draft_snapshot, state, mime_date, preflight_byte_length
       FROM mail.outbox_submissions
       WHERE command_id = ${command.data.id}::uuid
     `;
     expect(outbox?.state).toBe("undo_window");
     expect(outbox?.mime_date).toBeInstanceOf(Date);
-    expect(Number(outbox?.preflight_byte_length)).toBeGreaterThan(
-      outgoingAttachment.length,
-    );
+    expect(Number(outbox?.preflight_byte_length)).toBeGreaterThan(outgoingAttachment.length);
     const snapshot = typeof outbox?.draft_snapshot === "string" ? JSON.parse(outbox.draft_snapshot) : outbox?.draft_snapshot;
     expect(snapshot?.subject).toBe("Integration subject");
     expect(snapshot?.attachments).toEqual([
@@ -1133,8 +1239,53 @@ suite("mail PostgreSQL foundation", () => {
         byteLength: outgoingAttachment.length,
       }),
     ]);
+    expect(command.data.result).toMatchObject({
+      outboxSubmissionId: outbox!.id,
+      outboundMessageId: outbox!.message_id,
+    });
+    const [projectedMessage] = await sql<
+      {
+        hydration_status: string;
+        plain_text: string | null;
+        attachment_count: number;
+        attachment_blob_id: string | null;
+      }[]
+    >`
+      SELECT
+        message.hydration_status,
+        message.plain_text,
+        COUNT(attachment.id)::int AS attachment_count,
+        MIN(attachment.blob_id::text) AS attachment_blob_id
+      FROM mail.message_contents message
+      LEFT JOIN mail.attachments attachment ON attachment.message_id = message.id
+      WHERE message.id = ${outbox!.message_id}::uuid
+      GROUP BY message.id
+    `;
+    expect(projectedMessage).toEqual({
+      hydration_status: "body",
+      plain_text: typeof snapshot?.renderedText === "string" ? snapshot.renderedText : snapshot?.body,
+      attachment_count: 1,
+      attachment_blob_id: outgoingAttachmentBlob!.blob_id,
+    });
+    const projectedConversationId = command.data.result.conversationId;
+    expect(typeof projectedConversationId).toBe("string");
+    const projectedConversationList = await listConversations({ context, mailboxId: mailbox.data.id, limit: 100 });
+    expect(projectedConversationList.ok).toBe(true);
+    if (projectedConversationList.ok) {
+      expect(projectedConversationList.data.items.some((item) => item.id === projectedConversationId)).toBe(true);
+    }
     const cancelled = await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: command.data.id });
     expect(cancelled.ok).toBe(true);
+    const [cancelledProjection] = await sql<{ message_count: number; conversation_count: number }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.message_contents WHERE id = ${outbox!.message_id}::uuid) AS message_count,
+        (
+          SELECT COUNT(*)::int
+          FROM mail.conversations
+          WHERE id = ${typeof projectedConversationId === "string" ? projectedConversationId : null}::uuid
+        ) AS conversation_count
+    `;
+    expect(cancelledProjection).toEqual({ message_count: 0, conversation_count: 0 });
     await sql`
       UPDATE mail.provider_connections
       SET limit_snapshot = ${{

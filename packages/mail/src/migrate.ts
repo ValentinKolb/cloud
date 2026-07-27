@@ -4891,6 +4891,43 @@ const addProviderOAuthSentMode = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addCanonicalOutboundMessages = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.outbox_submissions
+    ADD COLUMN IF NOT EXISTS message_id UUID
+  `;
+  await db`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'outbox_submissions_message_id_fkey'
+          AND conrelid = 'mail.outbox_submissions'::regclass
+      ) THEN
+        ALTER TABLE mail.outbox_submissions
+        ADD CONSTRAINT outbox_submissions_message_id_fkey
+          FOREIGN KEY (message_id) REFERENCES mail.message_contents(id) ON DELETE SET NULL;
+      END IF;
+    END
+    $$
+  `;
+  await db`
+    CREATE UNIQUE INDEX IF NOT EXISTS outbox_submissions_message_idx
+    ON mail.outbox_submissions (message_id)
+    WHERE message_id IS NOT NULL
+  `;
+  await db`
+    ALTER TABLE mail.conversation_messages
+    DROP CONSTRAINT IF EXISTS conversation_messages_added_by_check
+  `;
+  await db`
+    ALTER TABLE mail.conversation_messages
+    ADD CONSTRAINT conversation_messages_added_by_check
+      CHECK (added_by IN ('provider', 'headers', 'heuristic', 'manual', 'outbox'))
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4988,6 +5025,7 @@ const migrations: readonly MailMigration[] = [
   { version: 95, name: "workflow_profile_manager", run: addWorkflowProfileManager },
   { version: 96, name: "sender_read_batches", run: addSenderReadBatches },
   { version: 97, name: "provider_oauth_sent_mode", run: addProviderOAuthSentMode },
+  { version: 98, name: "canonical_outbound_messages", run: addCanonicalOutboundMessages },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

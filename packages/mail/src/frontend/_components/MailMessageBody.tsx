@@ -21,7 +21,9 @@ const REMOTE_IMAGE_REQUEST_GAP_MS = 350;
 
 const sleep = (durationMs: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, durationMs));
 
-const buildMessageDocument = (html: string, channel: string): string => {
+export const normalizeMessageBodyHeight = (value: number): number => Math.min(Math.max(Math.ceil(value), 32), 100_000);
+
+export const buildMessageDocument = (html: string, channel: string): string => {
   const channelLiteral = JSON.stringify(channel).replaceAll("<", "\\u003c");
   return `<!doctype html>
 <html>
@@ -42,9 +44,10 @@ const buildMessageDocument = (html: string, channel: string): string => {
     details.mail-quoted-history > summary { cursor: pointer; user-select: none; font-size: 12px; font-weight: 600; }
     details.mail-quoted-history > blockquote,
     details.mail-quoted-history > div { margin: 8px 0 0; padding-left: 12px; border-left: 2px solid color-mix(in srgb, currentColor 25%, transparent); }
+    #mail-message-root { display: flow-root; min-height: 0; }
   </style>
 </head>
-<body>${html}
+<body><div id="mail-message-root">${html}</div>
   <script>
     (() => {
       "use strict";
@@ -70,8 +73,9 @@ const buildMessageDocument = (html: string, channel: string): string => {
         clearTimeout(selectionTimer);
         selectionTimer = setTimeout(() => post("selection", String(getSelection()?.toString() || "").trim().slice(0, 10000)), 25);
       });
-      const reportHeight = () => post("height", Math.ceil(document.documentElement.scrollHeight));
-      new ResizeObserver(reportHeight).observe(document.body);
+      const root = document.getElementById("mail-message-root");
+      const reportHeight = () => post("height", Math.ceil((root?.getBoundingClientRect().height || 0) + 2));
+      if (root) new ResizeObserver(reportHeight).observe(root);
       reportHeight();
     })();
   </script>
@@ -89,7 +93,7 @@ export default function MailMessageBody(props: {
   onSelectionChange: (value: string) => void;
 }) {
   const channel = crypto.randomUUID();
-  const [height, setHeight] = createSignal(160);
+  const [height, setHeight] = createSignal(32);
   const [cidUrls, setCidUrls] = createSignal(new Map<string, string>());
   const [remoteUrls, setRemoteUrls] = createSignal(new Map<string, string>());
   const [remoteLoading, setRemoteLoading] = createSignal(false);
@@ -200,7 +204,7 @@ export default function MailMessageBody(props: {
     const data = event.data as { source?: unknown; channel?: unknown; type?: unknown; value?: unknown };
     if (data.source !== "cloud-mail-message" || data.channel !== channel) return;
     if (data.type === "height" && typeof data.value === "number" && Number.isFinite(data.value)) {
-      setHeight(Math.min(Math.max(Math.ceil(data.value) + 2, 80), 100_000));
+      setHeight(normalizeMessageBodyHeight(data.value));
     }
     if (data.type === "selection" && typeof data.value === "string") {
       props.onSelectionChange(data.value.slice(0, 10_000));

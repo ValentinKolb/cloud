@@ -429,6 +429,11 @@ const mergeVerifiedDuplicate = async (params: {
     WHERE message_id = ${params.messageId}::uuid
   `;
   await params.db`
+    UPDATE mail.outbox_submissions
+    SET message_id = ${canonical.id}::uuid
+    WHERE message_id = ${params.messageId}::uuid
+  `;
+  await params.db`
     UPDATE mail.message_contents canonical_message
     SET
       source_blob_id = COALESCE(canonical_message.source_blob_id, current_message.source_blob_id),
@@ -477,7 +482,15 @@ const applyVerifiedConversationTransition = async (params: {
         FROM mail.conversation_messages newer_link
         JOIN mail.message_contents newer_message ON newer_message.id = newer_link.message_id
         WHERE newer_link.conversation_id = conversation.id
-          AND newer_message.hydration_status = 'complete'
+          AND (
+            newer_message.hydration_status = 'complete'
+            OR EXISTS (
+              SELECT 1
+              FROM mail.outbox_submissions newer_outbox
+              WHERE newer_outbox.message_id = newer_message.id
+                AND newer_outbox.state <> 'cancelled'
+            )
+          )
           AND (newer_message.internal_date, newer_message.id) > (message.internal_date, message.id)
       ) AS is_latest_verified,
       (
@@ -527,7 +540,15 @@ const applyVerifiedConversationTransition = async (params: {
       JOIN mail.conversation_messages link ON link.conversation_id = conversation.id
       JOIN mail.message_contents message ON message.id = link.message_id
       WHERE conversation.id = ${projection.conversation_id}::uuid
-        AND message.hydration_status = 'complete'
+        AND (
+          message.hydration_status = 'complete'
+          OR EXISTS (
+            SELECT 1
+            FROM mail.outbox_submissions outbox
+            WHERE outbox.message_id = message.id
+              AND outbox.state <> 'cancelled'
+          )
+        )
     ),
     timeline AS (
       SELECT

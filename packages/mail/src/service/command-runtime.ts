@@ -27,6 +27,7 @@ import {
 import { createBlobReadable, getStoredBlob, storeReadableBlob } from "./message-blobs";
 import { isOperatorMaintenanceKind } from "./operator-actions";
 import { buildMimeStream, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
+import { loadOutboundProjectionByOutbox } from "./outbound-message-projection";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
@@ -2015,6 +2016,31 @@ const resetUnstartedOutboxClaim = async (outboxId: string, claim: OutboxClaim): 
     return true;
   });
 
+const publishOutboundSubmissionChange = async (params: {
+  outboxId: string;
+  state: string;
+  attempt: number;
+  activityId?: string | null;
+}): Promise<void> => {
+  try {
+    const projection = await loadOutboundProjectionByOutbox(sql, params.outboxId);
+    if (!projection) return;
+    await publishMailCollaborationEvent({
+      mailboxId: projection.mailboxId,
+      conversationId: projection.conversationId,
+      reason: "outbound",
+      targetId: projection.messageId,
+      activityId: params.activityId ?? `outbound-state:${params.outboxId}:${params.attempt}:${params.state}`,
+    });
+  } catch (error) {
+    log.warn("Failed to publish outbound message state", {
+      outboxId: params.outboxId,
+      state: params.state,
+      code: normalizeCode(error, "OUTBOUND_STATE_EVENT_FAILED"),
+    });
+  }
+};
+
 const loadSenderBinding = async (command: DbCommandExecution, senderIdentityId: string): Promise<DbSenderBinding> => {
   const [sender] = await sql<DbSenderBinding[]>`
     SELECT
@@ -2222,13 +2248,12 @@ const finishOutbox = async (params: {
       transition: await applyConfirmedSendWorkState({ db: tx, outbox: params.outbox, command: params.command }),
     };
   });
-  if (result.transition) {
-    await publishMailCollaborationEvent({
-      mailboxId: params.command.mailbox_id,
-      conversationId: result.transition.conversationId,
-      reason: "outbound",
-      targetId: params.outbox.id,
-      activityId: result.transition.activityId,
+  if (result.updated) {
+    await publishOutboundSubmissionChange({
+      outboxId: params.outbox.id,
+      state: params.outboxState,
+      attempt: params.outbox.attempt,
+      activityId: result.transition?.activityId,
     });
   }
   if (result.updated && typeof parseJsonRecord(params.command.payload).scheduledAt === "string") {
@@ -2718,6 +2743,11 @@ export const executeOutboxSubmissionWithHeartbeat = async (
     claim = await claimOutbox(outboxId);
     if (!claim) return null;
     const activeClaim = claim;
+    await publishOutboundSubmissionChange({
+      outboxId,
+      state: activeClaim.claimedOutboxState,
+      attempt: activeClaim.claimedOutboxAttempt,
+    });
     const loaded = await loadOutbox(outboxId);
     if (!loaded) throw Object.assign(new Error("Claimed outbox submission is unavailable"), { code: "OUTBOX_UNAVAILABLE" });
     return await withLeaseHeartbeat({
@@ -2736,12 +2766,20 @@ export const executeOutboxSubmissionWithHeartbeat = async (
     });
   } catch (error) {
     if (claim) {
-      await resetUnstartedOutboxClaim(outboxId, claim).catch((rollbackError: unknown) => {
+      const reset = await resetUnstartedOutboxClaim(outboxId, claim).catch((rollbackError: unknown) => {
         log.warn("Failed to reset an unstarted outbox claim", {
           outboxId,
           code: normalizeCode(rollbackError, "OUTBOX_CLAIM_RESET_FAILED"),
         });
+        return false;
       });
+      if (reset) {
+        await publishOutboundSubmissionChange({
+          outboxId,
+          state: claim.previousOutboxState,
+          attempt: claim.previousOutboxAttempt,
+        });
+      }
     }
     throw error;
   } finally {

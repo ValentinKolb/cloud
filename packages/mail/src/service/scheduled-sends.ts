@@ -13,6 +13,7 @@ import type {
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import { publishMailMailboxEvent } from "./events";
+import { removeUnsentOutboundMessage } from "./outbound-message-projection";
 
 type ScheduledCursor = { version: 1; scheduledAt: string; id: string };
 type SqlClient = typeof sql;
@@ -269,6 +270,7 @@ const cancelScheduledSendBy = async (params: {
         WHERE command_id = ${outbox.command_id}::uuid AND state = 'queued'
       `;
       await tx`UPDATE mail.drafts SET state = ${draftState} WHERE id = ${outbox.draft_id}::uuid`;
+      await removeUnsentOutboundMessage(tx, outbox.id);
       await tx`
         INSERT INTO mail.activity_events (
           mailbox_id, conversation_id, command_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata

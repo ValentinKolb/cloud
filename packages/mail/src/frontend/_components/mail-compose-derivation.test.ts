@@ -71,6 +71,7 @@ const message = (overrides: Partial<MessageDetail> = {}): MessageDetail => ({
     sender: null,
     domain: null,
   },
+  delivery: null,
   attachments: [],
   ...overrides,
 });

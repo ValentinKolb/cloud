@@ -76,6 +76,7 @@ export default function MailComposer(props: {
   dateConfig: DateContext;
   canShareAttachments?: boolean;
   onClose?: () => void;
+  onQueued?: () => Promise<void>;
 }) {
   let attachmentInput: HTMLInputElement | undefined;
   const verifiedIdentities = () => props.identities.filter((identity) => identity.status === "verified");
@@ -554,6 +555,10 @@ export default function MailComposer(props: {
       return command;
     },
     onSuccess: (command, delivery) => {
+      const onClose = props.onClose;
+      const onQueued = props.onQueued;
+      const fullSurface = props.surface === "full";
+      const returnHref = props.returnHref;
       const scheduled = Boolean(delivery?.scheduledAt);
       toast.success(
         scheduled ? `Delivery scheduled for ${dates.formatDateTime(delivery!.scheduledAt!, props.dateConfig)}` : "Message queued",
@@ -564,8 +569,13 @@ export default function MailComposer(props: {
             }
           : undefined,
       );
-      props.onClose?.();
-      if (props.surface === "full") navigateTo(props.returnHref);
+      onClose?.();
+      if (onQueued) {
+        void onQueued().catch((error: unknown) => {
+          console.warn("Could not refresh the conversation after queueing a message", error);
+        });
+      }
+      if (fullSurface) navigateTo(returnHref);
     },
     onError: (error) => {
       if (error instanceof ComposeSafetyAttachmentRequested) {

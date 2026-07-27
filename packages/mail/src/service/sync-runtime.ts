@@ -36,6 +36,7 @@ import { assertMailboxTransportFence, loadMailboxTransportFence } from "./mailbo
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { parseMessageProtocolFacts } from "./message-protocol";
+import { normalizeMailSubject } from "./message-threading";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { isConcurrentCredentialRefresh, isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { cleanupProviderOAuthFlows } from "./provider-oauth-cleanup";
@@ -136,16 +137,6 @@ const initialCursor = (uidValidity: string, currentHighUid: number, highestModse
   reconcileNextLow: null,
   lastFullReconcileAt: null,
 });
-
-const normalizeSubject = (subject: string): string => {
-  let value = subject.trim().toLowerCase().replace(/\s+/g, " ");
-  for (let index = 0; index < 8; index += 1) {
-    const next = value.replace(/^(?:(?:re|fw|fwd|aw|wg)(?:\[\d+\])?:\s*)/i, "").trim();
-    if (next === value) break;
-    value = next;
-  }
-  return value.slice(0, 2_000);
-};
 
 export const claimFence = async (resourceId: string, bindingId: string, kind: string): Promise<FenceClaim> =>
   sql.begin(async (tx) => {
@@ -315,9 +306,22 @@ const findManualConversationOverride = async (params: { db: typeof sql; mailboxI
 
 const findCanonicalMessageContent = async (params: {
   db: typeof sql;
+  mailboxId: string;
   remoteResourceId: string;
   message: ConnectorEnvelope;
 }): Promise<string | null> => {
+  if (params.message.messageId) {
+    const [outbound] = await params.db<{ message_id: string }[]>`
+      SELECT outbox.message_id
+      FROM mail.outbox_submissions outbox
+      WHERE outbox.mailbox_id = ${params.mailboxId}::uuid
+        AND outbox.message_id IS NOT NULL
+        AND lower(btrim(outbox.stable_message_id)) = lower(btrim(${params.message.messageId}))
+      ORDER BY outbox.created_at DESC
+      LIMIT 1
+    `;
+    if (outbound) return outbound.message_id;
+  }
   if (!params.message.providerMessageId) return null;
   const candidates = await params.db<{ message_id: string }[]>`
     SELECT DISTINCT remote_ref.message_id
@@ -346,7 +350,7 @@ export const ingestEnvelope = async (params: {
     uidValidity: params.message.remoteRef.uidValidity,
     uid: params.message.remoteRef.uid,
   });
-  const normalizedSubject = normalizeSubject(params.message.subject);
+  const normalizedSubject = normalizeMailSubject(params.message.subject);
   const [knownRemoteRef] = await params.db<{ message_id: string }[]>`
     SELECT message_id
     FROM mail.remote_message_refs
@@ -358,6 +362,7 @@ export const ingestEnvelope = async (params: {
     knownRemoteRef?.message_id ??
     (await findCanonicalMessageContent({
       db: params.db,
+      mailboxId: params.mailboxId,
       remoteResourceId: params.remoteResourceId,
       message: params.message,
     }));
@@ -1722,7 +1727,13 @@ const submitDueWork = async (): Promise<{
       WHERE mc.hydration_status IN ('envelope', 'headers', 'body', 'failed')
         AND mc.hydration_attempt < 5
         AND m.sync_enabled = true
-      AND m.deleted_at IS NULL
+        AND m.deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM mail.remote_message_refs remote_ref
+          WHERE remote_ref.message_id = mc.id
+            AND remote_ref.stale_at IS NULL
+        )
     ORDER BY mc.internal_date DESC, mc.id DESC
     LIMIT 500
   `;

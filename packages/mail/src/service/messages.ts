@@ -370,8 +370,14 @@ export const listConversations = async (params: {
       AND EXISTS (
         SELECT 1
         FROM mail.conversation_messages visible_cm
-        JOIN mail.message_placements visible_mp ON visible_mp.message_id = visible_cm.message_id
-        WHERE visible_cm.conversation_id = c.id AND visible_mp.deleted_at IS NULL
+        LEFT JOIN mail.message_placements visible_mp
+          ON visible_mp.message_id = visible_cm.message_id
+         AND visible_mp.deleted_at IS NULL
+        LEFT JOIN mail.outbox_submissions visible_outbox
+          ON visible_outbox.message_id = visible_cm.message_id
+         AND visible_outbox.state <> 'cancelled'
+        WHERE visible_cm.conversation_id = c.id
+          AND (visible_mp.message_id IS NOT NULL OR visible_outbox.id IS NOT NULL)
       )
       AND (
         ${cursor.data?.id ?? null}::uuid IS NULL
@@ -460,8 +466,14 @@ export const getConversationViewCounts = async (params: {
       AND EXISTS (
         SELECT 1
         FROM mail.conversation_messages visible_cm
-        JOIN mail.message_placements visible_mp ON visible_mp.message_id = visible_cm.message_id
-        WHERE visible_cm.conversation_id = c.id AND visible_mp.deleted_at IS NULL
+        LEFT JOIN mail.message_placements visible_mp
+          ON visible_mp.message_id = visible_cm.message_id
+         AND visible_mp.deleted_at IS NULL
+        LEFT JOIN mail.outbox_submissions visible_outbox
+          ON visible_outbox.message_id = visible_cm.message_id
+         AND visible_outbox.state <> 'cancelled'
+        WHERE visible_cm.conversation_id = c.id
+          AND (visible_mp.message_id IS NOT NULL OR visible_outbox.id IS NOT NULL)
       )
   `;
   return ok({
@@ -598,6 +610,20 @@ export const listConversationMessages = async (params: {
   });
 };
 
+export type MessageDeliveryState =
+  | "scheduled"
+  | "undo_window"
+  | "sending"
+  | "accepted"
+  | "sent_sync_pending"
+  | "sent"
+  | "failed"
+  | "cancelled"
+  | "unknown"
+  | "reconciled_accepted"
+  | "reconciled_unsent"
+  | "needs_attention";
+
 export type MessageDetail = MessageSummary & {
   contentType: string | null;
   sizeBytes: number;
@@ -610,6 +636,15 @@ export type MessageDetail = MessageSummary & {
   sourceAvailable: boolean;
   mailingList: ReturnType<typeof mailingListMetadata>;
   remoteContent: MessageRemoteContent;
+  delivery: {
+    submissionId: string;
+    state: MessageDeliveryState;
+    scheduledAt: string;
+    undoUntil: string | null;
+    acceptedAt: string | null;
+    lastErrorCode: string | null;
+    lastErrorMessage: string | null;
+  } | null;
   attachments: Array<{
     id: string;
     filename: string | null;
@@ -629,6 +664,13 @@ type DbMessageDetail = DbMessageSummary & {
   selected_headers: Record<string, unknown> | string;
   protocol_facts: Record<string, unknown> | string;
   source_available: boolean;
+  delivery_submission_id: string | null;
+  delivery_state: MessageDeliveryState | null;
+  delivery_scheduled_at: Date | string | null;
+  delivery_undo_until: Date | string | null;
+  delivery_accepted_at: Date | string | null;
+  delivery_error_code: string | null;
+  delivery_error_message: string | null;
   attachments: Array<{ id: string; filename: string | null; contentType: string; sizeBytes: number; contentId: string | null }> | string;
 };
 
@@ -664,6 +706,17 @@ const mapMessageDetail = (row: DbMessageDetail): MessageDetail => ({
     sender: null,
     domain: null,
   },
+  delivery: row.delivery_submission_id
+    ? {
+        submissionId: row.delivery_submission_id,
+        state: row.delivery_state!,
+        scheduledAt: toIso(row.delivery_scheduled_at!),
+        undoUntil: row.delivery_undo_until ? toIso(row.delivery_undo_until) : null,
+        acceptedAt: row.delivery_accepted_at ? toIso(row.delivery_accepted_at) : null,
+        lastErrorCode: row.delivery_error_code,
+        lastErrorMessage: row.delivery_error_message,
+      }
+    : null,
   attachments: parseJsonArray(row.attachments),
 });
 
@@ -701,6 +754,13 @@ const messageDetailSelect = sql`
   COALESCE(cc_rows.addresses, '[]'::jsonb) AS cc_addresses,
   mc.selected_headers,
   mc.protocol_facts,
+  delivery.id AS delivery_submission_id,
+  delivery.state AS delivery_state,
+  delivery.scheduled_at AS delivery_scheduled_at,
+  delivery.undo_until AS delivery_undo_until,
+  delivery.accepted_at AS delivery_accepted_at,
+  delivery.last_error_code AS delivery_error_code,
+  delivery.last_error_message AS delivery_error_message,
   COALESCE(attachment_rows.items, '[]'::jsonb) AS attachments
 `;
 
@@ -733,6 +793,10 @@ const messageDetailAttachmentJoin = sql`
   ) attachment_rows ON true
 `;
 
+const messageDetailDeliveryJoin = sql`
+  LEFT JOIN mail.outbox_submissions delivery ON delivery.message_id = mc.id
+`;
+
 export const listConversationMessageDetails = async (params: {
   context: MailRequestContext;
   mailboxId: string;
@@ -759,6 +823,7 @@ export const listConversationMessageDetails = async (params: {
     ${messageSummaryJoins(params.preferredFolderId)}
     ${messageDetailAddressJoin}
     ${messageDetailAttachmentJoin}
+    ${messageDetailDeliveryJoin}
     ORDER BY mc.internal_date, mc.id
   `;
   return attachRemoteContent(params.context, params.mailboxId, rows.map(mapMessageDetail));
@@ -777,6 +842,7 @@ export const getMessage = async (params: {
     ${messageSummaryJoins()}
     ${messageDetailAddressJoin}
     ${messageDetailAttachmentJoin}
+    ${messageDetailDeliveryJoin}
     WHERE mc.id = ${params.messageId}::uuid AND mc.mailbox_id = ${params.mailboxId}::uuid
   `;
   if (!row) return fail(err.notFound("Message"));
