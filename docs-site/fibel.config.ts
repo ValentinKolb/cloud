@@ -1,6 +1,7 @@
 import { defaultPlugins, defineFibel } from "@k2b/fibel";
 import { imprintPlugin } from "@k2b/fibel/plugins";
 import { cloudSitePlugin } from "./plugins/cloud-site";
+import { docsPages } from "./src/docs/pages";
 import { siteFooterLinks, siteHeader, siteLocales, siteTheme, siteUrl } from "./src/site-config";
 
 export default defineFibel({
@@ -19,5 +20,10 @@ export default defineFibel({
   theme: siteTheme,
   header: siteHeader,
   footerLinks: [...siteFooterLinks],
-  plugins: [...defaultPlugins(), imprintPlugin({ url: "https://impressum.valentin-kolb.com" }), cloudSitePlugin()],
+  pages: docsPages,
+  plugins: [
+    ...defaultPlugins(),
+    imprintPlugin({ url: "https://impressum.valentin-kolb.com" }),
+    cloudSitePlugin(["homepage.css", "docs-overview.css"], { preloadDisplayFont: true }),
+  ],
 });

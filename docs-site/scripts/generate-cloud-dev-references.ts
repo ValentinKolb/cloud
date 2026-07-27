@@ -160,9 +160,7 @@ const groups: ReferenceGroup[] = [
 const docsRoot = resolve(import.meta.dir, "../docs/en");
 const referencesRoot = resolve(import.meta.dir, "../../skills/cloud-dev/references");
 const checkOnly = process.argv.includes("--check");
-const intentionallyExcluded = new Map([
-  ["index.md", "Website entry point with Fibel and raw-Markdown navigation, not an application contract."],
-]);
+const intentionallyExcluded = new Map<string, string>();
 
 const normalizeNewlines = (value: string) => value.replaceAll("\r\n", "\n");
 
