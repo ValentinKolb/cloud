@@ -18,8 +18,7 @@
       { "source": "./input/CheckboxCard", "status": "implemented" },
       { "source": "./input/ColorInput", "status": "planned" },
       { "source": "./input/Combobox", "status": "implemented" },
-      { "source": "./input/DatePicker", "status": "planned" },
-      { "source": "./input/DateTimeInput", "status": "planned" },
+      { "source": "./input/DatePicker", "status": "implemented" },
       { "source": "./input/FileDropzone", "status": "planned" },
       { "source": "./input/IconInput", "status": "planned" },
       { "source": "./input/ImageCropper", "status": "planned" },
@@ -129,5 +128,5 @@
     "./misc/PermissionEditor",
     "./misc/ResourceApiKeys"
   ],
-  "deprecated": ["./misc/DockWorkspace"]
+  "deprecated": ["./input/DateTimeInput", "./misc/DockWorkspace"]
 }

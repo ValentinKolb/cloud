@@ -47,7 +47,7 @@ export function Field(props: FieldProps): JSX.Element {
         </p>
       </Show>
       <Show when={props.error}>
-        <p class="k2b-field__error" id={props.meta.errorId}>
+        <p class="k2b-field__error" id={props.meta.errorId} role="alert" aria-live="polite">
           {props.error}
         </p>
       </Show>

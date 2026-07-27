@@ -5,6 +5,15 @@ export { CheckboxCard } from "./CheckboxCard";
 export type { ComboboxOption, ComboboxProps } from "./Combobox";
 export { Combobox } from "./Combobox";
 export type { ChoiceOption, ChoiceOptionsLoader } from "./choice";
+export type {
+  DatePickerProps,
+  DatePreset,
+  DateRangePickerProps,
+  DateRangeValue,
+  DateTimePickerProps,
+  DurationPreset,
+} from "./DatePicker";
+export { DatePicker, DateRangePicker, DateTimePicker } from "./DatePicker";
 export type { MultiSelectInputProps, MultiSelectOption } from "./MultiSelectInput";
 export { MultiSelectInput } from "./MultiSelectInput";
 export type { NumberInputProps } from "./NumberInput";

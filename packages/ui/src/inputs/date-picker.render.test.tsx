@@ -1,0 +1,149 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
+import { createConfig } from "@k2b/ssr";
+import { createComponent } from "solid-js";
+import { renderToString } from "solid-js/web";
+import {
+  displayDate,
+  filterTimeInput,
+  formatDateOnlyRangeDuration,
+  normalizeTimeInput,
+  orderedRange,
+  previewRange,
+  splitDateTime,
+  toDateTimeValue,
+} from "./date-picker";
+
+const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-date-picker-tests-"));
+const { plugin } = createConfig({ dev: true, rootDir: root });
+Bun.plugin(plugin());
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
+
+const ui = await import("../index");
+const { DatePicker, DateRangePicker, DateTimePicker } = ui;
+const { placeDatePopover } = await import("./DatePicker");
+
+describe("@k2b/ui complete date picker migration", () => {
+  test("normalizes time input without accepting impossible clock values", () => {
+    expect(filterTimeInput("1a2345")).toBe("12:34");
+    expect(filterTimeInput("09:3")).toBe("09:3");
+    expect(normalizeTimeInput("25:90")).toBe("23:59");
+    expect(normalizeTimeInput("7")).toBe("07:00");
+  });
+
+  test("round-trips wall-clock values through an explicit timezone", () => {
+    const context = { timeZone: "Europe/Berlin", locale: "en" };
+    const instant = toDateTimeValue("2026-07-27", "14:30", context);
+
+    expect(instant).toBe("2026-07-27T12:30:00.000Z");
+    expect(splitDateTime(instant, context)).toEqual({ date: "2026-07-27", time: "14:30" });
+  });
+
+  test("keeps date-only labels on their calendar day", () => {
+    expect(displayDate("2026-07-27", { locale: "en" })).toBe("27 Jul 2026");
+    expect(displayDate("2026-07-27", { locale: "en", timeZone: "America/New_York" })).toBe("27 Jul 2026");
+  });
+
+  test("orders and previews ranges while preserving inclusive duration", () => {
+    expect(orderedRange("2026-07-29", "2026-07-27")).toEqual({
+      start: "2026-07-27",
+      end: "2026-07-29",
+    });
+    expect(previewRange({ start: "2026-07-27", end: null }, "2026-07-25")).toEqual({
+      start: "2026-07-25",
+      end: "2026-07-27",
+    });
+    expect(formatDateOnlyRangeDuration({ start: "2026-07-27", end: "2026-07-29" })).toBe("3 days");
+    expect(formatDateOnlyRangeDuration({ start: "2026-03-28", end: "2026-03-30" }, { timeZone: "Europe/Berlin" })).toBe("3 days");
+  });
+
+  test("places the top-layer panel within the viewport and flips above", () => {
+    const previousWindow = globalThis.window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { innerWidth: 500, innerHeight: 400 },
+    });
+    const style: Record<string, string> = {};
+    const trigger = {
+      getBoundingClientRect: () => ({ left: 430, right: 490, top: 330, bottom: 360, width: 60, height: 30 }),
+    } as HTMLElement;
+    const popover = {
+      style,
+      getBoundingClientRect: () => ({ left: 0, right: 0, top: 0, bottom: 0, width: 336, height: 200 }),
+    } as unknown as HTMLElement;
+
+    placeDatePopover(trigger, popover, false);
+
+    expect(style.width).toBe("336px");
+    expect(style.left).toBe("156px");
+    expect(style.top).toBe("126px");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
+  });
+
+  test("renders a controlled date picker with presets and calendar semantics", () => {
+    const html = renderToString(() =>
+      createComponent(DatePicker, {
+        label: "Release date",
+        value: "2026-07-27",
+        clearable: true,
+        required: true,
+        presets: [{ label: "Launch", value: "2026-07-27" }],
+      }),
+    );
+
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).toContain('popover="auto"');
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('role="grid"');
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain("Launch");
+    expect(html).toContain("Clear date");
+    expect(html).toContain("k2b-field__required");
+  });
+
+  test("renders timezone-aware date-time controls with a committed draft", () => {
+    const html = renderToString(() =>
+      createComponent(DateTimePicker, {
+        label: "Starts at",
+        value: "2026-07-27T12:30:00.000Z",
+        dateConfig: { timeZone: "Europe/Berlin", locale: "en" },
+      }),
+    );
+
+    expect(html).toContain("Europe/Berlin");
+    expect(html).toContain('aria-label="Time"');
+    expect(html).toContain(">Apply</button>");
+    expect(html).toContain("ti ti-calendar-time");
+  });
+
+  test("renders date ranges, preview state, times, and duration presets", () => {
+    const html = renderToString(() =>
+      createComponent(DateRangePicker, {
+        label: "Window",
+        value: {
+          start: "2026-07-27T07:00:00.000Z",
+          end: "2026-07-27T08:00:00.000Z",
+        },
+        withTime: true,
+        dateConfig: { timeZone: "Europe/Berlin", locale: "en" },
+        durationPresets: [
+          { label: "30 min", minutes: 30 },
+          { label: "1 hour", minutes: 60 },
+        ],
+      }),
+    );
+
+    expect(html).toContain("k2b-date-range-value");
+    expect(html).toContain('aria-label="Start time"');
+    expect(html).toContain('aria-label="End time"');
+    expect(html).toContain('aria-label="Duration presets"');
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain("1 hour");
+  });
+
+  test("does not expose the deprecated native compatibility wrapper", () => {
+    expect("DateTimeInput" in ui).toBe(false);
+  });
+});

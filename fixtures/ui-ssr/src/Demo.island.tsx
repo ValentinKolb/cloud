@@ -10,6 +10,9 @@ import {
   ContextMenu,
   CopyButton,
   DataPanel,
+  DatePicker,
+  DateRangePicker,
+  DateTimePicker,
   Dropdown,
   dialogCore,
   FilterChip,
@@ -68,6 +71,12 @@ export default function Demo() {
   const [density, setDensity] = createSignal<"compact" | "comfortable">("comfortable");
   const [tags, setTags] = createSignal(["solid", "ssr"]);
   const [teams, setTeams] = createSignal(["platform"]);
+  const [date, setDate] = createSignal<string | null>("2026-07-27");
+  const [dateTime, setDateTime] = createSignal<string | null>("2026-07-27T12:30:00.000Z");
+  const [dateRange, setDateRange] = createSignal<{ start: string | null; end: string | null }>({
+    start: "2026-07-27T07:00:00.000Z",
+    end: "2026-07-27T08:00:00.000Z",
+  });
   const [dialogTab, setDialogTab] = createSignal<"details" | "history">("details");
   const [filters, setFilters] = createSignal<string[]>(["open"]);
   const [actionMessage, setActionMessage] = createSignal("No action yet");
@@ -353,6 +362,30 @@ export default function Demo() {
                       { value: "grace", label: "Grace Hopper", description: "Research", icon: "ti ti-user" },
                     ]}
                     onSelect={(option) => setActionMessage(`Selected ${option.label}`)}
+                  />
+                  <DatePicker
+                    label="Release date"
+                    value={date()}
+                    onValueChange={setDate}
+                    clearable
+                    presets={[{ label: "Launch day", value: "2026-07-27" }]}
+                  />
+                  <DateTimePicker
+                    label="Starts at"
+                    value={dateTime()}
+                    onValueChange={setDateTime}
+                    dateConfig={{ locale: "en", timeZone: "Europe/Berlin" }}
+                  />
+                  <DateRangePicker
+                    label="Booking window"
+                    value={dateRange()}
+                    onValueChange={setDateRange}
+                    withTime
+                    dateConfig={{ locale: "en", timeZone: "Europe/Berlin" }}
+                    durationPresets={[
+                      { label: "30 min", minutes: 30 },
+                      { label: "1 hour", minutes: 60 },
+                    ]}
                   />
                   <TagsInput label="Tags" values={tags()} onValuesChange={setTags} placeholder="Add tag" />
                   <MultiSelectInput
