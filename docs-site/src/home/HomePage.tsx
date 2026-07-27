@@ -1,4 +1,7 @@
 import { For } from "solid-js";
+import type { ThemeMode } from "@k2b/fibel";
+import { highlight } from "@k2b/stdlib";
+import HomeHeader from "./HomeHeader.island";
 import HomeShortcuts from "./HomeShortcuts.client";
 
 const applications = [
@@ -45,9 +48,17 @@ export const app = defineApp({
 
 export const { ssr, plugin } = app;`;
 
-export default function HomePage() {
+const defineAppCodeHtml = highlight.presets.code(defineAppCode);
+
+type HomePageProps = {
+  theme: ThemeMode;
+  themeCookieName: string;
+};
+
+export default function HomePage(props: HomePageProps) {
   return (
     <>
+      <HomeHeader initialTheme={props.theme} themeCookieName={props.themeCookieName} />
       <main class="cloud-home">
         <section class="cloud-hero">
           <div class="cloud-shell cloud-hero-grid">
@@ -88,7 +99,7 @@ export default function HomePage() {
                 <span class="cloud-artifact-note">one application contract</span>
               </div>
               <pre>
-                <code>{defineAppCode}</code>
+                <code innerHTML={defineAppCodeHtml} />
               </pre>
             </div>
           </div>

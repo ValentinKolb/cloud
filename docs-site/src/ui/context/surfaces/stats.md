@@ -1,0 +1,87 @@
+# Stats
+
+`StatGrid` presents a small group of comparable values. `StatCell` supplies each label, value, and optional supporting detail.
+
+The application owns the values, their scope, and the links used to investigate them.
+
+## Use stats
+
+Use `StatGrid` for operational summaries and compact dashboard statistics.
+
+Use `DataPanel` for records. Use ordinary prose for one isolated value that does not need comparison.
+
+## Import
+
+```tsx
+import {
+  StatCell,
+  StatGrid,
+  type StatCellAccent,
+} from "@valentinkolb/cloud/ui";
+```
+
+## Properties
+
+### StatGrid
+
+| Property | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `children` | `JSX.Element` | required | Contains `StatCell` elements. |
+| `title` | `string` | none | Adds a compact heading above the cells. |
+| `action` | `{ label: string; href: string }` | none | Adds a header link when `title` is present. |
+| `columns` | `number` | responsive ladder | Selects one to six responsive columns. |
+| `size` | `"md" \| "sm"` | `"md"` | Sets the density inherited by cells. |
+| `surface` | `"white" \| "muted"` | `"white"` | Matches the cell backgrounds to a page or muted parent surface. |
+| `class` | `string` | none | Adds sizing or layout classes to the outer surface. |
+
+Pass `columns` when the cell count is known. Values outside one to six use the default responsive ladder.
+
+### StatCell
+
+| Property | Type | Purpose |
+| --- | --- | --- |
+| `label` | `string` | Names the measurement. |
+| `value` | `string \| number \| JSX.Element` | Displays the primary value. |
+| `sub` | `string` | Qualifies the value with scope, unit, or time range. |
+| `href` | `string` | Makes the complete cell a link. |
+| `accent` | `StatCellAccent` | Adds a semantic icon or short status pill. |
+| `valueClass` | `string` | Overrides the value color. |
+| `title` | `string` | Adds a native title to a truncated value. |
+| `trend` | `number[]` | Adds a compact sparkline from oldest to newest. |
+| `size` | `"md" \| "sm"` | Overrides the inherited size for one cell. |
+
+An accent has a `tone`, Tabler `icon`, optional `text`, and optional `href`. Text creates a pill. Without text, only the icon is shown. An accent link is ignored when the whole cell already has an `href`, which prevents nested links.
+
+## Composition
+
+- Keep cells in one comparable scope and time range.
+- Put a unit in the label, value, or `sub` when it is not obvious.
+- Use `sub` to qualify the value, not repeat the label.
+- Link operational values to the filtered page that explains them.
+- Use `surface="muted"` inside gray dialog or settings sections.
+- Do not use a sparkline as the only representation of a change.
+
+## Accessibility
+
+Every value needs a visible label. A linked cell needs enough combined text to describe its destination. Accent icons and sparklines supplement the text; they do not replace a status label or numeric value.
+
+## Runtime
+
+`StatGrid` and `StatCell` render on the server. Static links work without hydration. Trend sparklines are rendered by the shared `Chart` component within the cell.
+
+## Example
+
+```tsx
+<StatGrid title="Requests" columns={3}>
+  <StatCell
+    label="Server errors"
+    value="4,913"
+    sub="5xx · 24h"
+    href="/admin/observability/telemetry?range=24h&errors=1"
+    valueClass="text-red-500"
+    accent={{ tone: "red", icon: "ti ti-alert-circle" }}
+  />
+  <StatCell label="Rate limited" value="6,071" sub="429 · 24h" />
+  <StatCell label="All requests" value="273,911" sub="24h" />
+</StatGrid>
+```

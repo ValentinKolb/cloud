@@ -1,7 +1,11 @@
 import type { ThemeMode } from "@k2b/fibel";
-import { renderFibelHeader } from "@k2b/fibel/layout";
+import { fibelSsrTemplate, type FibelSsrTemplateOptions } from "@k2b/fibel/solid";
 import { createConfig } from "@k2b/ssr";
-import { siteUrl } from "../fibel.config";
+import { renderFontPreloads } from "./font-assets";
+import { siteUrl } from "./site-config";
+import { renderSolidImportMap } from "./solid-import-map";
+
+const solidExternals = ["solid-js", "solid-js/jsx-runtime", "solid-js/store", "solid-js/web"];
 
 export type PageOptions = {
   title: string;
@@ -17,29 +21,10 @@ const escapeAttribute = (value: string) =>
 export const { config, html, plugin } = createConfig<PageOptions>({
   dev: process.env.NODE_ENV !== "production",
   rootDir: import.meta.dir,
-  template: async ({ body, scripts, title, description, path, theme, styles = [] }) => {
+  external: solidExternals,
+  template: ({ body, scripts, title, description, path, theme, styles = [] }) => {
     const canonical = siteUrl ? `${siteUrl}${path}` : path;
-    const header = renderFibelHeader({
-      title: "Cloud",
-      homeHref: "/en",
-      links: [
-        { label: "Home", href: "/en", active: path === "/en" },
-        { label: "Docs", href: "/docs/en", active: path.startsWith("/docs") },
-        {
-          label: "UI",
-          href: "/ui",
-          active: path === "/ui" || path.startsWith("/ui/"),
-        },
-        {
-          label: "GitHub",
-          href: "https://github.com/ValentinKolb/cloud",
-        },
-      ],
-      theme,
-      search: false,
-      mobileNavigation: false,
-    });
-    const stylesheets = ["/docs/_fibel/styles.css", "/assets/homepage.css", ...styles]
+    const stylesheets = ["/assets/homepage.css", ...styles]
       .map((href) => `<link rel="stylesheet" href="${escapeAttribute(href)}">`)
       .join("\n    ");
 
@@ -54,20 +39,20 @@ export const { config, html, plugin } = createConfig<PageOptions>({
     <meta name="description" content="${escapeAttribute(description)}">
     <link rel="canonical" href="${escapeAttribute(canonical)}">
     <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+    ${renderFontPreloads("/assets", true)}
+    ${renderSolidImportMap("/assets")}
     ${stylesheets}
   </head>
   <body class="cloud-site cloud-standalone">
-    ${header}
     ${body}
-    <script>window.__FIBEL__=${JSON.stringify({
-      cookieName: "cloud_docs_theme",
-      defaultTheme: theme,
-      searchUrl: "/docs/_fibel/search",
-      locale: "en",
-    })}</script>
-    <script type="module" src="/docs/_fibel/client.js"></script>
     ${scripts}
   </body>
 </html>`;
   },
+});
+
+export const { html: fibelHtml } = createConfig<FibelSsrTemplateOptions>({
+  dev: process.env.NODE_ENV !== "production",
+  rootDir: import.meta.dir,
+  template: fibelSsrTemplate,
 });

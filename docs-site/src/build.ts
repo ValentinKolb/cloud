@@ -1,10 +1,20 @@
 import { cp, mkdir, rm } from "fs/promises";
 import { join, resolve } from "path";
+import type { BunPlugin } from "bun";
 import { buildAssets } from "./build-assets";
 import { plugin } from "./ssr";
 
 const root = resolve(import.meta.dir, "..");
 const dist = join(root, "dist");
+const workspaceRoot = resolve(root, "..");
+const solidServerRuntime: BunPlugin = {
+  name: "solid-server-runtime",
+  setup(build) {
+    build.onResolve({ filter: /^solid-js(?:\/.*)?$/ }, (args) => ({
+      path: Bun.resolveSync(args.path, workspaceRoot),
+    }));
+  },
+};
 
 await rm(dist, { recursive: true, force: true });
 await buildAssets();
@@ -23,7 +33,7 @@ const result = await Bun.build({
   naming: "server.js",
   minify: true,
   sourcemap: "linked",
-  plugins: [plugin()],
+  plugins: [solidServerRuntime, plugin()],
 });
 if (!result.success) throw new AggregateError(result.logs, "Website server build failed.");
 

@@ -2,29 +2,26 @@ import { createFibelApp } from "@k2b/fibel";
 import { Hono } from "hono";
 import { dirname, extname, join, normalize, resolve } from "path";
 import fibelConfig from "../fibel.config";
+import uiFibelConfig from "../ui.fibel.config";
 import HomePage from "./home/HomePage";
 import { html, config as ssrConfig } from "./ssr";
-import UiCatalogPage, { type CatalogComponent } from "./ui/UiCatalogPage";
+import { siteTheme } from "./site-config";
 
-const fibel = await createFibelApp(fibelConfig);
+const docsApp = await createFibelApp(fibelConfig);
+const uiApp = await createFibelApp(uiFibelConfig);
 const app = new Hono();
-const catalogComponents: Record<CatalogComponent, string> = {
-  "panel-header": "PanelHeader",
-  "status-badge": "StatusBadge",
-  "stat-grid": "StatGrid",
-};
 const assetsRoot = process.env.NODE_ENV === "production" ? join(import.meta.dir, "assets") : resolve(import.meta.dir, "..", "assets");
 const ssrRoot = ssrConfig.dev ? (ssrConfig.rootDir ?? process.cwd()) : dirname(Bun.main);
 
 const themeFromRequest = (request: Request) => {
-  const theme = request.headers.get("Cookie")?.match(/(?:^|;\s*)cloud_docs_theme=(dark|light)(?:;|$)/)?.[1];
+  const theme = request.headers.get("Cookie")?.match(new RegExp(`(?:^|;\\s*)${siteTheme.cookieName}=(dark|light)(?:;|$)`))?.[1];
   return theme === "dark" ? "dark" : "light";
 };
 
 const fetchFibelPath = (request: Request, pathname: string) => {
   const url = new URL(request.url);
   url.pathname = pathname;
-  return fibel.fetch(new Request(url, request));
+  return docsApp.fetch(new Request(url, request));
 };
 
 const contentTypes: Record<string, string> = {
@@ -53,7 +50,7 @@ app.use("*", async (c, next) => {
   await next();
 
   const path = c.req.path;
-  if (path.startsWith("/docs/assets/") && !c.res.headers.has("Content-Type")) {
+  if ((path.startsWith("/docs/assets/") || path.startsWith("/ui/assets/")) && !c.res.headers.has("Content-Type")) {
     c.header("Content-Type", contentTypes[extname(path)] ?? "application/octet-stream");
   }
 
@@ -111,40 +108,19 @@ app.get("/_ssr/:filename{[a-zA-Z0-9._-]+\\.js(?:\\.map)?}", async (c) => {
 });
 app.get("/", (c) => c.redirect("/en", 302));
 app.get("/en", (c) =>
-  html(() => <HomePage />, {
+  html(() => <HomePage theme={themeFromRequest(c.req.raw)} themeCookieName={siteTheme.cookieName} />, {
     title: "Cloud — the open-source application platform",
     description: "Shared application building blocks, operated on your infrastructure.",
     path: "/en",
     theme: themeFromRequest(c.req.raw),
   }),
 );
-app.get("/ui", (c) =>
-  html(() => <UiCatalogPage />, {
-    title: "Cloud UI — live component catalog",
-    description: "Live examples of the shared components exported by Cloud.",
-    path: "/ui",
-    theme: themeFromRequest(c.req.raw),
-    styles: ["/assets/generated/tabler-icons.min.css", "/assets/generated/cloud-ui.css", "/assets/ui-catalog.css"],
-  }),
-);
-app.get("/ui/:component", (c) => {
-  const component = c.req.param("component") as CatalogComponent;
-  const componentName = catalogComponents[component];
-  if (!componentName) return c.notFound();
-  return html(() => <UiCatalogPage focus={component} />, {
-    title: `${componentName} — Cloud UI`,
-    description: `Live ${componentName} example from the shared Cloud component package.`,
-    path: `/ui/${component}`,
-    theme: themeFromRequest(c.req.raw),
-    styles: ["/assets/generated/tabler-icons.min.css", "/assets/generated/cloud-ui.css", "/assets/ui-catalog.css"],
-  });
-});
 app.get("/assets/:path{.+}", (c) => serveAsset(c.req.param("path")));
 app.get("/robots.txt", (c) => fetchFibelPath(c.req.raw, "/docs/robots.txt"));
 app.get("/sitemap.xml", (c) => fetchFibelPath(c.req.raw, "/docs/sitemap.xml"));
-app.all("/docs", (c) => fibel.fetch(c.req.raw));
-app.all("/docs/*", (c) => fibel.fetch(c.req.raw));
-app.get("/health", (c) => c.json({ status: "ok", surfaces: ["/en", "/docs/en", "/ui"] }));
+app.mount("/docs", docsApp.fetch, { replaceRequest: false });
+app.mount("/ui", uiApp.fetch, { replaceRequest: false });
+app.get("/health", (c) => c.json({ status: "ok", surfaces: ["/en", "/docs/en", "/ui/en"] }));
 app.get("/humans.txt", (c) =>
   c.text(`Cloud
 Open-source application platform

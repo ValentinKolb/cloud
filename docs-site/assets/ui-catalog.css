@@ -1,196 +1,344 @@
-.ui-layout {
-  min-height: calc(100vh - 4rem);
-  background: var(--c-page-surface);
-  color: var(--c-ink);
-}
-
-.ui-sidebar {
-  border-bottom: 1px solid var(--c-line);
-}
-
-.ui-component-nav {
-  width: 100%;
-}
-
-.ui-component-search {
-  min-height: 2.25rem;
+.ui-overview {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  border: 1px solid var(--c-line);
-  border-radius: 999px;
-  padding: 0 0.75rem;
-  background: var(--c-surface);
-  color: var(--c-muted);
+  flex-direction: column;
+  gap: clamp(3rem, 6vw, 5.5rem);
 }
 
-.ui-component-search:focus-within {
-  border-color: var(--c-accent);
-  outline: 2px solid color-mix(in srgb, var(--c-accent) 18%, transparent);
-  outline-offset: 1px;
-}
-
-.ui-component-search svg {
-  width: 1rem;
-  height: 1rem;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
-.ui-component-search input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  padding: 0.45rem 0;
-  outline: 0;
-  background: transparent;
-  color: var(--c-ink);
-  font: inherit;
-  font-size: 0.8rem;
-}
-
-.ui-component-search input::placeholder {
-  color: var(--c-faint);
-}
-
-.ui-component-search kbd {
-  border: 1px solid var(--c-line);
-  border-radius: 0.25rem;
-  padding: 0.05rem 0.3rem;
-  background: var(--c-sunken);
-  color: var(--c-faint);
-  font-family: var(--c-mono);
-  font-size: 0.68rem;
-}
-
-.ui-component-search:focus-within kbd,
-.ui-component-search input:not(:placeholder-shown) + kbd {
-  display: none;
-}
-
-.ui-catalog {
-  width: min(100%, 76rem);
-  margin-inline: auto;
-  padding: clamp(2.5rem, 6vw, 5rem) var(--c-gutter);
-}
-
-.ui-intro {
+.ui-overview-header {
   display: grid;
-  gap: 1.5rem 4rem;
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 30rem);
+  justify-content: space-between;
+  gap: clamp(2rem, 8vw, 9rem);
   align-items: end;
 }
 
-.ui-intro h1,
-.ui-example h2 {
+.ui-overview-header .ui-page-heading {
   margin: 0;
-  font-family: var(--c-display);
-  font-weight: 560;
-  letter-spacing: -0.025em;
 }
 
-.ui-intro h1 {
-  max-width: 18ch;
-  font-size: clamp(2rem, 4vw, 3.4rem);
-  line-height: 1.05;
+.ui-overview-header .ui-page-heading h1 {
+  max-width: 15ch;
 }
 
-.ui-intro > p {
-  max-width: 58ch;
+.ui-overview-intro > p {
+  max-width: 48ch;
   margin: 0;
   color: var(--c-muted);
+  font-size: 1rem;
   line-height: 1.65;
 }
 
-.ui-intro code,
-.ui-kicker,
-.ui-code {
-  font-family: var(--c-mono);
+.ui-overview-intro dl {
+  display: flex;
+  gap: 2rem;
+  margin: 1.6rem 0 0;
 }
 
-.ui-kicker {
+.ui-overview-intro dl > div {
+  display: flex;
+  gap: 0.55rem;
+  align-items: baseline;
+}
+
+.ui-overview-intro dt,
+.ui-overview-intro dd {
+  margin: 0;
+  font-family: var(--c-mono);
+  font-size: 0.76rem;
+}
+
+.ui-overview-intro dt {
+  color: var(--c-faint);
+}
+
+.ui-overview-intro dd {
+  color: var(--c-ink);
+}
+
+.ui-catalog-directory {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: clamp(2.5rem, 7vw, 7rem);
+  row-gap: clamp(3rem, 5vw, 4.5rem);
+}
+
+.ui-catalog-section {
+  min-width: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--c-line-2);
+}
+
+.ui-catalog-section > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  min-height: 4.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.ui-catalog-section h2,
+.ui-catalog-section p {
+  margin: 0;
+}
+
+.ui-catalog-section h2 {
+  color: var(--c-ink);
+  font-family: var(--c-display);
+  font-size: 1.25rem;
+  font-weight: 560;
+  line-height: 1.2;
+}
+
+.ui-catalog-section p {
+  max-width: 45ch;
+  margin-top: 0.45rem;
+  color: var(--c-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.ui-catalog-section > header > span {
+  color: var(--c-faint);
+  font-family: var(--c-mono);
+  font-size: 0.72rem;
+}
+
+.ui-catalog-section ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-catalog-section li {
+  min-width: 0;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.ui-catalog-section li:nth-child(odd) {
+  margin-right: 1.25rem;
+}
+
+.ui-catalog-section a {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.72rem;
+  color: var(--c-muted);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.ui-catalog-section a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-catalog-section a i {
+  flex: 0 0 auto;
+  color: var(--c-faint);
+  font-size: 0.9rem;
+}
+
+.ui-catalog-section a:hover {
+  color: var(--c-accent-ink);
+}
+
+.ui-catalog-section a:hover i {
+  color: currentColor;
+}
+
+.ui-catalog-section a:focus-visible {
+  border-radius: 0.2rem;
+  outline: 2px solid var(--c-accent);
+  outline-offset: 3px;
+}
+
+.ui-showcase {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: clamp(2.75rem, 6vw, 5rem);
+}
+
+.ui-reference-showcase {
+  gap: clamp(2.5rem, 5vw, 4rem);
+}
+
+.ui-reference-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 42rem) minmax(16rem, 24rem);
+  justify-content: space-between;
+  gap: clamp(2rem, 6vw, 7rem);
+  align-items: end;
+}
+
+.ui-reference-heading .ui-page-heading {
+  margin: 0;
+}
+
+.ui-reference-heading > p {
+  max-width: 36ch;
+  margin: 0;
+  color: var(--c-muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.ui-reference-playground {
+  min-width: 0;
+}
+
+.ui-reference-playground .ui-demo-grid > .grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ui-reference-body {
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--c-line);
+}
+
+.ui-reference-body .ui-documentation {
+  max-width: none;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.ui-reference-body .ui-documentation > * + * {
+  margin-top: 1rem;
+}
+
+.ui-reference-body .ui-documentation > p:first-child {
+  margin-top: 0;
+  color: var(--c-ink-2);
+  font-size: 1.08rem;
+  line-height: 1.7;
+}
+
+.ui-reference-body .ui-documentation h2 {
+  margin-top: 2.75rem;
+  padding-top: 0;
+  border-top: 0;
+  font-size: 1.55rem;
+}
+
+.ui-reference-body .ui-documentation p {
+  line-height: 1.7;
+}
+
+.ui-documentation {
+  min-width: 0;
+}
+
+.ui-documentation > :first-child {
+  margin-top: 0;
+}
+
+.ui-page-heading {
+  margin-bottom: 1.8rem;
+}
+
+.ui-page-heading p {
   margin: 0 0 0.65rem;
   color: var(--c-accent-ink);
+  font-family: var(--c-mono);
   font-size: 0.74rem;
   letter-spacing: 0.04em;
 }
 
-.ui-example {
-  display: grid;
-  gap: 2rem 4rem;
-  padding-block: clamp(3.5rem, 6vw, 5rem);
-  border-bottom: 1px solid var(--c-line);
+.ui-page-heading h1 {
+  margin: 0;
+  max-width: 18ch;
+  color: var(--c-ink);
+  font-family: var(--c-display);
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  font-weight: 560;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+
+.ui-documentation > p:first-child {
+  max-width: 58ch;
+  margin-top: 1.4rem;
+  color: var(--c-muted);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.ui-documentation h2 {
   scroll-margin-top: 5rem;
 }
 
-.ui-example-copy h2 {
-  font-size: clamp(1.5rem, 2.5vw, 2rem);
+.ui-documentation code {
+  font-family: var(--c-mono);
 }
 
-.ui-example-copy > p:not(.ui-kicker) {
-  max-width: 48ch;
-  margin: 0.85rem 0 0;
-  color: var(--c-muted);
-  line-height: 1.6;
-}
-
-.ui-guidance b {
-  color: var(--c-ink);
-  font-weight: 600;
-}
-
-.ui-example-demo {
+.ui-demo-grid {
   min-width: 0;
 }
 
-.ui-preview {
-  min-height: 12rem;
-  display: grid;
-  align-items: center;
-  padding: clamp(1.5rem, 4vw, 3rem);
-  border: 1px solid var(--c-line);
-  border-radius: 0.7rem 0.7rem 0 0;
-  background: var(--c-card-gradient);
+.ui-demo-grid > .grid,
+.ui-demo-grid > .grid > * {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
-.ui-code {
-  overflow-x: auto;
+.ui-demo-missing {
   margin: 0;
+  padding: 1rem;
   border: 1px solid var(--c-line);
-  border-top: 0;
-  border-radius: 0 0 0.7rem 0.7rem;
-  padding: 1.15rem;
-  background: var(--c-sunken);
-  color: var(--c-ink-2);
-  font-size: 0.75rem;
-  line-height: 1.6;
+  color: var(--c-muted);
 }
 
+/*
+ * Cloud's component stylesheet and Fibel both expose Tailwind utilities.
+ * The component stylesheet loads later so its mobile-first utilities would
+ * otherwise win over Fibel's desktop sidebar variants. Keep the Fibel shell
+ * authoritative; Cloud styles are only here to render the live examples.
+ */
 @media (min-width: 64rem) {
-  .ui-layout {
-    display: grid;
+  .fibel-app > div:has(> .fibel-sidebar) {
     grid-template-columns: 19rem minmax(0, 1fr);
   }
 
-  .ui-sidebar {
-    border-bottom: 0;
-  }
-
-  .ui-component-nav {
-    padding: 0;
-  }
-
-  .ui-intro,
-  .ui-example {
-    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  .fibel-sidebar {
+    position: sticky;
+    top: 4rem;
+    z-index: 20;
+    width: auto;
+    height: calc(100vh - 4rem);
+    translate: 0;
+    padding-top: 2.25rem;
   }
 }
 
-@media (min-width: 90rem) {
-  .ui-catalog {
-    padding-inline: clamp(3rem, 5vw, 6rem);
+@media (max-width: 40rem) {
+  .ui-overview-header,
+  .ui-catalog-directory {
+    grid-template-columns: minmax(0, 1fr);
   }
+
+  .ui-catalog-section ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ui-catalog-section li:nth-child(odd) {
+    margin-right: 0;
+  }
+
+  .ui-reference-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ui-reference-heading {
+    gap: 1.25rem;
+  }
+
 }

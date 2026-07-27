@@ -1,149 +1,149 @@
-import { PanelHeader, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
-import type { JSX } from "solid-js";
-import { Show } from "solid-js";
-import ComponentNavigation from "./ComponentNavigation.client";
+import { For } from "solid-js";
+import { uiCatalogEntries, uiCatalogSections } from "./catalog";
+import ActionsCatalogDemo from "./ActionsCatalogDemo.island";
+import ContentCatalogDemo from "./ContentCatalogDemo.island";
+import FeedbackCatalogDemo from "./FeedbackCatalogDemo.island";
+import InputCatalogDemo from "./InputCatalogDemo.island";
+import LayoutCatalogDemo from "./LayoutCatalogDemo.island";
+import SurfacesCatalogDemo from "./SurfacesCatalogDemo.island";
+import WidgetsCatalogDemo from "./WidgetsCatalogDemo.island";
 
-const panelHeaderCode = `import { PanelHeader } from "@valentinkolb/cloud/ui";
-
-<PanelHeader
-  title="Applications"
-  subtitle="17 connected services"
-  actions={<a class="btn-input btn-input-sm" href="/apps">Open registry</a>}
-/>`;
-
-const badgeCode = `import { StatusBadge } from "@valentinkolb/cloud/ui";
-
-<StatusBadge tone="ok" label="Online" />
-<StatusBadge tone="degraded" label="Degraded" />
-<StatusBadge tone="running" label="Deploying" />`;
-
-const statsCode = `import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
-
-<StatGrid columns={3}>
-  <StatCell label="Applications" value={17} sub="all healthy" />
-  <StatCell label="Routes" value={106} sub="HTTP and WebSocket" />
-  <StatCell label="Jobs" value={42} sub="last 24 hours" />
-</StatGrid>`;
-
-type ExampleProps = {
-  id: string;
-  name: string;
-  source: string;
-  summary: string;
-  guidance: string;
-  code: string;
-  children: JSX.Element;
+type DocumentationProps = {
+  documentation: string;
+  title: string;
 };
 
-function Example(props: ExampleProps) {
+type ComponentShowcaseProps = DocumentationProps & {
+  description: string;
+  section: string;
+  slug: string;
+};
+
+const sectionDescriptions: Record<string, string> = {
+  input: "Fields, editors, pickers, uploads, and filters.",
+  actions: "Buttons, menus, and focused action controls.",
+  layout: "Application shells, panes, dialogs, settings, and navigation.",
+  surfaces: "Cards, statistics, operational panels, and calendars.",
+  feedback: "Messages, statuses, toasts, tooltips, and prompts.",
+  content: "Tables, charts, files, media, code, and rich content.",
+  widgets: "Endpoint-driven blocks for application dashboards.",
+};
+
+function CatalogDemo(props: { section: string; slug: string }) {
+  switch (props.section) {
+    case "input":
+      return <InputCatalogDemo slug={props.slug} />;
+    case "actions":
+      return <ActionsCatalogDemo slug={props.slug} />;
+    case "layout":
+      return <LayoutCatalogDemo slug={props.slug} />;
+    case "surfaces":
+      return <SurfacesCatalogDemo slug={props.slug} />;
+    case "feedback":
+      return <FeedbackCatalogDemo slug={props.slug} />;
+    case "content":
+      return <ContentCatalogDemo slug={props.slug} />;
+    case "widgets":
+      return <WidgetsCatalogDemo slug={props.slug} />;
+    default:
+      return <p class="ui-demo-missing">No live example is registered for this section.</p>;
+  }
+}
+
+function ComponentShowcase(props: ComponentShowcaseProps) {
   return (
-    <section class="ui-example" id={props.id}>
-      <div class="ui-example-copy">
-        <p class="ui-kicker">{props.source}</p>
-        <h2>{props.name}</h2>
-        <p>{props.summary}</p>
-        <p class="ui-guidance">
-          <b>Use when</b> {props.guidance}
-        </p>
-      </div>
-      <div class="ui-example-demo">
-        <div class="ui-preview">{props.children}</div>
-        <pre class="ui-code">
-          <code>{props.code}</code>
-        </pre>
-      </div>
-    </section>
+    <article class="ui-showcase ui-reference-showcase">
+      <header class="ui-reference-heading">
+        <div class="ui-page-heading">
+          <p>@valentinkolb/cloud/ui</p>
+          <h1>{props.title}</h1>
+        </div>
+        <p>{props.description}</p>
+      </header>
+      <section class="ui-reference-playground" aria-label="Live component example">
+        <CatalogDemo section={props.section} slug={props.slug} />
+      </section>
+      <section class="ui-reference-body" aria-label="Component reference">
+        <div class="ui-documentation fibel-prose" innerHTML={props.documentation} />
+      </section>
+    </article>
   );
 }
 
-export type CatalogComponent = "panel-header" | "status-badge" | "stat-grid";
-
-type UiCatalogPageProps = {
-  focus?: CatalogComponent;
-};
-
-const componentName = (component: CatalogComponent) =>
-  ({ "panel-header": "PanelHeader", "status-badge": "StatusBadge", "stat-grid": "StatGrid" })[component];
-
-export default function UiCatalogPage(props: UiCatalogPageProps) {
+export function UiCatalogOverview(props: DocumentationProps & { locale: string }) {
   return (
-    <>
-      <div class="ui-layout">
-        <aside class="fibel-sidebar ui-sidebar overflow-y-auto border-r border-zinc-200 bg-white p-5 pt-6 dark:border-white/10 dark:bg-zinc-950 lg:sticky lg:top-16 lg:h-[calc(100vh-4rem)] lg:pt-9">
-          <ComponentNavigation active={props.focus} />
-        </aside>
-        <main class="ui-catalog">
-          <header class="ui-intro">
+    <article class="ui-overview">
+      <header class="ui-overview-header">
+        <div class="ui-page-heading">
+          <p>@valentinkolb/cloud/ui</p>
+          <h1>Shared components for Cloud applications.</h1>
+        </div>
+        <div class="ui-overview-intro">
+          <p>
+            Choose a component by task. Every page shows the running component,
+            its public import, and the rules its parent must follow.
+          </p>
+          <dl>
             <div>
-              <p class="ui-kicker">Cloud UI · live source</p>
-              <h1>{props.focus ? componentName(props.focus) : "The UI primitives Cloud applications are built from."}</h1>
+              <dt>pages</dt>
+              <dd>{String(uiCatalogEntries.length).padStart(2, "0")}</dd>
             </div>
-            <p>
-              Every example imports the component from <code>@valentinkolb/cloud/ui</code>. Use this catalog to choose a primitive, inspect
-              its states, and prototype package changes against the real implementation.
-            </p>
-          </header>
+            <div>
+              <dt>sections</dt>
+              <dd>{String(uiCatalogSections.length).padStart(2, "0")}</dd>
+            </div>
+          </dl>
+        </div>
+      </header>
 
-          <Show when={!props.focus || props.focus === "panel-header"}>
-            <Example
-              id="panel-header"
-              name="PanelHeader"
-              source="@valentinkolb/cloud/ui"
-              summary="A consistent title, context, and action row for application and operations panels."
-              guidance="a bounded surface needs a heading and optional action without inventing another layout."
-              code={panelHeaderCode}
-            >
-              <div class="paper p-4">
-                <PanelHeader
-                  title="Applications"
-                  subtitle="17 connected services"
-                  actions={
-                    <a class="btn-input btn-input-sm" href="/ui/panel-header">
-                      Open registry
-                    </a>
-                  }
-                />
-              </div>
-            </Example>
-          </Show>
+      <nav class="ui-catalog-directory" aria-label="Component catalog">
+        <For each={uiCatalogSections}>
+          {(section) => {
+            const entries = uiCatalogEntries.filter((entry) => entry.section === section.id);
+            return (
+              <section class="ui-catalog-section">
+                <header>
+                  <div>
+                    <h2>{section.title}</h2>
+                    <p>{sectionDescriptions[section.id]}</p>
+                  </div>
+                  <span>{String(section.count).padStart(2, "0")}</span>
+                </header>
+                <ul>
+                  <For each={entries}>
+                    {(entry) => (
+                      <li>
+                        <a href={`/ui/${props.locale}/${entry.id}`}>
+                          <span>{entry.page.title}</span>
+                          <i class={entry.page.icon} aria-hidden="true" />
+                        </a>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </section>
+            );
+          }}
+        </For>
+      </nav>
+    </article>
+  );
+}
 
-          <Show when={!props.focus || props.focus === "status-badge"}>
-            <Example
-              id="status-badge"
-              name="StatusBadge"
-              source="@valentinkolb/cloud/ui"
-              summary="One semantic vocabulary for health and runtime state across applications."
-              guidance="a status needs a stable tone while the domain supplies its own wording."
-              code={badgeCode}
-            >
-              <div class="flex flex-wrap items-center gap-2">
-                <StatusBadge tone="ok" label="Online" />
-                <StatusBadge tone="degraded" label="Degraded" />
-                <StatusBadge tone="error" label="Failed" />
-                <StatusBadge tone="running" label="Deploying" />
-                <StatusBadge tone="neutral" label="Disabled" variant="text" />
-              </div>
-            </Example>
-          </Show>
-
-          <Show when={!props.focus || props.focus === "stat-grid"}>
-            <Example
-              id="stat-grid"
-              name="StatGrid"
-              source="@valentinkolb/cloud/ui"
-              summary="A compound layout for comparable operational numbers, with consistent dividers and responsive columns."
-              guidance="a small group of headline values belongs together and each value has a reproducible scope."
-              code={statsCode}
-            >
-              <StatGrid columns={3}>
-                <StatCell label="Applications" value={17} sub="all healthy" />
-                <StatCell label="Routes" value={106} sub="HTTP and WebSocket" />
-                <StatCell label="Jobs" value={42} sub="last 24 hours" />
-              </StatGrid>
-            </Example>
-          </Show>
-        </main>
-      </div>
-    </>
+export function UiComponentShowcase(
+  props: DocumentationProps & {
+    description: string;
+    section: string;
+    slug: string;
+  },
+) {
+  return (
+    <ComponentShowcase
+      documentation={props.documentation}
+      title={props.title}
+      description={props.description}
+      section={props.section}
+      slug={props.slug}
+    />
   );
 }

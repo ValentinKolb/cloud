@@ -1,0 +1,91 @@
+# Access controls
+
+Cloud provides three focused components for resource access:
+
+- `PermissionEditor` edits direct grants;
+- `EntitySearch` selects one principal;
+- `ResourceApiKeys` manages resource-bound machine credentials.
+
+The application owns the resource id, permission checks, and server mutations. Cloud identity remains authoritative for principals and credentials.
+
+## Use the access components
+
+Use `PermissionEditor` for a complete sharing surface. Use `EntitySearch` alone when a workflow needs to choose one user, group, service account, or audience without editing grants.
+
+Use `ResourceApiKeys` for integrations that need machine access to one resource. Do not create or reveal credentials in `PermissionEditor`.
+
+## Import
+
+```tsx
+import {
+  EntitySearch,
+  type EntitySearchPrincipal,
+  PermissionEditor,
+  ResourceApiKeys,
+  type ResourceApiKey,
+  type ResourceApiKeyPermissionOption,
+} from "@valentinkolb/cloud/ui";
+```
+
+## Edit direct grants
+
+Pass stored grants through `initialEntries`. Close over the current resource id in `grantAccess`, `updateAccess`, and `revokeAccess`.
+
+The editor updates its local list only after a callback succeeds. `canEdit={false}` keeps the list read-only.
+
+`allowedLevels` controls the offered permission levels and their labels. The first level is granted when a principal is added. The user can then change it from the entry row.
+
+Public access and service accounts are opt-in through `allowPublic` and `allowServiceAccounts`.
+
+Authorization still belongs in the service. Rendering an editor does not grant the current actor permission to change access.
+
+## Select a principal
+
+`EntitySearch` includes no principal kinds by default. Enable only the kinds the workflow accepts.
+
+Users and groups can be limited by provider. Existing ids can be excluded. Real directory searches begin after two characters and use the Cloud accounts endpoint.
+
+`onSelect` receives a discriminated `EntitySearchPrincipal`.
+
+## Manage resource API keys
+
+Pass existing credentials through `initialKeys`. Implement `createKey` and `revokeKey` with the application service for the current resource.
+
+`createKey` returns the stored credential and the plain token. The component shows the token once. It cannot recover it later.
+
+Use `permissionOptions` to limit and explain the levels supported by the resource.
+
+## Accessibility
+
+Permission labels must describe capability, not color. Principal rows and destructive actions already use buttons; keep custom permission labels specific and short.
+
+The API-key creation flow must explain that the token is shown once.
+
+## Runtime
+
+These components are interactive and require hydration.
+
+`PermissionEditor` and `EntitySearch` query Cloud identity in the browser. API-key creation and revocation call the application callbacks. Server-side authorization must run again in every callback target.
+
+## Example
+
+```tsx
+<PermissionEditor
+  initialEntries={entries}
+  allowPublic
+  allowedLevels={[
+    { level: "read", label: "View" },
+    { level: "write", label: "Edit" },
+    { level: "admin", label: "Manage" },
+  ]}
+  grantAccess={(principal, permission) =>
+    access.grant(resourceId, principal, permission)
+  }
+  updateAccess={(accessId, permission) =>
+    access.update(resourceId, accessId, permission)
+  }
+  revokeAccess={(accessId) =>
+    access.revoke(resourceId, accessId)
+  }
+/>
+```

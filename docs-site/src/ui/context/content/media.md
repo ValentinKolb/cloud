@@ -1,0 +1,70 @@
+# Media preview
+
+`Lightbox` presents one or more images in a modal viewer. `PdfPreview` requests a PDF and displays the resulting document. The caller owns media access, URLs, and generation.
+
+## Use media preview
+
+Use `Lightbox` when a page already shows an image or thumbnail and readers need a larger view.
+
+Use `PdfPreview` when a user action generates or loads a PDF for inspection. Use a normal download link when inline inspection is not part of the task.
+
+## Import
+
+```tsx
+import {
+  Lightbox,
+  PdfPreview,
+  type LightboxImage,
+  type PdfPreviewRequest,
+} from "@valentinkolb/cloud/ui";
+```
+
+## Images
+
+Each `LightboxImage` has a required `src` and optional `alt` and `downloadUrl`. Pass a meaningful `alt` for informative images. Omit it only when the image is decorative.
+
+`initialIndex` selects the first visible image. The parent owns the open state and removes the component through `onClose`.
+
+## PDF requests
+
+`PdfPreview` accepts a `request` function that resolves to a `Blob` or `Response`. A failed response becomes an error state. A Blob with a declared type other than `application/pdf` is rejected.
+
+The component provides separate actions to render inside the page or open the document in a new tab. `disabled` is a reactive guard for invalid form state or an unavailable renderer.
+
+Authentication, request input, server-side rendering, and error sanitization remain with the caller.
+
+## Accessibility
+
+The lightbox uses a native dialog, labeled navigation controls, arrow keys, Escape, swipe gestures, and visible image position. Captions come from `alt`.
+
+`PdfPreview` labels its iframe with `title`. Keep the open and preview button labels specific when several documents appear on one page.
+
+## Runtime
+
+Both components require hydration. `Lightbox` calls `showModal()` after mount. `PdfPreview` creates and revokes browser object URLs after an explicit request.
+
+The server may render their initial markup, but modal behavior, network requests, Blob URLs, and navigation controls run in the browser.
+
+## Example
+
+```tsx
+const [lightboxOpen, setLightboxOpen] = createSignal(false);
+
+const images: LightboxImage[] = [
+  {
+    src: "/api/files/cover/preview",
+    alt: "Report cover",
+    downloadUrl: "/api/files/cover/download",
+  },
+];
+
+<Show when={lightboxOpen()}>
+  <Lightbox images={images} onClose={() => setLightboxOpen(false)} />
+</Show>
+
+<PdfPreview
+  title="Generated report"
+  request={() => fetch("/api/reports/42/pdf")}
+  disabled={() => reportMutation.loading()}
+/>
+```

@@ -10,7 +10,7 @@
   src: url("./fonts/instrument-sans-latin-wght-normal.woff2") format("woff2");
   font-style: normal;
   font-weight: 400 700;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
@@ -18,7 +18,7 @@
   src: url("./fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
@@ -26,7 +26,7 @@
   src: url("./fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
   font-style: normal;
   font-weight: 500;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
@@ -34,7 +34,7 @@
   src: url("./fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
   font-style: normal;
   font-weight: 600;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
@@ -42,7 +42,7 @@
   src: url("./fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
@@ -50,7 +50,7 @@
   src: url("./fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
   font-style: normal;
   font-weight: 500;
-  font-display: swap;
+  font-display: block;
 }
 
 /* --- palette ------------------------------------------------------------- */
@@ -133,12 +133,22 @@
 
 /* Header, footer and page content share one container, so the wordmark stays
    on the shell edge instead of drifting to the viewport edge on wide screens. */
-:where(.cloud-site, .fibel-app) .fibel-topbar > div,
-:where(.cloud-site, .fibel-app) footer > div {
+.cloud-site .fibel-topbar > div,
+.cloud-site footer > div {
   width: min(100% - (var(--c-gutter) * 2), var(--c-shell));
   max-width: none;
   margin-inline: auto;
   padding-inline: 0;
+}
+
+:where(.cloud-site, .fibel-app) .fibel-topbar > div {
+  gap: 0.75rem;
+}
+
+@media (min-width: 48rem) {
+  :where(.cloud-site, .fibel-app) .fibel-topbar > div {
+    gap: 1.25rem;
+  }
 }
 
 :where(.cloud-site, .fibel-app) footer {
@@ -171,14 +181,6 @@
   content: "Cloud";
 }
 
-:where(.cloud-site, .fibel-app) .fibel-brand:hover::after,
-:where(.cloud-site, .fibel-app) .fibel-brand:focus-visible::after {
-  font-family: var(--c-mono);
-  font-size: 0.88rem;
-  letter-spacing: -0.03em;
-  content: "<Cloud />";
-}
-
 :where(.cloud-site, .fibel-app) .fibel-brand span {
   display: none;
 }
@@ -190,6 +192,7 @@
     position: static;
     left: auto;
     transform: none;
+    translate: none;
   }
 }
 
@@ -201,18 +204,19 @@
   outline-offset: 2px;
 }
 
-@media (min-width: 80rem) {
-  .fibel-app main article {
-    max-width: 52rem;
-    margin-right: auto;
-    margin-left: 0;
-  }
+/* Temporary until Fibel exposes page and reading-width tokens. Keep article
+   and full custom pages on one frame without stretching prose line lengths. */
+.fibel-app main > :is(article.mx-auto, div.mx-auto) {
+  max-width: var(--c-shell);
 }
 
-/* Keep the structural docs navigation on the viewport edge. The article still
-   owns its readable width. */
-.fibel-app > div:has(> .fibel-sidebar) {
-  max-width: none;
+.fibel-app main > article.mx-auto > div:first-child,
+.fibel-app
+  main
+  > article.mx-auto
+  > .fibel-prose
+  > :where(p, ul, ol, blockquote, h2, h3, h4) {
+  max-width: 56rem;
 }
 
 /* --- standalone pages ---------------------------------------------------- */
@@ -223,6 +227,126 @@
   background: var(--c-canvas);
   color: var(--c-ink);
   font-family: var(--c-sans);
+}
+
+.cloud-site-header {
+  position: relative;
+  z-index: 30;
+  background: var(--c-page-surface);
+}
+
+.cloud-header-inner {
+  width: min(100% - (var(--c-gutter) * 2), var(--c-shell));
+  min-height: 5.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-inline: auto;
+}
+
+.cloud-header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--c-ink);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.cloud-header-brand img {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.cloud-header-nav {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 2.5vw, 2rem);
+  margin-left: auto;
+  overflow-x: auto;
+}
+
+.cloud-header-nav a {
+  display: inline-flex;
+  align-items: center;
+  padding-block: 0.5rem;
+  color: var(--c-muted);
+  font-size: 0.88rem;
+  text-decoration: none;
+  text-underline-offset: 0.35rem;
+  white-space: nowrap;
+}
+
+.cloud-header-nav a:hover {
+  color: var(--c-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--c-line-2);
+}
+
+.cloud-theme-toggle {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-left: 0.25rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--c-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.cloud-theme-toggle:hover {
+  background: var(--c-sunken);
+  color: var(--c-ink);
+}
+
+.cloud-theme-toggle svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.cloud-header-brand:focus-visible,
+.cloud-header-nav a:focus-visible,
+.cloud-theme-toggle:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 33.99rem) {
+  .cloud-header-inner {
+    min-height: 4.5rem;
+    gap: 0.7rem;
+  }
+
+  .cloud-header-brand {
+    gap: 0.45rem;
+    font-size: 1rem;
+  }
+
+  .cloud-header-brand img {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .cloud-header-nav {
+    gap: 0.85rem;
+  }
+
+  .cloud-header-nav a {
+    font-size: 0.82rem;
+  }
+
+  .cloud-theme-toggle {
+    width: 2.25rem;
+    height: 2.25rem;
+    margin-left: 0;
+  }
 }
 
 .cloud-home {
@@ -813,14 +937,21 @@
   font-family: var(--c-mono);
 }
 
-.cloud-code i {
+.cloud-code .hl-keyword {
   color: var(--c-accent-ink);
-  font-style: normal;
 }
 
-.cloud-code u {
+.cloud-code .hl-string,
+.cloud-code .hl-number {
   color: var(--c-ink);
-  text-decoration: none;
+}
+
+.cloud-code .hl-operator {
+  color: var(--c-muted);
+}
+
+.cloud-code .hl-comment {
+  color: var(--c-faint);
 }
 
 .cloud-hero-code {

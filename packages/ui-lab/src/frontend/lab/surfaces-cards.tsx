@@ -11,6 +11,7 @@ import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts"
 import {
   Avatar,
   LinkCard,
+  NotFoundState,
   Placeholder,
   ProgressBar,
   StatCell,
@@ -261,6 +262,27 @@ export const PlaceholderDemo = () => (
         </Placeholder>
       </div>
     </div>
+  </DemoCard>
+);
+
+export const NotFoundStateDemo = () => (
+  <DemoCard
+    id="not-found-state"
+    chip={{ kind: "component", name: "NotFoundState", from: FROM_UI }}
+    description="Whole-page dead end with one clear route back. Use Placeholder for an empty or failed region inside an existing page."
+    code={`<NotFoundState
+  code="404"
+  title="Application not found"
+  description="The application may have moved or you may not have access."
+  action={{ label: "Back to applications", href: "/apps" }}
+/>`}
+  >
+    <NotFoundState
+      code="404"
+      title="Application not found"
+      description="The application may have moved or you may not have access."
+      action={{ label: "Back to applications", href: "#not-found-state" }}
+    />
   </DemoCard>
 );
 

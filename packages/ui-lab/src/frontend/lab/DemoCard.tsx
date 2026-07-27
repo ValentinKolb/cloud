@@ -1,5 +1,4 @@
-import { DocCode, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { copyToClipboard } from "@valentinkolb/stdlib/browser";
+import { DocCode } from "@valentinkolb/cloud/ui";
 import { For, type JSX, Show } from "solid-js";
 import Chip from "./Chip";
 
@@ -7,7 +6,7 @@ import Chip from "./Chip";
  * The atomic unit of the UI Lab. Layout (chip-first):
  *
  *   ┌────────────────────────────────────────────────────────────┐
- *   │ [Chip] [Chip] …                                   🔗        │ ← top row
+ *   │ [Chip] [Chip] …                                            │ ← top row
  *   │ variant label                                              │ ← optional, dim
  *   │                                                            │
  *   │ Description spanning the full width.                       │
@@ -26,10 +25,9 @@ import Chip from "./Chip";
  *     utility class). An optional `variant` label sits beneath the chip
  *     for cases where the chip alone doesn't disambiguate (e.g.
  *     "markdown mode" on a TextInput chip).
- *   - The deep-link action stays in the card header. Code copy belongs
- *     to `DocCode`, so all docs-oriented examples share one implementation.
- *   - The `id` doubles as the URL anchor so a deep-link lands on the
- *     right scroll position.
+ *   - Code copy belongs to `DocCode`, so all docs-oriented examples share
+ *     one implementation.
+ *   - The `id` remains the stable anchor used by catalog navigation.
  */
 export type ChipSpec = { kind: "component"; name: string; from: string } | { kind: "utility"; name: string };
 
@@ -53,26 +51,11 @@ type DemoCardProps = {
 export default function DemoCard(props: DemoCardProps) {
   const chips = (): ChipSpec[] => (Array.isArray(props.chip) ? props.chip : [props.chip]);
 
-  const copyLink = async (): Promise<void> => {
-    const url = `${window.location.origin}${window.location.pathname}${window.location.search}#${props.id}`;
-    await copyToClipboard(url);
-    toast.success("Copied deep-link");
-  };
-
   return (
     <article id={props.id} class="paper p-4 flex flex-col gap-3 scroll-mt-20">
       <header class="flex flex-col gap-1">
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div class="flex flex-wrap items-center gap-1.5 min-w-0">
-            <For each={chips()}>{(c) => <Chip {...c} />}</For>
-          </div>
-          <div class="flex items-center gap-0.5 shrink-0">
-            <Tooltip content="Copy deep link">
-              <button type="button" class="icon-btn h-7 w-7" onClick={() => void copyLink()} aria-label="Copy deep link">
-                <i class="ti ti-link text-sm" />
-              </button>
-            </Tooltip>
-          </div>
+        <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+          <For each={chips()}>{(c) => <Chip {...c} />}</For>
         </div>
         <Show when={props.variant}>
           <p class="text-xs text-dimmed">{props.variant}</p>

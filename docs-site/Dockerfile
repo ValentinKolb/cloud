@@ -8,6 +8,8 @@ ENV CLOUD_DOCS_SITE_URL=$CLOUD_DOCS_SITE_URL
 
 COPY packages/cloud/package.json packages/cloud/package.json
 COPY packages/cloud/src packages/cloud/src
+COPY packages/ui-lab/package.json packages/ui-lab/package.json
+COPY packages/ui-lab/src packages/ui-lab/src
 COPY docs-site/package.json docs-site/bun.lock docs-site/
 RUN cd docs-site && bun install --frozen-lockfile \
   && ln -s /workspace/docs-site/node_modules /workspace/node_modules

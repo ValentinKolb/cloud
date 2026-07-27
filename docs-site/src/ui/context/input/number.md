@@ -1,0 +1,63 @@
+# NumberInput
+
+`NumberInput` is a controlled numeric field with an explicit empty state. The parent owns the number and decides when to persist it.
+
+## Use NumberInput
+
+Use it for counts, limits, percentages, currency amounts, and other numeric form values.
+
+Use `TextInput` when the value is an identifier that only looks numeric, such as an account number or postal code.
+
+## Import
+
+```tsx
+import { NumberInput } from "@valentinkolb/cloud/ui";
+```
+
+## Value and events
+
+The value accessor returns `number | null | undefined`. Both `null` and `undefined` render as empty; callbacks emit `null` when the field is cleared.
+
+`onInput` receives the parsed value while the user types. `onChange` receives the committed value after blur, a stepper click, or the default clear action.
+
+The component keeps the raw text while focused, so intermediate input such as `12.` is not lost.
+
+## Numeric rules
+
+- `decimalPlaces` defaults to `0`. Set it explicitly for decimal values.
+- A comma is normalized to a decimal point.
+- `allowNegative` defaults to `true`.
+- `min` and `max` clamp committed values.
+- `step` defaults to `1` and snaps committed values to its grid.
+- `showSteppers={false}` hides the buttons without disabling typed input.
+- `disableSteppers` disables only the buttons.
+
+`prefix` and `suffix` display short units inside the field. `clearable` adds an explicit empty-state action.
+
+## Accessibility
+
+Prefer a visible `label`. Without one, the placeholder becomes the accessible name, with **Enter number** as the final fallback.
+
+The input exposes spinbutton semantics and finite minimum, maximum, and current values. The stepper and clear controls have accessible names. Descriptions and reactive errors are connected to the field.
+
+## Runtime
+
+The field renders in server HTML. Input filtering, raw-text preservation, steppers, clearing, and callbacks require hydrated Solid client code.
+
+## Example
+
+```tsx
+const [price, setPrice] = createSignal<number | null>(12.5);
+
+<NumberInput
+  label="Price"
+  value={price}
+  onChange={setPrice}
+  min={0}
+  step={0.01}
+  decimalPlaces={2}
+  suffix="€"
+  clearable
+  showSteppers={false}
+/>;
+```

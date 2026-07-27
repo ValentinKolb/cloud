@@ -138,6 +138,7 @@ import {
   AvatarDemo,
   CoreUtilityPatternsDemo,
   LinkCardDemo,
+  NotFoundStateDemo,
   PaperUtility,
   PlaceholderDemo,
   ProgressBarDemo,
@@ -672,14 +673,27 @@ export const uiLabDocs: UiLabDocSection[] = [
         "utilities",
         "Surface Utilities",
         "ti ti-border-all",
-        "Shared paper, thumbnail, placeholder, detail, app layout, and popover utilities.",
-        ["paper", "thumbnail", "placeholder", "core-utility-patterns"],
+        "Shared paper, thumbnail, detail, app layout, and popover utilities.",
+        ["paper", "thumbnail", "core-utility-patterns"],
         () => (
           <DemoGrid>
             <PaperUtility />
             <ThumbnailUtility />
-            <PlaceholderDemo />
             <CoreUtilityPatternsDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "surfaces",
+        "empty-states",
+        "Empty states",
+        "ti ti-file-off",
+        "In-page placeholders and whole-page not-found states.",
+        ["placeholder", "not-found-state"],
+        () => (
+          <DemoGrid columns="one">
+            <PlaceholderDemo />
+            <NotFoundStateDemo />
           </DemoGrid>
         ),
       ),
@@ -1065,6 +1079,15 @@ export const hiddenUiLabExports = [
   { name: "resizeImageCropAroundCenter", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "rotateImageCropRight", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "sameSettingValue", reason: "Settings dirty-state equality helper, demonstrated conceptually by Settings helpers." },
+  {
+    name: "buildWorkflowAutocompleteCompletions",
+    reason: "Workflow authoring adapter used through AutocompleteEditor, not a visual component.",
+  },
+  { name: "createWorkflowYamlHighlighter", reason: "Workflow syntax highlighter used by editor demos, not a visual component." },
+  {
+    name: "workflowCompletionItemToSuggestion",
+    reason: "Workflow completion data adapter used by AutocompleteEditor, not a visual component.",
+  },
 ] as const;
 
 const demoIdToLabel = (id: string): string =>
