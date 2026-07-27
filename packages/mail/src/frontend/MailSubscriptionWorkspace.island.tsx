@@ -51,6 +51,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
   let markLiveApplied: (cursor: string) => void = () => undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingLiveCursor: string | null = null;
+  let disposed = false;
 
   const refresh = mutations.create<MailSubscriptionPage, { liveCursor: string | null }, { liveCursor: string | null }>({
     onBefore: (input) => ({ liveCursor: input.liveCursor }),
@@ -101,12 +102,15 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
   };
 
   const unsubscribe = mutations.create<{ item: MailSubscriptionSummary; result: UnsubscribeMailingListResult }, MailSubscriptionSummary>({
-    mutation: async (item) => {
+    mutation: async (item, { abortSignal }) => {
       if (item.unsubscribe?.kind !== "one_click") throw new Error("One-click unsubscribe is not available for this list");
-      const response = await apiClient.mailboxes[":mailboxId"].subscriptions.unsubscribe.$post({
-        param: { mailboxId: props.data.mailbox.id },
-        json: { listKey: item.listKey, href: item.unsubscribe.href },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"].subscriptions.unsubscribe.$post(
+        {
+          param: { mailboxId: props.data.mailbox.id },
+          json: { listKey: item.listKey, href: item.unsubscribe.href },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not unsubscribe"));
       return { item, result: await response.json() };
     },
@@ -135,15 +139,18 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
     { item: MailSubscriptionSummary; disposition: "archive" | "trash"; result: MailingListDispositionResult },
     { item: MailSubscriptionSummary; disposition: "archive" | "trash" }
   >({
-    mutation: async ({ item, disposition }) => {
-      const response = await apiClient.mailboxes[":mailboxId"].subscriptions.disposition.$post({
-        param: { mailboxId: props.data.mailbox.id },
-        json: {
-          listKey: item.listKey,
-          disposition,
-          idempotencyKey: crypto.randomUUID(),
+    mutation: async ({ item, disposition }, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].subscriptions.disposition.$post(
+        {
+          param: { mailboxId: props.data.mailbox.id },
+          json: {
+            listKey: item.listKey,
+            disposition,
+            idempotencyKey: crypto.randomUUID(),
+          },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, `Could not ${disposition} messages`));
       return { item, disposition, result: await response.json() };
     },
@@ -172,7 +179,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
         confirmText: item.unsubscribe.kind === "one_click" ? "Unsubscribe" : "Continue",
       },
     );
-    if (!confirmed) return;
+    if (!confirmed || disposed) return;
     if (item.unsubscribe.kind === "one_click") {
       await unsubscribe.mutate(item);
       return;
@@ -192,7 +199,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
         confirmText: disposition === "archive" ? "Archive messages" : "Move to Trash",
       },
     );
-    if (confirmed) await dispose.mutate({ item, disposition });
+    if (!disposed && confirmed) await dispose.mutate({ item, disposition });
   };
 
   onMount(() => {
@@ -242,6 +249,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
     markLiveApplied = live.markApplied;
     live.connect();
     onCleanup(() => {
+      disposed = true;
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = null;
       pendingLiveCursor = null;

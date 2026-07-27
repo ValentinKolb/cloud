@@ -1,7 +1,7 @@
 import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { Link, type LinkNavigateEvent, navigateTo } from "@valentinkolb/ssr/nav";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CancelScheduledSendInput, CancelScheduledSendResult, ScheduledSendPage } from "../../contracts";
 import { readApiError } from "./api-response";
@@ -48,18 +48,27 @@ export default function MailScheduledView(props: {
   onRefresh: () => Promise<void>;
 }) {
   const [cancellingId, setCancellingId] = createSignal<string | null>(null);
+  let controller: AbortController | null = null;
+  let disposed = false;
 
   const cancel = async (scheduledSendId: string) => {
+    if (cancellingId()) return;
     const disposition = await chooseDisposition();
-    if (!disposition) return;
+    if (!disposition || disposed) return;
+    const currentController = new AbortController();
+    controller = currentController;
     setCancellingId(scheduledSendId);
     try {
-      const response = await apiClient.mailboxes[":mailboxId"]["scheduled-sends"][":scheduledSendId"].cancel.$post({
-        param: { mailboxId: props.mailboxId, scheduledSendId },
-        json: { disposition },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"]["scheduled-sends"][":scheduledSendId"].cancel.$post(
+        {
+          param: { mailboxId: props.mailboxId, scheduledSendId },
+          json: { disposition },
+        },
+        { init: { signal: currentController.signal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to cancel scheduled delivery"));
       const result: CancelScheduledSendResult = await response.json();
+      if (disposed || controller !== currentController) return;
       toast.success(disposition === "draft" ? "Scheduled delivery cancelled; draft restored" : "Scheduled message discarded");
       if (result.disposition === "draft") {
         navigateTo(`/app/mail/${props.mailboxId}/compose/${result.draftId}`);
@@ -67,11 +76,21 @@ export default function MailScheduledView(props: {
       }
       await props.onRefresh();
     } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Failed to cancel scheduled delivery");
+      if (!disposed && controller === currentController && !(error instanceof DOMException && error.name === "AbortError")) {
+        await prompts.error(error instanceof Error ? error.message : "Failed to cancel scheduled delivery");
+      }
     } finally {
-      setCancellingId(null);
+      if (!disposed && controller === currentController) {
+        controller = null;
+        setCancellingId(null);
+      }
     }
   };
+  onCleanup(() => {
+    disposed = true;
+    controller?.abort();
+    controller = null;
+  });
 
   return (
     <section class="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy={props.loading}>

@@ -179,18 +179,21 @@ function WorkflowEditor(props: {
   });
 
   const updateDetails = mutations.create<MailWorkflowDetail, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const workflow = props.workflow;
       if (!workflow) throw new Error("Save the workflow before updating its details");
-      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].$patch({
-        param: { mailboxId: props.mailboxId, workflowId: workflow.id },
-        json: {
-          expectedUpdatedAt: expectedUpdatedAt(),
-          name: name().trim(),
-          description: description().trim() || null,
-          priority: priority(),
+      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].$patch(
+        {
+          param: { mailboxId: props.mailboxId, workflowId: workflow.id },
+          json: {
+            expectedUpdatedAt: expectedUpdatedAt(),
+            name: name().trim(),
+            description: description().trim() || null,
+            priority: priority(),
+          },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update workflow details"));
       return await response.json();
     },
@@ -203,23 +206,29 @@ function WorkflowEditor(props: {
   });
 
   const save = mutations.create<MailWorkflowDetail, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const existing = props.workflow;
       const response = existing
-        ? await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].versions.$post({
-            param: { mailboxId: props.mailboxId, workflowId: existing.id },
-            json: { source: source(), effectBudget: budget() },
-          })
-        : await apiClient.mailboxes[":mailboxId"].workflows.$post({
-            param: { mailboxId: props.mailboxId },
-            json: {
-              name: name().trim(),
-              description: description().trim() || null,
-              priority: priority(),
-              source: source(),
-              effectBudget: budget(),
+        ? await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].versions.$post(
+            {
+              param: { mailboxId: props.mailboxId, workflowId: existing.id },
+              json: { source: source(), effectBudget: budget() },
             },
-          });
+            { init: { signal: abortSignal } },
+          )
+        : await apiClient.mailboxes[":mailboxId"].workflows.$post(
+            {
+              param: { mailboxId: props.mailboxId },
+              json: {
+                name: name().trim(),
+                description: description().trim() || null,
+                priority: priority(),
+                source: source(),
+                effectBudget: budget(),
+              },
+            },
+            { init: { signal: abortSignal } },
+          );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to save workflow"));
       return await response.json();
     },
@@ -418,6 +427,7 @@ export default function MailWorkflowSettings(props: {
   initialWorkflows: MailWorkflow[];
   onWorkflowsChange?: (workflows: MailWorkflow[]) => void;
 }) {
+  let disposed = false;
   const [workflows, setWorkflows] = createSignal(props.initialWorkflows);
   const [versions, setVersions] = createSignal<Record<string, MailWorkflowVersion[]>>({});
   const [expandedWorkflowId, setExpandedWorkflowId] = createSignal<string | null>(null);
@@ -456,11 +466,14 @@ export default function MailWorkflowSettings(props: {
   };
 
   const activate = mutations.create<MailWorkflowDetail, MailWorkflow>({
-    mutation: async (workflow) => {
-      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].activate.$post({
-        param: { mailboxId: props.mailboxId, workflowId: workflow.id },
-        json: { expectedVersionId: workflow.currentVersionId },
-      });
+    mutation: async (workflow, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].activate.$post(
+        {
+          param: { mailboxId: props.mailboxId, workflowId: workflow.id },
+          json: { expectedVersionId: workflow.currentVersionId },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to activate workflow"));
       return await response.json();
     },
@@ -472,12 +485,15 @@ export default function MailWorkflowSettings(props: {
   });
 
   const deactivate = mutations.create<MailWorkflowDetail, MailWorkflow>({
-    mutation: async (workflow) => {
+    mutation: async (workflow, { abortSignal }) => {
       if (!workflow.activeVersionId) throw new Error("Workflow is not active");
-      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].deactivate.$post({
-        param: { mailboxId: props.mailboxId, workflowId: workflow.id },
-        json: { expectedVersionId: workflow.activeVersionId },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].deactivate.$post(
+        {
+          param: { mailboxId: props.mailboxId, workflowId: workflow.id },
+          json: { expectedVersionId: workflow.activeVersionId },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to deactivate workflow"));
       return await response.json();
     },
@@ -492,7 +508,7 @@ export default function MailWorkflowSettings(props: {
     { workflow: MailWorkflowDetail; close: () => void } | null,
     { workflow: MailWorkflow; version: MailWorkflowVersion; close: () => void }
   >({
-    mutation: async ({ workflow, version, close }) => {
+    mutation: async ({ workflow, version, close }, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         `Restore ${version.identity} as a new inactive version? The historical version remains unchanged.`,
         {
@@ -501,11 +517,14 @@ export default function MailWorkflowSettings(props: {
           icon: "ti ti-history",
         },
       );
-      if (!confirmed) return null;
-      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].versions[":versionId"].restore.$post({
-        param: { mailboxId: props.mailboxId, workflowId: workflow.id, versionId: version.id },
-        json: { expectedCurrentVersionId: workflow.currentVersionId },
-      });
+      if (!confirmed || abortSignal.aborted) return null;
+      const response = await apiClient.mailboxes[":mailboxId"].workflows[":workflowId"].versions[":versionId"].restore.$post(
+        {
+          param: { mailboxId: props.mailboxId, workflowId: workflow.id, versionId: version.id },
+          json: { expectedCurrentVersionId: workflow.currentVersionId },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to restore workflow version"));
       return { workflow: await response.json(), close };
     },
@@ -518,6 +537,7 @@ export default function MailWorkflowSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
   onCleanup(() => {
+    disposed = true;
     activate.abort();
     deactivate.abort();
     restore.abort();
@@ -550,7 +570,7 @@ export default function MailWorkflowSettings(props: {
       return prompts.error(await readApiError(response, "Failed to load workflow versions"));
     }
     const loaded = await response.json();
-    setVersions((current) => ({ ...current, [workflow.id]: loaded }));
+    if (!disposed) setVersions((current) => ({ ...current, [workflow.id]: loaded }));
   };
 
   return (

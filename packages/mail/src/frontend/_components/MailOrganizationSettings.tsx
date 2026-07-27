@@ -58,9 +58,15 @@ export default function MailOrganizationSettings(props: {
   const [tagEditor, setTagEditor] = createSignal<LocalTag | "new" | null>(null);
   const [tagEditorDirty, setTagEditorDirty] = createSignal(false);
   const canWrite = () => props.permission === "write" || props.permission === "admin";
+  let disposed = false;
+  let actionController: AbortController | null = null;
 
   createEffect(() => props.onDirtyChange?.(tagEditorDirty()));
-  onCleanup(() => props.onDirtyChange?.(false));
+  onCleanup(() => {
+    disposed = true;
+    actionController?.abort();
+    props.onDirtyChange?.(false);
+  });
 
   const editView = async (existing?: SavedConversationView) => {
     const result = await openMailSearchBuilder({
@@ -71,7 +77,7 @@ export default function MailOrganizationSettings(props: {
       initialSavedView: existing ?? null,
       canWrite: canWrite(),
     });
-    if (result?.action !== "saved") return;
+    if (disposed || result?.action !== "saved") return;
     const saved = result.view;
     setViews((current) => (existing ? current.map((view) => (view.id === saved.id ? saved : view)) : [...current, saved]));
     props.onWorkspaceChange();
@@ -83,28 +89,49 @@ export default function MailOrganizationSettings(props: {
       confirmText: "Delete view",
       variant: "danger",
     });
-    if (!confirmed) return;
-    const response = await apiClient.mailboxes[":mailboxId"]["saved-views"][":viewId"].$delete({
-      param: { mailboxId: props.mailboxId, viewId: view.id },
-      json: { expectedRevision: view.revision },
-    });
-    if (!response.ok) return prompts.error(await readApiError(response, "Failed to delete view"));
-    setViews((current) => current.filter((item) => item.id !== view.id));
-    props.onWorkspaceChange();
-    toast.success("Saved view deleted");
+    if (!confirmed || disposed) return;
+    actionController?.abort();
+    const controller = new AbortController();
+    actionController = controller;
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"]["saved-views"][":viewId"].$delete(
+        {
+          param: { mailboxId: props.mailboxId, viewId: view.id },
+          json: { expectedRevision: view.revision },
+        },
+        { init: { signal: controller.signal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to delete view"));
+      if (disposed || actionController !== controller) return;
+      setViews((current) => current.filter((item) => item.id !== view.id));
+      props.onWorkspaceChange();
+      toast.success("Saved view deleted");
+    } catch (error) {
+      if (!disposed && actionController === controller && !(error instanceof DOMException && error.name === "AbortError")) {
+        await prompts.error(error instanceof Error ? error.message : "Failed to delete view");
+      }
+    } finally {
+      if (actionController === controller) actionController = null;
+    }
   };
 
   const saveTag = mutations.create<{ tag: LocalTag; edited: boolean }, { existing?: LocalTag; name: string; color: string }>({
-    mutation: async ({ existing, name, color }) => {
+    mutation: async ({ existing, name, color }, { abortSignal }) => {
       const response = existing
-        ? await apiClient.mailboxes[":mailboxId"]["local-tags"][":tagId"].$patch({
-            param: { mailboxId: props.mailboxId, tagId: existing.id },
-            json: { expectedRevision: existing.revision, name, color },
-          })
-        : await apiClient.mailboxes[":mailboxId"]["local-tags"].$post({
-            param: { mailboxId: props.mailboxId },
-            json: { name, color },
-          });
+        ? await apiClient.mailboxes[":mailboxId"]["local-tags"][":tagId"].$patch(
+            {
+              param: { mailboxId: props.mailboxId, tagId: existing.id },
+              json: { expectedRevision: existing.revision, name, color },
+            },
+            { init: { signal: abortSignal } },
+          )
+        : await apiClient.mailboxes[":mailboxId"]["local-tags"].$post(
+            {
+              param: { mailboxId: props.mailboxId },
+              json: { name, color },
+            },
+            { init: { signal: abortSignal } },
+          );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to save tag"));
       return { tag: await response.json(), edited: Boolean(existing) };
     },
@@ -124,15 +151,30 @@ export default function MailOrganizationSettings(props: {
       confirmText: "Delete tag",
       variant: "danger",
     });
-    if (!confirmed) return;
-    const response = await apiClient.mailboxes[":mailboxId"]["local-tags"][":tagId"].$delete({
-      param: { mailboxId: props.mailboxId, tagId: tag.id },
-      json: { expectedRevision: tag.revision },
-    });
-    if (!response.ok) return prompts.error(await readApiError(response, "Failed to delete tag"));
-    setTags((current) => current.filter((item) => item.id !== tag.id));
-    props.onWorkspaceChange();
-    toast.success("Tag deleted");
+    if (!confirmed || disposed) return;
+    actionController?.abort();
+    const controller = new AbortController();
+    actionController = controller;
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"]["local-tags"][":tagId"].$delete(
+        {
+          param: { mailboxId: props.mailboxId, tagId: tag.id },
+          json: { expectedRevision: tag.revision },
+        },
+        { init: { signal: controller.signal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to delete tag"));
+      if (disposed || actionController !== controller) return;
+      setTags((current) => current.filter((item) => item.id !== tag.id));
+      props.onWorkspaceChange();
+      toast.success("Tag deleted");
+    } catch (error) {
+      if (!disposed && actionController === controller && !(error instanceof DOMException && error.name === "AbortError")) {
+        await prompts.error(error instanceof Error ? error.message : "Failed to delete tag");
+      }
+    } finally {
+      if (actionController === controller) actionController = null;
+    }
   };
 
   return (

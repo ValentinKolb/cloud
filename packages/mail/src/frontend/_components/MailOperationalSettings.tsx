@@ -18,10 +18,7 @@ import { readApiError } from "./api-response";
 const healthTone = (health: Mailbox["health"]): string =>
   health === "active" ? "badge-success" : health === "paused" ? "" : "badge-warning";
 
-const providerLimitCheckedLabel = (
-  checkedAt: string,
-  dateConfig: DateContext,
-): string =>
+const providerLimitCheckedLabel = (checkedAt: string, dateConfig: DateContext): string =>
   Date.parse(checkedAt) <= 0
     ? "Not checked yet"
     : Date.now() - Date.parse(checkedAt) > PROVIDER_LIMIT_MAX_AGE_MS
@@ -97,8 +94,8 @@ export default function MailOperationalSettings(props: {
   onReload: () => Promise<void>;
   onWorkspaceChange: () => void;
 }) {
-  const [refreshingConnectionId, setRefreshingConnectionId] =
-    createSignal<string | null>(null);
+  let disposed = false;
+  const [refreshingConnectionId, setRefreshingConnectionId] = createSignal<string | null>(null);
   type OperationalCommand =
     | { kind: "sync_mailbox" }
     | { kind: "discover_folders"; bindingId?: string }
@@ -114,11 +111,14 @@ export default function MailOperationalSettings(props: {
     },
   );
   const loadMoreAttention = mutations.create<MailboxOperatorOperations, string>({
-    mutation: async (attentionCursor) => {
-      const response = await apiClient.mailboxes[":mailboxId"].operations.$get({
-        param: { mailboxId: props.mailbox.id },
-        query: { attentionCursor, attentionLimit: "100" },
-      });
+    mutation: async (attentionCursor, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].operations.$get(
+        {
+          param: { mailboxId: props.mailbox.id },
+          query: { attentionCursor, attentionLimit: "100" },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to load more operator attention items"));
       return response.json();
     },
@@ -135,11 +135,14 @@ export default function MailOperationalSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
   const updateSync = mutations.create<Mailbox, boolean>({
-    mutation: async (syncEnabled) => {
-      const response = await apiClient.mailboxes[":mailboxId"].$patch({
-        param: { mailboxId: props.mailbox.id },
-        json: { syncEnabled },
-      });
+    mutation: async (syncEnabled, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].$patch(
+        {
+          param: { mailboxId: props.mailbox.id },
+          json: { syncEnabled },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, syncEnabled ? "Failed to resume mailbox" : "Failed to pause mailbox"));
       return response.json();
     },
@@ -152,12 +155,15 @@ export default function MailOperationalSettings(props: {
   });
 
   const command = mutations.create<void, OperationalCommand>({
-    mutation: async (input) => {
+    mutation: async (input, { abortSignal }) => {
       setLastCommand(input.kind);
-      const response = await apiClient.mailboxes[":mailboxId"].commands.$post({
-        param: { mailboxId: props.mailbox.id },
-        json: { ...input, idempotencyKey: crypto.randomUUID() },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"].commands.$post(
+        {
+          param: { mailboxId: props.mailbox.id },
+          json: { ...input, idempotencyKey: crypto.randomUUID() },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to start mailbox maintenance"));
     },
     onSuccess: async () => {
@@ -175,16 +181,15 @@ export default function MailOperationalSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
   const refreshLimits = mutations.create<ProviderConnection, string>({
-    mutation: async (connectionId) => {
-      const response = await apiClient.mailboxes[":mailboxId"].connections[
-        ":connectionId"
-      ].limits.refresh.$post({
-        param: { mailboxId: props.mailbox.id, connectionId },
-      });
+    mutation: async (connectionId, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].connections[":connectionId"].limits.refresh.$post(
+        {
+          param: { mailboxId: props.mailbox.id, connectionId },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) {
-        throw new Error(
-          await readApiError(response, "Failed to refresh provider limits"),
-        );
+        throw new Error(await readApiError(response, "Failed to refresh provider limits"));
       }
       return response.json();
     },
@@ -199,14 +204,17 @@ export default function MailOperationalSettings(props: {
     },
   });
   const operatorCommand = mutations.create<void, OperatorActionEligibility>({
-    mutation: async (action) => {
+    mutation: async (action, { abortSignal }) => {
       const key = `${action.kind}:${JSON.stringify(action.target)}`;
       const idempotencyKey = actionKeys.get(key) ?? crypto.randomUUID();
       actionKeys.set(key, idempotencyKey);
-      const response = await apiClient.mailboxes[":mailboxId"]["operator-actions"].$post({
-        param: { mailboxId: props.mailbox.id },
-        json: { kind: action.kind, ...action.target, idempotencyKey } as never,
-      });
+      const response = await apiClient.mailboxes[":mailboxId"]["operator-actions"].$post(
+        {
+          param: { mailboxId: props.mailbox.id },
+          json: { kind: action.kind, ...action.target, idempotencyKey } as never,
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to queue Mail operator action"));
       actionKeys.delete(key);
     },
@@ -218,6 +226,7 @@ export default function MailOperationalSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
   onCleanup(() => {
+    disposed = true;
     loadMoreAttention.abort();
     updateSync.abort();
     command.abort();
@@ -230,15 +239,10 @@ export default function MailOperationalSettings(props: {
       "Incoming synchronization, queued provider changes, scheduled delivery, and automatic replies stop until the mailbox is resumed.",
       { title: "Pause mailbox?", confirmText: "Pause mailbox" },
     );
-    if (confirmed) updateSync.mutate(false);
+    if (!disposed && confirmed) updateSync.mutate(false);
   };
 
-  const busy = () =>
-    props.reloading ||
-    updateSync.loading() ||
-    command.loading() ||
-    operatorCommand.loading() ||
-    refreshLimits.loading();
+  const busy = () => props.reloading || updateSync.loading() || command.loading() || operatorCommand.loading() || refreshLimits.loading();
   const syncLoading = () => command.loading() && lastCommand() === "sync_mailbox";
 
   const connectedBinding = () =>
@@ -321,19 +325,11 @@ export default function MailOperationalSettings(props: {
       <section class="flex flex-col gap-3">
         <div>
           <h3 class="text-sm font-semibold text-primary">Provider limits</h3>
-          <p class="mt-1 text-xs text-dimmed">
-            Mailbox usage reported by IMAP and outgoing message limits advertised by SMTP.
-          </p>
+          <p class="mt-1 text-xs text-dimmed">Mailbox usage reported by IMAP and outgoing message limits advertised by SMTP.</p>
         </div>
         <Show
-          when={props.connections.some(
-            (connection) => connection.status !== "revoked",
-          )}
-          fallback={
-            <p class="text-xs text-secondary">
-              Connect a mail provider to inspect its published limits.
-            </p>
-          }
+          when={props.connections.some((connection) => connection.status !== "revoked")}
+          fallback={<p class="text-xs text-secondary">Connect a mail provider to inspect its published limits.</p>}
         >
           <div class="flex flex-col gap-2">
             <For each={props.connections.filter((connection) => connection.status !== "revoked")}>
@@ -368,11 +364,7 @@ export default function MailOperationalSettings(props: {
                         }}
                       >
                         <i
-                          class={`ti ${
-                            refreshingConnectionId() === connection.id
-                              ? "ti-loader-2 animate-spin"
-                              : "ti-refresh"
-                          }`}
+                          class={`ti ${refreshingConnectionId() === connection.id ? "ti-loader-2 animate-spin" : "ti-refresh"}`}
                           aria-hidden="true"
                         />
                       </button>
@@ -418,7 +410,7 @@ export default function MailOperationalSettings(props: {
                           : connection.limits.smtp.status === "supported"
                             ? "SMTP size declarations are supported, but no maximum was published."
                             : "The outgoing message limit is currently unavailable."}
-                      </p>
+                    </p>
                   </div>
                 );
               }}

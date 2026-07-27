@@ -303,11 +303,14 @@ export default function MailSenderRuleSettings(props: {
     publish([...rules().filter((current) => current.id !== rule.id), rule].sort((left, right) => left.name.localeCompare(right.name)));
 
   const toggle = mutation.create<SenderRule, { rule: SenderRule; enabled: boolean }>({
-    mutation: async ({ rule, enabled }) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].enabled.$patch({
-        param: { mailboxId: props.mailboxId, ruleId: rule.id },
-        json: { expectedRevision: rule.revision, enabled },
-      });
+    mutation: async ({ rule, enabled }, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].enabled.$patch(
+        {
+          param: { mailboxId: props.mailboxId, ruleId: rule.id },
+          json: { expectedRevision: rule.revision, enabled },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not change sender rule"));
       return response.json();
     },
@@ -316,16 +319,19 @@ export default function MailSenderRuleSettings(props: {
   });
 
   const remove = mutation.create<{ rule: SenderRule; cancelled: boolean }, SenderRule>({
-    mutation: async (rule) => {
+    mutation: async (rule, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         `Delete “${rule.name}”? Future messages will no longer be processed by this rule. Existing messages are not changed.`,
         { title: "Delete sender rule?", confirmText: "Delete rule", variant: "danger" },
       );
-      if (!confirmed) return { rule, cancelled: true };
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].$delete({
-        param: { mailboxId: props.mailboxId, ruleId: rule.id },
-        json: { expectedRevision: rule.revision },
-      });
+      if (!confirmed || abortSignal.aborted) return { rule, cancelled: true };
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].$delete(
+        {
+          param: { mailboxId: props.mailboxId, ruleId: rule.id },
+          json: { expectedRevision: rule.revision },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not delete sender rule"));
       return { rule: await response.json(), cancelled: false };
     },

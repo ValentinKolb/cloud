@@ -269,22 +269,25 @@ function AutomaticReplyEditor(props: {
     setDraft((current) => ({ ...current, [key]: value }));
 
   const loadPreview = mutation.create<ComposePreview, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"]["compose-preview"].$post({
-        param: { mailboxId: props.mailboxId },
-        json: {
-          conversationId: null,
-          draft: {
-            senderIdentityId: draft().senderIdentityId,
-            to: [],
-            cc: [],
-            bcc: [],
-            subject: draft().subject,
-            body: draft().body,
-            format: draft().format,
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["compose-preview"].$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: {
+            conversationId: null,
+            draft: {
+              senderIdentityId: draft().senderIdentityId,
+              to: [],
+              cc: [],
+              bcc: [],
+              subject: draft().subject,
+              body: draft().body,
+              format: draft().format,
+            },
           },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to prepare preview"));
       return response.json();
     },
@@ -293,17 +296,23 @@ function AutomaticReplyEditor(props: {
   });
 
   const save = mutation.create<AutomaticReplyConfiguration, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const value = draft();
       const response = props.configuration
-        ? await apiClient.mailboxes[":mailboxId"]["automatic-replies"][":configurationId"].$patch({
-            param: { mailboxId: props.mailboxId, configurationId: props.configuration.id },
-            json: { expectedRevision: props.configuration.revision, ...value },
-          })
-        : await apiClient.mailboxes[":mailboxId"]["automatic-replies"].$post({
-            param: { mailboxId: props.mailboxId },
-            json: value,
-          });
+        ? await apiClient.mailboxes[":mailboxId"]["automatic-replies"][":configurationId"].$patch(
+            {
+              param: { mailboxId: props.mailboxId, configurationId: props.configuration.id },
+              json: { expectedRevision: props.configuration.revision, ...value },
+            },
+            { init: { signal: abortSignal } },
+          )
+        : await apiClient.mailboxes[":mailboxId"]["automatic-replies"].$post(
+            {
+              param: { mailboxId: props.mailboxId },
+              json: value,
+            },
+            { init: { signal: abortSignal } },
+          );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to save automatic reply"));
       return response.json();
     },
@@ -350,9 +359,7 @@ function AutomaticReplyEditor(props: {
               }}
               options={selectableIdentities().map((identity) => ({
                 id: identity.id,
-                label: `${identity.label}${
-                  automationIdentities().some((item) => item.id === identity.id) ? "" : " (unavailable)"
-                }`,
+                label: `${identity.label}${automationIdentities().some((item) => item.id === identity.id) ? "" : " (unavailable)"}`,
                 description: `${identity.displayName ? `${identity.displayName} · ` : ""}${identity.fromAddress}`,
                 icon: "ti ti-mail",
               }))}
@@ -362,8 +369,8 @@ function AutomaticReplyEditor(props: {
           </div>
           <Show when={!senderAvailable()}>
             <p role="alert" class="text-xs text-danger">
-              This identity is no longer available for automatic replies. Choose a verified identity with Automatic replies enabled or disable
-              this configuration.
+              This identity is no longer available for automatic replies. Choose a verified identity with Automatic replies enabled or
+              disable this configuration.
             </p>
           </Show>
           <div>

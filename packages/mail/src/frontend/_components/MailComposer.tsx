@@ -111,9 +111,7 @@ export default function MailComposer(props: {
   const initialIdentity = () => verifiedIdentities().find((identity) => identity.id === identityId()) ?? defaultIdentity();
   const selectedIdentity = () => verifiedIdentities().find((identity) => identity.id === identityId()) ?? null;
   const [to, setTo] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.to) : (props.seed?.to ?? []));
-  const [cc, setCc] = createSignal(
-    props.initialDraft ? formatMailRecipients(props.initialDraft.cc) : (props.seed?.cc ?? []),
-  );
+  const [cc, setCc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.cc) : (props.seed?.cc ?? []));
   const [bcc, setBcc] = createSignal(props.initialDraft ? formatMailRecipients(props.initialDraft.bcc) : []);
   const [subject, setSubject] = createSignal(props.initialDraft?.subject ?? props.seed?.subject ?? "");
   const [body, setBody] = createSignal(props.initialDraft?.body ?? props.seed?.body ?? "");
@@ -151,6 +149,7 @@ export default function MailComposer(props: {
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   let draftMutationQueue: Promise<void> = Promise.resolve();
   let initializePromise: Promise<MailDraft | null> | null = null;
+  let recoveryController: AbortController | null = null;
   let disposed = false;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   let panePersistenceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -342,6 +341,7 @@ export default function MailComposer(props: {
       param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
       json: { takeover },
     });
+    if (disposed) return null;
     if (!response.ok) {
       setStatus("readonly");
       setStatusMessage(await readApiError(response, "Draft is open elsewhere"));
@@ -402,6 +402,7 @@ export default function MailComposer(props: {
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to create draft"));
       currentDraft = await response.json();
+      if (disposed) return null;
       const currentContent = content();
       if (JSON.stringify(currentContent) === JSON.stringify(submittedContent)) {
         applyDraftContent(currentDraft);
@@ -472,8 +473,10 @@ export default function MailComposer(props: {
     if (initializePromise) return initializePromise;
     initializePromise = initialize()
       .catch((error: unknown) => {
-        setStatus("error");
-        setStatusMessage(error instanceof Error ? error.message : "Draft could not be prepared");
+        if (!disposed) {
+          setStatus("error");
+          setStatusMessage(error instanceof Error ? error.message : "Draft could not be prepared");
+        }
         return null;
       })
       .finally(() => {
@@ -500,6 +503,7 @@ export default function MailComposer(props: {
         param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
         json: { expectedRevision: currentDraft.revision, draft: nextContent },
       });
+      if (disposed) return null;
       if (!response.ok) {
         const message = await readApiError(response, "Draft could not be saved");
         setStatus("error");
@@ -522,60 +526,79 @@ export default function MailComposer(props: {
   const restoreRecoveryCopy = async () => {
     const currentDraft = draft();
     if (!currentDraft || !editable()) return;
-    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["recovery-copies"].$get({
-      param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-    });
-    if (!response.ok) return prompts.error(await readApiError(response, "Could not load draft recovery copies"));
-    const copies: DraftRecoveryCopy[] = await response.json();
-    const unresolved = copies.filter((copy) => !copy.restoredAt);
-    if (unresolved.length === 0) {
-      setDraft({ ...currentDraft, recoveryCopyCount: 0 });
-      return void toast("No unresolved recovery copies remain.", { title: "Draft is current" });
-    }
-    const labels = new Map(
-      unresolved.map((copy, index) => {
-        const preview = copy.content.body.trim().replaceAll(/\s+/g, " ").slice(0, 80) || "(empty message)";
-        return [
-          copy.id,
-          `${index + 1}. ${dates.formatDateTimeRelative(copy.createdAt, props.dateConfig)} · ${copy.createdBy.kind} · ${preview}`,
-        ];
-      }),
-    );
-    const values = await prompts.form({
-      title: "Restore draft changes",
-      fields: {
-        recoveryCopyId: {
-          type: "select",
-          label: "Recovery copy",
-          options: unresolved.map((copy) => ({ id: copy.id, label: labels.get(copy.id) ?? copy.id })),
-          default: unresolved[0]?.id,
-          required: true,
+    recoveryController?.abort();
+    const controller = new AbortController();
+    recoveryController = controller;
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["recovery-copies"].$get(
+        { param: { mailboxId: props.mailboxId, draftId: currentDraft.id } },
+        { init: { signal: controller.signal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not load draft recovery copies"));
+      const copies: DraftRecoveryCopy[] = await response.json();
+      if (disposed || recoveryController !== controller) return;
+      const unresolved = copies.filter((copy) => !copy.restoredAt);
+      if (unresolved.length === 0) {
+        setDraft({ ...currentDraft, recoveryCopyCount: 0 });
+        return void toast("No unresolved recovery copies remain.", { title: "Draft is current" });
+      }
+      const labels = new Map(
+        unresolved.map((copy, index) => {
+          const preview = copy.content.body.trim().replaceAll(/\s+/g, " ").slice(0, 80) || "(empty message)";
+          return [
+            copy.id,
+            `${index + 1}. ${dates.formatDateTimeRelative(copy.createdAt, props.dateConfig)} · ${copy.createdBy.kind} · ${preview}`,
+          ];
+        }),
+      );
+      const values = await prompts.form({
+        title: "Restore draft changes",
+        fields: {
+          recoveryCopyId: {
+            type: "select",
+            label: "Recovery copy",
+            options: unresolved.map((copy) => ({ id: copy.id, label: labels.get(copy.id) ?? copy.id })),
+            default: unresolved[0]?.id,
+            required: true,
+          },
         },
-      },
-      confirmText: "Restore copy",
-    });
-    if (!values) return;
-    const selected = unresolved.find((copy) => copy.id === values.recoveryCopyId);
-    if (!selected) return prompts.error("The selected recovery copy is no longer available.");
-    const currentLease = lease();
-    if (!editable() || !currentLease) return prompts.error("This draft is no longer editable in this session.");
-    const restoreResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["recovery-copies"][":recoveryCopyId"].restore.$post({
-      param: {
-        mailboxId: props.mailboxId,
-        draftId: currentDraft.id,
-        recoveryCopyId: selected.id,
-      },
-      json: { expectedRevision: currentDraft.revision, leaseToken: currentLease.token },
-    });
-    if (!restoreResponse.ok) return prompts.error(await readApiError(restoreResponse, "Could not restore draft changes"));
-    const restored = await restoreResponse.json();
-    setDraft(restored);
-    applyDraftContent(restored);
-    lastSavedContent = JSON.stringify(content());
-    localStorage.removeItem(journalKey(props.mailboxId, restored.id));
-    setStatus("saved");
-    setStatusMessage("");
-    toast.success("Draft changes restored");
+        confirmText: "Restore copy",
+      });
+      if (!values || disposed || recoveryController !== controller) return;
+      const selected = unresolved.find((copy) => copy.id === values.recoveryCopyId);
+      if (!selected) return void (await prompts.error("The selected recovery copy is no longer available."));
+      const currentLease = lease();
+      if (!editable() || !currentLease) return void (await prompts.error("This draft is no longer editable in this session."));
+      const restoreResponse = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["recovery-copies"][
+        ":recoveryCopyId"
+      ].restore.$post(
+        {
+          param: {
+            mailboxId: props.mailboxId,
+            draftId: currentDraft.id,
+            recoveryCopyId: selected.id,
+          },
+          json: { expectedRevision: currentDraft.revision, leaseToken: currentLease.token },
+        },
+        { init: { signal: controller.signal } },
+      );
+      if (!restoreResponse.ok) throw new Error(await readApiError(restoreResponse, "Could not restore draft changes"));
+      const restored = await restoreResponse.json();
+      if (disposed || recoveryController !== controller) return;
+      setDraft(restored);
+      applyDraftContent(restored);
+      lastSavedContent = JSON.stringify(content());
+      localStorage.removeItem(journalKey(props.mailboxId, restored.id));
+      setStatus("saved");
+      setStatusMessage("");
+      toast.success("Draft changes restored");
+    } catch (error) {
+      if (!disposed && recoveryController === controller && !(error instanceof DOMException && error.name === "AbortError")) {
+        await prompts.error(error instanceof Error ? error.message : "Could not restore draft changes");
+      }
+    } finally {
+      if (recoveryController === controller) recoveryController = null;
+    }
   };
 
   createEffect(() => {
@@ -637,6 +660,8 @@ export default function MailComposer(props: {
 
   onCleanup(() => {
     disposed = true;
+    recoveryController?.abort();
+    recoveryController = null;
     for (const controller of uploadControllers.values()) controller.abort();
     uploadControllers.clear();
     if (typeof window === "undefined") return;
@@ -752,13 +777,16 @@ export default function MailComposer(props: {
     });
 
   const shareAttachment = mutations.create<CreatedAttachmentLink, { attachmentId: string; input: CreateAttachmentLinkInput }>({
-    mutation: async ({ attachmentId, input }) => {
+    mutation: async ({ attachmentId, input }, { abortSignal }) => {
       const currentDraft = draft();
       if (!currentDraft) throw new Error("Save the draft before sharing an attachment.");
-      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].attachments[":attachmentId"].links.$post({
-        param: { mailboxId: props.mailboxId, draftId: currentDraft.id, attachmentId },
-        json: input,
-      });
+      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].attachments[":attachmentId"].links.$post(
+        {
+          param: { mailboxId: props.mailboxId, draftId: currentDraft.id, attachmentId },
+          json: input,
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to share attachment"));
       return response.json();
     },
@@ -784,11 +812,18 @@ export default function MailComposer(props: {
     }
   };
 
-  const reviewSafety = async (saved: MailDraft, scheduled: boolean): Promise<ComposeSafetyApproval | undefined> => {
-    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["safety-review"].$post({
-      param: { mailboxId: props.mailboxId, draftId: saved.id },
-      json: { expectedRevision: saved.revision },
-    });
+  const reviewSafety = async (
+    saved: MailDraft,
+    scheduled: boolean,
+    abortSignal: AbortSignal,
+  ): Promise<ComposeSafetyApproval | undefined> => {
+    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"]["safety-review"].$post(
+      {
+        param: { mailboxId: props.mailboxId, draftId: saved.id },
+        json: { expectedRevision: saved.revision },
+      },
+      { init: { signal: abortSignal } },
+    );
     if (!response.ok) throw new Error(await readApiError(response, "Could not review message safety"));
     const review: ComposeSafetyReview = await response.json();
     if (review.warnings.length === 0) return undefined;
@@ -825,6 +860,7 @@ export default function MailComposer(props: {
       ),
       { title: "Review before sending", icon: "ti ti-shield-check", size: "small" },
     );
+    if (abortSignal.aborted) throw new DOMException("Aborted", "AbortError");
     if (choice === "attachment") throw new ComposeSafetyAttachmentRequested();
     if (choice !== "approve") throw new ComposeSafetyCancelled();
     return {
@@ -836,24 +872,27 @@ export default function MailComposer(props: {
 
   const send = mutations.create<MailCommand, { scheduledAt?: string }, { scheduledAt?: string }>({
     onBefore: (delivery) => delivery,
-    mutation: async (delivery) => {
+    mutation: async (delivery, { abortSignal }) => {
       validateDelivery();
       const saved = await persist();
       if (!saved) throw new Error(statusMessage());
-      const safetyApproval = await reviewSafety(saved, Boolean(delivery.scheduledAt));
-      const response = await apiClient.mailboxes[":mailboxId"].commands.$post({
-        param: { mailboxId: props.mailboxId },
-        json: {
-          kind: "send",
-          draftId: saved.id,
-          expectedDraftRevision: saved.revision,
-          senderIdentityId: identityId(),
-          scheduledAt: delivery.scheduledAt,
-          undoSeconds: delivery.scheduledAt ? 0 : preferences.undoSeconds,
-          safetyApproval,
-          idempotencyKey: crypto.randomUUID(),
+      const safetyApproval = await reviewSafety(saved, Boolean(delivery.scheduledAt), abortSignal);
+      const response = await apiClient.mailboxes[":mailboxId"].commands.$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: {
+            kind: "send",
+            draftId: saved.id,
+            expectedDraftRevision: saved.revision,
+            senderIdentityId: identityId(),
+            scheduledAt: delivery.scheduledAt,
+            undoSeconds: delivery.scheduledAt ? 0 : preferences.undoSeconds,
+            safetyApproval,
+            idempotencyKey: crypto.randomUUID(),
+          },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to queue message"));
       const command = await response.json();
       localStorage.removeItem(journalKey(props.mailboxId, saved.id));
@@ -890,7 +929,7 @@ export default function MailComposer(props: {
       return await prompts.error(error instanceof Error ? error.message : "Message is not ready to schedule");
     }
     const scheduledAt = await chooseScheduledSendTime(props.dateConfig);
-    if (scheduledAt) send.mutate({ scheduledAt });
+    if (!disposed && scheduledAt) send.mutate({ scheduledAt });
   };
 
   const editDeliveryOptions = () =>
@@ -960,7 +999,7 @@ export default function MailComposer(props: {
     );
 
   const discard = mutations.create<boolean, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       if (uploads().length > 0) throw new Error("Cancel attachment uploads before discarding this draft.");
       if (!draft()) return true;
       const confirmed = await prompts.confirm("This removes the shared draft for everyone with mailbox access.", {
@@ -968,15 +1007,18 @@ export default function MailComposer(props: {
         confirmText: "Discard draft",
         variant: "danger",
       });
-      if (!confirmed) return false;
+      if (!confirmed || abortSignal.aborted) return false;
       stopScheduledSave();
       await serializeDraftMutation(async () => {
         const currentDraft = draft();
         if (!currentDraft) return;
-        const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].discard.$post({
-          param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
-          json: { expectedRevision: currentDraft.revision },
-        });
+        const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].discard.$post(
+          {
+            param: { mailboxId: props.mailboxId, draftId: currentDraft.id },
+            json: { expectedRevision: currentDraft.revision },
+          },
+          { init: { signal: abortSignal } },
+        );
         if (!response.ok) throw new Error(await readApiError(response, "Failed to discard draft"));
         localStorage.removeItem(journalKey(props.mailboxId, currentDraft.id));
         localStorage.removeItem(pendingKey);
@@ -1008,10 +1050,13 @@ export default function MailComposer(props: {
     stopScheduledSave();
     try {
       const currentDraft = await persist();
+      if (disposed) return;
       if (!currentDraft) throw new Error(statusMessage() || "Draft could not be saved");
       await releaseLease(currentDraft);
+      if (disposed) return;
       props.onClose?.();
     } catch (error) {
+      if (disposed) return;
       setHandoffInProgress(false);
       await prompts.error(error instanceof Error ? error.message : "Draft could not be closed safely");
     }
@@ -1049,8 +1094,10 @@ export default function MailComposer(props: {
     let releasedDraft: MailDraft | null = null;
     try {
       const currentDraft = await persist();
+      if (disposed) return void popup?.close();
       if (!currentDraft) throw new Error(statusMessage());
       await releaseLease(currentDraft);
+      if (disposed) return void popup?.close();
       releasedDraft = currentDraft;
       const target = typeof href === "function" ? href(currentDraft.id) : href;
       if (popup) {
@@ -1063,6 +1110,7 @@ export default function MailComposer(props: {
       navigateTo(target);
     } catch (error) {
       popup?.close();
+      if (disposed) return;
       if (releasedDraft && !disposed) {
         try {
           await acquireLease(releasedDraft);
@@ -1093,10 +1141,10 @@ export default function MailComposer(props: {
       title: "Take over draft?",
       confirmText: "Take over",
     });
-    if (!confirmed) return;
+    if (!confirmed || disposed) return;
     stopHeartbeat();
     const acquired = await acquireLease(currentDraft, true);
-    if (acquired) {
+    if (!disposed && acquired) {
       setStatus("saved");
       setStatusMessage("Draft editing taken over");
     }
@@ -1535,11 +1583,7 @@ export default function MailComposer(props: {
           disabled={!editable()}
         />
         <Tooltip
-          content={
-            deliveryOptionsSummary().length > 0
-              ? `Delivery options: ${deliveryOptionsSummary().join(", ")}`
-              : "Delivery options"
-          }
+          content={deliveryOptionsSummary().length > 0 ? `Delivery options: ${deliveryOptionsSummary().join(", ")}` : "Delivery options"}
         >
           <button
             type="button"
@@ -1550,10 +1594,7 @@ export default function MailComposer(props: {
           >
             <i class="ti ti-adjustments" aria-hidden="true" />
             <Show when={deliveryOptionsSummary().length > 0}>
-              <span
-                class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]"
-                aria-hidden="true"
-              />
+              <span class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)]" aria-hidden="true" />
             </Show>
           </button>
         </Tooltip>

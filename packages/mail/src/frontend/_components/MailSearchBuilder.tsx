@@ -10,7 +10,7 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { createMemo, createSignal, Index, Show } from "solid-js";
+import { createMemo, createSignal, Index, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailSearchExpression, SavedConversationViewScope } from "../../contracts";
 import { type MailSearchState, serializeMailSearchState } from "../../search-state";
@@ -535,6 +535,8 @@ function MailSearchBuilderDialog(props: {
   const [savedViewScope, setSavedViewScope] = createSignal<SavedConversationViewScope>(props.initialSavedView?.scope ?? "private");
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  let saveController: AbortController | null = null;
+  let disposed = false;
   const nodeCount = createMemo(() => countMailSearchNodes(expression()));
   const canUpdateInitialView = () => props.initialSavedView?.scope === "private" || props.canWrite;
 
@@ -556,26 +558,41 @@ function MailSearchBuilderDialog(props: {
     if (!serialized.ok) return setError(serialized.error);
     const name = (details?.name ?? savedViewName()).trim();
     if (!name) return setError("Enter a name for the saved view.");
+    saveController?.abort();
+    const controller = new AbortController();
+    saveController = controller;
     setSaving(true);
     setError(null);
     try {
       const response = existing
-        ? await apiClient.mailboxes[":mailboxId"]["saved-views"][":viewId"].$patch({
-            param: { mailboxId: props.mailboxId, viewId: existing.id },
-            json: { expectedRevision: existing.revision, name, filter: state },
-          })
-        : await apiClient.mailboxes[":mailboxId"]["saved-views"].$post({
-            param: { mailboxId: props.mailboxId },
-            json: { name, scope: details?.scope ?? savedViewScope(), filter: state },
-          });
-      if (!response.ok) return setError(await readApiError(response, "Failed to save view"));
+        ? await apiClient.mailboxes[":mailboxId"]["saved-views"][":viewId"].$patch(
+            {
+              param: { mailboxId: props.mailboxId, viewId: existing.id },
+              json: { expectedRevision: existing.revision, name, filter: state },
+            },
+            { init: { signal: controller.signal } },
+          )
+        : await apiClient.mailboxes[":mailboxId"]["saved-views"].$post(
+            {
+              param: { mailboxId: props.mailboxId },
+              json: { name, scope: details?.scope ?? savedViewScope(), filter: state },
+            },
+            { init: { signal: controller.signal } },
+          );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to save view"));
       const view = await response.json();
+      if (disposed || saveController !== controller) return;
       toast.success(existing ? "Saved view updated" : "Saved view created");
       props.close({ action: "saved", view });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to save view");
+      if (!disposed && saveController === controller && !(cause instanceof DOMException && cause.name === "AbortError")) {
+        setError(cause instanceof Error ? cause.message : "Failed to save view");
+      }
     } finally {
-      setSaving(false);
+      if (!disposed && saveController === controller) {
+        saveController = null;
+        setSaving(false);
+      }
     }
   };
 
@@ -596,9 +613,15 @@ function MailSearchBuilderDialog(props: {
       },
       confirmText: "Save view",
     });
-    if (!values) return;
+    if (!values || disposed) return;
     await saveView(null, { name: values.name, scope: values.scope === "mailbox" ? "mailbox" : "private" });
   };
+
+  onCleanup(() => {
+    disposed = true;
+    saveController?.abort();
+    saveController = null;
+  });
 
   return (
     <PanelDialog>

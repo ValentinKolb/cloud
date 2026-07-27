@@ -94,11 +94,14 @@ export default function MailSidebar(props: {
     SECONDARY_VIEW_ITEMS.some((view) => props.activeView === view.id) ||
     secondaryFolders().some((folder) => props.activeFolderId === folder.id);
   const sync = mutations.create<void, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"].commands.$post({
-        param: { mailboxId: props.mailboxId },
-        json: { kind: "sync_mailbox", idempotencyKey: crypto.randomUUID() },
-      });
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].commands.$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: { kind: "sync_mailbox", idempotencyKey: crypto.randomUUID() },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to start synchronization"));
     },
     onSuccess: () => {

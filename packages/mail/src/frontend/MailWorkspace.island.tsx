@@ -86,6 +86,7 @@ export default function MailWorkspace(props: {
   let liveRequest = 0;
   let routeController: AbortController | null = null;
   let liveController: AbortController | null = null;
+  let actionController: AbortController | null = null;
   let disposed = false;
   const focusFrames = new Set<number>();
   const pendingReadConversationIds = new Set<string>();
@@ -540,6 +541,8 @@ export default function MailWorkspace(props: {
     if (preferenceTimer) clearTimeout(preferenceTimer);
     routeController?.abort();
     liveController?.abort();
+    actionController?.abort();
+    actionController = null;
     detailCache.clear();
     liveRefresh.dispose();
     for (const frame of focusFrames) cancelAnimationFrame(frame);
@@ -912,7 +915,7 @@ export default function MailWorkspace(props: {
     if (!canWrite() || actionPending()) return;
     const { conversationId: sourceConversationId, revision: sourceRevision } = source;
     const target = await chooseConversationTarget(sourceConversationId);
-    if (!target) return;
+    if (!target || disposed) return;
     const confirmed = await prompts.confirm(
       `Move every message, comment, draft, tag, and reference from “${source.subject || "this conversation"}” into “${target.subject || "the selected conversation"}”?`,
       {
@@ -921,29 +924,40 @@ export default function MailWorkspace(props: {
         confirmText: "Merge conversations",
       },
     );
-    if (!confirmed) return;
+    if (!confirmed || disposed) return;
+    const controller = new AbortController();
+    actionController = controller;
     setActionPending(true);
     try {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].merge.$post({
-        param: { mailboxId, conversationId: target.conversationId },
-        json: {
-          sourceConversationId,
-          expectedTargetRevision: target.revision,
-          expectedSourceRevision: sourceRevision,
-          reason: "Merged from the Mail workspace",
-          confirm: true,
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].merge.$post(
+        {
+          param: { mailboxId, conversationId: target.conversationId },
+          json: {
+            sourceConversationId,
+            expectedTargetRevision: target.revision,
+            expectedSourceRevision: sourceRevision,
+            reason: "Merged from the Mail workspace",
+            confirm: true,
+          },
         },
-      });
+        { init: { signal: controller.signal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not merge conversations"));
+      if (disposed || actionController !== controller) return;
       detailCache.clear();
       await openWorkspaceHref(conversationHref(target.conversationId), true);
+      if (disposed || actionController !== controller) return;
       toast.success("Conversations merged");
     } catch (error) {
+      if (disposed || actionController !== controller || isAbortError(error)) return;
       await prompts.error(error instanceof Error ? error.message : "Could not merge conversations", {
         title: "Conversation was not changed",
       });
     } finally {
-      setActionPending(false);
+      if (!disposed && actionController === controller) {
+        actionController = null;
+        setActionPending(false);
+      }
     }
   };
 
@@ -965,7 +979,7 @@ export default function MailWorkspace(props: {
       return;
     }
     const target = await chooseConversationTarget(sourceConversationId);
-    if (!target) return;
+    if (!target || disposed) return;
     const confirmed = await prompts.confirm(
       `Move this message and its linked internal comments into “${target.subject || "the selected conversation"}”?`,
       {
@@ -974,29 +988,40 @@ export default function MailWorkspace(props: {
         confirmText: "Move message",
       },
     );
-    if (!confirmed) return;
+    if (!confirmed || disposed) return;
+    const controller = new AbortController();
+    actionController = controller;
     setActionPending(true);
     try {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].messages[":messageId"].reassign.$post({
-        param: { mailboxId, conversationId: sourceConversationId, messageId },
-        json: {
-          targetConversationId: target.conversationId,
-          expectedSourceRevision: sourceRevision,
-          expectedTargetRevision: target.revision,
-          reason: "Moved from the Mail workspace",
-          confirm: true,
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].messages[":messageId"].reassign.$post(
+        {
+          param: { mailboxId, conversationId: sourceConversationId, messageId },
+          json: {
+            targetConversationId: target.conversationId,
+            expectedSourceRevision: sourceRevision,
+            expectedTargetRevision: target.revision,
+            reason: "Moved from the Mail workspace",
+            confirm: true,
+          },
         },
-      });
+        { init: { signal: controller.signal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not move message"));
+      if (disposed || actionController !== controller) return;
       detailCache.clear();
       await reconcileWorkspace();
+      if (disposed || actionController !== controller) return;
       toast.success("Message moved to another conversation");
     } catch (error) {
+      if (disposed || actionController !== controller || isAbortError(error)) return;
       await prompts.error(error instanceof Error ? error.message : "Could not move message", {
         title: "Message was not moved",
       });
     } finally {
-      setActionPending(false);
+      if (!disposed && actionController === controller) {
+        actionController = null;
+        setActionPending(false);
+      }
     }
   };
 
@@ -1016,29 +1041,40 @@ export default function MailWorkspace(props: {
       icon: "ti ti-arrows-split-2",
       confirmText: "Create conversation",
     });
-    if (!confirmed) return;
+    if (!confirmed || disposed) return;
+    const controller = new AbortController();
+    actionController = controller;
     setActionPending(true);
     try {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].split.$post({
-        param: { mailboxId, conversationId },
-        json: {
-          messageIds: [messageId],
-          expectedRevision: revision,
-          reason: "Split from the Mail workspace",
-          confirm: true,
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].split.$post(
+        {
+          param: { mailboxId, conversationId },
+          json: {
+            messageIds: [messageId],
+            expectedRevision: revision,
+            reason: "Split from the Mail workspace",
+            confirm: true,
+          },
         },
-      });
+        { init: { signal: controller.signal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not create a separate conversation"));
       const result = await response.json();
+      if (disposed || actionController !== controller) return;
       detailCache.clear();
       await openWorkspaceHref(conversationHref(result.created.id), true);
+      if (disposed || actionController !== controller) return;
       toast.success("New conversation created");
     } catch (error) {
+      if (disposed || actionController !== controller || isAbortError(error)) return;
       await prompts.error(error instanceof Error ? error.message : "Could not create a separate conversation", {
         title: "Conversation was not changed",
       });
     } finally {
-      setActionPending(false);
+      if (!disposed && actionController === controller) {
+        actionController = null;
+        setActionPending(false);
+      }
     }
   };
 
@@ -1061,7 +1097,7 @@ export default function MailWorkspace(props: {
       return;
     }
     const destinationFolderId = actionId === "move" ? (options.destinationFolderId ?? (await chooseDestinationFolder())) : undefined;
-    if (actionId === "move" && !destinationFolderId) return;
+    if (disposed || (actionId === "move" && !destinationFolderId)) return;
 
     if (actionId === "move") {
       targets = targets
@@ -1077,6 +1113,8 @@ export default function MailWorkspace(props: {
     }
 
     const correlationId = crypto.randomUUID();
+    const controller = new AbortController();
+    actionController = controller;
     setActionPending(true);
     if (actionId === "mark_read" || actionId === "mark_unread") {
       const unread = actionId === "mark_unread";
@@ -1098,19 +1136,23 @@ export default function MailWorkspace(props: {
         actionId,
         targets,
         submit: async (target, sourceFolderId) => {
-          const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post({
-            param: { mailboxId, conversationId: target.conversationId },
-            json: buildMailActionInput({
-              actionId,
-              sourceFolderId,
-              destinationFolderId: destinationFolderId ?? undefined,
-              correlationId,
-              idempotencyKey: crypto.randomUUID(),
-            }),
-          });
+          const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].actions.$post(
+            {
+              param: { mailboxId, conversationId: target.conversationId },
+              json: buildMailActionInput({
+                actionId,
+                sourceFolderId,
+                destinationFolderId: destinationFolderId ?? undefined,
+                correlationId,
+                idempotencyKey: crypto.randomUUID(),
+              }),
+            },
+            { init: { signal: controller.signal } },
+          );
           if (!response.ok) throw new Error(await readApiError(response, `Could not ${getMailAction(actionId).label.toLocaleLowerCase()}`));
         },
       });
+      if (disposed || actionController !== controller) return;
 
       const succeeded = new Set(result.succeededConversationIds);
       const optimisticFields: Array<"unread" | "flagged"> = ["mark_read", "mark_unread"].includes(actionId)
@@ -1138,8 +1180,12 @@ export default function MailWorkspace(props: {
             removedConversationIds: succeeded,
           });
           await openWorkspaceHref(buildMailListHref(new URL(requestUrl())), true);
+          if (disposed || actionController !== controller) return;
           if (focusAfterRemoval) focusConversation(focusAfterRemoval, "row");
-        } else await reconcileWorkspace();
+        } else {
+          await reconcileWorkspace();
+          if (disposed || actionController !== controller) return;
+        }
         if (!options.silent) {
           toast.success(
             targets.length === 1
@@ -1149,6 +1195,7 @@ export default function MailWorkspace(props: {
         }
       } else if (["mark_read", "mark_unread", "flag", "unflag"].includes(actionId)) {
         await reconcileWorkspace();
+        if (disposed || actionController !== controller) return;
       }
       if (result.failures.length > 0) {
         const details = result.failures
@@ -1163,6 +1210,7 @@ export default function MailWorkspace(props: {
         });
       }
     } catch (error) {
+      if (disposed || actionController !== controller || isAbortError(error)) return;
       const optimisticFields: Array<"unread" | "flagged"> = ["mark_read", "mark_unread"].includes(actionId)
         ? ["unread"]
         : ["flag", "unflag"].includes(actionId)
@@ -1172,7 +1220,10 @@ export default function MailWorkspace(props: {
       await reconcileWorkspace();
       if (!options.silent) await prompts.error(error instanceof Error ? error.message : "Could not update conversations");
     } finally {
-      setActionPending(false);
+      if (!disposed && actionController === controller) {
+        actionController = null;
+        setActionPending(false);
+      }
     }
   };
 
@@ -1181,15 +1232,21 @@ export default function MailWorkspace(props: {
     const conversationIds = [...selectedConversationIds()];
     if (conversationIds.length === 0) return;
     const tagIds = await chooseBulkTags(data.localTags);
-    if (!tagIds?.length) return;
+    if (!tagIds?.length || disposed) return;
+    const controller = new AbortController();
+    actionController = controller;
     setActionPending(true);
     try {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations["local-tags"].$post({
-        param: { mailboxId },
-        json: { conversationIds, tagIds },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"].conversations["local-tags"].$post(
+        {
+          param: { mailboxId },
+          json: { conversationIds, tagIds },
+        },
+        { init: { signal: controller.signal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not add tags"));
       const result = await response.json();
+      if (disposed || actionController !== controller) return;
       const addedTags = data.localTags.filter((tag) => tagIds.includes(tag.id));
       for (const conversationId of conversationIds) {
         const item = data.listItems.find((candidate) => candidate.conversationId === conversationId);
@@ -1206,37 +1263,53 @@ export default function MailWorkspace(props: {
       setConversationSelection(emptyMailConversationSelection());
       setSelectionMode(false);
       await reconcileWorkspace();
+      if (disposed || actionController !== controller) return;
       toast.success(
         result.updatedConversationIds.length === 0
           ? "Selected conversations already had these tags"
           : `Tags added to ${result.updatedConversationIds.length} ${result.updatedConversationIds.length === 1 ? "conversation" : "conversations"}`,
       );
     } catch (error) {
+      if (disposed || actionController !== controller || isAbortError(error)) return;
       await prompts.error(error instanceof Error ? error.message : "Could not add tags");
     } finally {
-      setActionPending(false);
+      if (!disposed && actionController === controller) {
+        actionController = null;
+        setActionPending(false);
+      }
     }
   };
 
   const manageConversationTags = async (item: MailListItem) => {
     if (!canWrite() || actionPending() || !item.conversationId) return;
     const tagIds = await chooseConversationTags(data.localTags, item.localTags);
-    if (tagIds === undefined || tagIds === null) return;
+    if (tagIds === undefined || tagIds === null || disposed) return;
+    const controller = new AbortController();
+    actionController = controller;
     setActionPending(true);
     try {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put({
-        param: { mailboxId, conversationId: item.conversationId },
-        json: { expectedRevision: item.revision, tagIds },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"]["local-tags"].$put(
+        {
+          param: { mailboxId, conversationId: item.conversationId },
+          json: { expectedRevision: item.revision, tagIds },
+        },
+        { init: { signal: controller.signal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not update tags"));
       const next = await response.json();
+      if (disposed || actionController !== controller) return;
       applyConversationTags(next);
       toast.success("Tags updated");
     } catch (error) {
+      if (disposed || actionController !== controller || isAbortError(error)) return;
       await reconcileWorkspace();
+      if (disposed || actionController !== controller) return;
       await prompts.error(error instanceof Error ? error.message : "Could not update tags", { title: "Conversation changed" });
     } finally {
-      setActionPending(false);
+      if (!disposed && actionController === controller) {
+        actionController = null;
+        setActionPending(false);
+      }
     }
   };
 

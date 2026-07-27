@@ -67,27 +67,33 @@ function ComposeTemplateEditor(props: {
   };
 
   const save = mutations.create<ComposeTemplate, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const response = props.template
-        ? await apiClient.mailboxes[":mailboxId"]["compose-templates"][":templateId"].$patch({
-            param: { mailboxId: props.mailboxId, templateId: props.template.id },
-            json: {
-              expectedRevision: revision() ?? props.template.revision,
-              name: name().trim(),
-              shortcut: shortcut().trim().toLowerCase(),
-              body: body(),
+        ? await apiClient.mailboxes[":mailboxId"]["compose-templates"][":templateId"].$patch(
+            {
+              param: { mailboxId: props.mailboxId, templateId: props.template.id },
+              json: {
+                expectedRevision: revision() ?? props.template.revision,
+                name: name().trim(),
+                shortcut: shortcut().trim().toLowerCase(),
+                body: body(),
+              },
             },
-          })
-        : await apiClient.mailboxes[":mailboxId"]["compose-templates"].$post({
-            param: { mailboxId: props.mailboxId },
-            json: {
-              kind: kind(),
-              scope: scope(),
-              name: name().trim(),
-              shortcut: shortcut().trim().toLowerCase(),
-              body: body(),
+            { init: { signal: abortSignal } },
+          )
+        : await apiClient.mailboxes[":mailboxId"]["compose-templates"].$post(
+            {
+              param: { mailboxId: props.mailboxId },
+              json: {
+                kind: kind(),
+                scope: scope(),
+                name: name().trim(),
+                shortcut: shortcut().trim().toLowerCase(),
+                body: body(),
+              },
             },
-          });
+            { init: { signal: abortSignal } },
+          );
       if (!response.ok) {
         if (response.status === 409 && props.template) {
           const current = await props.reloadTemplate(props.template.id);
@@ -226,16 +232,20 @@ function EmailDesignEditor(props: {
     if (await confirmDiscardIfDirty(dirty)) props.close();
   };
   const save = mutations.create<MailboxComposeStyle, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"]["compose-style"].$put({
-        param: { mailboxId: props.mailboxId },
-        json: { expectedRevision: revision(), customCss: customCss() },
-      });
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["compose-style"].$put(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: { expectedRevision: revision(), customCss: customCss() },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) {
         if (response.status === 409) {
-          const currentResponse = await apiClient.mailboxes[":mailboxId"]["compose-style"].$get({
-            param: { mailboxId: props.mailboxId },
-          });
+          const currentResponse = await apiClient.mailboxes[":mailboxId"]["compose-style"].$get(
+            { param: { mailboxId: props.mailboxId } },
+            { init: { signal: abortSignal } },
+          );
           if (currentResponse.ok) setRevision((await currentResponse.json()).revision);
           throw new Error("The email design changed in another session. Your CSS is preserved; review it and save again.");
         }

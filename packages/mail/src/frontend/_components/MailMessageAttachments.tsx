@@ -103,15 +103,19 @@ export default function MailMessageAttachments(props: {
   attachments: Attachment[];
   canShare?: boolean;
 }) {
+  let disposed = false;
   const baseUrl = (attachment: Attachment) =>
     `/api/mail/mailboxes/${props.mailboxId}/messages/${props.messageId}/attachments/${attachment.id}`;
 
   const createLink = mutations.create<CreatedAttachmentLink, { attachment: Attachment; input: CreateAttachmentLinkInput }>({
-    mutation: async ({ attachment, input }) => {
-      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"].attachments[":attachmentId"].links.$post({
-        param: { mailboxId: props.mailboxId, messageId: props.messageId, attachmentId: attachment.id },
-        json: input,
-      });
+    mutation: async ({ attachment, input }, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"].attachments[":attachmentId"].links.$post(
+        {
+          param: { mailboxId: props.mailboxId, messageId: props.messageId, attachmentId: attachment.id },
+          json: input,
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not create attachment link"));
       return response.json();
     },
@@ -125,11 +129,14 @@ export default function MailMessageAttachments(props: {
     },
     onError: (error) => prompts.error(error.message),
   });
-  onCleanup(() => createLink.abort());
+  onCleanup(() => {
+    disposed = true;
+    createLink.abort();
+  });
 
   const shareAttachment = async (attachment: Attachment) => {
     const input = await promptAttachmentLinkOptions();
-    if (input) createLink.mutate({ attachment, input });
+    if (!disposed && input) createLink.mutate({ attachment, input });
   };
 
   return (

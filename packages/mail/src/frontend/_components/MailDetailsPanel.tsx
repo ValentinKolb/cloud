@@ -78,6 +78,8 @@ export default function MailDetailsPanel(props: {
   let confirmedState = props.initialState;
   let confirmedTagState = props.initialConversationLocalTags;
   let confirmedReminder = props.initialReminder;
+  let tagController: AbortController | null = null;
+  let disposed = false;
   let confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
   const latestMessage = () => props.messages.at(-1);
   const attachmentCount = () => props.messages.reduce((total, message) => total + message.attachments.length, 0);
@@ -219,38 +221,56 @@ export default function MailDetailsPanel(props: {
       },
       { title: "Create tag", icon: "ti ti-tag-plus" },
     );
-    if (!values) return;
-    const response = await apiClient.mailboxes[":mailboxId"]["local-tags"].$post({
-      param: { mailboxId: props.mailboxId },
-      json: values,
-    });
-    if (!response.ok) return prompts.error(await readApiError(response, "Failed to create tag"));
-    const created = await response.json();
-    confirmedAvailableTagIds.add(created.id);
-    setAvailableTags((current) =>
-      [...current.filter((tag) => tag.id !== created.id), created].sort((left, right) => left.name.localeCompare(right.name)),
-    );
-    toast.success(`Created ${created.name}`);
+    if (!values || disposed) return;
+    tagController?.abort();
+    const controller = new AbortController();
+    tagController = controller;
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"]["local-tags"].$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: values,
+        },
+        { init: { signal: controller.signal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to create tag"));
+      const created = await response.json();
+      if (disposed || tagController !== controller) return;
+      confirmedAvailableTagIds.add(created.id);
+      setAvailableTags((current) =>
+        [...current.filter((tag) => tag.id !== created.id), created].sort((left, right) => left.name.localeCompare(right.name)),
+      );
+      toast.success(`Created ${created.name}`);
+    } catch (error) {
+      if (!disposed && tagController === controller && !(error instanceof DOMException && error.name === "AbortError")) {
+        await prompts.error(error instanceof Error ? error.message : "Failed to create tag");
+      }
+    } finally {
+      if (tagController === controller) tagController = null;
+    }
   };
 
   const addComment = mutations.create<ConversationComment | null, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const body = commentBody().trim();
       if (!body) {
         setCommentError("Write a comment first.");
         return null;
       }
       setCommentError(null);
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments.$post({
-        param: {
-          mailboxId: props.mailboxId,
-          conversationId: props.conversationId,
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments.$post(
+        {
+          param: {
+            mailboxId: props.mailboxId,
+            conversationId: props.conversationId,
+          },
+          json: {
+            body,
+            parentCommentId: replyingTo()?.id ?? null,
+          },
         },
-        json: {
-          body,
-          parentCommentId: replyingTo()?.id ?? null,
-        },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to add comment"));
       return await response.json();
     },
@@ -264,22 +284,25 @@ export default function MailDetailsPanel(props: {
   });
 
   const removeComment = mutations.create<string | null, ConversationComment>({
-    mutation: async (comment) => {
+    mutation: async (comment, { abortSignal }) => {
       const conversationId = props.conversationId;
       const confirmed = await prompts.confirm("The comment remains in the audit trail as deleted.", {
         title: "Delete internal comment?",
         confirmText: "Delete comment",
         variant: "danger",
       });
-      if (!confirmed || conversationId !== props.conversationId) return null;
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments[":commentId"].$delete({
-        param: {
-          mailboxId: props.mailboxId,
-          conversationId,
-          commentId: comment.id,
+      if (!confirmed || abortSignal.aborted || conversationId !== props.conversationId) return null;
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments[":commentId"].$delete(
+        {
+          param: {
+            mailboxId: props.mailboxId,
+            conversationId,
+            commentId: comment.id,
+          },
+          json: { expectedRevision: comment.revision },
         },
-        json: { expectedRevision: comment.revision },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to delete comment"));
       return comment.id;
     },
@@ -293,7 +316,7 @@ export default function MailDetailsPanel(props: {
   });
 
   const editComment = mutations.create<ConversationComment | null, ConversationComment>({
-    mutation: async (comment) => {
+    mutation: async (comment, { abortSignal }) => {
       const conversationId = props.conversationId;
       const values = await prompts.form({
         title: "Edit internal comment",
@@ -310,20 +333,23 @@ export default function MailDetailsPanel(props: {
         },
         confirmText: "Save comment",
       });
-      if (!values || conversationId !== props.conversationId) return null;
+      if (!values || abortSignal.aborted || conversationId !== props.conversationId) return null;
       const body = String(values.body ?? "").trim();
       if (!body) throw new Error("Comment cannot be empty");
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments[":commentId"].$patch({
-        param: {
-          mailboxId: props.mailboxId,
-          conversationId,
-          commentId: comment.id,
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments[":commentId"].$patch(
+        {
+          param: {
+            mailboxId: props.mailboxId,
+            conversationId,
+            commentId: comment.id,
+          },
+          json: {
+            expectedRevision: comment.revision,
+            body,
+          },
         },
-        json: {
-          expectedRevision: comment.revision,
-          body,
-        },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update comment"));
       return response.json();
     },
@@ -410,7 +436,15 @@ export default function MailDetailsPanel(props: {
     ),
   );
 
-  onCleanup(() => detailUpdates.reset());
+  onCleanup(() => {
+    disposed = true;
+    tagController?.abort();
+    tagController = null;
+    addComment.abort();
+    removeComment.abort();
+    editComment.abort();
+    detailUpdates.reset();
+  });
 
   return (
     <div class="flex h-full min-h-0 flex-col">
@@ -612,11 +646,7 @@ export default function MailDetailsPanel(props: {
                           Reply to {parent()?.author.displayName ?? "an earlier comment"}
                         </p>
                       </Show>
-                      <p
-                        class={`whitespace-pre-wrap break-words text-sm ${
-                          comment.deletedAt ? "italic text-dimmed" : "text-primary"
-                        }`}
-                      >
+                      <p class={`whitespace-pre-wrap break-words text-sm ${comment.deletedAt ? "italic text-dimmed" : "text-primary"}`}>
                         {comment.deletedAt ? "Comment deleted" : comment.body}
                       </p>
                     </article>
@@ -664,10 +694,7 @@ export default function MailDetailsPanel(props: {
           <details class="detail-section group/recent-activity">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
               <span class="detail-section-label mb-0">Recent activity</span>
-              <i
-                class="ti ti-chevron-down text-dimmed transition-transform group-open/recent-activity:rotate-180"
-                aria-hidden="true"
-              />
+              <i class="ti ti-chevron-down text-dimmed transition-transform group-open/recent-activity:rotate-180" aria-hidden="true" />
             </summary>
             <div class="mt-3 flex max-h-56 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
               <For each={activityItems()}>

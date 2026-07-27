@@ -33,11 +33,14 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
   });
 
   const create = mutation.create<RemoteContentRule, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"]["remote-content-rules"].$post({
-        param: { mailboxId: props.mailboxId },
-        json: { scope: scope(), value: value().trim() },
-      });
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["remote-content-rules"].$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: { scope: scope(), value: value().trim() },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not save the remote image preference"));
       return response.json();
     },
@@ -54,10 +57,11 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
   });
 
   const remove = mutation.create<string, RemoteContentRule>({
-    mutation: async (rule) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["remote-content-rules"][":ruleId"].$delete({
-        param: { mailboxId: props.mailboxId, ruleId: rule.id },
-      });
+    mutation: async (rule, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["remote-content-rules"][":ruleId"].$delete(
+        { param: { mailboxId: props.mailboxId, ruleId: rule.id } },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not remove the remote image preference"));
       return rule.id;
     },
@@ -122,10 +126,7 @@ function MailRemoteContentRulesDialog(props: { mailboxId: string; close: () => v
           <Show
             when={rules()}
             fallback={
-              <Show
-                when={load.error()}
-                fallback={<Placeholder state="loading" variant="panel" title="Loading remote image preferences" />}
-              >
+              <Show when={load.error()} fallback={<Placeholder state="loading" variant="panel" title="Loading remote image preferences" />}>
                 {(error) => (
                   <Placeholder
                     state="error"

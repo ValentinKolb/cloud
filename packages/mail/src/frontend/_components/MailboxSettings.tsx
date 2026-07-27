@@ -60,9 +60,7 @@ export default function MailboxSettings(props: {
   const [name, setName] = createSignal(props.context.mailbox.name);
   const [description, setDescription] = createSignal(props.context.mailbox.description ?? "");
   const [internalDomains, setInternalDomains] = createSignal(props.context.mailbox.composeSafety.internalDomains.join(", "));
-  const [largeRecipientThreshold, setLargeRecipientThreshold] = createSignal(
-    props.context.mailbox.composeSafety.largeRecipientThreshold,
-  );
+  const [largeRecipientThreshold, setLargeRecipientThreshold] = createSignal(props.context.mailbox.composeSafety.largeRecipientThreshold);
   const [automaticReplyManagementPermission, setAutomaticReplyManagementPermission] = createSignal<
     Mailbox["automaticReplyManagementPermission"]
   >(props.context.mailbox.automaticReplyManagementPermission);
@@ -141,25 +139,28 @@ export default function MailboxSettings(props: {
   });
 
   const saveMailbox = mutation.create<Mailbox, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"].$patch({
-        param: { mailboxId: props.context.mailbox.id },
-        json: {
-          name: name().trim(),
-          description: description().trim() || null,
-          composeSafety: {
-            internalDomains: [
-              ...new Set(
-                internalDomains()
-                  .split(/[,\s]+/u)
-                  .map((domain) => domain.trim().toLowerCase())
-                  .filter(Boolean),
-              ),
-            ],
-            largeRecipientThreshold: largeRecipientThreshold(),
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].$patch(
+        {
+          param: { mailboxId: props.context.mailbox.id },
+          json: {
+            name: name().trim(),
+            description: description().trim() || null,
+            composeSafety: {
+              internalDomains: [
+                ...new Set(
+                  internalDomains()
+                    .split(/[,\s]+/u)
+                    .map((domain) => domain.trim().toLowerCase())
+                    .filter(Boolean),
+                ),
+              ],
+              largeRecipientThreshold: largeRecipientThreshold(),
+            },
           },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update mailbox"));
       return response.json();
     },
@@ -179,10 +180,12 @@ export default function MailboxSettings(props: {
     { role: ConfigurableFolderRole; folderId: string },
     { role: ConfigurableFolderRole; folderId: string }
   >({
-    mutation: async (input) => {
+    mutation: async (input, { abortSignal }) => {
       const route = apiClient.mailboxes[":mailboxId"]["folder-roles"][":role"];
       const param = { mailboxId: props.context.mailbox.id, role: input.role };
-      const response = input.folderId ? await route.$put({ param, json: { folderId: input.folderId } }) : await route.$delete({ param });
+      const response = input.folderId
+        ? await route.$put({ param, json: { folderId: input.folderId } }, { init: { signal: abortSignal } })
+        : await route.$delete({ param }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update folder role"));
       return input;
     },
@@ -222,11 +225,14 @@ export default function MailboxSettings(props: {
   };
 
   const saveAutomaticReplyAccess = mutation.create<Mailbox, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"].$patch({
-        param: { mailboxId: props.context.mailbox.id },
-        json: { automaticReplyManagementPermission: automaticReplyManagementPermission() },
-      });
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"].$patch(
+        {
+          param: { mailboxId: props.context.mailbox.id },
+          json: { automaticReplyManagementPermission: automaticReplyManagementPermission() },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update automatic reply access"));
       return response.json();
     },
@@ -238,7 +244,7 @@ export default function MailboxSettings(props: {
   });
 
   const deleteMailbox = mutation.create<boolean, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         "This pauses the mailbox and hides it from normal use. Provider mail and Cloud data remain retained so an administrator can restore it.",
         {
@@ -247,8 +253,11 @@ export default function MailboxSettings(props: {
           variant: "danger",
         },
       );
-      if (!confirmed) return false;
-      const response = await apiClient.mailboxes[":mailboxId"].$delete({ param: { mailboxId: props.context.mailbox.id } });
+      if (!confirmed || abortSignal.aborted) return false;
+      const response = await apiClient.mailboxes[":mailboxId"].$delete(
+        { param: { mailboxId: props.context.mailbox.id } },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to move mailbox to recently deleted"));
       return true;
     },

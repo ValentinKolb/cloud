@@ -6,8 +6,8 @@ import { readApiError } from "./api-response";
 
 export default function MailAdminStorageActions() {
   const reconcile = mutation.create<void, void>({
-    mutation: async () => {
-      const response = await apiClient.admin.storage.reconcile.$post();
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.admin.storage.reconcile.$post(undefined, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await readApiError(response, "Could not reconcile Mail storage"));
     },
     onSuccess: () => {

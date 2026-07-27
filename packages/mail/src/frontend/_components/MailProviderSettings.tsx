@@ -158,11 +158,14 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   };
 
   const discover = mutation.create<DiscoveredMailConfiguration[], void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"]["provider-discovery"].$get({
-        param: { mailboxId: props.mailbox.id },
-        query: { email: email().trim() },
-      });
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["provider-discovery"].$get(
+        {
+          param: { mailboxId: props.mailbox.id },
+          query: { email: email().trim() },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not discover provider settings"));
       return response.json();
     },
@@ -211,7 +214,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     void,
     { providerId: MailOAuthProviderId; connectionId?: string; connection?: ProviderConnectionDetails }
   >({
-    mutation: async ({ providerId, connectionId, connection }) => {
+    mutation: async ({ providerId, connectionId, connection }, { abortSignal }) => {
       const json = connectionId
         ? ({ operation: "reconnect", providerId, connectionId, ...(connection ? { connection } : {}) } as const)
         : ({
@@ -227,19 +230,26 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
               smtp: { host: smtpHost().trim(), port: smtpPort(), tlsMode: smtpTls() },
             },
           } as const);
-      const response = await apiClient.mailboxes[":mailboxId"].oauth.start.$post({ param: { mailboxId: props.mailbox.id }, json });
+      const response = await apiClient.mailboxes[":mailboxId"].oauth.start.$post(
+        { param: { mailboxId: props.mailbox.id }, json },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Could not start browser OAuth"));
       const result = await response.json();
+      if (abortSignal.aborted) return;
       window.location.assign(result.authorizationUrl);
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const requestDefaultSenderSetup = async (bindingId: string) => {
-    const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].default.setup.$post({
-      param: { mailboxId: props.mailbox.id },
-      json: { bindingId, savesSentAutomatically: savesSentAutomatically() },
-    });
+  const requestDefaultSenderSetup = async (bindingId: string, abortSignal?: AbortSignal) => {
+    const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].default.setup.$post(
+      {
+        param: { mailboxId: props.mailbox.id },
+        json: { bindingId, savesSentAutomatically: savesSentAutomatically() },
+      },
+      { init: { signal: abortSignal } },
+    );
     if (!response.ok) throw new Error(await readApiError(response, "Default identity setup failed"));
     return response.json();
   };
@@ -247,11 +257,15 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   const attachConnection = async (
     connectionId: string,
     setupSenderAfterAttach: boolean,
+    abortSignal?: AbortSignal,
   ): Promise<{ senderCreated: boolean; setupError: string | null }> => {
-    const bindingResponse = await apiClient.mailboxes[":mailboxId"].bindings.$post({
-      param: { mailboxId: props.mailbox.id },
-      json: { connectionId },
-    });
+    const bindingResponse = await apiClient.mailboxes[":mailboxId"].bindings.$post(
+      {
+        param: { mailboxId: props.mailbox.id },
+        json: { connectionId },
+      },
+      { init: { signal: abortSignal } },
+    );
     if (!bindingResponse.ok) {
       const reason = await readApiError(bindingResponse, "Folder discovery failed");
       return {
@@ -262,7 +276,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
     const binding = await bindingResponse.json();
     if (!setupSenderAfterAttach) return { senderCreated: false, setupError: null };
     try {
-      await requestDefaultSenderSetup(binding.id);
+      await requestDefaultSenderSetup(binding.id, abortSignal);
       return { senderCreated: true, setupError: null };
     } catch (error) {
       return {
@@ -273,7 +287,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   };
 
   const connect = mutation.create<{ senderCreated: boolean; setupError: string | null; replaced: boolean }, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const input = {
         name: name().trim(),
         email: email().trim(),
@@ -285,18 +299,24 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
       };
       const replacementId = replacingConnectionId();
       const connectionResponse = replacementId
-        ? await apiClient.mailboxes[":mailboxId"].connections[":connectionId"].$put({
-            param: { mailboxId: props.mailbox.id, connectionId: replacementId },
-            json: input,
-          })
-        : await apiClient.mailboxes[":mailboxId"].connections.$post({
-            param: { mailboxId: props.mailbox.id },
-            json: input,
-          });
+        ? await apiClient.mailboxes[":mailboxId"].connections[":connectionId"].$put(
+            {
+              param: { mailboxId: props.mailbox.id, connectionId: replacementId },
+              json: input,
+            },
+            { init: { signal: abortSignal } },
+          )
+        : await apiClient.mailboxes[":mailboxId"].connections.$post(
+            {
+              param: { mailboxId: props.mailbox.id },
+              json: input,
+            },
+            { init: { signal: abortSignal } },
+          );
       if (!connectionResponse.ok) throw new Error(await readApiError(connectionResponse, "Provider verification failed"));
       const created = await connectionResponse.json();
       if (replacementId) return { senderCreated: false, setupError: null, replaced: true };
-      return { ...(await attachConnection(created.connection.id, createSender())), replaced: false };
+      return { ...(await attachConnection(created.connection.id, createSender(), abortSignal)), replaced: false };
     },
     onSuccess: (result) => {
       if (!result.setupError) {
@@ -324,15 +344,16 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   });
 
   const revoke = mutation.create<boolean, string>({
-    mutation: async (connectionId) => {
+    mutation: async (connectionId, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         "This permanently removes the encrypted credential, disconnects the remote mailbox, and stops provider operations until another connection is configured.",
         { title: "Remove provider connection?", confirmText: "Remove connection", variant: "danger" },
       );
-      if (!confirmed) return false;
-      const response = await apiClient.mailboxes[":mailboxId"].connections[":connectionId"].$delete({
-        param: { mailboxId: props.mailbox.id, connectionId },
-      });
+      if (!confirmed || abortSignal.aborted) return false;
+      const response = await apiClient.mailboxes[":mailboxId"].connections[":connectionId"].$delete(
+        { param: { mailboxId: props.mailbox.id, connectionId } },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to remove provider connection"));
       return true;
     },
@@ -346,7 +367,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   });
 
   const finishSetup = mutation.create<{ senderCreated: boolean; setupError: string | null }, string>({
-    mutation: (connectionId) => attachConnection(connectionId, false),
+    mutation: (connectionId, { abortSignal }) => attachConnection(connectionId, false, abortSignal),
     onSuccess: (result) => {
       if (!result.setupError) toast.success(result.senderCreated ? "Provider and default identity connected" : "Provider connected");
       props.onWorkspaceChange();
@@ -357,7 +378,7 @@ export function MailConnectionSettings(props: ProviderSettingsProps) {
   });
 
   const setupSender = mutation.create<SenderIdentity, string>({
-    mutation: requestDefaultSenderSetup,
+    mutation: (bindingId, { abortSignal }) => requestDefaultSenderSetup(bindingId, abortSignal),
     onSuccess: (identity) => {
       toast.success(`${identity.fromAddress} is ready to send`);
       props.onWorkspaceChange();
@@ -881,29 +902,32 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
   };
 
   const createIdentity = mutation.create<SenderIdentity, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].$post({
-        param: { mailboxId: props.mailbox.id },
-        json: {
-          label: label().trim(),
-          displayName: displayName().trim(),
-          fromAddress: address().trim(),
-          replyTo: replyTo().trim() || null,
-          defaultCc: parseMailRecipients(defaultCc()),
-          defaultBcc: parseMailRecipients(defaultBcc()),
-          defaultFormat: defaultFormat(),
-          defaultPriority: defaultPriority(),
-          defaultDeliveryReceipt: defaultDeliveryReceipt(),
-          defaultReadReceipt: defaultReadReceipt(),
-          vcard: vcard(),
-          envelopeSender: envelopeSender().trim() || null,
-          defaultSignatureTemplateId: defaultSignatureTemplateId() || null,
-          authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
-          sentFolderId: sentFolderId() || null,
-          draftsFolderId: draftsFolderId() || null,
-          isDefault: isDefault(),
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"].$post(
+        {
+          param: { mailboxId: props.mailbox.id },
+          json: {
+            label: label().trim(),
+            displayName: displayName().trim(),
+            fromAddress: address().trim(),
+            replyTo: replyTo().trim() || null,
+            defaultCc: parseMailRecipients(defaultCc()),
+            defaultBcc: parseMailRecipients(defaultBcc()),
+            defaultFormat: defaultFormat(),
+            defaultPriority: defaultPriority(),
+            defaultDeliveryReceipt: defaultDeliveryReceipt(),
+            defaultReadReceipt: defaultReadReceipt(),
+            vcard: vcard(),
+            envelopeSender: envelopeSender().trim() || null,
+            defaultSignatureTemplateId: defaultSignatureTemplateId() || null,
+            authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
+            sentFolderId: sentFolderId() || null,
+            draftsFolderId: draftsFolderId() || null,
+            isDefault: isDefault(),
+          },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to add identity"));
       return response.json();
     },
@@ -919,31 +943,34 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
   });
 
   const updateIdentity = mutation.create<SenderIdentity, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const current = editor();
       if (!current || current.kind !== "edit") throw new Error("No identity selected");
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$patch({
-        param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
-        json: {
-          label: label().trim(),
-          displayName: displayName().trim(),
-          fromAddress: address().trim(),
-          replyTo: replyTo().trim() || null,
-          defaultCc: parseMailRecipients(defaultCc()),
-          defaultBcc: parseMailRecipients(defaultBcc()),
-          defaultFormat: defaultFormat(),
-          defaultPriority: defaultPriority(),
-          defaultDeliveryReceipt: defaultDeliveryReceipt(),
-          defaultReadReceipt: defaultReadReceipt(),
-          vcard: vcard(),
-          envelopeSender: envelopeSender().trim() || null,
-          defaultSignatureTemplateId: defaultSignatureTemplateId() || null,
-          authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
-          sentFolderId: sentFolderId() || null,
-          draftsFolderId: draftsFolderId() || null,
-          isDefault: isDefault(),
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$patch(
+        {
+          param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
+          json: {
+            label: label().trim(),
+            displayName: displayName().trim(),
+            fromAddress: address().trim(),
+            replyTo: replyTo().trim() || null,
+            defaultCc: parseMailRecipients(defaultCc()),
+            defaultBcc: parseMailRecipients(defaultBcc()),
+            defaultFormat: defaultFormat(),
+            defaultPriority: defaultPriority(),
+            defaultDeliveryReceipt: defaultDeliveryReceipt(),
+            defaultReadReceipt: defaultReadReceipt(),
+            vcard: vcard(),
+            envelopeSender: envelopeSender().trim() || null,
+            defaultSignatureTemplateId: defaultSignatureTemplateId() || null,
+            authenticationPolicy: { automation: allowAutomation() ? "mailbox" : "disabled" },
+            sentFolderId: sentFolderId() || null,
+            draftsFolderId: draftsFolderId() || null,
+            isDefault: isDefault(),
+          },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update identity"));
       return response.json();
     },
@@ -969,7 +996,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
   };
 
   const saveCustomSmtp = mutation.create<SenderIdentityTransport, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const current = editor();
       if (!current || current.kind !== "edit") throw new Error("Save the identity before configuring a custom SMTP server");
       if (!customSmtpHost().trim() || !customSmtpUsername().trim()) {
@@ -978,17 +1005,20 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
       if (current.identity.transport.mode !== "custom" && !customSmtpPassword()) {
         throw new Error("Enter the SMTP password");
       }
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].transport.$put({
-        param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
-        json: {
-          expectedRevision: current.identity.transport.revision,
-          host: customSmtpHost().trim(),
-          port: customSmtpPort(),
-          tlsMode: customSmtpTlsMode(),
-          username: customSmtpUsername().trim(),
-          ...(customSmtpPassword() ? { secret: { kind: "password" as const, password: customSmtpPassword() } } : {}),
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].transport.$put(
+        {
+          param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
+          json: {
+            expectedRevision: current.identity.transport.revision,
+            host: customSmtpHost().trim(),
+            port: customSmtpPort(),
+            tlsMode: customSmtpTlsMode(),
+            username: customSmtpUsername().trim(),
+            ...(customSmtpPassword() ? { secret: { kind: "password" as const, password: customSmtpPassword() } } : {}),
+          },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "SMTP server could not be saved"));
       return response.json();
     },
@@ -1001,18 +1031,21 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
   });
 
   const removeCustomSmtp = mutation.create<SenderIdentityTransport | null, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const current = editor();
       if (!current || current.kind !== "edit") throw new Error("No identity selected");
-      const confirmed = await prompts.confirm(
-        "New messages using this identity will be sent through the mailbox connection.",
-        { title: "Use the mailbox SMTP server?", confirmText: "Use mailbox SMTP" },
-      );
-      if (!confirmed) return null;
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].transport.$delete({
-        param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
-        json: { expectedRevision: current.identity.transport.revision },
+      const confirmed = await prompts.confirm("New messages using this identity will be sent through the mailbox connection.", {
+        title: "Use the mailbox SMTP server?",
+        confirmText: "Use mailbox SMTP",
       });
+      if (!confirmed || abortSignal.aborted) return null;
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].transport.$delete(
+        {
+          param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
+          json: { expectedRevision: current.identity.transport.revision },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Custom SMTP server could not be removed"));
       return response.json();
     },
@@ -1029,15 +1062,16 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
   });
 
   const disableIdentity = mutation.create<{ disabled: boolean; identity: SenderIdentity }, SenderIdentity>({
-    mutation: async (identity) => {
+    mutation: async (identity, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         "Existing sent mail remains unchanged. This address can no longer be selected for new messages or automatic replies.",
         { title: `Disable ${identity.label}?`, confirmText: "Disable identity", variant: "danger" },
       );
-      if (!confirmed) return { disabled: false, identity };
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$delete({
-        param: { mailboxId: props.mailbox.id, senderIdentityId: identity.id },
-      });
+      if (!confirmed || abortSignal.aborted) return { disabled: false, identity };
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].$delete(
+        { param: { mailboxId: props.mailbox.id, senderIdentityId: identity.id } },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to disable identity"));
       return { disabled: true, identity };
     },
@@ -1054,13 +1088,16 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
   });
 
   const verifyIdentity = mutation.create<SenderIdentity, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const current = editor();
       if (!current || current.kind !== "verify") throw new Error("No identity selected");
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].verify.$post({
-        param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
-        json: { bindingId: bindingId(), verificationRecipient: recipient().trim(), savesSentAutomatically: savesSent() },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"]["sender-identities"][":senderIdentityId"].verify.$post(
+        {
+          param: { mailboxId: props.mailbox.id, senderIdentityId: current.identity.id },
+          json: { bindingId: bindingId(), verificationRecipient: recipient().trim(), savesSentAutomatically: savesSent() },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Sender verification failed"));
       return response.json();
     },
@@ -1439,14 +1476,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                       <Show when={customSmtpEnabled()}>
                         <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem]">
                           <TextInput label="SMTP host" value={customSmtpHost} onInput={setCustomSmtpHost} required />
-                          <NumberInput
-                            label="Port"
-                            value={customSmtpPort}
-                            onChange={setCustomSmtpPort}
-                            min={1}
-                            max={65_535}
-                            required
-                          />
+                          <NumberInput label="Port" value={customSmtpPort} onChange={setCustomSmtpPort} min={1} max={65_535} required />
                         </div>
                         <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <Select
@@ -1484,10 +1514,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                             }
                             onClick={() => saveCustomSmtp.mutate()}
                           >
-                            <i
-                              class={saveCustomSmtp.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-shield-check"}
-                              aria-hidden="true"
-                            />
+                            <i class={saveCustomSmtp.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-shield-check"} aria-hidden="true" />
                             Verify and save SMTP
                           </button>
                         </div>
@@ -1500,10 +1527,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                             disabled={removeCustomSmtp.loading()}
                             onClick={() => removeCustomSmtp.mutate()}
                           >
-                            <i
-                              class={removeCustomSmtp.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-server-off"}
-                              aria-hidden="true"
-                            />
+                            <i class={removeCustomSmtp.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-server-off"} aria-hidden="true" />
                             Use mailbox SMTP
                           </button>
                         </div>
@@ -1540,11 +1564,7 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
                   type="button"
                   class="btn-primary btn-sm"
                   disabled={
-                    !label().trim() ||
-                    !address().trim() ||
-                    Boolean(vcardError()) ||
-                    createIdentity.loading() ||
-                    updateIdentity.loading()
+                    !label().trim() || !address().trim() || Boolean(vcardError()) || createIdentity.loading() || updateIdentity.loading()
                   }
                   onClick={() => (currentEditor().kind === "edit" ? updateIdentity.mutate() : createIdentity.mutate())}
                 >

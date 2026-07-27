@@ -274,13 +274,16 @@ export default function MailFolderSettings(props: {
     );
 
   const updateVisibility = mutation.create<{ folderId: string; showInSidebar: boolean }, { folderId: string; showInSidebar: boolean }>({
-    mutation: async (input) => {
+    mutation: async (input, { abortSignal }) => {
       setPendingFolderId(input.folderId);
       try {
-        const response = await apiClient.mailboxes[":mailboxId"].folders[":folderId"].$patch({
-          param: { mailboxId: props.mailboxId, folderId: input.folderId },
-          json: { showInSidebar: input.showInSidebar },
-        });
+        const response = await apiClient.mailboxes[":mailboxId"].folders[":folderId"].$patch(
+          {
+            param: { mailboxId: props.mailboxId, folderId: input.folderId },
+            json: { showInSidebar: input.showInSidebar },
+          },
+          { init: { signal: abortSignal } },
+        );
         if (!response.ok) throw new Error(await readApiError(response, "Could not update folder visibility"));
         return response.json();
       } finally {
@@ -314,10 +317,13 @@ export default function MailFolderSettings(props: {
             "This removes the unavailable folder and unavailable subfolders from Cloud Mail. It does not delete anything from the mail provider or remove mirrored messages. If the provider exposes the folder again, it returns automatically.",
             { title: `Remove ${folder.name} from Mail?`, confirmText: "Remove from Mail", variant: "danger" },
           );
-          if (!confirmed) return { changed: false, action };
-          const response = await apiClient.mailboxes[":mailboxId"].folders[":folderId"].$delete({
-            param: { mailboxId: props.mailboxId, folderId: folder.id },
-          });
+          if (!confirmed || context.abortSignal.aborted) return { changed: false, action };
+          const response = await apiClient.mailboxes[":mailboxId"].folders[":folderId"].$delete(
+            {
+              param: { mailboxId: props.mailboxId, folderId: folder.id },
+            },
+            { init: { signal: context.abortSignal } },
+          );
           if (!response.ok) throw new Error(await readApiError(response, "Could not remove the unavailable folder"));
           return { changed: true, action };
         }
@@ -325,7 +331,7 @@ export default function MailFolderSettings(props: {
           "Only an empty folder without subfolders can be deleted. This removes it from the mail provider for everyone who can access it.",
           { title: `Delete ${folder.name}?`, confirmText: "Delete folder", variant: "danger" },
         );
-        if (!confirmed) return { changed: false, action };
+        if (!confirmed || context.abortSignal.aborted) return { changed: false, action };
         await runFolderCommand(props.mailboxId, { kind: "delete_folder", folderId: folder.id }, context.abortSignal);
         return { changed: true, action };
       } finally {

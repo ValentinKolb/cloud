@@ -27,7 +27,7 @@ export default function MailOverview(props: {
   });
 
   const createMailbox = mutations.create<Mailbox | null, void>({
-    mutation: async () => {
+    mutation: async (_input, { abortSignal }) => {
       const values = await prompts.form({
         title: "New mailbox",
         icon: "ti ti-mail-plus",
@@ -43,10 +43,13 @@ export default function MailOverview(props: {
         },
         confirmText: "Create mailbox",
       });
-      if (!values) return null;
-      const response = await apiClient.mailboxes.$post({
-        json: { name: values.name, description: values.description || null },
-      });
+      if (!values || abortSignal.aborted) return null;
+      const response = await apiClient.mailboxes.$post(
+        {
+          json: { name: values.name, description: values.description || null },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to create mailbox"));
       return await response.json();
     },
@@ -63,7 +66,7 @@ export default function MailOverview(props: {
   });
 
   const restoreMailbox = mutations.create<Mailbox | null, string>({
-    mutation: async (mailboxId) => {
+    mutation: async (mailboxId, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         "The mailbox will return in paused state. Verify its provider before resuming synchronization.",
         {
@@ -71,8 +74,8 @@ export default function MailOverview(props: {
           confirmText: "Restore mailbox",
         },
       );
-      if (!confirmed) return null;
-      const response = await apiClient.mailboxes[":mailboxId"].restore.$post({ param: { mailboxId } });
+      if (!confirmed || abortSignal.aborted) return null;
+      const response = await apiClient.mailboxes[":mailboxId"].restore.$post({ param: { mailboxId } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to restore mailbox"));
       return response.json();
     },
@@ -86,8 +89,8 @@ export default function MailOverview(props: {
   });
 
   const loadDeletedMailboxes = mutations.create<DeletedMailboxPage, string>({
-    mutation: async (cursor) => {
-      const response = await apiClient.mailboxes.deleted.$get({ query: { limit: "100", cursor } });
+    mutation: async (cursor, { abortSignal }) => {
+      const response = await apiClient.mailboxes.deleted.$get({ query: { limit: "100", cursor } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to load deleted mailboxes"));
       return response.json();
     },

@@ -22,16 +22,19 @@ function ReferenceConfigurationEditor(props: {
   const [enabled, setEnabled] = createSignal(props.configuration?.enabled ?? true);
   const [includeInReplySubjects, setIncludeInReplySubjects] = createSignal(props.configuration?.includeInReplySubjects ?? true);
   const save = mutation.create<ConversationReferenceConfiguration, void>({
-    mutation: async () => {
-      const response = await apiClient.mailboxes[":mailboxId"]["reference-number-configuration"].$put({
-        param: { mailboxId: props.mailboxId },
-        json: {
-          expectedRevision: props.configuration?.revision ?? null,
-          pattern: pattern().trim(),
-          enabled: enabled(),
-          includeInReplySubjects: includeInReplySubjects(),
+    mutation: async (_input, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["reference-number-configuration"].$put(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: {
+            expectedRevision: props.configuration?.revision ?? null,
+            pattern: pattern().trim(),
+            enabled: enabled(),
+            includeInReplySubjects: includeInReplySubjects(),
+          },
         },
-      });
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to save reference number settings"));
       return response.json();
     },
