@@ -1,4 +1,5 @@
 export { expectUserBackedActor, getUserBackedActor, userFromActor } from "./actor";
+export type { ApiErrorBody, ApiErrorResponse, ApiErrorStatus } from "./api";
 export { api, respond, respondMessage } from "./api";
 export type { CreateApiClientConfig } from "./api-client";
 export { api as apiClient } from "./api-client";

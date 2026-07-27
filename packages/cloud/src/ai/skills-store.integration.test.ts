@@ -184,6 +184,21 @@ suite("aiSkillStore integration", () => {
       expect(kinds).toContain("code_review_requested");
       expect(kinds).toContain("code_approved");
       expect(kinds).toContain("code_revoked");
+
+      // Concurrent approval and writes serialize on the skill row: the final
+      // state is either revoked or approved for exactly the final tree.
+      await Promise.all([
+        aiSkillStore.approveCode({ skillId: skill.id, approverUserId: adminId }),
+        aiSkillStore.writeFile({
+          skillId: skill.id,
+          path: "/scripts/run.js",
+          bytes: bytes("console.log(3)\n"),
+          actorUserId: adminId,
+        }),
+      ]);
+      const afterRace = await aiSkillStore.get(skill.id);
+      expect(afterRace).not.toBeNull();
+      if (afterRace?.allowCode) expect(afterRace.codeApprovedHash).toBe(await computeAiSkillContentHash(skill.id));
     } finally {
       await deleteSkill(skill.id);
       await sql`DELETE FROM auth.users WHERE id = ${adminId}::uuid`;

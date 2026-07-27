@@ -580,33 +580,33 @@
 
 .panel-dialog-tabs {
   gap: 0.125rem;
-  background: var(--ui-surface-muted);
+  background: transparent;
 }
 
-.panel-dialog-tabs > [role="tab"] {
+.panel-dialog-tabs > button {
   color: var(--color-zinc-600);
   background: transparent;
 }
 
-.dark .panel-dialog-tabs > [role="tab"] {
+.dark .panel-dialog-tabs > button {
   color: var(--color-zinc-400);
 }
 
-.panel-dialog-tabs > [role="tab"]:hover {
+.panel-dialog-tabs > button:not([aria-pressed="true"]):hover {
   color: var(--color-zinc-900);
   background: var(--ui-hover);
 }
 
-.dark .panel-dialog-tabs > [role="tab"]:hover {
+.dark .panel-dialog-tabs > button:not([aria-pressed="true"]):hover {
   color: var(--color-zinc-100);
 }
 
-.panel-dialog-tabs > [role="tab"][aria-selected="true"] {
+.panel-dialog-tabs > button[aria-pressed="true"] {
   color: var(--color-zinc-950);
-  background: var(--ui-surface-raised);
-  box-shadow: 0 0 0 1px var(--ui-border);
+  background: transparent;
+  font-weight: 600;
 }
 
-.dark .panel-dialog-tabs > [role="tab"][aria-selected="true"] {
+.dark .panel-dialog-tabs > button[aria-pressed="true"] {
   color: var(--color-zinc-50);
 }

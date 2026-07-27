@@ -370,7 +370,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   const openConversation = async (conversationId: string) => {
     if (activeConversationId() === conversationId && state.conversation?.id === conversationId) {
       void markConversationViewed(conversationId);
-      return;
+      return "current" as const;
     }
     const generation = ++conversationOpenGeneration;
     void markConversationViewed(conversationId);
@@ -401,8 +401,11 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       if (preservedOlder.length === 0) setHasMore(conversationId, detail.hasMoreMessages ?? false);
       if (detail.timeline) setTimeline(conversationId, detail.timeline);
       runFrontendTools();
+      if (loadingConversationId() === conversationId) setLoadingConversationId(null);
+      return "opened" as const;
     }
     if (generation === conversationOpenGeneration && loadingConversationId() === conversationId) setLoadingConversationId(null);
+    return generation === conversationOpenGeneration ? ("failed" as const) : ("stale" as const);
   };
 
   const requestMessagesPage = async (conversationId: string, before: number, limit: number): Promise<AiMessagesPage> => {

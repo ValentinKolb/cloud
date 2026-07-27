@@ -22,8 +22,8 @@ export type AllowedLevel = GrantableLevel | { level: GrantableLevel; label?: str
 
 type PermissionEditorProps = {
   /** Initial access entries — caller stays the source of truth for
-   *  what's stored on the resource; the editor only mutates locally
-   *  on optimistic update. */
+   *  what's stored on the resource; the editor updates its local copy
+   *  after successful mutations. */
   initialEntries: AccessEntry[];
 
   /** Whether the current user can edit permissions. When `false`, the
@@ -201,21 +201,20 @@ export default function PermissionEditor(props: PermissionEditorProps) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const revokeMut = mutation.create<void, string>({
-    mutation: async (accessId: string) => {
-      await props.revokeAccess(accessId);
+  const revokeMut = mutation.create<string | null, AccessEntry>({
+    mutation: async (entry) => {
+      const displayName = getEntryDisplayName(entry);
+      const confirmed = await prompts.confirm(`Remove access for ${displayName}?`, { title: "Remove Access", variant: "danger" });
+      if (!confirmed) return null;
+      await props.revokeAccess(entry.id);
+      return entry.id;
+    },
+    onSuccess: (accessId) => {
+      if (accessId) setEntries(entries().filter((entry) => entry.id !== accessId));
     },
     onError: (err) => prompts.error(err.message),
   });
-
-  const handleRevoke = async (entry: AccessEntry) => {
-    const displayName = getEntryDisplayName(entry);
-    const confirmed = await prompts.confirm(`Remove access for ${displayName}?`, { title: "Remove Access", variant: "danger" });
-    if (confirmed) {
-      revokeMut.mutate(entry.id);
-      setEntries(entries().filter((e) => e.id !== entry.id));
-    }
-  };
+  const busy = () => grantMut.loading() || updateMut.loading() || revokeMut.loading();
 
   // ── Combobox add-flow ─────────────────────────────────────────────────
   // The Combobox is a fire-and-forget input: type → pick → granted at the
@@ -309,6 +308,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
   };
 
   const handleSelect = (option: ComboboxOption) => {
+    if (busy()) return;
     const principal = principalsByOptId.get(option.id);
     if (!principal) return;
     const firstLevel = allowed()[0]?.level;
@@ -325,10 +325,15 @@ export default function PermissionEditor(props: PermissionEditorProps) {
             <AccessEntryRow
               entry={entry}
               canEdit={canEdit()}
+              disabled={busy()}
               allowed={allowed()}
               singlePicker={isSinglePicker()}
-              onUpdatePermission={(permission) => updateMut.mutate({ accessId: entry.id, permission })}
-              onRevoke={() => handleRevoke(entry)}
+              onUpdatePermission={(permission) => {
+                if (!busy()) void updateMut.mutate({ accessId: entry.id, permission });
+              }}
+              onRevoke={() => {
+                if (!busy()) void revokeMut.mutate(entry);
+              }}
             />
           )}
         </For>
@@ -347,7 +352,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
           placeholder={props.allowServiceAccounts ? "Add user, group, service account or audience..." : "Add user, group or audience..."}
           fetchData={fetchPrincipals}
           onSelect={handleSelect}
-          disabled={grantMut.loading()}
+          disabled={busy()}
         />
       </Show>
     </div>
@@ -361,6 +366,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
 function AccessEntryRow(props: {
   entry: AccessEntry;
   canEdit: boolean;
+  disabled: boolean;
   allowed: ResolvedLevel[];
   /** When true the per-row picker collapses to a non-interactive badge
    *  (single-level mode — there's nothing to switch to). */
@@ -369,7 +375,7 @@ function AccessEntryRow(props: {
   onRevoke: () => void;
 }) {
   const display = () => resolveEntryDisplay(props.entry.permission, props.allowed);
-  const isInteractive = () => props.canEdit && !props.singlePicker;
+  const isInteractive = () => props.canEdit && !props.disabled && !props.singlePicker;
 
   const badgeClass =
     "flex min-h-7 items-center gap-1 rounded-full border border-transparent bg-[var(--ui-surface-muted)] px-2.5 py-1 text-xs text-secondary";
@@ -460,6 +466,7 @@ function AccessEntryRow(props: {
           <button
             type="button"
             onClick={props.onRevoke}
+            disabled={props.disabled}
             aria-label={`Remove ${getEntryDisplayName(props.entry)}`}
             class="focus-ui flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-red-500/[0.08] hover:text-red-600 focus:opacity-100 dark:hover:text-red-400"
           >

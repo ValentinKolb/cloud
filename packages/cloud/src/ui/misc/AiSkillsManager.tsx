@@ -8,107 +8,166 @@
  */
 import { createZip, downloadFileFromContent, extractZip } from "@valentinkolb/stdlib/browser";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createMemo, createResource, createSignal, For, Match, Show, Switch as SolidSwitch } from "solid-js";
+import { createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch as SolidSwitch } from "solid-js";
+import type { AiSkillsRoutes } from "../../ai/skills-routes";
 import type { AiSkill, AiSkillEvent, AiSkillFileStat, AiSkillUserView } from "../../ai/skills-store";
 import type { AccessEntry, PermissionLevel, Principal } from "../../contracts/shared";
+import { api } from "../../server/api-client";
 import { dialogCore } from "../dialog-core";
 import { Switch, TextInput } from "../input";
 import { prompts } from "../prompts";
 import { toast } from "../toast";
+import { canEditAiSkillInSurface } from "./ai-skill-permissions";
 import { FileBrowserPanel, type FileSource } from "./FileBrowser";
-import PanelDialog, { panelDialogOptions } from "./PanelDialog";
+import PanelDialog, { panelDialogFixedOptions, panelDialogOptions } from "./PanelDialog";
 import PermissionEditor from "./PermissionEditor";
 import Placeholder from "./Placeholder";
 
 // ── API client ─────────────────────────────────────────────────────────────
 
-const BASE = "/api/ai/skills";
+const client = api.create<AiSkillsRoutes>({ baseUrl: "/api/ai/skills" });
 
 const readError = async (response: Response, fallback: string): Promise<string> => {
   const body = await response.json().catch(() => null);
   return body && typeof body === "object" && "message" in body && typeof body.message === "string" ? body.message : fallback;
 };
 
-const req = async <T,>(path: string, init?: RequestInit & { fallback?: string }): Promise<T> => {
-  const response = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: init?.body ? { "Content-Type": "application/json", ...init?.headers } : init?.headers,
-  });
-  if (!response.ok) throw new Error(await readError(response, init?.fallback ?? "Request failed"));
-  return (await response.json()) as T;
-};
-
 type SkillFileContent = { path: string; mediaType: string; size: number; encoding: "utf8" | "base64"; content: string };
 type SkillDetail = { skill: AiSkillUserView | AiSkill; files: AiSkillFileStat[]; canManage: boolean };
 
 export const aiSkillsApi = {
-  list: () => req<{ skills: AiSkillUserView[] }>("", { fallback: "Failed to load skills" }),
-  create: (input: { slug: string; description?: string; workspace?: boolean }) =>
-    req<{ skill: AiSkill }>("", { method: "POST", body: JSON.stringify(input), fallback: "Failed to create skill" }),
-  detail: (skillId: string) => req<SkillDetail>(`/${skillId}`, { fallback: "Failed to load skill" }),
-  update: (skillId: string, input: { enabled?: boolean }) =>
-    req<{ skill: AiSkill }>(`/${skillId}`, { method: "PATCH", body: JSON.stringify(input), fallback: "Failed to save skill" }),
-  remove: (skillId: string) => req<{ deleted: boolean }>(`/${skillId}`, { method: "DELETE", fallback: "Failed to delete skill" }),
-  readFile: (skillId: string, path: string) =>
-    req<SkillFileContent>(`/${skillId}/file?path=${encodeURIComponent(path)}`, { fallback: "Failed to load file" }),
-  writeFile: (skillId: string, input: { path: string; content: string; encoding?: "utf8" | "base64"; mediaType?: string }) =>
-    req<{ files: AiSkillFileStat[] }>(`/${skillId}/file`, { method: "PUT", body: JSON.stringify(input), fallback: "Failed to save file" }),
-  deleteFile: (skillId: string, path: string) =>
-    req<{ files: AiSkillFileStat[] }>(`/${skillId}/file?path=${encodeURIComponent(path)}`, {
-      method: "DELETE",
-      fallback: "Failed to delete file",
-    }),
-  setState: (skillId: string, state: "enabled" | "disabled") =>
-    req<{ state: string }>(`/${skillId}/state`, { method: "PUT", body: JSON.stringify({ state }), fallback: "Failed to update skill" }),
-  listAccess: (skillId: string) => req<{ entries: AccessEntry[] }>(`/${skillId}/access`, { fallback: "Failed to load sharing" }),
-  grantAccess: (skillId: string, principal: Principal, permission: PermissionLevel) =>
-    req<{ entry: AccessEntry }>(`/${skillId}/access`, {
-      method: "POST",
-      body: JSON.stringify({ principal, permission }),
-      fallback: "Failed to share skill",
-    }),
-  updateAccess: (skillId: string, accessId: string, permission: PermissionLevel) =>
-    req<{ updated: boolean }>(`/${skillId}/access/${accessId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ permission }),
-      fallback: "Failed to update sharing",
-    }),
-  revokeAccess: (skillId: string, accessId: string) =>
-    req<{ revoked: boolean }>(`/${skillId}/access/${accessId}`, { method: "DELETE", fallback: "Failed to remove sharing" }),
-  requestCodeReview: (skillId: string) =>
-    req<{ requested: boolean }>(`/${skillId}/code-review`, { method: "POST", fallback: "Failed to request review" }),
-  approveCode: (skillId: string) => req<{ skill: AiSkill }>(`/${skillId}/code-approve`, { method: "POST", fallback: "Approval failed" }),
-  revokeCode: (skillId: string) => req<{ revoked: boolean }>(`/${skillId}/code-revoke`, { method: "POST", fallback: "Revoke failed" }),
-  events: (skillId: string, options?: { before?: AiSkillEventCursor }) =>
-    req<AiSkillEventPage>(`/${skillId}/events${eventCursorQuery(options?.before)}`, { fallback: "Failed to load history" }),
-  adminAll: (options?: { q?: string; afterSlug?: string; limit?: number; workspaceOnly?: boolean }) => {
-    const params = new URLSearchParams();
-    if (options?.q) params.set("q", options.q);
-    if (options?.afterSlug) params.set("afterSlug", options.afterSlug);
-    if (options?.limit) params.set("limit", String(options.limit));
-    if (options?.workspaceOnly) params.set("workspaceOnly", "true");
-    const query = params.toString();
-    return req<{ skills: AiSkill[]; nextCursor: string | null }>(`/admin/all${query ? `?${query}` : ""}`, {
-      fallback: "Failed to load skills",
-    });
+  list: async (): Promise<{ skills: AiSkillUserView[] }> => {
+    const response = await client.index.$get();
+    if (!response.ok) throw new Error(await readError(response, "Failed to load skills"));
+    return response.json();
   },
-  adminReviewQueue: () => req<{ skills: AiSkill[] }>("/admin/review-queue", { fallback: "Failed to load review queue" }),
-  adminEvents: (options?: { before?: AiSkillEventCursor }) =>
-    req<AiSkillEventPage>(`/admin/events${eventCursorQuery(options?.before, { limit: "50" })}`, { fallback: "Failed to load audit log" }),
+  create: async (input: { slug: string; description?: string; workspace?: boolean }): Promise<{ skill: AiSkill }> => {
+    const response = await client.index.$post({ json: input });
+    if (!response.ok) throw new Error(await readError(response, "Failed to create skill"));
+    return response.json();
+  },
+  detail: async (skillId: string): Promise<SkillDetail> => {
+    const response = await client[":skillId"].$get({ param: { skillId } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load skill"));
+    return response.json();
+  },
+  update: async (skillId: string, input: { enabled?: boolean }): Promise<{ skill: AiSkill }> => {
+    const response = await client[":skillId"].$patch({ param: { skillId }, json: input });
+    if (!response.ok) throw new Error(await readError(response, "Failed to save skill"));
+    return response.json();
+  },
+  remove: async (skillId: string): Promise<{ deleted: boolean }> => {
+    const response = await client[":skillId"].$delete({ param: { skillId } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to delete skill"));
+    return response.json();
+  },
+  readFile: async (skillId: string, path: string): Promise<SkillFileContent> => {
+    const response = await client[":skillId"].file.$get({ param: { skillId }, query: { path } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load file"));
+    return response.json();
+  },
+  writeFile: async (
+    skillId: string,
+    input: { path: string; content: string; encoding?: "utf8" | "base64"; mediaType?: string },
+  ): Promise<{ files: AiSkillFileStat[] }> => {
+    const response = await client[":skillId"].file.$put({ param: { skillId }, json: input });
+    if (!response.ok) throw new Error(await readError(response, "Failed to save file"));
+    return response.json();
+  },
+  deleteFile: async (skillId: string, path: string): Promise<{ files: AiSkillFileStat[] }> => {
+    const response = await client[":skillId"].file.$delete({ param: { skillId }, query: { path } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to delete file"));
+    return response.json();
+  },
+  setState: async (skillId: string, state: "enabled" | "disabled"): Promise<{ state: string }> => {
+    const response = await client[":skillId"].state.$put({ param: { skillId }, json: { state } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to update skill"));
+    return response.json();
+  },
+  listAccess: async (skillId: string): Promise<{ entries: AccessEntry[] }> => {
+    const response = await client[":skillId"].access.$get({ param: { skillId } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load sharing"));
+    return response.json();
+  },
+  grantAccess: async (skillId: string, principal: Principal, permission: PermissionLevel): Promise<{ entry: AccessEntry }> => {
+    if (principal.type === "service_account" || principal.type === "public" || permission === "none") {
+      throw new Error("Skills can only be shared with people, groups, or authenticated users.");
+    }
+    const response = await client[":skillId"].access.$post({ param: { skillId }, json: { principal, permission } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to share skill"));
+    return response.json();
+  },
+  updateAccess: async (skillId: string, accessId: string, permission: PermissionLevel): Promise<{ updated: boolean }> => {
+    if (permission === "none") throw new Error("Remove the sharing entry instead.");
+    const response = await client[":skillId"].access[":accessId"].$patch({ param: { skillId, accessId }, json: { permission } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to update sharing"));
+    return response.json();
+  },
+  revokeAccess: async (skillId: string, accessId: string): Promise<{ revoked: boolean }> => {
+    const response = await client[":skillId"].access[":accessId"].$delete({ param: { skillId, accessId } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to remove sharing"));
+    return response.json();
+  },
+  requestCodeReview: async (skillId: string): Promise<{ requested: boolean }> => {
+    const response = await client[":skillId"]["code-review"].$post({ param: { skillId } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to request review"));
+    return response.json();
+  },
+  approveCode: async (skillId: string): Promise<{ skill: AiSkill }> => {
+    const response = await client[":skillId"]["code-approve"].$post({ param: { skillId } });
+    if (!response.ok) throw new Error(await readError(response, "Approval failed"));
+    return response.json();
+  },
+  revokeCode: async (skillId: string): Promise<{ revoked: boolean }> => {
+    const response = await client[":skillId"]["code-revoke"].$post({ param: { skillId } });
+    if (!response.ok) throw new Error(await readError(response, "Revoke failed"));
+    return response.json();
+  },
+  events: async (skillId: string, options?: { before?: AiSkillEventCursor }): Promise<AiSkillEventPage> => {
+    const response = await client[":skillId"].events.$get({
+      param: { skillId },
+      query: eventCursorQuery(options?.before),
+    });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load history"));
+    return response.json();
+  },
+  adminAll: async (options?: {
+    q?: string;
+    afterSlug?: string;
+    limit?: number;
+    workspaceOnly?: boolean;
+  }): Promise<{ skills: AiSkill[]; nextCursor: string | null }> => {
+    const response = await client.admin.all.$get({
+      query: {
+        q: options?.q,
+        afterSlug: options?.afterSlug,
+        limit: options?.limit ? String(options.limit) : undefined,
+        workspaceOnly: options?.workspaceOnly ? "true" : undefined,
+      },
+    });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load skills"));
+    return response.json();
+  },
+  adminReviewQueue: async (): Promise<{ skills: AiSkill[] }> => {
+    const response = await client.admin["review-queue"].$get();
+    if (!response.ok) throw new Error(await readError(response, "Failed to load review queue"));
+    return response.json();
+  },
+  adminEvents: async (options?: { before?: AiSkillEventCursor }): Promise<AiSkillEventPage> => {
+    const response = await client.admin.events.$get({ query: eventCursorQuery(options?.before, { limit: "50" }) });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load audit log"));
+    return response.json();
+  },
 };
 
 export type AiSkillEventCursor = { createdAt: string; id: string };
 export type AiSkillEventPage = { events: AiSkillEvent[]; nextCursor: AiSkillEventCursor | null };
 
-const eventCursorQuery = (before?: AiSkillEventCursor, extra?: Record<string, string>): string => {
-  const params = new URLSearchParams(extra);
-  if (before) {
-    params.set("beforeCreatedAt", before.createdAt);
-    params.set("beforeId", before.id);
-  }
-  const query = params.toString();
-  return query ? `?${query}` : "";
-};
+const eventCursorQuery = (before?: AiSkillEventCursor, extra?: Record<string, string>) => ({
+  ...extra,
+  beforeCreatedAt: before?.createdAt,
+  beforeId: before?.id,
+});
 
 // ── Shared bits ────────────────────────────────────────────────────────────
 
@@ -289,9 +348,15 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
     return value && "origin" in value ? (value as AiSkillUserView) : null;
   };
   const isWorkspaceSkill = () => skill()?.ownerUserId === null;
+  const canEdit = () => {
+    const current = skill();
+    return current
+      ? canEditAiSkillInSurface({ canManage: canManage(), isAdminSurface: props.isAdmin, ownerUserId: current.ownerUserId })
+      : false;
+  };
 
   const [accessEntries] = createResource(
-    () => (canManage() && tab() === "sharing" ? props.skillId : null),
+    () => (canEdit() && tab() === "sharing" ? props.skillId : null),
     async (skillId) => (await aiSkillsApi.listAccess(skillId)).entries,
   );
 
@@ -300,43 +365,55 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
     void refetch();
   };
 
-  const toggleEnabled = async (enabled: boolean) => {
-    try {
+  const toggleEnabled = mutation.create<void, boolean>({
+    mutation: async (enabled) => {
       await aiSkillsApi.update(props.skillId, { enabled });
-      notifyAndRefetch();
-    } catch (error) {
-      void prompts.error(error instanceof Error ? error.message : "Failed to update skill");
-    }
-  };
+    },
+    onSuccess: notifyAndRefetch,
+    onError: (error) => prompts.error(error.message),
+  });
 
-  const deleteSkill = async () => {
-    const current = skill();
-    if (!current) return;
-    const confirmed = await prompts.confirm(`Delete the skill "${current.slug}" and all of its files?`, {
-      title: "Delete skill",
-      variant: "danger",
-    });
-    if (!confirmed) return;
-    try {
+  const deleteSkill = mutation.create<boolean, void>({
+    mutation: async () => {
+      const current = skill();
+      if (!current) return false;
+      const confirmed = await prompts.confirm(`Delete the skill "${current.slug}" and all of its files?`, {
+        title: "Delete skill",
+        variant: "danger",
+      });
+      if (!confirmed) return false;
       await aiSkillsApi.remove(props.skillId);
+      return true;
+    },
+    onSuccess: (deleted) => {
+      if (!deleted) return;
       props.onChanged();
       props.close();
-    } catch (error) {
-      void prompts.error(error instanceof Error ? error.message : "Failed to delete skill");
-    }
-  };
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
-  const codeAction = async (action: "request" | "approve" | "revoke") => {
-    try {
+  const codeAction = mutation.create<"request" | "approve" | "revoke", "request" | "approve" | "revoke">({
+    mutation: async (action) => {
       if (action === "request") await aiSkillsApi.requestCodeReview(props.skillId);
       if (action === "approve") await aiSkillsApi.approveCode(props.skillId);
       if (action === "revoke") await aiSkillsApi.revokeCode(props.skillId);
+      return action;
+    },
+    onSuccess: (action) => {
       toast.success(action === "request" ? "Review requested" : action === "approve" ? "Code approved" : "Approval revoked");
       notifyAndRefetch();
-    } catch (error) {
-      void prompts.error(error instanceof Error ? error.message : "Action failed");
-    }
-  };
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const setUserState = mutation.create<void, boolean>({
+    mutation: async (enabled) => {
+      await aiSkillsApi.setState(props.skillId, enabled ? "enabled" : "disabled");
+    },
+    onSuccess: notifyAndRefetch,
+    onError: (error) => prompts.error(error.message),
+  });
 
   return (
     <PanelDialog>
@@ -344,15 +421,15 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
       <PanelDialog.Body>
         <Show when={skill()} fallback={<Placeholder icon="ti ti-loader-2" title="Loading skill…" />}>
           {(current) => (
-            <div class="flex min-h-0 flex-col gap-3">
+            <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
               <div class="flex items-center gap-3">
                 <PanelDialog.Tabs
                   ariaLabel="Skill sections"
                   options={[
                     { value: "files", label: "Files", icon: "ti ti-folder" },
                     { value: "settings", label: "Advanced", icon: "ti ti-adjustments" },
-                    ...(canManage() ? [{ value: "sharing" as const, label: "Sharing", icon: "ti ti-share" }] : []),
-                    ...(canManage() ? [{ value: "history" as const, label: "History", icon: "ti ti-history" }] : []),
+                    ...(canEdit() ? [{ value: "sharing" as const, label: "Sharing", icon: "ti ti-share" }] : []),
+                    ...(canEdit() ? [{ value: "history" as const, label: "History", icon: "ti ti-history" }] : []),
                   ]}
                   value={tab}
                   onChange={setTab}
@@ -385,12 +462,8 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
                           <span class="text-xs text-dimmed">Active</span>
                           <Switch
                             value={() => userView().userState === "enabled"}
-                            onChange={(state) => {
-                              void aiSkillsApi
-                                .setState(props.skillId, state ? "enabled" : "disabled")
-                                .then(notifyAndRefetch)
-                                .catch((error) => prompts.error(error instanceof Error ? error.message : "Failed to update skill"));
-                            }}
+                            disabled={setUserState.loading()}
+                            onChange={(state) => void setUserState.mutate(state)}
                           />
                         </span>
                       )}
@@ -399,18 +472,22 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
                 >
                   <span class="flex shrink-0 items-center gap-2" title="Disabled skills disappear from everyone's catalog">
                     <span class="text-xs text-dimmed">Enabled</span>
-                    <Switch value={() => current().enabled} onChange={(enabled) => void toggleEnabled(enabled)} />
+                    <Switch
+                      value={() => current().enabled}
+                      disabled={toggleEnabled.loading()}
+                      onChange={(enabled) => void toggleEnabled.mutate(enabled)}
+                    />
                   </span>
                 </Show>
               </div>
 
               {/* Fixed-height content region: switching tabs must never resize the dialog. */}
-              <div class="flex h-[min(55vh,30rem)] min-h-0 flex-col overflow-y-auto">
+              <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
                 <SolidSwitch>
                   <Match when={tab() === "files"}>
                     {/* Content changes revoke code approval server-side — refetch keeps the badge honest. */}
                     <FileBrowserPanel
-                      source={skillFileSource(props.skillId, { canEdit: canManage(), onChanged: notifyAndRefetch })}
+                      source={skillFileSource(props.skillId, { canEdit: canEdit(), onChanged: notifyAndRefetch })}
                       initialPath="/SKILL.md"
                       class="h-full"
                     />
@@ -446,20 +523,35 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
                           <div class="flex flex-wrap items-center gap-2">
                             <CodeStatusBadge skill={current()} />
                             <span class="flex-1" />
-                            <Show when={canManage() && !current().allowCode && !current().codeReviewRequestedAt}>
-                              <button type="button" class="btn-input btn-input-sm" onClick={() => void codeAction("request")}>
+                            <Show when={canEdit() && !current().allowCode && !current().codeReviewRequestedAt}>
+                              <button
+                                type="button"
+                                class="btn-input btn-input-sm"
+                                disabled={codeAction.loading()}
+                                onClick={() => void codeAction.mutate("request")}
+                              >
                                 <i class="ti ti-shield-question" aria-hidden="true" />
                                 Request code review
                               </button>
                             </Show>
                             <Show when={props.isAdmin && !current().allowCode && current().codeReviewRequestedAt}>
-                              <button type="button" class="btn-primary btn-sm" onClick={() => void codeAction("approve")}>
+                              <button
+                                type="button"
+                                class="btn-primary btn-sm"
+                                disabled={codeAction.loading()}
+                                onClick={() => void codeAction.mutate("approve")}
+                              >
                                 <i class="ti ti-shield-check" aria-hidden="true" />
                                 Approve code
                               </button>
                             </Show>
                             <Show when={props.isAdmin && current().allowCode}>
-                              <button type="button" class="btn-input btn-input-sm" onClick={() => void codeAction("revoke")}>
+                              <button
+                                type="button"
+                                class="btn-input btn-input-sm"
+                                disabled={codeAction.loading()}
+                                onClick={() => void codeAction.mutate("revoke")}
+                              >
                                 <i class="ti ti-shield-off" aria-hidden="true" />
                                 Revoke approval
                               </button>
@@ -468,9 +560,14 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
                         </Show>
                       </div>
 
-                      <Show when={canManage()}>
+                      <Show when={canEdit()}>
                         <div class="flex justify-end">
-                          <button type="button" class="btn-danger btn-sm" onClick={() => void deleteSkill()}>
+                          <button
+                            type="button"
+                            class="btn-danger btn-sm"
+                            disabled={deleteSkill.loading()}
+                            onClick={() => void deleteSkill.mutate(undefined)}
+                          >
                             <i class="ti ti-trash" aria-hidden="true" />
                             Delete skill
                           </button>
@@ -598,12 +695,10 @@ const downloadSkillAsZip = async (skillId: string, slug: string): Promise<void> 
 function CreateSkillDialog(props: { isAdmin: boolean; close: (created?: AiSkill) => void }) {
   const [slug, setSlug] = createSignal("");
   const [description, setDescription] = createSignal("");
-  // From the admin surface, workspace skills are the point of creating one.
-  const [workspace, setWorkspace] = createSignal(props.isAdmin);
 
   const create = mutation.create<AiSkill, void>({
     mutation: async () =>
-      (await aiSkillsApi.create({ slug: slug().trim(), description: description().trim() || undefined, workspace: workspace() })).skill,
+      (await aiSkillsApi.create({ slug: slug().trim(), description: description().trim() || undefined, workspace: props.isAdmin })).skill,
     onSuccess: (skill) => {
       toast.success(`Skill "${skill.slug}" created`);
       props.close(skill);
@@ -644,12 +739,9 @@ function CreateSkillDialog(props: { isAdmin: boolean; close: (created?: AiSkill)
             placeholder="Formats meeting notes: decisions, action items, open questions."
           />
           <Show when={props.isAdmin}>
-            <div class="flex flex-col gap-1">
-              <Switch label="Workspace skill" value={workspace} onChange={setWorkspace} />
-              <p class="text-xs text-dimmed">
-                Owned by the workspace and managed by admins; visible to everyone and eligible for code approval.
-              </p>
-            </div>
+            <p class="text-xs text-dimmed">
+              Admin-created skills belong to the workspace, are visible to everyone, and are eligible for code approval.
+            </p>
           </Show>
         </PanelDialog.Body>
         <PanelDialog.Footer>
@@ -675,6 +767,7 @@ function SkillRow(props: {
   skill: AiSkill & Partial<Pick<AiSkillUserView, "origin" | "userState">>;
   /** consent = the user's per-person toggle; admin = the global enable switch. */
   mode: "consent" | "admin";
+  disabled: boolean;
   onOpen: () => void;
   onToggle: (state: boolean) => Promise<void>;
 }) {
@@ -705,6 +798,7 @@ function SkillRow(props: {
       >
         <Switch
           value={() => (props.mode === "admin" ? props.skill.enabled : props.skill.userState === "enabled")}
+          disabled={props.disabled}
           onChange={(state) => void props.onToggle(state)}
         />
       </span>
@@ -735,23 +829,35 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
   const [adminCursor, setAdminCursor] = createSignal<string | null>(null);
   const [adminLoading, setAdminLoading] = createSignal(false);
   const [adminInitialized, setAdminInitialized] = createSignal(false);
+  let adminRequestId = 0;
 
   const loadAdmin = async (reset: boolean) => {
-    if (!props.isAdmin || adminLoading()) return;
+    if (!props.isAdmin || (!reset && adminLoading())) return;
+    const requestId = ++adminRequestId;
+    const requestedQuery = query().trim();
+    const afterSlug = reset ? undefined : (adminCursor() ?? undefined);
+    if (reset) {
+      setAdminSkills([]);
+      setAdminCursor(null);
+      setAdminInitialized(false);
+    }
     setAdminLoading(true);
     try {
       const page = await aiSkillsApi.adminAll({
-        q: query().trim() || undefined,
-        afterSlug: reset ? undefined : (adminCursor() ?? undefined),
+        q: requestedQuery || undefined,
+        afterSlug,
         workspaceOnly: true,
       });
+      if (requestId !== adminRequestId) return;
       setAdminSkills((previous) => (reset ? page.skills : [...previous, ...page.skills]));
       setAdminCursor(page.nextCursor);
     } catch (error) {
-      void prompts.error(error instanceof Error ? error.message : "Failed to load skills");
+      if (requestId === adminRequestId) void prompts.error(error instanceof Error ? error.message : "Failed to load skills");
     } finally {
-      setAdminLoading(false);
-      setAdminInitialized(true);
+      if (requestId === adminRequestId) {
+        setAdminLoading(false);
+        setAdminInitialized(true);
+      }
     }
   };
   if (props.isAdmin) void loadAdmin(true);
@@ -761,9 +867,14 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
   const onQueryInput = (value: string) => {
     setQuery(value);
     if (!props.isAdmin) return;
+    adminRequestId += 1;
+    setAdminSkills([]);
+    setAdminCursor(null);
+    setAdminInitialized(false);
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => void loadAdmin(true), 250);
   };
+  onCleanup(() => clearTimeout(searchTimer));
 
   const reload = () => {
     if (props.isAdmin) void loadAdmin(true);
@@ -799,7 +910,7 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
     void dialogCore
       .open<void>(
         (close) => <SkillDetailDialog skillId={skillId} isAdmin={props.isAdmin} close={() => close()} onChanged={reload} />,
-        panelDialogOptions,
+        panelDialogFixedOptions,
       )
       .then(reload);
   };
@@ -816,31 +927,30 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
       });
   };
 
-  const toggle = async (skill: AiSkill, state: boolean) => {
-    try {
+  const toggleSkill = mutation.create<void, { skill: AiSkill; state: boolean }>({
+    mutation: async ({ skill, state }) => {
       if (props.isAdmin) await aiSkillsApi.update(skill.id, { enabled: state });
       else await aiSkillsApi.setState(skill.id, state ? "enabled" : "disabled");
+    },
+    onSuccess: () => {
       reload();
-    } catch (error) {
-      void prompts.error(error instanceof Error ? error.message : "Failed to update skill");
-    }
-  };
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
   let importInputRef: HTMLInputElement | undefined;
   const [importProgress, setImportProgress] = createSignal<{ done: number; total: number } | null>(null);
-  const importSkill = async (file: File) => {
-    try {
-      const created = await importSkillFromFile(file, { workspace: props.isAdmin, onProgress: setImportProgress });
+  const importSkill = mutation.create<AiSkill | null, File>({
+    mutation: (file) => importSkillFromFile(file, { workspace: props.isAdmin, onProgress: setImportProgress }),
+    onSuccess: (created) => {
       if (!created) return;
       toast.success(`Skill "${created.slug}" imported`);
       reload();
       openDetail(created.id);
-    } catch (error) {
-      void prompts.error(error instanceof Error ? error.message : "Skill import failed");
-    } finally {
-      setImportProgress(null);
-    }
-  };
+    },
+    onError: (error) => prompts.error(error.message),
+    onFinally: () => setImportProgress(null),
+  });
 
   return (
     <>
@@ -866,7 +976,7 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
                 when={groups().length > 0}
                 fallback={
                   <Show
-                    when={!props.isAdmin || adminInitialized()}
+                    when={props.isAdmin ? adminInitialized() : !userSkills.loading}
                     fallback={<Placeholder icon="ti ti-loader-2" title="Loading skills…" />}
                   >
                     <Show
@@ -894,8 +1004,9 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
                             <SkillRow
                               skill={skill}
                               mode={props.isAdmin ? "admin" : "consent"}
+                              disabled={toggleSkill.loading()}
                               onOpen={() => openDetail(skill.id)}
-                              onToggle={(state) => toggle(skill, state)}
+                              onToggle={(state) => toggleSkill.mutate({ skill, state })}
                             />
                           )}
                         </For>
@@ -917,12 +1028,7 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
                   <i class="ti ti-plus" aria-hidden="true" />
                   New skill
                 </button>
-                <button
-                  type="button"
-                  class="btn-secondary btn-sm"
-                  disabled={Boolean(importProgress())}
-                  onClick={() => importInputRef?.click()}
-                >
+                <button type="button" class="btn-secondary btn-sm" disabled={importSkill.loading()} onClick={() => importInputRef?.click()}>
                   <i class={importProgress() ? "ti ti-loader-2 animate-spin" : "ti ti-upload"} aria-hidden="true" />
                   <Show when={importProgress()} fallback={<>Import</>}>
                     {(progress) => (
@@ -940,7 +1046,7 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
                   onChange={(event) => {
                     const file = event.currentTarget.files?.[0];
                     event.currentTarget.value = "";
-                    if (file) void importSkill(file);
+                    if (file) void importSkill.mutate(file);
                   }}
                 />
               </div>
@@ -948,43 +1054,57 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
           </Match>
 
           <Match when={tab() === "review"}>
-            <Show
-              when={(reviewQueue() ?? []).length > 0}
-              fallback={
-                <Placeholder icon="ti ti-shield-check" title="Nothing to review" description="No skill is waiting for a code review." />
-              }
-            >
-              <ul class="flex flex-col gap-1.5">
-                <For each={reviewQueue()}>
-                  {(skill) => (
-                    <li class="flex items-center gap-3 rounded-lg bg-white px-3 py-2.5 [box-shadow:var(--ui-control-bevel)] dark:bg-zinc-900">
-                      <div class="min-w-0 flex-1">
-                        <p class="truncate text-sm font-medium text-primary">{skill.slug}</p>
-                        <p class="truncate text-xs text-dimmed">
-                          Review requested {skill.codeReviewRequestedAt ? formatDateTime(skill.codeReviewRequestedAt) : ""}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        class="btn-input btn-input-sm"
-                        onClick={() => {
-                          void dialogCore
-                            .open<void>(
-                              (close) => (
-                                <SkillDetailDialog skillId={skill.id} isAdmin close={() => close()} onChanged={() => void refetchQueue()} />
-                              ),
-                              panelDialogOptions,
-                            )
-                            .then(() => void refetchQueue());
-                        }}
-                      >
-                        <i class="ti ti-eye" aria-hidden="true" />
-                        Review
-                      </button>
-                    </li>
-                  )}
-                </For>
-              </ul>
+            <Show when={!reviewQueue.loading} fallback={<Placeholder icon="ti ti-loader-2" title="Loading code reviews…" />}>
+              <Show
+                when={!reviewQueue.error}
+                fallback={
+                  <Placeholder icon="ti ti-alert-circle" title="Failed to load code reviews" description={reviewQueue.error.message} />
+                }
+              >
+                <Show
+                  when={(reviewQueue() ?? []).length > 0}
+                  fallback={
+                    <Placeholder icon="ti ti-shield-check" title="Nothing to review" description="No skill is waiting for a code review." />
+                  }
+                >
+                  <ul class="flex flex-col gap-1.5">
+                    <For each={reviewQueue()}>
+                      {(skill) => (
+                        <li class="flex items-center gap-3 rounded-lg bg-white px-3 py-2.5 [box-shadow:var(--ui-control-bevel)] dark:bg-zinc-900">
+                          <div class="min-w-0 flex-1">
+                            <p class="truncate text-sm font-medium text-primary">{skill.slug}</p>
+                            <p class="truncate text-xs text-dimmed">
+                              Review requested {skill.codeReviewRequestedAt ? formatDateTime(skill.codeReviewRequestedAt) : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            class="btn-input btn-input-sm"
+                            onClick={() => {
+                              void dialogCore
+                                .open<void>(
+                                  (close) => (
+                                    <SkillDetailDialog
+                                      skillId={skill.id}
+                                      isAdmin
+                                      close={() => close()}
+                                      onChanged={() => void refetchQueue()}
+                                    />
+                                  ),
+                                  panelDialogFixedOptions,
+                                )
+                                .then(() => void refetchQueue());
+                            }}
+                          >
+                            <i class="ti ti-eye" aria-hidden="true" />
+                            Review
+                          </button>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </Show>
+              </Show>
             </Show>
           </Match>
 
@@ -1015,6 +1135,9 @@ function SkillsManagerDialog(props: { isAdmin: boolean; close: () => void }) {
 
 /** Open the skills manager. `isAdmin` unlocks workspace skills, the review queue, and the audit log. */
 export const openAiSkillsManager = (options?: { isAdmin?: boolean }): Promise<void> =>
-  dialogCore.open<void>((close) => <SkillsManagerDialog isAdmin={options?.isAdmin ?? false} close={() => close()} />, panelDialogOptions);
+  dialogCore.open<void>(
+    (close) => <SkillsManagerDialog isAdmin={options?.isAdmin ?? false} close={() => close()} />,
+    options?.isAdmin ? panelDialogFixedOptions : panelDialogOptions,
+  );
 
 export { SkillDetailDialog as AiSkillDetailDialog, SkillsManagerDialog as AiSkillsManagerDialog };

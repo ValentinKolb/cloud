@@ -46,18 +46,16 @@ export const buildAiSkillsMountFromSkills = async (skills: AiSkillUserView[]): P
   const files: SkillFsFile[] = [];
 
   for (const skill of skills) {
-    const stats = await aiSkillStore.listFiles(skill.id);
-    for (const stat of stats) {
-      if (!skill.allowCode && isExecutableSkillFile(stat.path)) continue;
+    const snapshot = await aiSkillStore.readMountSnapshot(skill.id);
+    if (!snapshot) continue;
+    const codeApproved = snapshot.allowCode && snapshot.codeApprovedHash === snapshot.contentHash;
+    for (const file of snapshot.files) {
+      if (!codeApproved && isExecutableSkillFile(file.path)) continue;
       files.push({
-        path: `/${skill.slug}${stat.path}`,
-        size: stat.size,
-        mtime: new Date(stat.updatedAt),
-        read: async () => {
-          const file = await aiSkillStore.readFile(skill.id, stat.path);
-          if (!file) throw new Error(`Skill file disappeared: ${stat.path}`);
-          return file.bytes;
-        },
+        path: `/${skill.slug}${file.path}`,
+        size: file.size,
+        mtime: new Date(file.updatedAt),
+        read: async () => file.bytes,
       });
     }
   }

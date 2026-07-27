@@ -8,6 +8,7 @@
  * registerFileViewRenderer.
  */
 
+import { mutation } from "@valentinkolb/stdlib/solid";
 import { type Component, createMemo, createResource, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import MarkdownEditor from "../input/markdown/MarkdownEditor";
@@ -450,6 +451,19 @@ export const formatFileViewSize = (bytes: number): string => {
 };
 
 export default function FileView(props: FileViewProps) {
+  const [draft, setDraft] = createSignal("");
+  const [dirty, setDirty] = createSignal(false);
+  const saveMutation = mutation.create<{ path: string; content: string }, { path: string; content: string }>({
+    mutation: async (input) => {
+      await props.save!(input.content);
+      return input;
+    },
+    onSuccess: (saved) => {
+      if (props.file.path === saved.path && draft() === saved.content) setDirty(false);
+      toast.success("File saved");
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const browserPreviewContent = createMemo<FileViewContent | null>(() => {
     const kind = getFileViewPreviewKind(props.file);
     if (kind !== "image" && kind !== "pdf" && kind !== "audio" && kind !== "video") return null;
@@ -466,16 +480,13 @@ export default function FileView(props: FileViewProps) {
   const [content] = createResource(
     () => (browserPreviewContent() ? null : props.file.path),
     async () => {
+      saveMutation.abort();
       const loaded = await props.load();
       setDraft(loaded.encoding === "utf8" ? loaded.content : "");
       setDirty(false);
-      setSaving(false);
       return loaded;
     },
   );
-  const [draft, setDraft] = createSignal("");
-  const [dirty, setDirty] = createSignal(false);
-  const [saving, setSaving] = createSignal(false);
   const resolvedContent = createMemo(() => browserPreviewContent() ?? content());
 
   const renderer = createMemo(() => {
@@ -485,17 +496,8 @@ export default function FileView(props: FileViewProps) {
   });
 
   const save = async () => {
-    if (!props.save || saving()) return;
-    setSaving(true);
-    try {
-      await props.save(draft());
-      setDirty(false);
-      toast.success("File saved");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save file");
-    } finally {
-      setSaving(false);
-    }
+    if (!props.save || saveMutation.loading()) return;
+    await saveMutation.mutate({ path: props.file.path, content: draft() });
   };
 
   const editor = () =>
@@ -507,7 +509,7 @@ export default function FileView(props: FileViewProps) {
             setDirty(true);
           },
           dirty,
-          saving,
+          saving: saveMutation.loading,
           save,
         }
       : null;

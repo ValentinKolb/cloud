@@ -3,7 +3,7 @@ import { z } from "zod";
 import { type AuthContext, err, fail, ok, type RequestActor, respond, v } from "../server";
 import type { AiToolApprovalContext } from "./approvals";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
-import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, guessAiMediaType, normalizeAiFilePath } from "./files-store";
+import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, decodeAiFileContent, guessAiMediaType, normalizeAiFilePath } from "./files-store";
 import {
   AiCompactionInputSchema,
   AiCreateConversationInputSchema,
@@ -674,8 +674,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           await aiFileStore.write({
             conversationId: conversation.id,
             path,
-            bytes:
-              body.encoding === "base64" ? new Uint8Array(Buffer.from(body.content, "base64")) : new TextEncoder().encode(body.content),
+            bytes: decodeAiFileContent(body.content, body.encoding),
             mediaType: guessAiMediaType(path),
           });
         } catch (error) {

@@ -6,6 +6,7 @@
  * Fixed-height IDE-style layout: both panes scroll, the shell never jumps.
  */
 import { createZip, downloadFileFromContent } from "@valentinkolb/stdlib/browser";
+import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createResource, createSignal, Show } from "solid-js";
 import { dialogCore } from "../dialog-core";
 import { prompts } from "../prompts";
@@ -76,44 +77,38 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
     ];
   };
   const selectedEntry = () => allEntries().find((entry) => entry.path === selectedPath()) ?? null;
-  const pathWritable = (path: string) => !props.readOnly && Boolean(props.source.write) && !props.source.isReadOnly?.(path);
-
-  const run = async (work: () => Promise<void>) => {
-    try {
-      await work();
-      await refetch();
-    } catch (error) {
-      void prompts.error(error instanceof Error ? error.message : "File operation failed");
-    }
-  };
+  const fileMutation = mutation.create<void, () => Promise<void>>({
+    mutation: (work) => work(),
+    onSuccess: () => void refetch(),
+    onError: (error) => void prompts.error(error.message),
+  });
+  const pathWritable = (path: string) =>
+    !fileMutation.loading() && !props.readOnly && Boolean(props.source.write) && !props.source.isReadOnly?.(path);
+  const run = (work: () => Promise<void>) => void fileMutation.mutate(work);
 
   const removeFile = (path: string) =>
-    void (async () => {
+    run(async () => {
       const confirmed = await prompts.confirm(`Delete ${path}?`, { title: "Delete file", variant: "danger" });
       if (!confirmed) return;
-      await run(async () => {
-        await props.source.remove!(path);
-        if (selectedPath() === path) setSelectedPath(null);
-      });
-    })();
+      await props.source.remove!(path);
+      if (selectedPath() === path) setSelectedPath(null);
+    });
 
   const renameFile = (path: string, nextName: string) =>
-    void run(async () => {
+    run(async () => {
       const target = `${parentOf(path) === "/" ? "" : parentOf(path)}/${nextName}`;
       await props.source.rename!(path, target);
       if (selectedPath() === path) setSelectedPath(target);
     });
 
   const createFile = (dirPath: string) =>
-    void (async () => {
+    run(async () => {
       const name = await prompts.prompt("Name of the new file:", "", { title: "New file" });
       if (!name || typeof name !== "string" || !name.trim() || name.includes("/")) return;
       const path = `${dirPath === "/" ? "" : dirPath}/${name.trim()}`;
-      await run(async () => {
-        await props.source.write!(path, "");
-        setSelectedPath(path);
-      });
-    })();
+      await props.source.write!(path, "");
+      setSelectedPath(path);
+    });
 
   const createFolder = (dirPath: string) =>
     void (async () => {
@@ -128,11 +123,11 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
     uploadInputRef?.click();
   };
 
-  const onUploadPicked = (files: FileList | null) =>
-    void (async () => {
-      if (!files?.length) return;
-      await run(() => props.source.upload!(uploadDir, Array.from(files)));
-    })();
+  const onUploadPicked = (input: HTMLInputElement) => {
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    if (files.length > 0) run(() => props.source.upload!(uploadDir, files));
+  };
 
   const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
@@ -146,7 +141,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
 
   /** Move a file OR a whole folder subtree (per-file renames preserve the structure). */
   const moveEntry = (path: string, targetDir: string) =>
-    void run(async () => {
+    run(async () => {
       const destBase = `${targetDir === "/" ? "" : targetDir}/${baseName(path)}`;
       const files = filesBehind(path);
       if (files.length === 0) {
@@ -213,9 +208,11 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
   });
 
   const addMenuItems = () => [
-    ...(!props.readOnly && props.source.write ? [{ icon: "ti ti-file-plus", label: "New file", action: () => createFile("/") }] : []),
-    ...(!props.readOnly && props.source.write ? [{ icon: "ti ti-folder-plus", label: "New folder", action: () => createFolder("/") }] : []),
-    ...(!props.readOnly && props.source.upload ? [{ icon: "ti ti-upload", label: "Upload files", action: () => pickUpload("/") }] : []),
+    ...(pathWritable("/") ? [{ icon: "ti ti-file-plus", label: "New file", action: () => createFile("/") }] : []),
+    ...(pathWritable("/") ? [{ icon: "ti ti-folder-plus", label: "New folder", action: () => createFolder("/") }] : []),
+    ...(!fileMutation.loading() && !props.readOnly && props.source.upload
+      ? [{ icon: "ti ti-upload", label: "Upload files", action: () => pickUpload("/") }]
+      : []),
   ];
 
   return (
@@ -253,7 +250,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
             actions={treeActions()}
           />
         </Show>
-        <input ref={uploadInputRef} type="file" multiple class="hidden" onChange={(event) => onUploadPicked(event.currentTarget.files)} />
+        <input ref={uploadInputRef} type="file" multiple class="hidden" onChange={(event) => onUploadPicked(event.currentTarget)} />
       </div>
 
       <Show

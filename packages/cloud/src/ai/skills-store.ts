@@ -54,6 +54,8 @@ export type AiSkillTreeSnapshot = {
   files: Array<AiSkillFileStat & { bytes: Uint8Array }>;
 };
 
+export type AiSkillMountSnapshot = AiSkillTreeSnapshot & Pick<AiSkill, "allowCode" | "codeApprovedHash">;
+
 export type AiSkillTreeReplaceResult =
   | { ok: true; snapshot: AiSkillTreeSnapshot }
   | { ok: false; reason: "not_found" }
@@ -171,16 +173,6 @@ export const computeAiSkillContentHash = async (skillId: string): Promise<string
   return hashAiSkillFiles(rows.map((row) => ({ path: row.path, bytes: new Uint8Array(row.bytes ?? []) })));
 };
 
-/** Revoke a stale code approval after any content change. */
-const revokeCodeIfApproved = async (skill: AiSkill, actorUserId: string | null, reason: string): Promise<void> => {
-  if (!skill.allowCode) return;
-  await sql`
-    UPDATE ai.skills SET allow_code = FALSE, code_review_requested_at = NULL, updated_at = now()
-    WHERE id = ${skill.id}
-  `;
-  await recordEvent({ skillId: skill.id, skillSlug: skill.slug, actorUserId, event: "code_revoked", meta: { reason } });
-};
-
 export const aiSkillStore = {
   async create(input: { slug: string; ownerUserId: string | null; actorUserId: string | null }): Promise<AiSkill> {
     const rows = await sql<SkillRow[]>`
@@ -254,9 +246,21 @@ export const aiSkillStore = {
   },
 
   async readTree(skillId: string): Promise<AiSkillTreeSnapshot | null> {
+    const snapshot = await this.readMountSnapshot(skillId);
+    return snapshot ? { skillId: snapshot.skillId, contentHash: snapshot.contentHash, files: snapshot.files } : null;
+  },
+
+  /** Capture current approval state and tree bytes while content writers are locked out. */
+  async readMountSnapshot(skillId: string): Promise<AiSkillMountSnapshot | null> {
     return sql.begin(async (tx) => {
-      const skills = await tx<{ id: string }[]>`SELECT id FROM ai.skills WHERE id = ${skillId}`;
-      if (!skills[0]) return null;
+      const skills = await tx<Pick<SkillRow, "allow_code" | "code_approved_hash">[]>`
+        SELECT allow_code, code_approved_hash
+        FROM ai.skills
+        WHERE id = ${skillId}
+        FOR SHARE
+      `;
+      const skill = skills[0];
+      if (!skill) return null;
       const rows = await tx<{ path: string; bytes: Uint8Array; size: number; media_type: string; updated_at: Date | string }[]>`
         SELECT path, bytes, size, media_type, updated_at
         FROM ai.skill_files
@@ -270,7 +274,13 @@ export const aiSkillStore = {
         mediaType: row.media_type,
         updatedAt: iso(row.updated_at),
       }));
-      return { skillId, contentHash: hashAiSkillFiles(files), files };
+      return {
+        skillId,
+        allowCode: skill.allow_code,
+        codeApprovedHash: skill.code_approved_hash,
+        contentHash: hashAiSkillFiles(files),
+        files,
+      };
     });
   },
 
@@ -429,49 +439,70 @@ export const aiSkillStore = {
     if (input.bytes.byteLength > AI_SKILL_FILE_MAX_BYTES) {
       throw new Error(`Skill file exceeds the ${Math.floor(AI_SKILL_FILE_MAX_BYTES / (1024 * 1024))} MB limit.`);
     }
-    const totals = await sql<{ total: number | string }[]>`
-      SELECT COALESCE(SUM(size), 0) AS total FROM ai.skill_files WHERE skill_id = ${input.skillId} AND path <> ${input.path}
-    `;
-    if (Number(totals[0]?.total ?? 0) + input.bytes.byteLength > AI_SKILL_TOTAL_MAX_BYTES) {
-      throw new Error(`Skill exceeds the total size limit of ${Math.floor(AI_SKILL_TOTAL_MAX_BYTES / (1024 * 1024))} MB.`);
-    }
-    const skill = await this.get(input.skillId);
-    if (!skill) throw new Error("Skill not found.");
-
-    await sql`
-      INSERT INTO ai.skill_files (skill_id, path, bytes, media_type, size, updated_at)
-      VALUES (${input.skillId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "text/markdown"}, ${input.bytes.byteLength}, now())
-      ON CONFLICT (skill_id, path) DO UPDATE SET
-        bytes = EXCLUDED.bytes, media_type = EXCLUDED.media_type, size = EXCLUDED.size, updated_at = now()
-    `;
-    await sql`UPDATE ai.skills SET updated_at = now() WHERE id = ${input.skillId}`;
-    await recordEvent({
-      skillId: skill.id,
-      skillSlug: skill.slug,
-      actorUserId: input.actorUserId,
-      event: "updated",
-      meta: { path: input.path },
+    await sql.begin(async (tx) => {
+      const skills = await tx<SkillRow[]>`SELECT * FROM ai.skills WHERE id = ${input.skillId} FOR UPDATE`;
+      const skill = skills[0];
+      if (!skill) throw new Error("Skill not found.");
+      const totals = await tx<{ total: number | string }[]>`
+        SELECT COALESCE(SUM(size), 0) AS total FROM ai.skill_files WHERE skill_id = ${input.skillId} AND path <> ${input.path}
+      `;
+      if (Number(totals[0]?.total ?? 0) + input.bytes.byteLength > AI_SKILL_TOTAL_MAX_BYTES) {
+        throw new Error(`Skill exceeds the total size limit of ${Math.floor(AI_SKILL_TOTAL_MAX_BYTES / (1024 * 1024))} MB.`);
+      }
+      await tx`
+        INSERT INTO ai.skill_files (skill_id, path, bytes, media_type, size, updated_at)
+        VALUES (${input.skillId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "text/markdown"}, ${input.bytes.byteLength}, now())
+        ON CONFLICT (skill_id, path) DO UPDATE SET
+          bytes = EXCLUDED.bytes, media_type = EXCLUDED.media_type, size = EXCLUDED.size, updated_at = now()
+      `;
+      await tx`
+        UPDATE ai.skills
+        SET updated_at = now(),
+            allow_code = FALSE,
+            code_review_requested_at = CASE WHEN allow_code THEN NULL ELSE code_review_requested_at END
+        WHERE id = ${input.skillId}
+      `;
+      await tx`
+        INSERT INTO ai.skill_events (skill_id, skill_slug, actor_user_id, event, meta)
+        VALUES (${input.skillId}, ${skill.slug}, ${input.actorUserId}, 'updated', ${JSON.stringify({ path: input.path })}::jsonb)
+      `;
+      if (skill.allow_code) {
+        await tx`
+          INSERT INTO ai.skill_events (skill_id, skill_slug, actor_user_id, event, meta)
+          VALUES (${input.skillId}, ${skill.slug}, ${input.actorUserId}, 'code_revoked', ${JSON.stringify({ reason: "content_changed" })}::jsonb)
+        `;
+      }
     });
-    await revokeCodeIfApproved(skill, input.actorUserId, "content_changed");
   },
 
   async deleteFile(input: { skillId: string; path: string; actorUserId: string }): Promise<boolean> {
-    const skill = await this.get(input.skillId);
-    if (!skill) return false;
-    const rows = await sql<{ id: string }[]>`
-      DELETE FROM ai.skill_files WHERE skill_id = ${input.skillId} AND path = ${input.path} RETURNING id
-    `;
-    if (rows.length === 0) return false;
-    await sql`UPDATE ai.skills SET updated_at = now() WHERE id = ${input.skillId}`;
-    await recordEvent({
-      skillId: skill.id,
-      skillSlug: skill.slug,
-      actorUserId: input.actorUserId,
-      event: "updated",
-      meta: { deleted: input.path },
+    return sql.begin(async (tx) => {
+      const skills = await tx<SkillRow[]>`SELECT * FROM ai.skills WHERE id = ${input.skillId} FOR UPDATE`;
+      const skill = skills[0];
+      if (!skill) return false;
+      const rows = await tx<{ id: string }[]>`
+        DELETE FROM ai.skill_files WHERE skill_id = ${input.skillId} AND path = ${input.path} RETURNING id
+      `;
+      if (rows.length === 0) return false;
+      await tx`
+        UPDATE ai.skills
+        SET updated_at = now(),
+            allow_code = FALSE,
+            code_review_requested_at = CASE WHEN allow_code THEN NULL ELSE code_review_requested_at END
+        WHERE id = ${input.skillId}
+      `;
+      await tx`
+        INSERT INTO ai.skill_events (skill_id, skill_slug, actor_user_id, event, meta)
+        VALUES (${input.skillId}, ${skill.slug}, ${input.actorUserId}, 'updated', ${JSON.stringify({ deleted: input.path })}::jsonb)
+      `;
+      if (skill.allow_code) {
+        await tx`
+          INSERT INTO ai.skill_events (skill_id, skill_slug, actor_user_id, event, meta)
+          VALUES (${input.skillId}, ${skill.slug}, ${input.actorUserId}, 'code_revoked', ${JSON.stringify({ reason: "content_changed" })}::jsonb)
+        `;
+      }
+      return true;
     });
-    await revokeCodeIfApproved(skill, input.actorUserId, "content_changed");
-    return true;
   },
 
   // ── Per-user activation (consent) ───────────────────────────────────────
@@ -626,28 +657,31 @@ export const aiSkillStore = {
 
   /** Approve code execution — binds to the current content hash of the whole tree. */
   async approveCode(input: { skillId: string; approverUserId: string }): Promise<AiSkill | null> {
-    const skill = await this.get(input.skillId);
-    if (!skill) return null;
-    const hash = await computeAiSkillContentHash(input.skillId);
-    const rows = await sql<{ id: string }[]>`
-      UPDATE ai.skills
-      SET allow_code = TRUE,
-          code_approved_by = ${input.approverUserId},
-          code_approved_at = now(),
-          code_approved_hash = ${hash},
-          code_review_requested_at = NULL,
-          updated_at = now()
-      WHERE id = ${input.skillId}
-      RETURNING id
-    `;
-    await recordEvent({
-      skillId: skill.id,
-      skillSlug: skill.slug,
-      actorUserId: input.approverUserId,
-      event: "code_approved",
-      meta: { hash },
+    const approved = await sql.begin(async (tx) => {
+      const skills = await tx<SkillRow[]>`SELECT * FROM ai.skills WHERE id = ${input.skillId} FOR UPDATE`;
+      const skill = skills[0];
+      if (!skill) return false;
+      const rows = await tx<{ path: string; bytes: Uint8Array }[]>`
+        SELECT path, bytes FROM ai.skill_files WHERE skill_id = ${input.skillId} ORDER BY path ASC
+      `;
+      const hash = hashAiSkillFiles(rows.map((row) => ({ path: row.path, bytes: new Uint8Array(row.bytes ?? []) })));
+      await tx`
+        UPDATE ai.skills
+        SET allow_code = TRUE,
+            code_approved_by = ${input.approverUserId},
+            code_approved_at = now(),
+            code_approved_hash = ${hash},
+            code_review_requested_at = NULL,
+            updated_at = now()
+        WHERE id = ${input.skillId}
+      `;
+      await tx`
+        INSERT INTO ai.skill_events (skill_id, skill_slug, actor_user_id, event, meta)
+        VALUES (${input.skillId}, ${skill.slug}, ${input.approverUserId}, 'code_approved', ${JSON.stringify({ hash })}::jsonb)
+      `;
+      return true;
     });
-    return rows[0] ? this.get(input.skillId) : null;
+    return approved ? this.get(input.skillId) : null;
   },
 
   async revokeCode(input: { skillId: string; actorUserId: string }): Promise<void> {

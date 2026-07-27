@@ -184,12 +184,12 @@ function PanelDialogTabs<T extends string>(props: PanelDialogTabsProps<T>) {
   const surface = usePanelDialogSurface();
   return (
     <div
-      role="tablist"
+      role="group"
       aria-label={props.ariaLabel ?? "Dialog tabs"}
       class={
         surface === "floating"
-          ? "panel-dialog-tabs paper flex shrink-0 items-center gap-1 overflow-x-auto p-1.5"
-          : // No divider line — the active-tab tint and spacing carry the separation.
+          ? "panel-dialog-tabs flex shrink-0 items-center gap-1 overflow-x-auto p-1.5"
+          : // No divider line — selected text emphasis and spacing carry the separation.
             "panel-dialog-tabs flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1.5"
       }
     >
@@ -199,13 +199,8 @@ function PanelDialogTabs<T extends string>(props: PanelDialogTabsProps<T>) {
           return (
             <button
               type="button"
-              role="tab"
-              aria-selected={active()}
-              class={`flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] px-2.5 text-xs font-medium transition-colors ${
-                active()
-                  ? "bg-blue-50 text-blue-700 dark:bg-blue-950/35 dark:text-blue-200"
-                  : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
-              }`}
+              aria-pressed={active()}
+              class="focus-ui flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] bg-transparent px-2.5 text-xs font-medium shadow-none transition-colors"
               onClick={() => props.onChange(option.value)}
             >
               {option.icon && <i class={`${option.icon} text-sm`} />}

@@ -41,6 +41,14 @@ export const normalizeAiFilePath = (path: string): string | null => {
   return `/${segments.join("/")}`;
 };
 
+export const decodeAiFileContent = (content: string, encoding: "utf8" | "base64"): Uint8Array => {
+  if (encoding === "utf8") return new TextEncoder().encode(content);
+  if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) throw new Error("Invalid base64 file content.");
+  const bytes = Buffer.from(content, "base64");
+  if (bytes.toString("base64") !== content) throw new Error("Invalid base64 file content.");
+  return new Uint8Array(bytes);
+};
+
 const MEDIA_TYPES: Record<string, string> = {
   txt: "text/plain",
   md: "text/markdown",

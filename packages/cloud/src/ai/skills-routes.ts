@@ -12,9 +12,9 @@
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { hasRole, type User } from "../contracts/shared";
-import { type AuthContext, auth, err, fail, ok, rateLimit, respond, v } from "../server";
+import { type ApiErrorResponse, type AuthContext, auth, err, fail, ok, rateLimit, respond, v } from "../server";
 import { PERMISSION_LEVELS, type Principal, updateAccess } from "../server/services/access";
-import { guessAiMediaType, normalizeAiFilePath } from "./files-store";
+import { decodeAiFileContent, guessAiMediaType, normalizeAiFilePath } from "./files-store";
 import { AI_SKILL_SLUG_RE, type AiSkill, aiSkillStore } from "./skills-store";
 
 const SKILL_STARTER_TEMPLATE = (slug: string, description: string) => `---
@@ -109,14 +109,6 @@ const EventsQuerySchema = z.object({
 const isTextMediaType = (mediaType: string): boolean =>
   mediaType.startsWith("text/") || ["application/json", "application/yaml", "application/xml", "image/svg+xml"].includes(mediaType);
 
-const decodeTreeFile = (content: string, encoding: "utf8" | "base64"): Uint8Array => {
-  if (encoding === "utf8") return new TextEncoder().encode(content);
-  if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) throw new Error("Invalid base64 skill file content.");
-  const bytes = Buffer.from(content, "base64");
-  if (bytes.toString("base64") !== content) throw new Error("Invalid base64 skill file content.");
-  return new Uint8Array(bytes);
-};
-
 const requestUser = (c: Context<AuthContext>): User | null => {
   const actor = c.get("actor");
   if (!actor) return null;
@@ -134,17 +126,19 @@ const isSkillVisibleTo = async (skill: AiSkill, user: User): Promise<boolean> =>
 
 export const createAiSkillsRoutes = () => {
   /** Load skill + user, enforcing visibility; managed=true additionally requires manage rights. */
-  const loadSkill = async (c: Context<AuthContext>, options?: { manage?: boolean }): Promise<{ skill: AiSkill; user: User } | Response> => {
+  const loadSkill = async (
+    c: Context<AuthContext>,
+    options?: { manage?: boolean },
+  ): Promise<{ skill: AiSkill; user: User } | ApiErrorResponse> => {
     const user = requestUser(c);
-    if (!user) return (await respond(c, fail(err.forbidden("Skills require a user-backed actor")))) as unknown as Response;
+    if (!user) return respond(c, fail(err.forbidden("Skills require a user-backed actor")));
     const skill = await aiSkillStore.get(c.req.param("skillId") ?? "");
-    if (!skill) return (await respond(c, fail(err.notFound("Skill")))) as unknown as Response;
+    if (!skill) return respond(c, fail(err.notFound("Skill")));
     if (options?.manage) {
-      if (!canManageSkill(skill, user))
-        return (await respond(c, fail(err.forbidden("You cannot manage this skill")))) as unknown as Response;
+      if (!canManageSkill(skill, user)) return respond(c, fail(err.forbidden("You cannot manage this skill")));
     } else if (!(await isSkillVisibleTo(skill, user)) || (!skill.enabled && !canManageSkill(skill, user))) {
       // Admin-disabled skills are fully gone for users — not "visible but off".
-      return (await respond(c, fail(err.notFound("Skill")))) as unknown as Response;
+      return respond(c, fail(err.notFound("Skill")));
     }
     return { skill, user };
   };
@@ -230,6 +224,7 @@ export const createAiSkillsRoutes = () => {
         if (loaded instanceof Response) return loaded;
         const input = c.req.valid("json");
         const skill = await aiSkillStore.update({ skillId: loaded.skill.id, ...input, actorUserId: loaded.user.id });
+        if (!skill) return respond(c, fail(err.notFound("Skill")));
         return respond(c, ok({ skill }));
       })
       .delete("/:skillId", async (c) => {
@@ -273,7 +268,7 @@ export const createAiSkillsRoutes = () => {
             actorUserId: loaded.user.id,
             files: input.files.map((file) => ({
               path: file.path,
-              bytes: decodeTreeFile(file.content, file.encoding),
+              bytes: decodeAiFileContent(file.content, file.encoding),
               mediaType: file.mediaType ?? guessAiMediaType(file.path),
             })),
           });
@@ -317,9 +312,8 @@ export const createAiSkillsRoutes = () => {
         const input = c.req.valid("json");
         const path = normalizeAiFilePath(input.path);
         if (!path) return respond(c, fail(err.badInput("Invalid file path")));
-        const bytes =
-          input.encoding === "base64" ? new Uint8Array(Buffer.from(input.content, "base64")) : new TextEncoder().encode(input.content);
         try {
+          const bytes = decodeAiFileContent(input.content, input.encoding);
           await aiSkillStore.writeFile({
             skillId: loaded.skill.id,
             path,
@@ -408,6 +402,7 @@ export const createAiSkillsRoutes = () => {
           return respond(c, fail(err.badInput("Only workspace skills can run code — user skills are content-only.")));
         }
         const skill = await aiSkillStore.approveCode({ skillId: loaded.skill.id, approverUserId: loaded.user.id });
+        if (!skill) return respond(c, fail(err.notFound("Skill")));
         return respond(c, ok({ skill }));
       })
       .post("/:skillId/code-revoke", auth.requireRole("admin"), async (c) => {

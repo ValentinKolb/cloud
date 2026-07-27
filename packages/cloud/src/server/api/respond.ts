@@ -9,15 +9,16 @@ type LegacyResult<T = void> = { ok: true; data: T } | LegacyErrorResult;
 type AnyResult<T = unknown> = Result<T> | LegacyResult<T>;
 type ResultOrFn<T> = T | Promise<T> | (() => T | Promise<T>);
 type SuccessStatus = 200 | 201;
-type ErrorStatus = ServiceError["status"] | LegacyErrorStatus;
-type JsonTypedResponse<T, Status extends StatusCode> = TypedResponse<T, Status, "json">;
+export type ApiErrorStatus = ServiceError["status"] | LegacyErrorStatus;
+type JsonTypedResponse<T, Status extends StatusCode> = Response & TypedResponse<T, Status, "json">;
 
-type ErrorResponseBody = {
+export type ApiErrorBody = {
   message: string;
   code?: string;
 };
+export type ApiErrorResponse = JsonTypedResponse<ApiErrorBody, ApiErrorStatus>;
 
-const toErrorResponse = (result: AnyResult): [ErrorResponseBody, number] => {
+const toErrorResponse = (result: AnyResult): [ApiErrorBody, number] => {
   if (result.ok) {
     throw new Error("toErrorResponse called with successful result");
   }
@@ -46,7 +47,7 @@ export async function respond<E extends ServiceError>(
   c: Context,
   resultOrFn: ResultOrFn<Result<never, E>>,
   successStatus?: SuccessStatus,
-): Promise<JsonTypedResponse<ErrorResponseBody, E["status"]>>;
+): Promise<JsonTypedResponse<ApiErrorBody, E["status"]>>;
 export async function respond<T>(
   c: Context,
   resultOrFn: ResultOrFn<Result<T, never>>,
@@ -56,27 +57,27 @@ export async function respond<T, E extends ServiceError>(
   c: Context,
   resultOrFn: ResultOrFn<Result<T, E>>,
   successStatus?: SuccessStatus,
-): Promise<JsonTypedResponse<T, SuccessStatus> | JsonTypedResponse<ErrorResponseBody, E["status"]>>;
+): Promise<JsonTypedResponse<T, SuccessStatus> | JsonTypedResponse<ApiErrorBody, E["status"]>>;
 export async function respond<S extends LegacyErrorStatus>(
   c: Context,
   resultOrFn: ResultOrFn<LegacyErrorResult<S>>,
   successStatus?: SuccessStatus,
-): Promise<JsonTypedResponse<ErrorResponseBody, S>>;
+): Promise<JsonTypedResponse<ApiErrorBody, S>>;
 export async function respond<T>(
   c: Context,
   resultOrFn: ResultOrFn<AnyResult<T>>,
   successStatus?: SuccessStatus,
-): Promise<JsonTypedResponse<T, SuccessStatus> | JsonTypedResponse<ErrorResponseBody, ErrorStatus>>;
+): Promise<JsonTypedResponse<T, SuccessStatus> | ApiErrorResponse>;
 export async function respond<T>(
   c: Context,
   resultOrFn: ResultOrFn<AnyResult<T>>,
   successStatus: SuccessStatus = 200,
-): Promise<JsonTypedResponse<T, SuccessStatus> | JsonTypedResponse<ErrorResponseBody, ErrorStatus>> {
+): Promise<JsonTypedResponse<T, SuccessStatus> | ApiErrorResponse> {
   const result = typeof resultOrFn === "function" ? await resultOrFn() : await resultOrFn;
 
   if (!result.ok) {
     const [body, status] = toErrorResponse(result);
-    return c.json(body, status as 400 | 401 | 403 | 404 | 409 | 413 | 500) as JsonTypedResponse<ErrorResponseBody, ErrorStatus>;
+    return c.json(body, status as 400 | 401 | 403 | 404 | 409 | 413 | 500) as ApiErrorResponse;
   }
 
   return c.json(result.data, successStatus as 200 | 201) as JsonTypedResponse<T, SuccessStatus>;
