@@ -15,9 +15,10 @@ import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
 import MailComposeSettings from "./MailComposeSettings";
+import { MailConnectionSettings } from "./MailConnectionSettings";
 import MailFolderSettings from "./MailFolderSettings";
+import { MailIdentitySettings } from "./MailIdentitySettings";
 import MailOrganizationSettings from "./MailOrganizationSettings";
-import { MailConnectionSettings, MailIdentitySettings } from "./MailProviderSettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
 
 const normalizeInitialTab = (tab: string | undefined, canWrite: boolean, canAdmin: boolean): string => {

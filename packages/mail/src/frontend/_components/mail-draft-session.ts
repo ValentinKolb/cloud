@@ -2,9 +2,14 @@ import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { AcquiredDraftLease, DraftEditableContent, DraftIntent, MailDraft } from "../../contracts";
 import { readApiError } from "./api-response";
-import { type MailDraftJournal, promoteMailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
+import {
+  advanceMailDraftJournalAfterSave,
+  type MailDraftJournal,
+  promoteMailDraftJournal,
+  readMailDraftJournal,
+} from "./mail-draft-journal";
 
-export type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
+type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
 
 export type ComposerSeed = {
   intent: DraftIntent;
@@ -56,6 +61,19 @@ const journalKey = (mailboxId: string, draftId: string): string => `cloud:mail:d
 const pendingJournalKey = (mailboxId: string, seed?: ComposerSeed): string =>
   `cloud:mail:draft:${mailboxId}:pending:${seed?.conversationId ?? "new"}:${seed?.sourceMessageId ?? "new"}:${seed?.intent ?? "new"}`;
 
+const draftEditableContent = (draft: MailDraft): DraftEditableContent => ({
+  senderIdentityId: draft.senderIdentityId,
+  to: draft.to,
+  cc: draft.cc,
+  bcc: draft.bcc,
+  subject: draft.subject,
+  body: draft.body,
+  format: draft.format,
+  priority: draft.priority,
+  requestDeliveryReceipt: draft.requestDeliveryReceipt,
+  requestReadReceipt: draft.requestReadReceipt,
+});
+
 export const createMailDraftSession = (options: {
   mailboxId: string;
   initialDraft?: MailDraft | null;
@@ -74,6 +92,7 @@ export const createMailDraftSession = (options: {
   const [initialized, setInitialized] = createSignal(false);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let heartbeatGeneration = 0;
   let initializePromise: Promise<MailDraft | null> | null = null;
   let lastSavedContent = "";
   const pendingKey = pendingJournalKey(options.mailboxId, options.seed);
@@ -83,6 +102,7 @@ export const createMailDraftSession = (options: {
   const serializedContent = () => JSON.stringify(options.content());
   const draftKey = (draftId: string) => journalKey(options.mailboxId, draftId);
   const stopHeartbeat = () => {
+    heartbeatGeneration += 1;
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
   };
@@ -137,13 +157,14 @@ export const createMailDraftSession = (options: {
 
   const startHeartbeat = () => {
     stopHeartbeat();
+    const generation = heartbeatGeneration;
     heartbeatTimer = setTimeout(async () => {
       heartbeatTimer = null;
       const activeDraft = draft();
       const activeLease = lease();
       if (!activeDraft || !activeLease) return;
       const heartbeat = await heartbeatLease(activeDraft, activeLease);
-      if (options.isDisposed()) return;
+      if (options.isDisposed() || generation !== heartbeatGeneration) return;
       if (heartbeat.kind === "unavailable") {
         setStatus("readonly");
         setStatusMessage("Connection lost. Retry to resume editing.");
@@ -200,7 +221,6 @@ export const createMailDraftSession = (options: {
     let currentDraft = draft();
     const isExistingDraft = Boolean(currentDraft);
     let submittedContent: DraftEditableContent | null = null;
-    let serverContent: DraftEditableContent | null = null;
     if (!currentDraft) {
       setStatusMessage("Preparing draft...");
       submittedContent = options.content();
@@ -216,50 +236,28 @@ export const createMailDraftSession = (options: {
       });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to create draft"));
       currentDraft = await response.json();
-      if (options.isDisposed()) return null;
-      const currentContent = options.content();
+      const currentContent = options.isDisposed()
+        ? (readMailDraftJournal(localStorage, pendingKey)?.content ?? submittedContent)
+        : options.content();
       const mergedContent = mergeCreatedDraftContent(currentContent, submittedContent, currentDraft);
-      if (mergedContent) options.applyDraftContent(mergedContent);
-      serverContent = {
-        senderIdentityId: currentDraft.senderIdentityId,
-        to: currentDraft.to,
-        cc: currentDraft.cc,
-        bcc: currentDraft.bcc,
-        subject: currentDraft.subject,
-        body: currentDraft.body,
-        format: currentDraft.format,
-        priority: currentDraft.priority,
-        requestDeliveryReceipt: currentDraft.requestDeliveryReceipt,
-        requestReadReceipt: currentDraft.requestReadReceipt,
-      };
-    }
-    if (options.isDisposed()) return null;
-    const acquired = await acquireLease(currentDraft);
-    if (options.isDisposed()) return null;
-    if (submittedContent && serverContent) {
+      if (mergedContent && !options.isDisposed()) options.applyDraftContent(mergedContent);
+      const serverContent = draftEditableContent(currentDraft);
       promoteMailDraftJournal({
         storage: localStorage,
         pendingKey,
         draftKey: draftKey(currentDraft.id),
         revision: currentDraft.revision,
         submittedContent,
-        currentContent: options.content(),
+        currentContent: mergedContent ?? currentContent,
         serverContent,
       });
+      if (options.isDisposed()) return currentDraft;
     }
+    if (options.isDisposed()) return null;
+    const acquired = await acquireLease(currentDraft);
+    if (options.isDisposed()) return null;
     const recovered = recoverJournal(draftKey(currentDraft.id), currentDraft.revision);
-    lastSavedContent = JSON.stringify({
-      senderIdentityId: currentDraft.senderIdentityId,
-      to: currentDraft.to,
-      cc: currentDraft.cc,
-      bcc: currentDraft.bcc,
-      subject: currentDraft.subject,
-      body: currentDraft.body,
-      format: currentDraft.format,
-      priority: currentDraft.priority,
-      requestDeliveryReceipt: currentDraft.requestDeliveryReceipt,
-      requestReadReceipt: currentDraft.requestReadReceipt,
-    });
+    lastSavedContent = JSON.stringify(draftEditableContent(currentDraft));
     setDraft(currentDraft);
     setInitialized(true);
     if (acquired) {
@@ -305,8 +303,8 @@ export const createMailDraftSession = (options: {
         param: { mailboxId: options.mailboxId, draftId: currentDraft.id },
         json: { expectedRevision: currentDraft.revision, draft: nextContent },
       });
-      if (options.isDisposed()) return null;
       if (!response.ok) {
+        if (options.isDisposed()) return null;
         const message = await readApiError(response, "Draft could not be saved");
         setStatus("error");
         setStatusMessage(message);
@@ -323,9 +321,15 @@ export const createMailDraftSession = (options: {
         return null;
       }
       const saved = await response.json();
+      advanceMailDraftJournalAfterSave({
+        storage: localStorage,
+        key: draftKey(saved.id),
+        revision: saved.revision,
+        savedContent: nextContent,
+      });
+      if (options.isDisposed()) return saved;
       setDraft(saved);
       lastSavedContent = serialized;
-      localStorage.removeItem(draftKey(saved.id));
       setStatus("saved");
       setStatusMessage("");
       return saved;
@@ -337,9 +341,11 @@ export const createMailDraftSession = (options: {
     const currentLease = lease();
     if (options.isDisposed() || !currentDraft) return;
     if (!currentLease) return void (await ensureDraft());
+    stopHeartbeat();
+    const generation = heartbeatGeneration;
     setStatus("preparing");
     const heartbeat = await heartbeatLease(currentDraft, currentLease);
-    if (options.isDisposed()) return;
+    if (options.isDisposed() || generation !== heartbeatGeneration) return;
     if (heartbeat.kind === "ok") {
       setLease(heartbeat.lease);
       setStatus("saved");

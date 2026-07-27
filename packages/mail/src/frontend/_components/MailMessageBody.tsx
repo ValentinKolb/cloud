@@ -12,7 +12,6 @@ import {
   rewriteRemoteImageSources,
   splitPlainMessageSegments,
 } from "./mail-message-presentation";
-import { mergeMailRemoteImageUrls } from "./mail-remote-image-batch";
 
 const MAX_INLINE_IMAGE_COUNT = 32;
 const MAX_INLINE_IMAGE_BYTES = 25 * 1024 * 1024;
@@ -96,6 +95,7 @@ export default function MailMessageBody(props: {
   const [remoteLoading, setRemoteLoading] = createSignal(false);
   let frame: HTMLIFrameElement | undefined;
   let remoteController: AbortController | null = null;
+  let remoteFlushTimer: ReturnType<typeof setTimeout> | null = null;
   let remoteLoadedBytes = 0;
   let disposed = false;
   const remoteObjectUrls = new Set<string>();
@@ -118,8 +118,20 @@ export default function MailMessageBody(props: {
     setRemoteLoading(true);
     const pending = remoteImageIds().filter((id) => !remoteUrls().has(id));
     const loaded: Array<[string, string]> = [];
+    let loadedCount = 0;
     let budgetExhausted = false;
     let cursor = 0;
+    const flushLoaded = () => {
+      if (remoteFlushTimer) clearTimeout(remoteFlushTimer);
+      remoteFlushTimer = null;
+      if (loaded.length === 0 || disposed || controller.signal.aborted) return;
+      const batch = loaded.splice(0);
+      setRemoteUrls((current) => new Map([...current, ...batch]));
+    };
+    const scheduleFlush = () => {
+      if (remoteFlushTimer) return;
+      remoteFlushTimer = setTimeout(flushLoaded, 150);
+    };
     const worker = async () => {
       while (!controller.signal.aborted && !budgetExhausted) {
         const index = cursor;
@@ -142,6 +154,8 @@ export default function MailMessageBody(props: {
           const objectUrl = URL.createObjectURL(blob);
           remoteObjectUrls.add(objectUrl);
           loaded.push([imageId, objectUrl]);
+          loadedCount += 1;
+          scheduleFlush();
         } catch (error) {
           if (!disposed && !controller.signal.aborted) {
             console.warn("Could not load remote email image", error);
@@ -153,10 +167,8 @@ export default function MailMessageBody(props: {
     };
     try {
       await Promise.all(Array.from({ length: Math.min(REMOTE_IMAGE_WORKERS, pending.length) }, worker));
-      if (loaded.length > 0 && !disposed && !controller.signal.aborted) {
-        setRemoteUrls((current) => mergeMailRemoteImageUrls(current, loaded));
-      }
-      if (loaded.length === 0 && !disposed && !controller.signal.aborted) {
+      flushLoaded();
+      if (loadedCount === 0 && !disposed && !controller.signal.aborted) {
         void prompts.error("The remote images could not be loaded safely.");
       } else if (budgetExhausted && !disposed && !controller.signal.aborted) {
         void prompts.error("Some remote images were not loaded because this message exceeds the safe image limit.");
@@ -236,6 +248,8 @@ export default function MailMessageBody(props: {
       controller.abort();
       allowRemoteContent.abort();
       remoteController?.abort();
+      if (remoteFlushTimer) clearTimeout(remoteFlushTimer);
+      remoteFlushTimer = null;
       for (const url of objectUrls) URL.revokeObjectURL(url);
       for (const url of remoteObjectUrls) URL.revokeObjectURL(url);
       objectUrls.clear();

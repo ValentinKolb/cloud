@@ -109,6 +109,12 @@ suite("reversible mailbox lifecycle", () => {
       permission: "read",
     });
     expect(reader.ok).toBe(true);
+    const literalMatch = await listMailboxes(ownerContext, 100, undefined, `reversible ${suffix}`);
+    expect(literalMatch.ok && literalMatch.data.some((mailbox) => mailbox.id === mailboxId)).toBe(true);
+    const wildcardText = await listMailboxes(ownerContext, 100, undefined, `%Reversible ${suffix}%`);
+    expect(wildcardText.ok && wildcardText.data.some((mailbox) => mailbox.id === mailboxId)).toBe(false);
+    const singleCharacterWildcard = await listMailboxes(ownerContext, 100, undefined, "_");
+    expect(singleCharacterWildcard.ok && singleCharacterWildcard.data.some((mailbox) => mailbox.id === mailboxId)).toBe(false);
 
     const [resource] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_resources (

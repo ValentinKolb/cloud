@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { DraftEditableContent } from "../../contracts";
-import { promoteMailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
+import { advanceMailDraftJournalAfterSave, promoteMailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
 
 const content = (body: string): DraftEditableContent => ({
   senderIdentityId: "00000000-0000-4000-8000-000000000001",
@@ -25,6 +25,39 @@ const storage = () => {
 };
 
 describe("mail draft journals", () => {
+  test("advances newer local changes to the saved server revision", () => {
+    const target = storage();
+    target.setItem("draft", JSON.stringify({ revision: 4, content: content("newer local edit") }));
+
+    expect(
+      advanceMailDraftJournalAfterSave({
+        storage: target,
+        key: "draft",
+        revision: 5,
+        savedContent: content("submitted save"),
+      }),
+    ).toBe(true);
+    expect(readMailDraftJournal(target, "draft")).toEqual({
+      revision: 5,
+      content: content("newer local edit"),
+    });
+  });
+
+  test("removes a journal once its exact content is saved", () => {
+    const target = storage();
+    target.setItem("draft", JSON.stringify({ revision: 4, content: content("saved") }));
+
+    expect(
+      advanceMailDraftJournalAfterSave({
+        storage: target,
+        key: "draft",
+        revision: 5,
+        savedContent: content("saved"),
+      }),
+    ).toBe(false);
+    expect(target.getItem("draft")).toBeNull();
+  });
+
   test("promotes current content to the canonical draft key", () => {
     const target = storage();
     target.setItem("pending", JSON.stringify({ revision: 0, content: content("edited before lease") }));

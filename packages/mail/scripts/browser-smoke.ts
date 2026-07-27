@@ -23,6 +23,7 @@ const TIMEOUT = Number(process.env.BROWSER_SMOKE_TIMEOUT_MS ?? 20_000);
 type Fixture = {
   sessionToken: string;
   mailboxId: string;
+  mailboxName: string;
   conversationId: string;
   messageId: string;
   subject: string;
@@ -33,6 +34,13 @@ let createdMailboxId: string | null = null;
 const ok = (message: string) => console.log(`✓ ${message}`);
 const fail = (message: string): never => {
   throw new Error(message);
+};
+
+const assertLocalTarget = () => {
+  const url = new URL(BASE_URL);
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+    fail(`browser smoke only runs against a local loopback URL, received ${url.origin}`);
+  }
 };
 
 const api = async <T>(
@@ -49,6 +57,7 @@ const api = async <T>(
       ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(TIMEOUT),
   });
   const text = await response.text();
   if (response.status !== expected) {
@@ -68,11 +77,12 @@ const createFixture = async (): Promise<Fixture> => {
   const sessionToken = await login();
   const suffix = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
   const subject = `Mail browser smoke ${suffix}`;
+  const mailboxName = `Mail browser smoke ${suffix}`;
   const mailbox = await api<{ id: string }>(
     "POST",
     "/api/mail/mailboxes",
     {
-      name: `Mail browser smoke ${suffix}`,
+      name: mailboxName,
       description: "Disposable browser regression fixture",
     },
     sessionToken,
@@ -219,6 +229,7 @@ const createFixture = async (): Promise<Fixture> => {
   return {
     sessionToken,
     mailboxId: mailbox.id,
+    mailboxName,
     conversationId: conversation.id,
     messageId,
     subject,
@@ -285,6 +296,22 @@ const runSmoke = async (fixture: Fixture) => {
 
   try {
     const mailboxPath = `/app/mail/${fixture.mailboxId}`;
+    await page.goto(`/app/mail?q=${encodeURIComponent(fixture.mailboxName)}`, { waitUntil: "domcontentloaded" });
+    await page.getByText(fixture.mailboxName, { exact: true }).waitFor();
+    await page.waitForFunction(
+      () =>
+        typeof (document.querySelector('[aria-label="Search mailboxes"]') as HTMLInputElement & { $$input?: unknown })?.$$input ===
+        "function",
+    );
+    const mailboxSearch = page.getByRole("searchbox", { name: "Search mailboxes" });
+    const literalWildcardQuery = `%${fixture.mailboxName}%`;
+    await mailboxSearch.fill(literalWildcardQuery);
+    await expectUrl(page, (url) => url.searchParams.get("q") === literalWildcardQuery, "mailbox search updates the URL");
+    await page.getByText("No matching mailboxes", { exact: true }).waitFor();
+    await mailboxSearch.fill(fixture.mailboxName);
+    await page.getByText(fixture.mailboxName, { exact: true }).waitFor();
+    ok("mailbox search uses server-owned literal matching");
+
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
     const conversation = page.getByTitle(new RegExp(`${fixture.subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
     await conversation.waitFor({ state: "visible" });
@@ -356,6 +383,23 @@ const runSmoke = async (fixture: Fixture) => {
     );
     await page.getByText(fixture.subject, { exact: true }).first().waitFor();
 
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    await continueDraft(page);
+    await body.waitFor({ state: "visible" });
+    const sendResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && /\/api\/mail\/mailboxes\/[^/]+\/commands$/.test(new URL(response.url()).pathname),
+    );
+    await page.getByRole("button", { name: "Reply", exact: true }).last().click();
+    const sendAnyway = page.getByRole("button", { name: "Send anyway", exact: true });
+    await sendAnyway
+      .waitFor({ state: "visible", timeout: 1_000 })
+      .then(() => sendAnyway.click())
+      .catch(() => undefined);
+    await sendResponse;
+    await body.waitFor({ state: "detached" });
+    ok("saved reply queues and closes without stale reactive access");
+
     if (errors.length > 0) fail(`browser errors:\n${errors.join("\n")}`);
     ok("browser smoke complete");
   } finally {
@@ -367,23 +411,54 @@ const runSmoke = async (fixture: Fixture) => {
 const cleanup = async (fixture: Fixture | null) => {
   const mailboxId = fixture?.mailboxId ?? createdMailboxId;
   if (!mailboxId || KEEP) return;
-  await sql`
-    DELETE FROM mail.mailboxes
-    WHERE id = ${mailboxId}::uuid
-  `;
+  await sql.begin(async (tx) => {
+    const accessRows = await tx<{ access_id: string }[]>`
+      SELECT access_id
+      FROM mail.mailbox_access
+      WHERE mailbox_id = ${mailboxId}::uuid
+    `;
+    await tx`
+      DELETE FROM mail.mailboxes
+      WHERE id = ${mailboxId}::uuid
+    `;
+    for (const access of accessRows) {
+      await tx`
+        DELETE FROM auth.access
+        WHERE id = ${access.access_id}::uuid
+      `;
+    }
+    const [remainingMailbox] = await tx<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM mail.mailboxes
+      WHERE id = ${mailboxId}::uuid
+    `;
+    if (!remainingMailbox || remainingMailbox.count !== 0) fail(`fixture cleanup incomplete for mailbox ${mailboxId}`);
+    for (const access of accessRows) {
+      const [remainingAccess] = await tx<{ count: number }[]>`
+        SELECT count(*)::int AS count
+        FROM auth.access
+        WHERE id = ${access.access_id}::uuid
+      `;
+      if (!remainingAccess || remainingAccess.count !== 0) {
+        fail(`fixture cleanup incomplete for access ${access.access_id}`);
+      }
+    }
+  });
   createdMailboxId = null;
   ok("fixture removed");
 };
 
 let fixture: Fixture | null = null;
 try {
+  assertLocalTarget();
   fixture = await createFixture();
   await runSmoke(fixture);
 } catch (error) {
   console.error(`\nMail browser smoke failed: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 } finally {
-  await cleanup(fixture).catch((error) =>
-    console.warn(`fixture cleanup failed: ${error instanceof Error ? error.message : String(error)}`),
-  );
+  await cleanup(fixture).catch((error) => {
+    console.error(`fixture cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
 }

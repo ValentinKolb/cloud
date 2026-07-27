@@ -24,7 +24,7 @@ const statusIcon = (item: MailListItem): string | null => {
 const correspondentLabels = (item: MailListItem): string[] =>
   item.participantLabels.length > 0 ? item.participantLabels : [item.participantSummary || "Unknown sender"];
 
-export type MailConversationRowState = {
+type MailConversationRowState = {
   selectedConversationId: string | null;
   selectedMessageId: string | null;
   selectedConversationIds: ReadonlySet<string>;
@@ -34,7 +34,7 @@ export type MailConversationRowState = {
   dateConfig: DateContext;
 };
 
-export type MailConversationRowActions = {
+type MailConversationRowActions = {
   navigate: (href: string, item: MailListItem, activation: "keyboard" | "pointer") => void | Promise<void>;
   toggleSelection: (item: MailListItem, range: boolean) => void;
   itemAction: (item: MailListItem, actionId: MailActionId) => void | Promise<void>;

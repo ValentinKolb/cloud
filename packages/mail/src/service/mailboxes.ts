@@ -309,7 +309,7 @@ export const listMailboxes = async (
     if (normalizedExactName && mailbox.data.name !== normalizedExactName) return ok([]);
     if (
       normalizedSearch &&
-      !`${mailbox.data.name} ${mailbox.data.description ?? ""}`.toLocaleLowerCase().includes(normalizedSearch.toLocaleLowerCase())
+      !`${mailbox.data.name} ${mailbox.data.description ?? ""}`.toLowerCase().includes(normalizedSearch.toLowerCase())
     ) {
       return ok([]);
     }
@@ -336,8 +336,8 @@ export const listMailboxes = async (
       AND (${normalizedExactName}::text IS NULL OR m.name = ${normalizedExactName})
       AND (
         ${normalizedSearch}::text IS NULL
-        OR m.name ILIKE '%' || ${normalizedSearch} || '%'
-        OR coalesce(m.description, '') ILIKE '%' || ${normalizedSearch} || '%'
+        OR strpos(lower(m.name), lower(${normalizedSearch})) > 0
+        OR strpos(lower(coalesce(m.description, '')), lower(${normalizedSearch})) > 0
       )
     ORDER BY m.updated_at DESC, m.id DESC
     LIMIT ${boundedLimit}

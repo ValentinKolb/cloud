@@ -20,7 +20,7 @@ To: ${message.to.map(formatAddress).join(", ") || "Undisclosed recipients"}
 
 ${message.forwardText}`;
 
-export type MailMessageCardContext = {
+type MailMessageCardContext = {
   mailboxId: string;
   requestUrl: string;
   canWrite: boolean;
@@ -34,7 +34,7 @@ export type MailMessageCardContext = {
   composerBusy: boolean;
 };
 
-export type MailMessageCardActions = {
+type MailMessageCardActions = {
   toggle: (messageId: string) => void;
   selectionChange: (messageId: string, value: string) => void;
   compose: (intent: DraftIntent, message: MessageDetail, quotedBody?: string) => void;

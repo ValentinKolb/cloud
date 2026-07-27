@@ -1,9 +1,9 @@
-export type PlainMessageSegment = {
+type PlainMessageSegment = {
   kind: "content" | "quote";
   text: string;
 };
 
-export { type AttachmentPreviewKind, attachmentPreviewKind } from "../../attachment-preview-policy";
+export { attachmentPreviewKind } from "../../attachment-preview-policy";
 
 const QUOTED_LINE = /^\s*>/u;
 const CID_SOURCE = /\bsrc=(["'])cid:([^"']+)\1/giu;

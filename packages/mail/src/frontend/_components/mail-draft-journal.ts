@@ -21,6 +21,21 @@ export const readMailDraftJournal = (storage: DraftJournalStorage, key: string):
   }
 };
 
+export const advanceMailDraftJournalAfterSave = (config: {
+  storage: DraftJournalStorage;
+  key: string;
+  revision: number;
+  savedContent: DraftEditableContent;
+}): boolean => {
+  const journal = readMailDraftJournal(config.storage, config.key);
+  if (!journal || JSON.stringify(journal.content) === JSON.stringify(config.savedContent)) {
+    config.storage.removeItem(config.key);
+    return false;
+  }
+  config.storage.setItem(config.key, JSON.stringify({ revision: config.revision, content: journal.content } satisfies MailDraftJournal));
+  return true;
+};
+
 export const promoteMailDraftJournal = (config: {
   storage: DraftJournalStorage;
   pendingKey: string;

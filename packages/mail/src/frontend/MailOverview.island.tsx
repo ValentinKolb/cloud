@@ -19,31 +19,52 @@ export default function MailOverview(props: {
 }) {
   const [query, setQuery] = createSignal(props.initialQuery);
   const [mailboxes, setMailboxes] = createSignal(props.mailboxes);
+  const [searchLoading, setSearchLoading] = createSignal(false);
+  const [searchError, setSearchError] = createSignal<string | null>(null);
   const [deletedMailboxes, setDeletedMailboxes] = createSignal(props.deletedMailboxes);
   const [deletedCursor, setDeletedCursor] = createSignal(props.initialDeletedCursor);
   let queryTimer: ReturnType<typeof setTimeout> | null = null;
+  let searchController: AbortController | null = null;
+  let searchGeneration = 0;
 
-  const mailboxSearch = mutations.create<
-    MailboxWithPermission[],
-    { query: string; href: string; history: "replace" | "none" },
-    { href: string; history: "replace" | "none" }
-  >({
-    onBefore: ({ href, history }) => ({ href, history }),
-    mutation: async ({ query }, { abortSignal }) => {
+  const queryHref = (value: string): string => {
+    const url = new URL(window.location.href);
+    if (value.trim()) url.searchParams.set("q", value.trim());
+    else url.searchParams.delete("q");
+    return `${url.pathname}${url.search}`;
+  };
+
+  const loadQuery = async (value: string, history: "replace" | "none") => {
+    setQuery(value);
+    if (history === "replace") navigate(queryHref(value), { replace: true, scroll: "preserve" });
+    searchController?.abort();
+    const controller = new AbortController();
+    const generation = ++searchGeneration;
+    searchController = controller;
+    setSearchLoading(true);
+    setSearchError(null);
+    setMailboxes([]);
+    try {
       const response = await apiClient.mailboxes.$get(
-        { query: { limit: "200", q: query.trim() || undefined } },
-        { init: { signal: abortSignal } },
+        { query: { limit: "200", q: value.trim() || undefined } },
+        { init: { signal: controller.signal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to search mailboxes"));
       const items = await response.json();
-      return items.filter((mailbox): mailbox is MailboxWithPermission => mailbox.permission !== "none");
-    },
-    onSuccess: (items, context) => {
-      setMailboxes(items);
-      if (context?.history === "replace") navigate(context.href, { replace: true, scroll: "preserve" });
-    },
-    onError: (error) => toast.error(error.message),
-  });
+      if (generation !== searchGeneration) return;
+      setMailboxes(items.filter((mailbox): mailbox is MailboxWithPermission => mailbox.permission !== "none"));
+    } catch (error) {
+      if (generation !== searchGeneration || controller.signal.aborted) return;
+      const message = error instanceof Error ? error.message : "Failed to search mailboxes";
+      setSearchError(message);
+      toast.error(message);
+    } finally {
+      if (generation === searchGeneration) {
+        searchController = null;
+        setSearchLoading(false);
+      }
+    }
+  };
 
   const createMailbox = mutations.create<Mailbox | null, void>({
     mutation: async (_input, { abortSignal }) => {
@@ -124,35 +145,32 @@ export default function MailOverview(props: {
   });
   onCleanup(() => {
     if (queryTimer) clearTimeout(queryTimer);
-    mailboxSearch.abort();
+    searchGeneration += 1;
+    searchController?.abort();
+    searchController = null;
     createMailbox.abort();
     restoreMailbox.abort();
     loadDeletedMailboxes.abort();
   });
 
-  const queryHref = (value: string): string => {
-    const url = new URL(window.location.href);
-    if (value.trim()) url.searchParams.set("q", value.trim());
-    else url.searchParams.delete("q");
-    return `${url.pathname}${url.search}`;
-  };
-  const loadQuery = (value: string, history: "replace" | "none") => {
-    setQuery(value);
-    void mailboxSearch.mutate({ query: value, href: queryHref(value), history });
-  };
   const updateQuery = (value: string) => {
     setQuery(value);
+    searchGeneration += 1;
+    searchController?.abort();
+    searchController = null;
+    setSearchLoading(false);
+    setSearchError(null);
     if (queryTimer) clearTimeout(queryTimer);
     queryTimer = setTimeout(() => {
       queryTimer = null;
-      loadQuery(value, "replace");
+      void loadQuery(value, "replace");
     }, 200);
   };
   onMount(() => {
     const stop = listenPopState(({ url }) => {
       if (queryTimer) clearTimeout(queryTimer);
       queryTimer = null;
-      loadQuery(url.searchParams.get("q") ?? "", "none");
+      void loadQuery(url.searchParams.get("q") ?? "", "none");
     });
     onCleanup(stop);
   });
@@ -172,8 +190,9 @@ export default function MailOverview(props: {
             activeIcon="ti ti-search"
             value={query}
             onInput={updateQuery}
+            maxLength={200}
             suffix={
-              <Show when={mailboxSearch.loading()}>
+              <Show when={searchLoading()}>
                 <i class="ti ti-loader-2 animate-spin text-dimmed" aria-hidden="true" />
               </Show>
             }
@@ -186,27 +205,62 @@ export default function MailOverview(props: {
           when={mailboxes().length > 0}
           fallback={
             <AppOverview.EmptyState
-              title={query().trim() ? "No matching mailboxes" : "No mailboxes yet"}
-              description={query().trim() ? "Try a different search term." : "Create a mailbox, then connect its IMAP and SMTP provider."}
-              icon={query().trim() ? "ti ti-search" : "ti ti-mail-off"}
+              title={
+                searchLoading()
+                  ? "Searching mailboxes"
+                  : searchError()
+                    ? "Could not search mailboxes"
+                    : query().trim()
+                      ? "No matching mailboxes"
+                      : "No mailboxes yet"
+              }
+              description={
+                searchLoading()
+                  ? "The server is loading the matching mailboxes."
+                  : searchError()
+                    ? searchError()!
+                    : query().trim()
+                      ? "Try a different search term."
+                      : "Create a mailbox, then connect its IMAP and SMTP provider."
+              }
+              icon={
+                searchLoading()
+                  ? "ti ti-loader-2 animate-spin"
+                  : searchError()
+                    ? "ti ti-alert-circle"
+                    : query().trim()
+                      ? "ti ti-search"
+                      : "ti ti-mail-off"
+              }
               class="min-h-72"
             >
               <Show
-                when={query().trim()}
+                when={!searchLoading() && (searchError() || query().trim())}
                 fallback={
-                  <button
-                    type="button"
-                    class="btn-secondary btn-sm"
-                    onClick={() => createMailbox.mutate()}
-                    disabled={createMailbox.loading()}
-                  >
-                    <i class="ti ti-mail-plus" aria-hidden="true" /> Create mailbox
-                  </button>
+                  <Show when={!searchLoading()}>
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      onClick={() => createMailbox.mutate()}
+                      disabled={createMailbox.loading()}
+                    >
+                      <i class="ti ti-mail-plus" aria-hidden="true" /> Create mailbox
+                    </button>
+                  </Show>
                 }
               >
-                <button type="button" class="btn-secondary btn-sm" onClick={() => updateQuery("")}>
-                  <i class="ti ti-x" aria-hidden="true" /> Clear search
-                </button>
+                <Show
+                  when={searchError()}
+                  fallback={
+                    <button type="button" class="btn-secondary btn-sm" onClick={() => updateQuery("")}>
+                      <i class="ti ti-x" aria-hidden="true" /> Clear search
+                    </button>
+                  }
+                >
+                  <button type="button" class="btn-secondary btn-sm" onClick={() => void loadQuery(query(), "none")}>
+                    <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                  </button>
+                </Show>
               </Show>
             </AppOverview.EmptyState>
           }
