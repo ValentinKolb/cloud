@@ -28,10 +28,14 @@ export type {
   PanelDialogTabsProps,
 } from "./PanelDialog";
 export {
+  confirmDiscardIfDirty,
   default as PanelDialog,
   panelDialogFixedOptions,
+  panelDialogFixedPanelClass,
   panelDialogOptions,
+  panelDialogPanelClass,
   panelDialogWorkspaceOptions,
+  panelDialogWorkspacePanelClass,
 } from "./PanelDialog";
 export type { PanelHeaderProps } from "./PanelHeader";
 export { PanelHeader } from "./PanelHeader";

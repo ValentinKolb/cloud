@@ -18,9 +18,9 @@ name is still `planned`.
 
 The currently accepted complete migrations are:
 
-- layout: `AppOverview`, `DataPanel`, `PanelHeader`;
+- layout: `AppOverview`, `DataPanel`, `PanelDialog`, `PanelHeader`;
 - surfaces: `NotFoundState`, `Placeholder`;
-- feedback: `Tooltip`.
+- feedback: `dialog-core`, `prompts`, `toast`, `Tooltip`.
 
 Everything else remains `planned` until it satisfies that same bar. The
 working tree may contain experiments for planned components; those do not

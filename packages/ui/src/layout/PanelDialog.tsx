@@ -1,6 +1,6 @@
 import { createContext, For, type JSX, Show, useContext } from "solid-js";
-import { IconButton } from "../actions/Button";
 import type { OpenDialogOptions } from "../feedback/dialog-core";
+import { prompts } from "../feedback/prompts";
 
 export type PanelDialogSurface = "contained" | "floating";
 
@@ -45,8 +45,10 @@ export type PanelDialogTabOption<T extends string = string> = {
 
 export type PanelDialogTabsProps<T extends string = string> = {
   options: readonly PanelDialogTabOption<T>[];
-  value: T;
-  onValueChange: (value: T) => void;
+  value: T | (() => T);
+  onChange?: (value: T) => void;
+  onValueChange?: (value: T) => void;
+  ariaLabel?: string;
   label?: string;
 };
 
@@ -61,20 +63,40 @@ type PanelDialogComponent = ((props: PanelDialogProps) => JSX.Element) & {
 const PanelDialogSurfaceContext = createContext<PanelDialogSurface>("contained");
 const usePanelDialogSurface = () => useContext(PanelDialogSurfaceContext);
 
+const panelDialogBasePanelClass = "k2b-dialog k2b-panel-dialog-frame";
+
+export const panelDialogPanelClass = `${panelDialogBasePanelClass} is-standard`;
 export const panelDialogOptions = {
-  class: "k2b-dialog--large k2b-panel-dialog-frame",
+  panelClassName: panelDialogPanelClass,
+  contentClassName: "k2b-panel-dialog-viewport",
 } satisfies OpenDialogOptions;
 
+export const panelDialogFixedPanelClass = `${panelDialogBasePanelClass} is-fixed`;
 export const panelDialogFixedOptions = {
-  class: "k2b-dialog--large k2b-panel-dialog-frame is-fixed",
+  panelClassName: panelDialogFixedPanelClass,
+  contentClassName: "k2b-panel-dialog-viewport is-fixed",
 } satisfies OpenDialogOptions;
 
+export const panelDialogWorkspacePanelClass = `${panelDialogBasePanelClass} is-workspace`;
 export const panelDialogWorkspaceOptions = {
-  class: "k2b-dialog--wide k2b-panel-dialog-frame is-workspace",
+  panelClassName: panelDialogWorkspacePanelClass,
+  contentClassName: "k2b-panel-dialog-viewport is-workspace",
 } satisfies OpenDialogOptions;
+
+export const confirmDiscardIfDirty = async (dirty: boolean | (() => boolean)): Promise<boolean> => {
+  const hasChanges = typeof dirty === "function" ? dirty() : dirty;
+  if (!hasChanges) return true;
+  return Boolean(
+    await prompts.confirm("Discard unsaved changes?", {
+      title: "Unsaved changes",
+      variant: "danger",
+      confirmText: "Discard",
+    }),
+  );
+};
 
 const PanelDialogHeader = (props: PanelDialogHeaderProps): JSX.Element => (
-  <header class="k2b-panel-dialog__header">
+  <header class="k2b-panel-dialog__header" data-surface={usePanelDialogSurface()}>
     <Show when={props.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
     <div class="k2b-panel-dialog__heading">
       <h2>{props.title}</h2>
@@ -87,26 +109,38 @@ const PanelDialogHeader = (props: PanelDialogHeaderProps): JSX.Element => (
     </Show>
     <Show when={props.close}>
       {(close) => (
-        <IconButton label={props.closeLabel ?? "Close dialog"} variant="ghost" disabled={props.closeDisabled} onClick={close()}>
+        <button
+          type="button"
+          class="k2b-dialog__close"
+          aria-label={props.closeLabel ?? "close dialog"}
+          disabled={props.closeDisabled}
+          onClick={() => close()}
+        >
           <i class="ti ti-x" aria-hidden="true" />
-        </IconButton>
+        </button>
       )}
     </Show>
   </header>
 );
 
 const PanelDialogBody = (props: PanelDialogBodyProps): JSX.Element => (
-  <main class="k2b-panel-dialog__body" data-scroll-preserve={props.scrollPreserveKey} data-surface={usePanelDialogSurface()}>
+  <main
+    class="k2b-panel-dialog__body"
+    data-scroll-preserve={props.scrollPreserveKey}
+    data-surface={usePanelDialogSurface()}
+  >
     {props.children}
   </main>
 );
 
 const PanelDialogFooter = (props: PanelDialogFooterProps): JSX.Element => (
-  <footer class="k2b-panel-dialog__footer">{props.children}</footer>
+  <footer class="k2b-panel-dialog__footer" data-surface={usePanelDialogSurface()}>
+    {props.children}
+  </footer>
 );
 
 const PanelDialogSection = (props: PanelDialogSectionProps): JSX.Element => (
-  <section class="k2b-panel-dialog__section">
+  <section class="k2b-panel-dialog__section" data-surface={usePanelDialogSurface()}>
     <header>
       <Show when={props.icon}>
         {(icon) => (
@@ -129,25 +163,37 @@ const PanelDialogSection = (props: PanelDialogSectionProps): JSX.Element => (
   </section>
 );
 
-const PanelDialogTabs = <T extends string>(props: PanelDialogTabsProps<T>): JSX.Element => (
-  <div class="k2b-panel-dialog__tabs" role="tablist" aria-label={props.label ?? "Dialog sections"}>
-    <For each={props.options}>
-      {(option) => (
-        <button
-          type="button"
-          role="tab"
-          aria-selected={props.value === option.value}
-          disabled={option.disabled}
-          data-active={props.value === option.value ? "true" : undefined}
-          onClick={() => props.onValueChange(option.value)}
-        >
-          <Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
-          {option.label}
-        </button>
-      )}
-    </For>
-  </div>
-);
+const PanelDialogTabs = <T extends string>(props: PanelDialogTabsProps<T>): JSX.Element => {
+  const value = () => (typeof props.value === "function" ? props.value() : props.value);
+  const change = (next: T) => {
+    props.onChange?.(next);
+    props.onValueChange?.(next);
+  };
+
+  return (
+    <div
+      class="k2b-panel-dialog__tabs"
+      data-surface={usePanelDialogSurface()}
+      role="group"
+      aria-label={props.ariaLabel ?? props.label ?? "Dialog tabs"}
+    >
+      <For each={props.options}>
+        {(option) => (
+          <button
+            type="button"
+            aria-pressed={value() === option.value}
+            data-active={value() === option.value ? "true" : undefined}
+            disabled={option.disabled}
+            onClick={() => change(option.value)}
+          >
+            <Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
+            {option.label}
+          </button>
+        )}
+      </For>
+    </div>
+  );
+};
 
 const PanelDialog = ((props: PanelDialogProps): JSX.Element => {
   const surface = props.surface ?? "contained";

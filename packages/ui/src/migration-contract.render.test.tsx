@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
-import { createComponent } from "solid-js";
+import { createComponent, createRoot } from "solid-js";
 import { renderToString } from "solid-js/web";
 
 const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-migration-tests-"));
@@ -11,7 +11,20 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { AppOverview, DataPanel, NotFoundState, PanelHeader, Placeholder, Tooltip } = await import("./index");
+const {
+  AppOverview,
+  createFormState,
+  DataPanel,
+  NotFoundState,
+  PanelDialog,
+  panelDialogFixedOptions,
+  panelDialogOptions,
+  panelDialogWorkspaceOptions,
+  PanelHeader,
+  Placeholder,
+  toast,
+  Tooltip,
+} = await import("./index");
 
 describe("@k2b/ui complete Cloud UI migrations", () => {
   test("renders the complete overview composition", () => {
@@ -119,5 +132,88 @@ describe("@k2b/ui complete Cloud UI migrations", () => {
     expect(html).toContain('role="tooltip"');
     expect(html).toContain('popover="manual"');
     expect(html).toContain("Settings");
+  });
+
+  test("renders the complete panel dialog composition", () => {
+    const html = renderToString(() =>
+      createComponent(PanelDialog, {
+        surface: "floating",
+        get children() {
+          return [
+            createComponent(PanelDialog.Header, {
+              title: "Edit project",
+              subtitle: "General settings",
+              icon: "ti ti-settings",
+              actions: "Save",
+              close: () => {},
+            }),
+            createComponent(PanelDialog.Tabs, {
+              options: [
+                { value: "general", label: "General", icon: "ti ti-adjustments" },
+                { value: "danger", label: "Danger zone", disabled: true },
+              ],
+              value: () => "general",
+              onChange: () => {},
+            }),
+            createComponent(PanelDialog.Body, {
+              scrollPreserveKey: "project-settings",
+              get children() {
+                return createComponent(PanelDialog.Section, {
+                  title: "Profile",
+                  subtitle: "Visible to everyone",
+                  icon: "ti ti-user",
+                  actions: "Reset",
+                  children: "Fields",
+                });
+              },
+            }),
+            createComponent(PanelDialog.Footer, { children: "Cancel Save" }),
+          ];
+        },
+      }),
+    );
+
+    expect(html).toContain('data-surface="floating"');
+    expect(html).toContain("k2b-panel-dialog__header");
+    expect(html).toContain("k2b-panel-dialog__tabs");
+    expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('data-scroll-preserve="project-settings"');
+    expect(html).toContain("k2b-panel-dialog__section");
+    expect(html).toContain("k2b-panel-dialog__footer");
+    expect(panelDialogOptions.contentClassName).toBe("k2b-panel-dialog-viewport");
+    expect(panelDialogFixedOptions.panelClassName).toContain("is-fixed");
+    expect(panelDialogWorkspaceOptions.panelClassName).toContain("is-workspace");
+  });
+
+  test("validates and resets the complete prompt form state", () => {
+    createRoot((dispose) => {
+      const state = createFormState({
+        name: { type: "text", required: true, minLength: 3, default: "Ada" },
+        count: { type: "number", min: 1, max: 5, default: 2 },
+        pin: { type: "pin", length: 4, default: "12" },
+        tags: { type: "tags", minTags: 2, maxTags: 3, default: ["ui", "solid"] },
+        public: { type: "boolean", default: true },
+        note: { type: "info", content: "Not part of the result." },
+      } as const);
+
+      expect(state.validateAll()).toBe(false);
+      expect(state.errors.pin).toBe("enter 4 digits");
+      state.updateField("pin", "1234");
+      expect(state.validateAll()).toBe(true);
+      state.updateField("name", "x");
+      expect(state.errors.name).toBe("minimum 3 characters");
+      state.reset();
+      expect(state.values.name).toBe("Ada");
+      expect(state.values.pin).toBe("12");
+      expect(state.errors.name).toBeUndefined();
+      dispose();
+    });
+  });
+
+  test("keeps toast entry points inert during SSR", () => {
+    const handle = toast.success("Saved", { duration: 0 });
+    expect(() => handle.update("Done", { variant: "error" })).not.toThrow();
+    expect(() => handle.dismiss()).not.toThrow();
+    expect(() => toast.dismissAll()).not.toThrow();
   });
 });

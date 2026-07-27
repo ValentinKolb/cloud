@@ -43,7 +43,7 @@
       { "source": "./misc/AppWorkspace", "status": "planned" },
       { "source": "./misc/DataPanel", "status": "implemented" },
       { "source": "./misc/FloatingWindow", "status": "planned" },
-      { "source": "./misc/PanelDialog", "status": "planned" },
+      { "source": "./misc/PanelDialog", "status": "implemented" },
       { "source": "./misc/PanelHeader", "status": "implemented" },
       { "source": "./misc/Panes", "status": "planned" },
       { "source": "./misc/SettingsModal", "status": "planned" }
@@ -60,9 +60,9 @@
       { "source": "./misc/StatusBadge", "status": "planned" }
     ],
     "feedback": [
-      { "source": "./dialog-core", "status": "planned" },
-      { "source": "./prompts", "status": "planned" },
-      { "source": "./toast", "status": "planned" },
+      { "source": "./dialog-core", "status": "implemented" },
+      { "source": "./prompts", "status": "implemented" },
+      { "source": "./toast", "status": "implemented" },
       { "source": "./misc/Tooltip", "status": "implemented" }
     ],
     "content": [

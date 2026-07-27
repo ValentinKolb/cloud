@@ -1,6 +1,6 @@
 import { getK2bPortalRoot } from "../internal/portal";
 
-export type ToastVariant = "info" | "success" | "warning" | "danger";
+export type ToastVariant = "default" | "success" | "error" | "info" | "warning" | "danger";
 
 export type ToastAction = {
   label: string;
@@ -10,6 +10,7 @@ export type ToastAction = {
 export type ToastOptions = {
   variant?: ToastVariant;
   duration?: number;
+  iconClass?: string;
   icon?: string;
   title?: string;
   action?: ToastAction | null;
@@ -29,13 +30,21 @@ export interface ToastFn {
   dismissAll: () => void;
 }
 
-const DEFAULT_DURATION = 3500;
+const DEFAULT_DURATION = 3000;
 const MAX_VISIBLE = 5;
-const REMOVE_DELAY = 160;
+const REMOVE_DELAY = 200;
 const containers = new Map<HTMLElement, HTMLElement>();
 const liveToasts = new Set<ToastHandle>();
 
-const variantMeta: Record<ToastVariant, { title: string; icon: string }> = {
+type ToastTone = "info" | "success" | "warning" | "danger";
+
+const variantTone = (variant: ToastVariant): ToastTone => {
+  if (variant === "default") return "info";
+  if (variant === "error") return "danger";
+  return variant;
+};
+
+const variantMeta: Record<ToastTone, { title: string; icon: string }> = {
   info: { title: "Info", icon: "ti ti-info-circle" },
   success: { title: "Success", icon: "ti ti-check" },
   warning: { title: "Warning", icon: "ti ti-alert-triangle" },
@@ -97,7 +106,7 @@ const showToast = (description: string, options: ToastOptions = {}): ToastHandle
 
   const { root, container: initialContainer } = ensureContainer(options.resolveScope?.());
   const container = promoteContainer(root, initialContainer);
-  let variant = options.variant ?? "info";
+  let variant: ToastVariant = options.variant ?? "default";
   let duration = options.duration ?? DEFAULT_DURATION;
   let remaining = duration;
   let startedAt = 0;
@@ -108,7 +117,7 @@ const showToast = (description: string, options: ToastOptions = {}): ToastHandle
 
   const card = document.createElement("section");
   card.className = "k2b-toast";
-  card.dataset.tone = variant;
+  card.dataset.tone = variantTone(variant);
   card.dataset.k2bTone = "";
   card.dataset.k2bToast = "";
 
@@ -120,8 +129,8 @@ const showToast = (description: string, options: ToastOptions = {}): ToastHandle
 
   const content = document.createElement("div");
   content.className = "k2b-toast__content";
-  content.setAttribute("role", variant === "danger" ? "alert" : "status");
-  content.setAttribute("aria-live", variant === "danger" ? "assertive" : "polite");
+  content.setAttribute("role", variantTone(variant) === "danger" ? "alert" : "status");
+  content.setAttribute("aria-live", variantTone(variant) === "danger" ? "assertive" : "polite");
   content.setAttribute("aria-atomic", "true");
   const title = document.createElement("strong");
   const body = document.createElement("span");
@@ -146,18 +155,23 @@ const showToast = (description: string, options: ToastOptions = {}): ToastHandle
     action.className = "k2b-toast__action";
     action.href = value.href;
     action.textContent = value.label;
+    action.addEventListener("click", (event) => {
+      event.stopPropagation();
+      handle.dismiss();
+    });
     content.appendChild(action);
   };
 
   const render = (nextDescription: string, nextOptions: ToastOptions, resetTitle: boolean) => {
     variant = nextOptions.variant ?? variant;
-    card.dataset.tone = variant;
-    content.setAttribute("role", variant === "danger" ? "alert" : "status");
-    content.setAttribute("aria-live", variant === "danger" ? "assertive" : "polite");
-    iconGlyph.className = nextOptions.icon ?? variantMeta[variant].icon;
+    const tone = variantTone(variant);
+    card.dataset.tone = tone;
+    content.setAttribute("role", tone === "danger" ? "alert" : "status");
+    content.setAttribute("aria-live", tone === "danger" ? "assertive" : "polite");
+    iconGlyph.className = nextOptions.iconClass ?? nextOptions.icon ?? variantMeta[tone].icon;
     body.textContent = nextDescription;
     if (resetTitle || Object.hasOwn(nextOptions, "title")) {
-      title.textContent = nextOptions.title ?? variantMeta[variant].title;
+      title.textContent = nextOptions.title ?? variantMeta[tone].title;
     }
     if (Object.hasOwn(nextOptions, "action")) renderAction(nextOptions.action);
   };
@@ -203,7 +217,11 @@ const showToast = (description: string, options: ToastOptions = {}): ToastHandle
     },
   };
 
-  close.addEventListener("click", handle.dismiss);
+  card.addEventListener("click", handle.dismiss);
+  close.addEventListener("click", (event) => {
+    event.stopPropagation();
+    handle.dismiss();
+  });
   card.addEventListener("pointerenter", () => {
     pointerPaused = true;
     pauseTimer();
@@ -236,7 +254,7 @@ const showToast = (description: string, options: ToastOptions = {}): ToastHandle
 const toastFn = ((description: string, options?: ToastOptions) => showToast(description, options)) as ToastFn;
 toastFn.success = (description, options) => showToast(description, { ...options, variant: "success" });
 toastFn.warning = (description, options) => showToast(description, { ...options, variant: "warning" });
-toastFn.error = (description, options) => showToast(description, { ...options, variant: "danger" });
+toastFn.error = (description, options) => showToast(description, { ...options, variant: "error" });
 toastFn.dismissAll = () => {
   for (const handle of [...liveToasts]) handle.dismiss();
 };

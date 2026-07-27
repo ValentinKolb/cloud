@@ -62,7 +62,38 @@ export default function Demo() {
       title: "Scoped prompt",
       confirmText: "Confirm",
     });
-    setConfirmed(result);
+    setConfirmed(Boolean(result));
+  };
+
+  const openForm = async () => {
+    const result = await prompts.form({
+      title: "Reusable form prompt",
+      fields: {
+        name: { type: "text", label: "Name", default: "Ada", required: true },
+        tags: { type: "tags", label: "Tags", default: ["solid"], minTags: 1, required: true },
+        pin: { type: "pin", label: "PIN", length: 4, required: true },
+      },
+    });
+    if (result) toast.success(`Saved ${result.name} with ${result.tags.length} tags`);
+  };
+
+  const openSearch = async () => {
+    const result = await prompts.search(
+      ({ query, abortSignal }) => {
+        if (abortSignal.aborted) return [];
+        return [
+          { label: "PanelDialog", desc: "Composable dialog layout", value: "panel-dialog" },
+          { label: "Placeholder", desc: "Compact empty states", value: "placeholder" },
+        ].filter((item) => item.label.toLowerCase().includes(query.toLowerCase()));
+      },
+      {
+        title: "Search components",
+        placeholder: "Type a component name",
+        minQueryLength: 1,
+        debounceMs: 0,
+      },
+    );
+    if (result) toast.success(`Selected ${result.label}`);
   };
 
   const openPanel = () =>
@@ -91,6 +122,16 @@ export default function Demo() {
             </PanelDialog.Section>
           </PanelDialog.Body>
           <PanelDialog.Footer>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                if (await prompts.confirm("The panel remains mounted underneath this prompt.", { title: "Nested prompt" })) {
+                  toast.success("Nested prompt confirmed.");
+                }
+              }}
+            >
+              Open nested prompt
+            </Button>
             <Button variant="secondary" onClick={() => close()}>
               Close
             </Button>
@@ -152,6 +193,12 @@ export default function Demo() {
               <Section id="actions" title="Actions">
                 <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
                   <Button onClick={confirmAction}>Open prompt</Button>
+                  <Button variant="secondary" onClick={openForm}>
+                    Open form
+                  </Button>
+                  <Button variant="secondary" onClick={openSearch}>
+                    Open search
+                  </Button>
                   <Button variant="secondary">Secondary</Button>
                   <Button variant="ghost">Ghost</Button>
                   <Button variant="danger">Delete</Button>
