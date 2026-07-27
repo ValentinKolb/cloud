@@ -20,6 +20,7 @@ import MailFolderSettings from "./MailFolderSettings";
 import { MailIdentitySettings } from "./MailIdentitySettings";
 import MailOrganizationSettings from "./MailOrganizationSettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
+import { mailboxHealthPresentation } from "./mail-health-presentation";
 
 const normalizeInitialTab = (tab: string | undefined, canWrite: boolean, canAdmin: boolean): string => {
   const aliases: Record<string, string> = {
@@ -68,6 +69,7 @@ export default function MailboxSettings(props: {
   const [activeTab, setActiveTab] = createSignal(normalizeInitialTab(props.initialTab, canWrite(), canAdmin()));
   const [childDirtyStates, setChildDirtyStates] = createSignal<Record<string, boolean>>({});
   const [navigationPending, setNavigationPending] = createSignal(false);
+  const healthPresentation = createMemo(() => mailboxHealthPresentation(props.context.mailbox));
 
   const ownDirty = createMemo(() => {
     if (activeTab() === "writing") {
@@ -421,6 +423,19 @@ export default function MailboxSettings(props: {
             description="Connect the mail provider and manage the sending identities collaborators can choose."
           >
             <div class="flex flex-col gap-8">
+              <Show when={healthPresentation()}>
+                {(health) => (
+                  <div class={`info-block-${health().tone} flex items-start gap-2 text-xs`} role="status">
+                    <i
+                      class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
+                      aria-hidden="true"
+                    />
+                    <span>
+                      <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
+                    </span>
+                  </div>
+                )}
+              </Show>
               <section class="flex flex-col gap-2">
                 <div>
                   <h3 class="text-sm font-semibold text-primary">Connected account</h3>

@@ -17,7 +17,7 @@ import MailBulkActionBar from "./MailBulkActionBar";
 import MailConversationRow from "./MailConversationRow";
 import { openMailSearchBuilder } from "./MailSearchBuilder";
 import type { MailActionId } from "./mail-actions";
-import { mailboxHealthMessage } from "./mail-health-presentation";
+import { mailboxHealthPresentation } from "./mail-health-presentation";
 import { buildMailListHref, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
@@ -47,12 +47,15 @@ export default function MailConversationList(props: {
   nextCursor: string | null;
   dateConfig: DateContext;
   canWrite: boolean;
+  canAdmin: boolean;
   junkFolderIds: string[];
   savedViews: SavedConversationView[];
   activeSavedViewId: string | null;
   loading: boolean;
   liveDegraded: boolean;
   onCollapse: () => void;
+  onOpenHealth: () => void;
+  onOpenDeliverySettings: () => void;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
   onNavigateItem: (href: string, item: MailListItem, activation: "keyboard" | "pointer") => void | Promise<void>;
   onToggleSelectionMode: () => void;
@@ -89,6 +92,7 @@ export default function MailConversationList(props: {
     const state = currentSearchState();
     return state ? summarizeMailSearchExpression(state.expression) : null;
   });
+  const healthPresentation = createMemo(() => mailboxHealthPresentation(props.mailbox));
   const searchActive = () => Boolean(props.query.trim() || requestUrl().searchParams.has(MAIL_SEARCH_PARAMETER) || props.activeSavedViewId);
   createEffect(() => {
     setSearchValue(props.query);
@@ -299,11 +303,33 @@ export default function MailConversationList(props: {
             </button>
           )}
         </Show>
-        <Show when={props.mailbox.health !== "active"}>
-          <div class="info-block-warning flex items-center gap-2 text-xs" role="status">
-            <i class="ti ti-alert-triangle" aria-hidden="true" />
-            <span>{mailboxHealthMessage(props.mailbox.health)}</span>
-          </div>
+        <Show when={healthPresentation()}>
+          {(health) => (
+            <div
+              class={`info-block-${health().tone} flex items-center justify-between gap-3 text-xs`}
+              role="status"
+              data-mailbox-health={props.mailbox.health}
+            >
+              <span class="flex min-w-0 items-start gap-2">
+                <i
+                  class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
+                  aria-hidden="true"
+                />
+                <span>
+                  <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
+                </span>
+              </span>
+              <Show when={props.canAdmin && health().action && health().actionLabel}>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm shrink-0"
+                  onClick={() => (health().action === "delivery" ? props.onOpenDeliverySettings() : props.onOpenHealth())}
+                >
+                  {health().actionLabel}
+                </button>
+              </Show>
+            </div>
+          )}
         </Show>
       </header>
 

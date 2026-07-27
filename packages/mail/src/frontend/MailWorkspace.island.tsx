@@ -1321,12 +1321,15 @@ export default function MailWorkspace(props: {
                     nextCursor={data.nextListCursor}
                     dateConfig={props.dateConfig}
                     canWrite={canWrite()}
+                    canAdmin={canAdmin()}
                     junkFolderIds={data.folders.filter((folder) => folder.role === "junk").map((folder) => folder.id)}
                     savedViews={data.savedViews}
                     activeSavedViewId={data.savedViewId}
                     loading={routeLoading()}
                     liveDegraded={liveDegraded()}
                     onCollapse={() => setCollapsed(true)}
+                    onOpenHealth={() => void openHealth()}
+                    onOpenDeliverySettings={() => void openSettings("delivery")}
                     onNavigate={navigateWorkspace}
                     onNavigateItem={navigateConversation}
                     onToggleSelectionMode={toggleConversationSelectionMode}

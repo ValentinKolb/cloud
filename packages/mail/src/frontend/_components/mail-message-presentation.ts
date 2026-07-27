@@ -105,7 +105,7 @@ export const messageDeliveryPresentation = (state: MessageDeliveryState): { labe
     case "scheduled":
       return { label: "Scheduled", icon: "ti ti-clock", tone: "neutral" };
     case "undo_window":
-      return { label: "Queued", icon: "ti ti-clock-pause", tone: "neutral" };
+      return null;
     case "sending":
       return { label: "Sending", icon: "ti ti-loader-2", tone: "running" };
     case "accepted":
@@ -129,4 +129,14 @@ export const messageDeliveryControlLabel = (state: MessageDeliveryState, canWrit
   if (state === "undo_window") return "Undo send";
   if (state === "scheduled") return "Cancel send";
   return null;
+};
+
+export const messageDeliveryAllowsResponses = (state: MessageDeliveryState): boolean =>
+  state === "accepted" || state === "sent_sync_pending" || state === "sent" || state === "reconciled_accepted";
+
+export const undoSendSecondsRemaining = (undoUntil: string | null, now: number): number | null => {
+  if (!undoUntil) return null;
+  const deadline = Date.parse(undoUntil);
+  if (!Number.isFinite(deadline)) return null;
+  return Math.max(0, Math.ceil((deadline - now) / 1000));
 };

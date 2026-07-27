@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { attachmentPreviewSignatureMatches } from "../../attachment-preview-policy";
 import {
   attachmentPreviewKind,
+  messageDeliveryAllowsResponses,
   messageDeliveryControlLabel,
   messageDeliveryPresentation,
   messagePreviewText,
@@ -11,6 +12,7 @@ import {
   rewriteCidSources,
   rewriteRemoteImageSources,
   splitPlainMessageSegments,
+  undoSendSecondsRemaining,
 } from "./mail-message-presentation";
 
 describe("mail message presentation", () => {
@@ -59,6 +61,23 @@ describe("mail message presentation", () => {
     expect(messageDeliveryControlLabel("scheduled", true)).toBe("Cancel send");
     expect(messageDeliveryControlLabel("sending", true)).toBeNull();
     expect(messageDeliveryControlLabel("undo_window", false)).toBeNull();
+  });
+
+  test("does not expose response actions before outgoing delivery is accepted", () => {
+    expect(messageDeliveryAllowsResponses("undo_window")).toBeFalse();
+    expect(messageDeliveryAllowsResponses("sending")).toBeFalse();
+    expect(messageDeliveryAllowsResponses("failed")).toBeFalse();
+    expect(messageDeliveryAllowsResponses("accepted")).toBeTrue();
+    expect(messageDeliveryAllowsResponses("sent")).toBeTrue();
+  });
+
+  test("turns the server undo deadline into a non-negative countdown", () => {
+    const now = Date.parse("2026-07-27T21:00:00.000Z");
+    expect(undoSendSecondsRemaining("2026-07-27T21:00:10.001Z", now)).toBe(11);
+    expect(undoSendSecondsRemaining("2026-07-27T21:00:10.000Z", now)).toBe(10);
+    expect(undoSendSecondsRemaining("2026-07-27T20:59:59.000Z", now)).toBe(0);
+    expect(undoSendSecondsRemaining(null, now)).toBeNull();
+    expect(undoSendSecondsRemaining("not-a-date", now)).toBeNull();
   });
 
   test("allows only bounded browser-safe attachment previews", () => {

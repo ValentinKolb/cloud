@@ -1,16 +1,19 @@
-import { Placeholder, StatusBadge, toast } from "@valentinkolb/cloud/ui";
+import { Placeholder, StatusBadge } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { onCleanup, Show } from "solid-js";
-import { apiClient } from "../../api/client";
+import { Show } from "solid-js";
 import type { DraftDerivationKind, DraftIntent, SenderIdentity } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
-import { readApiError } from "./api-response";
 import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
+import MailMessageDeliveryControl from "./MailMessageDeliveryControl";
 import MailSenderMessageActions from "./MailSenderMessageActions";
 import { isOutgoingMessage } from "./mail-conversation-history";
-import { messageDeliveryControlLabel, messageDeliveryPresentation, messagePreviewText } from "./mail-message-presentation";
+import {
+  messageDeliveryAllowsResponses,
+  messageDeliveryControlLabel,
+  messageDeliveryPresentation,
+  messagePreviewText,
+} from "./mail-message-presentation";
 
 const formatAddress = (address: { name: string | null; address: string }): string =>
   address.name ? `${address.name} <${address.address}>` : address.address;
@@ -59,27 +62,6 @@ export default function MailMessageCard(props: {
   actions: MailMessageCardActions;
 }) {
   let messageBody!: HTMLDivElement;
-  const undoSend = mutations.create<void, { submissionId: string }, { reconcile: () => Promise<void> }>({
-    onBefore: () => ({ reconcile: props.actions.reconcile }),
-    mutation: async ({ submissionId }, { abortSignal }) => {
-      const route = apiClient.mailboxes[":mailboxId"]["scheduled-sends"][":scheduledSendId"];
-      const response = await route.cancel.$post(
-        {
-          param: { mailboxId: props.context.mailboxId, scheduledSendId: submissionId },
-          json: { disposition: "draft" },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not undo this send"));
-    },
-    onSuccess: (_result, context) => {
-      toast.success("Send undone. The message was restored as a draft.");
-      if (context)
-        void context.reconcile().catch(() => toast.error("The message changed, but this conversation could not be refreshed yet."));
-    },
-    onError: (error) => toast.error(error.message),
-  });
-
   const controllableDelivery = () => {
     const delivery = props.message.delivery;
     return delivery && messageDeliveryControlLabel(delivery.state, props.context.canWrite) ? delivery : null;
@@ -105,7 +87,7 @@ export default function MailMessageCard(props: {
   const preview = () => messagePreviewText(props.message.plainText, props.message.forwardText);
   const exceptionalDelivery = () => {
     const delivery = props.message.delivery;
-    return delivery ? messageDeliveryPresentation(delivery.state) !== null : false;
+    return delivery ? !messageDeliveryAllowsResponses(delivery.state) : false;
   };
   const responseActions = () =>
     props.context.canWrite && props.context.selectedConversationId && !exceptionalDelivery()
@@ -141,8 +123,6 @@ export default function MailMessageCard(props: {
           },
         ]
       : [];
-
-  onCleanup(() => undoSend.abort());
 
   return (
     <article
@@ -231,17 +211,12 @@ export default function MailMessageCard(props: {
       </div>
       <Show when={controllableDelivery()}>
         {(delivery) => (
-          <div class="flex flex-wrap items-center gap-2 pb-1 pl-14 pr-3">
-            <button
-              type="button"
-              class="btn-secondary btn-sm"
-              disabled={undoSend.loading()}
-              onClick={() => undoSend.mutate({ submissionId: delivery().submissionId })}
-            >
-              <i class="ti ti-arrow-back-up" aria-hidden="true" />
-              {messageDeliveryControlLabel(delivery().state, props.context.canWrite)}
-            </button>
-          </div>
+          <MailMessageDeliveryControl
+            mailboxId={props.context.mailboxId}
+            delivery={delivery()}
+            canWrite={props.context.canWrite}
+            onReconcile={props.actions.reconcile}
+          />
         )}
       </Show>
       <Show when={props.expanded}>

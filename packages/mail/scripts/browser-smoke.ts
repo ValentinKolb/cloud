@@ -162,7 +162,10 @@ const createFixture = async (): Promise<Fixture> => {
   `;
   await sql`
     UPDATE mail.mailboxes
-    SET health = 'active', updated_at = now()
+    SET
+      health = 'degraded',
+      health_reason = 'Failed to establish connection in required time',
+      updated_at = now()
     WHERE id = ${mailbox.id}::uuid
   `;
 
@@ -324,6 +327,22 @@ const runSmoke = async (fixture: Fixture) => {
     ok("mailbox search uses server-owned literal matching");
 
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
+    const healthNotice = page.locator('[data-mailbox-health="degraded"]');
+    await healthNotice.getByText("Mail is taking longer to connect.", { exact: false }).waitFor();
+    if (await healthNotice.getByText("Check its provider settings.", { exact: false }).isVisible()) {
+      fail("degraded mailbox health still points users at valid provider settings");
+    }
+    await healthNotice.getByRole("button", { name: "View status", exact: true }).click();
+    const healthDialog = page.getByRole("dialog").filter({ hasText: "Mailbox health" });
+    await healthDialog.getByText("Failed to establish connection in required time", { exact: true }).waitFor();
+    await healthDialog.getByRole("button", { name: "close dialog", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const settings = page.getByRole("region", { name: "Mailbox settings" });
+    await settings.getByRole("tab", { name: "Delivery", exact: true }).click();
+    await settings.getByText("The saved account is valid, but the latest synchronization timed out.", { exact: false }).waitFor();
+    await settings.getByRole("button", { name: "Close settings", exact: true }).click();
+    ok("mailbox health explains the runtime problem in the workspace, diagnostics, and settings");
+
     const conversation = page.getByTitle(new RegExp(`${fixture.subject.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
     await conversation.waitFor({ state: "visible" });
     await conversation.click();
@@ -454,7 +473,24 @@ const runSmoke = async (fixture: Fixture) => {
     if ((await page.locator('[data-mail-direction="outgoing"]').count()) !== 1) {
       fail("the queued reply did not appear as an outgoing message");
     }
-    await page.getByRole("button", { name: "Undo send", exact: true }).waitFor();
+    const outgoingMessage = page.locator('[data-mail-direction="outgoing"]');
+    const undoSend = outgoingMessage.locator("[data-mail-undo-send]");
+    await undoSend.waitFor();
+    const firstUndoLabel = (await undoSend.textContent())?.trim() ?? "";
+    const firstUndoSeconds = Number(firstUndoLabel.match(/Undo send · (\d+)s/u)?.[1]);
+    if (!Number.isInteger(firstUndoSeconds) || firstUndoSeconds < 2) {
+      fail(`undo-send countdown did not expose a usable server deadline: ${JSON.stringify(firstUndoLabel)}`);
+    }
+    if (await outgoingMessage.getByText("Queued", { exact: true }).isVisible()) {
+      fail("undo-window delivery still exposes the internal queued status");
+    }
+    await page.waitForTimeout(1_100);
+    const nextUndoLabel = (await undoSend.textContent())?.trim() ?? "";
+    const nextUndoSeconds = Number(nextUndoLabel.match(/Undo send · (\d+)s/u)?.[1]);
+    if (!Number.isInteger(nextUndoSeconds) || nextUndoSeconds >= firstUndoSeconds) {
+      fail(`undo-send countdown did not advance: ${JSON.stringify({ firstUndoLabel, nextUndoLabel })}`);
+    }
+    ok("undo window is one compact countdown action without a queued badge");
     if ((await messageCard.locator("[data-mail-direct-actions]").count()) !== 0) {
       fail("an older message still exposes direct response actions");
     }
@@ -468,6 +504,8 @@ const runSmoke = async (fixture: Fixture) => {
     await page.keyboard.press("Escape");
     ok("older message response actions move into the message menu");
     ok("saved reply queues, returns to the conversation, and announces its live append");
+    await undoSend.waitFor({ state: "detached", timeout: (firstUndoSeconds + 3) * 1000 });
+    ok("undo action disappears when the server undo deadline expires");
 
     const mailto = "mailto:recipient@example.test?subject=Browser%20mailto&body=Created%20from%20an%20email%20link";
     await page.goto(`/app/mail/compose?mailbox=${fixture.mailboxId}&mailto=${encodeURIComponent(mailto)}`, {
