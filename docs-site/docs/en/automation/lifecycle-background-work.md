@@ -16,6 +16,10 @@ application process.
 Examples include a local polling loop, a topic reader, or a scheduler instance.
 Use a durable job or queue when the work itself must survive a process restart.
 
+Read [Application lifecycle](/docs/en/build/lifecycle) for hook order, setup,
+failed-start cleanup, lifecycle context, and shutdown order. This page only
+covers the background-work pattern.
+
 ## Start and stop the runtime
 
 ```ts
@@ -25,7 +29,6 @@ let running: Promise<void> | null = null;
 await app.start({
   fetch: router.fetch,
   lifecycle: {
-    setup: migrate,
     start: async () => {
       timer = setInterval(() => {
         if (running) return;
@@ -45,14 +48,8 @@ await app.start({
 });
 ```
 
-`setup` runs after registry registration and before `start`. Use it for
-idempotent migrations and required initialization.
-
-`start` runs after setup. The service is starting, but the callback must return
-so HTTP handling can continue.
-
-`stop` runs during graceful shutdown. Stop accepting new background work and
-await in-flight work.
+Return from `start` after creating the runtime. In `stop`, prevent new work and
+await the current operation.
 
 ## Prevent overlapping work
 
@@ -72,5 +69,6 @@ them in `stop`.
 The platform waits for the stop callback, but deployment shutdown still has a
 deadline. Bound external requests and do not start unbounded cleanup.
 
-See [Scaling and shutdown](/docs/en/operations/scaling-and-shutdown) for the
-container contract.
+See [Application lifecycle](/docs/en/build/lifecycle#stop-in-reverse-order) for
+hook cleanup and [Scaling and shutdown](/docs/en/operations/scaling-and-shutdown)
+for the container deadline.

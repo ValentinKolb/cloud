@@ -20,7 +20,7 @@ GET /api/inventory/health
 
 Use this path for a built-in application. A standalone project uses the same
 application code but different deployment wiring. See
-[Repository and release ownership](/docs/en/build#repository-and-release-ownership).
+[Choose the project shape](/docs/en/build#choose-the-project-shape).
 
 ## Prepare the checkout
 
@@ -176,8 +176,12 @@ The response is:
 }
 ```
 
-If the gateway returns `404`, follow
+If the gateway returns `502` because no application is registered for the
+path, follow
 [Diagnose an unreachable route](/docs/en/build/routing#diagnose-an-unreachable-route).
+
+A `404` means the gateway reached the application, but its Hono router did not
+match the requested path.
 
 ## Organize the package as it grows
 

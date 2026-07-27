@@ -25,22 +25,6 @@ supporting services share a private network.
 Both shapes use the same application contract. They differ in dependency and
 container ownership.
 
-## Run the production shape
-
-A production deployment needs:
-
-- one gateway;
-- the core application;
-- the applications you enable;
-- Postgres;
-- Valkey;
-- optional services required by those applications.
-
-All application containers use the same `APP_SECRET`. They connect to the same
-Postgres and Valkey services.
-
-Only the gateway needs public ingress.
-
 ## Deployment workflow
 
 1. [Build the application](/docs/en/operations/build-and-deploy).
@@ -51,5 +35,5 @@ Only the gateway needs public ingress.
 6. Use [Troubleshooting](/docs/en/operations/troubleshooting) when the registry,
    gateway, or dependencies disagree.
 
-FreeIPA is optional. See [FreeIPA setup](/docs/en/operations/freeipa) only when
+FreeIPA is optional. See [FreeIPA](/docs/en/operations/freeipa) only when
 the deployment uses it.

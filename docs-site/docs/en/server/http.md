@@ -133,6 +133,7 @@ const itemRoutes = new Hono<AuthContext>()
           "Inventory item created",
         ),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
       },
     }),
     v("json", CreateInventoryItemSchema),
@@ -195,6 +196,7 @@ describeRoute({
   responses: {
     201: jsonResponse(InventoryItemSchema, "Inventory item created"),
     400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+    401: jsonResponse(ErrorResponseSchema, "Authentication required"),
   },
 });
 ```
@@ -228,6 +230,10 @@ internal hostnames, and private examples out of route metadata.
 
 OpenAPI security metadata describes accepted credentials. It does not enforce
 access. Add the matching [route policy](/docs/en/identity/route-policies).
+
+Document every response the route and its middleware can return. An
+authenticated route normally includes `401`. Add `403` when a role policy or
+resource check can deny an authenticated caller.
 
 Every documented status must be reachable. Every response body must match its
 schema.

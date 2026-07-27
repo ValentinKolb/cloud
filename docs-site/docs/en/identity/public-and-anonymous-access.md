@@ -20,25 +20,22 @@ Use `*` when the same route works for signed-in and anonymous callers:
 
 ```ts
 import {
-  type AccessSubject,
   type AuthContext,
-  type RequestActor,
   auth,
+  respond,
 } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 
 const routes = new Hono<AuthContext>()
   .use("*", auth.requireRole("*"))
   .get("/:id", async (c) => {
-    const actor = c.get("actor") as RequestActor | undefined;
-    const subject = actor
-      ? (c.get("accessSubject") as AccessSubject)
-      : null;
+    const actor = c.get("actor");
+    const accessSubject = actor ? c.get("accessSubject") : null;
 
     return respond(c, inventory.read({
       id: c.req.param("id"),
       actor: actor ?? null,
-      accessSubject: subject,
+      accessSubject,
     }));
   });
 ```

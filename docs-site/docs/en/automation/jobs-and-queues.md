@@ -82,8 +82,8 @@ await reindexItem.submit({
 });
 ```
 
-`key` is required. Repeated submission with the same active key returns the
-existing job ID.
+`key` is required. Repeated submission returns the existing job ID while the
+idempotency key exists.
 
 `process` receives typed input, an abort signal, attempt state, and
 `heartbeat()`. Heartbeat long tasks so their lease does not expire.
@@ -103,6 +103,18 @@ Make external effects idempotent under `ctx.key`. Do not treat a successful
 callback as a durable business record.
 
 The default key TTL is 24 hours. A terminal job releases its key.
+
+Set `keyTtlMs` to at least the maximum delay plus retry duration. A delayed or
+repeatedly rescheduled job can outlive its key. Once the key expires, the same
+logical submission can create another job.
+
+```ts
+await reindexItem.submit({
+  key: `item:${itemId}:${version}`,
+  keyTtlMs: 7 * 24 * 60 * 60 * 1_000,
+  input: { itemId },
+});
+```
 
 ## Use a queue
 

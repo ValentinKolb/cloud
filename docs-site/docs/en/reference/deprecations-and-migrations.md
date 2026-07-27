@@ -60,6 +60,7 @@ bound definition:
 await notifications.send(app.notifications.stockLow, {
   recipient: { userId },
   data: { itemId, itemName, remaining },
+  idempotencyKey: `stock-low:${itemId}:${thresholdVersion}`,
 });
 ```
 
@@ -80,8 +81,7 @@ See [Notifications](/docs/en/platform/notifications).
 `DockWorkspace` remains only for legacy screens. Do not extend its persistence
 format.
 
-Use the [component catalog](/docs/en/frontend/component-catalog) to inspect the
-current UI contract.
+Use the [UI catalog](/ui) to inspect the current UI contract.
 
 ## Shared utilities
 

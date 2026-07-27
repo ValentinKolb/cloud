@@ -3,6 +3,12 @@
 
 The Cloud developer documentation is the canonical source for this file.
 
+## Contents
+
+- [Reference](#page-reference)
+- [API surface](#page-reference-api-surface)
+- [Deprecations and migrations](#page-reference-deprecations-and-migrations)
+
 <a id="page-reference"></a>
 ## Reference
 
@@ -15,9 +21,9 @@ setting kinds, and migration paths.
 | --- | --- |
 | Which package path should I import? | [API surface](#page-reference-api-surface) |
 | Is this entry point an application API? | [API surface](#page-reference-api-surface-platform-owned-and-limited-surfaces) |
-| Which URL prefix owns this request? | [Route conventions](#page-reference-route-conventions) |
-| Which setting kind should I declare? | [Settings reference](#page-reference-settings-kinds-and-environment) |
-| What does this status mean? | [Vocabulary and statuses](#page-reference-vocabulary-and-statuses) |
+| Which URL prefix owns this request? | [Route conventions](./conventions.md#page-reference-route-conventions) |
+| Which setting kind should I declare? | [Settings reference](./settings.md#page-reference-settings-kinds-and-environment) |
+| What does this status mean? | [Vocabulary and statuses](./conventions.md#page-reference-vocabulary-and-statuses) |
 | What replaced an old API? | [Deprecations](#page-reference-deprecations-and-migrations) |
 
 Feature pages remain canonical for behavior. Reference pages contain lookup
@@ -33,6 +39,11 @@ For a new application, start with [Build an application](./architecture.md#page-
 Cloud separates APIs by runtime. Use the entry point for the code you are
 writing.
 
+`Supported` means application code may depend on the documented use. It does
+not make every symbol in a mixed barrel an application API. `Platform-owned`
+is for Cloud itself. `Advanced` paths are public exports, but application code
+should use them only when a feature guide gives the exact import.
+
 <a id="page-reference-api-surface-application-entry-points"></a>
 ### Application entry points
 
@@ -40,18 +51,18 @@ writing.
 | --- | --- | --- |
 | `@valentinkolb/cloud` | Supported | Application declarations and typed notifications |
 | `@valentinkolb/cloud/server` | Supported, server-only | Hono middleware, validation, actors, results, and access |
-| `@valentinkolb/cloud/services` | Supported, server-only | Platform services and lifecycle helpers |
+| `@valentinkolb/cloud/services` | Supported, server-only | Feature services named by a capability guide |
 | `@valentinkolb/cloud/contracts` | Supported | Browser-safe schemas and shared data contracts |
 | `@valentinkolb/cloud/browser` | Supported, browser | Typed Hono browser clients |
 | `@valentinkolb/cloud/ui` | Supported, SolidJS | Shared SolidJS components |
 | `@valentinkolb/cloud/ssr` | Supported, server-only | Layouts, runtime context, and URL filters |
 | `@valentinkolb/cloud/workflows` | Supported | Workflow definitions and authoring contracts |
-| `@valentinkolb/cloud/ai` | Supported, server-only | AI resources, routes, tools, and runtime |
+| `@valentinkolb/cloud/ai` | Supported, server-only | AI APIs named by the AI guides |
 | `@valentinkolb/cloud/cli` | Supported | Cloud CLI modules |
-| `@valentinkolb/cloud/config` | Supported, server-only | Parsed process environment |
+| `@valentinkolb/cloud/config` | Supported, server-only | Selected typed runtime values |
 
-Use subpath imports only when a guide names them. This keeps code on the
-supported application surface.
+Use the barrels above by default. Use a subpath when the specialized-entry
+table below links its feature guide.
 
 <a id="page-reference-api-surface-define-the-application"></a>
 ### Define the application
@@ -63,9 +74,10 @@ import { defineApp } from "@valentinkolb/cloud";
 ```
 
 The root also exports the types bound to an application declaration. This
-includes typed settings and notification definitions.
+includes typed settings and notification definitions. Registry, heartbeat, and
+runtime-composition exports from the same barrel are platform-owned.
 
-See [Define an application](./architecture.md#page-build-define-app).
+See [Define an application](./application.md#page-build-define-app).
 
 <a id="page-reference-api-surface-handle-server-requests"></a>
 ### Handle server requests
@@ -85,12 +97,12 @@ import {
 This entry point contains Hono context types, middleware, actor helpers,
 validation, resource access, and response helpers.
 
-See [Server APIs](./backend.md#page-server) for the request path.
+See [Server APIs](./middleware.md#page-server) for the request path.
 
 <a id="page-reference-api-surface-use-platform-services"></a>
 ### Use platform services
 
-Code outside an HTTP request uses asynchronous service APIs:
+Code outside an HTTP request uses asynchronous feature services:
 
 ```ts
 import { logger } from "@valentinkolb/cloud/services";
@@ -101,10 +113,14 @@ log.info("Import completed", { itemCount: 42 });
 
 Use the capability guide to choose the narrow API:
 
-- [Settings](./platform.md#page-platform-settings)
+- [Settings](./settings.md#page-platform-settings)
 - [Notifications](./notifications.md#page-platform-notifications)
-- [Logging](./platform.md#page-platform-logging)
+- [Logging](./observability.md#page-platform-logging)
 - [Search](./platform.md#page-platform-search)
+
+Raw stores, runtime starters, gateway telemetry, migrations, and platform
+composition helpers from the same barrel are maintainer APIs unless a guide
+names them.
 
 <a id="page-reference-api-surface-share-types-with-the-browser"></a>
 ### Share types with the browser
@@ -120,36 +136,62 @@ export const inventoryApi = api.create<InventoryApi>({
 });
 ```
 
-See [Browser clients and mutations](./frontend.md#page-frontend-browser-clients-and-mutations).
+See [Browser clients and mutations](./browser.md#page-frontend-browser-clients-and-mutations).
+
+The `clipboard`, `copyToClipboard`, `url`, and `isImageUrl` exports are utility
+helpers outside the documented typed-client contract. Do not choose them as
+application APIs unless a guide names them.
+
+<a id="page-reference-api-surface-mixed-barrels"></a>
+### Mixed barrels
+
+Some barrels serve more than one audience. Use this boundary instead of
+inferring support from autocomplete.
+
+| Entry point | Application surface | Other exports |
+| --- | --- | --- |
+| `@valentinkolb/cloud` | `defineApp`, declaration types, typed notifications | Registry, heartbeat, and runtime composition are platform-owned |
+| `@valentinkolb/cloud/services` | Feature services used by capability guides | Raw stores, lifecycle starters, gateway telemetry, and migrations are maintainer APIs |
+| `@valentinkolb/cloud/ai` | Resources, routes, tools, and runtime APIs used by AI guides | Stores, migrations, workers, and maintenance helpers not named by a guide are maintainer APIs |
+| `@valentinkolb/cloud/browser` | Typed Hono client factory | Utility helpers are outside the documented typed-client contract |
+| `@valentinkolb/cloud/shared` | Cloud-specific helpers named by feature guides | Generic utility re-exports are compatibility-only |
+| `@valentinkolb/cloud/cli` | APIs for application CLI modules | Built-in account, application, and admin modules are platform-owned |
+
+`@valentinkolb/cloud/config` exports `env.APP_SECRET`, `env.PORT`,
+`env.IS_DEVELOPMENT`, and `env.ADMIN_LOGIN_TOKEN`. The
+[runtime configuration guide](./deployment.md#page-operations-runtime-configuration)
+documents all process variables; that larger list is not the shape of `env`.
 
 <a id="page-reference-api-surface-specialized-entry-points"></a>
 ### Specialized entry points
 
-| Entry point | Status | Use |
-| --- | --- | --- |
-| `@valentinkolb/cloud/ai/solid` | Supported, browser | AI chat controller |
-| `@valentinkolb/cloud/ai/ui` | Supported, SolidJS | Shared AI chat components |
-| `@valentinkolb/cloud/browser/live` | Supported, browser | Live WebSocket transport |
-| `@valentinkolb/cloud/browser/notifications` | Supported, browser | Browser notification state |
-| `@valentinkolb/cloud/clients/core` | Supported | Typed client for the Core platform API |
-| `@valentinkolb/cloud/workflows/language` | Supported | Workflow language parser and authoring |
-| `@valentinkolb/cloud/workflows/runtime` | Supported, server-only | Workflow runtime |
-| `@valentinkolb/cloud/workflows/store` | Supported, server-only | Durable workflow store and workers |
-| `@valentinkolb/cloud/workflows/testing` | Supported, tests | Workflow test helpers |
-| `@valentinkolb/cloud/ssr/islands` | Specialized | Shared SSR island helpers |
-| `@valentinkolb/cloud/ssr/*` | Advanced | Named SSR modules; prefer the barrel |
-| `@valentinkolb/cloud/ui/workflow-authoring` | Specialized | Workflow authoring controls |
-| `@valentinkolb/cloud/ui/styles.css` | Supported asset | Shared global stylesheet |
-| `@valentinkolb/cloud/styles/global.css` | Supported asset | Alias for the global stylesheet |
-| `@valentinkolb/cloud/cli/access` | Supported | Resource access commands |
-| `@valentinkolb/cloud/cli/account` | Supported | Account commands |
-| `@valentinkolb/cloud/cli/apps` | Supported | Application commands |
-| `@valentinkolb/cloud/cli/admin` | Supported | Platform administration commands |
-| `@valentinkolb/cloud/contracts/notifications` | Supported | Browser-safe notification contracts |
-| `@valentinkolb/cloud/contracts/*` | Advanced | Named contract modules; prefer the barrel |
-| `@valentinkolb/cloud/config/*` | Advanced | Named configuration modules; prefer the barrel |
+| Entry point | Status | Use | Guide |
+| --- | --- | --- | --- |
+| `@valentinkolb/cloud/ai/solid` | Supported, browser | AI chat controller | [Chat interface](./ai-runtime.md#page-ai-chat-interface) |
+| `@valentinkolb/cloud/ai/ui` | Supported, SolidJS | Shared AI chat components | [Chat interface](./ai-runtime.md#page-ai-chat-interface) |
+| `@valentinkolb/cloud/browser/live` | Supported, browser | Live WebSocket transport | [Realtime UI](./browser.md#page-frontend-realtime-ui) |
+| `@valentinkolb/cloud/browser/notifications` | Supported, browser | Browser notification state | [Notifications](./notifications.md#page-platform-notifications) |
+| `@valentinkolb/cloud/clients/core` | Platform-owned, browser | Typed client for the Core platform API | — |
+| `@valentinkolb/cloud/workflows/language` | Supported | Workflow compiler, parser, and authoring | [Author workflows](./workflows.md#page-automation-author-and-publish-workflows) |
+| `@valentinkolb/cloud/workflows/runtime` | Supported, server-only | Workflow execution runtime | [Workflow effects](./workflow-runtime.md#page-automation-effects-retry-and-reconciliation) |
+| `@valentinkolb/cloud/workflows/store` | Supported, server-only | Durable workflow store and workers | [Start runs](./workflows.md#page-automation-emit-events-and-start-runs) |
+| `@valentinkolb/cloud/workflows/testing` | Supported, tests | Workflow process fixtures | [Test workflows](./workflow-runtime.md#page-automation-workflow-observability-and-testing) |
+| `@valentinkolb/cloud/ssr/islands` | Supported, server-only | Shared SSR island helpers | [In-product help](./help.md#page-platform-help) |
+| `@valentinkolb/cloud/ssr/*` | Advanced | Named SSR modules; prefer the barrel | — |
+| `@valentinkolb/cloud/ui/workflow-authoring` | Supported, SolidJS | Workflow authoring controls | [Shared components](./frontend.md#page-frontend-choose-shared-components) |
+| `@valentinkolb/cloud/ui/styles.css` | Supported asset | Shared global stylesheet | [Styling](./frontend-ui.md#page-frontend-styling-and-accessibility) |
+| `@valentinkolb/cloud/styles/global.css` | Supported asset | Alias for the global stylesheet | [Styling](./frontend-ui.md#page-frontend-styling-and-accessibility) |
+| `@valentinkolb/cloud/cli/access` | Supported | Resource access commands | [CLI modules](./cli.md#page-platform-cli-modules) |
+| `@valentinkolb/cloud/cli/account` | Platform-owned | Built-in account commands | — |
+| `@valentinkolb/cloud/cli/apps` | Platform-owned | Built-in application commands | — |
+| `@valentinkolb/cloud/cli/admin` | Platform-owned | Built-in administration commands | — |
+| `@valentinkolb/cloud/contracts/notifications` | Supported | Browser-safe notification contracts | [Notifications](./notifications.md#page-platform-notifications) |
+| `@valentinkolb/cloud/contracts/*` | Advanced | Named contract modules; prefer the barrel | — |
+| `@valentinkolb/cloud/config/*` | Advanced | Named configuration modules; prefer the barrel | — |
 
-Use a specialized entry point only when its feature guide names it.
+Every app-facing specialized row has a guide. `Platform-owned` and `Advanced`
+rows are exported for Cloud itself or for a narrowly documented integration;
+their presence is not an application support promise.
 
 <a id="page-reference-api-surface-platform-owned-and-limited-surfaces"></a>
 ### Platform-owned and limited surfaces
@@ -157,7 +199,7 @@ Use a specialized entry point only when its feature guide names it.
 | Entry point | Status | Meaning |
 | --- | --- | --- |
 | `@valentinkolb/cloud/api` | Platform-owned | Builds the Core platform router |
-| Registry helpers from `@valentinkolb/cloud` | Platform-owned | Gateway, Core, and platform composition |
+| Registry, heartbeat, and runtime helpers from `@valentinkolb/cloud` | Platform-owned | Gateway, Core, and platform composition |
 | `@valentinkolb/cloud/services/*` | Advanced | Deep service exports; prefer the barrel |
 | `@valentinkolb/cloud/server/*` | Advanced | Deep server exports; prefer the barrel |
 | `@valentinkolb/cloud/desktop` | Limited | Exported desktop runtime; outside this application guide |
@@ -197,310 +239,6 @@ do not protect a route. Use `auth` middleware.
 
 ---
 
-<a id="page-reference-route-conventions"></a>
-## Route conventions
-
-Every application declares the URL prefixes it owns.
-
-The gateway matches the longest registered prefix and proxies the unchanged
-request to the application's `baseUrl`.
-
-<a id="page-reference-route-conventions-use-standard-application-prefixes"></a>
-### Use standard application prefixes
-
-| Prefix | Owner |
-| --- | --- |
-| `/app/<app-id>` | Authenticated application pages |
-| `/api/<app-id>` | Application JSON API |
-| `/admin/<app-id>` | Application administration |
-| `/public/<app-id>/*` | Application static assets |
-
-Declare only the prefixes the application serves.
-
-An application with an anonymous page should declare a separate page prefix.
-Do not place a page below `/public/<app-id>`; that path is for static files.
-
-<a id="page-reference-route-conventions-framework-owned-paths"></a>
-### Framework-owned paths
-
-`app.start()` handles these before the application router:
-
-| Path | Purpose |
-| --- | --- |
-| `<basePath>/_ssr/*` | Solid island chunks |
-| `/public/*` | Static assets |
-| `/api/_internal/search` | Search provider endpoint when enabled |
-| the declared OpenAPI path | Generated OpenAPI document |
-
-When an application has no `basePath`, its island chunks use `/_ssr/*`.
-
-The gateway, Core, OAuth, and other platform applications also own special
-top-level routes such as `/auth`, `/oauth`, and `/.well-known/...`.
-
-Do not reuse a platform prefix.
-
-<a id="page-reference-route-conventions-match-and-normalize-prefixes"></a>
-### Match and normalize prefixes
-
-A prefix must start with `/`.
-
-A trailing slash is removed except for `/`. Query strings do not affect route
-selection.
-
-The gateway uses the longest matching segment path. For example,
-`/app/inventory/admin` wins over `/app/inventory` when both are registered.
-
-Exact duplicate prefixes are skipped and reported as route warnings. The first
-application in the deterministic registry ordering keeps the prefix.
-
-<a id="page-reference-route-conventions-align-route-declarations"></a>
-### Align route declarations
-
-For an API, these values must describe the same public path:
-
-1. `defineApp({ routes })`;
-2. the Hono `.route()` mount;
-3. the browser client's `baseUrl`;
-4. the OpenAPI mount when present.
-
-For a page, align the declared route, Hono page mount, and navigation `href`.
-
-See [Routing](./architecture.md#page-build-routing) for an application example.
-
----
-
-<a id="page-reference-settings-kinds-and-environment"></a>
-## Settings kinds and environment
-
-Every application setting has a dotted key, kind, and default.
-
-The kind determines the TypeScript value, validation, and administration
-control.
-
-<a id="page-reference-settings-kinds-and-environment-definition-fields"></a>
-### Definition fields
-
-| Field | Required | Contract |
-| --- | --- | --- |
-| `kind` | Yes | Determines the value type and validation |
-| `default` | Yes | Value used when no persisted value or valid environment fallback exists |
-| `label` | No | Label in administration forms; Cloud derives one from the key when omitted |
-| `description` | No | Explanation shown to operators |
-| `placeholder` | No | Input hint for string-like, number, and list settings |
-| `envFallback` | No | Server-side function that returns a fallback value |
-| `envBootstrap` | No | Server-side function that can create the initial persisted value |
-
-`template` also accepts `templateVars`. `enum` requires `options`, an array of
-`{ value, label }`. `number` accepts `min` and `max`.
-
-Environment resolvers run in the server process. Do not expose their source or
-secret values to browser code.
-
-<a id="page-reference-settings-kinds-and-environment-setting-kinds"></a>
-### Setting kinds
-
-| Kind | Value | Validation |
-| --- | --- | --- |
-| `string` | `string` | Text |
-| `text` | `string` | Multiline text |
-| `email` | `string` | Empty or email address |
-| `url` | `string` | Empty or absolute URL |
-| `secret` | `string` | Encrypted at rest; redacted from administration responses |
-| `image` | `string` | Empty or absolute URL |
-| `boolean` | `boolean` | Boolean |
-| `number` | `number` | Finite number with optional `min` and `max` |
-| `enum` | `string` | One declared option |
-| `string_list` | `string[]` | Trimmed, unique values |
-| `number_list` | `number[]` | Unique positive integers |
-| `cron` | `string` | Five-field cron expression |
-| `timezone` | `string` | Empty or valid IANA time zone |
-| `template` | `string` | Valid Liquid template |
-
-List inputs accept arrays or comma- and newline-separated text.
-
-<a id="page-reference-settings-kinds-and-environment-setting-key-ownership"></a>
-### Setting key ownership
-
-Use `<app-id>.<name>` for application settings.
-
-Platform settings are declared once in Cloud. Application settings belong in
-that application's `defineApp({ settings })`.
-
-Registering the same key with a different kind, default, minimum, or maximum is
-an error.
-
-<a id="page-reference-settings-kinds-and-environment-resolve-a-value"></a>
-### Resolve a value
-
-Cloud resolves a setting in this order:
-
-1. a valid encrypted database value;
-2. `envFallback`;
-3. the code default.
-
-The public setting entry reports `custom`, `env`, or `default` as its source.
-
-At startup, `envBootstrap` writes a custom value when no persisted row exists.
-It runs again after that row is removed. Use it only to import an existing
-deployment value into Cloud.
-
-<a id="page-reference-settings-kinds-and-environment-read-and-write-values"></a>
-### Read and write values
-
-Inside a request, use the frozen `c.get("settings")` snapshot.
-
-Outside a request, use the typed `app.settings` API:
-
-```ts
-const limit = await app.settings.get("inventory.export_limit");
-await app.settings.set("inventory.export_limit", 500);
-await app.settings.remove("inventory.export_limit");
-```
-
-Removing a custom value reveals the environment fallback or default.
-
-Writes validate, encrypt, store, and invalidate the shared Valkey cache.
-
-<a id="page-reference-settings-kinds-and-environment-separate-process-environment"></a>
-### Separate process environment
-
-Infrastructure variables such as `DATABASE_URL`, `REDIS_URL`, `APP_SECRET`,
-`APP_ID`, and `PORT` are not settings.
-
-See [Runtime configuration](./ops.md#page-operations-runtime-configuration) for
-their deployment contract and [Settings](./platform.md#page-platform-settings) for usage.
-
----
-
-<a id="page-reference-vocabulary-and-statuses"></a>
-## Shared vocabulary and statuses
-
-Use the shared term that matches the Cloud contract.
-
-Do not create an application synonym for an existing platform concept.
-
-<a id="page-reference-vocabulary-and-statuses-identity-and-access"></a>
-### Identity and access
-
-| Term | Meaning |
-| --- | --- |
-| Actor | Credential that made the request |
-| User-backed actor | User session or delegated service account with a user |
-| Access subject | Principal whose resource grants are checked |
-| Principal | User, group, service account, authenticated users, or public |
-| Permission | `none`, `read`, `write`, or `admin` |
-| Resource-bound service account | Machine identity restricted to one application resource |
-| Delegated service account | Machine credential acting for a user |
-
-An actor and access subject can differ.
-
-See [Identity and access](./auth.md#page-identity).
-
-<a id="page-reference-vocabulary-and-statuses-application-and-runtime"></a>
-### Application and runtime
-
-| Term | Meaning |
-| --- | --- |
-| Application | Independently running HTTP service connected to Cloud |
-| Application definition | Metadata and platform declarations passed to `defineApp()` |
-| Application ID | Stable machine ID used in routes and registration |
-| Built-in application | Application developed and released from the Cloud monorepo |
-| Standalone application | Application developed and released from its own repository |
-| Base URL | Stable internal service address used by the gateway |
-| Resource | Domain object owned by an application |
-| Route prefix | Top-level URL path published by an application |
-| Registry entry | Current discoverable metadata for one application ID |
-| Gateway | Edge service that forwards requests to applications by route prefix |
-| Runtime snapshot | Registry-derived application state for one process or request |
-| Capability | Executable integration passed to `app.start()`, such as universal search |
-| Lifecycle | Application `setup`, `start`, and `stop` hooks |
-
-The registry stores one logical entry per application ID, not one entry per
-replica. Replicas refresh the same entry and share the same base URL.
-
-<a id="page-reference-vocabulary-and-statuses-platform-definitions"></a>
-### Platform definitions
-
-| Term | Meaning |
-| --- | --- |
-| Setting | Typed operator-controlled runtime configuration declared by an application |
-| Notification definition | Typed event contract for recipients, payload, presentation, and delivery |
-| Search capability | Permission-aware provider that returns application resources to universal search |
-| Dashboard widget | Application-owned endpoint rendered on the shared dashboard |
-
-<a id="page-reference-vocabulary-and-statuses-service-results"></a>
-### Service results
-
-Application services return `Result<T>`:
-
-- `{ ok: true, data }`;
-- `{ ok: false, error }`.
-
-Common error codes map to bad input, unauthenticated, forbidden, not found,
-conflict, dependency failure, and internal failure.
-
-See [Services and results](./backend.md#page-server-services-and-results).
-
-<a id="page-reference-vocabulary-and-statuses-notification-delivery"></a>
-### Notification delivery
-
-| Status | Meaning |
-| --- | --- |
-| `deferred` | A fallback waits for an earlier channel |
-| `pending` | Delivery is ready for work |
-| `sending` | A worker owns the attempt |
-| `delivered` | The channel accepted delivery |
-| `suppressed` | Delivery was intentionally skipped |
-| `failed` | Delivery ended with an error |
-
-See [Notifications](./notifications.md#page-platform-notifications).
-
-<a id="page-reference-vocabulary-and-statuses-workflow-runs"></a>
-### Workflow runs
-
-| Status | Meaning |
-| --- | --- |
-| `queued` | Waiting for a worker |
-| `running` | Executing steps |
-| `waiting` | Waiting for a durable dependency |
-| `succeeded` | Completed successfully |
-| `failed` | Completed with an error |
-| `canceled` | Stopped by cancellation |
-| `needs_attention` | Requires operator action |
-
-Step planning can also report `planned`, `unsupported`, or `indeterminate`.
-
-See [Workflow overview](./workflows.md#page-automation-workflow-overview).
-
-<a id="page-reference-vocabulary-and-statuses-ai-turns"></a>
-### AI turns
-
-| Status | Meaning |
-| --- | --- |
-| `queued` | Turn is waiting for the AI worker |
-| `running` | The model or a tool is active |
-| `waiting_for_action` | Approval or a browser tool is required |
-| `completed` | Turn finished successfully |
-| `failed` | Turn ended with an error |
-| `aborted` | Cancellation finished |
-
-The browser controller uses presentation states such as `streaming`,
-`stopping`, and `reconnecting`. These are UI states, not persisted turn states.
-
-See [Chat runtime](./ai.md#page-ai-chat-runtime-and-streaming).
-
-<a id="page-reference-vocabulary-and-statuses-trace-status"></a>
-### Trace status
-
-A trace span is `unset`, `ok`, or `error`.
-
-An open span past the abandonment threshold is reported as stuck. It is not
-still running merely because it has no end timestamp.
-
-See [Tracing](./platform.md#page-platform-tracing).
-
----
-
 <a id="page-reference-deprecations-and-migrations"></a>
 ## Deprecations and migrations
 
@@ -522,7 +260,7 @@ covered by tests.
 The old `apiClient` is untyped. Export the final Hono router type, then create a
 typed browser client with the real base URL.
 
-See [Browser clients](./frontend.md#page-frontend-browser-clients-and-mutations).
+See [Browser clients](./browser.md#page-frontend-browser-clients-and-mutations).
 
 <a id="page-reference-deprecations-and-migrations-access-inputs"></a>
 ### Access inputs
@@ -542,7 +280,7 @@ await getEffectivePermission({
 `userGroups` is ignored. Cloud resolves direct and nested membership from the
 authoritative platform tables.
 
-See [Authorization](./auth.md#page-identity-authorization).
+See [Authorization](./authorization.md#page-identity-authorization).
 
 <a id="page-reference-deprecations-and-migrations-notifications"></a>
 ### Notifications
@@ -557,6 +295,7 @@ bound definition:
 await notifications.send(app.notifications.stockLow, {
   recipient: { userId },
   data: { itemId, itemName, remaining },
+  idempotencyKey: `stock-low:${itemId}:${thresholdVersion}`,
 });
 ```
 
@@ -578,8 +317,7 @@ See [Notifications](./notifications.md#page-platform-notifications).
 `DockWorkspace` remains only for legacy screens. Do not extend its persistence
 format.
 
-Use the [component catalog](./frontend.md#page-frontend-component-catalog) to inspect the
-current UI contract.
+Use the [UI catalog](./components.md) to inspect the current UI contract.
 
 <a id="page-reference-deprecations-and-migrations-shared-utilities"></a>
 ### Shared utilities

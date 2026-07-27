@@ -32,11 +32,12 @@ The application still owns the product behavior. It decides:
 | A standalone chat surface | [`createAiChatRoutes()`](/docs/en/ai/chat-runtime-and-streaming) |
 | One validated background result | [`runAiStructured()`](/docs/en/ai/structured-and-background-ai) |
 | A model-requested action | [`defineAiTool()`](/docs/en/ai/tools-and-approvals) |
-| Shared chat components | [AI user interface](/docs/en/ai/ui-and-operations) |
+| Conversation files, skills, or user memory | [Files, skills, and memory](/docs/en/ai/files-skills-and-memory) |
+| Shared chat components | [Chat interface](/docs/en/ai/chat-interface) |
 
 Do not create a chat when one structured call is enough.
 
-## Security and data boundary
+## Keep the application boundary
 
 Cloud resolves the current actor before it starts a turn. Resource chats check
 access before loading context and again before a server tool runs.
@@ -50,17 +51,7 @@ the source of truth for domain data.
 > Treat model output as untrusted input. Validate it before a write and run the
 > same authorization checks used by a normal request.
 
-## AI request lifecycle
-
-1. The route authenticates the caller.
-2. The application resolves resource access and model policy.
-3. Cloud creates or loads the conversation.
-4. A turn is queued for the shared runtime.
-5. The runtime composes the prompt and resolves the model.
-6. Streaming events update the browser.
-7. Tool calls wait for execution or approval when needed.
-8. Cloud persists the final result and usage.
-
 Start with [AI resources and access](/docs/en/ai/resources-and-access) for an
-embedded application feature. Use [Models and providers](/docs/en/ai/models-and-providers)
-when the deployment needs model configuration.
+embedded feature. Read [Chat runtime and streaming](/docs/en/ai/chat-runtime-and-streaming)
+for the conversation lifecycle and [Models and providers](/docs/en/ai/models-and-providers)
+for deployment configuration.

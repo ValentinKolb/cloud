@@ -5,7 +5,7 @@ section: Platform services
 order: 510
 description: Define application settings and access them in requests, jobs, and lifecycle hooks.
 tags: [settings, configuration, typescript]
-updated: 2026-07-26
+updated: 2026-07-27
 ---
 
 # Settings
@@ -18,8 +18,8 @@ instances.
 
 ## Declare settings
 
-Prefix every key with the application ID. Cloud derives the TypeScript API from
-this declaration.
+Use `<app-id>.<name>` for setting keys so ownership stays explicit. Cloud derives
+the TypeScript API from this declaration.
 
 ```ts
 import { defineApp } from "@valentinkolb/cloud";
@@ -101,30 +101,13 @@ default.
 The server API validates writes against the declaration. It rejects unknown
 keys and values of the wrong type.
 
-## Setting precedence
+## Resolution and ownership
 
-Cloud resolves each key in this order:
+Declare each key once in the application that owns its behavior. Settings are
+runtime configuration, not domain records or per-user preferences.
 
-1. persisted value
-2. `envFallback`, when defined
-3. code default
-
-`envBootstrap` copies an environment value at startup when no persisted value
-exists. Use it to migrate existing environment configuration.
-
-Use `envFallback` when the environment should remain a fallback.
-
-All app instances must use the same `APP_SECRET`. Cloud encrypts stored values
-with that secret. See
+[Settings kinds and environment](/docs/en/reference/settings-kinds-and-environment)
+defines value resolution, environment bootstrap, validation, encryption, and
+every supported field. Use
 [Runtime configuration](/docs/en/operations/runtime-configuration) for
-deployment-wide environment variables.
-
-## Setting ownership
-
-- Prefix keys with the application ID.
-- Declare a key once, in the application that owns its behavior.
-- Keep secrets in `secret` settings, but do not return them to browser code.
-- Use settings for runtime configuration, not domain records or per-user
-  preferences.
-- Use the request context in handlers.
-- Use the async API outside requests.
+deployment-wide process variables such as `APP_SECRET`.

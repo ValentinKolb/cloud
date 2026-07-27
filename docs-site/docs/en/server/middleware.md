@@ -25,6 +25,14 @@ import { app } from "../config";
 type InventoryAppContext = AppContext<typeof app>;
 
 const router = new Hono<InventoryAppContext>()
+  .use("*", middleware.logger())
+  .use(
+    "/api/inventory/*",
+    middleware.ratelimit({
+      limitPerSecond: 20,
+      windowSecs: 1,
+    }),
+  )
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
   .route("/api/inventory", apiRoutes)
@@ -33,6 +41,15 @@ const router = new Hono<InventoryAppContext>()
 
 Hono applies `.use()` to routes registered after it. Put shared middleware
 before `.route()`.
+
+Keep this order:
+
+1. logging, so it sees later `401`, `403`, `429`, and `5xx` responses;
+2. rate limiting, so rejected requests do not load application context;
+3. runtime and settings context;
+4. routes with their authentication, validation, and handlers.
+
+`AppContext` only types the context. It does not install any middleware.
 
 ## Choose middleware
 
@@ -125,6 +142,9 @@ It includes method, path, status, duration, and the user ID when available.
 Static assets, SSR chunks, favicons, and branding paths are skipped.
 
 Domain events need their own logger. See [Logging](/docs/en/platform/logging).
+
+Register the logger before rate limiting and route policies. Otherwise their
+early responses do not reach it.
 
 ## Limit requests
 

@@ -15,13 +15,31 @@ the application.
 
 ## Inspect runtime state
 
-The store exports queries for:
+Use the shared store instead of creating another run history:
 
-- runs and run families;
-- run detail, steps, and timelines;
-- stranded effects;
-- undispatched events;
-- application workflow health.
+```ts
+import {
+  getWorkflowRun,
+  listWorkflowRuns,
+} from "@valentinkolb/cloud/workflows/store";
+
+const runs = await listWorkflowRuns({
+  appId: "inventory",
+  scopeId: warehouseId,
+  includeChildren: false,
+  limit: 50,
+});
+
+const latest = runs[0];
+const detail = latest ? await getWorkflowRun(latest.id) : null;
+```
+
+The list filter accepts app, scope, workflow, parent, state, mode, start time,
+limit, and offset. Run detail adds inputs, result, source, steps, effect usage,
+event data, and child-state counts.
+
+Use run families and timelines for grouped operations views. Use stranded
+effects, undispatched events, and application health for recovery queues.
 
 The shared operations UI is at `/admin/observability/workflows`.
 
@@ -39,6 +57,73 @@ Step states use a different vocabulary:
 `planned`, `unsupported`, `indeterminate`, and `canceled`.
 
 Keep those terms distinct in application UI.
+
+`result` is the workflow output. `resultMessage` is operator-facing status
+text. `error` contains failure detail. Do not merge them into one field.
+
+## Cancel a run
+
+```ts
+import {
+  requestWorkflowRunCancel,
+} from "@valentinkolb/cloud/workflows/store";
+
+const changed = await requestWorkflowRunCancel(runId);
+```
+
+The request includes child runs. Queued and waiting runs become canceled
+immediately. A running worker observes cancellation at its next heartbeat.
+
+Authorize the operation in the application service before calling the store.
+The store does not know which application user may control a run.
+
+## Resolve a run that needs attention
+
+An ambiguous external effect may have succeeded before its worker crashed.
+Verify the provider state before resolving it:
+
+```ts
+import {
+  listStrandedWorkflowEffects,
+  resolveWorkflowRunAttention,
+} from "@valentinkolb/cloud/workflows/store";
+
+const effects = await listStrandedWorkflowEffects({
+  appId: "inventory",
+  olderThanMs: 60_000,
+  limit: 100,
+});
+
+const effect = effects[0];
+if (effect) {
+  await resolveWorkflowRunAttention({
+    runId: effect.runId,
+    stepKey: effect.stepKey,
+    resolution: {
+      state: "succeeded",
+      output: { providerId },
+    },
+  });
+}
+```
+
+Confirming success records the step output and queues the remaining plan.
+Confirming failure settles both the step and run:
+
+```ts
+await resolveWorkflowRunAttention({
+  runId,
+  stepKey,
+  resolution: {
+    state: "failed",
+    code: "INVENTORY_PROVIDER_REJECTED",
+    message: "The provider confirmed that the operation failed.",
+  },
+});
+```
+
+Never use resolution as a generic retry button. Resolve only after checking
+whether the effect happened.
 
 ## Connect a trace port
 
@@ -65,7 +150,21 @@ Test each action class at its boundary:
 ## Test complete processes
 
 Use the exports from `@valentinkolb/cloud/workflows/testing` to run shared
-process fixtures.
+process fixtures:
+
+```ts
+import { expect } from "bun:test";
+import {
+  directOnlyProcessFixture,
+  runWorkflowProcessFixture,
+} from "@valentinkolb/cloud/workflows/testing";
+
+const result = await runWorkflowProcessFixture(
+  directOnlyProcessFixture,
+);
+
+expect(result.execution.state).toBe("succeeded");
+```
 
 The fixtures cover direct invocation, launchers, schedules, record events, and
 bulk launchers. They verify the application integration against the same

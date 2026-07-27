@@ -10,34 +10,22 @@ updated: 2026-07-27
 
 # Build an application
 
-A Cloud application is an independently deployed HTTP service.
+Start with [Platform model](/docs/en/overview) if you need the ownership and
+runtime boundary.
 
-It declares itself with `defineApp()`, owns a Hono router, and passes its
-`fetch` handler to `app.start()`.
+## Choose the project shape
 
-Read [Platform model](/docs/en/overview) for the platform and application
-ownership boundary.
+Choose the repository from release ownership. The application contract stays
+the same.
 
-## Repository and release ownership
-
-The runtime contract is the same for built-in and standalone applications.
-Choose the repository from release ownership.
-
-| Project | Use it when | Development dependency |
-| --- | --- | --- |
-| Built-in | Cloud maintainers release the application with the platform | `@valentinkolb/cloud: "workspace:*"` |
-| Standalone | Another team owns the application release | A published `@valentinkolb/cloud` version |
-
-A built-in application lives under `packages/` and joins the repository's
-Compose stack. A standalone application owns its repository, image, and
-deployment pipeline.
-
-Do not branch domain code on the project type. Both forms use `defineApp()`,
-Hono, and `app.start()`.
+| Project | Choose it when |
+| --- | --- |
+| Built-in | Cloud maintainers release the application with the platform |
+| Standalone | Another team owns the repository, image, and release |
 
 See [Monorepo development](/docs/en/operations/monorepo-development) or
 [Standalone development](/docs/en/operations/standalone-development) for the
-deployment-specific steps.
+different development workflows.
 
 ## Build tasks
 

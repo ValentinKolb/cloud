@@ -48,8 +48,6 @@ const permissionFromScopes = (scopes: readonly string[]): PermissionLevel => {
 const lowerPermission = (permission: PermissionLevel, cap: PermissionLevel): PermissionLevel =>
   PERMISSION_RANK[permission] <= PERMISSION_RANK[cap] ? permission : cap;
 
-const resourceCredential = (actor: RequestActor) => (actor.kind === "service_account" && actor.delegatedUser === null ? actor : null);
-
 // Call this from the application's serialized resource lifecycle.
 export const provisionItemServiceAccount = async (input: {
   itemId: string;
@@ -86,14 +84,14 @@ export const requireItemPermission = async (input: {
   accessSubject: AccessSubject;
   access: Pick<ResourceAccessAdapter, "list">;
 }): Promise<Result<PermissionLevel>> => {
-  const credential = resourceCredential(input.actor);
+  const resourceCredential = input.actor.kind === "service_account" && input.actor.delegatedUser === null ? input.actor : null;
 
   if (
-    credential &&
-    (credential.serviceAccount.kind !== "resource_bound" ||
-      credential.serviceAccount.appId !== "inventory" ||
-      credential.serviceAccount.resourceType !== "item" ||
-      credential.serviceAccount.resourceId !== input.itemId)
+    resourceCredential &&
+    (resourceCredential.serviceAccount.kind !== "resource_bound" ||
+      resourceCredential.serviceAccount.appId !== "inventory" ||
+      resourceCredential.serviceAccount.resourceType !== "item" ||
+      resourceCredential.serviceAccount.resourceId !== input.itemId)
   ) {
     return fail(err.forbidden("Access denied"));
   }
@@ -103,7 +101,7 @@ export const requireItemPermission = async (input: {
     accessIds: entries.map((entry) => entry.id),
     subject: input.accessSubject,
   });
-  const effective = credential ? lowerPermission(granted, permissionFromScopes(credential.scopes)) : granted;
+  const effective = resourceCredential ? lowerPermission(granted, permissionFromScopes(resourceCredential.scopes)) : granted;
 
   return hasPermission(effective, input.required) ? ok(effective) : fail(err.forbidden("Access denied"));
 };
@@ -193,7 +191,7 @@ export const browserRoutes = new Hono<AuthContext>().get(
 );
 
 export const optionalRoutes = new Hono<AuthContext>().use("*", auth.requireRole("*")).get("/:id", (c) => {
-  const actor = c.get("actor") as RequestActor | undefined;
-  const subject = actor ? (c.get("accessSubject") as AccessSubject) : null;
-  return c.json({ authenticated: Boolean(actor), subject });
+  const actor = c.get("actor");
+  const accessSubject = actor ? c.get("accessSubject") : null;
+  return c.json({ authenticated: Boolean(actor), accessSubject });
 });

@@ -34,13 +34,7 @@ primitives do not use the Cloud workflow tables.
 The workflow kernel comes from `@valentinkolb/cloud/workflows`. It owns
 versioned plans, runs, leases, outcomes, effects, and operator visibility.
 
-## Design for repeated execution
-
-Distributed work is at least once. A process can finish a side effect and
-crash before it records completion.
-
-Give each logical operation a stable key. Make repeated execution safe. Keep
-domain state in the application database.
-
-Use [tracing](/docs/en/platform/tracing) to follow execution and
-[structured logging](/docs/en/platform/logging) for diagnostics.
+The task page owns the reliability rules for its runtime. Use
+[Workflow observability and testing](/docs/en/automation/workflow-observability-and-testing)
+for workflow diagnostics, or the shared [Observability](/docs/en/operations/observability)
+guide for application processes.

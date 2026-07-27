@@ -88,6 +88,7 @@ contract.
 | `list` | `items` | `emptyMessage`, `grow` |
 | `status` | `tone`, `title` | `message`, `icon`, `grow` |
 | `pills` | `pills` | `grow` |
+| `placeholder` | `title` | `description`, `icon` |
 | `hero` | `title` | `subtitle`, `icon`, `tone` |
 
 A stat `accent` requires `tone` and `icon`; it can also contain `text`.
@@ -96,6 +97,8 @@ Each list item requires `label`. It can contain `icon`, `iconTone`, `sub`,
 `meta`, and `href`.
 
 Each pill requires `label` and `value`. It can contain `tone` and `href`.
+
+Use `placeholder` for a compact empty or unavailable state inside the widget.
 
 Widget tones are `emerald`, `amber`, `red`, `blue`, or `zinc`. Status tones are
 `ok`, `warn`, `error`, or `info`.

@@ -59,6 +59,8 @@ export const createInventoryRoutes = (inventory: InventoryService) =>
       summary: "Read an inventory item",
       responses: {
         200: jsonResponse(InventoryItemSchema, "Inventory item"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid item ID"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
         404: jsonResponse(ErrorResponseSchema, "Item not found"),
       },

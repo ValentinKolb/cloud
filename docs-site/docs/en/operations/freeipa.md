@@ -1,6 +1,6 @@
 ---
 title: FreeIPA setup
-navTitle: FreeIPA setup
+navTitle: FreeIPA
 section: Operations
 order: 1170
 description: Connect a Cloud deployment to FreeIPA identity infrastructure.
@@ -88,4 +88,4 @@ Before enabling user traffic:
 8. test behavior while FreeIPA is unavailable.
 
 See [Authentication](/docs/en/identity/authentication) and
-[Actors and access](/docs/en/identity) for the resulting request identity.
+[Identity and access](/docs/en/identity) for the resulting request identity.

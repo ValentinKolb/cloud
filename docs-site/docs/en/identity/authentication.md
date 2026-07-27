@@ -84,7 +84,11 @@ binding.
 
 ```ts
 type AccessSubject =
-  | { type: "user"; userId: string }
+  | {
+      type: "user";
+      userId: string;
+      delegatedByServiceAccountId?: string | null;
+    }
   | { type: "service_account"; serviceAccountId: string };
 ```
 
@@ -113,6 +117,11 @@ const user = expectUserBackedActor(c);
 
 Use `expectUserBackedActor()` only after a user-backed
 [route policy](/docs/en/identity/route-policies).
+
+For an API route, apply `auth.requireRole("authenticated")` before
+`auth.requireUser()`. See
+[Route policies](/docs/en/identity/route-policies#require-a-user-backed-actor)
+for the response behavior.
 
 > **Authorize with the access subject.**
 >
@@ -161,15 +170,9 @@ Applications do not verify these claims themselves.
 
 Credential scopes can reduce a resource permission. They cannot create one.
 
-After authentication:
-
-1. route middleware decides whether the caller may enter;
-2. the service resolves the resource grant;
-3. resource-bound credentials are checked against their exact app, resource
-   type, and resource ID;
-4. the service applies the credential scope as a cap.
-
-Continue with [Resource authorization](/docs/en/identity/authorization).
+Route middleware decides whether the caller may enter. The domain service must
+still enforce the resource grant, machine binding, and credential scope.
+[Resource authorization](/docs/en/identity/authorization) defines that check.
 
 ## Authentication failures
 
@@ -179,6 +182,11 @@ The default middleware response is:
 | --- | --- | --- |
 | No valid credential | `401` | `{ "message": "Authentication required" }` |
 | Valid caller without the required policy | `403` | `{ "message": "Insufficient permissions" }` |
+
+`auth.requireUser()` has a narrower response because it checks for a
+user-backed actor. It returns `403` with
+`{ "message": "Self-service endpoints require a user-backed actor", "code": "FORBIDDEN" }`.
+Use it after an authentication policy, not instead of one.
 
 SSR routes can redirect instead. See
 [Route policies](/docs/en/identity/route-policies).

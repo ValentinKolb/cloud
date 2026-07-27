@@ -45,6 +45,20 @@ const routes = new Hono<AuthContext>()
   });
 ```
 
+## Require a user-backed actor
+
+Apply `requireRole("authenticated")` before `requireUser()` when a handler needs
+a profile, display name, roles, or another user-owned value.
+
+| Request | Stopped by | Default response |
+| --- | --- | --- |
+| No valid credential | `requireRole("authenticated")` | `401 Authentication required` |
+| Resource-bound service account | `requireUser()` | `403 Self-service endpoints require a user-backed actor` |
+| User or user-delegated credential | Neither | Continue to the handler |
+
+`requireUser()` alone is not an authentication policy. It returns `403` for
+every request without a user, including a request without a valid credential.
+
 ## Use computed roles
 
 Roles describe a user at the platform level. Use them for coarse route access,
@@ -136,10 +150,8 @@ login method.
 Anonymous requests have no actor or access subject.
 
 ```ts
-const actor = c.get("actor") as RequestActor | undefined;
-const accessSubject = actor
-  ? (c.get("accessSubject") as AccessSubject)
-  : null;
+const actor = c.get("actor");
+const accessSubject = actor ? c.get("accessSubject") : null;
 ```
 
 See [Public and anonymous access](/docs/en/identity/public-and-anonymous-access)

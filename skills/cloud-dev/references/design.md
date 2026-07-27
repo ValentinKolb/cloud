@@ -2,6 +2,32 @@
 
 This page defines the visual and interaction rules for Cloud core UI and built-in apps. Read it before changing shared styles, layout primitives, or an app surface.
 
+## Contents
+
+- [Scope](#scope)
+- [Design thesis](#design-thesis)
+- [Visual signature](#visual-signature)
+- [Semantic colour roles](#semantic-colour-roles)
+- [Tokens](#tokens)
+- [Surfaces and borders](#surfaces-and-borders)
+- [Spacing and density](#spacing-and-density)
+- [Typography](#typography)
+- [Platform shell](#platform-shell)
+- [App workspace](#app-workspace)
+- [Personal account surfaces](#personal-account-surfaces)
+- [Controls](#controls)
+- [Data surfaces](#data-surfaces)
+- [Floating layers](#floating-layers)
+- [Progressive disclosure](#progressive-disclosure)
+- [Compact navigation](#compact-navigation)
+- [Empty, loading, and error states](#empty-loading-and-error-states)
+- [Responsive behaviour](#responsive-behaviour)
+- [Dark mode](#dark-mode)
+- [Accessibility](#accessibility)
+- [Production baseline and migrations](#production-baseline-and-migrations)
+- [Shared primitive integrity](#shared-primitive-integrity)
+- [Review checklist](#review-checklist)
+
 ## Scope
 
 Use this page for visual decisions: hierarchy, spacing, surfaces, colour roles, interaction states, responsive behaviour, and design review. Use `frontend.md` to choose a shell and `components.md` for component APIs.
@@ -298,7 +324,7 @@ Use `DataTable` for tabular data.
 - Use `StructuredDataPreview` for small JSON-like values.
 - Close controls and contextual actions stay reachable on mobile.
 
-Contacts and Spaces are the reference implementations for this orientation-first detail hierarchy. Do not move their identity and quick-action pattern into the first `detail-section`.
+Treat the shared detail primitives and this contract as authoritative. Existing applications are examples and may drift. Keep the identity and quick-action pattern in the detail hero, not in the first `detail-section`.
 
 ## Floating layers
 

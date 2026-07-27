@@ -33,36 +33,29 @@ Start with:
 Use the URL for filters, sorting, pagination, selection, and the active view.
 See [URL state and navigation](/docs/en/frontend/url-state-and-navigation).
 
-## Server-authoritative results
+## Add browser behavior
 
-Do not filter, sort, paginate, group, or aggregate a server result set in the
-browser.
+- [Browser clients and mutations](/docs/en/frontend/browser-clients-and-mutations)
+  covers typed API calls and writes.
+- [Realtime UI](/docs/en/frontend/realtime-ui) adds live updates to an
+  SSR-owned result set.
+- [Forms, prompts, and feedback](/docs/en/frontend/forms-prompts-and-feedback)
+  covers user input and mutation states.
 
-The browser usually holds one page of rows. A client-side filter would be
-incomplete. It would also bypass the SQL permission conditions that produced
-the result.
+Finish with [Styling and accessibility](/docs/en/frontend/styling-and-accessibility)
+and [Frontend testing](/docs/en/frontend/testing).
 
-Use this loop:
+## Choose shared components
 
-```text
-user intent → URL → SSR or typed route-state API → authorized query → UI
-```
+Use the [UI catalog](/ui) to inspect supported components, props, and live
+examples. Shared components carry accessibility, responsive behavior, theming,
+and platform vocabulary.
 
-Small, fully loaded option lists and transient UI state may stay local.
+Compose them in an application-owned island when the UI needs domain state or
+typed API calls. Keep domain-specific components in the application. Promote a
+component only when several applications need the same behavior and contract.
 
-## Use the shared boundaries
+If a recurring need is missing, improve the shared primitive and its catalog
+example instead of hiding a local lookalike or CSS override.
 
-| Import | Runtime |
-| --- | --- |
-| `@valentinkolb/cloud/ssr` | Server layouts and URL filters |
-| `@valentinkolb/cloud/ui` | Shared SolidJS components |
-| `@valentinkolb/cloud/browser` | Typed Hono API clients |
-| `@valentinkolb/cloud/browser/live` | Browser WebSocket lifecycle |
-| `@valentinkolb/stdlib/solid` | Mutation and timing helpers |
-
-Do not import server barrels into an island. They pull Bun and database code
-into the browser bundle.
-
-Use the [component catalog](/ui) for visual examples and
-[Component catalog guidance](/docs/en/frontend/component-catalog) for choosing
-a primitive.
+Do not use `DockWorkspace` for new work. It remains only for compatibility.

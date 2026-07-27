@@ -3,6 +3,14 @@
 
 The Cloud developer documentation is the canonical source for this file.
 
+## Contents
+
+- [Frontend](#page-frontend)
+- [SSR pages and routing](#page-frontend-ssr-pages-and-routing)
+- [Layout and navigation](#page-frontend-layout-and-navigation)
+- [Application shells](#page-frontend-application-shells)
+- [Islands and hydration](#page-frontend-islands-and-hydration)
+
 <a id="page-frontend"></a>
 ## Frontend
 
@@ -28,43 +36,36 @@ Start with:
   the page needs browser state.
 
 Use the URL for filters, sorting, pagination, selection, and the active view.
-See [URL state and navigation](#page-frontend-url-state-and-navigation).
+See [URL state and navigation](./browser.md#page-frontend-url-state-and-navigation).
 
-<a id="page-frontend-server-authoritative-results"></a>
-### Server-authoritative results
+<a id="page-frontend-add-browser-behavior"></a>
+### Add browser behavior
 
-Do not filter, sort, paginate, group, or aggregate a server result set in the
-browser.
+- [Browser clients and mutations](./browser.md#page-frontend-browser-clients-and-mutations)
+  covers typed API calls and writes.
+- [Realtime UI](./browser.md#page-frontend-realtime-ui) adds live updates to an
+  SSR-owned result set.
+- [Forms, prompts, and feedback](./frontend-ui.md#page-frontend-forms-prompts-and-feedback)
+  covers user input and mutation states.
 
-The browser usually holds one page of rows. A client-side filter would be
-incomplete. It would also bypass the SQL permission conditions that produced
-the result.
+Finish with [Styling and accessibility](./frontend-ui.md#page-frontend-styling-and-accessibility)
+and [Frontend testing](./frontend-ui.md#page-frontend-testing).
 
-Use this loop:
+<a id="page-frontend-choose-shared-components"></a>
+### Choose shared components
 
-```text
-user intent → URL → SSR or typed route-state API → authorized query → UI
-```
+Use the [UI catalog](./components.md) to inspect supported components, props, and live
+examples. Shared components carry accessibility, responsive behavior, theming,
+and platform vocabulary.
 
-Small, fully loaded option lists and transient UI state may stay local.
+Compose them in an application-owned island when the UI needs domain state or
+typed API calls. Keep domain-specific components in the application. Promote a
+component only when several applications need the same behavior and contract.
 
-<a id="page-frontend-use-the-shared-boundaries"></a>
-### Use the shared boundaries
+If a recurring need is missing, improve the shared primitive and its catalog
+example instead of hiding a local lookalike or CSS override.
 
-| Import | Runtime |
-| --- | --- |
-| `@valentinkolb/cloud/ssr` | Server layouts and URL filters |
-| `@valentinkolb/cloud/ui` | Shared SolidJS components |
-| `@valentinkolb/cloud/browser` | Typed Hono API clients |
-| `@valentinkolb/cloud/browser/live` | Browser WebSocket lifecycle |
-| `@valentinkolb/stdlib/solid` | Mutation and timing helpers |
-
-Do not import server barrels into an island. They pull Bun and database code
-into the browser bundle.
-
-Use the [component catalog](./components.md) for visual examples and
-[Component catalog guidance](#page-frontend-component-catalog) for choosing
-a primitive.
+Do not use `DockWorkspace` for new work. It remains only for compatibility.
 
 ---
 
@@ -118,7 +119,7 @@ Use `expectUserBackedActor(c)` only when the page truly requires a user. A
 resource-bound service account has no user.
 
 See [Request identity](./auth.md#page-identity-authentication) and
-[Resource authorization](./auth.md#page-identity-authorization).
+[Resource authorization](./authorization.md#page-identity-authorization).
 
 <a id="page-frontend-ssr-pages-and-routing-map-routes-explicitly"></a>
 ### Map routes explicitly
@@ -249,7 +250,7 @@ Navigation controls start as anchors with an `href`. A link must work before
 hydration and support open-in-new-tab.
 
 Use enhanced navigation only inside an island that also updates its own state.
-See [URL state and navigation](#page-frontend-url-state-and-navigation).
+See [URL state and navigation](./browser.md#page-frontend-url-state-and-navigation).
 
 ---
 
@@ -291,27 +292,35 @@ every application capability.
 ```tsx
 <Layout c={c} title="Inventory" fullWidth fullPage>
   <AppWorkspace>
-    <AppWorkspace.Sidebar label="Inventory">
+    <AppWorkspace.Sidebar collapsible>
+      <AppWorkspace.SidebarHeader
+        title="Inventory"
+        icon="ti ti-packages"
+      />
       <InventoryNavigation />
     </AppWorkspace.Sidebar>
-    <AppWorkspace.Main>
-      <InventoryTable />
-    </AppWorkspace.Main>
-    {selected && (
-      <AppWorkspace.Detail label="Item details">
-        <ItemDetail item={selected} />
+    <AppWorkspace.Content>
+      <AppWorkspace.Main>
+        <InventoryTable />
+      </AppWorkspace.Main>
+      <AppWorkspace.Detail
+        id="item-detail"
+        open={Boolean(selected)}
+        width="md"
+      >
+        {selected && <ItemDetail item={selected} />}
       </AppWorkspace.Detail>
-    )}
+    </AppWorkspace.Content>
   </AppWorkspace>
 </Layout>
 ```
 
 Selection belongs in the URL. The server must be able to render the same
 detail after reload. See
-[URL state and navigation](#page-frontend-url-state-and-navigation).
+[URL state and navigation](./browser.md#page-frontend-url-state-and-navigation).
 
-Use the workspace members for geometry. Do not add another grid that imitates
-a detail panel or resize handle.
+`AppWorkspace.Content` is the required flex row for `Main` and `Detail`.
+Keep geometry IDs stable. Do not add another grid or resize handle.
 
 <a id="page-frontend-application-shells-choose-a-dialog"></a>
 ### Choose a dialog
@@ -323,7 +332,7 @@ a detail panel or resize handle.
 
 The shared dialog core owns focus trapping, Escape, backdrop, and layering.
 
-See [Forms, prompts, and feedback](#page-frontend-forms-prompts-and-feedback)
+See [Forms, prompts, and feedback](./frontend-ui.md#page-frontend-forms-prompts-and-feedback)
 for input and mutation behavior.
 
 Do not restyle a shared shell locally. Improve the primitive when the design
@@ -399,565 +408,5 @@ increase bundle size and make server and browser ownership unclear.
 
 Do not nest an island import inside another island or client component.
 
-See [Browser clients and mutations](#page-frontend-browser-clients-and-mutations)
+See [Browser clients and mutations](./browser.md#page-frontend-browser-clients-and-mutations)
 for server calls from an island.
-
----
-
-<a id="page-frontend-browser-clients-and-mutations"></a>
-## Browser clients and mutations
-
-Call application JSON APIs through a typed Hono client.
-
-Wrap user-initiated async work in `mutation.create()` so loading, errors,
-aborts, retries, and stale results follow one contract.
-
-<a id="page-frontend-browser-clients-and-mutations-create-a-typed-client"></a>
-### Create a typed client
-
-Export the Hono route type from the application server:
-
-```ts
-export type InventoryApi = typeof inventoryRoutes;
-```
-
-Create the browser client in a browser-safe module:
-
-```ts
-import { api } from "@valentinkolb/cloud/browser";
-import type { InventoryApi } from "../api";
-
-export const inventoryApi = api.create<InventoryApi>({
-  baseUrl: "/api/inventory",
-});
-```
-
-The client infers route parameters and request payloads. Check `response.ok`
-before reading success data.
-
-Do not use raw `fetch()` for an application JSON API when its typed route is
-available.
-
-<a id="page-frontend-browser-clients-and-mutations-run-a-mutation"></a>
-### Run a mutation
-
-```tsx
-import { mutation } from "@valentinkolb/stdlib/solid";
-import { toast } from "@valentinkolb/cloud/ui";
-
-const archive = mutation.create<void, { itemId: string }>({
-  mutation: async ({ itemId }, { abortSignal }) => {
-    const response = await inventoryApi.items[":id"].$delete(
-      { param: { id: itemId } },
-      { init: { signal: abortSignal } },
-    );
-    if (!response.ok) throw new Error("Item could not be archived.");
-  },
-  onSuccess: () => toast.success("Item archived"),
-  onError: (error) => toast.error(error.message),
-});
-```
-
-`mutate(vars)` starts the operation. `loading()`, `error()`, and `data()` are
-reactive accessors.
-
-`abort()` cancels the active operation. An aborted fetch calls `onAbort`, not
-`onError`.
-
-`retry()` repeats the previous variables and context. It does not run
-`onBefore` again.
-
-When a newer mutation starts, a late result from an older mutation is ignored.
-
-<a id="page-frontend-browser-clients-and-mutations-add-optimistic-state-carefully"></a>
-### Add optimistic state carefully
-
-`onBefore` may return context used by success, error, abort, and finally hooks.
-Use it to capture the previous UI state before an optimistic change.
-
-Restore that state on error and abort. Do not optimistically grant permission,
-expose new data, or pretend an irreversible action completed.
-
-The server remains authoritative. Reconcile the returned resource or reload
-the affected server-backed view after success.
-
-<a id="page-frontend-browser-clients-and-mutations-separate-query-and-mutation-state"></a>
-### Separate query and mutation state
-
-Use the URL and SSR for result sets. Use a mutation for a write or a bounded
-interactive fetch inside an island.
-
-Do not turn the mutation result into a client-side cache of the application's
-domain model.
-
-See [Forms, prompts, and feedback](#page-frontend-forms-prompts-and-feedback)
-for presenting the operation.
-
----
-
-<a id="page-frontend-url-state-and-navigation"></a>
-## URL state and navigation
-
-Put reloadable view state in the URL.
-
-Filters, sorting, pagination, selected resources, active tabs, and date ranges
-must survive reload, sharing, and Back or Forward navigation.
-
-<a id="page-frontend-url-state-and-navigation-parse-server-filters"></a>
-### Parse server filters
-
-```ts
-import {
-  createUrlFilter,
-  oneOf,
-  page,
-  text,
-} from "@valentinkolb/cloud/ssr";
-
-const inventoryFilter = createUrlFilter("/app/inventory", {
-  search: text("search"),
-  status: oneOf("status", ["all", "low", "out"] as const, "all"),
-  page: page(),
-});
-
-const state = inventoryFilter.parse(new URL(c.req.url));
-const nextHref = inventoryFilter.build(state, {
-  status: "low",
-  page: 1,
-});
-```
-
-The filter defines parsing and link generation in one place. Build links from
-the current state so one control does not erase unrelated filters.
-
-Query state still needs service validation before it reaches SQL.
-
-See [Pagination and filtering](./backend.md#page-server-pagination-and-filtering) for
-the server-side query.
-
-<a id="page-frontend-url-state-and-navigation-use-links-first"></a>
-### Use links first
-
-Use anchors for navigation. Tables, pagination, range controls, and filter
-chips should work without JavaScript.
-
-An island can use `@k2b/ssr/nav` when it can update the visible state
-without a full document render:
-
-```tsx
-import {
-  Link,
-  listenPopState,
-} from "@k2b/ssr/nav";
-import { onCleanup, onMount } from "solid-js";
-
-onMount(() => {
-  onCleanup(
-    listenPopState(({ url }) => {
-      setSelected(url.searchParams.get("item"));
-    }),
-  );
-});
-```
-
-Call `push()` or `replaceWith()` only after the island has loaded or applied the
-new state.
-
-Subscribe to `popstate` whenever an island changes history. Otherwise the URL
-and visible state diverge after Back or Forward.
-
-The navigation helper is not a client router. It does not run server loaders or
-re-render server components. Fall back to document navigation when the server
-must produce a new result set.
-
-<a id="page-frontend-url-state-and-navigation-transient-ui-state"></a>
-### Transient UI state
-
-Hover, focus, open menus, unsaved field input, and temporary panel animation do
-not belong in the URL.
-
-Persist workspace geometry only through the shared shell when the product
-needs it. Do not add app-specific cookies for shared layout behavior.
-
----
-
-<a id="page-frontend-realtime-ui"></a>
-## Realtime UI
-
-Realtime updates enhance a server-rendered page. They do not replace its
-reload path.
-
-Start with an authorized snapshot. Subscribe from that snapshot's cursor.
-Apply each event, then advance the cursor.
-
-<a id="page-frontend-realtime-ui-connect-a-live-websocket"></a>
-### Connect a live WebSocket
-
-```tsx
-import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { onCleanup, onMount } from "solid-js";
-
-const live = createLiveWebSocket<InventoryEvent>({
-  url: "/api/inventory/ws",
-  initialCursor: props.cursor,
-  subscribe: (cursor) => ({
-    type: "subscribe",
-    payload: { itemId: props.itemId, fromCursor: cursor },
-  }),
-  parse: (raw) => InventoryEventSchema.parse(JSON.parse(raw)),
-  onMessage: (event, controls) => {
-    applyEvent(event);
-    controls.markApplied(event.cursor);
-  },
-  onFatal: (error) => setLiveError(error.message),
-});
-
-onMount(() => live.connect());
-onCleanup(() => live.dispose());
-```
-
-The helper owns one socket, visibility-aware activity, reconnect backoff,
-cursor resume, fatal close classification, and disposal.
-
-The application owns authentication, subscription payloads, runtime
-validation, permissions, and domain updates.
-
-<a id="page-frontend-realtime-ui-advance-only-after-apply"></a>
-### Advance only after apply
-
-Call `markApplied()` after the event has changed local state successfully.
-
-If apply fails, do not advance. A reconnect can replay the event from the last
-known good cursor.
-
-When the server reports cursor overflow or the local state cannot reconcile,
-reload the authorized snapshot.
-
-<a id="page-frontend-realtime-ui-handle-access-changes"></a>
-### Handle access changes
-
-The WebSocket route must authorize the subscription and every resource it
-streams.
-
-Close code `1008` is terminal by default and surfaces an access error. Do not
-keep reconnecting after permission is lost.
-
-Close codes `1011` and `1013` are also terminal by default. Return `null` from
-a custom `classifyClose` handler only when the application can safely
-reconnect.
-
-<a id="page-frontend-realtime-ui-preserve-reload-behavior"></a>
-### Preserve reload behavior
-
-The URL must still identify the visible resource and view. A reload asks the
-server for a fresh authorized result.
-
-Do not keep the only copy of edits or selected resources in the socket client.
-
-For server event semantics, see
-[Topics and live events](./workflows.md#page-automation-topics-and-live-events).
-
----
-
-<a id="page-frontend-forms-prompts-and-feedback"></a>
-## Forms, prompts, and feedback
-
-Choose the smallest input surface that fits the task.
-
-<a id="page-frontend-forms-prompts-and-feedback-choose-a-prompt"></a>
-### Choose a prompt
-
-| Need | Use |
-| --- | --- |
-| Small typed form | `prompts.form()` |
-| Confirmation | `prompts.confirm()` |
-| Blocking message | `prompts.alert()` or `prompts.error()` |
-| Async picker | `prompts.search()` |
-| Custom compact content | `prompts.dialog()` |
-| Tabbed resource settings | `SettingsModal` in a bare dialog |
-| Multi-section editor | `PanelDialog` |
-
-The shared dialog core owns focus, Escape, backdrop, and layering.
-
-<a id="page-frontend-forms-prompts-and-feedback-collect-a-small-form"></a>
-### Collect a small form
-
-```tsx
-import { prompts } from "@valentinkolb/cloud/ui";
-
-const values = await prompts.form({
-  title: "Create item",
-  fields: {
-    name: {
-      type: "text",
-      label: "Name",
-      required: true,
-      maxLength: 120,
-    },
-    quantity: {
-      type: "number",
-      label: "Quantity",
-      min: 0,
-      default: 0,
-    },
-  },
-});
-
-if (!values) return;
-await createItem.mutate(values);
-```
-
-The result is null when the user cancels.
-
-Use Cloud inputs inside custom forms. Reactive values and errors are accessor
-functions.
-
-<a id="page-frontend-forms-prompts-and-feedback-show-mutation-state"></a>
-### Show mutation state
-
-Disable only controls that would start the same conflicting operation. Keep
-cancel and navigation available when safe.
-
-Show progress next to the action that started it. Use `ProgressBar` only when
-progress is measurable.
-
-Use:
-
-- inline field errors for invalid input;
-- a visible error state for failed content loading;
-- `toast.success()` for a completed background action;
-- `toast.error()` or `prompts.error()` when a failure needs attention;
-- `prompts.confirm()` before a destructive action.
-
-Do not show success before the server confirms the change.
-
-<a id="page-frontend-forms-prompts-and-feedback-preserve-cancellation"></a>
-### Preserve cancellation
-
-Pass the mutation's abort signal into network requests. Route a dialog close
-through the same cancellation logic when the operation may still be running.
-
-When a dialog owns unsaved-change protection, use
-`cancelBehavior: "ignore"` and provide an accessible guarded close action.
-
-<a id="page-frontend-forms-prompts-and-feedback-server-validation-remains-required"></a>
-### Server validation remains required
-
-Client validation improves feedback. It does not replace request schema and
-domain validation.
-
-Map server field errors back to their inputs when the response provides them.
-Keep the original error available for logs and operations.
-
-See [Browser clients and mutations](#page-frontend-browser-clients-and-mutations).
-
----
-
-<a id="page-frontend-styling-and-accessibility"></a>
-## Styling and accessibility
-
-Use shared components and semantic tokens before adding application CSS. See
-the [Component catalog](#page-frontend-component-catalog) before creating a
-local control.
-
-Cloud owns the visual language for surfaces, controls, status, spacing,
-responsive layout, light and dark themes, focus, and motion.
-
-<a id="page-frontend-styling-and-accessibility-use-semantic-styling"></a>
-### Use semantic styling
-
-Import the shared styles through the application build. Use existing utility
-classes such as `paper`, `section`, `btn-primary`, `input`, `sidebar-item`, and
-`focus-ui`.
-
-Use `app-accent-text` and `app-accent-border` for the application's accent.
-Do not hardcode the app color into local components.
-
-Avoid fixed light backgrounds, black text, and arbitrary borders. They break
-dark mode and app theming.
-
-Do not copy the internal markup or CSS of a shared component.
-
-<a id="page-frontend-styling-and-accessibility-responsive-layout"></a>
-### Responsive layout
-
-Use `Layout`, `AppWorkspace`, dialogs, and shared sidebars for responsive
-geometry.
-
-Test narrow and wide viewports. Content must not depend on pointer hover.
-Dialogs must fit the viewport and keep their primary actions reachable.
-
-<a id="page-frontend-styling-and-accessibility-preserve-keyboard-and-screen-reader-access"></a>
-### Preserve keyboard and screen reader access
-
-- Use native buttons for actions and anchors for navigation.
-- Give icon-only controls an accessible name.
-- Keep a visible focus state.
-- Do not use color as the only status signal.
-- Associate labels and errors with inputs.
-- Keep heading order meaningful.
-- Return focus when a dialog closes.
-- Announce async changes when they are not otherwise visible.
-
-Use the shared drag-and-drop primitive for keyboard movement and live
-announcements. Do not rely on deprecated `aria-grabbed`.
-
-<a id="page-frontend-styling-and-accessibility-use-established-status-and-feedback"></a>
-### Use established status and feedback
-
-Use `StatusBadge` for health and lifecycle state. Its tone carries the platform
-meaning while the label uses domain wording.
-
-Use `Placeholder` for loading, empty, and error states. A failed load must not
-look like an empty collection.
-
-Use `NoticeCard` for a finding that remains visible on the page.
-
-<a id="page-frontend-styling-and-accessibility-verify-both-themes"></a>
-### Verify both themes
-
-Review every changed surface in light and dark mode. Check focus, disabled,
-selected, hover, error, and empty states.
-
-Use automated accessibility checks as a baseline, then complete the keyboard
-flow manually. The [Frontend testing](#page-frontend-testing) guide lists
-the full verification pass.
-
----
-
-<a id="page-frontend-testing"></a>
-## Frontend testing
-
-Test the boundary that owns each behavior.
-
-<a id="page-frontend-testing-test-ssr-pages"></a>
-### Test SSR pages
-
-Request the route through Hono and inspect the response.
-
-Cover:
-
-- anonymous, allowed, and denied identities;
-- resource permissions;
-- query parsing and invalid values;
-- empty, populated, and failed service results;
-- canonical links and form actions;
-- page title and essential content.
-
-Verify denied records do not appear in HTML.
-
-<a id="page-frontend-testing-test-islands"></a>
-### Test islands
-
-Test pure state and mapping functions without a browser when possible.
-
-For DOM behavior, cover:
-
-- initial serialized props;
-- keyboard and pointer interaction;
-- loading, success, error, abort, and retry;
-- newer mutations replacing stale results;
-- dialog close and focus behavior;
-- cleanup of listeners, timers, and sockets.
-
-Mock the typed API boundary. Do not mock the component's own state transitions.
-
-<a id="page-frontend-testing-test-url-behavior"></a>
-### Test URL behavior
-
-Verify parsing and link building together.
-
-Test reload, copy and paste, Back, Forward, and browser-opened links. The server
-must render the same selected resource and filters.
-
-When navigation is enhanced, verify the fallback anchor produces the same
-result without JavaScript.
-
-<a id="page-frontend-testing-test-realtime-recovery"></a>
-### Test realtime recovery
-
-Cover:
-
-- subscribe from the SSR cursor;
-- reconnect from the last applied cursor;
-- duplicate events;
-- cursor overflow and snapshot reload;
-- access revocation;
-- disposal on unmount.
-
-Do not advance the stored cursor before an event is applied.
-
-<a id="page-frontend-testing-run-a-visual-and-accessibility-pass"></a>
-### Run a visual and accessibility pass
-
-Check narrow and wide layouts in light and dark mode.
-
-Complete the primary flow with the keyboard. Verify focus order, accessible
-names, dialog focus return, status announcements, and contrast.
-
-Use the shared [component catalog](./components.md) as the expected behavior for platform
-primitives.
-
----
-
-<a id="page-frontend-component-catalog"></a>
-## Component catalog
-
-Use the [UI catalog](./components.md) to inspect shared Cloud components and their current
-examples.
-
-Use this guide to choose a component. The catalog owns exact props and visual
-demonstrations.
-
-<a id="page-frontend-component-catalog-start-with-structure"></a>
-### Start with structure
-
-Choose a shell before individual controls:
-
-- `AppOverview` for an application start page;
-- `AppWorkspace` for resource work;
-- `Panes` for an editor;
-- `SettingsModal` for tabbed settings;
-- `PanelDialog` for a complex modal editor;
-- `DataPanel` for record collections;
-- `StatGrid` for metrics.
-
-See [Application shells](#page-frontend-application-shells).
-
-<a id="page-frontend-component-catalog-reuse-platform-behavior"></a>
-### Reuse platform behavior
-
-Use shared components for:
-
-- inputs and validation presentation;
-- dialogs, prompts, and toasts;
-- tables, pagination, filters, and search;
-- status, progress, empty, and error states;
-- access editors and resource API keys;
-- calendars, code, Markdown, files, and PDF previews.
-
-A shared component carries accessibility, responsive behavior, theming, and
-platform vocabulary. Local lookalikes drift.
-
-<a id="page-frontend-component-catalog-application-owned-islands"></a>
-### Application-owned islands
-
-The UI package exports components, not application islands.
-
-Create an app-owned island when domain state and typed API calls are required.
-Compose shared controls inside it.
-
-Do not add a domain-specific component to the shared library. Promote a
-component only when several applications need the same behavior and contract.
-
-<a id="page-frontend-component-catalog-check-the-source-when-needed"></a>
-### Check the source when needed
-
-If the catalog does not cover an exported component, inspect
-`packages/cloud/src/ui` and at least one current caller before using it.
-
-Do not use `DockWorkspace` for new work. It remains only for compatibility.
-
-If a shared primitive cannot express a recurring requirement, improve that
-primitive and its catalog example. Do not hide a local CSS override inside one
-application.

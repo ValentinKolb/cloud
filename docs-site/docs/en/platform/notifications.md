@@ -204,6 +204,29 @@ Push.
 A Web Push delivery can be `suppressed` while an active session still receives
 the live event.
 
+Use the browser client to read and change the current browser's registration:
+
+```ts
+import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
+
+const initial = await browserNotificationClient.refreshExisting();
+
+enableNotificationsButton.addEventListener("click", async () => {
+  const state = await browserNotificationClient.enable();
+  console.log(state.enabled);
+});
+```
+
+`refreshExisting()` registers the Cloud service worker and reconnects an
+existing subscription. It never asks for permission. Call `enable()` only from
+an explicit user action because it may open the browser permission prompt.
+
+Use `state()` to inspect support, permission, and subscription state. Use
+`disable()` to remove the endpoint and unsubscribe this browser.
+
+Browser delivery requires a secure context, service-worker and Push API support.
+On iPhone and iPad, Cloud must run as an installed Home Screen application.
+
 ### Email delivery
 
 Email delivery is available when the resolved recipient has an address:
@@ -224,6 +247,48 @@ application.
 
 A deployment package can add typed channels. Applications can then use those
 channels in their delivery policy.
+
+Extend the channel registry, then register the driver during deployment
+startup:
+
+```ts
+import {
+  registerNotificationChannel,
+  type NotificationChannelDriver,
+} from "@valentinkolb/cloud/services";
+
+declare module "@valentinkolb/cloud/contracts/notifications" {
+  interface NotificationChannelRegistry {
+    sms: true;
+  }
+}
+
+const smsDriver: NotificationChannelDriver = {
+  id: "sms",
+  async resolveDestinations(recipient) {
+    const phone = await resolvePhoneNumber(recipient);
+    return phone
+      ? [{ key: phone, label: "SMS", context: { phone } }]
+      : [];
+  },
+  createPayload({ presentation, destination }) {
+    return {
+      phone: (destination.context as { phone: string }).phone,
+      text: [presentation.title, presentation.body].filter(Boolean).join("\n"),
+    };
+  },
+  async deliver(payload) {
+    await smsProvider.send(payload as { phone: string; text: string });
+  },
+};
+
+const unregisterSms = registerNotificationChannel(smsDriver);
+```
+
+A driver resolves destinations, builds a persisted provider payload, and
+delivers that payload. Channel IDs are lowercase identifiers with at most 80
+characters. Register one driver per ID. Keep the returned cleanup function and
+call it when the deployment integration stops.
 
 ## Send a notification
 

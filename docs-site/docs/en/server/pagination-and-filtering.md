@@ -20,7 +20,12 @@ load an incomplete page and reshape it in the browser.
 Extend the shared HTTP pagination schema:
 
 ```ts
-import { PaginationQuerySchema } from "@valentinkolb/cloud/contracts";
+import {
+  createPagination,
+  PaginationQuerySchema,
+  parsePagination,
+} from "@valentinkolb/cloud/contracts";
+import { ok, v } from "@valentinkolb/cloud/server";
 import { z } from "zod";
 
 const ListItemsQuerySchema = PaginationQuerySchema.extend({

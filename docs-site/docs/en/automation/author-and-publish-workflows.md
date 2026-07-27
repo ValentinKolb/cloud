@@ -79,43 +79,176 @@ validation belongs in `run` so its failure keeps a useful code.
 
 ## Build the language manifest
 
-Use `workflowActionDescriptors(INVENTORY_ACTIONS)` to derive action
-descriptors. Add input and trigger descriptors that belong to the application.
-Include `workflowBuiltinActionDescriptors` when authors may use the built-in
-control actions.
+The manifest is the complete authoring language accepted by one application:
 
-The manifest declares limits for inputs, steps, nesting, conditions, and loop
-items. Set limits before accepting source.
+```ts
+import {
+  type WorkflowLanguageManifest,
+  workflowBuiltinActionDescriptors,
+} from "@valentinkolb/cloud/workflows";
+import {
+  workflowActionDescriptors,
+} from "@valentinkolb/cloud/workflows/store";
 
-Do not write action descriptors separately from implementations.
+export const inventoryWorkflowManifest = {
+  id: "inventory",
+  version: 1,
+  inputs: [
+    {
+      kind: "text",
+      label: "Text",
+      description: "A text value supplied to the workflow.",
+      valueType: "core.string",
+      config: {
+        kind: "object",
+        properties: {
+          required: { kind: "boolean", optional: true },
+        },
+      },
+    },
+  ],
+  triggers: [
+    {
+      kind: "itemChanged",
+      label: "Item changed",
+      description: "Starts when an inventory item changes.",
+      eventValues: { itemId: "core.string" },
+      config: { kind: "object", properties: {} },
+    },
+  ],
+  actions: [
+    ...workflowActionDescriptors(INVENTORY_ACTIONS),
+    ...workflowBuiltinActionDescriptors,
+  ],
+  limits: {
+    maxInputs: 20,
+    maxSteps: 200,
+    maxDepth: 20,
+    maxConditions: 200,
+    maxConditionDepth: 20,
+    maxLoopItems: 500,
+  },
+} satisfies WorkflowLanguageManifest;
+```
+
+`workflowActionDescriptors()` keeps descriptors and implementations together.
+Built-in actions provide variable assignment and explicit success or failure.
+
+Set limits before accepting source. Changing the language requires a new
+manifest version.
 
 ## Compile and bind
 
-Call `compileWorkflow(source, manifest)` first. Compilation validates syntax,
-fields, references, and limits.
+The source uses strict YAML. It may only use inputs, triggers, actions, and
+limits declared by the manifest:
 
-Then bind names from the source to stable application IDs. A bound plan must
-keep referring to the same table, template, or resource after a rename.
+```yaml
+inputs:
+  itemId:
+    type: text
+    required: true
+triggers:
+  itemChanged:
+    with:
+      itemId: "${{ trigger.itemId }}"
+steps:
+  - loadItem:
+      itemId: "${{ inputs.itemId }}"
+```
 
-Return compiler and binder diagnostics to the editor. Do not publish a plan
-with errors.
+Compile before binding:
+
+```ts
+import {
+  bindWorkflow,
+  compileWorkflow,
+} from "@valentinkolb/cloud/workflows/language";
+
+export const compileAndBindInventoryWorkflow = async (
+  source: string,
+) => {
+  const compiled = await compileWorkflow(
+    source,
+    inventoryWorkflowManifest,
+  );
+  if (!compiled.ok) return compiled;
+
+  const plan = await bindWorkflow(
+    compiled.ir,
+    inventoryWorkflowManifest,
+    async (ir) => {
+      const catalog = await loadInventoryWorkflowCatalog();
+      return {
+        catalog,
+        bindings: await bindInventoryReferences(ir, catalog),
+      };
+    },
+  );
+  return { ok: true as const, plan };
+};
+```
+
+Compilation validates YAML, fields, references, and limits. It returns
+source-located diagnostics instead of throwing for invalid user input.
+
+The binder converts mutable names into stable application IDs. Its `catalog`
+is hashed into the plan. Its `bindings` are available to actions through
+`ctx.binding()`.
+
+Return compiler diagnostics to the editor. Convert application catalog or
+binding failures into equally clear editor errors. Do not publish an invalid
+plan.
 
 ## Publish one version
 
+Create the workflow identity once. Then publish immutable versions:
+
 ```ts
+import type {
+  WorkflowBoundPlan,
+} from "@valentinkolb/cloud/workflows";
+import {
+  createWorkflow,
+  publishWorkflowVersion,
+  type WorkflowActivationInput,
+} from "@valentinkolb/cloud/workflows/store";
+
+const activationsFor = (
+  plan: WorkflowBoundPlan,
+): WorkflowActivationInput[] =>
+  plan.triggers.map((trigger, index) => ({
+    key: `${trigger.kind}:${index}`,
+    eventType: `inventory.${trigger.kind}`,
+    config: { ...trigger.config, with: trigger.with },
+  }));
+
+const validation = await compileAndBindInventoryWorkflow(source);
+if (!validation.ok) throw new Error("workflow source is invalid");
+const boundPlan = validation.plan;
+
+const workflow = await createWorkflow(
+  {
+    appId: "inventory",
+    scopeId: warehouseId,
+    key: "restock",
+    name: "Restock inventory",
+    author: { kind: "user", id: actor.id },
+  },
+  { db: transaction },
+);
+
 await publishWorkflowVersion(
   {
-    workflowId,
+    workflowId: workflow.id,
     source,
-    sourceHash,
+    sourceHash: boundPlan.sourceHash,
     plan: boundPlan,
-    languageId: manifest.id,
-    languageVersion: manifest.version,
+    languageId: boundPlan.languageId,
+    languageVersion: boundPlan.languageVersion,
     manifestHash: boundPlan.manifestHash,
     author: { kind: "user", id: actor.id },
-    activations,
+    activations: activationsFor(boundPlan),
     authorization: authorizationSnapshot,
-    effectBudget: { emails: 20 },
   },
   { db: transaction },
 );
@@ -123,6 +256,9 @@ await publishWorkflowVersion(
 
 Publication writes the version and replaces its activations in one transaction.
 An event cannot fall into a gap between old and new activations.
+
+Activation keys must remain stable for the same logical trigger. Event types
+are application contracts; the workflow kernel does not derive them.
 
 Each run pins the active version when its event is recorded. Publishing later
 does not change that run.

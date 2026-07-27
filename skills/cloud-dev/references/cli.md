@@ -244,6 +244,20 @@ const commands = [
 ];
 ```
 
+The adapter accepts:
+
+| Option | Required | Use |
+| --- | --- | --- |
+| `resourceLabel` | Yes | Resource name used in help and output |
+| `resolveResource` | Yes | Resolve the optional resource arguments |
+| `list`, `grant`, `update`, `revoke` | Yes | Call the resource's access API |
+| `allowedPermissions` | No | Limit grants; defaults to `read`, `write`, and `admin` |
+| `allowPublic` | No | Add public-principal commands; defaults to `false` |
+| `allowServiceAccounts` | No | Add service-account commands; defaults to `false` |
+| `resourceArgLabel` | No | Value label shown for resource arguments |
+| `resourceArgDescription` | No | Help text for resource arguments |
+| `examples` | No | Examples for each generated access command |
+
 Public grants and service-account grants are disabled unless the adapter
 explicitly enables them. Principal search uses the same Accounts endpoint as
 `PermissionEditor`.
@@ -280,6 +294,6 @@ the same authorization result as the browser or another integration.
 Keep domain writes and permission checks on the server. The command should only
 parse input, call the API, and render the result.
 
-See [Typed HTTP APIs](./backend.md#page-server-http),
-[Resource authorization](./auth.md#page-identity-authorization), and
-[Machine credentials and OAuth](./auth.md#page-identity-service-accounts-and-oauth).
+See [Typed HTTP APIs](./http.md#page-server-http),
+[Resource authorization](./authorization.md#page-identity-authorization), and
+[Resource API keys](./credentials.md#page-identity-resource-api-keys).

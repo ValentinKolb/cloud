@@ -13,8 +13,8 @@ updated: 2026-07-27
 Use environment variables for infrastructure. Use Cloud settings for product
 configuration.
 
-This keeps container configuration small and lets applications read validated,
-encrypted values at runtime.
+Cloud validates settings when it reads them. Values stored in Postgres are
+encrypted with `APP_SECRET`.
 
 ## Set infrastructure variables
 
@@ -23,10 +23,12 @@ encrypted values at runtime.
 | `DATABASE_URL` | Postgres connection used by Bun SQL |
 | `REDIS_URL` | Valkey connection used by Bun Redis |
 | `APP_SECRET` | Encrypts settings and credentials |
-| `APP_ID` | Selects the application during build or development |
 | `PORT` | Service port; defaults to `3000` |
 | `NODE_ENV` | Enables production or development behavior |
 | `ADMIN_LOGIN_TOKEN` | Local emergency administrator login |
+
+`APP_ID` selects the application for Cloud's build and development scripts. It
+is not application runtime configuration.
 
 Every application container must use the same `APP_SECRET`.
 
@@ -52,7 +54,7 @@ See [Settings](/docs/en/platform/settings) for declaration and request access.
 
 ## Set the public URL
 
-Set `app.url` to the browser-visible origin.
+Set `app.url` to the public base URL.
 
 It is used for email links, OAuth redirects, WebAuthn, and other absolute URLs.
 Use HTTPS outside localhost.

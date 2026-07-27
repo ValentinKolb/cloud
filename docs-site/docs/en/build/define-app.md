@@ -231,3 +231,8 @@ import type { AppContext } from "@valentinkolb/cloud/server";
 
 type InventoryContext = AppContext<typeof app>;
 ```
+
+`AppContext` only describes the request context type. Register
+`middleware.settings()` before every route that reads `c.get("settings")`.
+
+See [Request middleware](/docs/en/server/middleware).

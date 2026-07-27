@@ -18,6 +18,8 @@ const expectedSkills = ["cloud-cli", "cloud-dev"] as const;
  * that regression.
  */
 const MAX_SKILL_LINES = 260;
+const MAX_REFERENCE_LINES = 800;
+const REFERENCE_CONTENTS_THRESHOLD = 300;
 
 /** Paths in documentation examples that intentionally do not exist on disk. */
 const isPlaceholderPath = (path: string): boolean => /^packages\/(?:my-app|inventory)(?:\/|$)/.test(path) || path.startsWith("packages/<");
@@ -201,7 +203,22 @@ for (const skill of expectedSkills) {
 
   const docs = new Map<string, string>([["SKILL.md", skillSource]]);
   for (const entry of referenceFiles) {
-    docs.set(entry, readFileSync(join(referencesDir, entry), "utf8"));
+    const source = readFileSync(join(referencesDir, entry), "utf8");
+    docs.set(entry, source);
+
+    const lines = source.split("\n").length;
+    if (skill === "cloud-dev" && lines > MAX_REFERENCE_LINES) {
+      violations.push({
+        file: join(referencesDir, entry),
+        message: `Reference is ${lines} lines (max ${MAX_REFERENCE_LINES}). Split it by task.`,
+      });
+    }
+    if (skill === "cloud-dev" && lines > REFERENCE_CONTENTS_THRESHOLD && !/^## Contents$/m.test(source)) {
+      violations.push({
+        file: join(referencesDir, entry),
+        message: `Reference is ${lines} lines and needs a '## Contents' section.`,
+      });
+    }
   }
 
   // Every reference must be reachable from SKILL.md. Multi-hop is fine — a

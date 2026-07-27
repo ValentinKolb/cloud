@@ -1,16 +1,16 @@
 ---
-title: AI user interface
-navTitle: User interface
+title: Chat interface
+navTitle: Chat interface
 section: AI
 order: 1070
-description: Present chat state, tools, approvals, and failures with the shared AI controller and components.
+description: Present conversation state, tools, approvals, and failures with the shared chat controller and components.
 tags: [ai, ui, solidjs]
 updated: 2026-07-27
 ---
 
-# AI user interface
+# Chat interface
 
-Cloud provides a Solid controller and shared chat components.
+Cloud provides the Solid controller and components for chat surfaces.
 
 Use them together. The controller owns transport and state. The components own
 presentation.

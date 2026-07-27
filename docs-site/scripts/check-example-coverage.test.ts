@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { missingExampleImports, packageSpecifiers } from "./check-example-coverage";
+import { missingExampleImports, packageSpecifiers, type RecipeFixture, recipeFixtureErrors } from "./check-example-coverage";
 
 test("extracts static and dynamic package imports", () => {
   expect(
@@ -17,4 +17,48 @@ test("reports documented imports without a compile fixture", () => {
       ["@valentinkolb/cloud"],
     ),
   ).toEqual(["@valentinkolb/cloud/ai/ui"]);
+});
+
+test("requires canonical recipe pages and compile fixtures", () => {
+  const recipes: RecipeFixture[] = [
+    {
+      page: "server/http.md",
+      fixtures: ["server-api.ts"],
+    },
+  ];
+
+  expect(
+    recipeFixtureErrors(
+      recipes,
+      new Map([["server/http.md", 'import { respond } from "@valentinkolb/cloud/server";']]),
+      new Map([["server-api.ts", 'import { respond } from "@valentinkolb/cloud/server";']]),
+    ),
+  ).toEqual([]);
+
+  expect(
+    recipeFixtureErrors(
+      recipes,
+      new Map([
+        [
+          "server/http.md",
+          ['import { respond } from "@valentinkolb/cloud/server";', 'import { api } from "@valentinkolb/cloud/browser";'].join("\n"),
+        ],
+      ]),
+      new Map([["server-api.ts", 'import { respond } from "@valentinkolb/cloud/server";']]),
+    ),
+  ).toEqual(["server/http.md: documented import is not covered by its compile fixture: @valentinkolb/cloud/browser"]);
+
+  expect(
+    recipeFixtureErrors(
+      [
+        ...recipes,
+        {
+          page: "identity/authorization.md",
+          fixtures: ["identity-access.ts"],
+        },
+      ],
+      new Map([["server/http.md", 'import { respond } from "@valentinkolb/cloud/server";']]),
+      new Map(),
+    ),
+  ).toEqual(["server/http.md: compile fixture does not exist: server-api.ts", "identity/authorization.md: recipe page does not exist"]);
 });

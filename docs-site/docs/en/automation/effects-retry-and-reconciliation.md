@@ -33,6 +33,9 @@ atomic journal guarantee.
 Idempotent external work must pass `ctx.effectKey` to the provider or its own
 deduplication store.
 
+Run `authorize` immediately before an effect when access may have changed. See
+[Resource authorization](/docs/en/identity/authorization).
+
 ## Return an action result
 
 An action returns one state:
@@ -43,7 +46,8 @@ An action returns one state:
 - `ambiguous` when an external effect may already have happened.
 
 Use a stable error code for operator diagnosis. `retryable: true` retries the
-step instead of ending the run.
+run instead of ending it. On the next claim, the journal restores completed
+steps and execution returns to the failed step.
 
 Return `waiting` only before any effect happens. If an effect might have
 happened, return `ambiguous`.
@@ -58,6 +62,34 @@ On replay, the kernel calls the action's `reconcile` hook. It returns
 
 An unknown effect moves the run to `needs_attention`. An operator must resolve
 it. The kernel never repeats an effect that may already have happened.
+
+See [Workflow observability and testing](/docs/en/automation/workflow-observability-and-testing#resolve-a-run-that-needs-attention)
+for the resolution API.
+
+## Understand recovery
+
+| Situation | Kernel behavior |
+| --- | --- |
+| Action returns a non-retryable failure | Ends the run as failed |
+| Action returns a retryable failure | Releases the run, waits with backoff, and resumes from the journal |
+| Worker crashes or loses its lease | Another worker reclaims the run after lease expiry and resumes from the journal |
+| Action returns `waiting` | Parks the run until its dependency or deadline wakes it |
+| Ambiguous effect cannot be reconciled | Ends the run as `needs_attention` without repeating the effect |
+| Cancellation is requested | Cancels queued and waiting runs immediately; a running worker stops at a heartbeat |
+
+Repeated crashes and retryable failures are bounded. After the exported
+`WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES` limit, the worker records
+`WORKFLOW_RETRY_EXHAUSTED`.
+
+Heartbeat long-running actions before the exported `WORKFLOW_RUN_LEASE_MS`
+expires. Lease loss fences the old worker from writing a result.
+
+```ts
+import {
+  WORKFLOW_RUN_LEASE_MS,
+  WORKFLOW_RUN_MAX_CONSECUTIVE_FAILURES,
+} from "@valentinkolb/cloud/workflows/store";
+```
 
 ## Plan and charge effects
 

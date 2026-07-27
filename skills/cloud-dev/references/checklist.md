@@ -8,7 +8,8 @@ When you need to know how something should look or behave, use this order. It ma
 
 1. **The shared primitive's source** (`packages/cloud/src/ui/`, or `node_modules/@valentinkolb/cloud/src/ui/` standalone) — authoritative for what props exist and what the component already owns.
 2. **`design.md`** — authoritative for visual and interaction rules.
-3. **An existing app** — an *example*, not a specification.
+3. **The `/ui` catalogue** — a live rendering and usage aid, not a replacement for source and types.
+4. **An existing app** — an *example*, not a specification.
 
 An app that disagrees with 1 or 2 is a bug in that app, not a pattern to copy. Where two apps disagree with each other, neither is authority: derive the answer from the primitive and the design rules. Do not assume the largest or newest app is the most correct one.
 
@@ -104,14 +105,3 @@ Then:
 - Do not touch files already modified by another active change.
 - Recheck `git status` before every slice and before staging.
 - Stage exact owned paths.
-
-## Maintaining this skill
-
-Not app-author content — use these when testing whether the skill still prevents known pattern drift:
-
-1. *"Build a new app with overview, templates, settings, shifts, public page, and feedback."*
-   Expected: `AppOverview`, `SettingsModal`, `AppWorkspace`, typed Hono client, URL-backed calendar route state, complete edit/delete flows.
-2. *"Add settings to a notebook-like app."*
-   Expected: bare `prompts.dialog` + `SettingsModal`; no bespoke settings layout, no extra prompt header around the modal.
-3. *"Add feedback analytics with filters."*
-   Expected: `StatGrid`, `DataTable`, URL-backed search and filter chips, server-rendered typed data, no hand-written table grid.

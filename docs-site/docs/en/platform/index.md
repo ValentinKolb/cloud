@@ -28,49 +28,13 @@ adds its domain-specific definition. Cloud runs the shared infrastructure.
 | Documents | HTML or Liquid templates and data | Shared Gotenberg configuration and PDF limits |
 | Command-line operations | A typed CLI module | Authentication, profiles, output modes, and dispatch |
 
-Use:
-
-- [Settings](/docs/en/platform/settings) for values an operator may change
-  without rebuilding an app.
-- [Logging](/docs/en/platform/logging) for diagnostic facts that help operate
-  the system.
-- [Tracing](/docs/en/platform/tracing) for the lifecycle of one request or
-  background operation.
-- [Audit events](/docs/en/platform/audit-events) for security and administrative
-  evidence.
-- [Notifications](/docs/en/platform/notifications) for events a person should
-  receive or act on.
-- [Universal search](/docs/en/platform/search) to make app resources
-  discoverable.
-- [Dashboard widgets](/docs/en/platform/dashboard-widgets) for small,
-  permission-aware summaries.
-- [In-product Help](/docs/en/platform/help) for app-owned user guidance.
-- [PDF and templates](/docs/en/platform/pdf-and-templates) for shared document
-  rendering.
-- [CLI modules](/docs/en/platform/cli-modules) for app commands in `cld`.
-
 These are runtime services, not code generators. They do not copy files into an
 application or take ownership of its domain model.
 
-## Import from the correct entry point
+Open the page for the service you need from the navigation. Use
+[Building blocks](/docs/en/building-blocks) when you know the task but not the
+service, or [API surface](/docs/en/reference/api-surface) to look up an import.
 
-```ts
-import { defineApp, notification } from "@valentinkolb/cloud";
-import { logger, notifications } from "@valentinkolb/cloud/services";
-import { type AppContext, middleware } from "@valentinkolb/cloud/server";
-```
-
-- The package root contains the application declaration contract and common
-  types.
-- `/services` contains server-side shared services.
-- `/server` contains Hono context types and middleware.
-- `/browser`, `/ui`, and `/workflows` are separate boundaries for code that
-  runs in those environments.
-
-The complete classification is in [API surface](/docs/en/reference/api-surface).
-
-Server middleware and identity are documented separately:
-
-- [Request middleware](/docs/en/server/middleware)
-- [Request identity](/docs/en/identity/authentication)
-- [Resource authorization](/docs/en/identity/authorization)
+Request middleware and identity are separate application boundaries:
+[Request middleware](/docs/en/server/middleware) loads request context, while
+[Identity and access](/docs/en/identity) explains caller and resource checks.

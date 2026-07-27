@@ -242,6 +242,20 @@ const commands = [
 ];
 ```
 
+The adapter accepts:
+
+| Option | Required | Use |
+| --- | --- | --- |
+| `resourceLabel` | Yes | Resource name used in help and output |
+| `resolveResource` | Yes | Resolve the optional resource arguments |
+| `list`, `grant`, `update`, `revoke` | Yes | Call the resource's access API |
+| `allowedPermissions` | No | Limit grants; defaults to `read`, `write`, and `admin` |
+| `allowPublic` | No | Add public-principal commands; defaults to `false` |
+| `allowServiceAccounts` | No | Add service-account commands; defaults to `false` |
+| `resourceArgLabel` | No | Value label shown for resource arguments |
+| `resourceArgDescription` | No | Help text for resource arguments |
+| `examples` | No | Examples for each generated access command |
+
 Public grants and service-account grants are disabled unless the adapter
 explicitly enables them. Principal search uses the same Accounts endpoint as
 `PermissionEditor`.
@@ -278,4 +292,4 @@ parse input, call the API, and render the result.
 
 See [Typed HTTP APIs](/docs/en/server/http),
 [Resource authorization](/docs/en/identity/authorization), and
-[Machine credentials and OAuth](/docs/en/identity/service-accounts-and-oauth).
+[Resource API keys](/docs/en/identity/resource-api-keys).

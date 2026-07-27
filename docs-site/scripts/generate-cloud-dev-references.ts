@@ -3,66 +3,87 @@ import { basename, join, relative, resolve, sep } from "node:path";
 import { generatedAnchors, generatedReferenceHeader, obsoleteGeneratedReferences, portableWebsiteTarget } from "./generated-reference";
 import { mapMarkdownProse, mapOutsideFences } from "./markdown";
 
-type ReferenceGroup = {
+export type ReferenceGroup = {
   output: string;
   title: string;
   sources: string[];
 };
 
-const groups: ReferenceGroup[] = [
+export const referenceGroups: ReferenceGroup[] = [
   {
     output: "architecture.md",
-    title: "Cloud platform and application model",
-    sources: [
-      "overview.md",
-      "building-blocks.md",
-      "build/index.md",
-      "build/getting-started.md",
-      "build/define-app.md",
-      "build/lifecycle.md",
-      "build/routing.md",
-    ],
+    title: "Cloud application model, lifecycle, and routing",
+    sources: ["overview.md", "building-blocks.md", "build/index.md", "build/lifecycle.md", "build/routing.md"],
   },
   {
-    output: "backend.md",
-    title: "Cloud server and data reference",
-    sources: [
-      "server/index.md",
-      "server/middleware.md",
-      "server/http.md",
-      "server/services-and-results.md",
-      "server/pagination-and-filtering.md",
-      "data/index.md",
-      "data/postgres-queries.md",
-      "data/migrations-and-transactions.md",
-      "data/secrets-and-persistent-state.md",
-    ],
+    output: "getting-started.md",
+    title: "Build the first Cloud application",
+    sources: ["build/getting-started.md"],
+  },
+  {
+    output: "application.md",
+    title: "Define a Cloud application",
+    sources: ["build/define-app.md"],
+  },
+  {
+    output: "middleware.md",
+    title: "Cloud request middleware",
+    sources: ["server/index.md", "server/middleware.md"],
+  },
+  {
+    output: "http.md",
+    title: "Cloud HTTP APIs",
+    sources: ["server/http.md"],
+  },
+  {
+    output: "services.md",
+    title: "Cloud services, results, and pagination",
+    sources: ["server/services-and-results.md", "server/pagination-and-filtering.md"],
+  },
+  {
+    output: "data.md",
+    title: "Cloud application data and Postgres queries",
+    sources: ["data/index.md", "data/postgres-queries.md"],
+  },
+  {
+    output: "migrations.md",
+    title: "Cloud migrations, transactions, secrets, and state",
+    sources: ["data/migrations-and-transactions.md", "data/secrets-and-persistent-state.md"],
   },
   {
     output: "auth.md",
-    title: "Cloud identity and access reference",
-    sources: [
-      "identity/index.md",
-      "identity/authentication.md",
-      "identity/route-policies.md",
-      "identity/authorization.md",
-      "identity/service-accounts-and-oauth.md",
-      "identity/public-and-anonymous-access.md",
-    ],
+    title: "Cloud request identity",
+    sources: ["identity/index.md", "identity/authentication.md"],
+  },
+  {
+    output: "route-access.md",
+    title: "Cloud route policies and public access",
+    sources: ["identity/route-policies.md", "identity/public-and-anonymous-access.md"],
+  },
+  {
+    output: "authorization.md",
+    title: "Cloud resource authorization",
+    sources: ["identity/authorization.md"],
+  },
+  {
+    output: "credentials.md",
+    title: "Cloud resource API keys and OAuth",
+    sources: ["identity/resource-api-keys.md", "identity/oauth.md"],
   },
   {
     output: "platform.md",
-    title: "Cloud platform services reference",
-    sources: [
-      "platform/index.md",
-      "platform/settings.md",
-      "platform/logging.md",
-      "platform/tracing.md",
-      "platform/audit-events.md",
-      "platform/search.md",
-      "platform/dashboard-widgets.md",
-      "platform/pdf-and-templates.md",
-    ],
+    title: "Cloud discovery, dashboard, and document services",
+    sources: ["platform/index.md", "platform/search.md", "platform/dashboard-widgets.md", "platform/pdf-and-templates.md"],
+  },
+  {
+    output: "settings.md",
+    title: "Cloud settings reference",
+    sources: ["platform/settings.md", "reference/settings-kinds-and-environment.md"],
+  },
+  {
+    output: "observability.md",
+    title: "Cloud logging, tracing, and audit events",
+    sources: ["platform/logging.md", "platform/tracing.md", "platform/audit-events.md"],
   },
   {
     output: "notifications.md",
@@ -80,21 +101,24 @@ const groups: ReferenceGroup[] = [
     sources: ["platform/cli-modules.md"],
   },
   {
+    output: "automation.md",
+    title: "Cloud background work, jobs, and queues",
+    sources: ["automation/index.md", "automation/lifecycle-background-work.md", "automation/jobs-and-queues.md"],
+  },
+  {
+    output: "schedules.md",
+    title: "Cloud schedulers, topics, and coordination",
+    sources: ["automation/schedulers.md", "automation/topics-and-live-events.md", "automation/coordination-primitives.md"],
+  },
+  {
     output: "workflows.md",
-    title: "Cloud automation and workflow reference",
-    sources: [
-      "automation/index.md",
-      "automation/lifecycle-background-work.md",
-      "automation/jobs-and-queues.md",
-      "automation/schedulers.md",
-      "automation/topics-and-live-events.md",
-      "automation/coordination-primitives.md",
-      "automation/workflow-overview.md",
-      "automation/author-and-publish-workflows.md",
-      "automation/emit-events-and-start-runs.md",
-      "automation/effects-retry-and-reconciliation.md",
-      "automation/workflow-observability-and-testing.md",
-    ],
+    title: "Author and start durable Cloud workflows",
+    sources: ["automation/workflow-overview.md", "automation/author-and-publish-workflows.md", "automation/emit-events-and-start-runs.md"],
+  },
+  {
+    output: "workflow-runtime.md",
+    title: "Cloud workflow effects, recovery, and testing",
+    sources: ["automation/effects-retry-and-reconciliation.md", "automation/workflow-observability-and-testing.md"],
   },
   {
     output: "frontend.md",
@@ -105,62 +129,68 @@ const groups: ReferenceGroup[] = [
       "frontend/layout-and-navigation.md",
       "frontend/application-shells.md",
       "frontend/islands-and-hydration.md",
-      "frontend/browser-clients-and-mutations.md",
-      "frontend/url-state-and-navigation.md",
-      "frontend/realtime-ui.md",
+    ],
+  },
+  {
+    output: "browser.md",
+    title: "Cloud browser clients, navigation, and realtime UI",
+    sources: ["frontend/browser-clients-and-mutations.md", "frontend/url-state-and-navigation.md", "frontend/realtime-ui.md"],
+  },
+  {
+    output: "frontend-ui.md",
+    title: "Cloud frontend interaction, styling, and testing",
+    sources: [
       "frontend/forms-prompts-and-feedback.md",
       "frontend/styling-and-accessibility.md",
       "frontend/testing.md",
-      "frontend/component-catalog.md",
     ],
   },
   {
     output: "ai.md",
-    title: "Cloud AI reference",
+    title: "Cloud AI resources, models, files, and memory",
+    sources: ["ai/index.md", "ai/resources-and-access.md", "ai/models-and-providers.md", "ai/files-skills-and-memory.md"],
+  },
+  {
+    output: "ai-runtime.md",
+    title: "Cloud AI runtime, tools, structured output, and chat UI",
     sources: [
-      "ai/index.md",
-      "ai/resources-and-access.md",
-      "ai/models-and-providers.md",
       "ai/chat-runtime-and-streaming.md",
       "ai/tools-and-approvals.md",
-      "ai/files-skills-and-memory.md",
       "ai/structured-and-background-ai.md",
-      "ai/ui-and-operations.md",
+      "ai/chat-interface.md",
     ],
   },
   {
+    output: "development.md",
+    title: "Cloud monorepo and standalone development",
+    sources: ["operations/index.md", "operations/monorepo-development.md", "operations/standalone-development.md"],
+  },
+  {
+    output: "deployment.md",
+    title: "Build, deploy, and configure Cloud",
+    sources: ["operations/build-and-deploy.md", "operations/runtime-configuration.md", "operations/freeipa.md"],
+  },
+  {
     output: "ops.md",
-    title: "Cloud operations reference",
-    sources: [
-      "operations/index.md",
-      "operations/monorepo-development.md",
-      "operations/standalone-development.md",
-      "operations/build-and-deploy.md",
-      "operations/runtime-configuration.md",
-      "operations/scaling-and-shutdown.md",
-      "operations/observability.md",
-      "operations/freeipa.md",
-      "operations/troubleshooting.md",
-    ],
+    title: "Cloud scaling, observability, and troubleshooting",
+    sources: ["operations/scaling-and-shutdown.md", "operations/observability.md", "operations/troubleshooting.md"],
   },
   {
     output: "reference.md",
     title: "Cloud API reference",
-    sources: [
-      "reference/index.md",
-      "reference/api-surface.md",
-      "reference/route-conventions.md",
-      "reference/settings-kinds-and-environment.md",
-      "reference/vocabulary-and-statuses.md",
-      "reference/deprecations-and-migrations.md",
-    ],
+    sources: ["reference/index.md", "reference/api-surface.md", "reference/deprecations-and-migrations.md"],
+  },
+  {
+    output: "conventions.md",
+    title: "Cloud route and status conventions",
+    sources: ["reference/route-conventions.md", "reference/vocabulary-and-statuses.md"],
   },
 ];
 
 const docsRoot = resolve(import.meta.dir, "../docs/en");
 const referencesRoot = resolve(import.meta.dir, "../../skills/cloud-dev/references");
-const checkOnly = process.argv.includes("--check");
 const intentionallyExcluded = new Map<string, string>();
+export const GENERATED_REFERENCE_CONTENTS_THRESHOLD = 300;
 
 const normalizeNewlines = (value: string) => value.replaceAll("\r\n", "\n");
 
@@ -205,7 +235,7 @@ const sourceToGroup = new Map<string, ReferenceGroup>();
 const outputOwners = new Set<string>();
 const routeToSource = new Map<string, { group: ReferenceGroup; pageAnchor: string; source: string }>();
 
-for (const group of groups) {
+for (const group of referenceGroups) {
   if (outputOwners.has(group.output)) {
     throw new Error(`${group.output}: generated by more than one group`);
   }
@@ -245,24 +275,6 @@ const listMarkdownFiles = async (directory: string): Promise<string[]> => {
   return files.sort();
 };
 
-const allDocs = await listMarkdownFiles(docsRoot);
-const selectedDocs = [...sourceToGroup.keys()].sort();
-const missingFromManifest = allDocs.filter((file) => !sourceToGroup.has(file) && !intentionallyExcluded.has(file));
-const missingFromDisk = selectedDocs.filter((file) => !allDocs.includes(file));
-const unknownExclusions = [...intentionallyExcluded.keys()].filter((file) => !allDocs.includes(file));
-
-if (missingFromManifest.length || missingFromDisk.length || unknownExclusions.length) {
-  throw new Error(
-    [
-      missingFromManifest.length ? `Not in manifest: ${missingFromManifest.join(", ")}` : "",
-      missingFromDisk.length ? `Missing from docs: ${missingFromDisk.join(", ")}` : "",
-      unknownExclusions.length ? `Excluded files missing from docs: ${unknownExclusions.join(", ")}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
-}
-
 const rewriteTarget = (target: string, source: string, output: string): string => {
   const portableTarget = portableWebsiteTarget(target);
   if (portableTarget !== target) return portableTarget;
@@ -299,9 +311,16 @@ const rewriteLinks = (markdown: string, source: string, output: string): string 
     ),
   );
 
-const addScopedAnchors = (markdown: string, source: string): string => {
+export type RenderedReferencePage = {
+  anchor: string;
+  markdown: string;
+  title: string;
+};
+
+const addScopedAnchors = (markdown: string, source: string): RenderedReferencePage => {
   const pageAnchor = pageAnchorForRoute(routeForSource(source));
   let firstHeading = true;
+  let title = "";
   const output = mapOutsideFences(markdown, (line) => {
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (!heading) return line;
@@ -309,6 +328,7 @@ const addScopedAnchors = (markdown: string, source: string): string => {
     const [, marks, text] = heading;
     const anchor = firstHeading ? pageAnchor : `${pageAnchor}-${slug(text)}`;
     const shiftedLevel = Math.min(6, marks.length + 1);
+    if (firstHeading) title = text;
     firstHeading = false;
     return `<a id="${anchor}"></a>\n${"#".repeat(shiftedLevel)} ${text}`;
   });
@@ -317,11 +337,29 @@ const addScopedAnchors = (markdown: string, source: string): string => {
     throw new Error(`${source}: missing heading`);
   }
 
-  return output;
+  return { anchor: pageAnchor, markdown: output, title };
 };
 
-const renderGroup = async (group: ReferenceGroup): Promise<string> => {
-  const pages: string[] = [];
+export const renderReference = (title: string, pages: RenderedReferencePage[]): string => {
+  const preamble = [
+    generatedReferenceHeader,
+    `# ${title}`,
+    "",
+    "The Cloud developer documentation is the canonical source for this file.",
+    "",
+  ];
+  const body = pages.flatMap((page, index) => [...(index === 0 ? [] : ["", "---", ""]), page.markdown]);
+  const withoutContents = [...preamble, ...body, ""].join("\n");
+
+  if (withoutContents.split("\n").length <= GENERATED_REFERENCE_CONTENTS_THRESHOLD) {
+    return withoutContents;
+  }
+
+  return [...preamble, "## Contents", "", ...pages.map((page) => `- [${page.title}](#${page.anchor})`), "", ...body, ""].join("\n");
+};
+
+export const renderGroup = async (group: ReferenceGroup): Promise<string> => {
+  const pages: RenderedReferencePage[] = [];
 
   for (const source of group.sources) {
     const path = join(docsRoot, source);
@@ -330,83 +368,100 @@ const renderGroup = async (group: ReferenceGroup): Promise<string> => {
     pages.push(addScopedAnchors(linked, source));
   }
 
-  return [
-    generatedReferenceHeader,
-    `# ${group.title}`,
-    "",
-    "The Cloud developer documentation is the canonical source for this file.",
-    "",
-    ...pages.flatMap((page, index) => [...(index === 0 ? [] : ["", "---", ""]), page]),
-    "",
-  ].join("\n");
+  return renderReference(group.title, pages);
 };
 
-const stale: string[] = [];
-const expectedByOutput = new Map<string, string>();
+export const run = async (): Promise<void> => {
+  const checkOnly = process.argv.includes("--check");
+  const allDocs = await listMarkdownFiles(docsRoot);
+  const selectedDocs = [...sourceToGroup.keys()].sort();
+  const missingFromManifest = allDocs.filter((file) => !sourceToGroup.has(file) && !intentionallyExcluded.has(file));
+  const missingFromDisk = selectedDocs.filter((file) => !allDocs.includes(file));
+  const unknownExclusions = [...intentionallyExcluded.keys()].filter((file) => !allDocs.includes(file));
 
-for (const group of groups) {
-  expectedByOutput.set(group.output, await renderGroup(group));
-}
+  if (missingFromManifest.length || missingFromDisk.length || unknownExclusions.length) {
+    throw new Error(
+      [
+        missingFromManifest.length ? `Not in manifest: ${missingFromManifest.join(", ")}` : "",
+        missingFromDisk.length ? `Missing from docs: ${missingFromDisk.join(", ")}` : "",
+        unknownExclusions.length ? `Excluded files missing from docs: ${unknownExclusions.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
 
-const anchorsByOutput = new Map<string, Set<string>>();
-for (const [output, markdown] of expectedByOutput) {
-  anchorsByOutput.set(output, generatedAnchors(markdown, output));
-}
+  const stale: string[] = [];
+  const expectedByOutput = new Map<string, string>();
 
-for (const [output, markdown] of expectedByOutput) {
-  for (const match of markdown.matchAll(/\]\((?:(?:\.\/)?([^/#)\s]+\.md))?#([^)\s"]+)/g)) {
-    const targetOutput = match[1] ? basename(match[1]) : output;
-    const anchor = match[2];
-    if (!expectedByOutput.has(targetOutput)) {
-      throw new Error(`${output}: generated link targets unknown file ${targetOutput}`);
+  for (const group of referenceGroups) {
+    expectedByOutput.set(group.output, await renderGroup(group));
+  }
+
+  const anchorsByOutput = new Map<string, Set<string>>();
+  for (const [output, markdown] of expectedByOutput) {
+    anchorsByOutput.set(output, generatedAnchors(markdown, output));
+  }
+
+  for (const [output, markdown] of expectedByOutput) {
+    for (const match of markdown.matchAll(/\]\((?:(?:\.\/)?([^/#)\s]+\.md))?#([^)\s"]+)/g)) {
+      const targetOutput = match[1] ? basename(match[1]) : output;
+      const anchor = match[2];
+      if (!expectedByOutput.has(targetOutput)) {
+        throw new Error(`${output}: generated link targets unknown file ${targetOutput}`);
+      }
+      if (!anchorsByOutput.get(targetOutput)?.has(anchor)) {
+        throw new Error(`${output}: generated link targets missing anchor ${targetOutput}#${anchor}`);
+      }
     }
-    if (!anchorsByOutput.get(targetOutput)?.has(anchor)) {
-      throw new Error(`${output}: generated link targets missing anchor ${targetOutput}#${anchor}`);
-    }
   }
-}
 
-const existingReferences = await Promise.all(
-  (await readdir(referencesRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map(async (entry) => ({
-      name: entry.name,
-      source: await Bun.file(join(referencesRoot, entry.name)).text(),
-    })),
-);
-for (const name of obsoleteGeneratedReferences(existingReferences, new Set(expectedByOutput.keys()))) {
-  const outputPath = join(referencesRoot, name);
-  if (checkOnly) {
-    stale.push(`${name} (obsolete)`);
-  } else {
-    await unlink(outputPath);
-    console.log(`Removed obsolete generated reference ${relative(resolve(import.meta.dir, "../.."), outputPath)}`);
-  }
-}
-
-for (const group of groups) {
-  const outputPath = join(referencesRoot, group.output);
-  const expected = expectedByOutput.get(group.output);
-  if (!expected) throw new Error(`${group.output}: missing generated content`);
-
-  if (checkOnly) {
-    const current = await Bun.file(outputPath)
-      .text()
-      .catch(() => "");
-    if (normalizeNewlines(current) !== expected) stale.push(group.output);
-  } else {
-    await Bun.write(outputPath, expected);
-    console.log(`Generated ${relative(resolve(import.meta.dir, "../.."), outputPath)}`);
-  }
-}
-
-if (stale.length) {
-  throw new Error(`Generated Cloud developer references are stale: ${stale.join(", ")}\n` + "Run: bun run generate:skill-references");
-}
-
-if (checkOnly) {
-  const pageCount = selectedDocs.length + intentionallyExcluded.size;
-  console.log(
-    `Cloud developer references are current (${groups.length} files, ${pageCount} documentation pages: ${selectedDocs.length} generated sources and ${intentionallyExcluded.size} intentional exclusion).`,
+  const existingReferences = await Promise.all(
+    (await readdir(referencesRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map(async (entry) => ({
+        name: entry.name,
+        source: await Bun.file(join(referencesRoot, entry.name)).text(),
+      })),
   );
+  for (const name of obsoleteGeneratedReferences(existingReferences, new Set(expectedByOutput.keys()))) {
+    const outputPath = join(referencesRoot, name);
+    if (checkOnly) {
+      stale.push(`${name} (obsolete)`);
+    } else {
+      await unlink(outputPath);
+      console.log(`Removed obsolete generated reference ${relative(resolve(import.meta.dir, "../.."), outputPath)}`);
+    }
+  }
+
+  for (const group of referenceGroups) {
+    const outputPath = join(referencesRoot, group.output);
+    const expected = expectedByOutput.get(group.output);
+    if (!expected) throw new Error(`${group.output}: missing generated content`);
+
+    if (checkOnly) {
+      const current = await Bun.file(outputPath)
+        .text()
+        .catch(() => "");
+      if (normalizeNewlines(current) !== expected) stale.push(group.output);
+    } else {
+      await Bun.write(outputPath, expected);
+      console.log(`Generated ${relative(resolve(import.meta.dir, "../.."), outputPath)}`);
+    }
+  }
+
+  if (stale.length) {
+    throw new Error(`Generated Cloud developer references are stale: ${stale.join(", ")}\n` + "Run: bun run generate:skill-references");
+  }
+
+  if (checkOnly) {
+    const pageCount = selectedDocs.length + intentionallyExcluded.size;
+    console.log(
+      `Cloud developer references are current (${referenceGroups.length} files, ${pageCount} documentation pages: ${selectedDocs.length} generated sources and ${intentionallyExcluded.size} intentional exclusion).`,
+    );
+  }
+};
+
+if (import.meta.main) {
+  await run();
 }

@@ -16,14 +16,14 @@ background source, or dependency.
 ## Check the deployment
 
 ```bash
-cld admin instance health
-cld admin gateway apps
+cld admin status
+cld admin apps list
 ```
 
 Gateway health shows registered applications, route count, and healthy,
 degraded, or offline instances.
 
-Use `cld admin instance diagnose` for a bounded snapshot of health, logs,
+Use `cld admin diagnose` for a bounded snapshot of health, logs,
 telemetry, jobs, Postgres, Valkey, and metrics.
 
 See [CLI modules](/docs/en/platform/cli-modules) for authentication and output
@@ -96,7 +96,7 @@ output content by default.
 Set provider, tool, output, file, and worker limits before production. Test
 provider failure, stream reconnect, abort, approval denial, and worker restart.
 
-See [AI user interface](/docs/en/ai/ui-and-operations) for browser state and
+See [Chat interface](/docs/en/ai/chat-interface) for browser state and
 shared chat components.
 
 ## Alert on user impact

@@ -18,9 +18,9 @@ dependencies, and finally the failing route or worker.
 ## Run the first checks
 
 ```bash
-cld admin instance health
-cld admin gateway apps
-cld admin instance diagnose
+cld admin status
+cld admin apps list
+cld admin diagnose
 ```
 
 In the monorepo, also run:

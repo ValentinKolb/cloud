@@ -4,7 +4,15 @@ A lookup reference — find the component, then confirm its props. Do not read e
 
 Everything here imports from `@valentinkolb/cloud/ui`. There is no `@valentinkolb/cloud/ui/input` subpath; inputs come from the same place.
 
-> **Prop lists change; prose about them rots.** This page names what exists and what it is for, and spells out only the props that are easy to get wrong. **The component source is the authority** — `packages/cloud/src/ui/`, or `node_modules/@valentinkolb/cloud/src/ui/` standalone. Read it the first time you use a component. `/app/ui-lab` is the live visual harness.
+> **Prop lists change; prose about them rots.** This page names what exists and what it is for, and spells out only the props that are easy to get wrong. **The component source is the authority** — `packages/cloud/src/ui/`, or `node_modules/@valentinkolb/cloud/src/ui/` standalone. Read it the first time you use a component. `/ui` is the live visual catalogue.
+
+## Contents
+
+- [Shells](#shells)
+- [Data and display](#data-and-display)
+- [Interaction](#interaction)
+- [Inputs](#inputs)
+- [CSS utilities](#css-utilities)
 
 ## Shells
 

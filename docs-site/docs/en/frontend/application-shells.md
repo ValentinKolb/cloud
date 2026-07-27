@@ -42,17 +42,25 @@ every application capability.
 ```tsx
 <Layout c={c} title="Inventory" fullWidth fullPage>
   <AppWorkspace>
-    <AppWorkspace.Sidebar label="Inventory">
+    <AppWorkspace.Sidebar collapsible>
+      <AppWorkspace.SidebarHeader
+        title="Inventory"
+        icon="ti ti-packages"
+      />
       <InventoryNavigation />
     </AppWorkspace.Sidebar>
-    <AppWorkspace.Main>
-      <InventoryTable />
-    </AppWorkspace.Main>
-    {selected && (
-      <AppWorkspace.Detail label="Item details">
-        <ItemDetail item={selected} />
+    <AppWorkspace.Content>
+      <AppWorkspace.Main>
+        <InventoryTable />
+      </AppWorkspace.Main>
+      <AppWorkspace.Detail
+        id="item-detail"
+        open={Boolean(selected)}
+        width="md"
+      >
+        {selected && <ItemDetail item={selected} />}
       </AppWorkspace.Detail>
-    )}
+    </AppWorkspace.Content>
   </AppWorkspace>
 </Layout>
 ```
@@ -61,8 +69,8 @@ Selection belongs in the URL. The server must be able to render the same
 detail after reload. See
 [URL state and navigation](/docs/en/frontend/url-state-and-navigation).
 
-Use the workspace members for geometry. Do not add another grid that imitates
-a detail panel or resize handle.
+`AppWorkspace.Content` is the required flex row for `Main` and `Detail`.
+Keep geometry IDs stable. Do not add another grid or resize handle.
 
 ## Choose a dialog
 

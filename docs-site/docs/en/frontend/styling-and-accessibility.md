@@ -10,9 +10,9 @@ updated: 2026-07-27
 
 # Styling and accessibility
 
-Use shared components and semantic tokens before adding application CSS. See
-the [Component catalog](/docs/en/frontend/component-catalog) before creating a
-local control.
+Use shared components and semantic tokens before adding application CSS. Read
+the [shared component guidance](/docs/en/frontend#choose-shared-components)
+before creating a local control.
 
 Cloud owns the visual language for surfaces, controls, status, spacing,
 responsive layout, light and dark themes, focus, and motion.

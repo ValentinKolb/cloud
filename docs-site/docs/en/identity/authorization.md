@@ -166,11 +166,102 @@ effective: read
 
 Scopes never grant access.
 
+Use one service helper for the complete check:
+
+```ts
+import {
+  type AccessSubject,
+  type PermissionLevel,
+  type RequestActor,
+  type ResourceAccessAdapter,
+  err,
+  fail,
+  getEffectivePermission,
+  hasPermission,
+  ok,
+  type Result,
+} from "@valentinkolb/cloud/server";
+
+const PERMISSION_RANK: Record<PermissionLevel, number> = {
+  none: 0,
+  read: 1,
+  write: 2,
+  admin: 3,
+};
+
+const permissionFromScopes = (
+  scopes: readonly string[],
+): PermissionLevel => {
+  if (scopes.includes("admin")) return "admin";
+  if (scopes.includes("write")) return "write";
+  if (scopes.includes("read")) return "read";
+  return "none";
+};
+
+const lowerPermission = (
+  permission: PermissionLevel,
+  cap: PermissionLevel,
+): PermissionLevel =>
+  PERMISSION_RANK[permission] <= PERMISSION_RANK[cap]
+    ? permission
+    : cap;
+
+export const requireItemPermission = async (input: {
+  itemId: string;
+  required: PermissionLevel;
+  actor: RequestActor;
+  accessSubject: AccessSubject;
+  access: Pick<ResourceAccessAdapter, "list">;
+}): Promise<Result<PermissionLevel>> => {
+  const resourceCredential =
+    input.actor.kind === "service_account" &&
+    input.actor.delegatedUser === null
+      ? input.actor
+      : null;
+
+  if (
+    resourceCredential &&
+    (resourceCredential.serviceAccount.kind !== "resource_bound" ||
+      resourceCredential.serviceAccount.appId !== "inventory" ||
+      resourceCredential.serviceAccount.resourceType !== "item" ||
+      resourceCredential.serviceAccount.resourceId !== input.itemId)
+  ) {
+    return fail(err.forbidden("Access denied"));
+  }
+
+  const entries = await input.access.list(input.itemId);
+  const granted = await getEffectivePermission({
+    accessIds: entries.map((entry) => entry.id),
+    subject: input.accessSubject,
+  });
+  const effective = resourceCredential
+    ? lowerPermission(
+        granted,
+        permissionFromScopes(resourceCredential.scopes),
+      )
+    : granted;
+
+  return hasPermission(effective, input.required)
+    ? ok(effective)
+    : fail(err.forbidden("Access denied"));
+};
+```
+
+This order is deliberate:
+
+1. reject a credential bound to another application or resource;
+2. resolve the service-account grant through `accessSubject`;
+3. lower that grant to the credential scope;
+4. compare the effective permission with the operation.
+
+The same helper accepts user and user-delegated actors. They use their user
+grants and do not enter the resource-credential branch.
+
 Collection and search endpoints must restrict the query to the bound resource
 or reject the credential. Authentication alone must not expose every item.
 
-See [Machine credentials and OAuth](/docs/en/identity/service-accounts-and-oauth)
-for the creation flow.
+See [Resource API keys](/docs/en/identity/resource-api-keys) for service-account
+and credential creation.
 
 ## Repeat the check for SSR
 

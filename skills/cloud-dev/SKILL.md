@@ -54,6 +54,12 @@ APIs, and the same runtime model. Deployment setup is the main difference.
 9. Keep workflow runs, leases, retry, recovery, and the effect journal in the
    workflow kernel.
 10. Treat logs as operational evidence, not as a durable business record.
+11. Re-check current resource access immediately before a durable,
+    permission-sensitive external effect.
+12. Commit a domain change before sending its notification. Derive recipients
+    from trusted server state and retry with the same domain-event key.
+13. If a frontend claims no-JavaScript writes, include the validated server
+    POST handler that makes the form action real.
 
 ## Use the shared libraries
 
@@ -70,26 +76,30 @@ re-export them.
 
 ## Read only what the task needs
 
-| Reference | Use it for |
+| Task | References |
 | --- | --- |
-| `architecture.md` | Platform boundary, application definition, lifecycle, routing, and discovery |
-| `backend.md` | Hono middleware, HTTP APIs, services, results, SQL, migrations, and state |
-| `auth.md` | Authentication, actors, route policies, resource access, API keys, and OAuth |
-| `platform.md` | Settings, logging, tracing, audit, search, widgets, PDF, and templates |
-| `notifications.md` | Typed notification definitions, delivery, results, and recovery |
-| `help.md` | In-product Help collections, routes, rendering, and Markdown |
-| `cli.md` | Application CLI modules, flags, input, output, and access commands |
-| `workflows.md` | Jobs, queues, schedulers, coordination, and durable workflows |
-| `frontend.md` | SSR, shells, islands, clients, URL state, realtime UI, forms, and testing |
-| `components.md` | Exact shared component and utility APIs |
-| `design.md` | Visual and interaction decisions |
-| `ai.md` | AI resources, model policy, chat, tools, files, skills, memory, and background work |
-| `ops.md` | Local development, containers, configuration, deployment, scaling, and observability |
-| `reference.md` | Supported imports, route conventions, setting kinds, statuses, and migrations |
-| `checklist.md` | Final verification before handing off a change |
+| Understand or create an application | `architecture.md`, `getting-started.md`, `application.md` |
+| Build server routes and services | `middleware.md`, `http.md`, `services.md` |
+| Store and migrate application data | `data.md`, `migrations.md` |
+| Resolve identity and protect access | `auth.md`, `route-access.md`, `authorization.md`, `credentials.md` |
+| Use platform services | `platform.md`, `settings.md`, `observability.md` |
+| Send notifications or add product help and CLI commands | `notifications.md`, `help.md`, `cli.md` |
+| Run background work | `automation.md`, `schedules.md` |
+| Build durable workflows | `workflows.md`, `workflow-runtime.md` |
+| Build server-rendered interfaces | `frontend.md`, `browser.md`, `frontend-ui.md` |
+| Choose shared components and interaction patterns | `components.md`, `design.md` |
+| Build AI features | `ai.md`, `ai-runtime.md` |
+| Develop, deploy, and operate Cloud | `development.md`, `deployment.md`, `ops.md` |
+| Check public APIs and conventions | `reference.md`, `conventions.md` |
+| Verify a finished change | `checklist.md` |
 
 ## Finish the change
 
 Read `checklist.md` before declaring work complete. Run the narrowest relevant
 checks first, then the package or repository checks required by the affected
 area.
+
+Representative code must be coherent with current public types. Include every
+required import and configuration field, identify app-owned placeholders, and
+do not use casts or ellipses to conceal missing contracts. For workflow
+authoring, retain a reproducible compile-and-bind check.

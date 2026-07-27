@@ -28,19 +28,11 @@ export const app = defineApp({
 });
 ```
 
-The common prefixes are:
-
-| Prefix | Content |
-| --- | --- |
-| `/api/<id>` | HTTP APIs and WebSocket upgrades |
-| `/app/<id>` | Application pages |
-| `/admin/<id>` | Administration pages |
-| `/public/<id>` | Built CSS and other application assets |
-
 An API-only application needs only its API prefix. Applications with special
 public paths declare those exact paths.
 
-See [Route conventions](/docs/en/reference/route-conventions).
+See [Route conventions](/docs/en/reference/route-conventions) for the standard
+prefixes, reserved paths, and matching rules.
 
 > **Do not serve HTML below `/public`.** Cloud handles `/public/*` before the
 > application router and returns a terminal asset response. Use a separate
@@ -71,26 +63,6 @@ The hostname normally matches the Compose or Kubernetes service name.
 
 Do not use `localhost` when the gateway runs in another container.
 `localhost` would refer to the gateway container itself.
-
-## Path matching
-
-The gateway selects the longest registered prefix.
-
-Given:
-
-```text
-/api
-/api/inventory
-```
-
-`/api/inventory/items` uses `/api/inventory`.
-
-`/api/inventory-old` does not match `/api/inventory` because matching stops at
-path-segment boundaries.
-
-Route prefixes must begin with `/`. A trailing slash is removed. If two
-applications declare the same prefix, the gateway keeps one route and reports
-the duplicate.
 
 ## Service registration
 

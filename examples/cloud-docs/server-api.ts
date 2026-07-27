@@ -110,6 +110,7 @@ export const createInventoryRoutes = (inventory: ReturnType<typeof createInvento
         responses: {
           200: jsonResponse(InventoryListSchema, "Inventory items"),
           400: jsonResponse(ErrorResponseSchema, "Invalid query"),
+          401: jsonResponse(ErrorResponseSchema, "Authentication required"),
         },
       }),
       v("query", ListItemsQuerySchema),
@@ -135,6 +136,8 @@ export const createInventoryRoutes = (inventory: ReturnType<typeof createInvento
         summary: "Read an inventory item",
         responses: {
           200: jsonResponse(InventoryItemSchema, "Inventory item"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid item ID"),
+          401: jsonResponse(ErrorResponseSchema, "Authentication required"),
           404: jsonResponse(ErrorResponseSchema, "Inventory item not found"),
         },
       }),
@@ -156,6 +159,7 @@ export const createInventoryRoutes = (inventory: ReturnType<typeof createInvento
         responses: {
           201: jsonResponse(InventoryItemSchema, "Inventory item created"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+          401: jsonResponse(ErrorResponseSchema, "Authentication required"),
         },
       }),
       v("json", CreateInventoryItemSchema),
@@ -192,8 +196,6 @@ export const createInventoryClient = () =>
 
 export const createInventoryRouter = (inventoryApi: InventoryApi) =>
   new Hono<AuthContext>()
-    .use("*", middleware.runtime())
-    .use("*", middleware.settings())
     .use("*", middleware.logger())
     .use(
       "/api/inventory/*",
@@ -209,4 +211,6 @@ export const createInventoryRouter = (inventoryApi: InventoryApi) =>
         ],
       }),
     )
+    .use("*", middleware.runtime())
+    .use("*", middleware.settings())
     .route("/api/inventory", inventoryApi);

@@ -47,14 +47,9 @@ const chatRoutes = createAiChatRoutes({
     return {
       actor,
       ownerUserId: user.id,
-      toolSource: { kind: "default" },
+      toolSource: { kind: "none" },
       systemPrompt: "Help with writing and planning.",
       modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
-      toolApprovalContext: {
-        actorUserId: user.id,
-        appId: "assistant",
-        resource: { kind: "direct" },
-      },
     };
   },
 });
@@ -72,6 +67,15 @@ const router = new Hono<AuthContext>()
 
 Protect the entire mount. `/status` and `/models` return sanitized state but do
 not call `resolveContext()`.
+
+This minimal chat has no tools. Use a resource tool source for tools declared
+by `defineAiResource()`.
+
+The default tool source adds card and survey interactions, sandboxed Bash over
+the conversation workspace, presentation, and web search or extraction when
+Firecrawl is configured. These built-in tools use `approval: "never"`. Enable
+the default set only when the chat needs those capabilities. See
+[Tools and approvals](/docs/en/ai/tools-and-approvals).
 
 ## Chat route groups
 
@@ -143,4 +147,4 @@ then the stream reports progress.
 Use the final turn status for completion. Handle `failed` and `aborted`
 explicitly.
 
-For the UI layer, see [AI user interface](/docs/en/ai/ui-and-operations).
+For the UI layer, see [Chat interface](/docs/en/ai/chat-interface).
