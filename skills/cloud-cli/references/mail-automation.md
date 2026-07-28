@@ -124,7 +124,7 @@ cld mail sender-rule delete <rule-id> --revision <revision> --yes
 
 Repeat `--action` in execution order. A guided rule accepts at most one provider message action: `junk`, `trash`, `mark_read`, `add_keyword:<keyword>`, or `move_to_folder:<folder-id>`. It can additionally add distinct Cloud tags with `add_local_tag:<tag-id>`, assign one user with `assign_user:<user-id>`, and set one status with `set_status:<needs_action|waiting|done>`. `sender-rule catalog` returns the mailbox-scoped folder, tag, and user ids accepted by these actions. Passing any `--action` during update replaces the complete action plan; omit it to retain the current plan.
 
-Destructive rules reject mailbox identities, configured internal domains and subdomains, and unsafe parent domains. `sender-rule get` exposes the exact generated workflow YAML.
+Exact-sender rules and sender-wide actions accept incoming external senders only; Cloud rejects a mailbox's own active identities. Domain rules remain available for inbound mail from people who share an internal domain. Destructive rules additionally reject configured internal domains and subdomains, and unsafe parent domains. `sender-rule get` exposes the exact generated workflow YAML.
 
 Preview sender-scoped work before changing existing messages:
 

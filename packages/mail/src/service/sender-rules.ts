@@ -287,6 +287,24 @@ const normalizePreviewMatch = (input: PreviewSenderRuleMatchesInput): Result<{ m
   return normalized.ok ? ok({ matchKind: parsed.data.matchKind, matchValue: normalized.data }) : normalized;
 };
 
+const rejectOwnSenderTarget = async (params: {
+  mailboxId: string;
+  matchKind: SenderRuleMatchKind;
+  matchValue: string;
+  db: SqlClient;
+}): Promise<Result<void>> => {
+  if (params.matchKind !== "sender") return ok();
+  const [identity] = await params.db<{ id: string }[]>`
+    SELECT id
+    FROM mail.sender_identities
+    WHERE mailbox_id = ${params.mailboxId}::uuid
+      AND lower(from_address) = ${params.matchValue}
+      AND status <> 'disabled'
+    LIMIT 1
+  `;
+  return identity ? fail(err.badInput("Sender actions apply only to incoming mail; choose an external sender")) : ok();
+};
+
 const protectMailboxSenders = async (params: {
   mailboxId: string;
   matchKind: SenderRuleMatchKind;
@@ -586,6 +604,13 @@ export const previewSenderRuleMatches = async (params: {
   if (!allowed.ok) return allowed;
   const match = normalizePreviewMatch(params.input);
   if (!match.ok) return match;
+  const incoming = await rejectOwnSenderTarget({
+    mailboxId: params.mailboxId,
+    matchKind: match.data.matchKind,
+    matchValue: match.data.matchValue,
+    db: sql,
+  });
+  if (!incoming.ok) return incoming;
   const [counts] = await sql<{ message_count: string | number; conversation_count: string | number }[]>`
     SELECT
       COUNT(DISTINCT remote_ref.id)::int AS message_count,
@@ -619,6 +644,14 @@ export const markSenderMessagesRead = async (params: {
   try {
     const outcome: { result: MarkSenderMessagesReadResult; commands: MailCommand[] } = await sql.begin(async (tx) => {
       unwrap(await requireMailboxPermission(params.context, params.mailboxId, "write", tx));
+      unwrap(
+        await rejectOwnSenderTarget({
+          mailboxId: params.mailboxId,
+          matchKind: match.data.matchKind,
+          matchValue: match.data.matchValue,
+          db: tx,
+        }),
+      );
       const [claimed] = await tx<{ id: string }[]>`
         INSERT INTO mail.sender_read_batches (
           mailbox_id, actor_kind, actor_id, idempotency_key, match_kind, match_value,
@@ -1091,6 +1124,14 @@ export const createSenderRule = async (params: {
   try {
     const result = await sql.begin(async (tx) => {
       unwrap(await lockMailbox(params.context, params.mailboxId, tx));
+      unwrap(
+        await rejectOwnSenderTarget({
+          mailboxId: params.mailboxId,
+          matchKind: parsed.data.matchKind,
+          matchValue,
+          db: tx,
+        }),
+      );
       const [count] = await tx<{ count: number }[]>`
         SELECT COUNT(*)::int AS count
         FROM mail.sender_rules
@@ -1193,6 +1234,14 @@ export const updateSenderRule = async (params: {
       unwrap(await lockMailbox(params.context, params.mailboxId, tx));
       const current = unwrap(await loadSenderRule(params.mailboxId, params.ruleId, tx, true));
       if (current.revision !== parsed.data.expectedRevision) unwrap(fail(err.conflict("Sender rule was changed")));
+      unwrap(
+        await rejectOwnSenderTarget({
+          mailboxId: params.mailboxId,
+          matchKind: parsed.data.matchKind,
+          matchValue,
+          db: tx,
+        }),
+      );
       unwrap(
         await protectMailboxSenders({
           mailboxId: params.mailboxId,

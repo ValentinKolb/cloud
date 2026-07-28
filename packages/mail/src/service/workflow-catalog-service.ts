@@ -10,8 +10,7 @@ export const loadMailWorkflowCatalog = async (params: {
   db?: SqlClient;
 }): Promise<MailWorkflowCatalog> => {
   const db = params.db ?? sql;
-  const [folders, senderIdentities, localTags, assignableUsers, notificationUsers] = await Promise.all([
-    db<{ id: string; name: string; role: string }[]>`
+  const folders = await db<{ id: string; name: string; role: string }[]>`
       SELECT DISTINCT folder.id, folder.name, COALESCE(role_override.role, folder.role) AS role
       FROM mail.folders folder
       JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
@@ -37,24 +36,33 @@ export const loadMailWorkflowCatalog = async (params: {
             AND connection.owner_mailbox_id = mailbox.id
         )
       ORDER BY folder.id
-    `,
-    db<{ id: string; name: string }[]>`
+    `;
+  const senderIdentities = await db<{ id: string; name: string }[]>`
       SELECT id, display_name || ' <' || from_address || '>' AS name
       FROM mail.sender_identities
       WHERE mailbox_id = ${params.mailboxId}::uuid
         AND status = 'verified'
         AND automation_policy = 'mailbox'
       ORDER BY id
-    `,
-    db<{ id: string; name: string }[]>`
+    `;
+  const localTags = await db<{ id: string; name: string }[]>`
       SELECT id, name
       FROM mail.local_tags
       WHERE mailbox_id = ${params.mailboxId}::uuid
       ORDER BY id
-    `,
-    listCurrentMailboxUsers({ mailboxId: params.mailboxId, minimumPermission: "write", limit: 500, db }),
-    listCurrentMailboxUsers({ mailboxId: params.mailboxId, minimumPermission: "read", limit: 500, db }),
-  ]);
+    `;
+  const assignableUsers = await listCurrentMailboxUsers({
+    mailboxId: params.mailboxId,
+    minimumPermission: "write",
+    limit: 500,
+    db,
+  });
+  const notificationUsers = await listCurrentMailboxUsers({
+    mailboxId: params.mailboxId,
+    minimumPermission: "read",
+    limit: 500,
+    db,
+  });
   return buildMailWorkflowCatalog({
     folders,
     assignableUsers: assignableUsers.map((user) => ({ id: user.id, name: user.displayName || user.uid })),

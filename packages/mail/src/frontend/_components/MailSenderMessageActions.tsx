@@ -6,6 +6,8 @@ import type { DraftDerivationKind, SenderIdentity, SenderRuleMatchKind } from ".
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
 import { openMailSenderRuleEditor, type RuleActionKind } from "./MailSenderRuleSettings";
+import { isOutgoingMessage } from "./mail-conversation-history";
+import { resolveMailMessageActionVisibility } from "./mail-message-action-visibility";
 import { buildExactSenderSearchHref, senderDomainFromAddress } from "./mail-navigation";
 
 type SelectionContext = {
@@ -206,6 +208,18 @@ export default function MailSenderMessageActions(props: {
   const pending = () => messageKeywords.loading() || conversationKeyword.loading() || markSenderRead.loading();
   const sender = () => props.message.from[0] ?? null;
   const findSenderHref = () => (sender() ? buildExactSenderSearchHref(new URL(props.requestUrl), sender()!.address) : null);
+  const actionVisibility = () =>
+    resolveMailMessageActionVisibility({
+      outgoing: isOutgoingMessage(props.message, props.identities),
+      hasSender: Boolean(sender()),
+      hasMailingListUnsubscribe: Boolean(props.message.mailingList?.unsubscribe),
+      hasProviderPlacement: Boolean(props.message.remoteMessageRefId && props.message.folderId),
+      hasConversation: Boolean(props.selectedConversationId),
+      hasConversationSourceFolder: Boolean(props.sourceFolderId ?? props.message.folderId),
+      totalMessageCount: props.totalMessageCount,
+      canWrite: props.canWrite,
+      canAdmin: props.canAdmin,
+    });
 
   createEffect(
     on(
@@ -235,13 +249,13 @@ export default function MailSenderMessageActions(props: {
       width="w-64"
       elements={[
         ...(props.primaryActions ?? []),
-        ...(sender()
+        ...(sender() && actionVisibility().findSender
           ? [
               {
                 sectionLabel: "Sender",
                 items: [
                   ...(findSenderHref() ? [{ label: "Find all from this sender", icon: "ti ti-search", href: findSenderHref()! }] : []),
-                  ...(props.canAdmin
+                  ...(actionVisibility().createSenderRule
                     ? [
                         {
                           label: "Create rule from sender",
@@ -250,12 +264,16 @@ export default function MailSenderMessageActions(props: {
                         },
                       ]
                     : []),
-                  {
-                    label: "Mark all as read",
-                    icon: "ti ti-mail-opened",
-                    action: () => void markSenderRead.mutate({ address: sender()!.address, selectionKey: props.selectionKey }),
-                  },
-                  ...(props.canAdmin
+                  ...(actionVisibility().markSenderRead
+                    ? [
+                        {
+                          label: "Mark all as read",
+                          icon: "ti ti-mail-opened",
+                          action: () => void markSenderRead.mutate({ address: sender()!.address, selectionKey: props.selectionKey }),
+                        },
+                      ]
+                    : []),
+                  ...(actionVisibility().blockSender
                     ? [
                         {
                           label: "Block sender",
@@ -278,7 +296,7 @@ export default function MailSenderMessageActions(props: {
                           : []),
                       ]
                     : []),
-                  ...(props.canWrite && props.message.mailingList?.unsubscribe
+                  ...(actionVisibility().manageUnsubscribe && props.message.mailingList?.unsubscribe
                     ? [
                         {
                           label: "Manage unsubscribe",
@@ -291,50 +309,62 @@ export default function MailSenderMessageActions(props: {
               },
             ]
           : []),
-        {
-          sectionLabel: "Message",
-          items: [
-            {
-              label: "Provider keywords",
-              icon: "ti ti-tags",
-              action: () => void messageKeywords.mutate({ selectionKey: props.selectionKey }),
-            },
-          ],
-        },
-        ...(props.totalMessageCount > 1
+        ...(actionVisibility().providerKeywords
           ? [
               {
-                sectionLabel: "Conversation",
+                sectionLabel: "Message",
                 items: [
                   {
-                    label: "Conversation provider keyword",
+                    label: "Provider keywords",
                     icon: "ti ti-tags",
-                    action: () => void conversationKeyword.mutate({ selectionKey: props.selectionKey }),
-                  },
-                  {
-                    label: "Move to another conversation",
-                    icon: "ti ti-message-forward",
-                    action: () => props.onReassignMessage(props.message.id),
-                  },
-                  {
-                    label: "Start a new conversation",
-                    icon: "ti ti-arrows-split-2",
-                    action: () => props.onSplitMessage(props.message.id),
+                    action: () => void messageKeywords.mutate({ selectionKey: props.selectionKey }),
                   },
                 ],
               },
             ]
           : []),
-        {
-          label: "Edit as new",
-          icon: "ti ti-copy",
-          action: () => props.onDeriveMessage("edit_as_new", props.message),
-        },
-        ...(props.message.from.some((messageSender) =>
-          props.identities.some(
-            (identity) => identity.status === "verified" && identity.fromAddress.toLowerCase() === messageSender.address.toLowerCase(),
-          ),
-        )
+        ...(actionVisibility().conversationKeyword || actionVisibility().conversationRepair
+          ? [
+              {
+                sectionLabel: "Conversation",
+                items: [
+                  ...(actionVisibility().conversationKeyword
+                    ? [
+                        {
+                          label: "Conversation provider keyword",
+                          icon: "ti ti-tags",
+                          action: () => void conversationKeyword.mutate({ selectionKey: props.selectionKey }),
+                        },
+                      ]
+                    : []),
+                  ...(actionVisibility().conversationRepair
+                    ? [
+                        {
+                          label: "Move to another conversation",
+                          icon: "ti ti-message-forward",
+                          action: () => props.onReassignMessage(props.message.id),
+                        },
+                        {
+                          label: "Start a new conversation",
+                          icon: "ti ti-arrows-split-2",
+                          action: () => props.onSplitMessage(props.message.id),
+                        },
+                      ]
+                    : []),
+                ],
+              },
+            ]
+          : []),
+        ...(actionVisibility().editAsNew
+          ? [
+              {
+                label: "Edit as new",
+                icon: "ti ti-copy",
+                action: () => props.onDeriveMessage("edit_as_new", props.message),
+              },
+            ]
+          : []),
+        ...(actionVisibility().resend
           ? [
               {
                 label: "Resend as a new draft",

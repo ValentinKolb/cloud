@@ -5,6 +5,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
+import { createLocalTag } from "./local-tags";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { createSenderIdentity } from "./sender-identities";
 import {
@@ -54,6 +55,7 @@ suite("mail sender rules", () => {
   const accessIds: string[] = [];
   let mailboxId = "";
   let folderId = "";
+  let localTagId = "";
   let ownerContext: MailRequestContext;
   let writerContext: MailRequestContext;
   let readerContext: MailRequestContext;
@@ -193,6 +195,13 @@ suite("mail sender rules", () => {
         ${mailboxId}::uuid, 'Support', 'Support', 'support@example.test', 'disabled', true, 'verified'
       )
     `;
+    const localTag = await createLocalTag({
+      context: ownerContext,
+      mailboxId,
+      input: { name: "Sender rule test", color: "#2563eb" },
+    });
+    if (!localTag.ok) throw new Error(localTag.error.message);
+    localTagId = localTag.data.id;
     const scopeFingerprint = "c".repeat(64);
     const encryptedSecret = await encryptSecret({ kind: "password", password: `sender-rules-${suffix}` });
     const [connection] = await sql<{ id: string }[]>`
@@ -556,6 +565,81 @@ suite("mail sender rules", () => {
     });
   });
 
+  test("rejects own identities for sender-wide actions and completes catalog-backed rule mutations", async () => {
+    const ownSender = "support@example.test";
+    const preview = await previewSenderRuleMatches({
+      context: ownerContext,
+      mailboxId,
+      input: { matchKind: "sender", matchValue: ownSender },
+    });
+    expect(preview.ok).toBe(false);
+    if (!preview.ok) expect(preview.error).toMatchObject({ code: "BAD_INPUT" });
+
+    const read = await markSenderMessagesRead({
+      context: writerContext,
+      mailboxId,
+      input: { matchKind: "sender", matchValue: ownSender, idempotencyKey: `own-${suffix}` },
+    });
+    expect(read.ok).toBe(false);
+    if (!read.ok) expect(read.error).toMatchObject({ code: "BAD_INPUT" });
+
+    const rejectedCreate = await createSenderRule({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        name: "Own sender",
+        enabled: true,
+        matchKind: "sender",
+        matchValue: ownSender,
+        actions: [{ kind: "mark_read" }],
+      },
+    });
+    expect(rejectedCreate.ok).toBe(false);
+    if (!rejectedCreate.ok) expect(rejectedCreate.error).toMatchObject({ code: "BAD_INPUT" });
+
+    const created = await Promise.race([
+      createSenderRule({
+        context: ownerContext,
+        mailboxId,
+        input: {
+          name: "Catalog-backed sender rule",
+          enabled: true,
+          matchKind: "sender",
+          matchValue: `catalog-${suffix}@external.example`,
+          actions: [{ kind: "add_local_tag", tagId: localTagId }],
+        },
+      }),
+      Bun.sleep(5_000).then(() => {
+        throw new Error("Catalog-backed sender rule creation did not complete");
+      }),
+    ]);
+    if (!created.ok) throw new Error(created.error.message);
+
+    const rejectedUpdate = await updateSenderRule({
+      context: ownerContext,
+      mailboxId,
+      ruleId: created.data.id,
+      input: {
+        expectedRevision: created.data.revision,
+        name: created.data.name,
+        enabled: true,
+        matchKind: "sender",
+        matchValue: ownSender,
+        actions: created.data.actions,
+      },
+    });
+    expect(rejectedUpdate.ok).toBe(false);
+    if (!rejectedUpdate.ok) expect(rejectedUpdate.error).toMatchObject({ code: "BAD_INPUT" });
+
+    const deleted = await deleteSenderRule({
+      context: ownerContext,
+      mailboxId,
+      ruleId: created.data.id,
+      input: { expectedRevision: created.data.revision },
+    });
+    expect(deleted.ok).toBe(true);
+  });
+
   test("requires an enabled current revision before applying a rule to existing messages", async () => {
     const created = await createSenderRule({
       context: ownerContext,
@@ -600,7 +684,8 @@ suite("mail sender rules", () => {
       mailboxId,
       input: { matchKind: "sender", matchValue: "support@example.test" },
     });
-    expect(outbound.ok && outbound.data.messageCount).toBe(0);
+    expect(outbound.ok).toBe(false);
+    if (!outbound.ok) expect(outbound.error.code).toBe("BAD_INPUT");
 
     const input = { matchKind: "domain" as const, matchValue: "münich.example", idempotencyKey: `stable-${suffix}` };
     const [first, concurrent] = await Promise.all([
