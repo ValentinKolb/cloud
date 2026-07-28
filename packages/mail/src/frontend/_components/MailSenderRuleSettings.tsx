@@ -26,6 +26,7 @@ import {
 import type { SenderRule } from "../../service/sender-rules";
 import type { MailWorkflowCatalogSnapshot } from "../../workflows/catalog";
 import { readApiError } from "./api-response";
+import { waitForMailPageTransition } from "./mail-page-transition";
 import {
   createSenderRuleAction,
   initialSenderRuleAction,
@@ -514,6 +515,8 @@ export default function MailSenderRuleSettings(props: {
   catalog: MailWorkflowCatalogSnapshot;
   initialRules: SenderRule[];
   onRulesChange?: (rules: SenderRule[]) => void;
+  openNew?: boolean;
+  onOpenNewHandled?: () => void;
 }) {
   const [rules, setRules] = createSignal(props.initialRules);
   const [backfills, setBackfills] = createSignal<Record<string, SenderRuleBackfill>>({});
@@ -692,6 +695,19 @@ export default function MailSenderRuleSettings(props: {
   onMount(() => {
     void restoreBackfills();
     refreshTimer = setInterval(() => void refreshBackfills(), 1_500);
+    if (props.openNew) {
+      void (async () => {
+        await waitForMailPageTransition();
+        if (disposed) return;
+        props.onOpenNewHandled?.();
+        await openMailSenderRuleEditor({
+          mailboxId: props.mailboxId,
+          catalog: props.catalog,
+          onSaved: upsert,
+          onBackfillStarted: rememberBackfill,
+        });
+      })();
+    }
   });
   onCleanup(() => {
     disposed = true;

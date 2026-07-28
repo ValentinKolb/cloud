@@ -6,7 +6,7 @@ description: Configure automatic replies, conversation references, and safe work
 order: 60
 ---
 
-Open **Automations** near the bottom of the mailbox navigation. The overview leads to guided automatic replies and sender rules. Mailbox admins also see focused pages for **Workflows** and **Reference numbers**. Cloud administrators inspect execution centrally under **Admin > Observability > Workflows**.
+Open **Automations** from **Mailbox tools**. The full-width overview shows what is active and opens the exact setup you select. **Automatic replies** and **Sender rules** cover common tasks. Mailbox admins also see **Activity** and **Workflows** under Advanced.
 
 ## Choose the right automation tool {icon="route"}
 
@@ -14,7 +14,7 @@ Open **Automations** near the bottom of the mailbox navigation. The overview lea
 | --- | --- |
 | Send an out-of-office or receipt acknowledgement | **Automatic replies** |
 | Route, mark, or label mail from one sender or domain | **Sender rules** |
-| Give conversations permanent human-facing IDs | **Reference numbers** plus a workflow |
+| Give conversations permanent human-facing IDs | A reference acknowledgement or custom **Workflow** |
 | Tag, move, assign, change status, allocate references, or send guarded replies from conditions | **Workflows** |
 
 The tools can work together, but creating one does not activate another. Reference-number settings define the format; a workflow still decides when to allocate a number. Saving a workflow does not activate it.
@@ -104,7 +104,7 @@ The **Reference acknowledgement** preset assigns the number before sending and i
 4. Select **Create workflow** or **Save version**.
 5. Review the new version under **Versions**.
 6. Select **Activate** or **Activate current version**.
-7. Ask a Cloud administrator to verify the first matching execution under **Admin > Observability > Workflows**.
+7. Verify the first matching execution under **Automations > Activity**. Platform operators can also use **Admin > Observability > Workflows**.
 :::
 
 Saving never activates a version. An already active version continues to run until an administrator explicitly activates the newer one. **Update available** means the saved current version and active version differ.
@@ -113,7 +113,7 @@ Effect budgets are hard upper bounds for moves, sends, keyword changes, and coll
 
 ## Observe and stop workflow runs {icon="activity"}
 
-Cloud administrators use **Admin > Observability > Workflows** for every app's durable run history. Filter the list by **Mail**, then open a run to inspect its cause, inputs, steps, effects, result, and errors. A run may be queued, running, waiting, succeeded, failed, canceled, or need attention.
+Mailbox administrators use **Automations > Activity** for mailbox-scoped automatic replies, sender-rule matches, custom workflows, and resumable backfills. The table shows the automation type, state, duration, time, and a bounded failure or result message. Platform administrators retain the cross-application detail view under **Admin > Observability > Workflows**.
 
 Select **Cancel** when no further effects should start. Cancellation does not reverse mail moves, sends, or collaboration changes that already completed. A run that needs attention waits for an administrator to record whether an uncertain external effect completed. Disabling a Mail workflow prevents new trigger matches; it does not rewrite completed history.
 

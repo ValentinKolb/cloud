@@ -153,13 +153,14 @@ Markdown messages always receive the built-in readable email design. **Email des
 Open **Automations** near the bottom of the mailbox navigation:
 
 :::steps
-1. **Automatic replies** offers Out of office, Office-hours acknowledgement, and Custom presets. Writers can use this section when the Access policy permits it.
-2. **Workflows** contains versioned YAML definitions and explicit activation controls.
-3. **Runs** shows durable execution progress, failures, and cancellation.
-4. **Reference numbers** defines the one human-facing mailbox sequence and its reply-subject behavior.
+1. **Overview** shows what is active and opens the exact setup task.
+2. **Automatic replies** offers Out of office, Office-hours acknowledgement, Reference acknowledgement, and Custom presets. Writers can use this section when the Access policy permits it.
+3. **Sender rules** provides guided matching and ordered actions.
+4. **Activity** shows mailbox-scoped workflow runs and sender-rule backfills.
+5. **Workflows** contains versioned YAML definitions, reference-number configuration, and explicit activation controls.
 :::
 
-The three advanced pages require mailbox-admin access. Automatic-reply timing is stored directly in the guided reply or in the immutable YAML workflow version; there is no separate schedule resource to keep in sync.
+Sender rules, Activity, and Workflows require mailbox-admin access. Automatic-reply timing is stored directly in the guided reply or in the immutable YAML workflow version; there is no separate schedule resource to keep in sync.
 
 An automatic reply has an enabled state, verified automation sender, subject, body, Markdown or plain-text format, repeat interval per recipient, time zone, active dates, weekly windows, exceptions, and behavior outside the active window:
 
@@ -172,7 +173,7 @@ For setup steps, schedule consequences, reference patterns, and repeat protectio
 
 ## Manage workflows {icon="route"}
 
-Open **Automations > Workflows** for the YAML editor. Saving creates a new immutable version; it does not activate that version automatically. Review the YAML, validation diagnostics, and effect budgets before explicitly activating a version. Inspect executions separately under **Automations > Runs**.
+Open **Automations > Workflows** for the YAML editor. Saving creates a new immutable version; it does not activate that version automatically. Review the YAML, validation diagnostics, and effect budgets before explicitly activating a version. Inspect mailbox executions separately under **Automations > Activity**.
 
 Use the dedicated automatic-reply UI for normal out-of-office or acknowledgement needs. Use workflows when the mailbox needs deterministic conditions and actions beyond that editor.
 

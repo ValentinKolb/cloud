@@ -48,6 +48,8 @@ steps:
       sender: Support
       subject: "Re: \${{ inputs.message.subject }}"
       body: Thanks
+      schedule:
+        mode: always
 `);
     expect(diagnostics).toMatchObject([{ code: "MAIL_TEMPLATE_LEGACY_SYNTAX", path: ["steps", 0, "automaticReply", "subject"] }]);
   });

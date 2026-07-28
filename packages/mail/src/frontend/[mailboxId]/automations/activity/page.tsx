@@ -1,26 +1,24 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { ssr } from "../../../config";
-import { mailHelp } from "../../../help";
-import type { MailRequestContext } from "../../../service";
-import { loadMailAutomationOverview } from "../../../service/automation-workspace";
-import MailLayoutHelp from "../../_components/help/MailLayoutHelp.island";
-import MailAutomationOverview from "../../MailAutomationOverview.island";
+import { ssr } from "../../../../config";
+import { mailHelp } from "../../../../help";
+import type { MailRequestContext } from "../../../../service";
+import { loadMailAutomationActivity } from "../../../../service/automation-workspace";
+import MailLayoutHelp from "../../../_components/help/MailLayoutHelp.island";
+import MailAutomationActivityPage from "../../../MailAutomationActivityPage.island";
 
 export default ssr<AuthContext>(async (c) => {
   const mailboxId = c.req.param("mailboxId") ?? "";
   const actor = c.get("actor");
   const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
   if (!mailboxId || !user) return c.redirect("/app/mail");
-
   const context: MailRequestContext = {
     actor,
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
-  const result = await loadMailAutomationOverview(context, mailboxId);
-  if (!result.ok) return c.redirect(`/app/mail/${mailboxId}`);
-
+  const result = await loadMailAutomationActivity(context, mailboxId);
+  if (!result.ok) return c.redirect(`/app/mail/${mailboxId}/automations`);
   return () => (
     <Layout
       c={c}
@@ -29,11 +27,12 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Start", href: "/" },
         { title: "Mail", href: "/app/mail" },
         { title: result.data.mailbox.name, href: `/app/mail/${mailboxId}` },
-        { title: "Automations" },
+        { title: "Automations", href: `/app/mail/${mailboxId}/automations` },
+        { title: "Activity" },
       ]}
     >
       <MailLayoutHelp documents={mailHelp.manifest} />
-      <MailAutomationOverview data={result.data} currentUserEmail={user.mail} />
+      <MailAutomationActivityPage data={result.data} currentUserEmail={user.mail} />
     </Layout>
   );
 });

@@ -64,6 +64,10 @@ describe("mailHelp", () => {
       "../frontend/compose/page.tsx",
       "../frontend/[mailboxId]/page.tsx",
       "../frontend/[mailboxId]/automations/page.tsx",
+      "../frontend/[mailboxId]/automations/replies/page.tsx",
+      "../frontend/[mailboxId]/automations/rules/page.tsx",
+      "../frontend/[mailboxId]/automations/activity/page.tsx",
+      "../frontend/[mailboxId]/automations/workflows/page.tsx",
       "../frontend/[mailboxId]/compose/[draftId]/page.tsx",
     ];
 

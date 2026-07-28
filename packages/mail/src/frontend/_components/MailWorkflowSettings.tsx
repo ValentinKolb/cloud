@@ -26,7 +26,10 @@ import type {
   WorkflowEffectBudget,
   WorkflowValidation,
 } from "../../contracts";
+import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
 import { readApiError } from "./api-response";
+import { MailReferenceConfigurationForm } from "./MailResponsePolicySettings";
+import { waitForMailPageTransition } from "./mail-page-transition";
 import { shouldApplyWorkflowValidation } from "./workflow-validation-race";
 
 const DEFAULT_BUDGET: WorkflowEffectBudget = {
@@ -69,6 +72,8 @@ const asSummary = (workflow: MailWorkflowDetail): MailWorkflow => ({
 function WorkflowEditor(props: {
   mailboxId: string;
   workflow: MailWorkflowDetail | null;
+  referenceConfiguration: ConversationReferenceConfiguration | null;
+  onReferenceConfigurationChange: (configuration: ConversationReferenceConfiguration) => void;
   close: () => void;
   onSaved: (workflow: MailWorkflowDetail) => void;
 }) {
@@ -88,6 +93,7 @@ function WorkflowEditor(props: {
   const [maxKeywordChanges, setMaxKeywordChanges] = createSignal(initialBudget.maxKeywordChanges);
   const [maxCollaborationChanges, setMaxCollaborationChanges] = createSignal(initialBudget.maxCollaborationChanges);
   const [validation, setValidation] = createSignal<WorkflowValidation | null>(null);
+  const [referenceConfiguration, setReferenceConfiguration] = createSignal(props.referenceConfiguration);
   const [validating, setValidating] = createSignal(false);
   let validationTimer: ReturnType<typeof setTimeout> | undefined;
   let validationAbort: AbortController | undefined;
@@ -272,6 +278,34 @@ function WorkflowEditor(props: {
           </Show>
         </PanelDialog.Section>
         <PanelDialog.Section
+          title="Conversation references"
+          subtitle="Optional durable identifiers for workflows that use ensureConversationReference."
+          icon="ti ti-hash"
+        >
+          <Show
+            when={referenceConfiguration()?.enabled}
+            fallback={
+              <MailReferenceConfigurationForm
+                mailboxId={props.mailboxId}
+                configuration={referenceConfiguration()}
+                compact
+                onSaved={(configuration) => {
+                  setReferenceConfiguration(configuration);
+                  props.onReferenceConfigurationChange(configuration);
+                }}
+              />
+            }
+          >
+            <div class="info-block-success flex items-start gap-2">
+              <i class="ti ti-check mt-0.5 shrink-0" aria-hidden="true" />
+              <span>
+                Reference numbers are ready with pattern <code>{referenceConfiguration()!.pattern}</code>. Use{" "}
+                <code>ensureConversationReference</code> and render the result through <code>{"{{ reference.value }}"}</code>.
+              </span>
+            </div>
+          </Show>
+        </PanelDialog.Section>
+        <PanelDialog.Section
           title="Workflow YAML"
           subtitle="Save creates a new immutable version; activation remains explicit."
           icon="ti ti-code"
@@ -425,7 +459,11 @@ function WorkflowVersionViewer(props: {
 export default function MailWorkflowSettings(props: {
   mailboxId: string;
   initialWorkflows: MailWorkflow[];
+  referenceConfiguration: ConversationReferenceConfiguration | null;
+  onReferenceConfigurationChange: (configuration: ConversationReferenceConfiguration) => void;
   onWorkflowsChange?: (workflows: MailWorkflow[]) => void;
+  openNew?: boolean;
+  onOpenNewHandled?: () => void;
 }) {
   let disposed = false;
   const [workflows, setWorkflows] = createSignal(props.initialWorkflows);
@@ -460,10 +498,30 @@ export default function MailWorkflowSettings(props: {
       detail = await response.json();
     }
     await dialogCore.open<void>(
-      (close) => <WorkflowEditor mailboxId={props.mailboxId} workflow={detail} close={() => close()} onSaved={replaceWorkflow} />,
+      (close) => (
+        <WorkflowEditor
+          mailboxId={props.mailboxId}
+          workflow={detail}
+          referenceConfiguration={props.referenceConfiguration}
+          onReferenceConfigurationChange={props.onReferenceConfigurationChange}
+          close={() => close()}
+          onSaved={replaceWorkflow}
+        />
+      ),
       panelDialogWorkspaceOptions,
     );
   };
+  let openedInitialEditor = false;
+  createEffect(() => {
+    if (!props.openNew || openedInitialEditor) return;
+    openedInitialEditor = true;
+    void (async () => {
+      await waitForMailPageTransition();
+      if (disposed) return;
+      props.onOpenNewHandled?.();
+      await openEditor();
+    })();
+  });
 
   const activate = mutations.create<MailWorkflowDetail, MailWorkflow>({
     mutation: async (workflow, { abortSignal }) => {
@@ -581,11 +639,7 @@ export default function MailWorkflowSettings(props: {
         </button>
       </div>
       <p class="text-xs text-dimmed">
-        Runtime history, cancellation, and effect resolution live in{" "}
-        <a class="link" href="/admin/observability/workflows">
-          Admin Observability
-        </a>
-        .
+        Mailbox-scoped runtime history is available under Activity. Platform operators retain the central view.
       </p>
       <Show
         when={workflows().length > 0}
