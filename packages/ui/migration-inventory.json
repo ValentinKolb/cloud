@@ -65,22 +65,22 @@
       { "source": "./misc/Tooltip", "status": "implemented" }
     ],
     "content": [
-      { "source": "./misc/Calendar", "status": "planned" },
-      { "source": "./misc/Chart", "status": "planned" },
+      { "source": "./misc/Calendar", "status": "implemented" },
+      { "source": "./misc/Chart", "status": "implemented" },
       { "source": "./misc/CodeDisplay", "status": "implemented" },
-      { "source": "./misc/DataTable", "status": "planned" },
-      { "source": "./misc/Docs", "status": "planned" },
-      { "source": "./misc/FileBrowser", "status": "planned" },
-      { "source": "./misc/FileTree", "status": "planned" },
-      { "source": "./misc/FileView", "status": "planned" },
-      { "source": "./misc/Lightbox", "status": "planned" },
-      { "source": "./misc/LogEntriesTable", "status": "planned" },
+      { "source": "./misc/DataTable", "status": "implemented" },
+      { "source": "./misc/Docs", "status": "implemented" },
+      { "source": "./misc/FileBrowser", "status": "implemented" },
+      { "source": "./misc/FileTree", "status": "implemented" },
+      { "source": "./misc/FileView", "status": "implemented" },
+      { "source": "./misc/Lightbox", "status": "implemented" },
+      { "source": "./misc/LogEntriesTable", "status": "implemented" },
       { "source": "./misc/MarkdownView", "status": "implemented" },
       { "source": "./misc/Pagination", "status": "implemented" },
-      { "source": "./misc/PdfPreview", "status": "planned" },
+      { "source": "./misc/PdfPreview", "status": "implemented" },
       { "source": "./misc/RangePicker", "status": "implemented" },
       { "source": "./misc/StructuredDataPreview", "status": "implemented" },
-      { "source": "./misc/chart-state-timeline", "status": "planned" }
+      { "source": "./misc/chart-state-timeline", "status": "implemented" }
     ],
     "widgets": [
       { "source": "./widgets/Widget", "status": "implemented" },

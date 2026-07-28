@@ -60,8 +60,10 @@ standalone SSR, behavior, styling, and migration checks:
 - Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
   `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`, `NotFoundState`
 - Feedback: the complete scoped prompt family, `Tooltip`, and scoped `toast`
-- Content: pagination, range navigation, code and Markdown views, and
-  structured-data previews
+- Content: data and log tables, charts and interactive state timelines,
+  calendars, file trees/browsers/previews, lightboxes, PDF previews,
+  documentation primitives, pagination, range navigation, code and Markdown
+  views, and structured-data previews
 - Widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
   `WidgetStat`, and `WidgetStatus`
 

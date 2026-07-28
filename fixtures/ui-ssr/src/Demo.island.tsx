@@ -2,11 +2,21 @@ import {
   AppOverview,
   Avatar,
   Button,
+  Calendar,
+  Chart,
   Checkbox,
   ColorInput,
   CodeDisplay,
   DatePicker,
+  DataTable,
+  DocNote,
+  DocPage,
+  DocSection,
+  Docs,
+  FileBrowser,
+  FileView,
   LinkCard,
+  LogEntriesTable,
   MarkdownView,
   NoticeCard,
   NoticeGrid,
@@ -53,6 +63,8 @@ export default function Demo() {
   const [balance, setBalance] = createSignal(20);
   const [color, setColor] = createSignal("#2563eb");
   const [transparent, setTransparent] = createSignal(false);
+  const [calendarDate, setCalendarDate] = createSignal(new Date("2026-07-15T12:00:00Z"));
+  const [selectedFile, setSelectedFile] = createSignal("readme");
 
   const confirmAction = async () => {
     if (await prompts.confirm("This dialog is rendered by @k2b/ui.", { title: "Portable prompt" })) {
@@ -143,6 +155,79 @@ export default function Demo() {
                 />
                 <Pagination currentPage={3} totalPages={8} href={(page) => `?page=${page}`} />
               </div>
+            </div>
+          </Section>
+
+          <Section id="data-content" title="Data, charts, calendar, files and docs">
+            <div style="display:grid;gap:16px">
+              <DataTable
+                rows={[
+                  { id: "gateway", service: "Gateway", status: "Healthy", latency: 42 },
+                  { id: "worker", service: "Worker", status: "Degraded", latency: 138 },
+                ]}
+                columns={[
+                  { id: "service", header: "Service", value: (row) => row.service, sortable: true },
+                  { id: "status", header: "Status", value: (row) => row.status },
+                  { id: "latency", header: "Latency", value: (row) => `${row.latency} ms`, align: "right" },
+                ]}
+                getRowId={(row) => row.id}
+                sort={{ key: "service", direction: "asc" }}
+                onSort={() => toast.success("Sort is consumer controlled")}
+                footer={{ values: { service: "2 services", latency: "90 ms avg" } }}
+              />
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+                <Chart
+                  kind="stateTimeline"
+                  interactive
+                  label="Service state timeline"
+                  rows={[
+                    { label: "Gateway", intervals: [{ from: 0, to: 7, state: "healthy", tooltip: "Gateway healthy" }] },
+                    { label: "Worker", intervals: [{ from: 2, to: 5, state: "warning", tooltip: "Worker degraded" }] },
+                  ]}
+                  states={[
+                    { state: "healthy", label: "Healthy" },
+                    { state: "warning", label: "Warning" },
+                  ]}
+                />
+                <LogEntriesTable
+                  entries={[
+                    { id: 1, timestamp: "2026-07-28T08:15:00Z", level: "info", source: "gateway", message: "Route registered" },
+                    { id: 2, timestamp: "2026-07-28T08:16:00Z", level: "warn", source: "worker", message: "Retry scheduled" },
+                  ]}
+                />
+              </div>
+              <Calendar
+                date={calendarDate()}
+                onDateChange={setCalendarDate}
+                dateContext={{ timeZone: "UTC", locale: "en" }}
+                items={[
+                  { id: "review", title: "Release review", startsAt: "2026-07-15T09:00:00Z", endsAt: null, deadline: null },
+                ]}
+              />
+              <FileBrowser
+                title="Portable project"
+                selectedId={selectedFile()}
+                defaultExpandedIds={["src"]}
+                onSelect={(item) => setSelectedFile(item.id)}
+                items={[
+                  { id: "readme", name: "README.md", type: "file", mimeType: "text/markdown" },
+                  { id: "src", name: "src", type: "directory", children: [{ id: "index", name: "index.ts", type: "file" }] },
+                ]}
+                preview={
+                  <FileView
+                    name={selectedFile() === "index" ? "index.ts" : "README.md"}
+                    text={selectedFile() === "index" ? "export * from './content';" : "# Portable UI\n\nSolid components without Cloud state."}
+                  />
+                }
+              />
+              <Docs navigation={<a href="#portable-docs">Overview</a>} aside={<a href="#portable-docs">Portable boundary</a>}>
+                <DocPage>
+                  <DocSection id="portable-docs" eyebrow="@k2b/ui" title="Portable documentation primitives">
+                    <p>Navigation, readable content and an optional outline compose without a Cloud shell.</p>
+                    <DocNote title="Consumer owned" variant="tip">Routing and application state stay outside the package.</DocNote>
+                  </DocSection>
+                </DocPage>
+              </Docs>
             </div>
           </Section>
 

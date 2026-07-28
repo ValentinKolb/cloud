@@ -28,8 +28,10 @@ The currently accepted complete migrations are:
 - surfaces: `Avatar`, `LinkCard`, `NotFoundState`, `NoticeCard`, `Placeholder`,
   `ProgressBar`, `StatCell`, `StatGrid`, `StatusBadge`;
 - feedback: `dialog-core`, `prompts`, `toast`, `Tooltip`.
-- content: `CodeDisplay`, `MarkdownView`, `Pagination`, `RangePicker`,
-  `StructuredDataPreview`;
+- content: `Calendar`, `Chart`, `CodeDisplay`, `DataTable`, `Docs`,
+  `FileBrowser`, `FileTree`, `FileView`, `Lightbox`, `LogEntriesTable`,
+  `MarkdownView`, `Pagination`, `PdfPreview`, `RangePicker`,
+  `StructuredDataPreview`, `chart-state-timeline`;
 - widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
   `WidgetStat`, `WidgetStatus`.
 
