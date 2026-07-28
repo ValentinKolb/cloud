@@ -65,7 +65,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "hono": "^4.11.1",
         "solid-js": "^1.9.10",
@@ -85,7 +85,7 @@
         "@fontsource/ibm-plex-sans-condensed": "^5.2.8",
         "@k2b/nessi": "^0.10.0",
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@simplewebauthn/server": "^13.3.1",
         "@tabler/icons-webfont": "^3.36.1",
         "@tailwindcss/typography": "^0.5.19",
@@ -157,7 +157,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "5.7.0",
+        "@k2b/sync": "5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/stdlib": "0.16.0",
         "hono": "^4.11.1",
@@ -251,7 +251,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/stdlib": "0.16.0",
         "hono": "^4.11.1",
@@ -269,7 +269,7 @@
       "dependencies": {
         "@bwip-js/generic": "4.11.1",
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/stdlib": "0.16.0",
         "decimal.js": "^10.6.0",
@@ -290,7 +290,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/stdlib": "0.16.0",
         "hono": "^4.11.1",
@@ -308,7 +308,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/cloud-app-contacts": "workspace:*",
         "@valentinkolb/stdlib": "0.16.0",
@@ -364,7 +364,7 @@
         "@codemirror/state": "^6.6.0",
         "@codemirror/view": "^6.42.1",
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@lezer/common": "^1.5.2",
         "@lezer/highlight": "^1.2.3",
         "@uiw/codemirror-themes": "^4.25.4",
@@ -430,7 +430,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/stdlib": "0.16.0",
         "hono": "^4.11.1",
@@ -463,7 +463,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@k2b/ssr": "0.12.0",
-        "@k2b/sync": "^5.7.0",
+        "@k2b/sync": "^5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/stdlib": "0.16.0",
         "dayjs": "^1.11.19",
@@ -850,7 +850,7 @@
 
     "@k2b/stdlib": ["@k2b/stdlib@0.17.0", "", { "dependencies": { "dayjs": "^1.11.0" }, "peerDependencies": { "lean-qr": "", "solid-js": "" }, "optionalPeers": ["lean-qr", "solid-js"] }, "sha512-LjuRRFjgPB/8rpYKfGWZ5uIGUZD7Q7O7I14r/9tL+otbRqsrepxZTb83+bJk7LuHOiM/bT3DrSU90zsWQdmyeg=="],
 
-    "@k2b/sync": ["@k2b/sync@5.7.0", "", {}, "sha512-AxnG5ht5wpfJ6gjEw7KRES9xkstHOqZysNr/RG8869gs0khxLydSVh2VRZL4D/2w27StYGXsFVTtPWtalxDy/A=="],
+    "@k2b/sync": ["@k2b/sync@5.8.0", "", {}, "sha512-Ku7Z1RxVMof7oy8qQY9cPQkboG+hImAIqt7661db/fIAHQQ7t/BRCRsdc1o7foMphj6whAUJHMQzQE/5c6a0+Q=="],
 
     "@k2b/ui": ["@k2b/ui@workspace:packages/ui"],
 
