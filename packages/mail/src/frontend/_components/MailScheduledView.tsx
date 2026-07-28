@@ -35,7 +35,7 @@ const chooseDisposition = () =>
         </div>
       </div>
     ),
-    { title: "Cancel scheduled delivery?", icon: "ti ti-calendar-cancel", size: "large" },
+    { title: "Cancel scheduled delivery?", icon: "ti ti-calendar-cancel", size: "medium" },
   );
 
 export default function MailScheduledView(props: {

@@ -59,5 +59,5 @@ export const chooseScheduledSendTime = (dateConfig: DateContext): Promise<string
         </div>
       );
     },
-    { title: "Schedule delivery", icon: "ti ti-calendar-time", size: "large" },
+    { title: "Schedule delivery", icon: "ti ti-calendar-time", size: "medium" },
   );

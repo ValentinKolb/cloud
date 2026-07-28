@@ -44,7 +44,7 @@ export const chooseBulkTags = (tags: LocalTag[]): Promise<string[] | null | unde
         </div>
       );
     },
-    { title: "Add tags", icon: "ti ti-tags", size: "large" },
+    { title: "Add tags", icon: "ti ti-tags", size: "medium" },
   );
 
 export const chooseConversationTags = (tags: LocalTag[], selectedTags: LocalTag[]): Promise<string[] | null | undefined> =>
@@ -79,5 +79,5 @@ export const chooseConversationTags = (tags: LocalTag[], selectedTags: LocalTag[
         </div>
       );
     },
-    { title: "Conversation tags", icon: "ti ti-tags", size: "large" },
+    { title: "Conversation tags", icon: "ti ti-tags", size: "medium" },
   );

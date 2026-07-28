@@ -348,7 +348,7 @@ export default function MailComposer(props: {
           </div>
         </div>
       ),
-      { title: "Review before sending", icon: "ti ti-shield-check", size: "small" },
+      { title: "Review before sending", icon: "ti ti-shield-check", size: "medium" },
     );
     if (abortSignal.aborted) throw new DOMException("Aborted", "AbortError");
     if (choice === "attachment") throw new ComposeSafetyAttachmentRequested();
@@ -508,7 +508,7 @@ export default function MailComposer(props: {
           </div>
         );
       },
-      { title: "Delivery options", icon: "ti ti-adjustments", size: "large" },
+      { title: "Delivery options", icon: "ti ti-adjustments", size: "medium" },
     );
 
   const editDeliveryOptions = async () => {

@@ -1,7 +1,7 @@
 import { CheckboxCard, prompts } from "@valentinkolb/cloud/ui";
 import { createSignal, For } from "solid-js";
 import {
-  MAIL_CONVERSATION_TOOLBAR_ACTION_OPTIONS,
+  MAIL_CONVERSATION_TOOLBAR_SECTIONS,
   MAX_MAIL_CONVERSATION_TOOLBAR_ACTIONS,
   type MailConversationToolbarActionId,
   normalizeMailConversationToolbarActions,
@@ -31,21 +31,30 @@ export const openMailConversationToolbarDialog = (
               Actions appear in the order shown here. Unavailable actions stay hidden for the current conversation.
             </p>
           </div>
-          <div class="grid min-h-0 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
-            <For each={MAIL_CONVERSATION_TOOLBAR_ACTION_OPTIONS}>
-              {(option) => {
-                const checked = () => selected().includes(option.id);
-                return (
-                  <CheckboxCard
-                    label={option.label}
-                    description={option.description}
-                    icon={option.icon}
-                    value={checked}
-                    disabled={!checked() && selected().length >= MAX_MAIL_CONVERSATION_TOOLBAR_ACTIONS}
-                    onChange={(enabled) => toggle(option.id, enabled)}
-                  />
-                );
-              }}
+          <div class="flex min-h-0 flex-col gap-4 overflow-y-auto">
+            <For each={MAIL_CONVERSATION_TOOLBAR_SECTIONS}>
+              {(section) => (
+                <section class="flex flex-col gap-2">
+                  <p class="section-label">{section.label}</p>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <For each={section.options}>
+                      {(option) => {
+                        const checked = () => selected().includes(option.id);
+                        return (
+                          <CheckboxCard
+                            label={option.label}
+                            description={option.description}
+                            icon={option.icon}
+                            value={checked}
+                            disabled={!checked() && selected().length >= MAX_MAIL_CONVERSATION_TOOLBAR_ACTIONS}
+                            onChange={(enabled) => toggle(option.id, enabled)}
+                          />
+                        );
+                      }}
+                    </For>
+                  </div>
+                </section>
+              )}
             </For>
           </div>
           <div class="flex items-center justify-between gap-2">

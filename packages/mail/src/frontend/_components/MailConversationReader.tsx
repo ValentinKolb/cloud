@@ -20,7 +20,7 @@ import { getMailAction, type MailActionId } from "./mail-actions";
 import { deriveReplyIdentityId, forwardMessageBody, forwardSubject, replySubject } from "./mail-compose-derivation";
 import { mailDraftHref } from "./mail-compose-route";
 import { initialConversationMessageId, isNearConversationStart, newestFirstMessages } from "./mail-conversation-history";
-import type { MailConversationToolbarActionId } from "./mail-conversation-toolbar";
+import { MAIL_CONVERSATION_TOOLBAR_SECTIONS, type MailConversationToolbarActionId } from "./mail-conversation-toolbar";
 import { messageDeliveryAllowsResponses } from "./mail-message-presentation";
 import { buildMailListHref } from "./mail-navigation";
 
@@ -332,7 +332,7 @@ export default function MailConversationReader(props: {
           </div>
         );
       },
-      { title: "Choose sender", icon: "ti ti-user", size: "small" },
+      { title: "Choose sender", icon: "ti ti-user", size: "medium" },
     );
     return selected ?? null;
   };
@@ -575,6 +575,8 @@ export default function MailConversationReader(props: {
     return !message.delivery || messageDeliveryAllowsResponses(message.delivery.state);
   };
 
+  const canSplitConversation = () => props.canWrite && (props.totalMessageCount > 1 || props.messages.length > 1);
+
   const respondToLatest = (intent: Extract<DraftIntent, "reply" | "reply_all" | "forward">) => {
     const message = latestMessage();
     if (!message || !canRespondToLatest()) return;
@@ -595,6 +597,17 @@ export default function MailConversationReader(props: {
         icon,
         disabled: composerBusy(),
         action: () => respondToLatest(id),
+      };
+    }
+    if (id === "split") {
+      const message = latestMessage();
+      if (!message || !canSplitConversation()) return null;
+      return {
+        id,
+        label: "Split conversation from latest message",
+        icon: "ti ti-arrows-split-2",
+        disabled: props.actionPending,
+        action: () => void props.onSplitMessage(message.id),
       };
     }
     if (!props.canWrite) return null;
@@ -640,11 +653,15 @@ export default function MailConversationReader(props: {
     };
   };
 
-  const directToolbarActions = createMemo(() =>
-    props.toolbarActions.flatMap((actionId) => {
-      const action = directToolbarAction(actionId);
-      return action ? [action] : [];
-    }),
+  const directToolbarSections = createMemo(() =>
+    MAIL_CONVERSATION_TOOLBAR_SECTIONS.map((section) => ({
+      id: section.id,
+      actions: section.options.flatMap((option) => {
+        if (!props.toolbarActions.includes(option.id)) return [];
+        const action = directToolbarAction(option.id);
+        return action ? [action] : [];
+      }),
+    })).filter((section) => section.actions.length > 0),
   );
 
   const customizeToolbar = async () => {
@@ -678,7 +695,7 @@ export default function MailConversationReader(props: {
     }
     if (props.canWrite) {
       actions.push({
-        sectionLabel: "Conversation",
+        sectionLabel: "Organize",
         items: [
           {
             label: getMailAction("archive").label,
@@ -697,6 +714,16 @@ export default function MailConversationReader(props: {
             variant: "danger",
           },
           {
+            label: getMailAction("move").label,
+            icon: getMailAction("move").icon,
+            action: () => props.onAction("move"),
+          },
+        ],
+      });
+      actions.push({
+        sectionLabel: "Mark",
+        items: [
+          {
             label: getMailAction(props.unread ? "mark_read" : "mark_unread").label,
             icon: getMailAction(props.unread ? "mark_read" : "mark_unread").icon,
             action: () => props.onAction(props.unread ? "mark_read" : "mark_unread"),
@@ -707,32 +734,49 @@ export default function MailConversationReader(props: {
             action: () => props.onAction(props.flagged ? "unflag" : "flag"),
           },
           {
-            label: getMailAction("move").label,
-            icon: getMailAction("move").icon,
-            action: () => props.onAction("move"),
-          },
-          {
             label: "Tags",
             icon: "ti ti-tags",
             action: props.onManageTags,
           },
+        ],
+      });
+      actions.push({
+        sectionLabel: "Conversation",
+        items: [
           {
             label: "Merge with another conversation",
             icon: "ti ti-git-merge",
             action: props.onMergeConversation,
           },
+          ...(canSplitConversation() && latestMessage()
+            ? [
+                {
+                  label: "Split conversation from latest message",
+                  icon: "ti ti-arrows-split-2",
+                  action: () => {
+                    const message = latestMessage();
+                    if (message) void props.onSplitMessage(message.id);
+                  },
+                },
+              ]
+            : []),
         ],
       });
     }
     actions.push({
-      label: "Print conversation",
-      icon: "ti ti-printer",
-      action: printConversation,
-    });
-    actions.push({
-      label: "Customize toolbar",
-      icon: "ti ti-adjustments-horizontal",
-      action: () => void customizeToolbar(),
+      sectionLabel: "Other",
+      items: [
+        {
+          label: "Print conversation",
+          icon: "ti ti-printer",
+          action: printConversation,
+        },
+        {
+          label: "Customize toolbar",
+          icon: "ti ti-adjustments-horizontal",
+          action: () => void customizeToolbar(),
+        },
+      ],
     });
     return actions;
   };
@@ -839,21 +883,27 @@ export default function MailConversationReader(props: {
               </p>
             </div>
             <div class="flex shrink-0 items-center gap-1">
-              <div class="hidden max-w-[min(40vw,28rem)] items-center gap-1 overflow-x-auto sm:flex">
-                <For each={directToolbarActions()}>
-                  {(action) => (
-                    <Tooltip content={action.label}>
-                      <button
-                        type="button"
-                        class="icon-btn shrink-0"
-                        aria-label={action.label}
-                        data-mail-toolbar-action={action.id}
-                        disabled={action.disabled}
-                        onClick={action.action}
-                      >
-                        <i class={action.icon} aria-hidden="true" />
-                      </button>
-                    </Tooltip>
+              <div class="hidden max-w-[min(40vw,28rem)] items-center gap-2 overflow-x-auto sm:flex">
+                <For each={directToolbarSections()}>
+                  {(section) => (
+                    <div class="flex shrink-0 items-center gap-1" data-mail-toolbar-section={section.id}>
+                      <For each={section.actions}>
+                        {(action) => (
+                          <Tooltip content={action.label}>
+                            <button
+                              type="button"
+                              class="icon-btn shrink-0"
+                              aria-label={action.label}
+                              data-mail-toolbar-action={action.id}
+                              disabled={action.disabled}
+                              onClick={action.action}
+                            >
+                              <i class={action.icon} aria-hidden="true" />
+                            </button>
+                          </Tooltip>
+                        )}
+                      </For>
+                    </div>
                   )}
                 </For>
               </div>

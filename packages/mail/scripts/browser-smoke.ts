@@ -379,14 +379,25 @@ const runSmoke = async (fixture: Fixture) => {
 
     await page.getByRole("button", { name: "More conversation actions", exact: true }).click();
     const conversationMenu = page.locator('[role="menu"]:popover-open');
+    if ((await conversationMenu.getByText("Split conversation from latest message", { exact: true }).count()) !== 0) {
+      fail("a one-message conversation exposed a split action");
+    }
     await conversationMenu.getByText("Customize toolbar", { exact: true }).click();
     const toolbarDialog = page.getByRole("dialog").filter({ hasText: "Customize toolbar" });
+    for (const section of ["Respond", "Organize", "Mark", "Conversation", "Other"]) {
+      await toolbarDialog.getByText(section, { exact: true }).waitFor();
+    }
     await toolbarDialog
       .locator("label")
       .filter({ hasText: /^Delete/u })
       .locator('input[type="checkbox"]')
       .uncheck();
     await toolbarDialog.locator("label").filter({ hasText: /^Tags/u }).locator('input[type="checkbox"]').check();
+    await toolbarDialog
+      .locator("label")
+      .filter({ hasText: /^Split conversation/u })
+      .locator('input[type="checkbox"]')
+      .check();
     await toolbarDialog.getByRole("button", { name: "Save toolbar", exact: true }).click();
     await page.waitForTimeout(250);
     const tagsToolbarAction = page.locator('[data-mail-toolbar-action="tags"]');
@@ -395,6 +406,12 @@ const runSmoke = async (fixture: Fixture) => {
       fail(`saved Tags action did not reach the toolbar; workspace cookie: ${workspaceCookie?.value ?? "(missing)"}`);
     }
     await tagsToolbarAction.waitFor();
+    await page.locator('[data-mail-toolbar-section="respond"]').waitFor();
+    await page.locator('[data-mail-toolbar-section="organize"]').waitFor();
+    await page.locator('[data-mail-toolbar-section="mark"]').waitFor();
+    if ((await page.locator('[data-mail-toolbar-action="split"]').count()) !== 0) {
+      fail("the configured split action ignored one-message availability");
+    }
     if ((await page.locator('[data-mail-toolbar-action="trash"]').count()) !== 0) {
       fail("removed toolbar action remained visible");
     }
@@ -410,7 +427,31 @@ const runSmoke = async (fixture: Fixture) => {
     const compactMenu = page.locator('[role="menu"]:popover-open');
     await compactMenu.getByText("Tags", { exact: true }).waitFor();
     await compactMenu.getByText("Customize toolbar", { exact: true }).waitFor();
-    await page.keyboard.press("Escape");
+    await compactMenu.getByText("Customize toolbar", { exact: true }).click();
+    const compactToolbarDialog = page.getByRole("dialog").filter({ hasText: "Customize toolbar" });
+    const compactDialogBounds = await compactToolbarDialog.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        left: bounds.left,
+        right: bounds.right,
+        top: bounds.top,
+        bottom: bounds.bottom,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    if (
+      compactDialogBounds.left < 0 ||
+      compactDialogBounds.right > compactDialogBounds.viewportWidth ||
+      compactDialogBounds.top < 0 ||
+      compactDialogBounds.bottom > compactDialogBounds.viewportHeight
+    ) {
+      fail(`compact toolbar dialog escaped the viewport: ${JSON.stringify(compactDialogBounds)}`);
+    }
+    await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await compactToolbarDialog.getByText("Split conversation", { exact: true }).waitFor();
+    await compactToolbarDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.evaluate(() => document.documentElement.classList.remove("dark"));
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.reload({ waitUntil: "domcontentloaded" });
     await tagsToolbarAction.waitFor();
@@ -512,6 +553,9 @@ const runSmoke = async (fixture: Fixture) => {
     if ((await page.locator('[data-mail-direction="outgoing"]').count()) !== 1) {
       fail("the queued reply did not appear as an outgoing message");
     }
+    await page.locator('[data-mail-toolbar-action="split"]').waitFor();
+    await page.locator('[data-mail-toolbar-section="conversation"]').waitFor();
+    ok("split action becomes available when the conversation has multiple messages");
     const outgoingMessage = page.locator('[data-mail-direction="outgoing"]');
     const undoSend = outgoingMessage.locator("[data-mail-undo-send]");
     await undoSend.waitFor();
