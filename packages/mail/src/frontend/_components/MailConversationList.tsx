@@ -1,6 +1,7 @@
 import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { FilterChip, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import {
@@ -101,12 +102,8 @@ export default function MailConversationList(props: {
   });
   const healthPresentation = createMemo(() => mailboxHealthPresentation(props.mailbox));
   const searchActive = () => Boolean(props.query.trim() || requestUrl().searchParams.has(MAIL_SEARCH_PARAMETER) || props.activeSavedViewId);
-  createEffect(() => {
-    setSearchValue(props.query);
-    setSearchFields(selectedQuickSearchFields(requestUrl()));
-  });
 
-  const applyQuickSearch = (query: string, fields: MailQuickSearchField[]) => {
+  const applyQuickSearch = (query: string, fields: MailQuickSearchField[], replace: boolean) => {
     const currentUrl = requestUrl();
     const next = new URL(buildMailListHref(currentUrl, true), currentUrl.origin);
     const normalizedQuery = query.trim();
@@ -118,12 +115,36 @@ export default function MailConversationList(props: {
       next.searchParams.delete("folder");
       next.searchParams.delete("scheduled");
     }
-    void props.onOpenHref(`${next.pathname}${next.search}`);
+    const href = `${next.pathname}${next.search}`;
+    if (href === `${currentUrl.pathname}${currentUrl.search}`) return;
+    void props.onOpenHref(href, replace);
+  };
+
+  const quickSearch = timed.debounce(
+    (query: string, fields: MailQuickSearchField[], replace: boolean) => applyQuickSearch(query, fields, replace),
+    300,
+  );
+
+  createEffect(() => {
+    quickSearch.cancel();
+    setSearchValue(props.query);
+    setSearchFields(selectedQuickSearchFields(requestUrl()));
+  });
+
+  const replaceLiveSearchRoute = () => requestUrl().searchParams.has("q");
+
+  const updateSearchValue = (next: string) => {
+    setSearchValue(next);
+    if (!next.trim()) {
+      quickSearch.trigger("", searchFields(), replaceLiveSearchRoute());
+      return;
+    }
+    quickSearch.debouncedFn(next, searchFields(), replaceLiveSearchRoute());
   };
 
   const submitSearch = (event: SubmitEvent) => {
     event.preventDefault();
-    applyQuickSearch(searchValue(), searchFields());
+    quickSearch.trigger(searchValue(), searchFields(), replaceLiveSearchRoute());
   };
 
   const updateSearchFields = (next: string[]) => {
@@ -131,7 +152,8 @@ export default function MailConversationList(props: {
     const selected = next.filter((field): field is MailQuickSearchField => allowed.has(field));
     const normalized = selected.length > 0 ? selected : [...DEFAULT_MAIL_QUICK_SEARCH_FIELDS];
     setSearchFields(normalized);
-    if (searchValue().trim()) applyQuickSearch(searchValue(), normalized);
+    if (searchValue().trim()) quickSearch.trigger(searchValue(), normalized, replaceLiveSearchRoute());
+    else quickSearch.cancel();
   };
   const searchFieldsLabel = () =>
     QUICK_SEARCH_FIELD_OPTIONS.filter((option) => searchFields().includes(option.value))
@@ -284,11 +306,11 @@ export default function MailConversationList(props: {
               icon="ti ti-search"
               activeIcon="ti ti-search"
               value={searchValue}
-              onInput={setSearchValue}
+              onInput={updateSearchValue}
               clearable
               onClear={() => {
                 setSearchValue("");
-                applyQuickSearch("", searchFields());
+                quickSearch.trigger("", searchFields(), replaceLiveSearchRoute());
               }}
               maxLength={500}
             />
