@@ -8,7 +8,7 @@
  */
 import { Readable } from "node:stream";
 import { sql } from "bun";
-import { type BrowserContext, chromium, type Page } from "playwright";
+import { type BrowserContext, chromium, type Locator, type Page } from "playwright";
 import type { ConnectorEnvelope } from "../src/service/connectors";
 import { hydrateMessageFromSource } from "../src/service/message-hydration";
 import { ingestEnvelope } from "../src/service/sync-runtime";
@@ -296,6 +296,26 @@ const continueDraft = async (page: Page) => {
   await dialog.getByText("Continue", { exact: true }).first().click();
 };
 
+const assertMailboxToolsMenu = async (menu: Locator) => {
+  const sectionLabels = (await menu.locator(".menu-label").allTextContents()).map((label) => label.trim());
+  const expectedSections = ["Mailbox", "Automation", "Manage", "This browser"];
+  if (JSON.stringify(sectionLabels) !== JSON.stringify(expectedSections)) {
+    fail(`mailbox tools sections are not stable: ${JSON.stringify(sectionLabels)}`);
+  }
+  for (const item of [
+    "Sync mailbox",
+    "Mailbox health",
+    "Automations",
+    "Sender rules",
+    "Subscriptions",
+    "Remote images",
+    "Shared links",
+    "Open email links with Cloud Mail",
+  ]) {
+    await menu.getByText(item, { exact: true }).waitFor();
+  }
+};
+
 const runSmoke = async (fixture: Fixture) => {
   const browser = await chromium.launch({ headless: HEADLESS });
   const context = await browser.newContext({
@@ -327,6 +347,44 @@ const runSmoke = async (fixture: Fixture) => {
     ok("mailbox search uses server-owned literal matching");
 
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
+    const desktopSidebar = page.locator(".workspace-sidebar");
+    const desktopDirectActions = (await desktopSidebar.locator(".sidebar-footer > button, .sidebar-footer > a").allTextContents()).map(
+      (label) => label.trim(),
+    );
+    if (desktopDirectActions.some((label) => label.includes("Sync mailbox") || label.includes("Automations"))) {
+      fail(`desktop sidebar still exposes standalone mailbox tools: ${JSON.stringify(desktopDirectActions)}`);
+    }
+    if (!desktopDirectActions.includes("Settings")) fail("desktop sidebar lost its direct Settings action");
+    await desktopSidebar.getByRole("button", { name: "Mailbox tools", exact: true }).click();
+    const desktopToolsMenu = page.locator('[role="menu"]:popover-open');
+    await assertMailboxToolsMenu(desktopToolsMenu);
+    await desktopToolsMenu.getByText("Automations", { exact: true }).click();
+    await expectUrl(
+      page,
+      (url) => url.pathname === `/app/mail/${fixture.mailboxId}/automations`,
+      "mailbox tools open the automation workspace",
+    );
+    await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
+
+    await page.setViewportSize({ width: 390, height: 812 });
+    const mobileSidebar = page.locator(".workspace-sidebar-mobile");
+    await mobileSidebar.locator("summary.sidebar-mobile-toggle").click();
+    const mobileDirectActions = (
+      await mobileSidebar.locator(".sidebar-mobile-actions > button, .sidebar-mobile-actions > a").allTextContents()
+    ).map((label) => label.trim());
+    if (mobileDirectActions.some((label) => label.includes("Automations"))) {
+      fail(`mobile sidebar still exposes standalone Automations: ${JSON.stringify(mobileDirectActions)}`);
+    }
+    if (!mobileDirectActions.includes("Settings")) fail("mobile sidebar lost its direct Settings action");
+    await mobileSidebar.getByRole("button", { name: "Mailbox tools", exact: true }).click();
+    await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await assertMailboxToolsMenu(page.locator('[role="menu"]:popover-open'));
+    await page.evaluate(() => document.documentElement.classList.remove("dark"));
+    await page.keyboard.press("Escape");
+    await mobileSidebar.locator("summary.sidebar-mobile-toggle").click();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    ok("mailbox tools consolidate sync and automation navigation on desktop and mobile");
+
     const healthNotice = page.locator('[data-mailbox-health="degraded"]');
     await healthNotice.getByText("Mail is taking longer to connect.", { exact: false }).waitFor();
     if (await healthNotice.getByText("Check its provider settings.", { exact: false }).isVisible()) {

@@ -1,4 +1,4 @@
-import { type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
+import { documentNavigate, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
 import { AppWorkspace, Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
@@ -186,33 +186,51 @@ export default function MailSidebar(props: {
     </AppWorkspace.SidebarItem>
   );
 
-  const automationsItem = (suffix: string) => (
-    <AppWorkspace.SidebarItem
-      href={`/app/mail/${props.mailboxId}/automations`}
-      icon="ti ti-route"
-      navigation="document"
-      viewTransitionName={`mail-automations-${suffix}`}
-    >
-      Automations
-    </AppWorkspace.SidebarItem>
-  );
-
   const mailboxTools = (className: string) => (
     <Dropdown
       trigger={
-        <button type="button" class={className} disabled={props.managementOpening !== null}>
-          <i class={`ti ${props.managementOpening ? "ti-loader-2 animate-spin" : "ti-tool"}`} aria-hidden="true" />
+        <button type="button" class={className} disabled={props.managementOpening !== null || sync.loading()}>
+          <i class={`ti ${props.managementOpening || sync.loading() ? "ti-loader-2 animate-spin" : "ti-tool"}`} aria-hidden="true" />
           <span>Mailbox tools</span>
         </button>
       }
       elements={[
-        ...(props.canAdmin ? [{ label: "Mailbox health", icon: "ti ti-heartbeat", action: props.onOpenHealth }] : []),
-        { label: "Remote images", icon: "ti ti-photo-shield", action: props.onOpenRemoteContent },
-        ...(props.canAdmin ? [{ label: "Subscriptions", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` }] : []),
         ...(props.canAdmin
-          ? [{ label: "Sender rules", icon: "ti ti-filter-cog", href: `/app/mail/${props.mailboxId}/automations?section=sender-rules` }]
+          ? [
+              {
+                sectionLabel: "Mailbox",
+                items: [
+                  {
+                    label: props.syncEnabled ? "Sync mailbox" : "Mailbox paused",
+                    icon: props.syncEnabled ? "ti ti-refresh" : "ti ti-player-play",
+                    action: props.syncEnabled ? () => sync.mutate() : props.onOpenHealth,
+                  },
+                  { label: "Mailbox health", icon: "ti ti-heartbeat", action: props.onOpenHealth },
+                ],
+              },
+            ]
           : []),
-        ...(props.canAdmin ? [{ label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks }] : []),
+        {
+          sectionLabel: "Automation",
+          items: [
+            {
+              label: "Automations",
+              icon: "ti ti-route",
+              action: () => documentNavigate(`/app/mail/${props.mailboxId}/automations`),
+            },
+            ...(props.canAdmin
+              ? [{ label: "Sender rules", icon: "ti ti-filter-cog", href: `/app/mail/${props.mailboxId}/automations?section=sender-rules` }]
+              : []),
+          ],
+        },
+        {
+          sectionLabel: "Manage",
+          items: [
+            ...(props.canAdmin ? [{ label: "Subscriptions", icon: "ti ti-news", href: `/app/mail/${props.mailboxId}/subscriptions` }] : []),
+            { label: "Remote images", icon: "ti ti-photo-shield", action: props.onOpenRemoteContent },
+            ...(props.canAdmin ? [{ label: "Shared links", icon: "ti ti-link", action: props.onOpenSharedLinks }] : []),
+          ],
+        },
         {
           sectionLabel: "This browser",
           items: [{ label: "Open email links with Cloud Mail", icon: "ti ti-link", action: () => void registerEmailLinks() }],
@@ -376,7 +394,6 @@ export default function MailSidebar(props: {
               <i class="ti ti-pencil" aria-hidden="true" /> Compose
             </a>
           )}
-          {automationsItem("mobile-action")}
           {mailboxTools("sidebar-item-mobile")}
           <button type="button" class="sidebar-item-mobile" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
             <i class="ti ti-settings" aria-hidden="true" /> Settings
@@ -413,19 +430,6 @@ export default function MailSidebar(props: {
           {moreItems("desktop")}
         </AppWorkspace.SidebarBody>
         <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
-          {props.canAdmin && (
-            <button
-              type="button"
-              class="sidebar-item w-full"
-              onClick={props.syncEnabled ? () => sync.mutate() : props.onOpenHealth}
-              disabled={sync.loading() || props.managementOpening !== null}
-              title={props.syncEnabled ? "Synchronize mailbox now" : "Open mailbox health to resume synchronization"}
-            >
-              <i class={`ti ${sync.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
-              <span>{props.syncEnabled ? "Sync mailbox" : "Mailbox paused"}</span>
-            </button>
-          )}
-          {automationsItem("desktop-footer")}
           {mailboxTools("sidebar-item w-full")}
           <button type="button" class="sidebar-item w-full" disabled={props.settingsOpening} onClick={props.onOpenSettings}>
             <i class={`ti ${props.settingsOpening ? "ti-loader-2 animate-spin" : "ti-settings"}`} aria-hidden="true" />
