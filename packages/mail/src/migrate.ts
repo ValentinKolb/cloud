@@ -4928,6 +4928,30 @@ const addCanonicalOutboundMessages = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addComposableSenderRuleActions = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.sender_rules DROP CONSTRAINT IF EXISTS sender_rules_action_check`;
+  await db`ALTER TABLE mail.sender_rules RENAME COLUMN action TO actions`;
+  await db`
+    UPDATE mail.sender_rules
+    SET actions = jsonb_build_array(actions)
+    WHERE jsonb_typeof(actions) = 'object'
+  `;
+  await db`
+    ALTER TABLE mail.sender_rules
+    ADD CONSTRAINT sender_rules_actions_check CHECK (
+      jsonb_typeof(actions) = 'array'
+      AND jsonb_array_length(actions) BETWEEN 1 AND 8
+    )
+  `;
+};
+
+const addSenderRuleBackfillPointer = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.sender_rules
+    ADD COLUMN latest_backfill_operation_id UUID
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -5026,6 +5050,8 @@ const migrations: readonly MailMigration[] = [
   { version: 96, name: "sender_read_batches", run: addSenderReadBatches },
   { version: 97, name: "provider_oauth_sent_mode", run: addProviderOAuthSentMode },
   { version: 98, name: "canonical_outbound_messages", run: addCanonicalOutboundMessages },
+  { version: 99, name: "composable_sender_rule_actions", run: addComposableSenderRuleActions },
+  { version: 100, name: "sender_rule_backfill_pointer", run: addSenderRuleBackfillPointer },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

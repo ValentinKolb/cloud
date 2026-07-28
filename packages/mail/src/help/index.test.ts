@@ -109,13 +109,16 @@ describe("mailHelp", () => {
     expect(work).toContain("Provider keywords");
   });
 
-  test("documents guided sender rules and bounded existing-message actions", () => {
+  test("documents guided sender rules and resumable existing-message backfills", () => {
     const automation = mailHelp.getMarkdown("mail-automation");
     const work = mailHelp.getMarkdown("mail-work");
 
     expect(automation).toContain("Automations > Sender rules");
+    expect(automation).toContain("up to eight ordered actions");
+    expect(automation).toContain("mail sender-rule catalog");
     expect(automation).toContain("shows it in the editor");
-    expect(automation).toContain("up to 100 matching messages");
+    expect(automation).toContain("resumable background backfill");
+    expect(automation).toContain("skips messages already accepted");
     expect(automation).toContain("same workflow runtime");
     expect(work).toContain("Find all from this sender");
     expect(work).toContain("Mark all as read");

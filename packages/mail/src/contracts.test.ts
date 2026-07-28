@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   activateWorkflowInputSchema,
   addConversationLocalTagsSchema,
-  applySenderRuleToExistingInputSchema,
   cancelScheduledSendInputSchema,
   conversationTriageInputSchema,
   createAutomaticReplyConfigurationSchema,
@@ -28,6 +27,7 @@ import {
   restoreWorkflowVersionInputSchema,
   scheduledSendPageSchema,
   splitConversationInputSchema,
+  startSenderRuleBackfillInputSchema,
   updateAutomaticReplyConfigurationSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
@@ -221,21 +221,26 @@ describe("automatic reply configuration contracts", () => {
 });
 
 describe("sender rule contracts", () => {
-  test("accepts sender and domain matches with one supported action", () => {
+  test("accepts sender and domain matches with composable supported actions", () => {
     expect(
       createSenderRuleSchema.safeParse({
         name: "Block noisy sender",
         matchKind: "sender",
         matchValue: "News@Example.COM",
-        action: { kind: "junk" },
+        actions: [{ kind: "junk" }],
       }).success,
     ).toBe(true);
     expect(
       createSenderRuleSchema.safeParse({
-        name: "Mark domain as read",
+        name: "Route and assign domain",
         matchKind: "domain",
         matchValue: "sub.example.com",
-        action: { kind: "mark_read" },
+        actions: [
+          { kind: "move_to_folder", folderId: "00000000-0000-4000-8000-000000000001" },
+          { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000002" },
+          { kind: "assign_user", userId: "00000000-0000-4000-8000-000000000003" },
+          { kind: "set_status", status: "needs_action" },
+        ],
       }).success,
     ).toBe(true);
   });
@@ -246,7 +251,7 @@ describe("sender rule contracts", () => {
         name: "Bad sender",
         matchKind: "sender",
         matchValue: "example.com",
-        action: { kind: "junk" },
+        actions: [{ kind: "junk" }],
       }).success,
     ).toBe(false);
     expect(
@@ -254,7 +259,7 @@ describe("sender rule contracts", () => {
         name: "Bad domain",
         matchKind: "domain",
         matchValue: "person@example.com",
-        action: { kind: "junk" },
+        actions: [{ kind: "junk" }],
       }).success,
     ).toBe(false);
     expect(
@@ -262,7 +267,30 @@ describe("sender rule contracts", () => {
         name: "Unsafe action",
         matchKind: "sender",
         matchValue: "person@example.com",
-        action: { kind: "execute", command: "rm -rf /" },
+        actions: [{ kind: "execute", command: "rm -rf /" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  test("rejects multiple provider mutations and duplicate collaboration actions", () => {
+    const base = {
+      name: "Invalid action plan",
+      matchKind: "sender" as const,
+      matchValue: "person@example.com",
+    };
+    expect(
+      createSenderRuleSchema.safeParse({
+        ...base,
+        actions: [{ kind: "junk" }, { kind: "mark_read" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      createSenderRuleSchema.safeParse({
+        ...base,
+        actions: [
+          { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000001" },
+          { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000001" },
+        ],
       }).success,
     ).toBe(false);
   });
@@ -276,8 +304,18 @@ describe("sender rule contracts", () => {
         idempotencyKey: "mail-cli-action",
       }).success,
     ).toBe(true);
-    expect(applySenderRuleToExistingInputSchema.safeParse({ expectedRevision: 2 }).success).toBe(true);
-    expect(applySenderRuleToExistingInputSchema.safeParse({ expectedRevision: 0 }).success).toBe(false);
+    expect(
+      startSenderRuleBackfillInputSchema.safeParse({
+        operationId: "6962b64e-6de0-4e73-838b-f067d805f46e",
+        expectedRevision: 2,
+      }).success,
+    ).toBe(true);
+    expect(
+      startSenderRuleBackfillInputSchema.safeParse({
+        operationId: "6962b64e-6de0-4e73-838b-f067d805f46e",
+        expectedRevision: 0,
+      }).success,
+    ).toBe(false);
   });
 });
 

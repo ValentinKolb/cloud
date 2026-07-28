@@ -7,7 +7,7 @@ Read this reference when configuring managed automatic replies, conversation ref
 | Need | Use |
 | --- | --- |
 | Out-of-office or receipt acknowledgement | `automatic-reply ...` |
-| Exact sender/domain routing, read state, or provider keyword | `sender-rule ...` |
+| Exact sender/domain routing plus Cloud tags, assignment, or status | `sender-rule ...` |
 | Permanent human-facing conversation ids | `reference ...` plus `ensureConversationReference` |
 | Conditional routing, tagging, assignment, drafts, sends, or notifications | `workflow ...` |
 
@@ -107,28 +107,36 @@ Mail also suppresses unsafe automatic responses such as bulk mail, mailing-list 
 Sender rules are managed workflows with a narrow, reviewable contract:
 
 ```bash
+cld --json mail sender-rule catalog
 cld --json mail sender-rule list
 cld --json mail sender-rule create \
-  --name "Block noisy sender" \
+  --name "Route customer mail" \
   --match sender \
-  --value news@example.com \
-  --action junk
+  --value customer@example.com \
+  --action move_to_folder:<folder-id> \
+  --action add_local_tag:<tag-id> \
+  --action assign_user:<user-id> \
+  --action set_status:needs_action
 cld --json mail sender-rule get <rule-id>
-cld --json mail sender-rule update <rule-id> --revision <revision> --action mark_read
+cld --json mail sender-rule update <rule-id> --revision <revision> --action junk
 cld mail sender-rule delete <rule-id> --revision <revision> --yes
 ```
 
-Supported actions are `junk`, `trash`, `mark_read`, and `add_keyword`; pass `--keyword <value>` with `add_keyword`. Destructive rules reject mailbox identities, configured internal domains and subdomains, and unsafe parent domains. `sender-rule get` exposes the exact generated workflow YAML.
+Repeat `--action` in execution order. A guided rule accepts at most one provider message action: `junk`, `trash`, `mark_read`, `add_keyword:<keyword>`, or `move_to_folder:<folder-id>`. It can additionally add distinct Cloud tags with `add_local_tag:<tag-id>`, assign one user with `assign_user:<user-id>`, and set one status with `set_status:<needs_action|waiting|done>`. `sender-rule catalog` returns the mailbox-scoped folder, tag, and user ids accepted by these actions. Passing any `--action` during update replaces the complete action plan; omit it to retain the current plan.
+
+Destructive rules reject mailbox identities, configured internal domains and subdomains, and unsafe parent domains. `sender-rule get` exposes the exact generated workflow YAML.
 
 Preview sender-scoped work before changing existing messages:
 
 ```bash
 cld --json mail sender preview --match sender --value news@example.com
 cld --json mail sender mark-read --match domain --value example.com --idempotency-key <stable-key> --yes
-cld --json mail sender-rule apply-existing <rule-id> --revision <revision> --yes
+cld --json mail sender-rule backfill start <rule-id> --revision <revision> --yes
+cld --json mail sender-rule backfill status <rule-id> <operation-id>
+cld --json mail sender-rule backfill cancel <rule-id> <operation-id> --yes
 ```
 
-Existing-message actions are bounded to 100 matches per invocation; workflow application also enforces a payload-size bound. `sender mark-read` uses the durable command outbox and accepts `--idempotency-key` so an agent retry returns the original batch. `sender-rule apply-existing` emits targeted events into the same workflow runtime used for new mail and returns their `eventIds`, so runs and effects remain observable. Update, delete, and apply-existing require the revision shown by `sender-rule get`; they refuse stale state instead of silently adopting the latest revision. Repeat an action only when its result reports `capped: true`.
+`sender mark-read` is a bounded interactive action for at most 100 matches. It uses the durable command outbox and accepts `--idempotency-key`, so an agent retry returns the original batch. A sender-rule backfill instead walks every matching message with a durable cursor and emits targeted events into the same workflow runtime used for new mail. `start` returns an `operationId`; use it with `status` or `cancel`. Starting another backfill is safe: messages already accepted for the rule's current immutable workflow version are skipped. Update, delete, and backfill start require the revision shown by `sender-rule get`; they refuse stale state instead of silently adopting the latest revision.
 
 ## Configure conversation references
 

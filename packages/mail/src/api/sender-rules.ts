@@ -2,12 +2,12 @@ import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import {
-  applySenderRuleToExistingInputSchema,
   createSenderRuleSchema,
   deleteSenderRuleSchema,
   markSenderMessagesReadInputSchema,
   previewSenderRuleMatchesInputSchema,
   setSenderRuleEnabledSchema,
+  startSenderRuleBackfillInputSchema,
   updateSenderRuleSchema,
 } from "../contracts";
 import { type MailRequestContext, senderRules } from "../service";
@@ -23,6 +23,9 @@ const requestContext = (c: Context<AuthContext>): MailRequestContext => ({
 export default new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/sender-rules", v("param", mailboxParamSchema), async (c) =>
     respond(c, senderRules.listSenderRules(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .get("/mailboxes/:mailboxId/sender-rules/catalog", v("param", mailboxParamSchema), async (c) =>
+    respond(c, senderRules.getSenderRuleCatalog(requestContext(c), c.req.valid("param").mailboxId)),
   )
   .get("/mailboxes/:mailboxId/sender-rules/:ruleId", v("param", senderRuleParamSchema), async (c) =>
     respond(c, senderRules.getSenderRule(requestContext(c), c.req.valid("param").mailboxId, c.req.valid("param").ruleId)),
@@ -66,16 +69,40 @@ export default new Hono<AuthContext>()
       ),
   )
   .post(
-    "/mailboxes/:mailboxId/sender-rules/:ruleId/apply-existing",
+    "/mailboxes/:mailboxId/sender-rules/:ruleId/backfills",
     v("param", senderRuleParamSchema),
-    v("json", applySenderRuleToExistingInputSchema),
+    v("json", startSenderRuleBackfillInputSchema),
     async (c) =>
       respond(
         c,
-        senderRules.applySenderRuleToExisting({
+        senderRules.startSenderRuleBackfill({
           context: requestContext(c),
           ...c.req.valid("param"),
           input: c.req.valid("json"),
+        }),
+      ),
+  )
+  .get(
+    "/mailboxes/:mailboxId/sender-rules/:ruleId/backfills/:operationId",
+    v("param", senderRuleParamSchema.extend({ operationId: z.string().uuid() })),
+    async (c) =>
+      respond(
+        c,
+        senderRules.getSenderRuleBackfill({
+          context: requestContext(c),
+          ...c.req.valid("param"),
+        }),
+      ),
+  )
+  .delete(
+    "/mailboxes/:mailboxId/sender-rules/:ruleId/backfills/:operationId",
+    v("param", senderRuleParamSchema.extend({ operationId: z.string().uuid() })),
+    async (c) =>
+      respond(
+        c,
+        senderRules.cancelSenderRuleBackfill({
+          context: requestContext(c),
+          ...c.req.valid("param"),
         }),
       ),
   )

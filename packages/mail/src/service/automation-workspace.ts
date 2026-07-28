@@ -1,5 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import type { Mailbox, MailWorkflow, SenderIdentity } from "../contracts";
+import { type MailWorkflowCatalogSnapshot, snapshotMailWorkflowCatalog } from "../workflows/catalog";
 import * as access from "./access";
 import type { MailRequestContext } from "./auth";
 import { requireAutomaticReplyManagementPermission } from "./automatic-reply-access";
@@ -11,6 +12,7 @@ import * as mailboxes from "./mailboxes";
 import * as senderIdentities from "./sender-identities";
 import type { SenderRule } from "./sender-rules";
 import * as senderRules from "./sender-rules";
+import { loadMailWorkflowCatalog } from "./workflow-catalog-service";
 import * as workflows from "./workflows";
 
 export type MailAutomationWorkspaceData = {
@@ -23,6 +25,7 @@ export type MailAutomationWorkspaceData = {
   advanced: {
     workflows: MailWorkflow[];
     senderRules: SenderRule[];
+    catalog: MailWorkflowCatalogSnapshot;
   } | null;
 };
 
@@ -57,9 +60,10 @@ export const loadMailAutomationWorkspace = async (
     });
   }
 
-  const [workflowResult, senderRuleResult] = await Promise.all([
+  const [workflowResult, senderRuleResult, catalog] = await Promise.all([
     workflows.listWorkflows(context, mailboxId),
     senderRules.listSenderRules(context, mailboxId),
+    loadMailWorkflowCatalog({ context, mailboxId }),
   ]);
   if (!workflowResult.ok) return fail(workflowResult.error);
   if (!senderRuleResult.ok) return fail(senderRuleResult.error);
@@ -74,6 +78,7 @@ export const loadMailAutomationWorkspace = async (
     advanced: {
       workflows: workflowResult.data,
       senderRules: senderRuleResult.data,
+      catalog: snapshotMailWorkflowCatalog(catalog),
     },
   });
 };

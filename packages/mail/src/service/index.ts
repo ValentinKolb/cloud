@@ -53,8 +53,10 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
     await scheduledMailRuntime.start();
     await imapPushRuntime.start();
+    senderRules.startSenderRuleBackfillRuntime();
   },
-  stop: () => stopRuntimeResources([() => imapPushRuntime.stop(), () => scheduledMailRuntime.stop()]),
+  stop: () =>
+    stopRuntimeResources([senderRules.stopSenderRuleBackfillRuntime, () => imapPushRuntime.stop(), () => scheduledMailRuntime.stop()]),
 });
 
 export const mailRuntime = {

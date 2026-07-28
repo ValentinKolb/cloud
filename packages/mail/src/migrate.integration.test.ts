@@ -18,6 +18,12 @@ suite("mail migrations", () => {
         active_name_index_present: boolean;
         touch_trigger_present: boolean;
         workflow_profile_fk_present: boolean;
+        composable_actions_applied_count: number;
+        actions_present: boolean;
+        legacy_action_removed: boolean;
+        actions_constraint_present: boolean;
+        backfill_pointer_applied_count: number;
+        backfill_pointer_present: boolean;
       }[]
     >`
       SELECT
@@ -49,7 +55,44 @@ suite("mail migrations", () => {
             AND contype = 'f'
             AND confrelid = 'mail.workflow_profile'::regclass
             AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (workflow_id)%'
-        ) AS workflow_profile_fk_present
+        ) AS workflow_profile_fk_present,
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 99 AND name = 'composable_sender_rule_actions'
+        ) AS composable_actions_applied_count,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'sender_rules'
+            AND column_name = 'actions'
+        ) AS actions_present,
+        NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'sender_rules'
+            AND column_name = 'action'
+        ) AS legacy_action_removed,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'mail.sender_rules'::regclass
+            AND conname = 'sender_rules_actions_check'
+        ) AS actions_constraint_present,
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 100 AND name = 'sender_rule_backfill_pointer'
+        ) AS backfill_pointer_applied_count,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'sender_rules'
+            AND column_name = 'latest_backfill_operation_id'
+        ) AS backfill_pointer_present
     `;
     expect(shape).toEqual({
       applied_count: 1,
@@ -58,6 +101,12 @@ suite("mail migrations", () => {
       active_name_index_present: true,
       touch_trigger_present: true,
       workflow_profile_fk_present: true,
+      composable_actions_applied_count: 1,
+      actions_present: true,
+      legacy_action_removed: true,
+      actions_constraint_present: true,
+      backfill_pointer_applied_count: 1,
+      backfill_pointer_present: true,
     });
   });
 

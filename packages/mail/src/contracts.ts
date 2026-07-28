@@ -1810,15 +1810,57 @@ export const senderRuleActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("trash") }).strict(),
   z.object({ kind: z.literal("mark_read") }).strict(),
   z.object({ kind: z.literal("add_keyword"), keyword: mailKeywordSchema }).strict(),
+  z.object({ kind: z.literal("move_to_folder"), folderId: z.string().uuid() }).strict(),
+  z.object({ kind: z.literal("add_local_tag"), tagId: z.string().uuid() }).strict(),
+  z.object({ kind: z.literal("assign_user"), userId: z.string().uuid() }).strict(),
+  z.object({ kind: z.literal("set_status"), status: conversationWorkStatusSchema }).strict(),
 ]);
 export type SenderRuleAction = z.infer<typeof senderRuleActionSchema>;
+
+const senderRuleProviderActionKinds = new Set<SenderRuleAction["kind"]>(["junk", "trash", "mark_read", "add_keyword", "move_to_folder"]);
+
+export const senderRuleActionsSchema = z
+  .array(senderRuleActionSchema)
+  .min(1, "Add at least one action")
+  .max(8, "A sender rule can have at most 8 actions")
+  .superRefine((actions, context) => {
+    const providerActions = actions.filter((action) => senderRuleProviderActionKinds.has(action.kind));
+    if (providerActions.length > 1) {
+      context.addIssue({
+        code: "custom",
+        message: "A sender rule can have at most one provider message action",
+      });
+    }
+    for (const uniqueKind of ["assign_user", "set_status"] as const) {
+      if (actions.filter((action) => action.kind === uniqueKind).length > 1) {
+        context.addIssue({
+          code: "custom",
+          message: uniqueKind === "assign_user" ? "A sender rule can assign only one user" : "A sender rule can set only one status",
+        });
+      }
+    }
+    const seen = new Set<string>();
+    actions.forEach((action, index) => {
+      const key = JSON.stringify(action);
+      if (!seen.has(key)) {
+        seen.add(key);
+        return;
+      }
+      context.addIssue({
+        code: "custom",
+        message: "Remove duplicate sender rule actions",
+        path: [index],
+      });
+    });
+  });
+export type SenderRuleActions = z.infer<typeof senderRuleActionsSchema>;
 
 const senderRuleFields = {
   name: z.string().trim().min(1).max(120),
   enabled: z.boolean(),
   matchKind: senderRuleMatchKindSchema,
   matchValue: z.string().trim().min(1).max(320),
-  action: senderRuleActionSchema,
+  actions: senderRuleActionsSchema,
 } as const;
 
 const validateSenderRuleMatch = (value: { matchKind: SenderRuleMatchKind; matchValue: string }, context: z.RefinementCtx): void => {
@@ -1881,23 +1923,31 @@ export const senderRuleMatchPreviewSchema = z
   .strict();
 export type SenderRuleMatchPreview = z.infer<typeof senderRuleMatchPreviewSchema>;
 
-export const applySenderRuleToExistingInputSchema = z
+export const startSenderRuleBackfillInputSchema = z
   .object({
+    operationId: z.string().uuid(),
     expectedRevision: z.number().int().positive(),
   })
   .strict();
-export type ApplySenderRuleToExistingInput = z.infer<typeof applySenderRuleToExistingInputSchema>;
+export type StartSenderRuleBackfillInput = z.infer<typeof startSenderRuleBackfillInputSchema>;
 
-export const applySenderRuleToExistingResultSchema = z
+export const senderRuleBackfillSchema = z
   .object({
+    operationId: z.string().uuid(),
     ruleId: z.string().uuid(),
-    eventCount: z.number().int().nonnegative(),
-    eventIds: z.array(z.string().uuid()).max(100),
-    applicationLimit: z.number().int().positive(),
-    capped: z.boolean(),
+    workflowVersionId: z.string().uuid(),
+    state: z.enum(["queued", "running", "waiting", "completed", "failed", "canceled"]),
+    matchedCount: z.number().int().nonnegative(),
+    alreadyAcceptedCount: z.number().int().nonnegative(),
+    newlyAcceptedCount: z.number().int().nonnegative(),
+    remainingCount: z.number().int().nonnegative(),
+    failureCount: z.number().int().nonnegative(),
+    lastError: z.string().nullable(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
   })
   .strict();
-export type ApplySenderRuleToExistingResult = z.infer<typeof applySenderRuleToExistingResultSchema>;
+export type SenderRuleBackfill = z.infer<typeof senderRuleBackfillSchema>;
 
 export const markSenderMessagesReadInputSchema = z
   .object({

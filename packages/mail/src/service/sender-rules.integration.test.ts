@@ -8,13 +8,16 @@ import type { MailRequestContext } from "./auth";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { createSenderIdentity } from "./sender-identities";
 import {
-  applySenderRuleToExisting,
+  cancelSenderRuleBackfill,
   createSenderRule,
   deleteSenderRule,
+  getSenderRuleBackfill,
   listSenderRules,
   markSenderMessagesRead,
   previewSenderRuleMatches,
   setSenderRuleEnabled,
+  startSenderRuleBackfill,
+  stopSenderRuleBackfillRuntime,
   updateSenderRule,
 } from "./sender-rules";
 import { listWorkflows } from "./workflow-definition-service";
@@ -54,6 +57,17 @@ suite("mail sender rules", () => {
   let ownerContext: MailRequestContext;
   let writerContext: MailRequestContext;
   let readerContext: MailRequestContext;
+
+  const waitForBackfill = async (ruleId: string, operationId: string) => {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const result = await getSenderRuleBackfill({ context: ownerContext, mailboxId, ruleId, operationId });
+      if (!result.ok) throw new Error(result.error.message);
+      if (!["queued", "running", "waiting"].includes(result.data.state)) return result.data;
+      await Bun.sleep(25);
+    }
+    throw new Error(`Backfill ${operationId} did not finish`);
+  };
 
   const seedMessage = async (params: {
     sender: string;
@@ -252,7 +266,13 @@ suite("mail sender rules", () => {
   });
 
   afterAll(async () => {
+    await stopSenderRuleBackfillRuntime();
     if (mailboxId) {
+      await sql`
+        DELETE FROM logging.trace_spans
+        WHERE source = 'mail:sender-rule-backfill'
+          AND attributes->>'mail.mailbox.id' = ${mailboxId}
+      `;
       const rows = await sql<{ access_id: string }[]>`
         SELECT access_id FROM mail.mailbox_access WHERE mailbox_id = ${mailboxId}::uuid
       `;
@@ -283,7 +303,7 @@ suite("mail sender rules", () => {
         enabled: true,
         matchKind: "sender",
         matchValue: "external@example.test",
-        action: { kind: "mark_read" },
+        actions: [{ kind: "mark_read" }],
       },
     });
     expect(denied.ok).toBe(false);
@@ -297,7 +317,7 @@ suite("mail sender rules", () => {
         enabled: true,
         matchKind: "sender",
         matchValue: " External@Example.TEST ",
-        action: { kind: "mark_read" },
+        actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
       },
     });
     if (!created.ok) throw new Error(created.error.message);
@@ -307,6 +327,7 @@ suite("mail sender rules", () => {
       enabled: true,
       matchKind: "sender",
       matchValue: "external@example.test",
+      actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
       revision: 1,
     });
 
@@ -323,7 +344,7 @@ suite("mail sender rules", () => {
         enabled: true,
         matchKind: "sender",
         matchValue: "other@example.test",
-        action: { kind: "mark_read" },
+        actions: [{ kind: "mark_read" }],
       },
     });
     expect(duplicate.ok).toBe(false);
@@ -339,7 +360,7 @@ suite("mail sender rules", () => {
         enabled: true,
         matchKind: "domain",
         matchValue: "MÜNICH.Example",
-        action: { kind: "mark_read" },
+        actions: [{ kind: "mark_read" }, { kind: "set_status", status: "waiting" }],
       },
     });
     expect(updated.ok).toBe(true);
@@ -437,7 +458,7 @@ suite("mail sender rules", () => {
         input: {
           ...input,
           enabled: true,
-          action: { kind: "junk" },
+          actions: [{ kind: "junk" }],
         },
       });
       expect(result.ok).toBe(false);
@@ -457,7 +478,7 @@ suite("mail sender rules", () => {
         enabled: true,
         matchKind: "domain",
         matchValue: "risky.example",
-        action: { kind: "junk" },
+        actions: [{ kind: "junk" }],
       },
     });
     if (!created.ok) throw new Error(created.error.message);
@@ -470,7 +491,7 @@ suite("mail sender rules", () => {
         enabled: true,
         matchKind: "sender",
         matchValue: "person@risky.example",
-        action: { kind: "trash" },
+        actions: [{ kind: "trash" }],
       },
     });
     expect(overlap.ok).toBe(false);
@@ -544,16 +565,16 @@ suite("mail sender rules", () => {
         enabled: false,
         matchKind: "sender",
         matchValue: "retroactive@external.example",
-        action: { kind: "mark_read" },
+        actions: [{ kind: "mark_read" }],
       },
     });
     if (!created.ok) throw new Error(created.error.message);
 
-    const result = await applySenderRuleToExisting({
+    const result = await startSenderRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
-      input: { expectedRevision: created.data.revision },
+      input: { operationId: crypto.randomUUID(), expectedRevision: created.data.revision },
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("BAD_INPUT");
@@ -624,10 +645,10 @@ suite("mail sender rules", () => {
     if (rejected && !rejected.ok) expect(rejected.error.code).toBe("CONFLICT");
   });
 
-  test("continues bounded historical application without replaying an unchanged workflow version", async () => {
+  test("backfills every historical match and skips an unchanged workflow version on rerun", async () => {
     const sender = `retro-${suffix}@external.example`;
-    await seedMessage({ sender, uid: 1101, sizeBytes: 5 * 1024 * 1024 });
-    await seedMessage({ sender, uid: 1102, sizeBytes: 5 * 1024 * 1024 });
+    await seedMessage({ sender, uid: 1101 });
+    await seedMessage({ sender, uid: 1102 });
     const created = await createSenderRule({
       context: ownerContext,
       mailboxId,
@@ -636,20 +657,32 @@ suite("mail sender rules", () => {
         enabled: true,
         matchKind: "sender",
         matchValue: sender,
-        action: { kind: "mark_read" },
+        actions: [{ kind: "mark_read" }],
       },
     });
     if (!created.ok) throw new Error(created.error.message);
 
-    const first = await applySenderRuleToExisting({
+    const firstOperationId = crypto.randomUUID();
+    const first = await startSenderRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
-      input: { expectedRevision: created.data.revision },
+      input: { operationId: firstOperationId, expectedRevision: created.data.revision },
     });
     if (!first.ok) throw new Error(first.error.message);
-    expect(first.data).toMatchObject({ eventCount: 1, capped: true, applicationLimit: 100 });
-    expect(first.data.eventIds).toHaveLength(1);
+    expect(first.data).toMatchObject({ operationId: firstOperationId, matchedCount: 2 });
+    const afterStart = await listSenderRules(ownerContext, mailboxId);
+    if (!afterStart.ok) throw new Error(afterStart.error.message);
+    expect(afterStart.data.find((rule) => rule.id === created.data.id)?.latestBackfillOperationId).toBe(firstOperationId);
+    const firstComplete = await waitForBackfill(created.data.id, firstOperationId);
+    expect(firstComplete).toMatchObject({
+      state: "completed",
+      matchedCount: 2,
+      alreadyAcceptedCount: 0,
+      newlyAcceptedCount: 2,
+      remainingCount: 0,
+      failureCount: 0,
+    });
 
     const renamed = await updateSenderRule({
       context: ownerContext,
@@ -661,36 +694,77 @@ suite("mail sender rules", () => {
         enabled: true,
         matchKind: created.data.matchKind,
         matchValue: created.data.matchValue,
-        action: created.data.action,
+        actions: created.data.actions,
       },
     });
     if (!renamed.ok) throw new Error(renamed.error.message);
     expect(renamed.data.workflowVersionId).toBe(created.data.workflowVersionId);
 
-    const second = await applySenderRuleToExisting({
+    const secondOperationId = crypto.randomUUID();
+    const second = await startSenderRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: renamed.data.id,
-      input: { expectedRevision: renamed.data.revision },
+      input: { operationId: secondOperationId, expectedRevision: renamed.data.revision },
     });
     if (!second.ok) throw new Error(second.error.message);
-    expect(second.data).toMatchObject({ eventCount: 1, capped: false });
+    const secondComplete = await waitForBackfill(renamed.data.id, secondOperationId);
+    expect(secondComplete).toMatchObject({
+      state: "completed",
+      matchedCount: 2,
+      alreadyAcceptedCount: 2,
+      newlyAcceptedCount: 0,
+      remainingCount: 0,
+    });
 
-    const complete = await applySenderRuleToExisting({
+    const changed = await updateSenderRule({
       context: ownerContext,
       mailboxId,
       ruleId: renamed.data.id,
-      input: { expectedRevision: renamed.data.revision },
-    });
-    expect(complete).toEqual({
-      ok: true,
-      data: {
-        ruleId: renamed.data.id,
-        eventCount: 0,
-        eventIds: [],
-        applicationLimit: 100,
-        capped: false,
+      input: {
+        expectedRevision: renamed.data.revision,
+        name: renamed.data.name,
+        enabled: true,
+        matchKind: renamed.data.matchKind,
+        matchValue: renamed.data.matchValue,
+        actions: [{ kind: "add_keyword", keyword: "backfilled" }],
       },
     });
+    if (!changed.ok) throw new Error(changed.error.message);
+    expect(changed.data.workflowVersionId).not.toBe(renamed.data.workflowVersionId);
+    expect(changed.data.latestBackfillOperationId).toBeNull();
+    const changedOperationId = crypto.randomUUID();
+    const changedStarted = await startSenderRuleBackfill({
+      context: ownerContext,
+      mailboxId,
+      ruleId: changed.data.id,
+      input: { operationId: changedOperationId, expectedRevision: changed.data.revision },
+    });
+    if (!changedStarted.ok) throw new Error(changedStarted.error.message);
+    const changedComplete = await waitForBackfill(changed.data.id, changedOperationId);
+    expect(changedComplete).toMatchObject({
+      state: "completed",
+      matchedCount: 2,
+      alreadyAcceptedCount: 0,
+      newlyAcceptedCount: 2,
+      remainingCount: 0,
+    });
+
+    const canceledOperationId = crypto.randomUUID();
+    const startedForCancel = await startSenderRuleBackfill({
+      context: ownerContext,
+      mailboxId,
+      ruleId: changed.data.id,
+      input: { operationId: canceledOperationId, expectedRevision: changed.data.revision },
+    });
+    if (!startedForCancel.ok) throw new Error(startedForCancel.error.message);
+    const canceled = await cancelSenderRuleBackfill({
+      context: ownerContext,
+      mailboxId,
+      ruleId: changed.data.id,
+      operationId: canceledOperationId,
+    });
+    if (!canceled.ok) throw new Error(canceled.error.message);
+    expect(["completed", "canceled"]).toContain(canceled.data.state);
   });
 });

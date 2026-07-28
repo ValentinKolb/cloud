@@ -1,5 +1,5 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { type LinkNavigateEvent, listenPopState, navigate } from "@k2b/ssr/nav";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { MailAutomationWorkspaceData } from "../service/automation-workspace";
 import MailAutomaticReplySettings, { type AutomaticReplyPresetId } from "./_components/MailAutomaticReplySettings";
@@ -270,7 +270,9 @@ export default function MailAutomationWorkspace(props: {
                 <>
                   <header>
                     <h1 class="text-base font-semibold text-primary">Sender rules</h1>
-                    <p class="mt-0.5 text-xs text-dimmed">Guided rules for spam, cleanup, read state, and provider keywords.</p>
+                    <p class="mt-0.5 text-xs text-dimmed">
+                      Guided rules for routing, read state, provider keywords, tags, assignment, and conversation status.
+                    </p>
                   </header>
                   <div class="info-block-info flex items-start gap-2">
                     <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
@@ -279,7 +281,12 @@ export default function MailAutomationWorkspace(props: {
                       messages is always previewed and confirmed separately.
                     </span>
                   </div>
-                  <MailSenderRuleSettings mailboxId={props.data.mailbox.id} initialRules={senderRules()} onRulesChange={setSenderRules} />
+                  <MailSenderRuleSettings
+                    mailboxId={props.data.mailbox.id}
+                    catalog={props.data.advanced!.catalog}
+                    initialRules={senderRules()}
+                    onRulesChange={setSenderRules}
+                  />
                 </>
               </Show>
 

@@ -21,11 +21,13 @@ The tools can work together, but creating one does not activate another. Referen
 
 ## Create a sender or domain rule {icon="filter-cog"}
 
-Mailbox admins can create a guided rule under **Automations > Sender rules** or directly from a message's organization menu. Choose one exact sender address or one complete domain, then choose **Move to junk**, **Move to trash**, **Mark as read**, or **Add provider keyword**.
+Mailbox admins can create a guided rule under **Automations > Sender rules** or directly from a message's organization menu. Choose one exact sender address or one complete domain, then add up to eight ordered actions. A rule can perform one provider message action—move to junk, trash, or another folder; mark as read; or add a provider keyword—and combine it with Cloud-local tags, one assignee, and one conversation status.
 
-Mail generates canonical workflow YAML from these fields and shows it in the editor. Keep using the guided editor for managed rules. Changing the match or action creates a new immutable workflow version; changing only the name or active state updates the managed rule without duplicating identical workflow source. Destructive rules cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
+Mail generates canonical workflow YAML from these fields and shows it in the editor. Actions run from top to bottom through the same workflow runtime used by advanced automations. Keep using the guided editor for managed rules. Changing the match or action plan creates a new immutable workflow version; changing only the name or active state updates the managed rule without duplicating identical workflow source. Destructive rules cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
 
-Enabled rules process future received messages. Turn on **Also apply to existing matching messages** to preview the affected count and queue a bounded batch of up to 100 matching messages through the same workflow runtime. This is deliberately bounded by both count and payload size and does not bypass workflow history or effect budgets. Repeat the action when the result reports more matches. Disabling or deleting a rule stops future matches and never reverses already completed effects.
+For automation through `cld`, run `mail sender-rule catalog` to discover valid folder, tag, and user IDs. Repeat `--action` to define the ordered plan, for example `--action move_to_folder:<folder-id> --action add_local_tag:<tag-id> --action set_status:needs_action`.
+
+Enabled rules process future received messages. Turn on **Also apply to existing matching messages** to preview the affected count and start a resumable background backfill through the same workflow runtime. The backfill processes every matching message that existed when it started. Its durable cursor survives restarts, a failed message is retried without stopping unrelated workflow runs, and a repeated backfill skips messages already accepted for the same immutable workflow version. The sender-rule menu shows progress and lets you cancel or run it again. Disabling or deleting a rule stops future matches and never reverses already completed effects.
 
 ## Configure an automatic reply {icon="send"}
 
