@@ -11,6 +11,7 @@ describe("Mail workspace preferences", () => {
       listCollapsed: true,
       detailsOpen: true,
       toolbarActions: ["reply", "archive", "tags"],
+      listMode: "conversations",
     });
   });
 
@@ -25,11 +26,18 @@ describe("Mail workspace preferences", () => {
       listCollapsed: false,
       detailsOpen: false,
       toolbarActions: DEFAULT_MAIL_CONVERSATION_TOOLBAR_ACTIONS,
+      listMode: "conversations",
     });
     expect(readMailWorkspacePreferences("cloud_mail_workspace=%7Bbroken")).toEqual({
       listCollapsed: false,
       detailsOpen: false,
       toolbarActions: DEFAULT_MAIL_CONVERSATION_TOOLBAR_ACTIONS,
+      listMode: "conversations",
     });
+  });
+
+  test("reads the optional message list mode", () => {
+    const value = encodeURIComponent(JSON.stringify({ listMode: "messages" }));
+    expect(readMailWorkspacePreferences(`cloud_mail_workspace=${value}`).listMode).toBe("messages");
   });
 });

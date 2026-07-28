@@ -19,9 +19,9 @@ import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
 import { deriveReplyIdentityId, forwardMessageBody, forwardSubject, replySubject } from "./mail-compose-derivation";
 import { mailDraftHref, mailDraftSeedHref } from "./mail-compose-route";
-import { storeMailDraftSeed } from "./mail-draft-seed-store";
 import { initialConversationMessageId, isNearConversationStart, newestFirstMessages } from "./mail-conversation-history";
 import { MAIL_CONVERSATION_TOOLBAR_SECTIONS, type MailConversationToolbarActionId } from "./mail-conversation-toolbar";
+import { storeMailDraftSeed } from "./mail-draft-seed-store";
 import { messageDeliveryAllowsResponses } from "./mail-message-presentation";
 import { buildMailListHref } from "./mail-navigation";
 
@@ -55,6 +55,7 @@ export default function MailConversationReader(props: {
   identities: SenderIdentity[];
   selectionKey: string | null;
   selectedConversationId: string | null;
+  selectedMessageId: string | null;
   sourceFolderId: string | null;
   unread: boolean;
   flagged: boolean;
@@ -81,7 +82,11 @@ export default function MailConversationReader(props: {
   onReconcile: () => Promise<void>;
   onClose: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
-  const initialMessageId = initialConversationMessageId(props.messages);
+  const selectedHistoryMessageId = () =>
+    props.selectedMessageId && props.messages.some((message) => message.id === props.selectedMessageId)
+      ? props.selectedMessageId
+      : initialConversationMessageId(props.messages);
+  const initialMessageId = selectedHistoryMessageId();
   const orderedMessages = createMemo(() => newestFirstMessages(props.messages));
   const latestMessage = createMemo(() => orderedMessages()[0] ?? null);
   const [expandedMessages, setExpandedMessages] = createSignal(new Set(initialMessageId ? [initialMessageId] : []));
@@ -483,7 +488,7 @@ export default function MailConversationReader(props: {
     conversationDrafts.abort();
     createdDraft.abort();
     const savedExpanded = nextSelection ? expandedBySelection.get(nextSelection) : null;
-    const targetMessageId = initialConversationMessageId(props.messages);
+    const targetMessageId = selectedHistoryMessageId();
     setExpandedMessages(
       savedExpanded
         ? new Set([...savedExpanded].filter((messageId) => nextMessageIds.has(messageId)))

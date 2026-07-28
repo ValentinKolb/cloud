@@ -5,6 +5,7 @@ import { reconcileMailListOptimisticState } from "./mail-list-optimistic";
 const item = (unread: boolean, flagged: boolean, overrides: Partial<MailListItem> = {}): MailListItem => ({
   id: "00000000-0000-4000-8000-000000000001",
   conversationId: "00000000-0000-4000-8000-000000000001",
+  selectionKind: "conversation",
   primaryReference: null,
   subject: "Subject",
   participantSummary: "Sender",

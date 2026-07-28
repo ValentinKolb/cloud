@@ -32,6 +32,7 @@ const log = logger("mail:workspace");
 export type MailListItem = {
   id: string;
   conversationId: string | null;
+  selectionKind: "conversation" | "message";
   primaryReference: string | null;
   subject: string;
   participantSummary: string;
@@ -51,6 +52,8 @@ export type MailListItem = {
   localTags: LocalTag[];
   revision: number;
 };
+
+export type MailListMode = "conversations" | "messages";
 
 const EMPTY_VIEW_COUNTS: ConversationViewCounts = {
   needs_action: 0,
@@ -90,6 +93,7 @@ export type MailboxPageData = {
   activeView: ConversationView | null;
   savedViewId: string | null;
   savedViews: SavedConversationView[];
+  listMode: MailListMode;
   folderId: string | null;
   viewCounts: ConversationViewCounts;
   query: string;
@@ -167,6 +171,7 @@ const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
 const conversationToListItem = (conversation: ConversationSummary): MailListItem => ({
   id: conversation.id,
   conversationId: conversation.id,
+  selectionKind: "conversation",
   primaryReference: conversation.primaryReference,
   subject: conversation.subject,
   participantSummary: conversation.participantSummary,
@@ -316,27 +321,53 @@ const loadListItems = async (params: {
   mailboxId: string;
   folderId: string | null;
   activeView: ConversationView | null;
-  savedViewId: string | null;
-  query: string;
+  savedView: SavedConversationView | null;
+  listMode: MailListMode;
   searchExpression: MailSearchExpression | null;
   searchSort: "relevance" | "newest";
   cursor?: string;
 }): Promise<MailListPage> => {
-  if (params.searchExpression) {
+  const activeViewExpression = (): MailSearchExpression => {
+    const notSnoozed: MailSearchExpression = { type: "snoozed", value: false };
+    if (params.activeView === "needs_action")
+      return { type: "and", expressions: [{ type: "work_status", value: "needs_action" }, notSnoozed] };
+    if (params.activeView === "mine")
+      return {
+        type: "and",
+        expressions: [{ type: "assigned_to_me" }, { type: "not", expression: { type: "work_status", value: "done" } }, notSnoozed],
+      };
+    if (params.activeView === "unassigned")
+      return {
+        type: "and",
+        expressions: [{ type: "assignee", userId: null }, { type: "not", expression: { type: "work_status", value: "done" } }, notSnoozed],
+      };
+    if (params.activeView === "waiting") return { type: "and", expressions: [{ type: "work_status", value: "waiting" }, notSnoozed] };
+    if (params.activeView === "done") return { type: "work_status", value: "done" };
+    if (params.activeView === "snoozed") return { type: "snoozed", value: true };
+    return { type: "all" };
+  };
+  const messageModeExpression =
+    params.searchExpression ??
+    params.savedView?.filter.expression ??
+    (params.folderId ? { type: "folder_id" as const, folderId: params.folderId } : activeViewExpression());
+
+  if (params.searchExpression || params.listMode === "messages") {
     const result = await search.searchMessages({
       context: params.context,
       mailboxId: params.mailboxId,
       request: {
-        expression: params.searchExpression,
-        sort: params.searchSort,
+        expression: messageModeExpression,
+        sort: params.searchExpression ? params.searchSort : (params.savedView?.filter.sort ?? "newest"),
         cursor: params.cursor,
         limit: 50,
       },
+      groupByConversation: params.listMode === "conversations",
     });
     if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
     const items: MailListItem[] = result.data.items.map((item) => ({
       id: item.id,
       conversationId: item.conversationId,
+      selectionKind: params.listMode === "messages" ? "message" : item.conversationId ? "conversation" : "message",
       primaryReference: item.primaryReference,
       subject: item.subject,
       participantSummary: item.participantSummary,
@@ -359,11 +390,11 @@ const loadListItems = async (params: {
     return attachLocalTags(params.context, params.mailboxId, items, result.data.nextCursor);
   }
 
-  if (params.savedViewId) {
+  if (params.savedView) {
     const result = await savedViews.listSavedViewConversations({
       context: params.context,
       mailboxId: params.mailboxId,
-      viewId: params.savedViewId,
+      viewId: params.savedView.id,
       cursor: params.cursor,
       limit: 50,
     });
@@ -389,6 +420,7 @@ export const loadMailboxPageData = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   requestUrl: URL;
+  listMode?: MailListMode;
 }): Promise<MailboxPageData | null> => {
   const permission = await collaboration.requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!permission.ok || permission.data === "none") return null;
@@ -433,8 +465,10 @@ export const loadMailboxPageData = async (params: {
   const { query, expression: searchExpression, sort: searchSort } = resolvedSearch;
   const listCursor = params.requestUrl.searchParams.get("cursor");
   const selectedConversationId = optionalUuidSearchParam(params.requestUrl, "conversation");
-  const selectedMessageId = selectedConversationId ? null : optionalUuidSearchParam(params.requestUrl, "message");
+  const selectedMessageId = optionalUuidSearchParam(params.requestUrl, "message");
   const folders = folderResult.ok ? folderResult.data : [];
+  const activeSavedView = savedViewResult.ok ? (savedViewResult.data.find((view) => view.id === savedViewId) ?? null) : null;
+  const listMode = params.listMode ?? "conversations";
   const [list, scheduledPageResult] = await Promise.all([
     scheduledMode
       ? Promise.resolve({ items: [], nextCursor: null, error: null })
@@ -449,8 +483,8 @@ export const loadMailboxPageData = async (params: {
             mailboxId: params.mailboxId,
             folderId,
             activeView,
-            savedViewId,
-            query,
+            savedView: activeSavedView,
+            listMode,
             searchExpression,
             searchSort,
             cursor: listCursor ?? undefined,
@@ -464,7 +498,10 @@ export const loadMailboxPageData = async (params: {
         })
       : Promise.resolve(null),
   ]);
-  const preferredFolderId = list.items.find((item) => item.conversationId === selectedConversationId)?.sourceFolderId ?? folderId;
+  const selectedListItem = list.items.find((item) =>
+    item.selectionKind === "message" ? item.id === selectedMessageId : item.conversationId === selectedConversationId,
+  );
+  const preferredFolderId = selectedListItem?.sourceFolderId ?? folderId;
   const selection = scheduledMode
     ? EMPTY_SELECTION_DETAIL
     : await loadSelectionDetail({
@@ -476,11 +513,7 @@ export const loadMailboxPageData = async (params: {
       });
 
   const activeFolder = folders.find((folder) => folder.id === folderId);
-  const activeSavedView = savedViewResult.ok ? savedViewResult.data.find((view) => view.id === savedViewId) : null;
-  const selectedSubject =
-    selection.detailMessages.at(-1)?.subject ||
-    list.items.find((item) => item.conversationId === selectedConversationId)?.subject ||
-    "Message";
+  const selectedSubject = selection.detailMessages.at(-1)?.subject || selectedListItem?.subject || "Message";
 
   return {
     mailbox: mailboxResult.data,
@@ -496,6 +529,7 @@ export const loadMailboxPageData = async (params: {
     activeView,
     savedViewId,
     savedViews: savedViewResult.ok ? savedViewResult.data : [],
+    listMode,
     folderId,
     viewCounts: viewCountsResult.ok ? viewCountsResult.data : EMPTY_VIEW_COUNTS,
     query,

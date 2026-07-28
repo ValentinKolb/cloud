@@ -12,6 +12,7 @@ import {
 const item: MailListItem = {
   id: "00000000-0000-4000-8000-000000000002",
   conversationId: "00000000-0000-4000-8000-000000000003",
+  selectionKind: "conversation",
   primaryReference: null,
   subject: "Subject",
   participantSummary: "Sender",
@@ -71,7 +72,15 @@ describe("Mail search navigation", () => {
   test("derives the active row from the current conversation or message selection", () => {
     expect(isMailListItemActive(item, item.conversationId, null)).toBe(true);
     expect(isMailListItemActive(item, "00000000-0000-4000-8000-000000000099", null)).toBe(false);
-    expect(isMailListItemActive({ ...item, conversationId: null }, null, item.id)).toBe(true);
+    expect(isMailListItemActive({ ...item, conversationId: null, selectionKind: "message" }, null, item.id)).toBe(true);
+  });
+
+  test("keeps conversation context while selecting one row in message view", () => {
+    const messageItem = { ...item, selectionKind: "message" as const };
+    const href = new URL(buildMailSelectionHref(new URL("https://cloud.example/app/mail/mailbox"), messageItem), "https://cloud.example");
+    expect(href.searchParams.get("conversation")).toBe(item.conversationId);
+    expect(href.searchParams.get("message")).toBe(item.id);
+    expect(isMailListItemActive(messageItem, item.conversationId, item.id)).toBe(true);
   });
 
   test("builds an exact URL-backed sender search and normalizes a usable domain", () => {

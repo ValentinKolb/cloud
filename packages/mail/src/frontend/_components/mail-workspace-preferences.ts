@@ -1,9 +1,11 @@
+import type { MailListMode } from "../../service/workspace";
 import { type MailConversationToolbarActionId, normalizeMailConversationToolbarActions } from "./mail-conversation-toolbar";
 
 export type MailWorkspacePreferences = {
   listCollapsed: boolean;
   detailsOpen: boolean;
   toolbarActions: MailConversationToolbarActionId[];
+  listMode: MailListMode;
 };
 
 const MAIL_WORKSPACE_COOKIE = "cloud_mail_workspace";
@@ -14,6 +16,7 @@ const normalizeMailWorkspacePreferences = (value: unknown): MailWorkspacePrefere
   toolbarActions: normalizeMailConversationToolbarActions(
     value && typeof value === "object" ? (value as { toolbarActions?: unknown }).toolbarActions : undefined,
   ),
+  listMode: value && typeof value === "object" && (value as { listMode?: unknown }).listMode === "messages" ? "messages" : "conversations",
 });
 
 export const readMailWorkspacePreferences = (cookieHeader: string | null | undefined): MailWorkspacePreferences => {

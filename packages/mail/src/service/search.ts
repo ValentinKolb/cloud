@@ -664,11 +664,12 @@ const runSearch = async (params: {
   limit: number;
   backend: "native" | "pg_textsearch";
   currentUserId: string | null;
+  groupByConversation: boolean;
 }): Promise<DbSearchHit[]> => {
   const predicate = compileSearchExpression(params.expression, params.currentUserId);
   const indexedSeed = findIndexedSeed(params.expression);
   const indexedSeedCoversExpression = indexedSeed === params.expression;
-  const conversationOnly = !indexedSeed && isConversationOnlyExpression(params.expression);
+  const conversationOnly = params.groupByConversation && !indexedSeed && isConversationOnlyExpression(params.expression);
   const cursor = params.cursor;
   const limit = params.limit + 1;
   const indexedSeedCte = indexedSeed ? sql`indexed_seed AS MATERIALIZED (${compileIndexedSeed(indexedSeed, params.mailboxId)}),` : sql``;
@@ -735,6 +736,17 @@ const runSearch = async (params: {
       )`
     : sql`true`;
   const queryText = positiveQueries(params.expression).join(" OR ").slice(0, 4_000);
+  const messageNewestPage =
+    !params.groupByConversation && params.sort === "newest"
+      ? sql`
+          AND (
+            ${cursor?.id ?? null}::uuid IS NULL
+            OR (mc.internal_date, mc.id) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
+          )
+          ORDER BY mc.internal_date DESC, mc.id DESC
+          LIMIT ${limit}
+        `
+      : sql``;
   const rank =
     params.sort === "newest" || !queryText
       ? sql`0::double precision`
@@ -764,7 +776,7 @@ const runSearch = async (params: {
     candidate_messages AS MATERIALIZED (
       SELECT
         mc.id,
-        COALESCE(cm.conversation_id, mc.id) AS result_id,
+        CASE WHEN ${params.groupByConversation} THEN COALESCE(cm.conversation_id, mc.id) ELSE mc.id END AS result_id,
         cm.conversation_id,
         mc.subject,
         mc.message_id,
@@ -781,6 +793,7 @@ const runSearch = async (params: {
           WHERE visible.message_id = mc.id AND visible.deleted_at IS NULL
         )
         AND (${useConversationSeed || indexedSeedCoversExpression ? sql`true` : predicate})
+        ${messageNewestPage}
     ),
     matched_messages AS (
       SELECT
@@ -847,7 +860,7 @@ const runSearch = async (params: {
             OR (
               rank = ${cursor?.rank ?? 0}
               AND (
-                COALESCE(page_conversation.latest_message_at, internal_date),
+                CASE WHEN ${params.groupByConversation} THEN COALESCE(page_conversation.latest_message_at, internal_date) ELSE internal_date END,
                 result_id
               ) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
             )
@@ -856,14 +869,14 @@ const runSearch = async (params: {
         OR (
           ${params.sort} = 'newest'
           AND (
-            COALESCE(page_conversation.latest_message_at, internal_date),
+            CASE WHEN ${params.groupByConversation} THEN COALESCE(page_conversation.latest_message_at, internal_date) ELSE internal_date END,
             result_id
           ) < (${cursor?.internalDate ?? null}::timestamptz, ${cursor?.id ?? null}::uuid)
         )
       )
       ORDER BY
         CASE WHEN ${params.sort} = 'relevance' THEN rank ELSE 0 END DESC,
-        COALESCE(page_conversation.latest_message_at, internal_date) DESC,
+        CASE WHEN ${params.groupByConversation} THEN COALESCE(page_conversation.latest_message_at, internal_date) ELSE internal_date END DESC,
         result_id DESC
       LIMIT ${limit}
     ),
@@ -873,16 +886,22 @@ const runSearch = async (params: {
         deduplicated.result_id,
         deduplicated.conversation_id,
         primary_reference.value AS primary_reference,
-        COALESCE(conversation.subject, deduplicated.subject) AS subject,
+        CASE WHEN ${params.groupByConversation} THEN COALESCE(conversation.subject, deduplicated.subject) ELSE deduplicated.subject END AS subject,
         COALESCE(
-          NULLIF(conversation.participant_summary, ''),
+          CASE WHEN ${params.groupByConversation} THEN NULLIF(conversation.participant_summary, '') ELSE NULL END,
           deduplicated.from_addresses->0->>'name',
           deduplicated.from_addresses->0->>'address',
           'Unknown sender'
         ) AS participant_summary,
         participant_state.labels AS participant_labels,
-        COALESCE(conversation.latest_message_at, deduplicated.internal_date) AS latest_message_at,
-        COALESCE(conversation.latest_message_at, deduplicated.internal_date) AS sort_date,
+        CASE
+          WHEN ${params.groupByConversation} THEN COALESCE(conversation.latest_message_at, deduplicated.internal_date)
+          ELSE deduplicated.internal_date
+        END AS latest_message_at,
+        CASE
+          WHEN ${params.groupByConversation} THEN COALESCE(conversation.latest_message_at, deduplicated.internal_date)
+          ELSE deduplicated.internal_date
+        END AS sort_date,
         deduplicated.message_id,
         deduplicated.internal_date,
         deduplicated.sent_at,
@@ -890,11 +909,11 @@ const runSearch = async (params: {
         deduplicated.to_addresses,
         deduplicated.flags,
         CASE
-          WHEN deduplicated.conversation_id IS NULL THEN message_active_state.folder_ids
+          WHEN NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL THEN message_active_state.folder_ids
           ELSE conversation_active_state.folder_ids
         END AS active_folder_ids,
         CASE
-          WHEN deduplicated.conversation_id IS NULL THEN '\\Flagged' = ANY(deduplicated.flags)
+          WHEN NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL THEN '\\Flagged' = ANY(deduplicated.flags)
           ELSE EXISTS (
             SELECT 1
             FROM mail.conversation_messages flagged_cm
@@ -905,7 +924,7 @@ const runSearch = async (params: {
           )
         END AS flagged,
         CASE
-          WHEN deduplicated.conversation_id IS NULL THEN deduplicated.has_attachments
+          WHEN NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL THEN deduplicated.has_attachments
           ELSE EXISTS (
             SELECT 1
             FROM mail.conversation_messages attachment_cm
@@ -915,11 +934,20 @@ const runSearch = async (params: {
         END AS has_attachments,
         COALESCE(
           ${snippet},
-          NULLIF(LEFT(COALESCE(conversation_latest.plain_text, deduplicated.plain_text), 500), '')
+          NULLIF(
+            LEFT(
+              CASE
+                WHEN ${params.groupByConversation} THEN COALESCE(conversation_latest.plain_text, deduplicated.plain_text)
+                ELSE deduplicated.plain_text
+              END,
+              500
+            ),
+            ''
+          )
         ) AS snippet,
         cardinality(
           CASE
-            WHEN deduplicated.conversation_id IS NULL THEN message_unread_state.folder_ids
+            WHEN NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL THEN message_unread_state.folder_ids
             ELSE conversation_unread_state.folder_ids
           END
         ) > 0 AS unread,
@@ -939,11 +967,11 @@ const runSearch = async (params: {
         CASE
           WHEN ${folderIds?.length === 1 ? folderIds[0] : null}::uuid IS NOT NULL
             THEN ${folderIds?.length === 1 ? folderIds[0] : null}::uuid
-          WHEN deduplicated.conversation_id IS NULL THEN message_active_state.source_folder_id
+          WHEN NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL THEN message_active_state.source_folder_id
           ELSE conversation_active_state.source_folder_id
         END AS source_folder_id,
         CASE
-          WHEN deduplicated.conversation_id IS NULL THEN message_unread_state.folder_ids
+          WHEN NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL THEN message_unread_state.folder_ids
           ELSE conversation_unread_state.folder_ids
         END AS unread_folder_ids,
         deduplicated.rank
@@ -997,7 +1025,7 @@ const runSearch = async (params: {
             ELSE NULL
           END AS source_folder_id
         FROM mail.message_placements source_placement
-        WHERE deduplicated.conversation_id IS NULL
+        WHERE (NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL)
           AND source_placement.message_id = deduplicated.id
           AND source_placement.deleted_at IS NULL
       ) message_active_state ON true
@@ -1040,7 +1068,10 @@ const runSearch = async (params: {
       ) conversation_latest ON true
       LEFT JOIN LATERAL (
         SELECT
-          COALESCE(conversation_latest.id, deduplicated.id) AS message_id,
+          CASE
+            WHEN ${params.groupByConversation} THEN COALESCE(conversation_latest.id, deduplicated.id)
+            ELSE deduplicated.id
+          END AS message_id,
           EXISTS (
             SELECT 1
             FROM mail.message_addresses sender
@@ -1111,6 +1142,7 @@ const executeSearchWithFallback = async (params: {
   limit: number;
   backend: SearchCursor["backend"];
   currentUserId: string | null;
+  groupByConversation: boolean;
 }): Promise<Result<{ rows: DbSearchHit[]; backend: SearchCursor["backend"] }>> => {
   try {
     const rows = await executeSearch(params);
@@ -1131,6 +1163,7 @@ export const searchMessages = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   request: SearchRequest;
+  groupByConversation?: boolean;
 }): Promise<Result<MessageSearchPage>> => {
   const parsed = mailSearchExpressionSchema.safeParse(params.request.expression);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid search expression"));
@@ -1140,7 +1173,8 @@ export const searchMessages = async (params: {
   if (!access.ok) return access;
   const sort = params.request.sort ?? "relevance";
   const currentUserId = userBackedActor(params.context)?.id ?? null;
-  const queryHash = sha256Json({ mailboxId: params.mailboxId, expression: parsed.data, currentUserId });
+  const groupByConversation = params.groupByConversation !== false;
+  const queryHash = sha256Json({ mailboxId: params.mailboxId, expression: parsed.data, currentUserId, groupByConversation });
   const cursor = decodeCursor(params.request.cursor, sort, queryHash);
   if (!cursor.ok) return cursor;
   const limit = Math.min(Math.max(Math.floor(params.request.limit ?? 50), 1), 100);
@@ -1157,6 +1191,7 @@ export const searchMessages = async (params: {
     limit,
     backend,
     currentUserId,
+    groupByConversation,
   });
   if (!execution.ok) return execution;
   const rows = execution.data.rows;

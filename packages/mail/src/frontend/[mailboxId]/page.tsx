@@ -20,10 +20,10 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
-  const data = await loadMailboxPageData({ context, mailboxId, requestUrl });
+  const workspacePreferences = readMailWorkspacePreferences(c.req.header("cookie"));
+  const data = await loadMailboxPageData({ context, mailboxId, requestUrl, listMode: workspacePreferences.listMode });
   if (!data) return c.redirect("/app/mail");
   const dateConfig = getDateConfig(c);
-  const workspacePreferences = readMailWorkspacePreferences(c.req.header("cookie"));
 
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Mail", href: "/app/mail" }, { title: data.mailbox.name }]}>

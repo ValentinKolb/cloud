@@ -123,13 +123,17 @@ export default function MailWorkspace(props: {
     else pendingListState.set(conversationId, next);
   };
 
-  const fetchWorkspaceRoute = async (href: string, signal: AbortSignal): Promise<MailboxPageData | null> => {
+  const fetchWorkspaceRoute = async (
+    href: string,
+    signal: AbortSignal,
+    listMode: MailboxPageData["listMode"] = data.listMode,
+  ): Promise<MailboxPageData | null> => {
     const target = new URL(href, window.location.origin);
     if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${mailboxId}`) return null;
     const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get(
       {
         param: { mailboxId },
-        query: { href: `${target.pathname}${target.search}` },
+        query: { href: `${target.pathname}${target.search}`, listMode },
       },
       { init: { signal } },
     );
@@ -145,7 +149,10 @@ export default function MailWorkspace(props: {
         }
       : next;
 
-  const replaceWorkspaceRoute = async (href: string): Promise<"applied" | "failed" | "stale"> => {
+  const replaceWorkspaceRoute = async (
+    href: string,
+    listMode: MailboxPageData["listMode"] = data.listMode,
+  ): Promise<"applied" | "failed" | "stale"> => {
     selectionRequest += 1;
     setSelectionLoading(false);
     const request = ++routeRequest;
@@ -156,7 +163,7 @@ export default function MailWorkspace(props: {
     try {
       const target = new URL(href, window.location.origin);
       if (target.origin !== window.location.origin || target.pathname !== `/app/mail/${data.mailbox.id}`) return "failed";
-      const next = await fetchWorkspaceRoute(target.toString(), controller.signal);
+      const next = await fetchWorkspaceRoute(target.toString(), controller.signal, listMode);
       if (!next) return "failed";
       if (request !== routeRequest) return "stale";
       const scopeChanged = mailListScope(requestUrl()) !== mailListScope(target.toString());
@@ -243,7 +250,7 @@ export default function MailWorkspace(props: {
       const response = await apiClient.mailboxes[":mailboxId"]["workspace-route"].$get(
         {
           param: { mailboxId: data.mailbox.id },
-          query: { href: `${target.pathname}${target.search}` },
+          query: { href: `${target.pathname}${target.search}`, listMode: data.listMode },
         },
         { init: { signal: controller.signal } },
       );
@@ -283,6 +290,7 @@ export default function MailWorkspace(props: {
           listCollapsed: listCollapsed(),
           detailsOpen: detailsOpen(),
           toolbarActions: toolbarActions(),
+          listMode: data.listMode,
         }),
       120,
     );
@@ -296,6 +304,34 @@ export default function MailWorkspace(props: {
   const updateToolbarActions = (actions: MailConversationToolbarActionId[]) => {
     setToolbarActions(actions);
     persistPreferences();
+  };
+
+  const updateListMode = (listMode: MailboxPageData["listMode"]) => {
+    if (listMode === data.listMode) return;
+    const previousListMode = data.listMode;
+    writeMailWorkspacePreferences({
+      listCollapsed: listCollapsed(),
+      detailsOpen: detailsOpen(),
+      toolbarActions: toolbarActions(),
+      listMode,
+    });
+    setConversationSelection(emptyMailConversationSelection());
+    setSelectionMode(false);
+    void (async () => {
+      const href = buildMailListHref(new URL(requestUrl()));
+      const result = await replaceWorkspaceRoute(href, listMode);
+      if (result === "applied") {
+        navigate(href, { replace: true, scroll: "preserve" });
+        return;
+      }
+      writeMailWorkspacePreferences({
+        listCollapsed: listCollapsed(),
+        detailsOpen: detailsOpen(),
+        toolbarActions: toolbarActions(),
+        listMode: previousListMode,
+      });
+      if (result === "failed") toast.error("Could not change the list view. Your current view was kept.");
+    })();
   };
 
   createEffect(() => {
@@ -580,7 +616,11 @@ export default function MailWorkspace(props: {
     setActionPending(false);
   };
   const hasSelection = createMemo(() => Boolean(data.selectedConversationId || data.selectedMessageId));
-  const selectedListItem = createMemo(() => data.listItems.find((item) => item.conversationId === data.selectedConversationId));
+  const selectedListItem = createMemo(() =>
+    data.listItems.find((item) =>
+      item.selectionKind === "message" ? item.id === data.selectedMessageId : item.conversationId === data.selectedConversationId,
+    ),
+  );
   const selectedUnread = createMemo(
     () => selectedListItem()?.unread ?? data.detailMessages.some((message) => !message.flags.includes("\\Seen")),
   );
@@ -716,7 +756,7 @@ export default function MailWorkspace(props: {
         setData({
           ...detail,
           selectedConversationId: item.conversationId,
-          selectedMessageId: null,
+          selectedMessageId: item.selectionKind === "message" ? item.id : null,
           selectedSubject: detail.selectedSubject || item.subject || "Message",
         });
       });
@@ -1333,6 +1373,7 @@ export default function MailWorkspace(props: {
                     junkFolderIds={data.folders.filter((folder) => folder.role === "junk").map((folder) => folder.id)}
                     savedViews={data.savedViews}
                     activeSavedViewId={data.savedViewId}
+                    listMode={data.listMode}
                     loading={routeLoading()}
                     liveDegraded={liveDegraded()}
                     onCollapse={() => setCollapsed(true)}
@@ -1341,6 +1382,7 @@ export default function MailWorkspace(props: {
                     onNavigate={navigateWorkspace}
                     onNavigateItem={navigateConversation}
                     onToggleSelectionMode={toggleConversationSelectionMode}
+                    onListModeChange={updateListMode}
                     onToggleSelection={toggleConversationSelection}
                     onClearSelection={clearConversationSelection}
                     onAddTags={addTagsToSelection}
@@ -1365,8 +1407,9 @@ export default function MailWorkspace(props: {
                   canWrite={canWrite()}
                   canAdmin={canAdmin()}
                   identities={data.identities}
-                  selectionKey={data.selectedConversationId ?? data.selectedMessageId}
+                  selectionKey={data.selectedMessageId ?? data.selectedConversationId}
                   selectedConversationId={data.selectedConversationId}
+                  selectedMessageId={data.selectedMessageId}
                   sourceFolderId={selectedListItem()?.sourceFolderId ?? data.folderId ?? data.detailMessages.at(-1)?.folderId ?? null}
                   unread={selectedUnread()}
                   flagged={selectedFlagged()}

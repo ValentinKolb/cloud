@@ -70,6 +70,7 @@ export default function MailConversationRow(props: {
       }}
       role="listitem"
       data-conversation-id={props.item.conversationId ?? undefined}
+      data-message-id={props.item.selectionKind === "message" ? props.item.id : undefined}
     >
       <Show when={props.state.canWrite && props.state.selectionMode && props.item.conversationId}>
         <input
@@ -123,8 +124,9 @@ export default function MailConversationRow(props: {
         }}
       >
         <span class="sr-only">
-          {props.item.unread ? "Unread conversation. " : "Read conversation. "}
-          {props.item.flagged ? "Flagged conversation. " : ""}
+          {props.item.unread ? `Unread ${props.item.selectionKind === "message" ? "message" : "conversation"}. ` : ""}
+          {!props.item.unread ? `Read ${props.item.selectionKind === "message" ? "message" : "conversation"}. ` : ""}
+          {props.item.flagged ? `Flagged ${props.item.selectionKind === "message" ? "message" : "conversation"}. ` : ""}
         </span>
         <span class="mail-list-copy">
           <span

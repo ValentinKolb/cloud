@@ -35,7 +35,7 @@ export const buildMailListHref = (requestUrl: URL, clearSearch = false): string 
 export const buildMailSelectionHref = (requestUrl: URL, item: MailListItem): string => {
   const next = new URL(buildMailListHref(requestUrl), requestUrl.origin);
   if (item.conversationId) next.searchParams.set("conversation", item.conversationId);
-  else next.searchParams.set("message", item.id);
+  if (item.selectionKind === "message" || !item.conversationId) next.searchParams.set("message", item.id);
   return `${next.pathname}${next.search}`;
 };
 
@@ -63,7 +63,12 @@ export const buildExactSenderSearchHref = (requestUrl: URL, address: string): st
 };
 
 export const isMailListItemActive = (
-  item: Pick<MailListItem, "id" | "conversationId">,
+  item: Pick<MailListItem, "id" | "conversationId" | "selectionKind">,
   selectedConversationId: string | null,
   selectedMessageId: string | null,
-): boolean => (item.conversationId ? item.conversationId === selectedConversationId : item.id === selectedMessageId);
+): boolean =>
+  item.selectionKind === "message"
+    ? item.id === selectedMessageId
+    : item.conversationId
+      ? item.conversationId === selectedConversationId
+      : item.id === selectedMessageId;

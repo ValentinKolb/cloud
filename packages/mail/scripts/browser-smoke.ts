@@ -347,6 +347,22 @@ const runSmoke = async (fixture: Fixture) => {
     ok("mailbox search uses server-owned literal matching");
 
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Choose list view", exact: true }).click();
+    await page.locator('[role="menu"]:popover-open').getByText("Message view", { exact: true }).click();
+    await page
+      .locator('[role="list"][aria-label$=" messages"]')
+      .waitFor()
+      .catch(async () => fail(`message view did not load\n${(await page.locator("body").innerText()).slice(-2_000)}`));
+    const messageViewCookie = (await context.cookies()).find((cookie) => cookie.name === "cloud_mail_workspace");
+    const messageViewPreference = messageViewCookie ? JSON.parse(decodeURIComponent(messageViewCookie.value)) : null;
+    if (messageViewPreference?.listMode !== "messages") fail("message view was not persisted in the workspace cookie");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator('[role="list"][aria-label$=" messages"]').waitFor();
+    await page.getByRole("button", { name: "Choose list view", exact: true }).click();
+    await page.locator('[role="menu"]:popover-open').getByText("Conversation view", { exact: true }).click();
+    await page.locator('[role="list"][aria-label$=" conversations"]').waitFor();
+    ok("message list mode survives SSR reload and returns to conversation view");
+
     const desktopSidebar = page.locator(".workspace-sidebar");
     const desktopDirectActions = (await desktopSidebar.locator(".sidebar-footer > button, .sidebar-footer > a").allTextContents()).map(
       (label) => label.trim(),

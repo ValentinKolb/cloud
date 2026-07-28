@@ -1,5 +1,5 @@
 import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
-import { FilterChip, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, FilterChip, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -15,6 +15,7 @@ import {
   resolveMailSearchRoute,
 } from "../../search-state";
 import type { SavedConversationView } from "../../service/saved-views";
+import type { MailListMode } from "../../service/workspace";
 import MailBulkActionBar from "./MailBulkActionBar";
 import MailConversationRow from "./MailConversationRow";
 import { openMailSearchBuilder } from "./MailSearchBuilder";
@@ -59,6 +60,7 @@ export default function MailConversationList(props: {
   junkFolderIds: string[];
   savedViews: SavedConversationView[];
   activeSavedViewId: string | null;
+  listMode: MailListMode;
   loading: boolean;
   liveDegraded: boolean;
   onCollapse: () => void;
@@ -67,6 +69,7 @@ export default function MailConversationList(props: {
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
   onNavigateItem: (href: string, item: MailListItem, activation: "keyboard" | "pointer") => void | Promise<void>;
   onToggleSelectionMode: () => void;
+  onListModeChange: (mode: MailListMode) => void;
   onToggleSelection: (item: MailListItem, range: boolean) => void;
   onClearSelection: () => void;
   onAddTags: () => void | Promise<void>;
@@ -243,7 +246,7 @@ export default function MailConversationList(props: {
                   </Show>
                 </p>
               </div>
-              <Show when={props.canWrite}>
+              <Show when={props.canWrite && props.listMode === "conversations"}>
                 <Tooltip content="Select conversations">
                   <button
                     type="button"
@@ -256,6 +259,29 @@ export default function MailConversationList(props: {
                   </button>
                 </Tooltip>
               </Show>
+              <Dropdown
+                position="bottom-right"
+                width="w-56"
+                trigger={
+                  <Tooltip content={props.listMode === "conversations" ? "Conversation view" : "Message view"}>
+                    <button type="button" class="icon-btn" aria-label="Choose list view">
+                      <i class="ti ti-layout-list" aria-hidden="true" />
+                    </button>
+                  </Tooltip>
+                }
+                elements={[
+                  {
+                    label: "Conversation view",
+                    icon: props.listMode === "conversations" ? "ti ti-check" : "ti ti-messages",
+                    action: () => props.onListModeChange("conversations"),
+                  },
+                  {
+                    label: "Message view",
+                    icon: props.listMode === "messages" ? "ti ti-check" : "ti ti-mail",
+                    action: () => props.onListModeChange("messages"),
+                  },
+                ]}
+              />
               <Tooltip content="Search filters">
                 <button
                   type="button"
@@ -395,7 +421,9 @@ export default function MailConversationList(props: {
           <Placeholder
             icon={searchActive() ? "ti ti-search" : "ti ti-mail-off"}
             variant="panel"
-            title={searchActive() ? "No matching messages" : "No conversations here"}
+            title={
+              searchActive() ? "No matching messages" : props.listMode === "conversations" ? "No conversations here" : "No messages here"
+            }
             description={searchActive() ? "Change or clear the active search filters." : "New synchronized mail will appear in this view."}
             action={
               searchActive() ? (
@@ -411,7 +439,11 @@ export default function MailConversationList(props: {
             }
           />
         ) : (
-          <div class="flex flex-col gap-0.5" role="list" aria-label={`${props.title} conversations`}>
+          <div
+            class="flex flex-col gap-0.5"
+            role="list"
+            aria-label={`${props.title} ${props.listMode === "conversations" ? "conversations" : "messages"}`}
+          >
             <For each={props.items}>
               {(item) => (
                 <MailConversationRow

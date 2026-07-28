@@ -150,6 +150,7 @@ const activityQuerySchema = cursorQuerySchema.extend({
 });
 const workspaceRouteQuerySchema = z.object({
   href: z.string().trim().min(1).max(4_000),
+  listMode: z.enum(["conversations", "messages"]).default("conversations"),
 });
 const attachmentQuerySchema = z.object({
   inline: z
@@ -369,12 +370,14 @@ const mailOperationsApi = new Hono<AuthContext>()
   )
   .get("/mailboxes/:mailboxId/workspace-route", v("param", uuidParamSchema), v("query", workspaceRouteQuerySchema), async (c) => {
     const mailboxId = c.req.valid("param").mailboxId;
-    const requestUrl = parseWorkspaceRouteUrl(mailboxId, c.req.valid("query").href);
+    const query = c.req.valid("query");
+    const requestUrl = parseWorkspaceRouteUrl(mailboxId, query.href);
     if (!requestUrl) return respond(c, fail(err.badInput("Workspace route must target this mailbox")));
     const data = await loadMailboxPageData({
       context: requestContext(c),
       mailboxId,
       requestUrl,
+      listMode: query.listMode,
     });
     return respond(c, data ? { ok: true, data } : fail(err.notFound("Mailbox")));
   })

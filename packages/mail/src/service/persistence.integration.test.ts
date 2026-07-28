@@ -1898,6 +1898,23 @@ suite("mail PostgreSQL foundation", () => {
         unreadFolderIds: [folder!.id],
       });
     }
+    const individualMessages = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      groupByConversation: false,
+      request: {
+        expression: { type: "all" },
+        sort: "newest",
+        limit: 100,
+      },
+    });
+    expect(individualMessages.ok).toBe(true);
+    if (individualMessages.ok) {
+      const messageHits = individualMessages.data.items.filter((item) => item.conversationId === attachmentConversation!.id);
+      expect(messageHits).toHaveLength(2);
+      expect(messageHits.every((item) => item.messageCount === 2)).toBe(true);
+      expect(new Set(messageHits.map((item) => item.id)).size).toBe(2);
+    }
     const listResult = await listConversations({ context, mailboxId: mailbox.data.id, limit: 100 });
     expect(listResult.ok).toBe(true);
     if (listResult.ok) {
