@@ -334,15 +334,13 @@ export default function MailConversationList(props: {
                   <Show when={props.canAdmin && health().action && health().actionLabel}>
                     <button
                       type="button"
-                      class="k2b-status-badge focus-ui mt-2 cursor-pointer transition-colors hover:bg-[var(--ui-hover)]"
-                      data-tone="neutral"
-                      data-variant="chip"
+                      class="badge-neutral focus-ui mt-2 cursor-pointer appearance-none border-0 transition-colors hover:bg-[var(--ui-hover)]"
                       aria-label={health().actionLabel ?? undefined}
                       title={health().actionLabel ?? undefined}
                       onClick={() => (health().action === "delivery" ? props.onOpenDeliverySettings() : props.onOpenHealth())}
                     >
                       <i class="ti ti-activity" aria-hidden="true" />
-                      <span class="k2b-status-badge__label">{health().action === "health" ? "Status" : health().actionLabel}</span>
+                      <span>{health().action === "health" ? "Status" : health().actionLabel}</span>
                     </button>
                   </Show>
                 </div>
