@@ -53,10 +53,13 @@ standalone SSR, behavior, styling, and migration checks:
 
 - Actions: buttons, menus, context menus, filter/select chips, spotlight
   search, copy, remove, and segmented controls
-- Inputs: checkbox and switch controls, select, combobox, multi-select, tags,
-  PIN, slider, color, and date/time pickers
+- Inputs: text, number, checkbox and switch controls; select, combobox,
+  multi-select, tags, icons, PIN, slider, color, and date/time pickers;
+  dropzones, image selection/cropping, completion-aware plain text,
+  Markdown, and template editors
 - Layout: `AppOverview`, `DataPanel`, `PanelHeader`, `PanelDialog`,
-  `SettingsModal`, and generic settings-form helpers
+  `SettingsModal`, `AppWorkspace`, `FloatingWindow`, and generic
+  settings-form helpers
 - Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
   `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`, `NotFoundState`
 - Feedback: the complete scoped prompt family, `Tooltip`, and scoped `toast`
@@ -98,9 +101,9 @@ UI showcase: AI, Inputs, Actions, Layout, Surfaces, Feedback, Content, and
 Widgets. Cloud-specific integrations are intentionally not part of this
 package.
 
-Some source files are still package-local migration experiments. Planned
-components are deliberately absent from the root export until their full
-contract is implemented and tested.
+`Panes` and the AI presentation family are still planned. They are
+deliberately absent from the root export until their full contracts are
+implemented and tested.
 
 Cloud stays on its existing UI until this package is complete. The
 [migration inventory](./MIGRATION.md) records the generic, Cloud-specific, and

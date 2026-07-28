@@ -22,9 +22,12 @@ The currently accepted complete migrations are:
   `Dropdown`, `RemoveBtn`, `SpotlightSearch`;
 - inputs: `Checkbox`, `CheckboxCard`, `Switch`, `Select`, `Combobox`,
   `MultiSelectInput`, `SelectChip`, `TagsInput`, `DatePicker`,
-  `DateTimePicker`, `DateRangePicker`, `PinInput`, `Slider`, `ColorInput`;
+  `DateTimePicker`, `DateRangePicker`, `PinInput`, `Slider`, `ColorInput`,
+  `TextInput`, `NumberInput`, `IconInput`, `FileDropzone`, `ImageInput`,
+  `ImageCropper`, `AutocompleteEditor`, `MarkdownEditor`, `TemplateEditor`,
+  the generic completion kernel, and image-crop helpers;
 - layout: `admin-settings`, `AppOverview`, `DataPanel`, `PanelDialog`,
-  `PanelHeader`, `SettingsModal`;
+  `PanelHeader`, `SettingsModal`, `AppWorkspace`, and `FloatingWindow`;
 - surfaces: `Avatar`, `LinkCard`, `NotFoundState`, `NoticeCard`, `Placeholder`,
   `ProgressBar`, `StatCell`, `StatGrid`, `StatusBadge`;
 - feedback: `dialog-core`, `prompts`, `toast`, `Tooltip`.
@@ -35,9 +38,9 @@ The currently accepted complete migrations are:
 - widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
   `WidgetStat`, `WidgetStatus`.
 
-Everything else remains `planned` until it satisfies that same bar. The
-working tree may contain experiments for planned components; those do not
-change their inventory status and must not be released as complete.
+`Panes` and the generic AI presentation family remain `planned` until they
+satisfy that same bar. They are absent from the package export and release
+files; incomplete experiments do not change their inventory status.
 
 Cloud-owned controllers and domain contracts remain outside the package. This
 includes permission and principal editors, resource API keys, workflow
