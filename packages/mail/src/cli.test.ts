@@ -3693,12 +3693,12 @@ test("automatic reply commands cover list, create, and revision-checked update",
       if (request.method === "GET") return api([configuration]);
       const body = await request.json();
       requests.push({ method: request.method, body });
-      return api(configuration);
+      return api({ automaticReply: configuration, referenceConfiguration: null });
     }
     if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/automatic-replies/${AUTOMATIC_REPLY_ID}`) {
       const body = await request.json();
       requests.push({ method: request.method, body });
-      return api({ ...configuration, revision: 2 });
+      return api({ automaticReply: { ...configuration, revision: 2 }, referenceConfiguration: null });
     }
     return api({ message: "unexpected" }, { status: 500 });
   });
@@ -3734,8 +3734,8 @@ test("automatic reply commands cover list, create, and revision-checked update",
   expect(JSON.parse(created.stdout)).toMatchObject({ id: AUTOMATIC_REPLY_ID, revision: 1 });
   expect(JSON.parse(updated.stdout)).toMatchObject({ id: AUTOMATIC_REPLY_ID, revision: 2 });
   expect(requests).toEqual([
-    { method: "POST", body: input },
-    { method: "PATCH", body: { expectedRevision: 1, ...input } },
+    { method: "POST", body: { automaticReply: input } },
+    { method: "PATCH", body: { automaticReply: { expectedRevision: 1, ...input } } },
   ]);
 });
 

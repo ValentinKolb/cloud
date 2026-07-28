@@ -5,16 +5,24 @@ import { stringify } from "yaml";
 import {
   type AutomaticReplyInactiveBehavior,
   type CreateAutomaticReplyConfiguration,
-  createAutomaticReplyConfigurationSchema,
+  type CreateAutomaticReplySetup,
+  createAutomaticReplySetupSchema,
+  type PutConversationReferenceConfiguration,
   type ResponseScheduleDefinitionInput,
   type UpdateAutomaticReplyConfiguration,
-  updateAutomaticReplyConfigurationSchema,
+  type UpdateAutomaticReplySetup,
+  updateAutomaticReplySetupSchema,
   type WorkflowEffectBudget,
 } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { cancelPendingAutomaticRepliesInTransaction } from "./automatic-reply";
 import { requireAutomaticReplyManagementPermission } from "./automatic-reply-access";
+import {
+  type ConversationReferenceConfiguration,
+  type ConversationReferenceConfigurationMutation,
+  putConversationReferenceConfigurationInTransaction,
+} from "./conversation-reference";
 import { publishMailMailboxEvent } from "./events";
 import {
   decodeStoredResponseScheduleDefinition,
@@ -41,6 +49,11 @@ export type AutomaticReplyConfiguration = {
   revision: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AutomaticReplySetup = {
+  automaticReply: AutomaticReplyConfiguration;
+  referenceConfiguration: ConversationReferenceConfiguration | null;
 };
 
 type AutomaticReplyConfigurationRow = {
@@ -307,6 +320,111 @@ const loadConfiguration = async (
   return row ? mapConfiguration(row) : fail(err.notFound("Automatic reply"));
 };
 
+const automaticReplyChanges = (
+  current: AutomaticReplyConfiguration,
+  input: UpdateAutomaticReplyConfiguration,
+  schedule: ResponseScheduleDefinition,
+  name: string,
+): {
+  senderChanged: boolean;
+  executionChanged: boolean;
+  enabledChanged: boolean;
+  changed: boolean;
+} => {
+  const senderChanged = current.senderIdentityId !== input.senderIdentityId;
+  const executionChanged =
+    senderChanged ||
+    current.subject !== input.subject ||
+    current.body !== input.body ||
+    current.format !== input.format ||
+    current.ensureReference !== input.ensureReference ||
+    current.minimumIntervalHours !== input.minimumIntervalHours ||
+    current.inactiveBehavior !== input.inactiveBehavior ||
+    JSON.stringify(current.schedule) !== JSON.stringify(schedule);
+  const enabledChanged = current.enabled !== input.enabled;
+  return {
+    senderChanged,
+    executionChanged,
+    enabledChanged,
+    changed: current.name !== name || enabledChanged || executionChanged,
+  };
+};
+
+const putInlineReferenceConfiguration = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: PutConversationReferenceConfiguration | undefined;
+  db: SqlClient;
+}): Promise<ConversationReferenceConfigurationMutation | null> =>
+  params.input
+    ? unwrap(
+        await putConversationReferenceConfigurationInTransaction({
+          context: params.context,
+          mailboxId: params.mailboxId,
+          input: params.input,
+          db: params.db,
+        }),
+      )
+    : null;
+
+const applyAutomaticReplyWorkflowUpdate = async (params: {
+  db: SqlClient;
+  context: MailRequestContext;
+  mailboxId: string;
+  configurationId: string;
+  current: AutomaticReplyConfiguration;
+  input: UpdateAutomaticReplyConfiguration;
+  schedule: ResponseScheduleDefinition;
+  executionChanged: boolean;
+  enabledChanged: boolean;
+}): Promise<void> => {
+  if (params.executionChanged || (params.enabledChanged && !params.input.enabled)) {
+    await cancelPendingAutomaticRepliesInTransaction({
+      db: params.db,
+      mailboxId: params.mailboxId,
+      workflowId: params.current.workflowId,
+      code: "AUTOMATIC_REPLY_CONFIGURATION_CHANGED",
+      message: "Automatic reply configuration changed before delivery",
+    });
+  }
+  if (params.executionChanged) {
+    unwrap(
+      await replaceManagedWorkflowInTransaction({
+        db: params.db,
+        context: params.context,
+        mailboxId: params.mailboxId,
+        workflowId: params.current.workflowId,
+        name: internalResourceName(params.configurationId),
+        description: "Managed by Mail automatic replies.",
+        priority: 100,
+        managedBy: "automatic_reply",
+        source: buildWorkflowSource({
+          senderIdentityId: params.input.senderIdentityId,
+          schedule: params.schedule,
+          subject: params.input.subject,
+          body: params.input.body,
+          format: params.input.format,
+          ensureReference: params.input.ensureReference,
+          minimumIntervalHours: params.input.minimumIntervalHours,
+          inactiveBehavior: params.input.inactiveBehavior,
+        }),
+        effectBudget: managedWorkflowBudget(params.input.ensureReference),
+        enabled: params.input.enabled,
+      }),
+    );
+  } else if (params.enabledChanged) {
+    unwrap(
+      await setManagedWorkflowEnabledInTransaction({
+        db: params.db,
+        context: params.context,
+        mailboxId: params.mailboxId,
+        workflowId: params.current.workflowId,
+        enabled: params.input.enabled,
+      }),
+    );
+  }
+};
+
 export const listAutomaticReplyConfigurations = async (
   context: MailRequestContext,
   mailboxId: string,
@@ -328,51 +446,66 @@ export const listAutomaticReplyConfigurations = async (
   return ok(configurations);
 };
 
-export const createAutomaticReplyConfiguration = async (params: {
+export const createAutomaticReplySetup = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  input: CreateAutomaticReplyConfiguration;
-}): Promise<Result<AutomaticReplyConfiguration>> => {
-  const parsed = createAutomaticReplyConfigurationSchema.safeParse(params.input);
+  input: CreateAutomaticReplySetup;
+}): Promise<Result<AutomaticReplySetup>> => {
+  const parsed = createAutomaticReplySetupSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid automatic reply"));
-  const schedule = validateManagedSchedule(parsed.data.schedule);
+  const automaticReply = parsed.data.automaticReply;
+  const schedule = validateManagedSchedule(automaticReply.schedule);
   if (!schedule.ok) return schedule;
   const configurationId = crypto.randomUUID();
-  const name = normalizeName(parsed.data.name);
+  const name = normalizeName(automaticReply.name);
   try {
-    const result = await sql.begin(async (tx): Promise<{ configuration: AutomaticReplyConfiguration; activityId: string }> => {
-      unwrap(await lockMailboxForAutomaticReply(params.context, params.mailboxId, tx));
-      unwrap(await requireAutomationSender(tx, params.mailboxId, parsed.data.senderIdentityId));
-      if (parsed.data.ensureReference) unwrap(await requireReferenceConfiguration(tx, params.mailboxId));
-      if (parsed.data.enabled) unwrap(await requireActivationAvailable(tx, params.mailboxId, null));
-      const actor = requestActor(params.context);
-      const internalName = internalResourceName(configurationId);
-      const workflow = unwrap(
-        await replaceManagedWorkflowInTransaction({
-          db: tx,
+    const result = await sql.begin(
+      async (
+        tx,
+      ): Promise<{
+        configuration: AutomaticReplyConfiguration;
+        activityId: string;
+        referenceConfiguration: ConversationReferenceConfiguration | null;
+        referenceActivityId: string | null;
+      }> => {
+        unwrap(await lockMailboxForAutomaticReply(params.context, params.mailboxId, tx));
+        unwrap(await requireAutomationSender(tx, params.mailboxId, automaticReply.senderIdentityId));
+        const referenceMutation = await putInlineReferenceConfiguration({
           context: params.context,
           mailboxId: params.mailboxId,
-          workflowId: null,
-          name: internalName,
-          description: "Managed by Mail automatic replies.",
-          priority: 100,
-          managedBy: "automatic_reply",
-          source: buildWorkflowSource({
-            senderIdentityId: parsed.data.senderIdentityId,
-            schedule: schedule.data,
-            subject: parsed.data.subject,
-            body: parsed.data.body,
-            format: parsed.data.format,
-            ensureReference: parsed.data.ensureReference,
-            minimumIntervalHours: parsed.data.minimumIntervalHours,
-            inactiveBehavior: parsed.data.inactiveBehavior,
+          input: parsed.data.referenceConfiguration,
+          db: tx,
+        });
+        if (automaticReply.ensureReference) unwrap(await requireReferenceConfiguration(tx, params.mailboxId));
+        if (automaticReply.enabled) unwrap(await requireActivationAvailable(tx, params.mailboxId, null));
+        const actor = requestActor(params.context);
+        const internalName = internalResourceName(configurationId);
+        const workflow = unwrap(
+          await replaceManagedWorkflowInTransaction({
+            db: tx,
+            context: params.context,
+            mailboxId: params.mailboxId,
+            workflowId: null,
+            name: internalName,
+            description: "Managed by Mail automatic replies.",
+            priority: 100,
+            managedBy: "automatic_reply",
+            source: buildWorkflowSource({
+              senderIdentityId: automaticReply.senderIdentityId,
+              schedule: schedule.data,
+              subject: automaticReply.subject,
+              body: automaticReply.body,
+              format: automaticReply.format,
+              ensureReference: automaticReply.ensureReference,
+              minimumIntervalHours: automaticReply.minimumIntervalHours,
+              inactiveBehavior: automaticReply.inactiveBehavior,
+            }),
+            effectBudget: managedWorkflowBudget(automaticReply.ensureReference),
+            enabled: automaticReply.enabled,
           }),
-          effectBudget: managedWorkflowBudget(parsed.data.ensureReference),
-          enabled: parsed.data.enabled,
-        }),
-      );
-      const workflowId = workflow.id;
-      const [row] = await tx<AutomaticReplyConfigurationRow[]>`
+        );
+        const workflowId = workflow.id;
+        const [row] = await tx<AutomaticReplyConfigurationRow[]>`
           INSERT INTO mail.automatic_reply_configurations (
             id, mailbox_id, workflow_id, sender_identity_id,
             name, normalized_name, subject, body, format, ensure_reference, minimum_interval_hours,
@@ -381,17 +514,17 @@ export const createAutomaticReplyConfiguration = async (params: {
             ${configurationId}::uuid,
             ${params.mailboxId}::uuid,
             ${workflowId}::uuid,
-            ${parsed.data.senderIdentityId}::uuid,
+            ${automaticReply.senderIdentityId}::uuid,
             ${name},
             lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
-            ${parsed.data.subject},
-            ${parsed.data.body},
-            ${parsed.data.format},
-            ${parsed.data.ensureReference},
-            ${parsed.data.minimumIntervalHours},
-            ${parsed.data.inactiveBehavior},
+            ${automaticReply.subject},
+            ${automaticReply.body},
+            ${automaticReply.format},
+            ${automaticReply.ensureReference},
+            ${automaticReply.minimumIntervalHours},
+            ${automaticReply.inactiveBehavior},
             ${schedule.data}::jsonb,
-            ${parsed.data.enabled},
+            ${automaticReply.enabled},
             ${actor.kind},
             ${actor.id}::uuid
           )
@@ -399,28 +532,43 @@ export const createAutomaticReplyConfiguration = async (params: {
             id, mailbox_id, workflow_id, sender_identity_id,
             name, subject, body, format, ensure_reference, minimum_interval_hours, inactive_behavior,
             enabled, revision, schedule_definition, created_at, updated_at
-      `;
-      if (!row) throw new Error("Automatic reply insert returned no row");
-      const configuration = unwrap(mapConfiguration(row));
-      const activityId = await insertActivity({
-        db: tx,
-        context: params.context,
-        configuration,
-        action: "automatic_reply_configuration.created",
+        `;
+        if (!row) throw new Error("Automatic reply insert returned no row");
+        const configuration = unwrap(mapConfiguration(row));
+        const activityId = await insertActivity({
+          db: tx,
+          context: params.context,
+          configuration,
+          action: "automatic_reply_configuration.created",
+        });
+        await audit.record(
+          {
+            action: "mail.automatic_reply_configuration.create",
+            outcome: "allowed",
+            actor: auditActorFromRequest(params.context),
+            target: { type: "automatic_reply_configuration", id: configurationId, label: name },
+            requestId: params.context.requestId,
+            metadata: { mailboxId: params.mailboxId, workflowId, enabled: automaticReply.enabled },
+          },
+          tx,
+        );
+        return {
+          configuration,
+          activityId,
+          referenceConfiguration: referenceMutation?.configuration ?? null,
+          referenceActivityId: referenceMutation?.activityId ?? null,
+        };
+      },
+    );
+    if (result.referenceActivityId) {
+      await publishMailMailboxEvent({
+        mailboxId: params.mailboxId,
+        conversationId: null,
+        reason: "reference_configuration",
+        targetId: params.mailboxId,
+        activityId: result.referenceActivityId,
       });
-      await audit.record(
-        {
-          action: "mail.automatic_reply_configuration.create",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "automatic_reply_configuration", id: configurationId, label: name },
-          requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, workflowId, enabled: parsed.data.enabled },
-        },
-        tx,
-      );
-      return { configuration, activityId };
-    });
+    }
     await publishMailMailboxEvent({
       mailboxId: params.mailboxId,
       conversationId: null,
@@ -428,140 +576,146 @@ export const createAutomaticReplyConfiguration = async (params: {
       targetId: result.configuration.id,
       activityId: result.activityId,
     });
-    return ok(result.configuration);
+    return ok({
+      automaticReply: result.configuration,
+      referenceConfiguration: result.referenceConfiguration,
+    });
   } catch (error) {
     return mutationFailure(error, "Failed to create automatic reply");
   }
 };
 
-export const updateAutomaticReplyConfiguration = async (params: {
+export const createAutomaticReplyConfiguration = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: CreateAutomaticReplyConfiguration;
+}): Promise<Result<AutomaticReplyConfiguration>> => {
+  const result = await createAutomaticReplySetup({
+    ...params,
+    input: { automaticReply: params.input },
+  });
+  return result.ok ? ok(result.data.automaticReply) : result;
+};
+
+export const updateAutomaticReplySetup = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   configurationId: string;
-  input: UpdateAutomaticReplyConfiguration;
-}): Promise<Result<AutomaticReplyConfiguration>> => {
-  const parsed = updateAutomaticReplyConfigurationSchema.safeParse(params.input);
+  input: UpdateAutomaticReplySetup;
+}): Promise<Result<AutomaticReplySetup>> => {
+  const parsed = updateAutomaticReplySetupSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid automatic reply"));
-  const schedule = validateManagedSchedule(parsed.data.schedule);
+  const automaticReply = parsed.data.automaticReply;
+  const schedule = validateManagedSchedule(automaticReply.schedule);
   if (!schedule.ok) return schedule;
-  const name = normalizeName(parsed.data.name);
+  const name = normalizeName(automaticReply.name);
   try {
-    const result = await sql.begin(async (tx): Promise<{ configuration: AutomaticReplyConfiguration; activityId: string | null }> => {
-      unwrap(await lockMailboxForAutomaticReply(params.context, params.mailboxId, tx));
-      const current = unwrap(await loadConfiguration(params.mailboxId, params.configurationId, tx, true));
-      if (current.revision !== parsed.data.expectedRevision) {
-        unwrap(fail(err.conflict("Automatic reply was changed")));
-      }
-      const senderChanged = current.senderIdentityId !== parsed.data.senderIdentityId;
-      if (parsed.data.enabled || senderChanged) {
-        unwrap(await requireAutomationSender(tx, params.mailboxId, parsed.data.senderIdentityId));
-      }
-      if (parsed.data.ensureReference && (parsed.data.enabled || !current.ensureReference)) {
-        unwrap(await requireReferenceConfiguration(tx, params.mailboxId));
-      }
-      if (parsed.data.enabled) unwrap(await requireActivationAvailable(tx, params.mailboxId, params.configurationId));
-      const scheduleChanged = JSON.stringify(current.schedule) !== JSON.stringify(schedule.data);
-      const executionChanged =
-        senderChanged ||
-        current.subject !== parsed.data.subject ||
-        current.body !== parsed.data.body ||
-        current.format !== parsed.data.format ||
-        current.ensureReference !== parsed.data.ensureReference ||
-        current.minimumIntervalHours !== parsed.data.minimumIntervalHours ||
-        current.inactiveBehavior !== parsed.data.inactiveBehavior ||
-        scheduleChanged;
-      const enabledChanged = current.enabled !== parsed.data.enabled;
-      const changed = current.name !== name || enabledChanged || executionChanged;
-      if (!changed) return { configuration: current, activityId: null };
-
-      if (executionChanged || (enabledChanged && !parsed.data.enabled)) {
-        await cancelPendingAutomaticRepliesInTransaction({
-          db: tx,
+    const result = await sql.begin(
+      async (
+        tx,
+      ): Promise<{
+        configuration: AutomaticReplyConfiguration;
+        activityId: string | null;
+        referenceConfiguration: ConversationReferenceConfiguration | null;
+        referenceActivityId: string | null;
+      }> => {
+        unwrap(await lockMailboxForAutomaticReply(params.context, params.mailboxId, tx));
+        const current = unwrap(await loadConfiguration(params.mailboxId, params.configurationId, tx, true));
+        if (current.revision !== automaticReply.expectedRevision) {
+          unwrap(fail(err.conflict("Automatic reply was changed")));
+        }
+        const changes = automaticReplyChanges(current, automaticReply, schedule.data, name);
+        if (automaticReply.enabled || changes.senderChanged) {
+          unwrap(await requireAutomationSender(tx, params.mailboxId, automaticReply.senderIdentityId));
+        }
+        const referenceMutation = await putInlineReferenceConfiguration({
+          context: params.context,
           mailboxId: params.mailboxId,
-          workflowId: current.workflowId,
-          code: "AUTOMATIC_REPLY_CONFIGURATION_CHANGED",
-          message: "Automatic reply configuration changed before delivery",
+          input: parsed.data.referenceConfiguration,
+          db: tx,
         });
-      }
-      if (executionChanged) {
-        unwrap(
-          await replaceManagedWorkflowInTransaction({
-            db: tx,
-            context: params.context,
-            mailboxId: params.mailboxId,
-            workflowId: current.workflowId,
-            name: internalResourceName(params.configurationId),
-            description: "Managed by Mail automatic replies.",
-            priority: 100,
-            managedBy: "automatic_reply",
-            source: buildWorkflowSource({
-              senderIdentityId: parsed.data.senderIdentityId,
-              schedule: schedule.data,
-              subject: parsed.data.subject,
-              body: parsed.data.body,
-              format: parsed.data.format,
-              ensureReference: parsed.data.ensureReference,
-              minimumIntervalHours: parsed.data.minimumIntervalHours,
-              inactiveBehavior: parsed.data.inactiveBehavior,
-            }),
-            effectBudget: managedWorkflowBudget(parsed.data.ensureReference),
-            enabled: parsed.data.enabled,
-          }),
-        );
-      } else if (enabledChanged) {
-        unwrap(
-          await setManagedWorkflowEnabledInTransaction({
-            db: tx,
-            context: params.context,
-            mailboxId: params.mailboxId,
-            workflowId: current.workflowId,
-            enabled: parsed.data.enabled,
-          }),
-        );
-      }
-      await tx`
+        if (automaticReply.ensureReference && (automaticReply.enabled || !current.ensureReference)) {
+          unwrap(await requireReferenceConfiguration(tx, params.mailboxId));
+        }
+        if (automaticReply.enabled) unwrap(await requireActivationAvailable(tx, params.mailboxId, params.configurationId));
+        if (!changes.changed) {
+          return {
+            configuration: current,
+            activityId: null,
+            referenceConfiguration: referenceMutation?.configuration ?? null,
+            referenceActivityId: referenceMutation?.activityId ?? null,
+          };
+        }
+
+        await applyAutomaticReplyWorkflowUpdate({
+          db: tx,
+          context: params.context,
+          mailboxId: params.mailboxId,
+          configurationId: params.configurationId,
+          current,
+          input: automaticReply,
+          schedule: schedule.data,
+          executionChanged: changes.executionChanged,
+          enabledChanged: changes.enabledChanged,
+        });
+        await tx`
           UPDATE mail.automatic_reply_configurations
           SET
-            sender_identity_id = ${parsed.data.senderIdentityId}::uuid,
+            sender_identity_id = ${automaticReply.senderIdentityId}::uuid,
             name = ${name},
             normalized_name = lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
-            subject = ${parsed.data.subject},
-            body = ${parsed.data.body},
-            format = ${parsed.data.format},
-            ensure_reference = ${parsed.data.ensureReference},
-            minimum_interval_hours = ${parsed.data.minimumIntervalHours},
-            inactive_behavior = ${parsed.data.inactiveBehavior},
+            subject = ${automaticReply.subject},
+            body = ${automaticReply.body},
+            format = ${automaticReply.format},
+            ensure_reference = ${automaticReply.ensureReference},
+            minimum_interval_hours = ${automaticReply.minimumIntervalHours},
+            inactive_behavior = ${automaticReply.inactiveBehavior},
             schedule_definition = ${schedule.data}::jsonb,
-            enabled = ${parsed.data.enabled},
+            enabled = ${automaticReply.enabled},
             revision = revision + 1
           WHERE id = ${params.configurationId}::uuid
             AND mailbox_id = ${params.mailboxId}::uuid
         `;
-      const configuration = unwrap(await loadConfiguration(params.mailboxId, params.configurationId, tx));
-      const activityId = await insertActivity({
-        db: tx,
-        context: params.context,
-        configuration,
-        action: "automatic_reply_configuration.updated",
-      });
-      await audit.record(
-        {
-          action: "mail.automatic_reply_configuration.update",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "automatic_reply_configuration", id: params.configurationId, label: name },
-          requestId: params.context.requestId,
-          metadata: {
-            mailboxId: params.mailboxId,
-            workflowId: current.workflowId,
-            enabled: parsed.data.enabled,
-            revision: configuration.revision,
+        const configuration = unwrap(await loadConfiguration(params.mailboxId, params.configurationId, tx));
+        const activityId = await insertActivity({
+          db: tx,
+          context: params.context,
+          configuration,
+          action: "automatic_reply_configuration.updated",
+        });
+        await audit.record(
+          {
+            action: "mail.automatic_reply_configuration.update",
+            outcome: "allowed",
+            actor: auditActorFromRequest(params.context),
+            target: { type: "automatic_reply_configuration", id: params.configurationId, label: name },
+            requestId: params.context.requestId,
+            metadata: {
+              mailboxId: params.mailboxId,
+              workflowId: current.workflowId,
+              enabled: automaticReply.enabled,
+              revision: configuration.revision,
+            },
           },
-        },
-        tx,
-      );
-      return { configuration, activityId };
-    });
+          tx,
+        );
+        return {
+          configuration,
+          activityId,
+          referenceConfiguration: referenceMutation?.configuration ?? null,
+          referenceActivityId: referenceMutation?.activityId ?? null,
+        };
+      },
+    );
+    if (result.referenceActivityId) {
+      await publishMailMailboxEvent({
+        mailboxId: params.mailboxId,
+        conversationId: null,
+        reason: "reference_configuration",
+        targetId: params.mailboxId,
+        activityId: result.referenceActivityId,
+      });
+    }
     if (result.activityId) {
       await publishMailMailboxEvent({
         mailboxId: params.mailboxId,
@@ -571,8 +725,24 @@ export const updateAutomaticReplyConfiguration = async (params: {
         activityId: result.activityId,
       });
     }
-    return ok(result.configuration);
+    return ok({
+      automaticReply: result.configuration,
+      referenceConfiguration: result.referenceConfiguration,
+    });
   } catch (error) {
     return mutationFailure(error, "Failed to update automatic reply");
   }
+};
+
+export const updateAutomaticReplyConfiguration = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  configurationId: string;
+  input: UpdateAutomaticReplyConfiguration;
+}): Promise<Result<AutomaticReplyConfiguration>> => {
+  const result = await updateAutomaticReplySetup({
+    ...params,
+    input: { automaticReply: params.input },
+  });
+  return result.ok ? ok(result.data.automaticReply) : result;
 };

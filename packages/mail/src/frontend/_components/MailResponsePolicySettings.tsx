@@ -2,6 +2,7 @@ import { dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
+import type { PutConversationReferenceConfiguration } from "../../contracts";
 import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
 import { readApiError } from "./api-response";
 
@@ -12,25 +13,91 @@ const previewPattern = (pattern: string): string =>
     .replaceAll("{year}", String(new Date().getFullYear()))
     .replace(/\{sequence(?::(\d+))?\}/gu, (_, width: string | undefined) => "42".padStart(Number(width ?? 1), "0"));
 
-function ReferenceConfigurationEditor(props: {
+type MailReferenceConfigurationDraft = PutConversationReferenceConfiguration;
+
+export const referenceConfigurationDraft = (configuration: ConversationReferenceConfiguration | null): MailReferenceConfigurationDraft => ({
+  expectedRevision: configuration?.revision ?? null,
+  pattern: configuration?.pattern ?? DEFAULT_PATTERN,
+  enabled: configuration?.enabled ?? true,
+  includeInReplySubjects: configuration?.includeInReplySubjects ?? true,
+});
+
+export function MailReferenceConfigurationFields(props: {
+  value: () => MailReferenceConfigurationDraft;
+  onChange: (value: MailReferenceConfigurationDraft) => void;
+  compact?: boolean;
+}) {
+  const update = <K extends keyof MailReferenceConfigurationDraft>(key: K, value: MailReferenceConfigurationDraft[K]) =>
+    props.onChange({ ...props.value(), [key]: value });
+
+  return (
+    <div class="flex flex-col gap-3">
+      <TextInput
+        label="Number format"
+        description="Use exactly one sequence token. Existing references never change when the format changes."
+        value={() => props.value().pattern}
+        onInput={(value) => update("pattern", value)}
+        monospace
+        required
+      />
+      <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
+        <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-xs font-medium text-primary">
+          <span class="flex items-center gap-2">
+            <i class="ti ti-braces" aria-hidden="true" />
+            Format placeholders
+          </span>
+          <i class="ti ti-chevron-down transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        <div class="grid gap-2 px-3 pb-3 text-xs text-secondary sm:grid-cols-3">
+          <p>
+            <code>{"{sequence}"}</code> next mailbox-wide number
+          </p>
+          <p>
+            <code>{"{sequence:6}"}</code> number padded to six digits
+          </p>
+          <p>
+            <code>{"{year}"}</code> allocation year
+          </p>
+        </div>
+      </details>
+      <p class="flex items-center gap-2 text-xs text-dimmed">
+        <i class="ti ti-eye shrink-0" aria-hidden="true" />
+        Preview: <code>{previewPattern(props.value().pattern.trim() || DEFAULT_PATTERN)}</code>
+      </p>
+      <Show when={!props.compact}>
+        <Switch
+          label="Allow automations to assign reference numbers"
+          value={() => props.value().enabled}
+          onChange={(value) => update("enabled", value)}
+        />
+        <p class="-mt-2 text-xs text-dimmed">Disabling this stops new allocations but keeps existing references searchable.</p>
+        <Switch
+          label="Include the reference in reply subjects"
+          value={() => props.value().includeInReplySubjects}
+          onChange={(value) => update("includeInReplySubjects", value)}
+        />
+        <p class="-mt-2 text-xs text-dimmed">New replies use Re: [REFERENCE] Original subject after a reference has been assigned.</p>
+      </Show>
+    </div>
+  );
+}
+
+export function MailReferenceConfigurationForm(props: {
   mailboxId: string;
   configuration: ConversationReferenceConfiguration | null;
-  close: () => void;
   onSaved: (configuration: ConversationReferenceConfiguration) => void;
+  compact?: boolean;
 }) {
-  const [pattern, setPattern] = createSignal(props.configuration?.pattern ?? DEFAULT_PATTERN);
-  const [enabled, setEnabled] = createSignal(props.configuration?.enabled ?? true);
-  const [includeInReplySubjects, setIncludeInReplySubjects] = createSignal(props.configuration?.includeInReplySubjects ?? true);
+  const [draft, setDraft] = createSignal(referenceConfigurationDraft(props.configuration));
   const save = mutation.create<ConversationReferenceConfiguration, void>({
     mutation: async (_input, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["reference-number-configuration"].$put(
         {
           param: { mailboxId: props.mailboxId },
           json: {
-            expectedRevision: props.configuration?.revision ?? null,
-            pattern: pattern().trim(),
-            enabled: enabled(),
-            includeInReplySubjects: includeInReplySubjects(),
+            ...draft(),
+            pattern: draft().pattern.trim(),
+            enabled: props.compact ? true : draft().enabled,
           },
         },
         { init: { signal: abortSignal } },
@@ -41,17 +108,40 @@ function ReferenceConfigurationEditor(props: {
     onSuccess: (configuration) => {
       props.onSaved(configuration);
       toast.success("Reference number settings saved");
-      props.close();
     },
     onError: (error) => prompts.error(error.message),
   });
   onCleanup(() => save.abort());
 
   return (
+    <div class="flex flex-col gap-3">
+      <MailReferenceConfigurationFields value={draft} onChange={setDraft} compact={props.compact} />
+      <div class="flex justify-end">
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          disabled={save.loading() || !draft().pattern.trim()}
+          onClick={() => save.mutate()}
+        >
+          <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+          Save reference format
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReferenceConfigurationEditor(props: {
+  mailboxId: string;
+  configuration: ConversationReferenceConfiguration | null;
+  close: () => void;
+  onSaved: (configuration: ConversationReferenceConfiguration) => void;
+}) {
+  return (
     <PanelDialog>
       <PanelDialog.Header
         title="Reference numbers"
-        subtitle="Configure one durable number sequence for this mailbox"
+        subtitle="One durable number sequence for this mailbox"
         icon="ti ti-hash"
         close={props.close}
       />
@@ -61,116 +151,57 @@ function ReferenceConfigurationEditor(props: {
           subtitle="Every conversation receives at most one permanent reference."
           icon="ti ti-hash"
         >
-          <TextInput
-            label="Pattern"
-            description="Use exactly one {sequence} token. Add {year} and a width such as {sequence:6} when useful."
-            value={pattern}
-            onInput={setPattern}
-            monospace
-            required
+          <MailReferenceConfigurationForm
+            mailboxId={props.mailboxId}
+            configuration={props.configuration}
+            onSaved={(configuration) => {
+              props.onSaved(configuration);
+              props.close();
+            }}
           />
-          <div class="info-block-info flex items-start gap-2">
-            <i class="ti ti-eye mt-0.5 shrink-0" aria-hidden="true" />
-            <span>
-              Next numbers will look like <code>{previewPattern(pattern().trim() || DEFAULT_PATTERN)}</code>. Existing references never
-              change when this pattern changes.
-            </span>
-          </div>
-          <Switch label="Allow workflows to assign reference numbers" value={enabled} onChange={setEnabled} />
-          <p class="-mt-1 text-xs text-dimmed">Disabling this stops new allocations but keeps every existing reference searchable.</p>
-          <Switch label="Include the reference in reply subjects" value={includeInReplySubjects} onChange={setIncludeInReplySubjects} />
-          <p class="-mt-1 text-xs text-dimmed">
-            New human and automatic replies use Re: [REFERENCE] Original subject. Threading still uses standard mail headers.
-          </p>
         </PanelDialog.Section>
       </PanelDialog.Body>
-      <PanelDialog.Footer>
-        <button type="button" class="btn-simple btn-sm" onClick={props.close}>
-          Cancel
-        </button>
-        <button type="button" class="btn-primary btn-sm" disabled={save.loading() || !pattern().trim()} onClick={() => save.mutate()}>
-          <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" /> Save
-        </button>
-      </PanelDialog.Footer>
     </PanelDialog>
   );
 }
 
-export default function MailResponsePolicySettings(props: {
+export function MailReferenceConfigurationCard(props: {
   mailboxId: string;
-  initialConfiguration: ConversationReferenceConfiguration | null;
-  onConfigurationChange?: (configuration: ConversationReferenceConfiguration) => void;
-  onCreateAcknowledgement: () => void;
-  onOpenWorkflows: () => void;
+  configuration: ConversationReferenceConfiguration | null;
+  onConfigurationChange: (configuration: ConversationReferenceConfiguration) => void;
 }) {
-  const [configuration, setConfiguration] = createSignal(props.initialConfiguration);
-  const saved = (next: ConversationReferenceConfiguration) => {
-    setConfiguration(next);
-    props.onConfigurationChange?.(next);
-  };
   const openEditor = () =>
     dialogCore.open<void>(
       (close) => (
-        <ReferenceConfigurationEditor mailboxId={props.mailboxId} configuration={configuration()} close={() => close()} onSaved={saved} />
+        <ReferenceConfigurationEditor
+          mailboxId={props.mailboxId}
+          configuration={props.configuration}
+          close={() => close()}
+          onSaved={props.onConfigurationChange}
+        />
       ),
       panelDialogOptions,
     );
-
   return (
-    <div class="flex flex-col gap-2">
-      <section class="paper p-4">
-        <div class="flex items-start gap-3">
-          <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
-            <i class={`ti ${configuration()?.enabled ? "ti-hash" : "ti-hash-off"}`} aria-hidden="true" />
-          </span>
-          <div class="min-w-0 flex-1">
-            <h2 class="text-sm font-semibold text-primary">
-              {configuration()?.enabled ? "Reference numbers are available" : "Reference numbers are not active"}
-            </h2>
-            <p class="mt-0.5 text-xs text-dimmed">
-              <Show when={configuration()} fallback="Choose a format before a workflow can assign numbers.">
-                {(current) => (
-                  <>
-                    Pattern <code>{current().pattern}</code>; next sequence <code>{current().nextSequence}</code>.
-                  </>
-                )}
-              </Show>
-            </p>
-          </div>
-          <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void openEditor()}>
-            <i class="ti ti-settings" aria-hidden="true" /> {configuration() ? "Configure" : "Set up"}
-          </button>
-        </div>
-      </section>
-
-      <section class="grid gap-2 md:grid-cols-2">
-        <button type="button" class="paper flex items-start gap-3 p-4 text-left" onClick={props.onCreateAcknowledgement}>
-          <i class="ti ti-message-check mt-0.5 text-dimmed" aria-hidden="true" />
-          <span>
-            <span class="block text-sm font-semibold text-primary">Send a reference acknowledgement</span>
-            <span class="mt-0.5 block text-xs text-dimmed">
-              Start from a guided automatic reply that assigns a number and includes it in the message.
-            </span>
-          </span>
-        </button>
-        <button type="button" class="paper flex items-start gap-3 p-4 text-left" onClick={props.onOpenWorkflows}>
-          <i class="ti ti-code mt-0.5 text-dimmed" aria-hidden="true" />
-          <span>
-            <span class="block text-sm font-semibold text-primary">Use workflow YAML</span>
-            <span class="mt-0.5 block text-xs text-dimmed">
-              Place <code>ensureConversationReference</code> wherever your workflow should allocate a number.
-            </span>
-          </span>
-        </button>
-      </section>
-
-      <div class="info-block-info flex items-start gap-2">
-        <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
-        <span>
-          Configuration defines how numbers look. Workflows decide when a number is assigned. Reply subjects are updated only after a
-          conversation has a reference.
+    <section class="paper p-4">
+      <div class="flex flex-wrap items-start gap-3">
+        <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
+          <i class={`ti ${props.configuration?.enabled ? "ti-hash" : "ti-hash-off"}`} aria-hidden="true" />
         </span>
+        <div class="min-w-64 flex-1">
+          <h2 class="text-sm font-semibold text-primary">
+            {props.configuration?.enabled ? "Reference numbers are available" : "Reference numbers are not configured"}
+          </h2>
+          <p class="mt-0.5 text-xs text-dimmed">
+            {props.configuration
+              ? `Pattern ${props.configuration.pattern}; next sequence ${props.configuration.nextSequence}.`
+              : "Configure the mailbox sequence before a workflow assigns durable conversation references."}
+          </p>
+        </div>
+        <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void openEditor()}>
+          <i class="ti ti-settings" aria-hidden="true" /> {props.configuration ? "Configure" : "Set up"}
+        </button>
       </div>
-    </div>
+    </section>
   );
 }

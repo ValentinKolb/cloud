@@ -288,90 +288,105 @@ export const getConversationReferenceConfiguration = async (
   return ok(row ? mapConfiguration(row) : null);
 };
 
+export type ConversationReferenceConfigurationMutation = {
+  configuration: ConversationReferenceConfiguration;
+  activityId: string | null;
+};
+
+export const putConversationReferenceConfigurationInTransaction = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: PutConversationReferenceConfiguration;
+  db: SqlClient;
+}): Promise<Result<ConversationReferenceConfigurationMutation>> => {
+  const pattern = params.input.pattern.trim();
+  const validPattern = validateConversationReferencePattern(pattern);
+  if (!validPattern.ok) return validPattern;
+  const actor = requestActor(params.context);
+  const allowed = await lockMailbox(params.context, params.mailboxId, "admin", params.db);
+  if (!allowed.ok) return allowed;
+  const [current] = await params.db<ReferenceConfigurationRow[]>`
+    SELECT ${configurationColumns}
+    FROM mail.reference_number_configurations configuration
+    WHERE configuration.mailbox_id = ${params.mailboxId}::uuid
+    FOR UPDATE
+  `;
+  if (current && params.input.expectedRevision !== Number(current.revision)) {
+    return fail(err.conflict("Reference number settings were changed"));
+  }
+  if (!current && params.input.expectedRevision !== null) {
+    return fail(err.conflict("Reference number settings do not exist yet"));
+  }
+  const changed =
+    !current ||
+    current.pattern !== pattern ||
+    current.enabled !== params.input.enabled ||
+    current.include_in_reply_subjects !== params.input.includeInReplySubjects;
+  if (!changed && current) {
+    return ok({ configuration: mapConfiguration(current), activityId: null });
+  }
+  const [row] = await params.db<ReferenceConfigurationRow[]>`
+    INSERT INTO mail.reference_number_configurations (
+      mailbox_id, pattern, enabled, include_in_reply_subjects, created_by_actor_kind, created_by_actor_id
+    ) VALUES (
+      ${params.mailboxId}::uuid, ${pattern}, ${params.input.enabled}, ${params.input.includeInReplySubjects},
+      ${actor.kind}, ${actor.id}::uuid
+    )
+    ON CONFLICT (mailbox_id) DO UPDATE
+    SET
+      pattern = EXCLUDED.pattern,
+      enabled = EXCLUDED.enabled,
+      include_in_reply_subjects = EXCLUDED.include_in_reply_subjects,
+      revision = mail.reference_number_configurations.revision + 1
+    RETURNING mailbox_id, pattern, next_sequence, enabled, include_in_reply_subjects, revision, created_at, updated_at
+  `;
+  if (!row) throw new Error("Reference number configuration upsert returned no row");
+  const configuration = mapConfiguration(row);
+  const activityId = await insertActivity({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    conversationId: null,
+    actor,
+    action: current ? "reference_configuration.updated" : "reference_configuration.created",
+    targetId: params.mailboxId,
+    metadata: {
+      pattern: configuration.pattern,
+      enabled: configuration.enabled,
+      includeInReplySubjects: configuration.includeInReplySubjects,
+      revision: configuration.revision,
+    },
+  });
+  await audit.record(
+    {
+      action: current ? "mail.reference_configuration.update" : "mail.reference_configuration.create",
+      outcome: "allowed",
+      actor: auditActorFromRequest(params.context),
+      target: { type: "reference_configuration", id: params.mailboxId },
+      requestId: params.context.requestId,
+      metadata: {
+        mailboxId: params.mailboxId,
+        pattern: configuration.pattern,
+        enabled: configuration.enabled,
+        includeInReplySubjects: configuration.includeInReplySubjects,
+        revision: configuration.revision,
+      },
+    },
+    params.db,
+  );
+  return ok({ configuration, activityId });
+};
+
 export const putConversationReferenceConfiguration = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   input: PutConversationReferenceConfiguration;
 }): Promise<Result<ConversationReferenceConfiguration>> => {
-  const pattern = params.input.pattern.trim();
-  const validPattern = validateConversationReferencePattern(pattern);
-  if (!validPattern.ok) return validPattern;
-  const actor = requestActor(params.context);
   try {
-    const result = await sql.begin(
-      async (tx): Promise<Result<{ configuration: ConversationReferenceConfiguration; activityId: string }>> => {
-        const allowed = await lockMailbox(params.context, params.mailboxId, "admin", tx);
-        if (!allowed.ok) return allowed;
-        const [current] = await tx<ReferenceConfigurationRow[]>`
-        SELECT ${configurationColumns}
-        FROM mail.reference_number_configurations configuration
-        WHERE configuration.mailbox_id = ${params.mailboxId}::uuid
-        FOR UPDATE
-      `;
-        if (current && params.input.expectedRevision !== Number(current.revision)) {
-          return fail(err.conflict("Reference number settings were changed"));
-        }
-        if (!current && params.input.expectedRevision !== null) {
-          return fail(err.conflict("Reference number settings do not exist yet"));
-        }
-        const changed =
-          !current ||
-          current.pattern !== pattern ||
-          current.enabled !== params.input.enabled ||
-          current.include_in_reply_subjects !== params.input.includeInReplySubjects;
-        if (!changed && current) {
-          return ok({ configuration: mapConfiguration(current), activityId: "" });
-        }
-        const [row] = await tx<ReferenceConfigurationRow[]>`
-        INSERT INTO mail.reference_number_configurations (
-          mailbox_id, pattern, enabled, include_in_reply_subjects, created_by_actor_kind, created_by_actor_id
-        ) VALUES (
-          ${params.mailboxId}::uuid, ${pattern}, ${params.input.enabled}, ${params.input.includeInReplySubjects},
-          ${actor.kind}, ${actor.id}::uuid
-        )
-        ON CONFLICT (mailbox_id) DO UPDATE
-        SET
-          pattern = EXCLUDED.pattern,
-          enabled = EXCLUDED.enabled,
-          include_in_reply_subjects = EXCLUDED.include_in_reply_subjects,
-          revision = mail.reference_number_configurations.revision + 1
-        RETURNING mailbox_id, pattern, next_sequence, enabled, include_in_reply_subjects, revision, created_at, updated_at
-      `;
-        if (!row) throw new Error("Reference number configuration upsert returned no row");
-        const configuration = mapConfiguration(row);
-        const activityId = await insertActivity({
-          db: tx,
-          mailboxId: params.mailboxId,
-          conversationId: null,
-          actor,
-          action: current ? "reference_configuration.updated" : "reference_configuration.created",
-          targetId: params.mailboxId,
-          metadata: {
-            pattern: configuration.pattern,
-            enabled: configuration.enabled,
-            includeInReplySubjects: configuration.includeInReplySubjects,
-            revision: configuration.revision,
-          },
-        });
-        await audit.record(
-          {
-            action: current ? "mail.reference_configuration.update" : "mail.reference_configuration.create",
-            outcome: "allowed",
-            actor: auditActorFromRequest(params.context),
-            target: { type: "reference_configuration", id: params.mailboxId },
-            requestId: params.context.requestId,
-            metadata: {
-              mailboxId: params.mailboxId,
-              pattern: configuration.pattern,
-              enabled: configuration.enabled,
-              includeInReplySubjects: configuration.includeInReplySubjects,
-              revision: configuration.revision,
-            },
-          },
-          tx,
-        );
-        return ok({ configuration, activityId });
-      },
+    const result = await sql.begin((tx) =>
+      putConversationReferenceConfigurationInTransaction({
+        ...params,
+        db: tx,
+      }),
     );
     if (!result.ok) return result;
     if (result.data.activityId) {

@@ -77,7 +77,7 @@ import {
   type WorkflowEffectBudget,
   type WorkflowValidation,
 } from "./contracts";
-import type { AutomaticReplyConfiguration } from "./service/automatic-reply-configuration";
+import type { AutomaticReplyConfiguration, AutomaticReplySetup } from "./service/automatic-reply-configuration";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "./service/collaboration";
 import type {
   ConversationReference,
@@ -5257,11 +5257,14 @@ export default defineCliCommands({
       },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const configuration = await readApi<AutomaticReplyConfiguration>(
+        const setup = await readApi<AutomaticReplySetup>(
           ctx,
           `/mailboxes/${mailbox.id}/automatic-replies`,
-          jsonRequest("POST", await readAutomaticReplyConfiguration(flags.configuration)),
+          jsonRequest("POST", {
+            automaticReply: await readAutomaticReplyConfiguration(flags.configuration),
+          }),
         );
+        const configuration = setup.automaticReply;
         if (printStructured(ctx, configuration)) return;
         ctx.print(`Created automatic reply ${configuration.name} (${configuration.id}).`);
       },
@@ -5285,14 +5288,17 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (flags.revision === undefined) throw new Error("Missing expected automatic reply revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const configuration = await readApi<AutomaticReplyConfiguration>(
+        const setup = await readApi<AutomaticReplySetup>(
           ctx,
           `/mailboxes/${mailbox.id}/automatic-replies/${args.configurationId}`,
           jsonRequest("PATCH", {
-            expectedRevision: flags.revision,
-            ...(await readAutomaticReplyConfiguration(flags.configuration)),
+            automaticReply: {
+              expectedRevision: flags.revision,
+              ...(await readAutomaticReplyConfiguration(flags.configuration)),
+            },
           }),
         );
+        const configuration = setup.automaticReply;
         if (printStructured(ctx, configuration)) return;
         ctx.print(`Updated automatic reply ${configuration.name} to revision ${configuration.revision}.`);
       },

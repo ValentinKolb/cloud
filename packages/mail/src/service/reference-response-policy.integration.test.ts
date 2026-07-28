@@ -6,8 +6,10 @@ import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
 import {
   createAutomaticReplyConfiguration,
+  createAutomaticReplySetup,
   listAutomaticReplyConfigurations,
   updateAutomaticReplyConfiguration,
+  updateAutomaticReplySetup,
 } from "./automatic-reply-configuration";
 import {
   ensureConversationReference,
@@ -579,6 +581,146 @@ suite("conversation references and automatic reply policies", () => {
       senderIdentityId: identity.id,
       inactiveBehavior: "skip",
       revision: 1,
+    });
+    const loadedReferenceConfiguration = await getConversationReferenceConfiguration(ownerContext, mailboxId);
+    if (!loadedReferenceConfiguration.ok) throw new Error(loadedReferenceConfiguration.error.message);
+    let referenceBeforeAtomicConflict = loadedReferenceConfiguration.data;
+    if (!referenceBeforeAtomicConflict) {
+      const createdReferenceConfiguration = await putConversationReferenceConfiguration({
+        context: ownerContext,
+        mailboxId,
+        input: {
+          expectedRevision: null,
+          pattern: "SUP-{year}-{sequence:6}",
+          enabled: true,
+          includeInReplySubjects: true,
+        },
+      });
+      if (!createdReferenceConfiguration.ok) throw new Error(createdReferenceConfiguration.error.message);
+      referenceBeforeAtomicConflict = createdReferenceConfiguration.data;
+    }
+    const atomicConflict = await createAutomaticReplySetup({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        automaticReply: {
+          ...input,
+          name: `Atomic rollback ${suffix}`,
+          ensureReference: true,
+          body: "Your reference is ${{ reference.value }}.",
+        },
+        referenceConfiguration: {
+          expectedRevision: referenceBeforeAtomicConflict.revision,
+          pattern: `ROLLBACK-{year}-{sequence:6}`,
+          enabled: true,
+          includeInReplySubjects: referenceBeforeAtomicConflict.includeInReplySubjects,
+        },
+      },
+    });
+    expect(atomicConflict.ok).toBe(false);
+    if (!atomicConflict.ok) expect(atomicConflict.error.code).toBe("CONFLICT");
+    expect(await getReferenceConfiguration()).toEqual(referenceBeforeAtomicConflict);
+    const atomicSetup = await createAutomaticReplySetup({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        automaticReply: {
+          ...input,
+          name: `Reference acknowledgement ${suffix}`,
+          enabled: false,
+          ensureReference: true,
+          body: "Your reference is ${{ reference.value }}.",
+        },
+        referenceConfiguration: {
+          expectedRevision: referenceBeforeAtomicConflict.revision,
+          pattern: `CASE-{year}-{sequence:6}`,
+          enabled: true,
+          includeInReplySubjects: true,
+        },
+      },
+    });
+    if (!atomicSetup.ok) throw new Error(`${atomicSetup.error.code}: ${atomicSetup.error.message}`);
+    expect(atomicSetup.data).toMatchObject({
+      automaticReply: {
+        name: `Reference acknowledgement ${suffix}`,
+        enabled: false,
+        ensureReference: true,
+      },
+      referenceConfiguration: {
+        pattern: `CASE-{year}-{sequence:6}`,
+        enabled: true,
+        revision: referenceBeforeAtomicConflict.revision + 1,
+      },
+    });
+    const atomicReply = atomicSetup.data.automaticReply;
+    const atomicReplyUpdate = {
+      expectedRevision: atomicReply.revision,
+      name: atomicReply.name,
+      enabled: atomicReply.enabled,
+      senderIdentityId: atomicReply.senderIdentityId,
+      subject: atomicReply.subject,
+      body: "Updated atomic reply.",
+      format: atomicReply.format,
+      ensureReference: atomicReply.ensureReference,
+      minimumIntervalHours: atomicReply.minimumIntervalHours,
+      inactiveBehavior: atomicReply.inactiveBehavior,
+      schedule: atomicReply.schedule,
+    };
+    const updatedAtomicReply = await updateAutomaticReplyConfiguration({
+      context: ownerContext,
+      mailboxId,
+      configurationId: atomicReply.id,
+      input: atomicReplyUpdate,
+    });
+    if (!updatedAtomicReply.ok) throw new Error(`${updatedAtomicReply.error.code}: ${updatedAtomicReply.error.message}`);
+    const referenceBeforeStaleAutomaticReply = await getReferenceConfiguration();
+    const staleAutomaticReply = await updateAutomaticReplySetup({
+      context: ownerContext,
+      mailboxId,
+      configurationId: atomicReply.id,
+      input: {
+        automaticReply: {
+          ...atomicReplyUpdate,
+          expectedRevision: atomicReply.revision,
+          body: "This stale automatic reply must not be saved.",
+        },
+        referenceConfiguration: {
+          expectedRevision: referenceBeforeStaleAutomaticReply.revision,
+          pattern: `STALE-AUTO-{year}-{sequence:6}`,
+          enabled: true,
+          includeInReplySubjects: true,
+        },
+      },
+    });
+    expect(staleAutomaticReply.ok).toBe(false);
+    if (!staleAutomaticReply.ok) expect(staleAutomaticReply.error.code).toBe("CONFLICT");
+    expect(await getReferenceConfiguration()).toEqual(referenceBeforeStaleAutomaticReply);
+    const staleReferenceConfiguration = await updateAutomaticReplySetup({
+      context: ownerContext,
+      mailboxId,
+      configurationId: atomicReply.id,
+      input: {
+        automaticReply: {
+          ...atomicReplyUpdate,
+          expectedRevision: updatedAtomicReply.data.revision,
+          name: "This automatic reply change must roll back",
+        },
+        referenceConfiguration: {
+          expectedRevision: referenceBeforeStaleAutomaticReply.revision - 1,
+          pattern: `STALE-REFERENCE-{year}-{sequence:6}`,
+          enabled: true,
+          includeInReplySubjects: true,
+        },
+      },
+    });
+    expect(staleReferenceConfiguration.ok).toBe(false);
+    if (!staleReferenceConfiguration.ok) expect(staleReferenceConfiguration.error.code).toBe("CONFLICT");
+    const automaticRepliesAfterStaleReference = await listAutomaticReplyConfigurations(ownerContext, mailboxId);
+    if (!automaticRepliesAfterStaleReference.ok) throw new Error(automaticRepliesAfterStaleReference.error.message);
+    expect(automaticRepliesAfterStaleReference.data.find((configuration) => configuration.id === atomicReply.id)).toMatchObject({
+      name: atomicReply.name,
+      body: "Updated atomic reply.",
+      revision: updatedAtomicReply.data.revision,
     });
     const [stored] = await sql<
       {

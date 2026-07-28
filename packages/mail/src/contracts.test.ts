@@ -5,6 +5,7 @@ import {
   cancelScheduledSendInputSchema,
   conversationTriageInputSchema,
   createAutomaticReplyConfigurationSchema,
+  createAutomaticReplySetupSchema,
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
   createLocalTagSchema,
@@ -29,6 +30,7 @@ import {
   splitConversationInputSchema,
   startSenderRuleBackfillInputSchema,
   updateAutomaticReplyConfigurationSchema,
+  updateAutomaticReplySetupSchema,
   updateConversationCollaborationSchema,
   updateConversationCommentSchema,
   updateLocalTagSchema,
@@ -217,6 +219,34 @@ describe("automatic reply configuration contracts", () => {
       }).success,
     ).toBe(true);
     expect(updateAutomaticReplyConfigurationSchema.safeParse({ expectedRevision: 1, ...configuration, body: "  " }).success).toBe(false);
+  });
+
+  test("accepts one atomic automatic reply and reference configuration payload", () => {
+    const referenceConfiguration = {
+      expectedRevision: null,
+      pattern: "REF-{year}-{sequence:6}",
+      enabled: true,
+      includeInReplySubjects: true,
+    };
+    expect(
+      createAutomaticReplySetupSchema.safeParse({
+        automaticReply: { ...configuration, ensureReference: true },
+        referenceConfiguration,
+      }).success,
+    ).toBe(true);
+    expect(
+      updateAutomaticReplySetupSchema.safeParse({
+        automaticReply: { expectedRevision: 1, ...configuration, ensureReference: true },
+        referenceConfiguration,
+      }).success,
+    ).toBe(true);
+    expect(createAutomaticReplySetupSchema.safeParse(configuration).success).toBe(false);
+    expect(
+      createAutomaticReplySetupSchema.safeParse({
+        automaticReply: configuration,
+        referenceConfiguration,
+      }).success,
+    ).toBe(false);
   });
 });
 

@@ -1,7 +1,7 @@
 import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { createAutomaticReplyConfigurationSchema, updateAutomaticReplyConfigurationSchema } from "../contracts";
+import { createAutomaticReplySetupSchema, updateAutomaticReplySetupSchema } from "../contracts";
 import { automaticReplyConfigurations, type MailRequestContext } from "../service";
 
 const mailboxParamSchema = z.object({ mailboxId: z.string().uuid() });
@@ -16,28 +16,24 @@ export default new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/automatic-replies", v("param", mailboxParamSchema), async (c) =>
     respond(c, automaticReplyConfigurations.listAutomaticReplyConfigurations(requestContext(c), c.req.valid("param").mailboxId)),
   )
-  .post(
-    "/mailboxes/:mailboxId/automatic-replies",
-    v("param", mailboxParamSchema),
-    v("json", createAutomaticReplyConfigurationSchema),
-    async (c) =>
-      respond(
-        c,
-        automaticReplyConfigurations.createAutomaticReplyConfiguration({
-          context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
-        }),
-      ),
+  .post("/mailboxes/:mailboxId/automatic-replies", v("param", mailboxParamSchema), v("json", createAutomaticReplySetupSchema), async (c) =>
+    respond(
+      c,
+      automaticReplyConfigurations.createAutomaticReplySetup({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        input: c.req.valid("json"),
+      }),
+    ),
   )
   .patch(
     "/mailboxes/:mailboxId/automatic-replies/:configurationId",
     v("param", automaticReplyParamSchema),
-    v("json", updateAutomaticReplyConfigurationSchema),
+    v("json", updateAutomaticReplySetupSchema),
     async (c) =>
       respond(
         c,
-        automaticReplyConfigurations.updateAutomaticReplyConfiguration({
+        automaticReplyConfigurations.updateAutomaticReplySetup({
           context: requestContext(c),
           ...c.req.valid("param"),
           input: c.req.valid("json"),

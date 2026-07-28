@@ -1802,6 +1802,40 @@ export const updateAutomaticReplyConfigurationSchema = z
   .strict();
 export type UpdateAutomaticReplyConfiguration = z.infer<typeof updateAutomaticReplyConfigurationSchema>;
 
+export const createAutomaticReplySetupSchema = z
+  .object({
+    automaticReply: createAutomaticReplyConfigurationSchema,
+    referenceConfiguration: putConversationReferenceConfigurationSchema.optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.referenceConfiguration && !input.automaticReply.ensureReference) {
+      context.addIssue({
+        code: "custom",
+        message: "Reference number settings require Assign a reference number before replying",
+        path: ["referenceConfiguration"],
+      });
+    }
+  });
+export type CreateAutomaticReplySetup = z.infer<typeof createAutomaticReplySetupSchema>;
+
+export const updateAutomaticReplySetupSchema = z
+  .object({
+    automaticReply: updateAutomaticReplyConfigurationSchema,
+    referenceConfiguration: putConversationReferenceConfigurationSchema.optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.referenceConfiguration && !input.automaticReply.ensureReference) {
+      context.addIssue({
+        code: "custom",
+        message: "Reference number settings require Assign a reference number before replying",
+        path: ["referenceConfiguration"],
+      });
+    }
+  });
+export type UpdateAutomaticReplySetup = z.infer<typeof updateAutomaticReplySetupSchema>;
+
 export const senderRuleMatchKindSchema = z.enum(["sender", "domain"]);
 export type SenderRuleMatchKind = z.infer<typeof senderRuleMatchKindSchema>;
 

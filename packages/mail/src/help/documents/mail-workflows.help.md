@@ -108,8 +108,10 @@ Omit `triggers` while drafting reusable YAML that should remain inactive. An emp
 Message paths:
 
 - `inputs.message.id`, `conversationId`, `subject`, `body`, `bodyText`, `bodyHtml`
-- `inputs.message.sender.0.email` and `inputs.message.recipients.0.email`
-- `inputs.message.attachments.0.filename`, `contentType`, or `sizeBytes`
+- `inputs.message.fromAddress`, `fromDomain`
+- `inputs.message.sender.0.role`, `name`, or `email`
+- `inputs.message.recipients.0.role`, `name`, or `email`
+- `inputs.message.attachments.0.id`, `filename`, `contentType`, `disposition`, `contentId`, or `sizeBytes`
 - `inputs.message.hasAttachments`, `folderId`, `flags`, `keywords`, `direction`, `internalDate`, `receivedAt`
 
 Conversation paths:
@@ -183,7 +185,7 @@ One reachable path cannot apply several provider mutations to the same message. 
 
 ## Allocate a conversation reference {icon="book-2"}
 
-Configure and enable the mailbox sequence under **Automations > Reference numbers** first:
+Configure and enable the mailbox sequence from the reference panel under **Automations > Workflows**, or directly inside a Reference acknowledgement editor:
 
 ```yaml
 inputs:

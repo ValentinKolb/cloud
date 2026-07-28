@@ -17,10 +17,13 @@ import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { AutomaticReplyInactiveBehavior, ComposePreview, SenderIdentity } from "../../contracts";
 import { validateResponseScheduleDefinition } from "../../response-schedule-validation";
-import type { AutomaticReplyConfiguration } from "../../service/automatic-reply-configuration";
+import type { AutomaticReplyConfiguration, AutomaticReplySetup } from "../../service/automatic-reply-configuration";
+import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
 import type { ResponseScheduleDefinition } from "../../service/response-schedule";
 import { readApiError } from "./api-response";
+import { MailReferenceConfigurationFields, referenceConfigurationDraft } from "./MailResponsePolicySettings";
 import MailResponseScheduleFields, { responseScheduleSummary } from "./MailResponseScheduleFields";
+import { waitForMailPageTransition } from "./mail-page-transition";
 
 type AutomaticReplyDraft = {
   name: string;
@@ -35,7 +38,123 @@ type AutomaticReplyDraft = {
   schedule: ResponseScheduleDefinition;
 };
 
+const AUTOMATIC_REPLY_VARIABLE_GROUPS = [
+  {
+    label: "Message",
+    variables: [
+      "inputs.message.id",
+      "inputs.message.conversationId",
+      "inputs.message.subject",
+      "inputs.message.body",
+      "inputs.message.bodyText",
+      "inputs.message.bodyHtml",
+      "inputs.message.fromAddress",
+      "inputs.message.fromDomain",
+      "inputs.message.sender.0.role",
+      "inputs.message.sender.0.name",
+      "inputs.message.sender.0.email",
+      "inputs.message.recipients.0.role",
+      "inputs.message.recipients.0.name",
+      "inputs.message.recipients.0.email",
+      "inputs.message.attachments.0.id",
+      "inputs.message.attachments.0.filename",
+      "inputs.message.attachments.0.contentType",
+      "inputs.message.attachments.0.disposition",
+      "inputs.message.attachments.0.contentId",
+      "inputs.message.attachments.0.sizeBytes",
+      "inputs.message.hasAttachments",
+      "inputs.message.folderId",
+      "inputs.message.flags",
+      "inputs.message.keywords",
+      "inputs.message.direction",
+      "inputs.message.internalDate",
+      "inputs.message.receivedAt",
+    ],
+  },
+  {
+    label: "Conversation",
+    variables: [
+      "inputs.conversation.id",
+      "inputs.conversation.subject",
+      "inputs.conversation.assigneeUserId",
+      "inputs.conversation.workStatus",
+      "inputs.conversation.latestMessageAt",
+    ],
+  },
+  {
+    label: "Execution",
+    variables: [
+      "context.mailboxId",
+      "context.actor.userId",
+      "context.actor.serviceAccountId",
+      "context.actor.groupIds",
+      "context.occurredAt",
+      "now()",
+    ],
+  },
+] as const;
+
+const REFERENCE_VARIABLES = [
+  "reference.id",
+  "reference.value",
+  "reference.created",
+  "reference.conversationId",
+  "reference.conversationRevision",
+] as const;
+
+const workflowExpression = (value: string): string => `\${{ ${value} }}`;
+
+function AutomaticReplyVariableHelp(props: { referenceEnabled: () => boolean }) {
+  return (
+    <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
+      <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 text-sm font-medium text-primary">
+        <span class="flex items-center gap-2">
+          <i class="ti ti-braces" aria-hidden="true" />
+          Available variables for subject and message
+        </span>
+        <i class="ti ti-chevron-down transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      <div class="grid gap-4 px-3 pb-3 md:grid-cols-2">
+        <For each={AUTOMATIC_REPLY_VARIABLE_GROUPS}>
+          {(group) => (
+            <section>
+              <h4 class="text-xs font-semibold text-primary">{group.label}</h4>
+              <div class="mt-1 flex flex-wrap gap-1.5">
+                <For each={group.variables}>
+                  {(variable) => (
+                    <code class="rounded bg-[var(--ui-surface)] px-1.5 py-0.5 text-[11px]">{workflowExpression(variable)}</code>
+                  )}
+                </For>
+              </div>
+            </section>
+          )}
+        </For>
+        <section>
+          <h4 class="text-xs font-semibold text-primary">Reference number</h4>
+          <p class="mt-0.5 text-xs text-dimmed">
+            {props.referenceEnabled()
+              ? "Available because this reply assigns a reference number."
+              : "Available after Assign a reference number before replying is enabled."}
+          </p>
+          <div class="mt-1 flex flex-wrap gap-1.5">
+            <For each={REFERENCE_VARIABLES}>
+              {(variable) => (
+                <code class={`rounded px-1.5 py-0.5 text-[11px] ${props.referenceEnabled() ? "bg-[var(--ui-surface)]" : "text-dimmed"}`}>
+                  {workflowExpression(variable)}
+                </code>
+              )}
+            </For>
+          </div>
+        </section>
+      </div>
+    </details>
+  );
+}
+
 export type AutomaticReplyPresetId = "out-of-office" | "office-hours" | "reference-acknowledgement" | "custom";
+
+export const isAutomaticReplyPresetId = (value: string | null | undefined): value is AutomaticReplyPresetId =>
+  value === "out-of-office" || value === "office-hours" || value === "reference-acknowledgement" || value === "custom";
 
 type AutomaticReplyPreset = {
   id: AutomaticReplyPresetId;
@@ -236,8 +355,9 @@ function AutomaticReplyEditor(props: {
   preset: AutomaticReplyPreset | null;
   identities: SenderIdentity[];
   canEnable: boolean;
-  referenceConfigured: boolean;
-  onConfigureReference?: () => void;
+  referenceConfiguration: ConversationReferenceConfiguration | null;
+  canConfigureReference: boolean;
+  onReferenceConfigurationChange?: (configuration: ConversationReferenceConfiguration) => void;
   close: () => void;
   onSaved: (configuration: AutomaticReplyConfiguration) => void;
 }) {
@@ -248,6 +368,7 @@ function AutomaticReplyEditor(props: {
   });
   const [contentTab, setContentTab] = createSignal<"write" | "preview">("write");
   const [preview, setPreview] = createSignal<ComposePreview | null>(null);
+  const [referenceDraft, setReferenceDraft] = createSignal(referenceConfigurationDraft(props.referenceConfiguration));
   const automationIdentities = () => props.identities.filter(isAutomationIdentity);
   const senderAvailable = () => automationIdentities().some((identity) => identity.id === draft().senderIdentityId);
   const senderValidForSave = () =>
@@ -267,6 +388,17 @@ function AutomaticReplyEditor(props: {
   };
   const update = <K extends keyof AutomaticReplyDraft>(key: K, value: AutomaticReplyDraft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
+  const needsInlineReferenceConfiguration = () => draft().ensureReference && !props.referenceConfiguration?.enabled;
+  const inlineReferenceConfiguration = () =>
+    needsInlineReferenceConfiguration() && props.canConfigureReference
+      ? {
+          ...referenceDraft(),
+          pattern: referenceDraft().pattern.trim(),
+          enabled: true,
+        }
+      : undefined;
+  const referenceConfigurationReady = () =>
+    !needsInlineReferenceConfiguration() || (props.canConfigureReference && referenceDraft().pattern.trim().length > 0);
 
   const loadPreview = mutation.create<ComposePreview, void>({
     mutation: async (_input, { abortSignal }) => {
@@ -295,29 +427,36 @@ function AutomaticReplyEditor(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const save = mutation.create<AutomaticReplyConfiguration, void>({
+  const save = mutation.create<AutomaticReplySetup, void>({
     mutation: async (_input, { abortSignal }) => {
       const value = draft();
       const response = props.configuration
         ? await apiClient.mailboxes[":mailboxId"]["automatic-replies"][":configurationId"].$patch(
             {
               param: { mailboxId: props.mailboxId, configurationId: props.configuration.id },
-              json: { expectedRevision: props.configuration.revision, ...value },
+              json: {
+                automaticReply: { expectedRevision: props.configuration.revision, ...value },
+                referenceConfiguration: inlineReferenceConfiguration(),
+              },
             },
             { init: { signal: abortSignal } },
           )
         : await apiClient.mailboxes[":mailboxId"]["automatic-replies"].$post(
             {
               param: { mailboxId: props.mailboxId },
-              json: value,
+              json: {
+                automaticReply: value,
+                referenceConfiguration: inlineReferenceConfiguration(),
+              },
             },
             { init: { signal: abortSignal } },
           );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to save automatic reply"));
       return response.json();
     },
-    onSuccess: (configuration) => {
-      props.onSaved(configuration);
+    onSuccess: (setup) => {
+      if (setup.referenceConfiguration) props.onReferenceConfigurationChange?.(setup.referenceConfiguration);
+      props.onSaved(setup.automaticReply);
       toast.success(props.configuration ? "Automatic reply updated" : "Automatic reply created");
       props.close();
     },
@@ -395,26 +534,26 @@ function AutomaticReplyEditor(props: {
             <p class="-mt-1 text-xs text-dimmed">
               Makes the permanent reference available as <code>{"${{ reference.value }}"}</code> in the subject and message.
             </p>
-            <Show when={draft().ensureReference && !props.referenceConfigured}>
-              <div class="info-block-warning mt-2 flex items-start gap-2">
-                <i class="ti ti-alert-triangle mt-0.5 shrink-0" aria-hidden="true" />
-                <span class="flex-1">Set up reference numbers before enabling this option.</span>
-                <Show when={props.onConfigureReference}>
-                  {(configure) => (
-                    <button
-                      type="button"
-                      class="btn-simple btn-sm"
-                      onClick={() => {
-                        const openReferenceSettings = configure();
-                        props.close();
-                        openReferenceSettings();
-                      }}
-                    >
-                      Configure
-                    </button>
-                  )}
-                </Show>
-              </div>
+            <Show when={needsInlineReferenceConfiguration()}>
+              <Show
+                when={props.canConfigureReference}
+                fallback={
+                  <div class="info-block-warning mt-2 flex items-start gap-2">
+                    <i class="ti ti-alert-triangle mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>A mailbox admin must configure reference numbers before this reply can be saved.</span>
+                  </div>
+                }
+              >
+                <div class="mt-2 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] p-3">
+                  <div class="mb-3">
+                    <h3 class="text-sm font-semibold text-primary">Set up reference numbers</h3>
+                    <p class="mt-0.5 text-xs text-dimmed">
+                      This stays inside the reply editor, so the response you already entered is preserved.
+                    </p>
+                  </div>
+                  <MailReferenceConfigurationFields value={referenceDraft} onChange={setReferenceDraft} compact />
+                </div>
+              </Show>
             </Show>
           </div>
           <div class="grid gap-2 md:grid-cols-2">
@@ -457,6 +596,7 @@ function AutomaticReplyEditor(props: {
             }}
             required
           />
+          <AutomaticReplyVariableHelp referenceEnabled={() => draft().ensureReference} />
           <SegmentedControl
             ariaLabel="Message format"
             value={() => draft().format}
@@ -552,7 +692,7 @@ function AutomaticReplyEditor(props: {
               !senderValidForSave() ||
               !draft().subject.trim() ||
               !draft().body.trim() ||
-              (draft().ensureReference && !props.referenceConfigured) ||
+              !referenceConfigurationReady() ||
               scheduleErrors().length > 0
             }
             onClick={() => save.mutate()}
@@ -573,8 +713,9 @@ export default function MailAutomaticReplySettings(props: {
   canManage?: boolean;
   onManageIdentities?: () => void;
   onConfigurationsChange?: (configurations: AutomaticReplyConfiguration[]) => void;
-  referenceConfigured?: boolean;
-  onConfigureReference?: () => void;
+  referenceConfiguration?: ConversationReferenceConfiguration | null;
+  canConfigureReference?: boolean;
+  onReferenceConfigurationChange?: (configuration: ConversationReferenceConfiguration) => void;
   presetRequest?: () => { id: AutomaticReplyPresetId; nonce: number } | null;
   onPresetRequestHandled?: (nonce: number) => void;
   showHeader?: boolean;
@@ -597,8 +738,8 @@ export default function MailAutomaticReplySettings(props: {
         (await dialogCore.open<AutomaticReplyPreset | null>(
           (close) => (
             <AutomaticReplyPresetPicker
-              referenceConfigured={props.referenceConfigured ?? false}
-              canConfigureReference={Boolean(props.onConfigureReference)}
+              referenceConfigured={Boolean(props.referenceConfiguration?.enabled)}
+              canConfigureReference={props.canConfigureReference ?? false}
               close={close}
             />
           ),
@@ -613,8 +754,9 @@ export default function MailAutomaticReplySettings(props: {
           preset={preset ?? null}
           identities={props.identities}
           canEnable={!activeConfiguration() || activeConfiguration()?.id === configuration?.id}
-          referenceConfigured={props.referenceConfigured ?? false}
-          onConfigureReference={props.onConfigureReference}
+          referenceConfiguration={props.referenceConfiguration ?? null}
+          canConfigureReference={props.canConfigureReference ?? false}
+          onReferenceConfigurationChange={props.onReferenceConfigurationChange}
           close={() => close()}
           onSaved={replace}
         />
@@ -623,14 +765,22 @@ export default function MailAutomaticReplySettings(props: {
     );
   };
   let handledPresetRequest = 0;
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+  });
   createEffect(() => {
     const request = props.presetRequest?.();
     if (!request || request.nonce === handledPresetRequest) return;
     handledPresetRequest = request.nonce;
-    props.onPresetRequestHandled?.(request.nonce);
-    if (automationIdentities().length === 0) return;
-    const preset = PRESETS.find((candidate) => candidate.id === request.id);
-    if (preset) void open(null, preset);
+    void (async () => {
+      await waitForMailPageTransition();
+      if (disposed) return;
+      props.onPresetRequestHandled?.(request.nonce);
+      if (automationIdentities().length === 0) return;
+      const preset = PRESETS.find((candidate) => candidate.id === request.id);
+      if (preset) await open(null, preset);
+    })();
   });
 
   return (
