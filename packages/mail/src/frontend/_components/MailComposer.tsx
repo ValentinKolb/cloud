@@ -520,17 +520,17 @@ export default function MailComposer(props: {
               value={nextPriority}
               onChange={(value) => setNextPriority(value === "high" ? "high" : value === "low" ? "low" : "normal")}
               options={[
-                { id: "normal", label: "Normal" },
+                { id: "normal", label: "Normal", icon: "ti ti-minus" },
                 { id: "high", label: "High", icon: "ti ti-arrow-up" },
                 { id: "low", label: "Low", icon: "ti ti-arrow-down" },
               ]}
             />
             <CheckboxCard
-              label="Request a delivery receipt"
+              label={deliveryReceiptSupported() ? "Request a delivery receipt" : "Delivery receipts unavailable"}
               description={
                 deliveryReceiptSupported()
                   ? "Ask the sending server to report delivery or failure. Receiving servers may not return a report."
-                  : "The selected sending server does not advertise delivery receipts."
+                  : "The selected SMTP server does not advertise the DSN capability required to request delivery reports."
               }
               icon="ti ti-mail-check"
               value={nextDeliveryReceipt}
@@ -798,41 +798,51 @@ export default function MailComposer(props: {
         </div>
       </Show>
 
-      <div class="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-4">
-        <div class="grid shrink-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-2 py-2 text-sm">
-          <span class="text-dimmed">From</span>
-          <Select
-            placeholder="Choose identity"
-            value={identityId}
-            onChange={(value) => {
-              setIdentityId(value);
-            }}
-            options={verifiedIdentities().map((identity) => ({
-              id: identity.id,
-              label: identity.label,
-              description: `${identity.displayName ? `${identity.displayName} · ` : ""}${identity.fromAddress}`,
-            }))}
-            disabled={!editable()}
-          />
-          <span class="text-dimmed">To</span>
-          <div class="flex min-w-0 items-center gap-2">
-            <div class="min-w-0 flex-1">
-              <MailRecipientInput placeholder="Recipients" value={to} onChange={setTo} disabled={!editable()} />
+      <div class="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-3">
+        <div class="grid shrink-0 gap-1.5 py-1.5 text-sm lg:grid-cols-2">
+          <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+            <span class="text-dimmed">From</span>
+            <Select
+              placeholder="Choose identity"
+              value={identityId}
+              onChange={(value) => {
+                setIdentityId(value);
+              }}
+              options={verifiedIdentities().map((identity) => ({
+                id: identity.id,
+                label: identity.label,
+                description: `${identity.displayName ? `${identity.displayName} · ` : ""}${identity.fromAddress}`,
+              }))}
+              disabled={!editable()}
+            />
+          </div>
+          <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+            <span class="text-dimmed">To</span>
+            <div class="flex min-w-0 items-center gap-2">
+              <div class="min-w-0 flex-1">
+                <MailRecipientInput placeholder="Recipients" value={to} onChange={setTo} disabled={!editable()} />
+              </div>
+              <Show when={!showCc()}>
+                <button type="button" class="btn-simple btn-sm" disabled={!editable()} onClick={() => setShowCc(true)}>
+                  Cc/Bcc
+                </button>
+              </Show>
             </div>
-            <Show when={!showCc()}>
-              <button type="button" class="btn-simple btn-sm" disabled={!editable()} onClick={() => setShowCc(true)}>
-                Cc/Bcc
-              </button>
-            </Show>
           </div>
           <Show when={showCc()}>
-            <span class="text-dimmed">Cc</span>
-            <MailRecipientInput placeholder="Cc recipients" value={cc} onChange={setCc} disabled={!editable()} />
-            <span class="text-dimmed">Bcc</span>
-            <MailRecipientInput placeholder="Bcc recipients" value={bcc} onChange={setBcc} disabled={!editable()} />
+            <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+              <span class="text-dimmed">Cc</span>
+              <MailRecipientInput placeholder="Cc recipients" value={cc} onChange={setCc} disabled={!editable()} />
+            </div>
+            <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+              <span class="text-dimmed">Bcc</span>
+              <MailRecipientInput placeholder="Bcc recipients" value={bcc} onChange={setBcc} disabled={!editable()} />
+            </div>
           </Show>
-          <span class="text-dimmed">Subject</span>
-          <TextInput ariaLabel="Subject" value={subject} onInput={setSubject} maxLength={998} disabled={!editable()} />
+          <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 lg:col-span-2">
+            <span class="text-dimmed">Subject</span>
+            <TextInput ariaLabel="Subject" value={subject} onInput={setSubject} maxLength={998} disabled={!editable()} />
+          </div>
         </div>
 
         <MailComposerEditor

@@ -27,3 +27,18 @@ export const parseMailRecipients = (values: string[]): MailAddress[] => {
   }
   return [...recipients.values()];
 };
+
+export const commitMailRecipient = (values: string[], raw: string, index: number | null = null): string[] | null => {
+  const recipient = parseMailRecipient(raw);
+  if (!recipient) return null;
+  const formatted = formatMailRecipient(recipient);
+  const candidates =
+    index === null ? [...values, formatted] : values.map((value, candidateIndex) => (candidateIndex === index ? formatted : value));
+  return parseMailRecipients(candidates).map(formatMailRecipient);
+};
+
+export const shouldCommitMailRecipient = (value: string, key: string): boolean => {
+  if (!value.trim()) return false;
+  if (key === "Enter" || key === ",") return true;
+  return key === " " && parseMailRecipient(value) !== null;
+};

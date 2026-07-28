@@ -172,7 +172,7 @@ export default function MailMessageCard(props: {
                 <span class="sr-only">{outgoing() ? "Outgoing message" : "Incoming message"}</span>
               </span>
               <span
-                class="truncate text-sm font-semibold text-primary"
+                class={`truncate text-sm font-semibold ${props.expanded || props.isLatest ? "text-primary" : "text-secondary"}`}
                 title={props.message.from.map(formatMailAddress).join(", ") || "Unknown sender"}
               >
                 {senderLabel()}
@@ -181,7 +181,7 @@ export default function MailMessageCard(props: {
             </span>
             <Show when={!props.expanded && preview()}>
               {(value) => (
-                <span class="mt-1 block truncate text-xs leading-5 text-secondary" data-mail-message-preview>
+                <span class="mt-1 block truncate text-xs leading-5 text-dimmed" data-mail-message-preview>
                   {value()}
                 </span>
               )}

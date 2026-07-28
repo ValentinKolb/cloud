@@ -224,7 +224,7 @@ export default function MailConversationList(props: {
   });
 
   return (
-    <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface-subtle)]">
+    <div class="flex h-full min-h-0 flex-col bg-[var(--ui-surface)]">
       <header class="flex shrink-0 flex-col gap-2 p-3">
         <Show
           when={props.canWrite && props.selectionMode}

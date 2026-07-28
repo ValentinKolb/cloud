@@ -4,7 +4,7 @@ import {
   ContactMailSuggestionsResponseSchema,
 } from "@valentinkolb/cloud-app-contacts/integration";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { formatMailRecipient, parseMailRecipient, parseMailRecipients } from "./mail-recipient";
+import { commitMailRecipient, shouldCommitMailRecipient } from "./mail-recipient";
 
 type RecipientSuggestion = { label: string; address: string };
 
@@ -26,24 +26,88 @@ export default function MailRecipientInput(props: {
   const [suggestions, setSuggestions] = createSignal<RecipientSuggestion[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [validationError, setValidationError] = createSignal<string | null>(null);
+  const [editingIndex, setEditingIndex] = createSignal<number | null>(null);
   let timer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
   let disposed = false;
+  let input: HTMLInputElement | undefined;
+  let pillButtons: HTMLButtonElement[] = [];
 
   const add = (raw: string) => {
-    const recipient = parseMailRecipient(raw);
-    if (!recipient) {
+    const next = commitMailRecipient(props.value(), raw, editingIndex());
+    if (!next) {
       setValidationError("Enter a valid email address.");
       return;
     }
-    const next = parseMailRecipients([...props.value(), formatMailRecipient(recipient)]).map(formatMailRecipient);
     props.onChange(next);
+    setEditingIndex(null);
     setQuery("");
     setSuggestions([]);
     setValidationError(null);
   };
 
-  const remove = (raw: string) => props.onChange(props.value().filter((value) => value !== raw));
+  const focusInput = () =>
+    queueMicrotask(() => {
+      input?.focus();
+      const caret = input?.value.length ?? 0;
+      input?.setSelectionRange(caret, caret);
+    });
+
+  const edit = (index: number) => {
+    const recipient = props.value()[index];
+    if (recipient === undefined || props.disabled) return;
+    setEditingIndex(index);
+    setQuery(recipient);
+    setSuggestions([]);
+    setValidationError(null);
+    focusInput();
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setQuery("");
+    setSuggestions([]);
+    setValidationError(null);
+    focusInput();
+  };
+
+  const focusPill = (index: number) => {
+    const target = pillButtons[index];
+    if (target?.isConnected) target.focus();
+    else focusInput();
+  };
+
+  const remove = (index: number, focusAfter = false) => {
+    const next = props.value().filter((_, candidateIndex) => candidateIndex !== index);
+    props.onChange(next);
+    if (editingIndex() === index) {
+      setEditingIndex(null);
+      setQuery("");
+    }
+    if (focusAfter) queueMicrotask(() => focusPill(Math.min(index, next.length - 1)));
+  };
+
+  const handlePillKeyDown = (event: KeyboardEvent, index: number) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      focusPill(Math.max(0, index - 1));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      focusPill(index + 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusPill(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusInput();
+    } else if (event.key === "Enter" || event.key === "F2") {
+      event.preventDefault();
+      edit(index);
+    } else if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault();
+      remove(index, true);
+    }
+  };
 
   createEffect(() => {
     const value = query().trim();
@@ -98,49 +162,99 @@ export default function MailRecipientInput(props: {
 
   return (
     <div class="relative min-w-0">
-      <div class="input flex min-h-10 w-full flex-wrap items-center gap-1.5 px-2 py-1.5 focus-within:ring-2 focus-within:ring-blue-400">
+      <div class="input flex min-h-[var(--ui-control-md)] w-full flex-wrap items-center gap-1 px-2 py-1">
         <i class="ti ti-at shrink-0 text-dimmed" aria-hidden="true" />
         <For each={props.value()}>
-          {(recipient) => (
-            <span class="chip max-w-56">
-              <span class="truncate">{recipient}</span>
-              <button
-                type="button"
-                class="icon-btn !h-5 !w-5 !p-0"
-                aria-label={`Remove ${recipient}`}
+          {(recipient, index) => (
+            <Show
+              when={editingIndex() === index()}
+              fallback={
+                <span class="chip h-7 max-w-56 py-0">
+                  <button
+                    ref={(element) => {
+                      pillButtons[index()] = element;
+                    }}
+                    type="button"
+                    class="focus-ui min-w-0 flex-1 truncate rounded text-left"
+                    aria-label={`Edit ${recipient}`}
+                    title={`${recipient} — click or press Enter to edit`}
+                    disabled={props.disabled}
+                    onClick={() => edit(index())}
+                    onKeyDown={(event) => handlePillKeyDown(event, index())}
+                  >
+                    {recipient}
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-btn !h-5 !w-5 !p-0"
+                    aria-label={`Remove ${recipient}`}
+                    disabled={props.disabled}
+                    onClick={() => remove(index())}
+                  >
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </button>
+                </span>
+              }
+            >
+              <input
+                ref={input}
+                class="h-7 min-w-40 max-w-72 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-2 text-xs outline-none"
+                value={query()}
                 disabled={props.disabled}
-                onClick={() => remove(recipient)}
-              >
-                <i class="ti ti-x" aria-hidden="true" />
-              </button>
-            </span>
+                aria-label={`Edit ${recipient}`}
+                aria-invalid={Boolean(validationError())}
+                aria-describedby={validationError() ? errorId : undefined}
+                autocomplete="off"
+                onInput={(event) => {
+                  setQuery(event.currentTarget.value);
+                  setValidationError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (shouldCommitMailRecipient(query(), event.key)) {
+                    event.preventDefault();
+                    add(query().replace(/,$/, ""));
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelEdit();
+                  }
+                }}
+                onBlur={() => {
+                  if (query().trim()) add(query());
+                  else cancelEdit();
+                }}
+              />
+            </Show>
           )}
         </For>
-        <input
-          class="min-w-32 flex-1 bg-transparent px-1 py-1 text-sm outline-none"
-          value={query()}
-          placeholder={props.value().length === 0 ? props.placeholder : "Add recipient"}
-          disabled={props.disabled}
-          aria-label={props.placeholder}
-          aria-invalid={Boolean(validationError())}
-          aria-describedby={validationError() ? errorId : undefined}
-          autocomplete="off"
-          onInput={(event) => {
-            setQuery(event.currentTarget.value);
-            setValidationError(null);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === ",") {
-              event.preventDefault();
-              add(query().replace(/,$/, ""));
-            } else if (event.key === "Backspace" && !query() && props.value().length > 0) {
-              props.onChange(props.value().slice(0, -1));
-            }
-          }}
-          onBlur={() => {
-            if (query().includes("@")) add(query());
-          }}
-        />
+        <Show when={editingIndex() === null}>
+          <input
+            ref={input}
+            class="h-7 min-w-32 flex-1 bg-transparent px-1 text-sm outline-none"
+            value={query()}
+            placeholder={props.value().length === 0 ? props.placeholder : "Add recipient"}
+            disabled={props.disabled}
+            aria-label={props.placeholder}
+            aria-invalid={Boolean(validationError())}
+            aria-describedby={validationError() ? errorId : undefined}
+            autocomplete="off"
+            onInput={(event) => {
+              setQuery(event.currentTarget.value);
+              setValidationError(null);
+            }}
+            onKeyDown={(event) => {
+              if (shouldCommitMailRecipient(query(), event.key)) {
+                event.preventDefault();
+                add(query().replace(/,$/, ""));
+              } else if ((event.key === "ArrowLeft" || event.key === "Backspace") && !query() && props.value().length > 0) {
+                event.preventDefault();
+                focusPill(props.value().length - 1);
+              }
+            }}
+            onBlur={() => {
+              if (query().includes("@")) add(query());
+            }}
+          />
+        </Show>
         <Show when={loading()}>
           <i class="ti ti-loader-2 animate-spin text-dimmed" aria-hidden="true" />
         </Show>

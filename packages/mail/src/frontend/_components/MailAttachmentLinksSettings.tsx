@@ -125,7 +125,7 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
                   const status = () => linkStatus(link);
                   return (
                     <div class="paper flex min-w-0 items-center gap-3 p-3">
-                      <i class="ti ti-file-link shrink-0 text-dimmed" aria-hidden="true" />
+                      <i class="ti ti-file-symlink shrink-0 text-dimmed" aria-hidden="true" />
                       <span class="min-w-0 flex-1">
                         <span class="block truncate text-sm font-medium text-primary">{link.filename ?? link.contentType}</span>
                         <span class="block text-xs text-dimmed">

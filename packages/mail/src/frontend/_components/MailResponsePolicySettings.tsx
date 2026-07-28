@@ -268,7 +268,7 @@ export function MailReferenceConfigurationCard(props: {
     <section class="paper p-4">
       <div class="flex flex-wrap items-start gap-3">
         <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center">
-          <i class={`ti ${props.configuration?.enabled ? "ti-hash" : "ti-hash-off"}`} aria-hidden="true" />
+          <i class="ti ti-hash" aria-hidden="true" />
         </span>
         <div class="min-w-64 flex-1">
           <h2 class="text-sm font-semibold text-primary">
