@@ -1,4 +1,5 @@
 export * from "./actions";
+export * from "./chat";
 export * from "./content";
 export * from "./feedback";
 export * from "./inputs";

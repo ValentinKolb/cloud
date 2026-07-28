@@ -63,6 +63,8 @@ standalone SSR, behavior, styling, and migration checks:
 - Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
   `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`, `NotFoundState`
 - Feedback: the complete scoped prompt family, `Tooltip`, and scoped `toast`
+- AI: controlled `ChatComposer`, scrolling `ChatTimeline`, `ChatMessage`,
+  `ChatActivity`, and compact `ChatContextUsage`
 - Content: data and log tables, charts and interactive state timelines,
   calendars, file trees/browsers/previews, lightboxes, PDF previews,
   documentation primitives, pagination, range navigation, code and Markdown
@@ -101,8 +103,32 @@ UI showcase: AI, Inputs, Actions, Layout, Surfaces, Feedback, Content, and
 Widgets. Cloud-specific integrations are intentionally not part of this
 package.
 
-The AI presentation family is still planned. It is deliberately absent from
-the root export until its full contract is implemented and tested.
+The chat family accepts portable data and callbacks. Applications keep their
+protocol, persistence, tool rendering, approvals, and file storage:
+
+```tsx
+const [draft, setDraft] = createSignal("");
+
+<ChatTimeline
+  items={items()}
+  hasMore={hasMore()}
+  onLoadOlder={loadOlder}
+/>
+<ChatComposer
+  value={draft()}
+  onValueChange={setDraft}
+  onSend={({ text, attachments }) => sendMessage(text, attachments)}
+  models={models}
+  selectedModelId={modelId()}
+  onModelChange={setModelId}
+  context={<ChatContextUsage usage={usage()} contextWindow={128_000} />}
+/>;
+```
+
+Return `false` or throw from `onSend`/`onSteer` to restore the controlled
+draft and attachments. Use `onError` for user-facing error reporting. Raw
+selected files are handed to `fileSelection.onSelect`; storage and upload
+policy remain application-owned.
 
 `Panes` is a controlled, serializable layout for IDE-like workspaces. The
 package owns tabs, nested splits, resize and drag-and-drop; applications own

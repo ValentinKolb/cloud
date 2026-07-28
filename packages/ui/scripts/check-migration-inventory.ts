@@ -2,11 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import * as ts from "typescript";
 
-type MigrationStatus = "implemented" | "planned";
-type GenericEntry = { source: string; status: MigrationStatus };
+type GenericMigrationStatus = "implemented" | "planned";
+type AdditionalMigrationStatus = GenericMigrationStatus | "cloud-owned";
+type GenericEntry = { source: string; status: GenericMigrationStatus };
 type AdditionalSource = {
   source: string;
-  exports: Array<{ name: string; status: MigrationStatus }>;
+  exports: Array<{ name: string; status: AdditionalMigrationStatus }>;
 };
 type Inventory = {
   generic: Record<string, GenericEntry[]>;
@@ -18,6 +19,27 @@ type Inventory = {
 const packageRoot = resolve(import.meta.dir, "..");
 const cloudUiRoot = resolve(packageRoot, "../cloud/src/ui");
 const inventory = JSON.parse(readFileSync(join(packageRoot, "migration-inventory.json"), "utf8")) as Inventory;
+const validGenericStatuses = new Set<GenericMigrationStatus>(["implemented", "planned"]);
+const validAdditionalStatuses = new Set<AdditionalMigrationStatus>([
+  ...validGenericStatuses,
+  "cloud-owned",
+]);
+const invalidStatuses = [
+  ...Object.values(inventory.generic)
+    .flat()
+    .filter((entry) => !validGenericStatuses.has(entry.status))
+    .map((entry) => `${entry.source}: ${entry.status}`),
+  ...(inventory.additionalSources ?? []).flatMap((source) =>
+    source.exports
+      .filter((entry) => !validAdditionalStatuses.has(entry.status))
+      .map((entry) => `${source.source}#${entry.name}: ${entry.status}`),
+  ),
+];
+
+if (invalidStatuses.length > 0) {
+  console.error(`Invalid migration statuses:\n- ${invalidStatuses.join("\n- ")}`);
+  process.exit(1);
+}
 
 const resolveModule = (fromFile: string, specifier: string): string => {
   const base = resolve(dirname(fromFile), specifier);
