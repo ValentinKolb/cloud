@@ -37,7 +37,17 @@ suite("logging.trace", () => {
       await handler({ type: "dispatched", key, itemKey: "one", dispatched: 1, durationMs: 3 });
       await handler({ type: "finished", key, status: "completed", dispatched: 2, durationMs: 20 });
 
-      const result = await trace.list({ page: 1, perPage: 10, offset: 0 }, { filter: { source, category: "backfill" } });
+      const result = await trace.list(
+        { page: 1, perPage: 10, offset: 0 },
+        {
+          filter: {
+            appId: "mail",
+            source,
+            category: "backfill",
+            attributeEquals: { "mail.mailbox.id": suffix },
+          },
+        },
+      );
       expect(result.total).toBe(1);
       expect(result.spans[0]).toMatchObject({
         name: "Sender rule backfill",
@@ -49,6 +59,19 @@ suite("logging.trace", () => {
         summary: { status: "completed", dispatched: 2 },
       });
       expect(result.spans[0]?.attributes).toMatchObject({ "mail.mailbox.id": suffix, "sync.system": "pump" });
+
+      expect(
+        await trace.list(
+          { page: 1, perPage: 10, offset: 0 },
+          {
+            filter: {
+              appId: "another-app",
+              source,
+              attributeEquals: { "mail.mailbox.id": suffix },
+            },
+          },
+        ),
+      ).toMatchObject({ total: 0, spans: [] });
 
       const span = result.spans[0]!;
       const events = await trace.events({ traceId: span.traceId, spanId: span.spanId });

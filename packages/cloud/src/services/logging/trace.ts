@@ -119,11 +119,13 @@ export type TraceSourceGroup = {
 };
 
 export type TraceListFilter = {
+  appId?: string;
   source?: string;
   sources?: string[];
   status?: TraceStatus;
   active?: boolean;
   category?: TraceCategory;
+  attributeEquals?: TraceAttributes;
   search?: string;
   sinceHours?: number;
   sinceSeconds?: number;
@@ -701,13 +703,18 @@ const traceConditions = (filter: TraceListFilter | undefined): any[] => {
   const sourceList = sources && sources.length > 0 ? toPgTextArray([...new Set(sources)]) : null;
   const sinceSeconds = normalizeSinceSeconds(filter);
   const minDurationMs = normalizeMinDurationMs(filter?.minDurationMs);
+  const attributeEquals = sanitizeAttributes(filter?.attributeEquals);
 
+  if (filter?.appId) conditions.push(sql`s.app_id = ${filter.appId}`);
   if (filter?.source) conditions.push(sql`s.source = ${filter.source}`);
   if (sourceList && !filter?.source) conditions.push(sql`s.source = ANY(${sourceList}::text[])`);
   if (filter?.status) conditions.push(sql`s.status = ${filter.status}`);
   if (filter?.active === true) conditions.push(sql`s.ended_at IS NULL`);
   if (filter?.active === false) conditions.push(sql`s.ended_at IS NOT NULL`);
   if (filter?.category) conditions.push(sql`s.category = ${filter.category}`);
+  if (attributeEquals && Object.keys(attributeEquals).length > 0) {
+    conditions.push(sql`s.attributes @> (${JSON.stringify(attributeEquals)}::text)::jsonb`);
+  }
   if (sinceSeconds) conditions.push(sql`s.started_at >= now() - (${sinceSeconds}::int * INTERVAL '1 second')`);
   if (minDurationMs) conditions.push(sql`s.duration_ms IS NOT NULL AND s.duration_ms > ${minDurationMs}`);
   if (filter?.excludeDefinitions) {
