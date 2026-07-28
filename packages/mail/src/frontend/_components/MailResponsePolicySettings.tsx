@@ -2,18 +2,20 @@ import { dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { ConversationReferencePreview, PutConversationReferenceConfiguration } from "../../contracts";
+import {
+  type ConversationReferencePreview,
+  DEFAULT_CONVERSATION_REFERENCE_PATTERN,
+  type PutConversationReferenceConfiguration,
+} from "../../contracts";
 import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
 import { readApiError } from "./api-response";
 import MailTemplateHelpDisclosure, { MailTemplateToken } from "./MailTemplateHelpDisclosure";
-
-const DEFAULT_PATTERN = "REF-{{ year }}-{{ sequence | pad_start: 6 }}";
 
 type MailReferenceConfigurationDraft = PutConversationReferenceConfiguration;
 
 export const referenceConfigurationDraft = (configuration: ConversationReferenceConfiguration | null): MailReferenceConfigurationDraft => ({
   expectedRevision: configuration?.revision ?? null,
-  pattern: configuration?.pattern ?? DEFAULT_PATTERN,
+  pattern: configuration?.pattern ?? DEFAULT_CONVERSATION_REFERENCE_PATTERN,
   enabled: configuration?.enabled ?? true,
   includeInReplySubjects: configuration?.includeInReplySubjects ?? true,
 });
@@ -70,26 +72,65 @@ export function MailReferenceConfigurationFields(props: {
     <div class="flex flex-col gap-3">
       <TextInput
         label="Number format"
-        description="Use exactly one sequence token. Existing references never change when the format changes."
+        description="Use exactly one unique identifier. Existing references never change when the format changes."
         value={() => props.value().pattern}
         onInput={(value) => update("pattern", value)}
         monospace
         required
       />
       <MailTemplateHelpDisclosure title="Format placeholders">
-        <div class="grid gap-2 text-xs sm:grid-cols-3">
-          <p class="flex flex-wrap items-center gap-1.5">
-            <MailTemplateToken value="{{ sequence }}" />
-            <span>next mailbox-wide number</span>
-          </p>
-          <p class="flex flex-wrap items-center gap-1.5">
-            <MailTemplateToken value="{{ sequence | pad_start: 6 }}" />
-            <span>number padded to six digits</span>
-          </p>
-          <p class="flex flex-wrap items-center gap-1.5">
-            <MailTemplateToken value="{{ year }}" />
-            <span>allocation year</span>
-          </p>
+        <div class="flex flex-col gap-3 text-xs">
+          <section class="flex flex-col gap-1.5">
+            <h4 class="font-semibold text-primary">Recommended</h4>
+            <p class="flex flex-wrap items-center gap-1.5">
+              <MailTemplateToken value="{{ short_id }}" />
+              <span>short, readable random ID that hides volume and allocation time</span>
+            </p>
+          </section>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <section class="flex flex-col gap-1.5">
+              <h4 class="font-semibold text-primary">Other identifiers</h4>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ uuid }}" />
+                <span>opaque random UUID</span>
+              </p>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ uuid_v7 }}" />
+                <span>sortable UUID that includes allocation time</span>
+              </p>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ ulid }}" />
+                <span>compact sortable ID that includes allocation time</span>
+              </p>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ sequence }}" />
+                <span>mailbox-wide counter that reveals order and volume</span>
+              </p>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ sequence | pad_start: 6 }}" />
+                <span>counter padded to six digits</span>
+              </p>
+            </section>
+            <section class="flex flex-col gap-1.5">
+              <h4 class="font-semibold text-primary">Allocation date (UTC)</h4>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ year }}" />
+                <span>four-digit year</span>
+              </p>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ month }}" />
+                <span>two-digit month</span>
+              </p>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ month_name }}" />
+                <span>full English month name</span>
+              </p>
+              <p class="flex flex-wrap items-center gap-1.5">
+                <MailTemplateToken value="{{ day }}" />
+                <span>two-digit day</span>
+              </p>
+            </section>
+          </div>
         </div>
       </MailTemplateHelpDisclosure>
       <p class="flex items-center gap-2 text-xs text-dimmed">
@@ -235,8 +276,8 @@ export function MailReferenceConfigurationCard(props: {
           </h2>
           <p class="mt-0.5 text-xs text-dimmed">
             {props.configuration
-              ? `Pattern ${props.configuration.pattern}; next sequence ${props.configuration.nextSequence}.`
-              : "Configure the mailbox sequence before a workflow assigns durable conversation references."}
+              ? `Pattern ${props.configuration.pattern}.`
+              : "Configure a reference format before a workflow assigns durable conversation references."}
           </p>
         </div>
         <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void openEditor()}>

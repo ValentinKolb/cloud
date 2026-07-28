@@ -186,7 +186,7 @@ suite("conversation references and automatic reply policies", () => {
       mailboxId,
       input: {
         expectedRevision: null,
-        pattern: "SUP-{{ year }}-{{ sequence | pad_start: 6 }}",
+        pattern: "SUP-{{ short_id }}",
         enabled: true,
         includeInReplySubjects: true,
       },
@@ -210,6 +210,7 @@ suite("conversation references and automatic reply policies", () => {
     expect(attempts.filter((result) => result.ok && result.data.created)).toHaveLength(1);
     const first = attempts.find((result) => result.ok)?.data.reference;
     if (!first) throw new Error("Reference allocation did not return a value");
+    expect(first.value).toMatch(/^SUP-[A-Za-z0-9]{4}(?:-[A-Za-z0-9]{4}){2}$/);
 
     const [storedReplay] = await sql<{ idempotency_key: string }[]>`
       SELECT idempotency_key FROM mail.conversation_references WHERE id = ${first.id}::uuid

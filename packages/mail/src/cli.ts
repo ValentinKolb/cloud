@@ -32,6 +32,7 @@ import {
   type ConversationDraftSummary,
   type CreatedAttachmentLink,
   createAutomaticReplyConfigurationSchema,
+  DEFAULT_CONVERSATION_REFERENCE_PATTERN,
   type DeletedMailbox,
   type DeletedMailboxPage,
   type DeriveDraftFromMessageInput,
@@ -5107,7 +5108,7 @@ export default defineCliCommands({
       flags: {
         ...mailboxFlag,
         pattern: flag.string({
-          description: 'Liquid pattern with exactly one "{{ sequence }}" output',
+          description: "Liquid pattern with exactly one short_id, uuid, uuid_v7, ulid, or sequence output",
         }),
         enable: flag.boolean({
           description: "Allow new reference allocations",
@@ -5139,7 +5140,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/reference-number-configuration`,
           jsonRequest("PUT", {
             expectedRevision: current?.revision ?? null,
-            pattern: flags.pattern ?? current?.pattern ?? "REF-{{ year }}-{{ sequence | pad_start: 6 }}",
+            pattern: flags.pattern ?? current?.pattern ?? DEFAULT_CONVERSATION_REFERENCE_PATTERN,
             enabled: flags.enable || flags.disable ? flags.enable : (current?.enabled ?? true),
             includeInReplySubjects:
               flags.includeInReplySubjects || flags.excludeFromReplySubjects

@@ -74,26 +74,30 @@ For a YAML workflow, define these rules directly under `automaticReply.schedule`
 
 ## Create conversation references {icon="square-plus"}
 
-A conversation reference is a permanent mailbox-scoped identifier such as `SUP-2026-000042`. It helps people quote, search, and audit one conversation even if subjects change.
+A conversation reference is a permanent mailbox-scoped identifier such as `REF-K7M3-P9QX-2F4N`. It helps people quote, search, and audit one conversation even if subjects change.
 
 :::steps
 1. Open **Automations > Automatic replies** and choose **Reference acknowledgement**, or open **Workflows** for custom YAML.
-2. If no mailbox sequence exists, configure it directly in the same reply editor or from the reference panel on the Workflows page.
-3. Enter a Liquid pattern with exactly one sequence output, for example `SUP-{{ year }}-{{ sequence | pad_start: 6 }}`. The editor explains every placeholder and shows a preview.
+2. If no reference format exists, configure it directly in the same reply editor or from the reference panel on the Workflows page.
+3. Enter a Liquid pattern with exactly one identifier output. The privacy-safe default is `REF-{{ short_id }}`. The editor explains every placeholder and shows a preview.
 4. Save the format without leaving or losing the reply you already entered.
 5. Finish the automatic reply, or add `ensureConversationReference` to your custom workflow.
 :::
 
 Supported pattern parts:
 
-- `{{ sequence }}` inserts the next mailbox-scoped number.
-- `{{ sequence | pad_start: 6 }}` pads the number to six digits. Width can be from 1 to 120.
-- `{{ year }}` inserts the year in which the reference is allocated.
+- `{{ short_id }}` inserts a short, readable random ID without exposing volume or allocation time.
+- `{{ uuid }}` inserts an opaque random UUID.
+- `{{ uuid_v7 }}` inserts a sortable UUID that exposes its allocation time.
+- `{{ ulid }}` inserts a compact sortable ID that exposes its allocation time.
+- `{{ sequence }}` inserts the next mailbox-scoped number and therefore exposes order and approximate volume.
+- `{{ sequence | pad_start: 6 }}` pads the counter to six digits. Width can be from 1 to 120.
+- `{{ year }}`, `{{ month }}`, `{{ month_name }}`, and `{{ day }}` insert UTC allocation-date parts.
 - Letters, numbers, spaces, `.`, `_`, `-`, and `/` can be used as literal separators.
 
-Allocation is idempotent: running the same action again returns the conversation's existing reference instead of consuming another number. References remain attached as aliases after conversation merges. Disabling allocation prevents new references but does not rewrite existing values.
+Use exactly one of the five identifier outputs. Date parts are optional and do not make a reference unique. Allocation is idempotent: running the same action again returns the conversation's existing reference instead of allocating another one. References remain attached as aliases after conversation merges. Disabling allocation prevents new references but does not rewrite existing values.
 
-The **Reference acknowledgement** preset assigns the number before sending and inserts `{{ reference.value }}` into the message. The same result binding is available in custom YAML. Once a conversation has a reference, new reply subjects use `Re: [SUP-2026-000042] Original subject` by default. Mail still threads replies through standard `Message-ID`, `In-Reply-To`, and `References` headers.
+The **Reference acknowledgement** preset assigns the reference before sending and inserts `{{ reference.value }}` into the message. The same result binding is available in custom YAML. Once a conversation has a reference, new reply subjects use `Re: [REF-K7M3-P9QX-2F4N] Original subject` by default. Mail still threads replies through standard `Message-ID`, `In-Reply-To`, and `References` headers.
 
 ## Save and activate a workflow safely {icon="route"}
 

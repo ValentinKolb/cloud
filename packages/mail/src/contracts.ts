@@ -8,6 +8,8 @@ import type {
 import { ContactMailMatchSchema, NormalizedParticipantEmailSchema } from "@valentinkolb/cloud-app-contacts/integration";
 import { z } from "zod";
 
+export const DEFAULT_CONVERSATION_REFERENCE_PATTERN = "REF-{{ short_id }}";
+
 export const messageInspectorHeaderSchema = z
   .object({
     name: z.string().min(1).max(998),

@@ -185,7 +185,7 @@ One reachable path cannot apply several provider mutations to the same message. 
 
 ## Allocate a conversation reference {icon="book-2"}
 
-Configure and enable the mailbox sequence from the reference panel under **Automations > Workflows**, or directly inside a Reference acknowledgement editor:
+Configure and enable the mailbox reference format under **Automations > Workflows**, or directly inside a Reference acknowledgement editor:
 
 ```yaml
 inputs:
@@ -205,10 +205,10 @@ steps:
 
 The action is safe to repeat and does not allocate a second reference for the same conversation. When `saveAs` is present, later steps in the same scope can use:
 
-- `${{ reference.id }}` for the immutable reference record ID.
-- `${{ reference.value }}` for the rendered value such as `SUP-2026-000042`.
-- `${{ reference.created }}` to distinguish a new allocation from an existing value.
-- `${{ reference.conversationId }}` and `${{ reference.conversationRevision }}` for subsequent workflow logic.
+- `{{ reference.id }}` for the immutable reference record ID.
+- `{{ reference.value }}` for the rendered value such as `REF-K7M3-P9QX-2F4N`.
+- `{{ reference.created }}` to distinguish a new allocation from an existing value.
+- `{{ reference.conversationId }}` and `{{ reference.conversationRevision }}` for subsequent workflow logic.
 
 ## Send a guarded automatic reply {icon="send"}
 

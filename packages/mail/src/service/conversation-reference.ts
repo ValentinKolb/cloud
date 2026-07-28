@@ -1,5 +1,5 @@
 import { audit, logger } from "@valentinkolb/cloud/services";
-import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
+import { crypto as cryptoUtils, err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { ConversationReferencePreview, EnsureConversationReference, PutConversationReferenceConfiguration } from "../contracts";
 import { requireMailboxPermission } from "./access";
@@ -11,10 +11,36 @@ import { mailLiquidTemplateVariables, renderMailLiquidTemplate, validateMailLiqu
 const REFERENCE_PATTERN_MAX_LENGTH = 120;
 const REFERENCE_VALUE_MAX_LENGTH = 160;
 const ALLOWED_LITERAL_PATTERN = /^[\p{L}\p{N} ._\-/]*$/u;
-const REFERENCE_SEQUENCE_SENTINEL = `MAILSEQUENCE${crypto.randomUUID().replaceAll("-", "")}`;
+const REFERENCE_IDENTITY_ROOTS = ["short_id", "uuid", "uuid_v7", "ulid", "sequence"] as const;
+const REFERENCE_DATE_ROOTS = ["year", "month", "month_name", "day"] as const;
+const REFERENCE_ALLOWED_ROOTS = [...REFERENCE_IDENTITY_ROOTS, ...REFERENCE_DATE_ROOTS] as const;
+const REFERENCE_SENTINEL_SUFFIX = globalThis.crypto.randomUUID().replaceAll("-", "");
+const REFERENCE_IDENTITY_SENTINELS = {
+  short_id: `MAILSHORTID${REFERENCE_SENTINEL_SUFFIX}`,
+  uuid: `MAILUUID${REFERENCE_SENTINEL_SUFFIX}`,
+  uuid_v7: `MAILUUIDV7${REFERENCE_SENTINEL_SUFFIX}`,
+  ulid: `MAILULID${REFERENCE_SENTINEL_SUFFIX}`,
+  sequence: `MAILSEQUENCE${REFERENCE_SENTINEL_SUFFIX}`,
+} satisfies Record<ReferenceIdentityRoot, string>;
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
 
 type SqlClient = typeof sql;
 type ReferenceActor = { kind: "user" | "service_account" | "workflow"; id: string };
+type ReferenceIdentityRoot = (typeof REFERENCE_IDENTITY_ROOTS)[number];
+type ValidatedReferencePattern = { source: string; identity: ReferenceIdentityRoot };
 const log = logger("mail:conversation-references");
 
 type ReferenceConfigurationRow = {
@@ -115,27 +141,55 @@ const requestActor = (context: MailRequestContext): ReferenceActor => {
   throw new Error("Request actor cannot allocate conversation references");
 };
 
-const validateReferencePattern = (pattern: string): Result<string> => {
+const referenceDateData = (allocatedAt: Date) => ({
+  year: allocatedAt.getUTCFullYear().toString(10).padStart(4, "0"),
+  month: (allocatedAt.getUTCMonth() + 1).toString(10).padStart(2, "0"),
+  month_name: MONTH_NAMES[allocatedAt.getUTCMonth()],
+  day: allocatedAt.getUTCDate().toString(10).padStart(2, "0"),
+});
+
+const referenceIdentityValue = (params: { identity: ReferenceIdentityRoot; sequence: bigint; allocatedAt: Date }): string => {
+  if (params.identity === "sequence") return params.sequence.toString(10);
+  if (params.identity === "short_id") return cryptoUtils.common.readableId(4, 4, 4);
+  if (params.identity === "uuid") return cryptoUtils.common.uuid();
+  if (params.identity === "uuid_v7") return Bun.randomUUIDv7("hex", params.allocatedAt);
+  return cryptoUtils.common.ulid({ timestamp: params.allocatedAt });
+};
+
+const validateReferencePattern = (pattern: string): Result<ValidatedReferencePattern> => {
   const source = pattern.trim();
   if (source.length === 0 || source.length > REFERENCE_PATTERN_MAX_LENGTH) {
     return fail(err.badInput("Reference pattern must contain between 1 and 120 characters"));
   }
   if (source.includes("{%")) return fail(err.badInput("Reference formats support Liquid output variables, not logic tags"));
-  const valid = validateMailLiquidTemplate(source, { allowedRoots: ["sequence", "year"], output: "identifier" });
+  const valid = validateMailLiquidTemplate(source, { allowedRoots: REFERENCE_ALLOWED_ROOTS, output: "identifier" });
   if (!valid.ok) return valid;
   const variables = mailLiquidTemplateVariables(source, "identifier");
   if (!variables.ok) return variables;
-  if (!variables.data.includes("sequence")) {
-    return fail(err.badInput('Reference format must output "{{ sequence }}" exactly once'));
+  const identities = REFERENCE_IDENTITY_ROOTS.filter((identity) => variables.data.includes(identity));
+  if (identities.length !== 1) {
+    return fail(err.badInput("Reference format must output exactly one of short_id, uuid, uuid_v7, ulid, or sequence"));
   }
-  const rendered = renderMailLiquidTemplate(source, { sequence: REFERENCE_SEQUENCE_SENTINEL, year: "2026" }, "identifier");
+  const identity = identities[0];
+  if (!identity) return fail(err.badInput("Reference format identity could not be determined"));
+  const rendered = renderMailLiquidTemplate(
+    source,
+    {
+      ...REFERENCE_IDENTITY_SENTINELS,
+      year: "2026",
+      month: "07",
+      month_name: "July",
+      day: "20",
+    },
+    "identifier",
+  );
   if (!rendered.ok) return rendered;
-  const sequenceCount = rendered.data.split(REFERENCE_SEQUENCE_SENTINEL).length - 1;
-  if (sequenceCount !== 1) return fail(err.badInput("Reference format must output the sequence exactly once"));
+  const identityCount = rendered.data.split(REFERENCE_IDENTITY_SENTINELS[identity]).length - 1;
+  if (identityCount !== 1) return fail(err.badInput(`Reference format must output ${identity} exactly once`));
   if (!ALLOWED_LITERAL_PATTERN.test(rendered.data)) {
     return fail(err.badInput("Reference format renders unsupported characters"));
   }
-  return ok(source);
+  return ok({ source, identity });
 };
 
 export const validateConversationReferencePattern = (pattern: string): Result<void> => {
@@ -149,10 +203,14 @@ export const formatConversationReference = (params: { pattern: string; sequence:
   const valid = validateReferencePattern(params.pattern);
   if (!valid.ok) return valid;
   const rendered = renderMailLiquidTemplate(
-    valid.data,
+    valid.data.source,
     {
-      sequence: params.sequence.toString(10),
-      year: params.allocatedAt.getUTCFullYear().toString(10).padStart(4, "0"),
+      [valid.data.identity]: referenceIdentityValue({
+        identity: valid.data.identity,
+        sequence: params.sequence,
+        allocatedAt: params.allocatedAt,
+      }),
+      ...referenceDateData(params.allocatedAt),
     },
     "identifier",
   );
