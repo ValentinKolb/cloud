@@ -281,7 +281,7 @@ export default function MailMessageBody(props: {
         <iframe
           ref={frame}
           title="Email message content"
-          class="block w-full border-0 bg-transparent"
+          class="block w-full border-0 bg-white"
           style={{ height: `${height()}px` }}
           sandbox="allow-scripts allow-popups"
           referrerpolicy="no-referrer"

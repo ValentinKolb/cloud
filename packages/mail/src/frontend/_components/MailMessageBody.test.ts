@@ -33,4 +33,11 @@ describe("MailMessageBody sizing", () => {
     expect(document).toContain('<script nonce="channel123">');
     expect(document).not.toContain("script-src 'unsafe-inline'");
   });
+
+  test("keeps HTML mail on an opaque light canvas in every app theme", () => {
+    const document = buildMessageDocument("<p>Readable content</p>", "test-channel");
+
+    expect(document).toContain(":root { color-scheme: only light; }");
+    expect(document).toContain("background: #fff; color: #18181b;");
+  });
 });

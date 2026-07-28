@@ -1,5 +1,7 @@
+import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import type { StatusTone } from "@valentinkolb/cloud/ui";
 import type { MessageDeliveryState } from "../../service/messages";
+import type { MailReadingFormat } from "./mail-user-preferences";
 
 type PlainMessageSegment = {
   kind: "content" | "quote";
@@ -103,12 +105,13 @@ export const messagePreviewText = (plainText: string | null, forwardText: string
 };
 
 export const resolveMessageBodyFormat = (
-  preferred: MessageBodyFormat,
+  preferred: MailReadingFormat,
   override: MessageBodyFormat | null,
+  theme: CloudTheme,
   htmlAvailable: boolean,
   plainAvailable: boolean,
 ): MessageBodyFormat | null => {
-  const requested = override ?? preferred;
+  const requested = override ?? (preferred === "automatic" ? (theme === "dark" ? "plain" : "html") : preferred);
   if (requested === "html" && htmlAvailable) return "html";
   if (requested === "plain" && plainAvailable) return "plain";
   if (htmlAvailable) return "html";

@@ -1,3 +1,4 @@
+import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { type DropdownItem, Placeholder, StatusBadge } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createMemo, createSignal, Show } from "solid-js";
@@ -7,7 +8,6 @@ import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
 import MailMessageDeliveryControl from "./MailMessageDeliveryControl";
 import MailSenderMessageActions from "./MailSenderMessageActions";
-import { observeMailUserPreferences } from "./MailSettingsStore";
 import { formatMailAddress, forwardMessageBody } from "./mail-compose-derivation";
 import { isOutgoingMessage } from "./mail-conversation-history";
 import {
@@ -18,6 +18,7 @@ import {
   messagePreviewText,
   resolveMessageBodyFormat,
 } from "./mail-message-presentation";
+import type { MailReadingFormat } from "./mail-user-preferences";
 
 type MailMessageCardContext = {
   mailboxId: string;
@@ -30,6 +31,8 @@ type MailMessageCardContext = {
   totalMessageCount: number;
   identities: SenderIdentity[];
   dateConfig: DateContext;
+  readingFormat: MailReadingFormat;
+  theme: CloudTheme;
   composerBusy: boolean;
 };
 
@@ -81,11 +84,11 @@ export default function MailMessageCard(props: {
     const delivery = props.message.delivery;
     return delivery ? !messageDeliveryAllowsResponses(delivery.state) : false;
   };
-  const preferredReadingFormat = createMemo(() => observeMailUserPreferences(props.context.mailboxId).readingFormat);
   const bodyFormat = createMemo(() =>
     resolveMessageBodyFormat(
-      preferredReadingFormat(),
+      props.context.readingFormat,
       bodyFormatOverride(),
+      props.context.theme,
       Boolean(props.message.sanitizedHtml),
       Boolean(props.message.plainText),
     ),

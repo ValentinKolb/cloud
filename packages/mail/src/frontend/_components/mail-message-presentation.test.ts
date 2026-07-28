@@ -49,13 +49,15 @@ describe("mail message presentation", () => {
   });
 
   test("selects the preferred body format with deterministic fallback and per-message override", () => {
-    expect(resolveMessageBodyFormat("html", null, true, true)).toBe("html");
-    expect(resolveMessageBodyFormat("plain", null, true, true)).toBe("plain");
-    expect(resolveMessageBodyFormat("html", "plain", true, true)).toBe("plain");
-    expect(resolveMessageBodyFormat("plain", "html", true, true)).toBe("html");
-    expect(resolveMessageBodyFormat("html", null, false, true)).toBe("plain");
-    expect(resolveMessageBodyFormat("plain", null, true, false)).toBe("html");
-    expect(resolveMessageBodyFormat("html", null, false, false)).toBeNull();
+    expect(resolveMessageBodyFormat("automatic", null, "light", true, true)).toBe("html");
+    expect(resolveMessageBodyFormat("automatic", null, "dark", true, true)).toBe("plain");
+    expect(resolveMessageBodyFormat("html", null, "dark", true, true)).toBe("html");
+    expect(resolveMessageBodyFormat("plain", null, "light", true, true)).toBe("plain");
+    expect(resolveMessageBodyFormat("automatic", "plain", "light", true, true)).toBe("plain");
+    expect(resolveMessageBodyFormat("automatic", "html", "dark", true, true)).toBe("html");
+    expect(resolveMessageBodyFormat("automatic", null, "light", false, true)).toBe("plain");
+    expect(resolveMessageBodyFormat("automatic", null, "dark", true, false)).toBe("html");
+    expect(resolveMessageBodyFormat("automatic", null, "dark", false, false)).toBeNull();
   });
 
   test("keeps normal sent delivery quiet and presents exceptional delivery states", () => {

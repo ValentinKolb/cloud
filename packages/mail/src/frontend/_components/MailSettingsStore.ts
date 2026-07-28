@@ -1,23 +1,16 @@
 import type { PanesNode, PanesValue } from "@valentinkolb/cloud/ui";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { createSignal } from "solid-js";
+import {
+  MAIL_USER_PREFERENCES_COOKIE,
+  type MailUserPreferences,
+  normalizeMailUserPreferences,
+  readStoredMailUserPreferencesFromCookieHeader,
+} from "./mail-user-preferences";
 
-const COOKIE_NAME = "settings-app-mail";
 const COMPOSER_PANES_COOKIE_NAME = "settings-app-mail-composer-panes";
 const COMPOSER_PANE_IDS = ["editor", "preview"] as const;
 const MIN_PANE_SIZE = 8;
-
-export type MailReadingFormat = "html" | "plain";
-
-export type MailUserPreferences = {
-  composeFormat: "markdown" | "plain";
-  readingFormat: MailReadingFormat;
-  undoSeconds: number;
-};
-
-type StoredMailSettings = {
-  mailboxes: Record<string, Partial<MailUserPreferences>>;
-};
 
 const defaultComposerPanes = (): PanesValue => ({
   root: {
@@ -28,14 +21,6 @@ const defaultComposerPanes = (): PanesValue => ({
     presentation: "tabs",
   },
 });
-
-const DEFAULT_MAIL_USER_PREFERENCES: MailUserPreferences = {
-  composeFormat: "markdown",
-  readingFormat: "html",
-  undoSeconds: 10,
-};
-
-const DEFAULT_SETTINGS: StoredMailSettings = { mailboxes: {} };
 
 const isComposerPanesNode = (value: unknown, seenNodeIds: Set<string>, seenElementIds: Set<string>, depth = 0): value is PanesNode => {
   if (!value || typeof value !== "object" || depth > 4) return false;
@@ -82,32 +67,22 @@ export const normalizeMailComposerPanes = (value: unknown): PanesValue => {
 
 const [preferencesRevision, setPreferencesRevision] = createSignal(0);
 
-export const normalizeMailUserPreferences = (value: Partial<MailUserPreferences> | undefined): MailUserPreferences => ({
-  composeFormat: value?.composeFormat === "plain" ? "plain" : "markdown",
-  readingFormat: value?.readingFormat === "plain" ? "plain" : "html",
-  undoSeconds:
-    typeof value?.undoSeconds === "number" && Number.isInteger(value.undoSeconds)
-      ? Math.min(Math.max(value.undoSeconds, 0), 60)
-      : DEFAULT_MAIL_USER_PREFERENCES.undoSeconds,
-});
-
-const readSettings = (): StoredMailSettings => {
-  const stored = cookies.readJsonCookie(COOKIE_NAME, DEFAULT_SETTINGS);
-  return stored && typeof stored === "object" && stored.mailboxes && typeof stored.mailboxes === "object" ? stored : DEFAULT_SETTINGS;
-};
+const readSettings = () =>
+  readStoredMailUserPreferencesFromCookieHeader(typeof document === "undefined" ? null : document.cookie);
 
 export const readMailUserPreferences = (mailboxId: string): MailUserPreferences =>
   normalizeMailUserPreferences(readSettings().mailboxes[mailboxId]);
 
-export const observeMailUserPreferences = (mailboxId: string): MailUserPreferences => {
+export const observeMailUserPreferences = (mailboxId: string, serverFallback?: MailUserPreferences): MailUserPreferences => {
   preferencesRevision();
+  if (typeof document === "undefined") return normalizeMailUserPreferences(serverFallback);
   return readMailUserPreferences(mailboxId);
 };
 
 export const writeMailUserPreferences = (mailboxId: string, preferences: MailUserPreferences): MailUserPreferences => {
   const normalized = normalizeMailUserPreferences(preferences);
   const current = readSettings();
-  cookies.writeJsonCookie(COOKIE_NAME, {
+  cookies.writeJsonCookie(MAIL_USER_PREFERENCES_COOKIE, {
     mailboxes: {
       ...current.mailboxes,
       [mailboxId]: normalized,
@@ -116,6 +91,9 @@ export const writeMailUserPreferences = (mailboxId: string, preferences: MailUse
   setPreferencesRevision((revision) => revision + 1);
   return normalized;
 };
+
+export type { MailReadingFormat, MailUserPreferences } from "./mail-user-preferences";
+export { normalizeMailUserPreferences } from "./mail-user-preferences";
 
 export const readMailComposerPanes = (): PanesValue =>
   normalizeMailComposerPanes(cookies.readJsonCookie(COMPOSER_PANES_COOKIE_NAME, defaultComposerPanes()));

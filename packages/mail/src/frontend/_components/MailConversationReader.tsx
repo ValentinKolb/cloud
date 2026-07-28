@@ -1,4 +1,5 @@
 import { documentNavigate, Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
+import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { CheckboxCard, Dropdown, type DropdownItem, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -24,6 +25,7 @@ import { MAIL_CONVERSATION_TOOLBAR_SECTIONS, type MailConversationToolbarActionI
 import { storeMailDraftSeed } from "./mail-draft-seed-store";
 import { messageDeliveryAllowsResponses } from "./mail-message-presentation";
 import { buildMailListHref } from "./mail-navigation";
+import type { MailReadingFormat } from "./mail-user-preferences";
 
 type MailConversationComposerRequest = {
   intent: DraftIntent;
@@ -66,6 +68,8 @@ export default function MailConversationReader(props: {
   totalMessageCount: number;
   error: string | null;
   dateConfig: DateContext;
+  readingFormat: MailReadingFormat;
+  theme: CloudTheme;
   listCollapsed: boolean;
   detailsOpen: boolean;
   toolbarActions: readonly MailConversationToolbarActionId[];
@@ -987,6 +991,8 @@ export default function MailConversationReader(props: {
                       totalMessageCount: props.totalMessageCount,
                       identities: props.identities,
                       dateConfig: props.dateConfig,
+                      readingFormat: props.readingFormat,
+                      theme: props.theme,
                       composerBusy: composerBusy(),
                     }}
                     actions={{

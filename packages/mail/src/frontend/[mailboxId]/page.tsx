@@ -1,4 +1,5 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
+import { readThemeFromCookieHeader } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
 import { mailHelp } from "../../help";
@@ -6,6 +7,7 @@ import type { MailRequestContext } from "../../service";
 import { loadMailboxPageData } from "../../service/workspace";
 import MailLayoutHelp from "../_components/help/MailLayoutHelp.island";
 import { readMailWorkspacePreferences } from "../_components/mail-workspace-preferences";
+import { readMailUserPreferencesFromCookieHeader } from "../_components/mail-user-preferences";
 import MailWorkspace from "../MailWorkspace.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -20,7 +22,10 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
-  const workspacePreferences = readMailWorkspacePreferences(c.req.header("cookie"));
+  const cookieHeader = c.req.header("cookie");
+  const workspacePreferences = readMailWorkspacePreferences(cookieHeader);
+  const userPreferences = readMailUserPreferencesFromCookieHeader(cookieHeader, mailboxId);
+  const theme = readThemeFromCookieHeader(cookieHeader);
   const data = await loadMailboxPageData({ context, mailboxId, requestUrl, listMode: workspacePreferences.listMode });
   if (!data) return c.redirect("/app/mail");
   const dateConfig = getDateConfig(c);
@@ -35,6 +40,8 @@ export default ssr<AuthContext>(async (c) => {
         currentUserEmail={user.mail}
         dateConfig={dateConfig}
         initialPreferences={workspacePreferences}
+        initialUserPreferences={userPreferences}
+        initialTheme={theme}
       />
     </Layout>
   );

@@ -1,15 +1,33 @@
 import { describe, expect, test } from "bun:test";
 import { normalizeMailComposerPanes, normalizeMailUserPreferences } from "./MailSettingsStore";
+import { readMailUserPreferencesFromCookieHeader } from "./mail-user-preferences";
 
 describe("Mail reading preferences", () => {
-  test("defaults to safe HTML display and accepts an explicit plain-text preference", () => {
+  test("defaults to automatic display and accepts explicit format preferences", () => {
     expect(normalizeMailUserPreferences(undefined)).toMatchObject({
       composeFormat: "markdown",
-      readingFormat: "html",
+      readingFormat: "automatic",
       undoSeconds: 10,
     });
+    expect(normalizeMailUserPreferences({ readingFormat: "html" })).toMatchObject({ readingFormat: "html" });
     expect(normalizeMailUserPreferences({ readingFormat: "plain" })).toMatchObject({ readingFormat: "plain" });
-    expect(normalizeMailUserPreferences({ readingFormat: "invalid" as "html" })).toMatchObject({ readingFormat: "html" });
+    expect(normalizeMailUserPreferences({ readingFormat: "invalid" })).toMatchObject({ readingFormat: "automatic" });
+  });
+
+  test("reads the mailbox preference from the request cookie for SSR", () => {
+    const value = encodeURIComponent(
+      JSON.stringify({
+        mailboxes: {
+          mailboxA: { readingFormat: "plain", composeFormat: "plain", undoSeconds: 20 },
+        },
+      }),
+    );
+    expect(readMailUserPreferencesFromCookieHeader(`other=1; settings-app-mail=${value}`, "mailboxA")).toEqual({
+      readingFormat: "plain",
+      composeFormat: "plain",
+      undoSeconds: 20,
+    });
+    expect(readMailUserPreferencesFromCookieHeader(`settings-app-mail=${value}`, "mailboxB").readingFormat).toBe("automatic");
   });
 });
 

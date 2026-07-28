@@ -322,12 +322,28 @@ export default function MailboxSettings(props: {
         <div class="flex flex-col gap-2">
           <Select
             label="Default message format"
-            description="HTML preserves safe email layout and styling. Plain text shows only the text alternative."
+            description="Choose how message bodies are displayed in this browser."
             value={readingFormat}
-            onChange={(value) => setReadingFormat(value === "plain" ? "plain" : "html")}
+            onChange={(value) => setReadingFormat(value === "html" || value === "plain" ? value : "automatic")}
             options={[
-              { id: "html", label: "HTML", icon: "ti ti-code" },
-              { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
+              {
+                id: "automatic",
+                label: "Automatic — Recommended",
+                description: "Show HTML in light mode and plain text in dark mode when available.",
+                icon: "ti ti-adjustments-horizontal",
+              },
+              {
+                id: "html",
+                label: "HTML",
+                description: "Preserve safe email layout and styling in every theme.",
+                icon: "ti ti-code",
+              },
+              {
+                id: "plain",
+                label: "Plain text",
+                description: "Show only the text alternative in every theme.",
+                icon: "ti ti-align-left",
+              },
             ]}
           />
           <p class="text-xs text-dimmed">

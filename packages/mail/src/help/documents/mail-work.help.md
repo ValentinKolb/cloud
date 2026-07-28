@@ -62,7 +62,7 @@ Select a conversation row to open its thread. Each message has its own sender, r
 
 Opening an unread conversation marks it as read. Use **More conversation actions** to mark it unread again, add or remove a flag, or print the conversation.
 
-Mail shows the safe HTML version of a message by default when one is available. Open an individual message's actions and choose **View as plain text** when you want its text alternative instead. Choose **View as HTML** there to switch back. Set the default for this browser under **Settings > Reading > Default message format**.
+Mail adapts message bodies to the current theme by default: safe HTML in light mode and plain text in dark mode when both versions are available. Open an individual message's actions and choose **View as plain text** or **View as HTML** to override that message. Choose a persistent mode for this browser under **Settings > Reading > Default message format**.
 
 HTML messages keep a bounded set of layout, typography, color, spacing, and table styles. Scripts, forms, embedded objects, external stylesheets, and other active content are removed. Remote images remain blocked separately until you choose to load them.
 

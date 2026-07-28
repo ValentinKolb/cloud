@@ -1,5 +1,6 @@
 import { documentNavigate, type LinkNavigateEvent, listenPopState, navigate } from "@k2b/ssr/nav";
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
+import { type CloudTheme, getCurrentThemePreference } from "@valentinkolb/cloud/shared";
 import { AppWorkspace, openSpotlightSearch, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
@@ -41,6 +42,8 @@ import {
 } from "./_components/mail-list-optimistic";
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
 import { buildMailListHref } from "./_components/mail-navigation";
+import { observeMailUserPreferences } from "./_components/MailSettingsStore";
+import type { MailUserPreferences } from "./_components/mail-user-preferences";
 import { type MailWorkspaceActionOptions, runMailWorkspaceAction } from "./_components/mail-workspace-action-controller";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 
@@ -61,6 +64,8 @@ export default function MailWorkspace(props: {
   currentUserEmail: string | null;
   dateConfig: DateContext;
   initialPreferences: MailWorkspacePreferences;
+  initialUserPreferences: MailUserPreferences;
+  initialTheme: CloudTheme;
 }) {
   // A store keeps shell, list, and detail consumers granular even though the
   // server snapshot remains one canonical contract.
@@ -71,6 +76,7 @@ export default function MailWorkspace(props: {
   const [listCollapsed, setListCollapsed] = createSignal(props.initialPreferences.listCollapsed);
   const [detailsOpen, setDetailsOpen] = createSignal(props.initialPreferences.detailsOpen);
   const [toolbarActions, setToolbarActions] = createSignal(props.initialPreferences.toolbarActions);
+  const [theme, setTheme] = createSignal(props.initialTheme);
   const [presence, setPresence] = createSignal<ConversationPresenceSnapshot>({
     participants: [],
   });
@@ -83,6 +89,7 @@ export default function MailWorkspace(props: {
   const [selectionMode, setSelectionMode] = createSignal(false);
   const [actionPending, setActionPending] = createSignal(false);
   const mailboxId = props.data.mailbox.id;
+  const userPreferences = createMemo(() => observeMailUserPreferences(mailboxId, props.initialUserPreferences));
   let preferenceTimer: ReturnType<typeof setTimeout> | null = null;
   let liveTransportTimer: ReturnType<typeof setTimeout> | null = null;
   let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
@@ -99,6 +106,15 @@ export default function MailWorkspace(props: {
   const selectedConversationId = createMemo(() => data.selectedConversationId);
   const selectedConversationIds = createMemo(() => conversationSelection().ids);
   const workspaceRefreshBlocked = () => settingsOpening() || managementOpening() !== null || routeLoading() || selectionLoading();
+
+  onMount(() => {
+    const root = document.documentElement;
+    const syncTheme = () => setTheme(getCurrentThemePreference());
+    syncTheme();
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    onCleanup(() => observer.disconnect());
+  });
 
   const applyPendingListState = (snapshot: MailboxPageData): MailboxPageData => {
     const reconciled = reconcileMailListOptimisticState(snapshot.listItems, pendingListState);
@@ -1420,6 +1436,8 @@ export default function MailWorkspace(props: {
                   totalMessageCount={selectedListItem()?.messageCount ?? data.detailMessages.length}
                   error={data.detailError}
                   dateConfig={props.dateConfig}
+                  readingFormat={userPreferences().readingFormat}
+                  theme={theme()}
                   listCollapsed={listCollapsed()}
                   detailsOpen={detailsOpen()}
                   toolbarActions={toolbarActions()}

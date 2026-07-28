@@ -10,9 +10,9 @@ export const buildMessageDocument = (html: string, channel: string): string => {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'nonce-${scriptNonce}'; form-action 'none'; base-uri 'none'; object-src 'none'">
   <meta name="referrer" content="no-referrer">
   <style>
-    :root { color-scheme: light dark; }
+    :root { color-scheme: only light; }
     * { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; background: transparent; color: inherit; font: 14px/1.55 system-ui, sans-serif; overflow-wrap: anywhere; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #18181b; font: 14px/1.55 system-ui, sans-serif; overflow-wrap: anywhere; }
     body { padding: 1px; }
     img { max-width: 100%; height: auto; }
     table { max-width: 100%; border-collapse: collapse; }

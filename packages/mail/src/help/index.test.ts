@@ -118,6 +118,7 @@ describe("mailHelp", () => {
     const admin = mailHelp.getMarkdown("mail-admin");
 
     expect(work).toContain("View as plain text");
+    expect(work).toContain("safe HTML in light mode and plain text in dark mode");
     expect(work).toContain("Settings > Reading > Default message format");
     expect(work).toContain("Scripts, forms, embedded objects, external stylesheets");
     expect(admin).toContain("Reading** is available to every mailbox reader");
