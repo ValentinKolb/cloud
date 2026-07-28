@@ -6,12 +6,12 @@ import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
-import { renderMailLiquidTemplate, validateMailLiquidTemplate } from "./template-rendering";
+import { mailLiquidTemplateVariables, renderMailLiquidTemplate, validateMailLiquidTemplate } from "./template-rendering";
 
 const REFERENCE_PATTERN_MAX_LENGTH = 120;
 const REFERENCE_VALUE_MAX_LENGTH = 160;
 const ALLOWED_LITERAL_PATTERN = /^[\p{L}\p{N} ._\-/]*$/u;
-const REFERENCE_SEQUENCE_SENTINEL = "MAILSEQUENCECHECK";
+const REFERENCE_SEQUENCE_SENTINEL = `MAILSEQUENCE${crypto.randomUUID().replaceAll("-", "")}`;
 
 type SqlClient = typeof sql;
 type ReferenceActor = { kind: "user" | "service_account" | "workflow"; id: string };
@@ -123,6 +123,11 @@ const validateReferencePattern = (pattern: string): Result<string> => {
   if (source.includes("{%")) return fail(err.badInput("Reference formats support Liquid output variables, not logic tags"));
   const valid = validateMailLiquidTemplate(source, { allowedRoots: ["sequence", "year"], output: "identifier" });
   if (!valid.ok) return valid;
+  const variables = mailLiquidTemplateVariables(source, "identifier");
+  if (!variables.ok) return variables;
+  if (!variables.data.includes("sequence")) {
+    return fail(err.badInput('Reference format must output "{{ sequence }}" exactly once'));
+  }
   const rendered = renderMailLiquidTemplate(source, { sequence: REFERENCE_SEQUENCE_SENTINEL, year: "2026" }, "identifier");
   if (!rendered.ok) return rendered;
   const sequenceCount = rendered.data.split(REFERENCE_SEQUENCE_SENTINEL).length - 1;

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   activateWorkflowInputSchema,
   addConversationLocalTagsSchema,
+  automaticReplyPreviewInputSchema,
   cancelScheduledSendInputSchema,
   conversationTriageInputSchema,
   createAutomaticReplyConfigurationSchema,
@@ -247,6 +248,24 @@ describe("automatic reply configuration contracts", () => {
         referenceConfiguration,
       }).success,
     ).toBe(false);
+  });
+
+  test("requires the reference format for reference-enabled previews", () => {
+    const preview = {
+      senderIdentityId: "00000000-0000-4000-8000-000000000001",
+      subject: "Re: {{ inputs.message.subject }}",
+      body: "{{ reference.value }}",
+      format: "markdown",
+      ensureReference: true,
+      referencePattern: null,
+    };
+    expect(automaticReplyPreviewInputSchema.safeParse(preview).success).toBe(false);
+    expect(
+      automaticReplyPreviewInputSchema.safeParse({
+        ...preview,
+        referencePattern: "REF-{{ year }}-{{ sequence | pad_start: 6 }}",
+      }).success,
+    ).toBe(true);
   });
 });
 

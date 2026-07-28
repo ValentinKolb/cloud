@@ -27,7 +27,9 @@ export function MailReferenceConfigurationFields(props: {
   const update = <K extends keyof MailReferenceConfigurationDraft>(key: K, value: MailReferenceConfigurationDraft[K]) =>
     props.onChange({ ...props.value(), [key]: value });
   const [preview, setPreview] = createSignal<ConversationReferencePreview | null>(null);
+  const [previewPending, setPreviewPending] = createSignal(false);
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
+  let previewGeneration = 0;
   const previewMutation = mutation.create<ConversationReferencePreview, string>({
     mutation: async (pattern, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"]["reference-number-configuration"].preview.$post(
@@ -44,13 +46,20 @@ export function MailReferenceConfigurationFields(props: {
   });
   createEffect(() => {
     const pattern = props.value().pattern.trim();
+    const generation = ++previewGeneration;
     if (previewTimer) clearTimeout(previewTimer);
     previewMutation.abort();
+    setPreview(null);
     if (!pattern) {
-      setPreview(null);
+      setPreviewPending(false);
       return;
     }
-    previewTimer = setTimeout(() => void previewMutation.mutate(pattern), 200);
+    setPreviewPending(true);
+    previewTimer = setTimeout(() => {
+      void previewMutation.mutate(pattern).finally(() => {
+        if (generation === previewGeneration) setPreviewPending(false);
+      });
+    }, 200);
   });
   onCleanup(() => {
     if (previewTimer) clearTimeout(previewTimer);
@@ -84,12 +93,10 @@ export function MailReferenceConfigurationFields(props: {
         </div>
       </MailTemplateHelpDisclosure>
       <p class="flex items-center gap-2 text-xs text-dimmed">
-        <i class={`ti ${previewMutation.loading() ? "ti-loader-2 animate-spin" : "ti-eye"} shrink-0`} aria-hidden="true" />
+        <i class={`ti ${previewPending() ? "ti-loader-2 animate-spin" : "ti-eye"} shrink-0`} aria-hidden="true" />
         <Show
           when={preview()}
-          fallback={
-            <span>{previewMutation.error()?.message ?? (previewMutation.loading() ? "Rendering preview…" : "Enter a valid format")}</span>
-          }
+          fallback={<span>{previewPending() ? "Rendering preview…" : (previewMutation.error()?.message ?? "Enter a valid format")}</span>}
         >
           {(value) => (
             <>

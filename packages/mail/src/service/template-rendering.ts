@@ -10,8 +10,8 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 const MAX_MAIL_TEMPLATE_BYTES = 200_000;
 const MAX_MAIL_TEMPLATE_OUTPUT_BYTES = 3 * 1024 * 1024;
 
-export type MailTemplateOutput = "identifier" | "markdown" | "text";
-export type MailTemplateData = Record<string, unknown>;
+type MailTemplateOutput = "identifier" | "markdown" | "text";
+type MailTemplateData = Record<string, unknown>;
 
 const bytes = (value: string): number => new TextEncoder().encode(value).byteLength;
 
@@ -32,7 +32,7 @@ const padStart: LiquidTemplateFilter = (value: unknown, width: unknown, fill: un
   return String(value).padStart(parsedWidth, parsedFill);
 };
 
-export const MAIL_LIQUID_FILTERS = { pad_start: padStart } satisfies Record<string, LiquidTemplateFilter>;
+const MAIL_LIQUID_FILTERS = { pad_start: padStart } satisfies Record<string, LiquidTemplateFilter>;
 
 const renderOptions = (output: MailTemplateOutput) => ({
   filters: MAIL_LIQUID_FILTERS,
@@ -92,7 +92,7 @@ export const renderMailLiquidTemplate = (source: string, data: MailTemplateData,
   }
 };
 
-export const mailWorkflowTemplateData = (
+const mailWorkflowTemplateData = (
   context: Pick<WorkflowActionContext, "invocation" | "variableSnapshot">,
 ): Record<string, WorkflowJsonValue> => ({
   inputs: context.invocation.inputs,

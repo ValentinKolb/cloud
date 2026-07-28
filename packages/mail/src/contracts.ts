@@ -1825,8 +1825,18 @@ export const automaticReplyPreviewInputSchema = z
     body: automaticReplyConfigurationFields.body,
     format: automaticReplyConfigurationFields.format,
     ensureReference: automaticReplyConfigurationFields.ensureReference,
+    referencePattern: conversationReferencePatternSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.ensureReference && value.referencePattern === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Reference format is required when the preview assigns a reference",
+        path: ["referencePattern"],
+      });
+    }
+  });
 export type AutomaticReplyPreviewInput = z.infer<typeof automaticReplyPreviewInputSchema>;
 
 export const automaticReplyPreviewSchema = z

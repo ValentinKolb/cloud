@@ -26,6 +26,13 @@ describe("conversation reference formatting", () => {
         allocatedAt: new Date("2026-07-20T12:00:00.000Z"),
       }),
     ).toMatchObject({ ok: false });
+    expect(
+      formatConversationReference({
+        pattern: "MAILSEQUENCECHECK",
+        sequence: 42n,
+        allocatedAt: new Date("2026-07-20T12:00:00.000Z"),
+      }),
+    ).toMatchObject({ ok: false });
   });
 
   test("adds one reference after the reply prefix", () => {

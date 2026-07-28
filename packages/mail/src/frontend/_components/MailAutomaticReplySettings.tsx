@@ -396,6 +396,11 @@ function AutomaticReplyEditor(props: {
             body: draft().body,
             format: draft().format,
             ensureReference: draft().ensureReference,
+            referencePattern: draft().ensureReference
+              ? needsInlineReferenceConfiguration()
+                ? referenceDraft().pattern.trim()
+                : (props.referenceConfiguration?.pattern ?? null)
+              : null,
           },
         },
         { init: { signal: abortSignal } },
@@ -406,6 +411,7 @@ function AutomaticReplyEditor(props: {
     onSuccess: setPreview,
   });
   const requestPreview = () => {
+    loadPreview.abort();
     setPreview(null);
     loadPreview.mutate();
   };
@@ -644,7 +650,7 @@ function AutomaticReplyEditor(props: {
                   >
                     {(content) => (
                       <>
-                        <div class="border-b border-[var(--ui-border)] px-3 py-2 text-sm font-medium text-primary">{content().subject}</div>
+                        <div class="bg-[var(--ui-surface-subtle)] px-3 py-2 text-sm font-medium text-primary">{content().subject}</div>
                         <iframe title="Automatic reply preview" sandbox="" class="h-80 w-full border-0 bg-white" srcdoc={content().html} />
                       </>
                     )}

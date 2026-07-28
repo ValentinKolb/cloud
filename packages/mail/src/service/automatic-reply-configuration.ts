@@ -6,6 +6,7 @@ import {
   type AutomaticReplyInactiveBehavior,
   type AutomaticReplyPreview,
   type AutomaticReplyPreviewInput,
+  automaticReplyPreviewInputSchema,
   type CreateAutomaticReplyConfiguration,
   type CreateAutomaticReplySetup,
   createAutomaticReplySetupSchema,
@@ -24,6 +25,7 @@ import { renderComposeDraft } from "./compose-templates";
 import {
   type ConversationReferenceConfiguration,
   type ConversationReferenceConfigurationMutation,
+  formatConversationReference,
   putConversationReferenceConfigurationInTransaction,
 } from "./conversation-reference";
 import { publishMailMailboxEvent } from "./events";
@@ -60,7 +62,7 @@ export type AutomaticReplySetup = {
   referenceConfiguration: ConversationReferenceConfiguration | null;
 };
 
-const automaticReplyPreviewData = (params: { mailboxId: string; context: MailRequestContext; ensureReference: boolean }) => {
+const automaticReplyPreviewData = (params: { mailboxId: string; context: MailRequestContext; referenceValue: string | null }) => {
   const actor = actorRefFromRequest(params.context);
   const occurredAt = new Date().toISOString();
   return {
@@ -112,11 +114,11 @@ const automaticReplyPreviewData = (params: { mailboxId: string; context: MailReq
             : { userId: null, serviceAccountId: null, groupIds: [] },
       occurredAt,
     },
-    ...(params.ensureReference
+    ...(params.referenceValue
       ? {
           reference: {
             id: "00000000-0000-4000-8000-000000000005",
-            value: "REF-2026-000042",
+            value: params.referenceValue,
             created: true,
             conversationId: "00000000-0000-4000-8000-000000000002",
             conversationRevision: 1,
@@ -134,27 +136,40 @@ export const previewAutomaticReply = async (params: {
   mailboxId: string;
   input: AutomaticReplyPreviewInput;
 }): Promise<Result<AutomaticReplyPreview>> => {
+  const parsed = automaticReplyPreviewInputSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid automatic reply preview"));
   const allowed = await requireAutomaticReplyManagementPermission(params.context, params.mailboxId);
   if (!allowed.ok) return allowed;
+  const input = parsed.data;
+  const allocatedAt = new Date();
+  const reference =
+    input.ensureReference && input.referencePattern
+      ? formatConversationReference({
+          pattern: input.referencePattern,
+          sequence: 42n,
+          allocatedAt,
+        })
+      : ok<string | null>(null);
+  if (!reference.ok) return reference;
   const data = automaticReplyPreviewData({
     mailboxId: params.mailboxId,
     context: params.context,
-    ensureReference: params.input.ensureReference,
+    referenceValue: reference.data,
   });
-  const subject = renderMailLiquidTemplate(params.input.subject, data, "text");
+  const subject = renderMailLiquidTemplate(input.subject, data, "text");
   if (!subject.ok) return subject;
-  const body = renderMailLiquidTemplate(params.input.body, data, params.input.format === "markdown" ? "markdown" : "text");
+  const body = renderMailLiquidTemplate(input.body, data, input.format === "markdown" ? "markdown" : "text");
   if (!body.ok) return body;
   const rendered = await renderComposeDraft({
     mailboxId: params.mailboxId,
     draft: {
-      senderIdentityId: params.input.senderIdentityId,
+      senderIdentityId: input.senderIdentityId,
       to: [],
       cc: [],
       bcc: [],
       subject: subject.data,
       body: body.data,
-      format: params.input.format,
+      format: input.format,
     },
     actor: actorRefFromRequest(params.context),
     renderLiquid: false,

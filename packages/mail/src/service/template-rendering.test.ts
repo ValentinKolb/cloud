@@ -4,6 +4,7 @@ import {
   migrateReferenceTemplateToLiquid,
   migrateWorkflowTextTemplateToLiquid,
   renderMailLiquidTemplate,
+  renderMailWorkflowTemplate,
   validateMailLiquidTemplate,
 } from "./template-rendering";
 
@@ -26,6 +27,27 @@ describe("Mail Liquid templates", () => {
   test("rejects unknown roots and invalid filters", () => {
     expect(validateMailLiquidTemplate("{{ actor.email }}", { allowedRoots: ["mailbox"] })).toMatchObject({ ok: false });
     expect(validateMailLiquidTemplate("{{ actor.email | missing_filter }}")).toMatchObject({ ok: false });
+  });
+
+  test("renders workflow inputs, context, and saved step values from one snapshot", () => {
+    const rendered = renderMailWorkflowTemplate(
+      {
+        invocation: {
+          workflowId: "workflow",
+          mode: "execute",
+          channel: "mail",
+          actor: { userId: "user" },
+          inputs: { message: { subject: "Request" } },
+          idempotencyKey: "run",
+          occurredAt: "2026-07-28T12:00:00.000Z",
+          context: { mailboxId: "mailbox" },
+        },
+        variableSnapshot: () => ({ reference: { value: "REF-42" } }),
+      },
+      "{{ inputs.message.subject }} / {{ context.mailboxId }} / {{ reference.value }}",
+    );
+
+    expect(rendered).toBe("Request / mailbox / REF-42");
   });
 
   test("migrates embedded workflow expressions", () => {

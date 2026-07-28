@@ -571,13 +571,14 @@ suite("conversation references and automatic reply policies", () => {
         body: "Reference: **{{ reference.value }}**",
         format: "markdown",
         ensureReference: true,
+        referencePattern: "PREVIEW-{{ year }}-{{ sequence | pad_start: 6 }}",
       },
     });
     expect(preview).toMatchObject({
       ok: true,
       data: {
         subject: "Re: Example customer request",
-        text: "Reference: REF-2026-000042",
+        text: `Reference: PREVIEW-${new Date().getUTCFullYear()}-000042`,
       },
     });
     const invalidPreview = await previewAutomaticReply({
@@ -589,6 +590,7 @@ suite("conversation references and automatic reply policies", () => {
         body: "Body",
         format: "plain",
         ensureReference: false,
+        referencePattern: null,
       },
     });
     expect(invalidPreview.ok).toBe(false);
