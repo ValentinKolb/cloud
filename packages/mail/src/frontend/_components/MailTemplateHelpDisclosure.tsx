@@ -1,4 +1,24 @@
+import { clipboard } from "@valentinkolb/stdlib/solid";
 import type { JSX } from "solid-js";
+
+export function MailTemplateToken(props: { value: string; muted?: boolean }) {
+  const { copy, wasCopied } = clipboard.create();
+
+  return (
+    <button
+      type="button"
+      class={`focus-ui inline-flex items-center gap-1 rounded bg-[var(--ui-surface)] px-1.5 py-0.5 font-mono text-[11px] transition-colors hover:bg-[var(--ui-hover)] ${
+        props.muted ? "text-dimmed" : "text-primary"
+      }`}
+      aria-label={wasCopied() ? `Copied ${props.value}` : `Copy ${props.value}`}
+      title={wasCopied() ? "Copied" : "Click to copy"}
+      onClick={() => void copy(props.value)}
+    >
+      <span>{props.value}</span>
+      {wasCopied() ? <i class="ti ti-check text-green-600" aria-hidden="true" /> : null}
+    </button>
+  );
+}
 
 export default function MailTemplateHelpDisclosure(props: { title: string; children: JSX.Element }) {
   return (

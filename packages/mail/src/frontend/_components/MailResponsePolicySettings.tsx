@@ -5,7 +5,7 @@ import { apiClient } from "../../api/client";
 import type { PutConversationReferenceConfiguration } from "../../contracts";
 import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
 import { readApiError } from "./api-response";
-import MailTemplateHelpDisclosure from "./MailTemplateHelpDisclosure";
+import MailTemplateHelpDisclosure, { MailTemplateToken } from "./MailTemplateHelpDisclosure";
 
 const DEFAULT_PATTERN = "REF-{year}-{sequence:6}";
 
@@ -43,14 +43,17 @@ export function MailReferenceConfigurationFields(props: {
       />
       <MailTemplateHelpDisclosure title="Format placeholders">
         <div class="grid gap-2 text-xs sm:grid-cols-3">
-          <p>
-            <code>{"{sequence}"}</code> next mailbox-wide number
+          <p class="flex flex-wrap items-center gap-1.5">
+            <MailTemplateToken value="{sequence}" />
+            <span>next mailbox-wide number</span>
           </p>
-          <p>
-            <code>{"{sequence:6}"}</code> number padded to six digits
+          <p class="flex flex-wrap items-center gap-1.5">
+            <MailTemplateToken value="{sequence:6}" />
+            <span>number padded to six digits</span>
           </p>
-          <p>
-            <code>{"{year}"}</code> allocation year
+          <p class="flex flex-wrap items-center gap-1.5">
+            <MailTemplateToken value="{year}" />
+            <span>allocation year</span>
           </p>
         </div>
       </MailTemplateHelpDisclosure>

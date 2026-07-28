@@ -23,7 +23,7 @@ import type { ResponseScheduleDefinition } from "../../service/response-schedule
 import { readApiError } from "./api-response";
 import { MailReferenceConfigurationFields, referenceConfigurationDraft } from "./MailResponsePolicySettings";
 import MailResponseScheduleFields, { responseScheduleSummary } from "./MailResponseScheduleFields";
-import MailTemplateHelpDisclosure from "./MailTemplateHelpDisclosure";
+import MailTemplateHelpDisclosure, { MailTemplateToken } from "./MailTemplateHelpDisclosure";
 import { waitForMailPageTransition } from "./mail-page-transition";
 
 type AutomaticReplyDraft = {
@@ -114,11 +114,7 @@ function AutomaticReplyVariableHelp(props: { referenceEnabled: () => boolean }) 
             <section>
               <h4 class="text-xs font-semibold text-primary">{group.label}</h4>
               <div class="mt-1 flex flex-wrap gap-1.5">
-                <For each={group.variables}>
-                  {(variable) => (
-                    <code class="rounded bg-[var(--ui-surface)] px-1.5 py-0.5 text-[11px]">{workflowExpression(variable)}</code>
-                  )}
-                </For>
+                <For each={group.variables}>{(variable) => <MailTemplateToken value={workflowExpression(variable)} />}</For>
               </div>
             </section>
           )}
@@ -132,11 +128,7 @@ function AutomaticReplyVariableHelp(props: { referenceEnabled: () => boolean }) 
           </p>
           <div class="mt-1 flex flex-wrap gap-1.5">
             <For each={REFERENCE_VARIABLES}>
-              {(variable) => (
-                <code class={`rounded px-1.5 py-0.5 text-[11px] ${props.referenceEnabled() ? "bg-[var(--ui-surface)]" : "text-dimmed"}`}>
-                  {workflowExpression(variable)}
-                </code>
-              )}
+              {(variable) => <MailTemplateToken value={workflowExpression(variable)} muted={!props.referenceEnabled()} />}
             </For>
           </div>
         </section>
