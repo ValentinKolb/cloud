@@ -55,12 +55,12 @@ describe("Mail search navigation", () => {
 
   test("clears all current and legacy search state without changing the active mailbox view", () => {
     const url = new URL(
-      "https://cloud.example/app/mail/00000000-0000-4000-8000-000000000001?folder=00000000-0000-4000-8000-000000000004&q=x&qScope=sender&search=%7B%7D&subject=y&combine=all&cursor=next&conversation=00000000-0000-4000-8000-000000000003",
+      "https://cloud.example/app/mail/00000000-0000-4000-8000-000000000001?folder=00000000-0000-4000-8000-000000000004&q=x&qFields=from%2Cbody&search=%7B%7D&subject=y&combine=all&cursor=next&conversation=00000000-0000-4000-8000-000000000003",
     );
     const cleared = new URL(buildMailListHref(url, true), url.origin);
     expect(cleared.searchParams.get("folder")).toBe("00000000-0000-4000-8000-000000000004");
     expect(cleared.searchParams.has("q")).toBe(false);
-    expect(cleared.searchParams.has("qScope")).toBe(false);
+    expect(cleared.searchParams.has("qFields")).toBe(false);
     expect(cleared.searchParams.has(MAIL_SEARCH_PARAMETER)).toBe(false);
     expect(cleared.searchParams.has("subject")).toBe(false);
     expect(cleared.searchParams.has("combine")).toBe(false);

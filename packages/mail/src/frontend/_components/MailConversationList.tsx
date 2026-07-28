@@ -4,11 +4,12 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import {
-  DEFAULT_MAIL_QUICK_SEARCH_SCOPE,
-  MAIL_QUICK_SEARCH_SCOPE_PARAMETER,
+  DEFAULT_MAIL_QUICK_SEARCH_FIELDS,
+  MAIL_QUICK_SEARCH_FIELDS,
+  MAIL_QUICK_SEARCH_FIELDS_PARAMETER,
   MAIL_SEARCH_PARAMETER,
-  type MailQuickSearchScope,
-  parseMailQuickSearchScope,
+  type MailQuickSearchField,
+  parseMailQuickSearchFields,
   parseMailSearchState,
   resolveMailSearchRoute,
 } from "../../search-state";
@@ -21,15 +22,22 @@ import { mailboxHealthPresentation } from "./mail-health-presentation";
 import { buildMailListHref, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
-const QUICK_SEARCH_SCOPE_OPTIONS = [
-  { value: "everything", label: "Everything", icon: "ti ti-search" },
-  { value: "people", label: "People", icon: "ti ti-users" },
-  { value: "sender", label: "Sender", icon: "ti ti-user-up" },
+const QUICK_SEARCH_FIELD_OPTIONS = [
+  { value: "from", label: "Sender", icon: "ti ti-user-up" },
   { value: "recipients", label: "Recipients", icon: "ti ti-user-down" },
   { value: "subject", label: "Subject", icon: "ti ti-letter-case" },
   { value: "body", label: "Message body", icon: "ti ti-align-left" },
-  { value: "attachments", label: "Attachments", icon: "ti ti-paperclip" },
-] satisfies Array<{ value: MailQuickSearchScope; label: string; icon: string }>;
+  { value: "attachment_name", label: "Attachments", icon: "ti ti-paperclip" },
+] satisfies Array<{ value: MailQuickSearchField; label: string; icon: string }>;
+
+const selectedQuickSearchFields = (url: URL): MailQuickSearchField[] => {
+  const fields = parseMailQuickSearchFields(url);
+  return fields.length > 0 ? fields : [...DEFAULT_MAIL_QUICK_SEARCH_FIELDS];
+};
+
+const DEFAULT_QUICK_SEARCH_FIELD_SET = new Set<MailQuickSearchField>(DEFAULT_MAIL_QUICK_SEARCH_FIELDS);
+const isDefaultQuickSearch = (fields: MailQuickSearchField[]): boolean =>
+  fields.length === DEFAULT_MAIL_QUICK_SEARCH_FIELDS.length && fields.every((field) => DEFAULT_QUICK_SEARCH_FIELD_SET.has(field));
 
 export default function MailConversationList(props: {
   mailbox: Mailbox;
@@ -71,7 +79,7 @@ export default function MailConversationList(props: {
 }) {
   const requestUrl = () => new URL(props.requestUrl);
   const [searchValue, setSearchValue] = createSignal(props.query);
-  const [searchScope, setSearchScope] = createSignal<MailQuickSearchScope>(parseMailQuickSearchScope(requestUrl()));
+  const [searchFields, setSearchFields] = createSignal<MailQuickSearchField[]>(selectedQuickSearchFields(requestUrl()));
   const [loadMoreElement, setLoadMoreElement] = createSignal<HTMLDivElement>();
   const [failedLoadHref, setFailedLoadHref] = createSignal<string | null>(null);
   let listScrollElement: HTMLDivElement | undefined;
@@ -95,16 +103,16 @@ export default function MailConversationList(props: {
   const searchActive = () => Boolean(props.query.trim() || requestUrl().searchParams.has(MAIL_SEARCH_PARAMETER) || props.activeSavedViewId);
   createEffect(() => {
     setSearchValue(props.query);
-    setSearchScope(parseMailQuickSearchScope(requestUrl()));
+    setSearchFields(selectedQuickSearchFields(requestUrl()));
   });
 
-  const applyQuickSearch = (query: string, scope: MailQuickSearchScope) => {
+  const applyQuickSearch = (query: string, fields: MailQuickSearchField[]) => {
     const currentUrl = requestUrl();
     const next = new URL(buildMailListHref(currentUrl, true), currentUrl.origin);
     const normalizedQuery = query.trim();
     if (normalizedQuery) {
       next.searchParams.set("q", normalizedQuery);
-      if (scope !== DEFAULT_MAIL_QUICK_SEARCH_SCOPE) next.searchParams.set(MAIL_QUICK_SEARCH_SCOPE_PARAMETER, scope);
+      if (!isDefaultQuickSearch(fields)) next.searchParams.set(MAIL_QUICK_SEARCH_FIELDS_PARAMETER, fields.join(","));
       next.searchParams.delete("savedView");
       next.searchParams.delete("view");
       next.searchParams.delete("folder");
@@ -115,17 +123,20 @@ export default function MailConversationList(props: {
 
   const submitSearch = (event: SubmitEvent) => {
     event.preventDefault();
-    applyQuickSearch(searchValue(), searchScope());
+    applyQuickSearch(searchValue(), searchFields());
   };
 
-  const updateSearchScope = (next: string[]) => {
-    const selected =
-      QUICK_SEARCH_SCOPE_OPTIONS.find((option) => option.value === next.at(-1))?.value ?? DEFAULT_MAIL_QUICK_SEARCH_SCOPE;
-    setSearchScope(selected);
-    if (searchValue().trim()) applyQuickSearch(searchValue(), selected);
+  const updateSearchFields = (next: string[]) => {
+    const allowed = new Set<string>(MAIL_QUICK_SEARCH_FIELDS);
+    const selected = next.filter((field): field is MailQuickSearchField => allowed.has(field));
+    const normalized = selected.length > 0 ? selected : [...DEFAULT_MAIL_QUICK_SEARCH_FIELDS];
+    setSearchFields(normalized);
+    if (searchValue().trim()) applyQuickSearch(searchValue(), normalized);
   };
-  const selectedSearchScope = () =>
-    QUICK_SEARCH_SCOPE_OPTIONS.find((option) => option.value === searchScope()) ?? QUICK_SEARCH_SCOPE_OPTIONS[0]!;
+  const searchFieldsLabel = () =>
+    QUICK_SEARCH_FIELD_OPTIONS.filter((option) => searchFields().includes(option.value))
+      .map((option) => option.label)
+      .join(", ");
 
   const openAdvancedSearch = async () => {
     const result = await openMailSearchBuilder({
@@ -277,19 +288,19 @@ export default function MailConversationList(props: {
               clearable
               onClear={() => {
                 setSearchValue("");
-                applyQuickSearch("", searchScope());
+                applyQuickSearch("", searchFields());
               }}
               maxLength={500}
             />
           </div>
           <FilterChip
-            label={`Search scope: ${selectedSearchScope().label}`}
-            icon={selectedSearchScope().icon}
-            options={[{ label: "Search in", options: QUICK_SEARCH_SCOPE_OPTIONS }]}
-            value={[searchScope()]}
-            defaultValue={[DEFAULT_MAIL_QUICK_SEARCH_SCOPE]}
-            isActive={searchScope() !== DEFAULT_MAIL_QUICK_SEARCH_SCOPE}
-            onChange={updateSearchScope}
+            label={`Search in: ${searchFieldsLabel()}`}
+            icon="ti ti-filter-search"
+            options={[{ label: "Search in", options: QUICK_SEARCH_FIELD_OPTIONS, multiple: true }]}
+            value={searchFields()}
+            defaultValue={[...DEFAULT_MAIL_QUICK_SEARCH_FIELDS]}
+            isActive={!isDefaultQuickSearch(searchFields())}
+            onChange={updateSearchFields}
             position="bottom-right"
             iconOnly
           />
@@ -325,12 +336,13 @@ export default function MailConversationList(props: {
                       type="button"
                       class="k2b-status-badge focus-ui mt-2 cursor-pointer transition-colors hover:bg-[var(--ui-hover)]"
                       data-tone="neutral"
+                      data-variant="chip"
                       aria-label={health().actionLabel ?? undefined}
                       title={health().actionLabel ?? undefined}
                       onClick={() => (health().action === "delivery" ? props.onOpenDeliverySettings() : props.onOpenHealth())}
                     >
                       <i class="ti ti-activity" aria-hidden="true" />
-                      {health().action === "health" ? "Status" : health().actionLabel}
+                      <span class="k2b-status-badge__label">{health().action === "health" ? "Status" : health().actionLabel}</span>
                     </button>
                   </Show>
                 </div>

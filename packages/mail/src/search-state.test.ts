@@ -3,7 +3,7 @@ import type { MailSearchExpression } from "./contracts";
 import {
   MAIL_SEARCH_PARAMETER,
   MAX_MAIL_SEARCH_PARAMETER_LENGTH,
-  parseMailQuickSearchScope,
+  parseMailQuickSearchFields,
   parseMailSearchState,
   resolveMailSearchRoute,
   serializeMailSearchState,
@@ -77,34 +77,37 @@ describe("Mail search URL state", () => {
       type: "or",
       expressions: [
         { type: "text", field: "from", query: "invoice", match: "words" },
-        { type: "text", field: "recipients", query: "invoice", match: "words" },
         { type: "text", field: "subject", query: "invoice", match: "words" },
         { type: "text", field: "body", query: "invoice", match: "words" },
-        { type: "text", field: "attachment_name", query: "invoice", match: "words" },
       ],
     });
     expect(simpleMailSearchExpression(" ")).toBeNull();
   });
 
-  test("parses one canonical quick-search scope and defaults invalid values", () => {
-    expect(parseMailQuickSearchScope(new URL("https://cloud.example/app/mail/id?qScope=subject"))).toBe("subject");
-    expect(parseMailQuickSearchScope(new URL("https://cloud.example/app/mail/id?qScope=invalid"))).toBe("everything");
-    expect(parseMailQuickSearchScope(new URL("https://cloud.example/app/mail/id"))).toBe("everything");
+  test("parses unique canonical quick-search fields and ignores invalid values", () => {
+    expect(parseMailQuickSearchFields(new URL("https://cloud.example/app/mail/id?qFields=subject,from,subject,invalid"))).toEqual([
+      "subject",
+      "from",
+    ]);
+    expect(parseMailQuickSearchFields(new URL("https://cloud.example/app/mail/id?qFields=invalid"))).toEqual([]);
+    expect(parseMailQuickSearchFields(new URL("https://cloud.example/app/mail/id"))).toEqual([]);
   });
 
-  test("maps focused quick-search scopes to canonical text fields", () => {
-    expect(simpleMailSearchExpression(" invoice ", "people")).toEqual({
-      type: "text",
-      field: "participants",
-      query: "invoice",
-      match: "words",
+  test("combines selected quick-search fields into one canonical expression", () => {
+    expect(simpleMailSearchExpression(" invoice ", ["from", "recipients"])).toEqual({
+      type: "or",
+      expressions: [
+        { type: "text", field: "from", query: "invoice", match: "words" },
+        { type: "text", field: "recipients", query: "invoice", match: "words" },
+      ],
     });
-    expect(simpleMailSearchExpression("invoice", "attachments")).toEqual({
+    expect(simpleMailSearchExpression("invoice", ["attachment_name"])).toEqual({
       type: "text",
       field: "attachment_name",
       query: "invoice",
       match: "words",
     });
+    expect(simpleMailSearchExpression("invoice", [])).toEqual(simpleMailSearchExpression("invoice"));
   });
 
   test("resolves simple and structured routes with deterministic precedence", () => {
@@ -115,20 +118,24 @@ describe("Mail search URL state", () => {
         type: "or",
         expressions: [
           { type: "text", field: "from", query: "invoice", match: "words" },
-          { type: "text", field: "recipients", query: "invoice", match: "words" },
           { type: "text", field: "subject", query: "invoice", match: "words" },
           { type: "text", field: "body", query: "invoice", match: "words" },
-          { type: "text", field: "attachment_name", query: "invoice", match: "words" },
         ],
       },
       sort: "relevance",
       error: null,
     });
 
-    const scoped = new URL("https://cloud.example/app/mail/id?q=invoice&qScope=sender");
+    const scoped = new URL("https://cloud.example/app/mail/id?q=invoice&qFields=from,attachment_name");
     expect(resolveMailSearchRoute(scoped)).toEqual({
       query: "invoice",
-      expression: { type: "text", field: "from", query: "invoice", match: "words" },
+      expression: {
+        type: "or",
+        expressions: [
+          { type: "text", field: "from", query: "invoice", match: "words" },
+          { type: "text", field: "attachment_name", query: "invoice", match: "words" },
+        ],
+      },
       sort: "relevance",
       error: null,
     });
