@@ -41,6 +41,8 @@ Enabled rules process future received messages. Turn on **Also apply to existing
 7. Select **Save automatic reply**.
 :::
 
+Subjects and messages are Liquid templates. Use the copyable variables in the editor, for example `{{ inputs.message.subject }}` or, after assigning a reference, `{{ reference.value }}`. Invalid syntax and unavailable variables are rejected before the reply is saved.
+
 Only one automatic reply can be enabled for a mailbox at a time. Disable the active configuration before enabling another one. By default only mailbox admins can change automatic replies. An admin can allow writers under **Settings > Access > Who can manage automatic replies?**
 
 Mail does not reply to messages that are unsafe for automatic responses, including mailing-list mail, bulk mail, delivery-status notifications, messages from the mailbox itself, and messages that explicitly suppress automatic replies. A suppressed reply remains part of the activity and run history; it is not silently converted into a normal draft.
@@ -75,24 +77,23 @@ For a YAML workflow, define these rules directly under `automaticReply.schedule`
 A conversation reference is a permanent mailbox-scoped identifier such as `SUP-2026-000042`. It helps people quote, search, and audit one conversation even if subjects change.
 
 :::steps
-1. Open **Automations > Reference numbers** and select **Set up** or **Configure**.
-2. Enter a pattern with exactly one sequence token, for example `SUP-{year}-{sequence:6}`.
-3. Keep **Allow workflows to assign reference numbers** enabled.
-4. Choose whether new human and automatic reply subjects should include the reference.
-5. Save the settings.
-6. Choose **Send a reference acknowledgement** to open the preconfigured reply editor, or add `ensureConversationReference` to your own workflow.
+1. Open **Automations > Automatic replies** and choose **Reference acknowledgement**, or open **Workflows** for custom YAML.
+2. If no mailbox sequence exists, configure it directly in the same reply editor or from the reference panel on the Workflows page.
+3. Enter a Liquid pattern with exactly one sequence output, for example `SUP-{{ year }}-{{ sequence | pad_start: 6 }}`. The editor explains every placeholder and shows a preview.
+4. Save the format without leaving or losing the reply you already entered.
+5. Finish the automatic reply, or add `ensureConversationReference` to your custom workflow.
 :::
 
 Supported pattern parts:
 
-- `{sequence}` inserts the next mailbox-scoped number.
-- `{sequence:6}` pads the number to six digits. Width can be from 1 to 12.
-- `{year}` inserts the year in which the reference is allocated.
+- `{{ sequence }}` inserts the next mailbox-scoped number.
+- `{{ sequence | pad_start: 6 }}` pads the number to six digits. Width can be from 1 to 120.
+- `{{ year }}` inserts the year in which the reference is allocated.
 - Letters, numbers, spaces, `.`, `_`, `-`, and `/` can be used as literal separators.
 
 Allocation is idempotent: running the same action again returns the conversation's existing reference instead of consuming another number. References remain attached as aliases after conversation merges. Disabling allocation prevents new references but does not rewrite existing values.
 
-The **Reference acknowledgement** preset assigns the number before sending and inserts `${{ reference.value }}` into the message. The same result binding is available in custom YAML. Once a conversation has a reference, new reply subjects use `Re: [SUP-2026-000042] Original subject` by default. Mail still threads replies through standard `Message-ID`, `In-Reply-To`, and `References` headers.
+The **Reference acknowledgement** preset assigns the number before sending and inserts `{{ reference.value }}` into the message. The same result binding is available in custom YAML. Once a conversation has a reference, new reply subjects use `Re: [SUP-2026-000042] Original subject` by default. Mail still threads replies through standard `Message-ID`, `In-Reply-To`, and `References` headers.
 
 ## Save and activate a workflow safely {icon="route"}
 

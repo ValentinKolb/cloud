@@ -81,7 +81,7 @@ triggers:
       conversation: "${{ trigger.conversation }}"
 steps:
   - succeed:
-      message: "Received ${{ inputs.message.subject }}"
+      message: "Received {{ inputs.message.subject }}"
 ```
 
 ### `schedule`
@@ -131,9 +131,9 @@ Array indices must be normal decimal indices such as `.0`, not `.00`. A missing 
 
 - A plain value such as `Finance` is literal text.
 - A dynamic value uses the whole expression string: `"${{ inputs.message.subject }}"`.
-- Text fields such as reply subjects, reply bodies, and `succeed.message` may embed expressions: `"Re: ${{ inputs.message.subject }}"`.
+- Text fields such as reply subjects, reply bodies, and `succeed.message` are Liquid templates: `"Re: {{ inputs.message.subject }}"`.
 - Reference-only action fields use raw paths such as `message: inputs.message` and `conversation: inputs.conversation`.
-- `${{ now() }}` produces the current workflow time.
+- `{{ context.occurredAt }}` contains the workflow occurrence time.
 - `setVariable` creates a value for later steps in the same scope.
 
 ```yaml
@@ -146,7 +146,7 @@ steps:
       name: senderAddress
       value: "${{ inputs.message.sender.0.email }}"
   - succeed:
-      message: "Message from ${{ senderAddress }} processed at ${{ now() }}"
+      message: "Message from {{ senderAddress }} processed at {{ context.occurredAt }}"
 ```
 
 Variables created inside a branch do not escape that branch. Defining the same variable name twice in one scope is invalid.
@@ -200,7 +200,7 @@ steps:
       conversation: inputs.conversation
       status: waiting
   - succeed:
-      message: "Allocated ${{ reference.value }}"
+      message: "Allocated {{ reference.value }}"
 ```
 
 The action is safe to repeat and does not allocate a second reference for the same conversation. When `saveAs` is present, later steps in the same scope can use:
@@ -232,7 +232,7 @@ steps:
       message: inputs.message
       conversation: inputs.conversation
       sender: Support
-      subject: "Re: ${{ inputs.message.subject }}"
+      subject: "Re: {{ inputs.message.subject }}"
       body: "Thank you for your message. We will respond during office hours."
       format: markdown
       schedule:

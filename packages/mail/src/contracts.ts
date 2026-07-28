@@ -1726,6 +1726,22 @@ export const putConversationReferenceConfigurationSchema = z
   .strict();
 export type PutConversationReferenceConfiguration = z.infer<typeof putConversationReferenceConfigurationSchema>;
 
+export const conversationReferencePreviewInputSchema = z
+  .object({
+    pattern: conversationReferencePatternSchema,
+  })
+  .strict();
+export type ConversationReferencePreviewInput = z.infer<typeof conversationReferencePreviewInputSchema>;
+
+export const conversationReferencePreviewSchema = z
+  .object({
+    value: z.string(),
+    sequence: z.string(),
+    allocatedAt: z.string().datetime(),
+  })
+  .strict();
+export type ConversationReferencePreview = z.infer<typeof conversationReferencePreviewSchema>;
+
 export const ensureConversationReferenceSchema = z
   .object({
     idempotencyKey: z.string().trim().min(1).max(200),
@@ -1801,6 +1817,26 @@ export const updateAutomaticReplyConfigurationSchema = z
   })
   .strict();
 export type UpdateAutomaticReplyConfiguration = z.infer<typeof updateAutomaticReplyConfigurationSchema>;
+
+export const automaticReplyPreviewInputSchema = z
+  .object({
+    senderIdentityId: z.string().uuid(),
+    subject: automaticReplyConfigurationFields.subject,
+    body: automaticReplyConfigurationFields.body,
+    format: automaticReplyConfigurationFields.format,
+    ensureReference: automaticReplyConfigurationFields.ensureReference,
+  })
+  .strict();
+export type AutomaticReplyPreviewInput = z.infer<typeof automaticReplyPreviewInputSchema>;
+
+export const automaticReplyPreviewSchema = z
+  .object({
+    subject: z.string(),
+    html: z.string(),
+    text: z.string(),
+  })
+  .strict();
+export type AutomaticReplyPreview = z.infer<typeof automaticReplyPreviewSchema>;
 
 export const createAutomaticReplySetupSchema = z
   .object({

@@ -1,18 +1,13 @@
 import { dialogCore, PanelDialog, panelDialogOptions, prompts, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { PutConversationReferenceConfiguration } from "../../contracts";
+import type { ConversationReferencePreview, PutConversationReferenceConfiguration } from "../../contracts";
 import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
 import { readApiError } from "./api-response";
 import MailTemplateHelpDisclosure, { MailTemplateToken } from "./MailTemplateHelpDisclosure";
 
-const DEFAULT_PATTERN = "REF-{year}-{sequence:6}";
-
-const previewPattern = (pattern: string): string =>
-  pattern
-    .replaceAll("{year}", String(new Date().getFullYear()))
-    .replace(/\{sequence(?::(\d+))?\}/gu, (_, width: string | undefined) => "42".padStart(Number(width ?? 1), "0"));
+const DEFAULT_PATTERN = "REF-{{ year }}-{{ sequence | pad_start: 6 }}";
 
 type MailReferenceConfigurationDraft = PutConversationReferenceConfiguration;
 
@@ -24,12 +19,43 @@ export const referenceConfigurationDraft = (configuration: ConversationReference
 });
 
 export function MailReferenceConfigurationFields(props: {
+  mailboxId: string;
   value: () => MailReferenceConfigurationDraft;
   onChange: (value: MailReferenceConfigurationDraft) => void;
   compact?: boolean;
 }) {
   const update = <K extends keyof MailReferenceConfigurationDraft>(key: K, value: MailReferenceConfigurationDraft[K]) =>
     props.onChange({ ...props.value(), [key]: value });
+  const [preview, setPreview] = createSignal<ConversationReferencePreview | null>(null);
+  let previewTimer: ReturnType<typeof setTimeout> | null = null;
+  const previewMutation = mutation.create<ConversationReferencePreview, string>({
+    mutation: async (pattern, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["reference-number-configuration"].preview.$post(
+        {
+          param: { mailboxId: props.mailboxId },
+          json: { pattern },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Reference preview could not be rendered"));
+      return response.json();
+    },
+    onSuccess: setPreview,
+  });
+  createEffect(() => {
+    const pattern = props.value().pattern.trim();
+    if (previewTimer) clearTimeout(previewTimer);
+    previewMutation.abort();
+    if (!pattern) {
+      setPreview(null);
+      return;
+    }
+    previewTimer = setTimeout(() => void previewMutation.mutate(pattern), 200);
+  });
+  onCleanup(() => {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewMutation.abort();
+  });
 
   return (
     <div class="flex flex-col gap-3">
@@ -44,22 +70,33 @@ export function MailReferenceConfigurationFields(props: {
       <MailTemplateHelpDisclosure title="Format placeholders">
         <div class="grid gap-2 text-xs sm:grid-cols-3">
           <p class="flex flex-wrap items-center gap-1.5">
-            <MailTemplateToken value="{sequence}" />
+            <MailTemplateToken value="{{ sequence }}" />
             <span>next mailbox-wide number</span>
           </p>
           <p class="flex flex-wrap items-center gap-1.5">
-            <MailTemplateToken value="{sequence:6}" />
+            <MailTemplateToken value="{{ sequence | pad_start: 6 }}" />
             <span>number padded to six digits</span>
           </p>
           <p class="flex flex-wrap items-center gap-1.5">
-            <MailTemplateToken value="{year}" />
+            <MailTemplateToken value="{{ year }}" />
             <span>allocation year</span>
           </p>
         </div>
       </MailTemplateHelpDisclosure>
       <p class="flex items-center gap-2 text-xs text-dimmed">
-        <i class="ti ti-eye shrink-0" aria-hidden="true" />
-        Preview: <code>{previewPattern(props.value().pattern.trim() || DEFAULT_PATTERN)}</code>
+        <i class={`ti ${previewMutation.loading() ? "ti-loader-2 animate-spin" : "ti-eye"} shrink-0`} aria-hidden="true" />
+        <Show
+          when={preview()}
+          fallback={
+            <span>{previewMutation.error()?.message ?? (previewMutation.loading() ? "Rendering preview…" : "Enter a valid format")}</span>
+          }
+        >
+          {(value) => (
+            <>
+              Preview: <code>{value().value}</code>
+            </>
+          )}
+        </Show>
       </p>
       <Show when={!props.compact}>
         <Switch
@@ -112,7 +149,7 @@ export function MailReferenceConfigurationForm(props: {
 
   return (
     <div class="flex flex-col gap-3">
-      <MailReferenceConfigurationFields value={draft} onChange={setDraft} compact={props.compact} />
+      <MailReferenceConfigurationFields mailboxId={props.mailboxId} value={draft} onChange={setDraft} compact={props.compact} />
       <div class="flex justify-end">
         <button
           type="button"

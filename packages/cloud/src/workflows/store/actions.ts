@@ -97,6 +97,7 @@ const actionContext = (
     binding: (...path: Array<string | number>): WorkflowJsonValue | undefined => ctx.plan.bindings[workflowPathKey(configPath(path))],
     resolveReference: (reference: string, ...path: Array<string | number>): Promise<WorkflowJsonValue | undefined> =>
       ctx.resolveReference(reference, configPath(path)),
+    variableSnapshot: (): Record<string, WorkflowJsonValue> => ctx.variables.snapshot?.() ?? {},
     heartbeat: async (): Promise<void> => {
       await ctx.heartbeat();
     },

@@ -16,6 +16,7 @@ const context = <Mode extends "execute" | "dryRun">(mode: Mode) => {
     get: (name) => values.get(name),
     has: (name) => values.has(name),
     set: (name, value) => values.set(name, value),
+    snapshot: () => Object.fromEntries(values),
   };
   const plan = {
     schemaVersion: 2,
@@ -126,6 +127,22 @@ describe("workflow built-in actions", () => {
       message: "Failed for Ada",
       effects: [],
     });
+  });
+
+  test("lets an app own terminal text rendering in execute and dry-run modes", async () => {
+    const renderText = mock(({ value }: { value: string }) => `app:${value}`);
+    const ports = createWorkflowBuiltinActionPorts({ authorize: async () => undefined, renderText });
+    const action = step("succeed", { message: "Hello {{ inputs.name }}" });
+
+    expect(await ports.execute.get("succeed")!.execute(context("execute").value, action)).toMatchObject({
+      state: "terminal",
+      message: "app:Hello {{ inputs.name }}",
+    });
+    expect(await ports.dryRun.get("succeed")!.plan(context("dryRun").value, action)).toMatchObject({
+      state: "terminal",
+      message: "app:Hello {{ inputs.name }}",
+    });
+    expect(renderText).toHaveBeenCalledTimes(2);
   });
 
   test("returns app authorization failures before evaluating actions", async () => {

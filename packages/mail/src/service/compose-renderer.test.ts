@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type ComposeRenderContext,
   DEFAULT_MAIL_CSS,
   markComposeTemplateSegment,
   renderComposeContent,
   validateComposeCss,
   validateComposeTemplateSource,
-  type ComposeRenderContext,
 } from "./compose-renderer";
 
 const context: ComposeRenderContext = {
@@ -78,7 +78,7 @@ describe("compose renderer", () => {
     expect(rendered.data.text).toContain("[Reset](https://evil.example)");
   });
 
-  test("preserves safe variables inside Markdown link destinations", () => {
+  test("rejects Liquid output inside Markdown link destinations", () => {
     const rendered = renderComposeContent({
       body: markComposeTemplateSegment("[Email support](mailto:{{ sender.email }})"),
       format: "markdown",
@@ -87,9 +87,7 @@ describe("compose renderer", () => {
       renderLiquid: true,
     });
 
-    expect(rendered.ok).toBe(true);
-    if (!rendered.ok) return;
-    expect(rendered.data.html).toContain('href="mailto:support@example.test"');
+    expect(rendered).toMatchObject({ ok: false });
   });
 
   test("keeps plaintext variables unescaped", () => {
@@ -104,9 +102,9 @@ describe("compose renderer", () => {
     expect(rendered).toEqual({ ok: true, data: { html: null, text: "O'Reilly & Partners" } });
   });
 
-  test("accepts known template variables but rejects logic and unknown variables", () => {
+  test("accepts known Liquid variables and logic but rejects unknown variables", () => {
     expect(validateComposeTemplateSource("Regards, {{ actor.display_name }}").ok).toBe(true);
-    expect(validateComposeTemplateSource("{% if actor.email %}Hi{% endif %}").ok).toBe(false);
+    expect(validateComposeTemplateSource("{% if actor.email %}Hi{% endif %}").ok).toBe(true);
     expect(validateComposeTemplateSource("{{ actor.unknown }}").ok).toBe(false);
     expect(validateComposeTemplateSource("<{{ sender.reply_to }}>").ok).toBe(false);
     expect(validateComposeTemplateSource("[Support]: mailto:{{ sender.email }}").ok).toBe(false);

@@ -14,12 +14,13 @@ import {
   parseWorkflowValueString,
   resolveWorkflowValuePathDescriptor,
   type WorkflowValuePathDescriptor,
-  workflowMessageExpressions,
 } from "@valentinkolb/cloud/workflows/language";
 import { normalizeWorkflowSchedule } from "@valentinkolb/cloud/workflows/runtime";
 import { responseScheduleDefinitionSchema } from "../contracts";
 import { validateResponseScheduleDefinition } from "../response-schedule-validation";
+import { mailLiquidTemplateVariables } from "../service/template-rendering";
 import {
+  buildMailWorkflowCatalog,
   getMailWorkflowCatalogRef,
   type MailWorkflowCatalog,
   type MailWorkflowCatalogEntry,
@@ -323,17 +324,16 @@ const bindMessage = (
   context: BindingContext,
 ): void => {
   if (typeof value !== "string") return;
-  if (value.replace(/\$\{\{\s*[^{}]+?\s*\}\}/g, "").includes("${{")) {
-    addDiagnostic(context, "reference.invalid", "Invalid workflow message expression", path);
+  if (value.includes("${{")) {
+    addDiagnostic(context, "MAIL_TEMPLATE_LEGACY_SYNTAX", 'Use Liquid "{{ value }}" syntax in Mail text fields', path);
     return;
   }
-  workflowMessageExpressions(value).forEach((expression, index) => {
-    if (!expression.expression)
-      addDiagnostic(context, "reference.invalid", `Invalid workflow message expression "${expression.source}"`, path);
-    else if (expression.expression.kind === "reference") {
-      resolveReference(expression.expression.reference, [...path, "expression", index], scope, context);
-    }
-  });
+  const variables = mailLiquidTemplateVariables(value);
+  if (!variables.ok) {
+    addDiagnostic(context, "MAIL_TEMPLATE_INVALID", variables.error.message, path);
+    return;
+  }
+  variables.data.forEach((reference, index) => resolveReference(reference, [...path, "expression", index], scope, context));
 };
 
 const defineValue = (
@@ -605,4 +605,18 @@ export const bindMailWorkflow = async (ir: WorkflowIr, catalog: MailWorkflowCata
     bindings: context.bindings,
   }));
   return { ok: true, plan };
+};
+
+const emptyCatalog = buildMailWorkflowCatalog({
+  folders: [],
+  assignableUsers: [],
+  senderIdentities: [],
+  localTags: [],
+  notificationUsers: [],
+});
+
+export const validateMailWorkflowTemplateReferences = async (ir: WorkflowIr): Promise<WorkflowDiagnostic[]> => {
+  const bound = await bindMailWorkflow(ir, emptyCatalog);
+  if (bound.ok) return [];
+  return bound.diagnostics.filter((diagnostic) => diagnostic.path.includes("expression"));
 };

@@ -1,21 +1,19 @@
 import { audit, logger } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { EnsureConversationReference, PutConversationReferenceConfiguration } from "../contracts";
+import type { ConversationReferencePreview, EnsureConversationReference, PutConversationReferenceConfiguration } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
+import { renderMailLiquidTemplate, validateMailLiquidTemplate } from "./template-rendering";
 
 const REFERENCE_PATTERN_MAX_LENGTH = 120;
 const REFERENCE_VALUE_MAX_LENGTH = 160;
-const SEQUENCE_WIDTH_MIN = 1;
-const SEQUENCE_WIDTH_MAX = 12;
-const TOKEN_PATTERN = /\{([^{}]+)\}/gu;
 const ALLOWED_LITERAL_PATTERN = /^[\p{L}\p{N} ._\-/]*$/u;
+const REFERENCE_SEQUENCE_SENTINEL = "MAILSEQUENCECHECK";
 
 type SqlClient = typeof sql;
-type ReferenceToken = { type: "literal"; value: string } | { type: "year" } | { type: "sequence"; width: number };
 type ReferenceActor = { kind: "user" | "service_account" | "workflow"; id: string };
 const log = logger("mail:conversation-references");
 
@@ -117,68 +115,49 @@ const requestActor = (context: MailRequestContext): ReferenceActor => {
   throw new Error("Request actor cannot allocate conversation references");
 };
 
-const parseReferencePattern = (pattern: string): Result<ReferenceToken[]> => {
+const validateReferencePattern = (pattern: string): Result<string> => {
   const source = pattern.trim();
   if (source.length === 0 || source.length > REFERENCE_PATTERN_MAX_LENGTH) {
     return fail(err.badInput("Reference pattern must contain between 1 and 120 characters"));
   }
-
-  const tokens: ReferenceToken[] = [];
-  let offset = 0;
-  let sequenceCount = 0;
-  for (const match of source.matchAll(TOKEN_PATTERN)) {
-    const index = match.index ?? 0;
-    const literal = source.slice(offset, index);
-    if (!ALLOWED_LITERAL_PATTERN.test(literal)) return fail(err.badInput("Reference pattern contains unsupported characters"));
-    if (literal) tokens.push({ type: "literal", value: literal });
-
-    const value = match[1] ?? "";
-    if (value === "year") {
-      tokens.push({ type: "year" });
-    } else {
-      const sequence = /^sequence(?::([1-9]\d?))?$/u.exec(value);
-      if (!sequence) return fail(err.badInput(`Unsupported reference token "{${value}}"`));
-      const width = sequence[1] ? Number.parseInt(sequence[1], 10) : 1;
-      if (width < SEQUENCE_WIDTH_MIN || width > SEQUENCE_WIDTH_MAX) {
-        return fail(err.badInput(`Reference sequence width must be between ${SEQUENCE_WIDTH_MIN} and ${SEQUENCE_WIDTH_MAX}`));
-      }
-      tokens.push({ type: "sequence", width });
-      sequenceCount += 1;
-    }
-    offset = index + match[0].length;
+  if (source.includes("{%")) return fail(err.badInput("Reference formats support Liquid output variables, not logic tags"));
+  const valid = validateMailLiquidTemplate(source, { allowedRoots: ["sequence", "year"], output: "identifier" });
+  if (!valid.ok) return valid;
+  const rendered = renderMailLiquidTemplate(source, { sequence: REFERENCE_SEQUENCE_SENTINEL, year: "2026" }, "identifier");
+  if (!rendered.ok) return rendered;
+  const sequenceCount = rendered.data.split(REFERENCE_SEQUENCE_SENTINEL).length - 1;
+  if (sequenceCount !== 1) return fail(err.badInput("Reference format must output the sequence exactly once"));
+  if (!ALLOWED_LITERAL_PATTERN.test(rendered.data)) {
+    return fail(err.badInput("Reference format renders unsupported characters"));
   }
-
-  const suffix = source.slice(offset);
-  if (!ALLOWED_LITERAL_PATTERN.test(suffix) || /[{}]/u.test(suffix)) {
-    return fail(err.badInput("Reference pattern contains malformed or unsupported tokens"));
-  }
-  if (suffix) tokens.push({ type: "literal", value: suffix });
-  if (sequenceCount !== 1) return fail(err.badInput("Reference pattern must contain exactly one sequence token"));
-  return ok(tokens);
+  return ok(source);
 };
 
 export const validateConversationReferencePattern = (pattern: string): Result<void> => {
-  const parsed = parseReferencePattern(pattern);
-  return parsed.ok ? ok() : parsed;
+  const valid = validateReferencePattern(pattern);
+  return valid.ok ? ok() : valid;
 };
 
 export const formatConversationReference = (params: { pattern: string; sequence: bigint; allocatedAt: Date }): Result<string> => {
   if (params.sequence < 1n) return fail(err.badInput("Reference sequence must be positive"));
   if (!Number.isFinite(params.allocatedAt.getTime())) return fail(err.badInput("Reference allocation date is invalid"));
-  const parsed = parseReferencePattern(params.pattern);
-  if (!parsed.ok) return parsed;
-
-  const sequence = params.sequence.toString(10);
-  const rendered = parsed.data
-    .map((token) => {
-      if (token.type === "literal") return token.value;
-      if (token.type === "year") return params.allocatedAt.getUTCFullYear().toString(10).padStart(4, "0");
-      return sequence.padStart(token.width, "0");
-    })
-    .join("");
-
-  if (rendered.length > REFERENCE_VALUE_MAX_LENGTH) return fail(err.badInput("Rendered conversation reference is too long"));
-  return ok(rendered);
+  const valid = validateReferencePattern(params.pattern);
+  if (!valid.ok) return valid;
+  const rendered = renderMailLiquidTemplate(
+    valid.data,
+    {
+      sequence: params.sequence.toString(10),
+      year: params.allocatedAt.getUTCFullYear().toString(10).padStart(4, "0"),
+    },
+    "identifier",
+  );
+  if (!rendered.ok) return rendered;
+  if (rendered.data.length > REFERENCE_VALUE_MAX_LENGTH) {
+    return fail(err.badInput("Rendered conversation reference is too long"));
+  }
+  if (!ALLOWED_LITERAL_PATTERN.test(rendered.data))
+    return fail(err.badInput("Rendered conversation reference contains unsupported characters"));
+  return rendered;
 };
 
 export const addConversationReferenceToReplySubject = (subject: string, reference: string, maxLength = 998): string => {
@@ -286,6 +265,24 @@ export const getConversationReferenceConfiguration = async (
     WHERE configuration.mailbox_id = ${mailboxId}::uuid
   `;
   return ok(row ? mapConfiguration(row) : null);
+};
+
+export const previewConversationReference = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  pattern: string;
+}): Promise<Result<ConversationReferencePreview>> => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "admin");
+  if (!allowed.ok) return allowed;
+  const sequence = 42n;
+  const allocatedAt = new Date();
+  const rendered = formatConversationReference({ pattern: params.pattern, sequence, allocatedAt });
+  if (!rendered.ok) return rendered;
+  return ok({
+    value: rendered.data,
+    sequence: sequence.toString(10),
+    allocatedAt: allocatedAt.toISOString(),
+  });
 };
 
 export type ConversationReferenceConfigurationMutation = {

@@ -56,6 +56,13 @@ class RuntimeVariableScope implements WorkflowVariableScope {
     this.#values.set(name, value);
   }
 
+  snapshot(): Record<string, WorkflowJsonValue> {
+    return {
+      ...(this.parent?.snapshot() ?? {}),
+      ...Object.fromEntries(this.#values),
+    };
+  }
+
   child(initial: Record<string, WorkflowJsonValue> = {}): RuntimeVariableScope {
     return new RuntimeVariableScope(initial, this);
   }

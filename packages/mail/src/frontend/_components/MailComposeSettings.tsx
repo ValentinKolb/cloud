@@ -33,6 +33,8 @@ const TEMPLATE_VARIABLES = [
   "sender.email",
   "sender.reply_to",
   "message.subject",
+  "message.to",
+  "message.cc",
 ] as const;
 const templateEditorDialogOptions = { ...panelDialogOptions, cancelBehavior: "ignore" as const };
 const emailDesignDialogOptions = { ...panelDialogFixedOptions, cancelBehavior: "ignore" as const };
@@ -117,7 +119,7 @@ function ComposeTemplateEditor(props: {
     <PanelDialog>
       <PanelDialog.Header
         title={props.template ? `Edit ${props.template.kind}` : "New compose template"}
-        subtitle="Markdown with safe compose variables"
+        subtitle="Markdown with safe Liquid variables"
         icon={kind() === "signature" ? "ti ti-signature" : "ti ti-bolt"}
         close={() => void closeSafely()}
       />

@@ -1,13 +1,24 @@
-import type { WorkflowBoundPlan, WorkflowIr } from "@valentinkolb/cloud/workflows";
+import type { WorkflowBoundPlan, WorkflowIr, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { compileWorkflow, hashWorkflowJson } from "@valentinkolb/cloud/workflows/language";
+import { publishWorkflowVersion, type WorkflowActivationInput, type WorkflowAuthor } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { type ResponseScheduleDefinitionInput, responseScheduleDefinitionSchema } from "./contracts";
 import { canonicalizeSavedViewFilter } from "./saved-view-search-migration";
 import { cancelPendingAutomaticRepliesInTransaction } from "./service/automatic-reply";
+import { validateComposeTemplateSource } from "./service/compose-renderer";
+import { validateConversationReferencePattern } from "./service/conversation-reference";
 import { SEARCH_CHUNK_CHARACTERS, SEARCH_CHUNK_OVERLAP_CHARACTERS } from "./service/search-chunks";
+import {
+  migrateReferenceTemplateToLiquid,
+  migrateWorkflowTextTemplateToLiquid,
+  validateMailLiquidTemplate,
+} from "./service/template-rendering";
+import { validateMailWorkflowTemplateReferences } from "./workflows/binder";
 import { inlineWorkflowResponseSchedules } from "./workflows/inline-response-schedule-migration";
+import { migrateMailWorkflowSourceToLiquid } from "./workflows/liquid-template-migration";
 import { mailWorkflowManifest } from "./workflows/manifest";
 import { removeWorkflowReferenceSchemeSelection } from "./workflows/single-reference-configuration-migration";
+import { validateMailWorkflowTemplates } from "./workflows/template-validation";
 
 type SqlClient = typeof sql;
 
@@ -4971,6 +4982,260 @@ const addDraftMaterializationIdempotency = async (db: SqlClient): Promise<void> 
   `;
 };
 
+type LiquidMigrationVersionRow = {
+  id: string;
+  workflow_id: string;
+  mailbox_id: string;
+  source: string;
+  plan: WorkflowBoundPlan | string;
+  effect_budget: Record<string, number> | string;
+  language_id: string;
+  language_version: number;
+  manifest_hash: string;
+  created_by_kind: "system" | "user" | "service_account";
+  created_by_id: string | null;
+  is_active: boolean;
+  is_latest: boolean;
+};
+
+const workflowAuthor = (row: LiquidMigrationVersionRow): WorkflowAuthor =>
+  row.created_by_kind === "user" && row.created_by_id
+    ? { kind: "user", id: row.created_by_id }
+    : row.created_by_kind === "service_account" && row.created_by_id
+      ? { kind: "service_account", id: row.created_by_id }
+      : { kind: "system" };
+
+const migrateMailTemplatesToLiquid = async (db: SqlClient): Promise<void> => {
+  const referenceRows = await db<{ mailbox_id: string; pattern: string }[]>`
+    SELECT mailbox_id::text, pattern
+    FROM mail.reference_number_configurations
+    ORDER BY mailbox_id
+    FOR UPDATE
+  `;
+  for (const row of referenceRows) {
+    const pattern = migrateReferenceTemplateToLiquid(row.pattern);
+    const valid = validateConversationReferencePattern(pattern);
+    if (!valid.ok) throw new Error(`Cannot migrate Mail reference format for mailbox ${row.mailbox_id}: ${valid.error.message}`);
+    if (pattern !== row.pattern) {
+      await db`
+        UPDATE mail.reference_number_configurations
+        SET pattern = ${pattern}, revision = revision + 1, updated_at = now()
+        WHERE mailbox_id = ${row.mailbox_id}::uuid
+      `;
+    }
+  }
+
+  const automaticReplies = await db<{ id: string; subject: string; body: string }[]>`
+    SELECT id::text, subject, body
+    FROM mail.automatic_reply_configurations
+    ORDER BY id
+    FOR UPDATE
+  `;
+  for (const reply of automaticReplies) {
+    const subject = migrateWorkflowTextTemplateToLiquid(reply.subject);
+    const body = migrateWorkflowTextTemplateToLiquid(reply.body);
+    for (const [field, value] of [
+      ["subject", subject],
+      ["body", body],
+    ] as const) {
+      const valid = validateMailLiquidTemplate(value, { output: field === "body" ? "markdown" : "text" });
+      if (!valid.ok) throw new Error(`Cannot migrate automatic reply ${reply.id} ${field}: ${valid.error.message}`);
+    }
+    if (subject !== reply.subject || body !== reply.body) {
+      await db`
+        UPDATE mail.automatic_reply_configurations
+        SET subject = ${subject}, body = ${body}, revision = revision + 1, updated_at = now()
+        WHERE id = ${reply.id}::uuid
+      `;
+    }
+  }
+
+  const composeTemplates = await db<{ id: string; body_template: string }[]>`
+    SELECT id::text, body_template
+    FROM mail.compose_templates
+    WHERE archived_at IS NULL
+    ORDER BY id
+    FOR UPDATE
+  `;
+  for (const template of composeTemplates) {
+    const valid = validateComposeTemplateSource(template.body_template);
+    if (!valid.ok) throw new Error(`Cannot migrate compose template ${template.id}: ${valid.error.message}`);
+  }
+
+  const versions = await db<LiquidMigrationVersionRow[]>`
+    WITH latest AS (
+      SELECT DISTINCT ON (workflow_id) workflow_id, id
+      FROM workflows.version
+      ORDER BY workflow_id, revision DESC
+    )
+    SELECT
+      version.id::text,
+      version.workflow_id::text,
+      profile.mailbox_id::text,
+      version.source,
+      version.plan,
+      version.effect_budget,
+      version.language_id,
+      version.language_version,
+      version.manifest_hash,
+      version.created_by_kind,
+      version.created_by_id::text,
+      version.id = workflow.active_version_id AS is_active,
+      version.id = latest.id AS is_latest
+    FROM workflows.workflow workflow
+    JOIN mail.workflow_profile profile ON profile.id = workflow.id
+    JOIN latest ON latest.workflow_id = workflow.id
+    JOIN workflows.version version
+      ON version.workflow_id = workflow.id
+     AND version.id IN (latest.id, workflow.active_version_id)
+    WHERE workflow.app_id = 'mail'
+    ORDER BY version.workflow_id, is_active DESC, is_latest
+  `;
+  const byWorkflow = Map.groupBy(versions, (version) => version.workflow_id);
+  for (const [workflowId, candidates] of byWorkflow) {
+    const migrated = candidates.map((version) => ({
+      version,
+      migration: migrateMailWorkflowSourceToLiquid(version.source),
+    }));
+    for (const candidate of migrated) {
+      const compiled = await compileWorkflow(candidate.migration.source, mailWorkflowManifest);
+      if (!compiled.ok) {
+        throw new Error(
+          `Cannot compile Mail workflow ${workflowId} under Liquid semantics: ${compiled.diagnostics[0]?.message ?? "invalid source"}`,
+        );
+      }
+      const templateDiagnostics = validateMailWorkflowTemplates(compiled.ir);
+      if (templateDiagnostics.length > 0) {
+        throw new Error(`Cannot migrate Mail workflow ${workflowId}: ${templateDiagnostics[0]?.message ?? "invalid Liquid template"}`);
+      }
+      const referenceDiagnostics = await validateMailWorkflowTemplateReferences(compiled.ir);
+      if (referenceDiagnostics.length > 0) {
+        throw new Error(`Cannot migrate Mail workflow ${workflowId}: ${referenceDiagnostics[0]?.message ?? "invalid Liquid reference"}`);
+      }
+    }
+    if (!migrated.some((candidate) => candidate.migration.migratedTemplates > 0)) continue;
+
+    const publishSuccessor = async (candidate: (typeof migrated)[number], activate: boolean): Promise<void> => {
+      const compiled = await compileWorkflow(candidate.migration.source, mailWorkflowManifest);
+      if (!compiled.ok) {
+        throw new Error(`Cannot compile migrated Mail workflow ${workflowId}: ${compiled.diagnostics[0]?.message ?? "invalid source"}`);
+      }
+      const templateDiagnostics = validateMailWorkflowTemplates(compiled.ir);
+      if (templateDiagnostics.length > 0) {
+        throw new Error(`Cannot migrate Mail workflow ${workflowId}: ${templateDiagnostics[0]?.message ?? "invalid Liquid template"}`);
+      }
+      const referenceDiagnostics = await validateMailWorkflowTemplateReferences(compiled.ir);
+      if (referenceDiagnostics.length > 0) {
+        throw new Error(`Cannot migrate Mail workflow ${workflowId}: ${referenceDiagnostics[0]?.message ?? "invalid Liquid reference"}`);
+      }
+      const previousPlan = parseMigrationJson(candidate.version.plan);
+      const plan: WorkflowBoundPlan = {
+        ...previousPlan,
+        sourceHash: compiled.ir.sourceHash,
+        manifestHash: compiled.ir.manifestHash,
+        inputs: compiled.ir.inputs,
+        triggers: compiled.ir.triggers,
+        steps: compiled.ir.steps,
+      };
+      let activations: WorkflowActivationInput[] = [];
+      let authorization: unknown = {};
+      if (activate) {
+        const rows = await db<
+          {
+            key: string;
+            event_type: string;
+            config: unknown;
+            authorization_snapshot: unknown;
+            enabled: boolean;
+          }[]
+        >`
+          SELECT key, event_type, config, authorization_snapshot, enabled
+          FROM workflows.activation
+          WHERE workflow_id = ${workflowId}::uuid
+            AND workflow_version_id = ${candidate.version.id}::uuid
+          ORDER BY key
+        `;
+        activations = rows.map((row) => ({
+          key: row.key,
+          eventType: row.event_type,
+          config: parseMigrationJson(row.config as WorkflowJsonValue | string),
+          enabled: row.enabled,
+        }));
+        const authorizationHashes = new Set(
+          await Promise.all(
+            rows.map((row) => hashWorkflowJson(parseMigrationJson(row.authorization_snapshot as WorkflowJsonValue | string))),
+          ),
+        );
+        if (authorizationHashes.size > 1) {
+          throw new Error(`Cannot migrate Mail workflow ${workflowId}: active triggers have different authorization snapshots`);
+        }
+        authorization = rows[0]?.authorization_snapshot ?? {};
+      }
+      await publishWorkflowVersion(
+        {
+          workflowId,
+          source: candidate.migration.source,
+          sourceHash: compiled.ir.sourceHash,
+          plan,
+          diagnostics: [],
+          effectBudget: parseMigrationJson(candidate.version.effect_budget),
+          languageId: compiled.ir.languageId,
+          languageVersion: compiled.ir.languageVersion,
+          manifestHash: compiled.ir.manifestHash,
+          authorization: parseMigrationJson(authorization as WorkflowJsonValue | string),
+          author: workflowAuthor(candidate.version),
+          activations,
+          activate,
+        },
+        { db },
+      );
+    };
+
+    const active = migrated.find((candidate) => candidate.version.is_active);
+    const latest = migrated.find((candidate) => candidate.version.is_latest);
+    if (active) await publishSuccessor(active, true);
+    if (latest && latest.version.id !== active?.version.id) await publishSuccessor(latest, false);
+
+    const oldVersionIds = candidates.map((candidate) => candidate.id);
+    const [inFlight] = await db<{ id: string }[]>`
+      SELECT step.run_id::text AS id
+      FROM workflows.step_outcome step
+      JOIN workflows.run run ON run.id = step.run_id
+      WHERE run.workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${oldVersionIds}::jsonb))
+        AND step.effect_state IN ('executing', 'ambiguous')
+      LIMIT 1
+    `;
+    if (inFlight) {
+      throw Object.assign(new Error("Mail Liquid migration is waiting for an in-flight workflow effect to settle"), { code: "55P03" });
+    }
+    await db`
+      UPDATE workflows.run
+      SET
+        state = 'canceled',
+        cancel_requested_at = COALESCE(cancel_requested_at, now()),
+        execution_generation = execution_generation + 1,
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        wake_at = NULL,
+        finished_at = now(),
+        result_message = 'Workflow template syntax migrated to Liquid',
+        updated_at = now()
+      WHERE workflow_version_id IN (SELECT value::uuid FROM jsonb_array_elements_text(${oldVersionIds}::jsonb))
+        AND state IN ('queued', 'running', 'waiting')
+    `;
+    const mailboxId = candidates[0]?.mailbox_id;
+    if (mailboxId) {
+      await cancelPendingAutomaticRepliesInTransaction({
+        db,
+        mailboxId,
+        workflowId,
+        code: "WORKFLOW_TEMPLATE_MIGRATED",
+        message: "Workflow template syntax migrated to Liquid",
+      });
+    }
+  }
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -5072,6 +5337,7 @@ const migrations: readonly MailMigration[] = [
   { version: 99, name: "composable_sender_rule_actions", run: addComposableSenderRuleActions },
   { version: 100, name: "sender_rule_backfill_pointer", run: addSenderRuleBackfillPointer },
   { version: 101, name: "draft_materialization_idempotency", run: addDraftMaterializationIdempotency },
+  { version: 102, name: "liquid_mail_templates", run: migrateMailTemplatesToLiquid },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

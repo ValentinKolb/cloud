@@ -1,7 +1,11 @@
 import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { ensureConversationReferenceSchema, putConversationReferenceConfigurationSchema } from "../contracts";
+import {
+  conversationReferencePreviewInputSchema,
+  ensureConversationReferenceSchema,
+  putConversationReferenceConfigurationSchema,
+} from "../contracts";
 import { conversationReferences, type MailRequestContext } from "../service";
 
 const mailboxParamSchema = z.object({ mailboxId: z.string().uuid() });
@@ -16,6 +20,20 @@ const requestContext = (c: Context<AuthContext>): MailRequestContext => ({
 export default new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/reference-number-configuration", v("param", mailboxParamSchema), async (c) =>
     respond(c, conversationReferences.getConversationReferenceConfiguration(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .post(
+    "/mailboxes/:mailboxId/reference-number-configuration/preview",
+    v("param", mailboxParamSchema),
+    v("json", conversationReferencePreviewInputSchema),
+    async (c) =>
+      respond(
+        c,
+        conversationReferences.previewConversationReference({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          pattern: c.req.valid("json").pattern,
+        }),
+      ),
   )
   .put(
     "/mailboxes/:mailboxId/reference-number-configuration",

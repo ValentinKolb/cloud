@@ -8,6 +8,7 @@ import {
   createAutomaticReplyConfiguration,
   createAutomaticReplySetup,
   listAutomaticReplyConfigurations,
+  previewAutomaticReply,
   updateAutomaticReplyConfiguration,
   updateAutomaticReplySetup,
 } from "./automatic-reply-configuration";
@@ -16,6 +17,7 @@ import {
   findConversationByReference,
   getConversationReferenceConfiguration,
   listConversationReferences,
+  previewConversationReference,
   putConversationReferenceConfiguration,
 } from "./conversation-reference";
 import { mergeConversations, splitConversation } from "./conversations";
@@ -175,14 +177,19 @@ suite("conversation references and automatic reply policies", () => {
         await putConversationReferenceConfiguration({
           context: writerContext,
           mailboxId,
-          input: { expectedRevision: null, pattern: "NO-{sequence}", enabled: true, includeInReplySubjects: true },
+          input: { expectedRevision: null, pattern: "NO-{{ sequence }}", enabled: true, includeInReplySubjects: true },
         })
       ).ok,
     ).toBe(false);
     const configuration = await putConversationReferenceConfiguration({
       context: ownerContext,
       mailboxId,
-      input: { expectedRevision: null, pattern: "SUP-{year}-{sequence:6}", enabled: true, includeInReplySubjects: true },
+      input: {
+        expectedRevision: null,
+        pattern: "SUP-{{ year }}-{{ sequence | pad_start: 6 }}",
+        enabled: true,
+        includeInReplySubjects: true,
+      },
     });
     expect(configuration.ok).toBe(true);
     if (!configuration.ok) return;
@@ -276,7 +283,7 @@ suite("conversation references and automatic reply policies", () => {
       mailboxId,
       input: {
         expectedRevision: configuration.data.revision,
-        pattern: `İ-${suffix}-{sequence}`,
+        pattern: `İ-${suffix}-{{ sequence }}`,
         enabled: true,
         includeInReplySubjects: true,
       },
@@ -304,12 +311,27 @@ suite("conversation references and automatic reply policies", () => {
 
   test("updates one mailbox configuration with optimistic concurrency", async () => {
     const before = await getReferenceConfiguration();
+    const preview = await previewConversationReference({
+      context: ownerContext,
+      mailboxId,
+      pattern: `PREVIEW-${suffix}-{{ sequence | pad_start: 4 }}`,
+    });
+    expect(preview).toMatchObject({ ok: true, data: { value: `PREVIEW-${suffix}-0042`, sequence: "42" } });
+    expect(
+      (
+        await previewConversationReference({
+          context: writerContext,
+          mailboxId,
+          pattern: "{{ sequence }}",
+        })
+      ).ok,
+    ).toBe(false);
     const current = await putConversationReferenceConfiguration({
       context: ownerContext,
       mailboxId,
       input: {
         expectedRevision: before.revision,
-        pattern: `A-${suffix}-{sequence}`,
+        pattern: `A-${suffix}-{{ sequence }}`,
         enabled: true,
         includeInReplySubjects: true,
       },
@@ -320,7 +342,7 @@ suite("conversation references and automatic reply policies", () => {
       mailboxId,
       input: {
         expectedRevision: current.data.revision,
-        pattern: `B-${suffix}-{sequence}`,
+        pattern: `B-${suffix}-{{ sequence }}`,
         enabled: true,
         includeInReplySubjects: false,
       },
@@ -333,7 +355,7 @@ suite("conversation references and automatic reply policies", () => {
       WHERE mailbox_id = ${mailboxId}::uuid
     `;
     expect(stored).toEqual({
-      pattern: `B-${suffix}-{sequence}`,
+      pattern: `B-${suffix}-{{ sequence }}`,
       revision: String(updated.data.revision),
       include_in_reply_subjects: false,
     });
@@ -346,7 +368,7 @@ suite("conversation references and automatic reply policies", () => {
       mailboxId,
       input: {
         expectedRevision: before.revision,
-        pattern: `DRAFT-${suffix}-{sequence}`,
+        pattern: `DRAFT-${suffix}-{{ sequence }}`,
         enabled: true,
         includeInReplySubjects: true,
       },
@@ -440,7 +462,7 @@ suite("conversation references and automatic reply policies", () => {
       mailboxId,
       input: {
         expectedRevision: before.revision,
-        pattern: "ESC-{year}-{sequence:6}",
+        pattern: "ESC-{{ year }}-{{ sequence | pad_start: 6 }}",
         enabled: true,
         includeInReplySubjects: true,
       },
@@ -540,11 +562,41 @@ suite("conversation references and automatic reply policies", () => {
       RETURNING id
     `;
     if (!identity) throw new Error("Failed to create automatic reply sender fixture");
+    const preview = await previewAutomaticReply({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        senderIdentityId: identity.id,
+        subject: "Re: {{ inputs.message.subject }}",
+        body: "Reference: **{{ reference.value }}**",
+        format: "markdown",
+        ensureReference: true,
+      },
+    });
+    expect(preview).toMatchObject({
+      ok: true,
+      data: {
+        subject: "Re: Example customer request",
+        text: "Reference: REF-2026-000042",
+      },
+    });
+    const invalidPreview = await previewAutomaticReply({
+      context: ownerContext,
+      mailboxId,
+      input: {
+        senderIdentityId: identity.id,
+        subject: "{{ missing.value }}",
+        body: "Body",
+        format: "plain",
+        ensureReference: false,
+      },
+    });
+    expect(invalidPreview.ok).toBe(false);
     const input = {
       name: `Out of office ${suffix}`,
       enabled: true,
       senderIdentityId: identity.id,
-      subject: "Re: ${{ inputs.message.subject }}",
+      subject: "Re: {{ inputs.message.subject }}",
       body: "I am currently away.",
       format: "markdown" as const,
       ensureReference: false,
@@ -591,7 +643,7 @@ suite("conversation references and automatic reply policies", () => {
         mailboxId,
         input: {
           expectedRevision: null,
-          pattern: "SUP-{year}-{sequence:6}",
+          pattern: "SUP-{{ year }}-{{ sequence | pad_start: 6 }}",
           enabled: true,
           includeInReplySubjects: true,
         },
@@ -607,11 +659,11 @@ suite("conversation references and automatic reply policies", () => {
           ...input,
           name: `Atomic rollback ${suffix}`,
           ensureReference: true,
-          body: "Your reference is ${{ reference.value }}.",
+          body: "Your reference is {{ reference.value }}.",
         },
         referenceConfiguration: {
           expectedRevision: referenceBeforeAtomicConflict.revision,
-          pattern: `ROLLBACK-{year}-{sequence:6}`,
+          pattern: `ROLLBACK-{{ year }}-{{ sequence | pad_start: 6 }}`,
           enabled: true,
           includeInReplySubjects: referenceBeforeAtomicConflict.includeInReplySubjects,
         },
@@ -629,11 +681,11 @@ suite("conversation references and automatic reply policies", () => {
           name: `Reference acknowledgement ${suffix}`,
           enabled: false,
           ensureReference: true,
-          body: "Your reference is ${{ reference.value }}.",
+          body: "Your reference is {{ reference.value }}.",
         },
         referenceConfiguration: {
           expectedRevision: referenceBeforeAtomicConflict.revision,
-          pattern: `CASE-{year}-{sequence:6}`,
+          pattern: `CASE-{{ year }}-{{ sequence | pad_start: 6 }}`,
           enabled: true,
           includeInReplySubjects: true,
         },
@@ -647,7 +699,7 @@ suite("conversation references and automatic reply policies", () => {
         ensureReference: true,
       },
       referenceConfiguration: {
-        pattern: `CASE-{year}-{sequence:6}`,
+        pattern: `CASE-{{ year }}-{{ sequence | pad_start: 6 }}`,
         enabled: true,
         revision: referenceBeforeAtomicConflict.revision + 1,
       },
@@ -686,7 +738,7 @@ suite("conversation references and automatic reply policies", () => {
         },
         referenceConfiguration: {
           expectedRevision: referenceBeforeStaleAutomaticReply.revision,
-          pattern: `STALE-AUTO-{year}-{sequence:6}`,
+          pattern: `STALE-AUTO-{{ year }}-{{ sequence | pad_start: 6 }}`,
           enabled: true,
           includeInReplySubjects: true,
         },
@@ -707,7 +759,7 @@ suite("conversation references and automatic reply policies", () => {
         },
         referenceConfiguration: {
           expectedRevision: referenceBeforeStaleAutomaticReply.revision - 1,
-          pattern: `STALE-REFERENCE-{year}-{sequence:6}`,
+          pattern: `STALE-REFERENCE-{{ year }}-{{ sequence | pad_start: 6 }}`,
           enabled: true,
           includeInReplySubjects: true,
         },
@@ -857,7 +909,7 @@ suite("conversation references and automatic reply policies", () => {
         enabled: false,
         senderIdentityId: current.senderIdentityId,
         subject: current.subject,
-        body: "Your reference is ${{ reference.value }}.",
+        body: "Your reference is {{ reference.value }}.",
         format: current.format,
         ensureReference: true,
         minimumIntervalHours: current.minimumIntervalHours,
@@ -881,7 +933,7 @@ suite("conversation references and automatic reply policies", () => {
     `;
     expect(referenceWorkflow?.source).toContain("ensureConversationReference:");
     expect(referenceWorkflow?.source).toContain("saveAs: reference");
-    expect(referenceWorkflow?.source).toContain("${{ reference.value }}");
+    expect(referenceWorkflow?.source).toContain("{{ reference.value }}");
     const [disabled] = await sql<{ active_version_id: string | null; activation_count: number }[]>`
       SELECT
         workflow.active_version_id,

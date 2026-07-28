@@ -760,7 +760,7 @@ test("reference config set preserves unspecified settings", async () => {
   let requestBody: unknown;
   const current = {
     mailboxId: MAILBOX_ID,
-    pattern: "SUP-{year}-{sequence}",
+    pattern: "SUP-{{ year }}-{{ sequence }}",
     nextSequence: "42",
     enabled: true,
     includeInReplySubjects: true,
@@ -797,7 +797,7 @@ test("reference config set preserves unspecified settings", async () => {
   expect(result.stderr).toBe("");
   expect(requestBody).toEqual({
     expectedRevision: 3,
-    pattern: "SUP-{year}-{sequence}",
+    pattern: "SUP-{{ year }}-{{ sequence }}",
     enabled: true,
     includeInReplySubjects: false,
   });

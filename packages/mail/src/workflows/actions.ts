@@ -23,6 +23,7 @@ import { ensureConversationReferenceInTransaction } from "../service/conversatio
 import { createWorkflowDraftInTransaction } from "../service/drafts";
 import { updateWorkflowConversationLocalTagInTransaction } from "../service/local-tags";
 import { parseMessageProtocolFacts } from "../service/message-protocol";
+import { renderMailWorkflowTemplate } from "../service/template-rendering";
 import { mailWorkflowActionFailure } from "../service/workflow-action-errors";
 import { withMailWorkflowCollaborationEvent } from "../service/workflow-collaboration-events";
 import { mailWorkflowDependencyDeadline } from "../service/workflow-dependencies";
@@ -614,7 +615,7 @@ export const MAIL_WORKFLOW_ACTIONS = {
           mailboxId: scope.mailboxId,
           conversationId,
           workflowVersionId: scope.workflowVersionId,
-          body: asText(values.body, "body"),
+          body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), "text"),
         });
         if (!mutation.ok) return resultFailure(mutation.error);
         return {
@@ -676,8 +677,8 @@ export const MAIL_WORKFLOW_ACTIONS = {
           to: addresses(values.to, "to"),
           cc: addresses(values.cc, "cc"),
           bcc: addresses(values.bcc, "bcc"),
-          subject: asText(values.subject, "subject"),
-          body: asText(values.body, "body"),
+          subject: renderMailWorkflowTemplate(ctx, asText(values.subject, "subject"), "text"),
+          body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), values.format === "plain" ? "text" : "markdown"),
           format: values.format === "plain" ? "plain" : "markdown",
         });
         return draft.ok ? { state: "succeeded", output: draft.data } : resultFailure(draft.error);
@@ -726,7 +727,11 @@ export const MAIL_WORKFLOW_ACTIONS = {
         }
         await notifications.send(app.notifications.workflowNotice, {
           recipient: { userId },
-          data: { mailboxId: scope.mailboxId, title: asText(values.title, "title"), body: asText(values.body, "body") },
+          data: {
+            mailboxId: scope.mailboxId,
+            title: renderMailWorkflowTemplate(ctx, asText(values.title, "title"), "text"),
+            body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), "text"),
+          },
           idempotencyKey: ctx.effectKey,
         });
         return { state: "succeeded", output: { userId } };
@@ -791,8 +796,8 @@ export const MAIL_WORKFLOW_ACTIONS = {
             messageId,
             conversationId,
             senderIdentityId,
-            subject: asText(values.subject, "subject"),
-            body: asText(values.body, "body"),
+            subject: renderMailWorkflowTemplate(ctx, asText(values.subject, "subject"), "text"),
+            body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), values.format === "markdown" ? "markdown" : "text"),
             format: values.format === "markdown" ? "markdown" : "plain",
             protocolFacts: parseMessageProtocolFacts(message.protocolFacts),
             occurredAt: ctx.invocation.occurredAt,

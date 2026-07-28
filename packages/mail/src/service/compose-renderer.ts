@@ -6,6 +6,7 @@ import postcss from "postcss";
 import selectorParser from "postcss-selector-parser";
 import sanitizeHtml from "sanitize-html";
 import { allowedEmailInlineStyles, EMAIL_INLINE_STYLE_PROPERTY_SET } from "./email-inline-style-policy";
+import { renderMailLiquidTemplate, validateMailLiquidTemplate } from "./template-rendering";
 
 const MAX_CSS_RULES = 200;
 const MAX_CSS_DECLARATIONS = 1_000;
@@ -153,31 +154,6 @@ export type RenderedComposeContent = {
   text: string;
 };
 
-const composeVariables: Record<string, (context: ComposeRenderContext) => string> = {
-  "actor.display_name": (context: ComposeRenderContext) => context.actor.display_name,
-  "actor.email": (context: ComposeRenderContext) => context.actor.email,
-  "mailbox.name": (context: ComposeRenderContext) => context.mailbox.name,
-  "mailbox.description": (context: ComposeRenderContext) => context.mailbox.description,
-  "sender.display_name": (context: ComposeRenderContext) => context.sender.display_name,
-  "sender.email": (context: ComposeRenderContext) => context.sender.email,
-  "sender.reply_to": (context: ComposeRenderContext) => context.sender.reply_to,
-  "message.subject": (context: ComposeRenderContext) => context.message.subject,
-  "message.to": (context: ComposeRenderContext) => context.message.to.join(", "),
-  "message.cc": (context: ComposeRenderContext) => context.message.cc.join(", "),
-};
-
-const COMPOSE_VARIABLE = /{{\s*([a-z_]+\.[a-z_]+)\s*}}/g;
-const LIQUID_SYNTAX = /{[{%#]/;
-
-const escapeMarkdownText = (value: string): string =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/[\\`*_[\]{}()#+!|>~:/@.-]/g, (character) => `&#${character.codePointAt(0)};`);
-
-const escapeMarkdownLinkDestination = (value: string): string => encodeURI(value).replace(/\(/g, "%28").replace(/\)/g, "%29");
-
 const isMarkdownLinkDestination = (source: string, offset: number, length: number): boolean =>
   /\]\([^)\n]*$/.test(source.slice(0, offset)) && /^[^)\n]*\)/.test(source.slice(offset + length));
 
@@ -189,6 +165,18 @@ const isUnsupportedMarkdownUrlContext = (source: string, offset: number, length:
 };
 
 const sourceBytes = (source: string): number => new TextEncoder().encode(source).byteLength;
+const COMPOSE_TEMPLATE_VARIABLES = [
+  "actor.display_name",
+  "actor.email",
+  "mailbox.description",
+  "mailbox.name",
+  "message.cc",
+  "message.subject",
+  "message.to",
+  "sender.display_name",
+  "sender.email",
+  "sender.reply_to",
+] as const;
 
 const validateMarkdownSourceComplexity = (source: string): Result<void> => {
   let lines = 0;
@@ -221,46 +209,21 @@ export const validateComposeTemplateSource = (source: string): Result<void> => {
   if (source.includes(COMPOSE_SEGMENT_START) || source.includes(COMPOSE_SEGMENT_END)) {
     return fail(err.badInput("Email template contains reserved control characters"));
   }
-  if (/{[%#]/.test(source)) return fail(err.badInput("Email templates support variables, not Liquid logic tags"));
-  const withoutKnownVariables = source.replace(COMPOSE_VARIABLE, (_match, name: string) =>
-    name in composeVariables ? "" : `{{ ${name} }}`,
-  );
-  if (LIQUID_SYNTAX.test(withoutKnownVariables)) return fail(err.badInput("Email template contains an unsupported variable"));
-  for (const match of source.matchAll(COMPOSE_VARIABLE)) {
+  const valid = validateMailLiquidTemplate(source, {
+    allowedVariables: COMPOSE_TEMPLATE_VARIABLES,
+    output: "markdown",
+  });
+  if (!valid.ok) return valid;
+  for (const match of source.matchAll(/{{[\s\S]*?}}/g)) {
     const offset = match.index;
-    if (offset !== undefined && isUnsupportedMarkdownUrlContext(source, offset, match[0].length)) {
-      return fail(err.badInput("Variables in autolinks and reference-style link destinations are not supported"));
+    if (
+      offset !== undefined &&
+      (isMarkdownLinkDestination(source, offset, match[0].length) || isUnsupportedMarkdownUrlContext(source, offset, match[0].length))
+    ) {
+      return fail(err.badInput("Liquid output in Markdown link destinations is not supported"));
     }
   }
   return ok();
-};
-
-const renderComposeVariables = (source: string, context: ComposeRenderContext, format: "plain" | "markdown"): Result<string> => {
-  let projectedBytes = sourceBytes(source);
-  for (const match of source.matchAll(COMPOSE_VARIABLE)) {
-    const resolve = composeVariables[match[1] ?? ""];
-    if (!resolve || match.index === undefined) continue;
-    const value = resolve(context);
-    const rendered =
-      format === "markdown"
-        ? isMarkdownLinkDestination(source, match.index, match[0].length)
-          ? escapeMarkdownLinkDestination(value)
-          : escapeMarkdownText(value)
-        : value;
-    projectedBytes += sourceBytes(rendered) - sourceBytes(match[0]);
-    if (projectedBytes > MAX_RENDERED_SOURCE_BYTES) {
-      return fail(err.badInput("Rendered email content exceeds the safe size limit"));
-    }
-  }
-  return ok(
-    source.replace(COMPOSE_VARIABLE, (match, name: string, offset: number) => {
-      const resolve = composeVariables[name];
-      if (!resolve) return match;
-      const value = resolve(context);
-      if (format !== "markdown") return value;
-      return isMarkdownLinkDestination(source, offset, match.length) ? escapeMarkdownLinkDestination(value) : escapeMarkdownText(value);
-    }),
-  );
 };
 
 export const markComposeTemplateSegment = (source: string): string => `${COMPOSE_SEGMENT_START}${source}${COMPOSE_SEGMENT_END}`;
@@ -285,7 +248,12 @@ export const renderComposeTemplateSource = (
   context: ComposeRenderContext,
   format: "plain" | "markdown",
 ): Result<string> => {
-  const rendered = renderComposeVariables(source, context, "markdown");
+  const valid = validateComposeTemplateSource(source);
+  if (!valid.ok) return valid;
+  const rendered = renderMailLiquidTemplate(source, context, "markdown");
+  if (!rendered.ok && rendered.error.message === "Rendered template is too large") {
+    return fail(err.badInput("Rendered email content exceeds the safe size limit"));
+  }
   if (!rendered.ok || format === "markdown") return rendered;
   return markdownToPlainText(rendered.data);
 };

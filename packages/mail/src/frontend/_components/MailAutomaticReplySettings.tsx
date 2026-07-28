@@ -15,7 +15,7 @@ import {
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { AutomaticReplyInactiveBehavior, ComposePreview, SenderIdentity } from "../../contracts";
+import type { AutomaticReplyInactiveBehavior, AutomaticReplyPreview, SenderIdentity } from "../../contracts";
 import { validateResponseScheduleDefinition } from "../../response-schedule-validation";
 import type { AutomaticReplyConfiguration, AutomaticReplySetup } from "../../service/automatic-reply-configuration";
 import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
@@ -90,7 +90,6 @@ const AUTOMATIC_REPLY_VARIABLE_GROUPS = [
       "context.actor.serviceAccountId",
       "context.actor.groupIds",
       "context.occurredAt",
-      "now()",
     ],
   },
 ] as const;
@@ -103,7 +102,7 @@ const REFERENCE_VARIABLES = [
   "reference.conversationRevision",
 ] as const;
 
-const workflowExpression = (value: string): string => `\${{ ${value} }}`;
+const liquidExpression = (value: string): string => `{{ ${value} }}`;
 
 function AutomaticReplyVariableHelp(props: { referenceEnabled: () => boolean }) {
   return (
@@ -114,7 +113,7 @@ function AutomaticReplyVariableHelp(props: { referenceEnabled: () => boolean }) 
             <section>
               <h4 class="text-xs font-semibold text-primary">{group.label}</h4>
               <div class="mt-1 flex flex-wrap gap-1.5">
-                <For each={group.variables}>{(variable) => <MailTemplateToken value={workflowExpression(variable)} />}</For>
+                <For each={group.variables}>{(variable) => <MailTemplateToken value={liquidExpression(variable)} />}</For>
               </div>
             </section>
           )}
@@ -128,7 +127,7 @@ function AutomaticReplyVariableHelp(props: { referenceEnabled: () => boolean }) 
           </p>
           <div class="mt-1 flex flex-wrap gap-1.5">
             <For each={REFERENCE_VARIABLES}>
-              {(variable) => <MailTemplateToken value={workflowExpression(variable)} muted={!props.referenceEnabled()} />}
+              {(variable) => <MailTemplateToken value={liquidExpression(variable)} muted={!props.referenceEnabled()} />}
             </For>
           </div>
         </section>
@@ -184,7 +183,7 @@ const PRESETS: AutomaticReplyPreset[] = [
       name: "Out of office",
       enabled: true,
       senderIdentityId,
-      subject: "Re: ${{ inputs.message.subject }}",
+      subject: "Re: {{ inputs.message.subject }}",
       body: "Thank you for your message. I am currently out of the office and will reply when I return.",
       format: "markdown",
       ensureReference: false,
@@ -207,7 +206,7 @@ const PRESETS: AutomaticReplyPreset[] = [
       name: "Office-hours acknowledgement",
       enabled: true,
       senderIdentityId,
-      subject: "Re: ${{ inputs.message.subject }}",
+      subject: "Re: {{ inputs.message.subject }}",
       body: "Thank you for your message. We received it and will get back to you as soon as possible.",
       format: "markdown",
       ensureReference: false,
@@ -225,8 +224,8 @@ const PRESETS: AutomaticReplyPreset[] = [
       name: "Reference acknowledgement",
       enabled: true,
       senderIdentityId,
-      subject: "Re: ${{ inputs.message.subject }}",
-      body: "Thank you for your message. Your reference is **${{ reference.value }}**. Please include it in future correspondence.",
+      subject: "Re: {{ inputs.message.subject }}",
+      body: "Thank you for your message. Your reference is **{{ reference.value }}**. Please include it in future correspondence.",
       format: "markdown",
       ensureReference: true,
       minimumIntervalHours: 24,
@@ -243,7 +242,7 @@ const PRESETS: AutomaticReplyPreset[] = [
       name: "Automatic reply",
       enabled: true,
       senderIdentityId,
-      subject: "Re: ${{ inputs.message.subject }}",
+      subject: "Re: {{ inputs.message.subject }}",
       body: "Thank you for your message.",
       format: "markdown",
       ensureReference: false,
@@ -353,7 +352,7 @@ function AutomaticReplyEditor(props: {
     enabled: props.configuration ? initial.enabled : props.canEnable,
   });
   const [contentTab, setContentTab] = createSignal<"write" | "preview">("write");
-  const [preview, setPreview] = createSignal<ComposePreview | null>(null);
+  const [preview, setPreview] = createSignal<AutomaticReplyPreview | null>(null);
   const [referenceDraft, setReferenceDraft] = createSignal(referenceConfigurationDraft(props.referenceConfiguration));
   const automationIdentities = () => props.identities.filter(isAutomationIdentity);
   const senderAvailable = () => automationIdentities().some((identity) => identity.id === draft().senderIdentityId);
@@ -386,22 +385,17 @@ function AutomaticReplyEditor(props: {
   const referenceConfigurationReady = () =>
     !needsInlineReferenceConfiguration() || (props.canConfigureReference && referenceDraft().pattern.trim().length > 0);
 
-  const loadPreview = mutation.create<ComposePreview, void>({
+  const loadPreview = mutation.create<AutomaticReplyPreview, void>({
     mutation: async (_input, { abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["compose-preview"].$post(
+      const response = await apiClient.mailboxes[":mailboxId"]["automatic-replies"].preview.$post(
         {
           param: { mailboxId: props.mailboxId },
           json: {
-            conversationId: null,
-            draft: {
-              senderIdentityId: draft().senderIdentityId,
-              to: [],
-              cc: [],
-              bcc: [],
-              subject: draft().subject,
-              body: draft().body,
-              format: draft().format,
-            },
+            senderIdentityId: draft().senderIdentityId,
+            subject: draft().subject,
+            body: draft().body,
+            format: draft().format,
+            ensureReference: draft().ensureReference,
           },
         },
         { init: { signal: abortSignal } },
@@ -410,8 +404,11 @@ function AutomaticReplyEditor(props: {
       return response.json();
     },
     onSuccess: setPreview,
-    onError: (error) => prompts.error(error.message),
   });
+  const requestPreview = () => {
+    setPreview(null);
+    loadPreview.mutate();
+  };
 
   const save = mutation.create<AutomaticReplySetup, void>({
     mutation: async (_input, { abortSignal }) => {
@@ -518,7 +515,7 @@ function AutomaticReplyEditor(props: {
               onChange={(value) => update("ensureReference", value)}
             />
             <p class="-mt-1 text-xs text-dimmed">
-              Makes the permanent reference available as <code>{"${{ reference.value }}"}</code> in the subject and message.
+              Makes the permanent reference available as <code>{"{{ reference.value }}"}</code> in the subject and message.
             </p>
             <Show when={needsInlineReferenceConfiguration()}>
               <Show
@@ -537,7 +534,12 @@ function AutomaticReplyEditor(props: {
                       This stays inside the reply editor, so the response you already entered is preserved.
                     </p>
                   </div>
-                  <MailReferenceConfigurationFields value={referenceDraft} onChange={setReferenceDraft} compact />
+                  <MailReferenceConfigurationFields
+                    mailboxId={props.mailboxId}
+                    value={referenceDraft}
+                    onChange={setReferenceDraft}
+                    compact
+                  />
                 </div>
               </Show>
             </Show>
@@ -574,7 +576,7 @@ function AutomaticReplyEditor(props: {
         >
           <TextInput
             label="Subject"
-            description={'Use "${{ inputs.message.subject }}" to include the original subject.'}
+            description={'Use "{{ inputs.message.subject }}" to include the original subject.'}
             value={() => draft().subject}
             onInput={(value) => {
               update("subject", value);
@@ -614,7 +616,7 @@ function AutomaticReplyEditor(props: {
               value={contentTab}
               onChange={(tab) => {
                 setContentTab(tab);
-                if (tab === "preview") loadPreview.mutate();
+                if (tab === "preview") requestPreview();
               }}
               options={[
                 { value: "write", label: "Write", icon: "ti ti-pencil" },
@@ -628,13 +630,23 @@ function AutomaticReplyEditor(props: {
                   <Show
                     when={preview()}
                     fallback={
-                      <div class="flex min-h-64 items-center justify-center text-sm text-dimmed">
-                        {loadPreview.loading() ? "Preparing preview..." : "Preview unavailable"}
+                      <div class="flex min-h-64 flex-col items-center justify-center gap-2 px-4 text-center text-sm text-dimmed">
+                        <span>
+                          {loadPreview.loading() ? "Preparing preview..." : (loadPreview.error()?.message ?? "Preview unavailable")}
+                        </span>
+                        <Show when={loadPreview.error()}>
+                          <button type="button" class="btn-secondary btn-sm" onClick={requestPreview}>
+                            Retry
+                          </button>
+                        </Show>
                       </div>
                     }
                   >
                     {(content) => (
-                      <iframe title="Automatic reply preview" sandbox="" class="h-80 w-full border-0 bg-white" srcdoc={content().html} />
+                      <>
+                        <div class="border-b border-[var(--ui-border)] px-3 py-2 text-sm font-medium text-primary">{content().subject}</div>
+                        <iframe title="Automatic reply preview" sandbox="" class="h-80 w-full border-0 bg-white" srcdoc={content().html} />
+                      </>
                     )}
                   </Show>
                 </div>

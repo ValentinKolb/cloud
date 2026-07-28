@@ -46,7 +46,7 @@ Only one editing session holds the draft lease at a time. If another tab or pers
 Type `/` in the body to search available signatures and snippets. The selected template is inserted into the draft, where you can edit or remove it.
 
 - **Snippets** insert resolved reusable text.
-- **Signatures** keep their safe variables until preview and send, so values such as the current sender or mailbox can be resolved at delivery time.
+- **Signatures** keep their safe Liquid variables until preview and send, so values such as `{{ sender.display_name }}` or `{{ mailbox.name }}` resolve at delivery time.
 - **Private** templates are visible only to their owner.
 - **Mailbox** templates are shared with collaborators.
 

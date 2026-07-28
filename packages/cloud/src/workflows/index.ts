@@ -11,6 +11,7 @@ export {
   renderWorkflowTextTemplate,
   type WorkflowBuiltinActionAuthorize,
   type WorkflowBuiltinActionPorts,
+  type WorkflowBuiltinTextRenderer,
   workflowBuiltinActionDescriptors,
 } from "./builtins";
 export type {

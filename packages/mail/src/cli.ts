@@ -5107,7 +5107,7 @@ export default defineCliCommands({
       flags: {
         ...mailboxFlag,
         pattern: flag.string({
-          description: "Pattern with one {sequence} token and optional {year}",
+          description: 'Liquid pattern with exactly one "{{ sequence }}" output',
         }),
         enable: flag.boolean({
           description: "Allow new reference allocations",
@@ -5139,7 +5139,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/reference-number-configuration`,
           jsonRequest("PUT", {
             expectedRevision: current?.revision ?? null,
-            pattern: flags.pattern ?? current?.pattern ?? "REF-{year}-{sequence:6}",
+            pattern: flags.pattern ?? current?.pattern ?? "REF-{{ year }}-{{ sequence | pad_start: 6 }}",
             enabled: flags.enable || flags.disable ? flags.enable : (current?.enabled ?? true),
             includeInReplySubjects:
               flags.includeInReplySubjects || flags.excludeFromReplySubjects

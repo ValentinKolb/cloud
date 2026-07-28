@@ -224,7 +224,7 @@ describe("automatic reply configuration contracts", () => {
   test("accepts one atomic automatic reply and reference configuration payload", () => {
     const referenceConfiguration = {
       expectedRevision: null,
-      pattern: "REF-{year}-{sequence:6}",
+      pattern: "REF-{{ year }}-{{ sequence | pad_start: 6 }}",
       enabled: true,
       includeInReplySubjects: true,
     };

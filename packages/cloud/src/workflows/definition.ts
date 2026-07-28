@@ -190,6 +190,8 @@ export type WorkflowActionContext = {
    * survives config resolution verbatim and the action decides what it must be.
    */
   resolveReference(reference: string, ...path: Array<string | number>): Promise<WorkflowJsonValue | undefined>;
+  /** Current named workflow values, including outputs saved by earlier steps. */
+  variableSnapshot(): Record<string, WorkflowJsonValue>;
   /**
    * The transaction a transactional action runs in.
    *

@@ -53,6 +53,7 @@ export interface WorkflowVariableScope {
   get(name: string): WorkflowJsonValue | undefined;
   has(name: string): boolean;
   set(name: string, value: WorkflowJsonValue): void;
+  snapshot?(): Record<string, WorkflowJsonValue>;
 }
 
 export type WorkflowValueResolution =

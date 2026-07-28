@@ -11,6 +11,7 @@ import {
 import { sql } from "bun";
 import { MAIL_WORKFLOW_ACTIONS } from "../workflows/actions";
 import { MAIL_WORKFLOW_APP_ID } from "../workflows/events";
+import { renderMailLiquidTemplate } from "./template-rendering";
 import { publishMailWorkflowCollaborationEventFromOutput } from "./workflow-collaboration-events";
 import type { FrozenMailWorkflowSource } from "./workflow-data";
 import { createMailWorkflowProjectedState, restoreMailWorkflowProjectedState } from "./workflow-projected-state";
@@ -38,6 +39,23 @@ const builtins = createWorkflowBuiltinActionPorts({
       ) AS active
     `;
     return active?.active ? undefined : { code: "FORBIDDEN", message: "Workflow is no longer active.", retryable: false };
+  },
+  renderText: ({ context, value }) => {
+    const rendered = renderMailLiquidTemplate(
+      value,
+      {
+        inputs: context.invocation.inputs,
+        context: {
+          ...(context.invocation.context ?? {}),
+          actor: context.invocation.actor,
+          occurredAt: context.invocation.occurredAt,
+        },
+        ...(context.variables.snapshot?.() ?? {}),
+      },
+      "text",
+    );
+    if (!rendered.ok) throw rendered.error;
+    return rendered.data;
   },
 });
 const actions: WorkflowExecuteActionPort = {

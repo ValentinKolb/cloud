@@ -74,6 +74,14 @@ export type WorkflowBuiltinActionPorts = {
   dryRun: WorkflowDryRunActionPort;
 };
 
+export type WorkflowBuiltinTextRenderer = (params: {
+  context: WorkflowBuiltinActionContext;
+  step: WorkflowActionStep;
+  field: string;
+  value: string;
+  label: string;
+}) => Promise<string> | string;
+
 const actionPath = (step: WorkflowActionStep): Array<string | number> => [...step.sourcePath, step.action];
 
 const requiredString = (value: WorkflowJsonValue | undefined, label: string): string => {
@@ -110,7 +118,10 @@ export const renderWorkflowTextTemplate = async (params: {
   return `${rendered}${message.slice(offset)}`;
 };
 
-export const createWorkflowBuiltinActionPorts = (options: { authorize: WorkflowBuiltinActionAuthorize }): WorkflowBuiltinActionPorts => {
+export const createWorkflowBuiltinActionPorts = (options: {
+  authorize: WorkflowBuiltinActionAuthorize;
+  renderText?: WorkflowBuiltinTextRenderer;
+}): WorkflowBuiltinActionPorts => {
   const authorize = async (context: WorkflowBuiltinActionContext, step: WorkflowActionStep): Promise<WorkflowExecutionError | undefined> =>
     options.authorize(context, step);
 
@@ -123,13 +134,11 @@ export const createWorkflowBuiltinActionPorts = (options: { authorize: WorkflowB
       context.variables.set(name, output);
       return { state: "completed", output };
     }
-    const message = await renderWorkflowTextTemplate({
-      context,
-      step,
-      field: "message",
-      value: step.config.message,
-      label: `${step.action}.message`,
-    });
+    const label = `${step.action}.message`;
+    const value = requiredString(step.config.message, label);
+    const message = options.renderText
+      ? await options.renderText({ context, step, field: "message", value, label })
+      : await renderWorkflowTextTemplate({ context, step, field: "message", value, label });
     return step.action === "succeed"
       ? { state: "terminal", status: "succeeded", message }
       : { state: "failed", error: { code: "WORKFLOW_FAILED", message, retryable: false } };
@@ -147,13 +156,21 @@ export const createWorkflowBuiltinActionPorts = (options: { authorize: WorkflowB
     return {
       state: "terminal",
       status: step.action === "succeed" ? "succeeded" : "failed",
-      message: await renderWorkflowTextTemplate({
-        context,
-        step,
-        field: "message",
-        value: step.config.message,
-        label: `${step.action}.message`,
-      }),
+      message: options.renderText
+        ? await options.renderText({
+            context,
+            step,
+            field: "message",
+            value: requiredString(step.config.message, `${step.action}.message`),
+            label: `${step.action}.message`,
+          })
+        : await renderWorkflowTextTemplate({
+            context,
+            step,
+            field: "message",
+            value: step.config.message,
+            label: `${step.action}.message`,
+          }),
       effects: [],
     };
   };

@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { SettingDef } from "../services/settings/defaults";
 import { SETTINGS, validateSettingValue } from "../services/settings/defaults";
-import { escapeTemplateOutput, migrateLegacyMustacheTemplate, renderLiquidTemplate, validateLiquidTemplate } from "./template-rendering";
+import {
+  escapeTemplateOutput,
+  liquidTemplateVariables,
+  migrateLegacyMustacheTemplate,
+  renderLiquidTemplate,
+  validateLiquidTemplate,
+} from "./template-rendering";
 
 const sampleValueFor = (name: string): string =>
   (
@@ -53,6 +59,16 @@ describe("Liquid template rendering", () => {
     expect(validateLiquidTemplate(template, { filters })).toEqual({ ok: true });
     expect(renderLiquidTemplate(template, { LABEL: "Ada" }, { filters })).toBe("<p>Ada!</p>");
     expect(() => renderLiquidTemplate(template, { LABEL: "Ada" })).toThrow();
+  });
+
+  test("supports context-specific escaping and static variable inspection", () => {
+    const template = "{{ user.name }} / {{ item | suffix: '!' }}";
+    const filters = { suffix: (value: unknown, suffix: unknown) => `${value}${suffix}` };
+
+    expect(liquidTemplateVariables(template, { filters })).toEqual(["user.name", "item"]);
+    expect(
+      renderLiquidTemplate(template, { user: { name: "*Ada*" }, item: "_mail_" }, { filters, escapeOutput: (value) => `[${value}]` }),
+    ).toBe("[*Ada*] / [_mail_!]");
   });
 
   test("normalizes legacy template settings on validation", () => {

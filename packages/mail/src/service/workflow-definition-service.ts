@@ -29,6 +29,7 @@ import { buildMailWorkflowCompletions } from "../workflows/authoring";
 import { bindMailWorkflow } from "../workflows/binder";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 import { mailWorkflowManifest } from "../workflows/manifest";
+import { validateMailWorkflowTemplates } from "../workflows/template-validation";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { loadMailWorkflowCatalog } from "./workflow-catalog-service";
@@ -188,6 +189,17 @@ export const validateMailWorkflowSource = async (params: {
   const compiled = await compileWorkflow(params.source, mailWorkflowManifest);
   if (!compiled.ok) {
     return { valid: false, source: params.source, sourceHash: null, ir: null, boundPlan: null, diagnostics: compiled.diagnostics };
+  }
+  const templateDiagnostics = validateMailWorkflowTemplates(compiled.ir);
+  if (templateDiagnostics.length > 0) {
+    return {
+      valid: false,
+      source: params.source,
+      sourceHash: compiled.ir.sourceHash,
+      ir: compiled.ir,
+      boundPlan: null,
+      diagnostics: templateDiagnostics,
+    };
   }
   const bound = await bindMailWorkflow(compiled.ir, await loadMailWorkflowCatalog(params));
   return bound.ok

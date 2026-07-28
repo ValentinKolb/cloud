@@ -4,6 +4,8 @@ import { sql } from "bun";
 import { stringify } from "yaml";
 import {
   type AutomaticReplyInactiveBehavior,
+  type AutomaticReplyPreview,
+  type AutomaticReplyPreviewInput,
   type CreateAutomaticReplyConfiguration,
   type CreateAutomaticReplySetup,
   createAutomaticReplySetupSchema,
@@ -18,6 +20,7 @@ import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { cancelPendingAutomaticRepliesInTransaction } from "./automatic-reply";
 import { requireAutomaticReplyManagementPermission } from "./automatic-reply-access";
+import { renderComposeDraft } from "./compose-templates";
 import {
   type ConversationReferenceConfiguration,
   type ConversationReferenceConfigurationMutation,
@@ -29,6 +32,7 @@ import {
   normalizeResponseScheduleDefinition,
   type ResponseScheduleDefinition,
 } from "./response-schedule";
+import { renderMailLiquidTemplate } from "./template-rendering";
 import type { SqlClient } from "./workflow-data";
 import { replaceManagedWorkflowInTransaction, setManagedWorkflowEnabledInTransaction } from "./workflow-definition-service";
 
@@ -54,6 +58,113 @@ export type AutomaticReplyConfiguration = {
 export type AutomaticReplySetup = {
   automaticReply: AutomaticReplyConfiguration;
   referenceConfiguration: ConversationReferenceConfiguration | null;
+};
+
+const automaticReplyPreviewData = (params: { mailboxId: string; context: MailRequestContext; ensureReference: boolean }) => {
+  const actor = actorRefFromRequest(params.context);
+  const occurredAt = new Date().toISOString();
+  return {
+    inputs: {
+      message: {
+        id: "00000000-0000-4000-8000-000000000001",
+        conversationId: "00000000-0000-4000-8000-000000000002",
+        subject: "Example customer request",
+        body: "Hello, I would like to know more.",
+        bodyText: "Hello, I would like to know more.",
+        bodyHtml: "<p>Hello, I would like to know more.</p>",
+        fromAddress: "customer@example.test",
+        fromDomain: "example.test",
+        sender: [{ role: "from", name: "Example Customer", email: "customer@example.test" }],
+        recipients: [{ role: "to", name: "Support", email: "support@example.test" }],
+        attachments: [
+          {
+            id: "00000000-0000-4000-8000-000000000003",
+            filename: "request.pdf",
+            contentType: "application/pdf",
+            disposition: "attachment",
+            contentId: null,
+            sizeBytes: 42_000,
+          },
+        ],
+        hasAttachments: true,
+        folderId: "00000000-0000-4000-8000-000000000004",
+        flags: [],
+        keywords: [],
+        direction: "inbound",
+        internalDate: occurredAt,
+        receivedAt: occurredAt,
+      },
+      conversation: {
+        id: "00000000-0000-4000-8000-000000000002",
+        subject: "Example customer request",
+        assigneeUserId: null,
+        workStatus: "needs_action",
+        latestMessageAt: occurredAt,
+      },
+    },
+    context: {
+      mailboxId: params.mailboxId,
+      actor:
+        actor.kind === "user"
+          ? { userId: actor.userId, serviceAccountId: null, groupIds: [] }
+          : actor.kind === "service_account"
+            ? { userId: null, serviceAccountId: actor.serviceAccountId, groupIds: [] }
+            : { userId: null, serviceAccountId: null, groupIds: [] },
+      occurredAt,
+    },
+    ...(params.ensureReference
+      ? {
+          reference: {
+            id: "00000000-0000-4000-8000-000000000005",
+            value: "REF-2026-000042",
+            created: true,
+            conversationId: "00000000-0000-4000-8000-000000000002",
+            conversationRevision: 1,
+          },
+        }
+      : {}),
+  };
+};
+
+const escapePreviewHtml = (value: string): string =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+export const previewAutomaticReply = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: AutomaticReplyPreviewInput;
+}): Promise<Result<AutomaticReplyPreview>> => {
+  const allowed = await requireAutomaticReplyManagementPermission(params.context, params.mailboxId);
+  if (!allowed.ok) return allowed;
+  const data = automaticReplyPreviewData({
+    mailboxId: params.mailboxId,
+    context: params.context,
+    ensureReference: params.input.ensureReference,
+  });
+  const subject = renderMailLiquidTemplate(params.input.subject, data, "text");
+  if (!subject.ok) return subject;
+  const body = renderMailLiquidTemplate(params.input.body, data, params.input.format === "markdown" ? "markdown" : "text");
+  if (!body.ok) return body;
+  const rendered = await renderComposeDraft({
+    mailboxId: params.mailboxId,
+    draft: {
+      senderIdentityId: params.input.senderIdentityId,
+      to: [],
+      cc: [],
+      bcc: [],
+      subject: subject.data,
+      body: body.data,
+      format: params.input.format,
+    },
+    actor: actorRefFromRequest(params.context),
+    renderLiquid: false,
+  });
+  if (!rendered.ok) return rendered;
+  return ok({
+    subject: subject.data,
+    html: rendered.data.html ?? `<pre>${escapePreviewHtml(rendered.data.text)}</pre>`,
+    text: rendered.data.text,
+  });
 };
 
 type AutomaticReplyConfigurationRow = {

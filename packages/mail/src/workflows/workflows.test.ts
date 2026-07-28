@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
-import { bindMailWorkflow } from "./binder";
+import { bindMailWorkflow, validateMailWorkflowTemplateReferences } from "./binder";
 import { buildMailWorkflowCatalog, type MailWorkflowCatalog, snapshotMailWorkflowCatalog } from "./catalog";
 import { mailWorkflowManifest } from "./manifest";
 
@@ -123,7 +123,7 @@ steps:
       conversation: inputs.conversation
       saveAs: reference
   - succeed:
-      message: "Allocated \${{ reference.value }}"
+      message: "Allocated {{ reference.value }}"
 `;
     const result = await bindMailWorkflow(await compile(source), catalog());
     expect(result.ok).toBe(true);
@@ -163,7 +163,7 @@ steps:
           conversation: "\${{ inputs.conversation }}"
           status: waiting
   - succeed:
-      message: "Processed \${{ inputs.message.id }}"
+      message: "Processed {{ inputs.message.id }}"
 `;
     const ir = await compile(source);
     const result = await bindMailWorkflow(ir, catalog());
@@ -188,7 +188,7 @@ steps:
       name: subject
       value: "\${{ inputs.message.subject }}"
   - succeed:
-      message: "Subject: \${{ subject }}"
+      message: "Subject: {{ subject }}"
   - setVariable:
       name: subject
       value: duplicate
@@ -232,7 +232,7 @@ steps:
             start: "09:00"
             end: "17:00"
         exceptions: []
-      subject: "Re: \${{ inputs.message.subject }}"
+      subject: "Re: {{ inputs.message.subject }}"
       body: We received your message.
 `);
     const result = await bindMailWorkflow(ir, catalog());
@@ -378,7 +378,7 @@ steps:
       conversation: inputs.message
       status: needs_action
   - succeed:
-      message: "Message \${{ context.message.id }}"
+      message: "Message {{ context.message.id }}"
 `;
     const result = await bindMailWorkflow(await compile(source), catalog());
     expect(result.ok).toBe(false);
@@ -391,6 +391,22 @@ steps:
         { code: "reference.type", path: ["steps", 1, "setConversationStatus", "conversation"] },
         { code: "reference.path", path: ["steps", 2, "succeed", "message", "expression", 0] },
       ]),
+    );
+  });
+
+  test("validates Liquid references without rebinding the resource catalog", async () => {
+    const ir = await compile(`inputs:
+  message:
+    type: mailMessage
+steps:
+  - succeed:
+      message: "Hello {{ inputs.message.missing }}"
+`);
+    expect(await validateMailWorkflowTemplateReferences(ir)).toContainEqual(
+      expect.objectContaining({
+        code: "reference.path",
+        path: ["steps", 0, "succeed", "message", "expression", 0],
+      }),
     );
   });
 
@@ -537,7 +553,7 @@ steps:
       name: attachment
       value: "\${{ inputs.message.attachments.0.filename }}"
   - succeed:
-      message: "Actor \${{ context.actor.userId }}"
+      message: "Actor {{ context.actor.userId }}"
 `),
       catalog(),
     );

@@ -22,6 +22,12 @@ export { createMockCover, createMockCoverSvg, parseDataUrl } from "./mock-cover"
 export * from "./network-address";
 export * from "./redirect";
 export type { LiquidTemplateFilter, LiquidTemplateOptions } from "./template-rendering";
-export { escapeTemplateOutput, migrateLegacyMustacheTemplate, renderLiquidTemplate, validateLiquidTemplate } from "./template-rendering";
+export {
+  escapeTemplateOutput,
+  liquidTemplateVariables,
+  migrateLegacyMustacheTemplate,
+  renderLiquidTemplate,
+  validateLiquidTemplate,
+} from "./template-rendering";
 export * from "./theme";
 export * from "./time";

@@ -1,7 +1,7 @@
 import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { createAutomaticReplySetupSchema, updateAutomaticReplySetupSchema } from "../contracts";
+import { automaticReplyPreviewInputSchema, createAutomaticReplySetupSchema, updateAutomaticReplySetupSchema } from "../contracts";
 import { automaticReplyConfigurations, type MailRequestContext } from "../service";
 
 const mailboxParamSchema = z.object({ mailboxId: z.string().uuid() });
@@ -25,6 +25,20 @@ export default new Hono<AuthContext>()
         input: c.req.valid("json"),
       }),
     ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/automatic-replies/preview",
+    v("param", mailboxParamSchema),
+    v("json", automaticReplyPreviewInputSchema),
+    async (c) =>
+      respond(
+        c,
+        automaticReplyConfigurations.previewAutomaticReply({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
   )
   .patch(
     "/mailboxes/:mailboxId/automatic-replies/:configurationId",

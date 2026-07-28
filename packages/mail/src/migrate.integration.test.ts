@@ -24,6 +24,7 @@ suite("mail migrations", () => {
         actions_constraint_present: boolean;
         backfill_pointer_applied_count: number;
         backfill_pointer_present: boolean;
+        liquid_templates_applied_count: number;
       }[]
     >`
       SELECT
@@ -92,7 +93,12 @@ suite("mail migrations", () => {
           WHERE table_schema = 'mail'
             AND table_name = 'sender_rules'
             AND column_name = 'latest_backfill_operation_id'
-        ) AS backfill_pointer_present
+        ) AS backfill_pointer_present,
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 102 AND name = 'liquid_mail_templates'
+        ) AS liquid_templates_applied_count
     `;
     expect(shape).toEqual({
       applied_count: 1,
@@ -107,6 +113,7 @@ suite("mail migrations", () => {
       actions_constraint_present: true,
       backfill_pointer_applied_count: 1,
       backfill_pointer_present: true,
+      liquid_templates_applied_count: 1,
     });
   });
 
