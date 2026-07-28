@@ -11,7 +11,7 @@ export const senderRuleActionKindLabels: Record<RuleActionKind, string> = {
   mark_read: "Mark as read",
   add_keyword: "Add provider keyword",
   move_to_folder: "Move to folder",
-  add_local_tag: "Add Cloud tag",
+  add_local_tag: "Add tag",
   assign_user: "Assign user",
   set_status: "Set conversation status",
 };

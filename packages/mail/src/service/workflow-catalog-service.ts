@@ -45,8 +45,8 @@ export const loadMailWorkflowCatalog = async (params: {
         AND automation_policy = 'mailbox'
       ORDER BY id
     `;
-  const localTags = await db<{ id: string; name: string }[]>`
-      SELECT id, name
+  const localTags = await db<{ id: string; name: string; color: string }[]>`
+      SELECT id, name, color
       FROM mail.local_tags
       WHERE mailbox_id = ${params.mailboxId}::uuid
       ORDER BY id

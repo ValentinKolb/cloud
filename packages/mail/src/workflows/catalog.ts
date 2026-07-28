@@ -14,7 +14,7 @@ export type MailWorkflowSenderIdentityCatalogEntry = {
   name: string;
 };
 
-export type MailWorkflowLocalTagCatalogEntry = { id: string; name: string };
+export type MailWorkflowLocalTagCatalogEntry = { id: string; name: string; color?: string };
 export type MailWorkflowNotificationUserCatalogEntry = { id: string; name: string };
 
 export type MailWorkflowCatalogEntry =

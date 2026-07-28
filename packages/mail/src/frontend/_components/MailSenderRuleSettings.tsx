@@ -76,12 +76,12 @@ function SenderRuleActionFields(props: {
       new Set(props.actions.flatMap((action, index) => (index !== props.index && action.kind === "add_local_tag" ? [action.tagId] : [])));
     return (
       <Select
-        label="Cloud tag"
+        label="Tag"
         value={() => (props.action.kind === "add_local_tag" ? props.action.tagId : "")}
         onChange={(tagId) => props.onChange({ kind: "add_local_tag", tagId })}
         options={(props.catalog.localTags ?? [])
           .filter((tag) => (props.action.kind === "add_local_tag" && tag.id === props.action.tagId) || !usedTagIds().has(tag.id))
-          .map((tag) => ({ id: tag.id, label: tag.name }))}
+          .map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
       />
     );
   }

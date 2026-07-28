@@ -3,6 +3,7 @@ import type { SenderRuleAction } from "../../contracts";
 import type { MailWorkflowCatalogSnapshot } from "../../workflows/catalog";
 import {
   createSenderRuleAction,
+  senderRuleActionKindLabels,
   senderRuleActionKindsFor,
   senderRuleActionLabel,
   senderRuleDestinationFolders,
@@ -14,7 +15,7 @@ const catalog: MailWorkflowCatalogSnapshot = {
     { id: "00000000-0000-4000-8000-000000000002", name: "Junk", role: "junk" },
   ],
   assignableUsers: [{ id: "00000000-0000-4000-8000-000000000003", name: "Ada" }],
-  localTags: [{ id: "00000000-0000-4000-8000-000000000004", name: "Customer" }],
+  localTags: [{ id: "00000000-0000-4000-8000-000000000004", name: "Customer", color: "#2563eb" }],
 };
 
 describe("sender rule action editor model", () => {
@@ -32,8 +33,10 @@ describe("sender rule action editor model", () => {
   });
 
   test("creates and labels catalog-backed actions", () => {
+    expect(senderRuleActionKindLabels.add_local_tag).toBe("Add tag");
     const action = createSenderRuleAction({ kind: "move_to_folder", actions: [], catalog });
     expect(action).toEqual({ kind: "move_to_folder", folderId: catalog.folders[0]!.id });
     expect(action && senderRuleActionLabel(action, catalog)).toBe("Move to Inbox");
+    expect(senderRuleActionLabel({ kind: "add_local_tag", tagId: catalog.localTags![0]!.id }, catalog)).toBe("Add tag Customer");
   });
 });

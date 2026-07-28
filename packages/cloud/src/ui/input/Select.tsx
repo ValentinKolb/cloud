@@ -9,6 +9,7 @@ type SelectOption =
       label?: string;
       description?: string;
       icon?: string;
+      color?: string;
     };
 
 /**
@@ -69,11 +70,11 @@ const SelectInput = (props: SelectInputProps) => {
   // so static-mode callers see exactly the previous behaviour.
   const [searchQuery, setSearchQuery] = createSignal("");
 
-  // Internal label cache — populated whenever the user picks an option.
-  // Lets the trigger keep rendering the right label after dropdown
+  // Internal option cache — populated whenever the user picks an option.
+  // Lets the trigger keep rendering the right label and decoration after dropdown
   // close + reopen, even if the new fetchData call no longer surfaces
   // that record (e.g. the user typed a different filter).
-  const [labelCache, setLabelCache] = createSignal<Record<string, string>>({});
+  const [optionCache, setOptionCache] = createSignal<Record<string, { label: string; icon?: string; color?: string }>>({});
 
   // Wrap the caller's fetchData in a stdlib mutation so we get:
   //  - reactive loading / error / data signals
@@ -82,7 +83,7 @@ const SelectInput = (props: SelectInputProps) => {
   //  - AbortSignal threaded through to fetch()
   // When fetchData is undefined we still create the mutation but never
   // call it — keeps the hook order stable across re-renders.
-  const fetchMut = mutation.create<{ id: string; label: string; description?: string; icon?: string }[], string>({
+  const fetchMut = mutation.create<{ id: string; label: string; description?: string; icon?: string; color?: string }[], string>({
     mutation: async (query, { abortSignal }) => {
       if (!props.fetchData) return [];
       const raw = await props.fetchData(query, abortSignal);
@@ -128,8 +129,8 @@ const SelectInput = (props: SelectInputProps) => {
     if (!id) return undefined;
     const fromList = options().find((o) => o.id === id);
     if (fromList) return fromList;
-    const cached = labelCache()[id];
-    if (cached) return { id, label: cached };
+    const cached = optionCache()[id];
+    if (cached) return { id, ...cached };
     const fromProp = props.selectedLabel?.();
     if (fromProp) return { id, label: fromProp };
     return { id, label: id };
@@ -217,11 +218,18 @@ const SelectInput = (props: SelectInputProps) => {
     }
   };
 
-  const selectOption = (option: { id: string; label: string }) => {
-    // Cache the picked label so the trigger keeps showing it after
+  const selectOption = (option: { id: string; label: string; icon?: string; color?: string }) => {
+    // Cache the picked option so the trigger keeps showing it after
     // close + reopen, even if the next fetchData call doesn't surface
     // this id (e.g. user typed a different filter mid-flow).
-    setLabelCache({ ...labelCache(), [option.id]: option.label });
+    setOptionCache({
+      ...optionCache(),
+      [option.id]: {
+        label: option.label,
+        ...(option.icon ? { icon: option.icon } : {}),
+        ...(option.color ? { color: option.color } : {}),
+      },
+    });
     props.onChange?.(option.id);
     toggleDropdown(false);
     triggerRef?.focus();
@@ -296,7 +304,12 @@ const SelectInput = (props: SelectInputProps) => {
       <div class="relative">
         <div class="group relative flex-1">
           <div class="pointer-events-none absolute inset-y-0 left-2 z-10 flex items-center text-zinc-500">
-            <i class={`${selectedOption()?.icon || (isOpen() ? activeIcon() : icon())} ${isOpen() ? "text-blue-500" : ""}`} />
+            <Show
+              when={selectedOption()?.color}
+              fallback={<i class={`${selectedOption()?.icon || (isOpen() ? activeIcon() : icon())} ${isOpen() ? "text-blue-500" : ""}`} />}
+            >
+              {(color) => <span class="h-3 w-3 rounded-full" style={{ "background-color": color() }} aria-hidden="true" />}
+            </Show>
           </div>
 
           <div
@@ -418,8 +431,17 @@ const SelectInput = (props: SelectInputProps) => {
                     aria-selected={isSelected()}
                     tabIndex={-1}
                   >
-                    <Show when={option.icon}>
-                      <i class={`${option.icon} mr-3 text-zinc-500`} />
+                    <Show
+                      when={option.color}
+                      fallback={
+                        <Show when={option.icon}>
+                          <i class={`${option.icon} mr-3 text-zinc-500`} aria-hidden="true" />
+                        </Show>
+                      }
+                    >
+                      {(color) => (
+                        <span class="mr-3 h-3 w-3 shrink-0 rounded-full" style={{ "background-color": color() }} aria-hidden="true" />
+                      )}
                     </Show>
 
                     <div class="min-w-0 flex-1">
