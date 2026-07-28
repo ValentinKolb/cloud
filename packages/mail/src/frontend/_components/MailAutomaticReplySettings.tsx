@@ -23,6 +23,7 @@ import type { ResponseScheduleDefinition } from "../../service/response-schedule
 import { readApiError } from "./api-response";
 import { MailReferenceConfigurationFields, referenceConfigurationDraft } from "./MailResponsePolicySettings";
 import MailResponseScheduleFields, { responseScheduleSummary } from "./MailResponseScheduleFields";
+import MailTemplateHelpDisclosure from "./MailTemplateHelpDisclosure";
 import { waitForMailPageTransition } from "./mail-page-transition";
 
 type AutomaticReplyDraft = {
@@ -106,15 +107,8 @@ const workflowExpression = (value: string): string => `\${{ ${value} }}`;
 
 function AutomaticReplyVariableHelp(props: { referenceEnabled: () => boolean }) {
   return (
-    <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
-      <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] px-3 py-2.5 text-sm font-medium text-primary">
-        <span class="flex items-center gap-2">
-          <i class="ti ti-braces" aria-hidden="true" />
-          Available variables for subject and message
-        </span>
-        <i class="ti ti-chevron-down transition-transform group-open:rotate-180" aria-hidden="true" />
-      </summary>
-      <div class="grid gap-4 px-3 pb-3 md:grid-cols-2">
+    <MailTemplateHelpDisclosure title="Available variables for subject and message">
+      <div class="grid gap-4 md:grid-cols-2">
         <For each={AUTOMATIC_REPLY_VARIABLE_GROUPS}>
           {(group) => (
             <section>
@@ -147,7 +141,7 @@ function AutomaticReplyVariableHelp(props: { referenceEnabled: () => boolean }) 
           </div>
         </section>
       </div>
-    </details>
+    </MailTemplateHelpDisclosure>
   );
 }
 

@@ -5,6 +5,7 @@ import { apiClient } from "../../api/client";
 import type { PutConversationReferenceConfiguration } from "../../contracts";
 import type { ConversationReferenceConfiguration } from "../../service/conversation-reference";
 import { readApiError } from "./api-response";
+import MailTemplateHelpDisclosure from "./MailTemplateHelpDisclosure";
 
 const DEFAULT_PATTERN = "REF-{year}-{sequence:6}";
 
@@ -40,15 +41,8 @@ export function MailReferenceConfigurationFields(props: {
         monospace
         required
       />
-      <details class="group rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)]">
-        <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-xs font-medium text-primary">
-          <span class="flex items-center gap-2">
-            <i class="ti ti-braces" aria-hidden="true" />
-            Format placeholders
-          </span>
-          <i class="ti ti-chevron-down transition-transform group-open:rotate-180" aria-hidden="true" />
-        </summary>
-        <div class="grid gap-2 px-3 pb-3 text-xs text-secondary sm:grid-cols-3">
+      <MailTemplateHelpDisclosure title="Format placeholders">
+        <div class="grid gap-2 text-xs sm:grid-cols-3">
           <p>
             <code>{"{sequence}"}</code> next mailbox-wide number
           </p>
@@ -59,7 +53,7 @@ export function MailReferenceConfigurationFields(props: {
             <code>{"{year}"}</code> allocation year
           </p>
         </div>
-      </details>
+      </MailTemplateHelpDisclosure>
       <p class="flex items-center gap-2 text-xs text-dimmed">
         <i class="ti ti-eye shrink-0" aria-hidden="true" />
         Preview: <code>{previewPattern(props.value().pattern.trim() || DEFAULT_PATTERN)}</code>
