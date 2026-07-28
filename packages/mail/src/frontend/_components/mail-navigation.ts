@@ -10,7 +10,7 @@ export const buildMailListHref = (requestUrl: URL, clearSearch = false): string 
   if (clearSearch) {
     for (const parameter of [
       "q",
-      "qFields",
+      "qScope",
       "from",
       "to",
       "subject",

@@ -1,14 +1,14 @@
 import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
-import { MultiSelectInput, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { FilterChip, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import {
-  MAIL_QUICK_SEARCH_FIELDS,
-  MAIL_QUICK_SEARCH_FIELDS_PARAMETER,
+  DEFAULT_MAIL_QUICK_SEARCH_SCOPE,
+  MAIL_QUICK_SEARCH_SCOPE_PARAMETER,
   MAIL_SEARCH_PARAMETER,
-  type MailQuickSearchField,
-  parseMailQuickSearchFields,
+  type MailQuickSearchScope,
+  parseMailQuickSearchScope,
   parseMailSearchState,
   resolveMailSearchRoute,
 } from "../../search-state";
@@ -21,16 +21,15 @@ import { mailboxHealthPresentation } from "./mail-health-presentation";
 import { buildMailListHref, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
-const QUICK_SEARCH_FIELD_OPTIONS = [
-  { id: "from", label: "Sender", icon: "ti ti-user" },
-  { id: "subject", label: "Subject", icon: "ti ti-letter-case" },
-  { id: "body", label: "Body", icon: "ti ti-align-left" },
-] satisfies Array<{ id: MailQuickSearchField; label: string; icon: string }>;
-
-const selectedQuickSearchFields = (url: URL): MailQuickSearchField[] => {
-  const fields = parseMailQuickSearchFields(url);
-  return fields.length > 0 ? fields : [...MAIL_QUICK_SEARCH_FIELDS];
-};
+const QUICK_SEARCH_SCOPE_OPTIONS = [
+  { value: "everything", label: "Everything", icon: "ti ti-search" },
+  { value: "people", label: "People", icon: "ti ti-users" },
+  { value: "sender", label: "Sender", icon: "ti ti-user-up" },
+  { value: "recipients", label: "Recipients", icon: "ti ti-user-down" },
+  { value: "subject", label: "Subject", icon: "ti ti-letter-case" },
+  { value: "body", label: "Message body", icon: "ti ti-align-left" },
+  { value: "attachments", label: "Attachments", icon: "ti ti-paperclip" },
+] satisfies Array<{ value: MailQuickSearchScope; label: string; icon: string }>;
 
 export default function MailConversationList(props: {
   mailbox: Mailbox;
@@ -72,7 +71,7 @@ export default function MailConversationList(props: {
 }) {
   const requestUrl = () => new URL(props.requestUrl);
   const [searchValue, setSearchValue] = createSignal(props.query);
-  const [searchFields, setSearchFields] = createSignal<MailQuickSearchField[]>(selectedQuickSearchFields(requestUrl()));
+  const [searchScope, setSearchScope] = createSignal<MailQuickSearchScope>(parseMailQuickSearchScope(requestUrl()));
   const [loadMoreElement, setLoadMoreElement] = createSignal<HTMLDivElement>();
   const [failedLoadHref, setFailedLoadHref] = createSignal<string | null>(null);
   let listScrollElement: HTMLDivElement | undefined;
@@ -96,16 +95,16 @@ export default function MailConversationList(props: {
   const searchActive = () => Boolean(props.query.trim() || requestUrl().searchParams.has(MAIL_SEARCH_PARAMETER) || props.activeSavedViewId);
   createEffect(() => {
     setSearchValue(props.query);
-    setSearchFields(selectedQuickSearchFields(requestUrl()));
+    setSearchScope(parseMailQuickSearchScope(requestUrl()));
   });
 
-  const applyQuickSearch = (query: string, fields: MailQuickSearchField[]) => {
+  const applyQuickSearch = (query: string, scope: MailQuickSearchScope) => {
     const currentUrl = requestUrl();
     const next = new URL(buildMailListHref(currentUrl, true), currentUrl.origin);
     const normalizedQuery = query.trim();
     if (normalizedQuery) {
       next.searchParams.set("q", normalizedQuery);
-      next.searchParams.set(MAIL_QUICK_SEARCH_FIELDS_PARAMETER, fields.join(","));
+      if (scope !== DEFAULT_MAIL_QUICK_SEARCH_SCOPE) next.searchParams.set(MAIL_QUICK_SEARCH_SCOPE_PARAMETER, scope);
       next.searchParams.delete("savedView");
       next.searchParams.delete("view");
       next.searchParams.delete("folder");
@@ -116,15 +115,17 @@ export default function MailConversationList(props: {
 
   const submitSearch = (event: SubmitEvent) => {
     event.preventDefault();
-    applyQuickSearch(searchValue(), searchFields());
+    applyQuickSearch(searchValue(), searchScope());
   };
 
-  const updateSearchFields = (next: string[]) => {
-    const valid = next.filter((field): field is MailQuickSearchField => QUICK_SEARCH_FIELD_OPTIONS.some((option) => option.id === field));
-    const normalized = valid.length > 0 ? valid : [...MAIL_QUICK_SEARCH_FIELDS];
-    setSearchFields(normalized);
-    if (searchValue().trim()) applyQuickSearch(searchValue(), normalized);
+  const updateSearchScope = (next: string[]) => {
+    const selected =
+      QUICK_SEARCH_SCOPE_OPTIONS.find((option) => option.value === next.at(-1))?.value ?? DEFAULT_MAIL_QUICK_SEARCH_SCOPE;
+    setSearchScope(selected);
+    if (searchValue().trim()) applyQuickSearch(searchValue(), selected);
   };
+  const selectedSearchScope = () =>
+    QUICK_SEARCH_SCOPE_OPTIONS.find((option) => option.value === searchScope()) ?? QUICK_SEARCH_SCOPE_OPTIONS[0]!;
 
   const openAdvancedSearch = async () => {
     const result = await openMailSearchBuilder({
@@ -276,20 +277,22 @@ export default function MailConversationList(props: {
               clearable
               onClear={() => {
                 setSearchValue("");
-                applyQuickSearch("", searchFields());
+                applyQuickSearch("", searchScope());
               }}
               maxLength={500}
             />
           </div>
-          <div class="w-40 shrink-0">
-            <MultiSelectInput
-              icon="ti ti-filter-search"
-              placeholder="Search in"
-              value={searchFields}
-              onChange={updateSearchFields}
-              options={QUICK_SEARCH_FIELD_OPTIONS}
-            />
-          </div>
+          <FilterChip
+            label={`Search scope: ${selectedSearchScope().label}`}
+            icon={selectedSearchScope().icon}
+            options={[{ label: "Search in", options: QUICK_SEARCH_SCOPE_OPTIONS }]}
+            value={[searchScope()]}
+            defaultValue={[DEFAULT_MAIL_QUICK_SEARCH_SCOPE]}
+            isActive={searchScope() !== DEFAULT_MAIL_QUICK_SEARCH_SCOPE}
+            onChange={updateSearchScope}
+            position="bottom-right"
+            iconOnly
+          />
         </form>
         <Show when={structuredSummary()}>
           {(summary) => (

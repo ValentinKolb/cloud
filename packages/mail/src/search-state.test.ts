@@ -3,7 +3,7 @@ import type { MailSearchExpression } from "./contracts";
 import {
   MAIL_SEARCH_PARAMETER,
   MAX_MAIL_SEARCH_PARAMETER_LENGTH,
-  parseMailQuickSearchFields,
+  parseMailQuickSearchScope,
   parseMailSearchState,
   resolveMailSearchRoute,
   serializeMailSearchState,
@@ -77,33 +77,33 @@ describe("Mail search URL state", () => {
       type: "or",
       expressions: [
         { type: "text", field: "from", query: "invoice", match: "words" },
+        { type: "text", field: "recipients", query: "invoice", match: "words" },
         { type: "text", field: "subject", query: "invoice", match: "words" },
         { type: "text", field: "body", query: "invoice", match: "words" },
+        { type: "text", field: "attachment_name", query: "invoice", match: "words" },
       ],
     });
     expect(simpleMailSearchExpression(" ")).toBeNull();
   });
 
-  test("parses canonical quick-search fields", () => {
-    const url = new URL("https://cloud.example/app/mail/id?qFields=subject,from,subject,invalid");
-    expect(parseMailQuickSearchFields(url)).toEqual(["subject", "from"]);
+  test("parses one canonical quick-search scope and defaults invalid values", () => {
+    expect(parseMailQuickSearchScope(new URL("https://cloud.example/app/mail/id?qScope=subject"))).toBe("subject");
+    expect(parseMailQuickSearchScope(new URL("https://cloud.example/app/mail/id?qScope=invalid"))).toBe("everything");
+    expect(parseMailQuickSearchScope(new URL("https://cloud.example/app/mail/id"))).toBe("everything");
   });
 
-  test("combines multiple quick-search fields with OR", () => {
-    expect(simpleMailSearchExpression(" invoice ", ["from", "subject"])).toEqual({
-      type: "or",
-      expressions: [
-        { type: "text", field: "from", query: "invoice", match: "words" },
-        { type: "text", field: "subject", query: "invoice", match: "words" },
-      ],
+  test("maps focused quick-search scopes to canonical text fields", () => {
+    expect(simpleMailSearchExpression(" invoice ", "people")).toEqual({
+      type: "text",
+      field: "participants",
+      query: "invoice",
+      match: "words",
     });
-    expect(simpleMailSearchExpression("invoice", [])).toEqual({
-      type: "or",
-      expressions: [
-        { type: "text", field: "from", query: "invoice", match: "words" },
-        { type: "text", field: "subject", query: "invoice", match: "words" },
-        { type: "text", field: "body", query: "invoice", match: "words" },
-      ],
+    expect(simpleMailSearchExpression("invoice", "attachments")).toEqual({
+      type: "text",
+      field: "attachment_name",
+      query: "invoice",
+      match: "words",
     });
   });
 
@@ -115,24 +115,20 @@ describe("Mail search URL state", () => {
         type: "or",
         expressions: [
           { type: "text", field: "from", query: "invoice", match: "words" },
+          { type: "text", field: "recipients", query: "invoice", match: "words" },
           { type: "text", field: "subject", query: "invoice", match: "words" },
           { type: "text", field: "body", query: "invoice", match: "words" },
+          { type: "text", field: "attachment_name", query: "invoice", match: "words" },
         ],
       },
       sort: "relevance",
       error: null,
     });
 
-    const scoped = new URL("https://cloud.example/app/mail/id?q=invoice&qFields=from,body");
+    const scoped = new URL("https://cloud.example/app/mail/id?q=invoice&qScope=sender");
     expect(resolveMailSearchRoute(scoped)).toEqual({
       query: "invoice",
-      expression: {
-        type: "or",
-        expressions: [
-          { type: "text", field: "from", query: "invoice", match: "words" },
-          { type: "text", field: "body", query: "invoice", match: "words" },
-        ],
-      },
+      expression: { type: "text", field: "from", query: "invoice", match: "words" },
       sort: "relevance",
       error: null,
     });

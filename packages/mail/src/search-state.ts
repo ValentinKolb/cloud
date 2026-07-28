@@ -1,9 +1,10 @@
 import { type MailSearchExpression, type MailSearchState, mailSearchExpressionSchema, mailSearchStateSchema } from "./contracts";
 
 export const MAIL_SEARCH_PARAMETER = "search";
-export const MAIL_QUICK_SEARCH_FIELDS_PARAMETER = "qFields";
-export const MAIL_QUICK_SEARCH_FIELDS = ["from", "subject", "body"] as const;
-export type MailQuickSearchField = (typeof MAIL_QUICK_SEARCH_FIELDS)[number];
+export const MAIL_QUICK_SEARCH_SCOPE_PARAMETER = "qScope";
+export const MAIL_QUICK_SEARCH_SCOPES = ["everything", "people", "sender", "recipients", "subject", "body", "attachments"] as const;
+export type MailQuickSearchScope = (typeof MAIL_QUICK_SEARCH_SCOPES)[number];
+export const DEFAULT_MAIL_QUICK_SEARCH_SCOPE: MailQuickSearchScope = "everything";
 
 // The workspace-route API accepts hrefs up to 4,000 characters. Keeping the
 // encoded search value below 3,000 leaves room for the mailbox path and future
@@ -53,21 +54,32 @@ export const parseMailSearchState = (url: URL): ParsedMailSearchState => {
   }
 };
 
-export const parseMailQuickSearchFields = (url: URL): MailQuickSearchField[] => {
-  const raw = url.searchParams.get(MAIL_QUICK_SEARCH_FIELDS_PARAMETER);
-  if (!raw) return [];
-  const allowed = new Set<string>(MAIL_QUICK_SEARCH_FIELDS);
-  return [...new Set(raw.split(",").filter((field): field is MailQuickSearchField => allowed.has(field)))];
+export const parseMailQuickSearchScope = (url: URL): MailQuickSearchScope => {
+  const raw = url.searchParams.get(MAIL_QUICK_SEARCH_SCOPE_PARAMETER);
+  return MAIL_QUICK_SEARCH_SCOPES.find((scope) => scope === raw) ?? DEFAULT_MAIL_QUICK_SEARCH_SCOPE;
+};
+
+const quickSearchFields = (scope: MailQuickSearchScope): Extract<MailSearchExpression, { type: "text" }>["field"][] => {
+  if (scope === "everything") return ["from", "recipients", "subject", "body", "attachment_name"];
+  if (scope === "people") return ["participants"];
+  if (scope === "sender") return ["from"];
+  if (scope === "recipients") return ["recipients"];
+  if (scope === "attachments") return ["attachment_name"];
+  return [scope];
 };
 
 export const simpleMailSearchExpression = (
   query: string,
-  fields: MailQuickSearchField[] = [...MAIL_QUICK_SEARCH_FIELDS],
+  scope: MailQuickSearchScope = DEFAULT_MAIL_QUICK_SEARCH_SCOPE,
 ): MailSearchExpression | null => {
   const normalized = query.trim();
   if (!normalized) return null;
-  const selectedFields = fields.length > 0 ? fields : MAIL_QUICK_SEARCH_FIELDS;
-  const expressions = selectedFields.map((field) => ({ type: "text" as const, field, query: normalized, match: "words" as const }));
+  const expressions = quickSearchFields(scope).map((field) => ({
+    type: "text" as const,
+    field,
+    query: normalized,
+    match: "words" as const,
+  }));
   return expressions.length === 1 ? expressions[0]! : { type: "or", expressions };
 };
 
@@ -84,8 +96,7 @@ export const resolveMailSearchRoute = (url: URL): ResolvedMailSearchRoute => {
     };
   }
 
-  const fields = parseMailQuickSearchFields(url);
-  const expression = simpleMailSearchExpression(query, fields.length > 0 ? fields : undefined);
+  const expression = simpleMailSearchExpression(query, parseMailQuickSearchScope(url));
   if (!expression) return { query, expression: null, sort: "relevance", error: null };
   const parsed = mailSearchExpressionSchema.safeParse(expression);
   return parsed.success

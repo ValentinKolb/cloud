@@ -8,7 +8,7 @@ order: 20
 
 ## Find the conversation you need {icon="search"}
 
-Use **Search mailbox** for a quick search across the current mailbox. **Sender**, **Subject**, and **Body** are selected by default. Remove locations you do not want to search. When several locations are selected, a conversation is included when the text appears in any selected location.
+Use **Search mailbox** for a quick search across the current mailbox. The scope button searches **Everything** by default: people, subject, message body, and attachment names. Choose **People**, **Sender**, **Recipients**, **Subject**, **Message body**, or **Attachments** when you need a narrower result.
 
 Select **Search filters** when you need additional conditions such as dates, recipients, attachments, folders, tags, or collaboration state.
 
