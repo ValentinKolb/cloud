@@ -44,7 +44,7 @@
       { "source": "./misc/FloatingWindow", "status": "implemented" },
       { "source": "./misc/PanelDialog", "status": "implemented" },
       { "source": "./misc/PanelHeader", "status": "implemented" },
-      { "source": "./misc/Panes", "status": "planned" },
+      { "source": "./misc/Panes", "status": "implemented" },
       { "source": "./misc/SettingsModal", "status": "implemented" }
     ],
     "surfaces": [

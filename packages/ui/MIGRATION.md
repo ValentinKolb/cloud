@@ -27,7 +27,8 @@ The currently accepted complete migrations are:
   `ImageCropper`, `AutocompleteEditor`, `MarkdownEditor`, `TemplateEditor`,
   the generic completion kernel, and image-crop helpers;
 - layout: `admin-settings`, `AppOverview`, `DataPanel`, `PanelDialog`,
-  `PanelHeader`, `SettingsModal`, `AppWorkspace`, and `FloatingWindow`;
+  `PanelHeader`, `SettingsModal`, `AppWorkspace`, `Panes`, and
+  `FloatingWindow`;
 - surfaces: `Avatar`, `LinkCard`, `NotFoundState`, `NoticeCard`, `Placeholder`,
   `ProgressBar`, `StatCell`, `StatGrid`, `StatusBadge`;
 - feedback: `dialog-core`, `prompts`, `toast`, `Tooltip`.
@@ -38,9 +39,14 @@ The currently accepted complete migrations are:
 - widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
   `WidgetStat`, `WidgetStatus`.
 
-`Panes` and the generic AI presentation family remain `planned` until they
-satisfy that same bar. They are absent from the package export and release
-files; incomplete experiments do not change their inventory status.
+The generic AI presentation family remains `planned` until it satisfies that
+same bar. It is absent from the package export and release files; incomplete
+experiments do not change its inventory status.
+
+The completed `Panes` migration keeps content and persistence app-owned while
+providing a versioned, defensively normalized layout tree, deterministic node
+ids, nested splits, tabs, stack presentation, resize, drag-and-drop, keyboard
+navigation, and accessible announcements.
 
 Cloud-owned controllers and domain contracts remain outside the package. This
 includes permission and principal editors, resource API keys, workflow

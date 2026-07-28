@@ -12,6 +12,10 @@ import {
 } from "solid-js";
 import { createFieldMeta, Field, fieldDescribedBy } from "../internal/field";
 import {
+  PANES_VALUE_VERSION,
+  type PanesValue,
+} from "../layout/panes-state";
+import {
   abbreviations,
   applyCompletion,
   type Completion,
@@ -510,23 +514,10 @@ export type TemplateSampleDataProps = {
   class?: string;
 };
 
-export type TemplateEditorLayoutValue = {
-  root: {
-    type: "split";
-    id: string;
-    direction: "horizontal";
-    sizes: [number, number];
-    children: readonly {
-      type: "leaf";
-      id: string;
-      presentation: "tabs";
-      elementIds: readonly string[];
-      activeElementId: string;
-    }[];
-  };
-};
+export type TemplateEditorLayoutValue = PanesValue;
 
 export const createTemplateEditorPanesValue = (): TemplateEditorLayoutValue => ({
+  version: PANES_VALUE_VERSION,
   root: {
     type: "split",
     id: "template-editor-root",

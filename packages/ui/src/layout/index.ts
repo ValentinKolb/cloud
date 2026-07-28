@@ -107,3 +107,22 @@ export {
   openFloatingWindow,
   type FloatingWindowRect,
 } from "./FloatingWindow";
+export type {
+  PanesElementProps,
+  PanesRootProps,
+} from "./Panes";
+export { default as Panes } from "./Panes";
+export type {
+  PanesDirection,
+  PanesLeafNode,
+  PanesLeafPresentation,
+  PanesNode,
+  PanesSplitNode,
+  PanesValue,
+} from "./panes-state";
+export {
+  activatePanesElement,
+  createPanesValue,
+  normalizePanesValue,
+  PANES_VALUE_VERSION,
+} from "./panes-state";

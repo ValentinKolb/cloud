@@ -58,7 +58,7 @@ standalone SSR, behavior, styling, and migration checks:
   dropzones, image selection/cropping, completion-aware plain text,
   Markdown, and template editors
 - Layout: `AppOverview`, `DataPanel`, `PanelHeader`, `PanelDialog`,
-  `SettingsModal`, `AppWorkspace`, `FloatingWindow`, and generic
+  `SettingsModal`, `AppWorkspace`, `Panes`, `FloatingWindow`, and generic
   settings-form helpers
 - Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
   `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`, `NotFoundState`
@@ -101,9 +101,30 @@ UI showcase: AI, Inputs, Actions, Layout, Surfaces, Feedback, Content, and
 Widgets. Cloud-specific integrations are intentionally not part of this
 package.
 
-`Panes` and the AI presentation family are still planned. They are
-deliberately absent from the root export until their full contracts are
-implemented and tested.
+The AI presentation family is still planned. It is deliberately absent from
+the root export until its full contract is implemented and tested.
+
+`Panes` is a controlled, serializable layout for IDE-like workspaces. The
+package owns tabs, nested splits, resize and drag-and-drop; applications own
+pane content, open and close behavior, routing, and persistence:
+
+```tsx
+const ids = ["result", "query"];
+const [layout, setLayout] = createSignal(createPanesValue(ids));
+
+<Panes.Root value={layout()} onChange={setLayout}>
+  <Panes.Element id="result" title="Result" icon="ti ti-table">
+    <ResultView />
+  </Panes.Element>
+  <Panes.Element id="query" title="Query" icon="ti ti-code">
+    <QueryEditor />
+  </Panes.Element>
+</Panes.Root>;
+```
+
+Pass persisted input through `normalizePanesValue(stored, ids)`. It accepts
+legacy versionless values defensively and always returns the current versioned
+shape.
 
 Cloud stays on its existing UI until this package is complete. The
 [migration inventory](./MIGRATION.md) records the generic, Cloud-specific, and
