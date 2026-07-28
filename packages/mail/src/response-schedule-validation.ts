@@ -25,6 +25,7 @@ const windowsOverlap = (windows: readonly ScheduleWindow[]): boolean => {
 };
 
 export const validateResponseScheduleDefinition = (schedule: ResponseScheduleDefinitionInput): string[] => {
+  if (schedule.mode === "always") return [];
   const errors: string[] = [];
   if (!normalizeTimeZone(schedule.timeZone, "")) errors.push("Select a valid IANA time zone");
   for (const range of schedule.activeRanges) {

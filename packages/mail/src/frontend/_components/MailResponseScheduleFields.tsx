@@ -3,6 +3,8 @@ import { createMemo, For, Show } from "solid-js";
 import { validateResponseScheduleDefinition } from "../../response-schedule-validation";
 import type { ResponseScheduleDefinition } from "../../service/response-schedule";
 
+type WindowedResponseScheduleDefinition = Extract<ResponseScheduleDefinition, { mode: "windows" }>;
+
 const WEEKDAYS = [
   { id: 1, label: "Monday" },
   { id: 2, label: "Tuesday" },
@@ -89,14 +91,14 @@ function WindowEditor(props: { windows: () => Window[]; onChange: (windows: Wind
   );
 }
 
-export default function MailResponseScheduleFields(props: {
-  value: () => ResponseScheduleDefinition;
-  onChange: (value: ResponseScheduleDefinition) => void;
+function WindowedResponseScheduleFields(props: {
+  value: () => WindowedResponseScheduleDefinition;
+  onChange: (value: WindowedResponseScheduleDefinition) => void;
   errors?: () => string[];
 }) {
   const previousDayWindows = new Map<Weekday, Window[]>();
   const errors = createMemo(() => props.errors?.() ?? validateResponseScheduleDefinition(props.value()));
-  const update = <K extends keyof ResponseScheduleDefinition>(key: K, value: ResponseScheduleDefinition[K]) =>
+  const update = <K extends keyof WindowedResponseScheduleDefinition>(key: K, value: WindowedResponseScheduleDefinition[K]) =>
     props.onChange({ ...props.value(), [key]: value });
   const windowsForDay = (weekday: (typeof WEEKDAYS)[number]["id"]) =>
     props.value().weeklyWindows.filter((window) => window.weekday === weekday);
@@ -337,7 +339,61 @@ export default function MailResponseScheduleFields(props: {
   );
 }
 
+const defaultWindowedSchedule = (): WindowedResponseScheduleDefinition => ({
+  mode: "windows",
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  activeRanges: [],
+  weeklyWindows: [1, 2, 3, 4, 5].map((weekday) => ({
+    weekday: weekday as Weekday,
+    ...DEFAULT_WINDOW,
+  })),
+  exceptions: [],
+});
+
+export default function MailResponseScheduleFields(props: {
+  value: () => ResponseScheduleDefinition;
+  onChange: (value: ResponseScheduleDefinition) => void;
+  errors?: () => string[];
+}) {
+  const initialValue = props.value();
+  let previousWindowedSchedule: WindowedResponseScheduleDefinition | null = initialValue.mode === "windows" ? initialValue : null;
+  const windowedSchedule = (): WindowedResponseScheduleDefinition | null => {
+    const value = props.value();
+    return value.mode === "windows" ? value : null;
+  };
+  const setWindowedSchedule = (value: WindowedResponseScheduleDefinition) => {
+    previousWindowedSchedule = value;
+    props.onChange(value);
+  };
+  const setAlways = (always: boolean) => {
+    if (always) {
+      const current = windowedSchedule();
+      if (current) previousWindowedSchedule = current;
+      props.onChange({ mode: "always" });
+      return;
+    }
+    setWindowedSchedule(previousWindowedSchedule ?? defaultWindowedSchedule());
+  };
+
+  return (
+    <div class="flex flex-col gap-3">
+      <CheckboxCard
+        label="Always on"
+        description="Reply at any time. No time zone, hours, or exceptions are applied."
+        icon="ti ti-clock-24"
+        variant="input"
+        value={() => props.value().mode === "always"}
+        onChange={setAlways}
+      />
+      <Show when={windowedSchedule()}>
+        {(schedule) => <WindowedResponseScheduleFields value={schedule} onChange={setWindowedSchedule} errors={props.errors} />}
+      </Show>
+    </div>
+  );
+}
+
 export const responseScheduleSummary = (definition: ResponseScheduleDefinition): string => {
+  if (definition.mode === "always") return "Always on";
   const activeDays = new Set(definition.weeklyWindows.map((window) => window.weekday)).size;
   const range = definition.activeRanges[0];
   const rangeLabel = range ? `${range.from} to ${range.to ?? "open ended"}` : "No date limit";

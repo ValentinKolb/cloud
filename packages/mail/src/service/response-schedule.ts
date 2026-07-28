@@ -4,21 +4,17 @@ import { validateResponseScheduleDefinition } from "../response-schedule-validat
 
 type ResponseScheduleWindow = { start: string; end: string };
 type ResponseScheduleWeeklyWindow = ResponseScheduleWindow & { weekday: 1 | 2 | 3 | 4 | 5 | 6 | 7 };
-type ResponseScheduleException = { date: string; closed: boolean; windows: ResponseScheduleWindow[] };
+export type ResponseScheduleDefinition = ResponseScheduleDefinitionInput;
+type WindowedResponseScheduleDefinition = Extract<ResponseScheduleDefinition, { mode: "windows" }>;
 
-export type ResponseScheduleDefinition = {
-  timeZone: string;
-  activeRanges: Array<{ from: string; to: string | null }>;
-  weeklyWindows: ResponseScheduleWeeklyWindow[];
-  exceptions: ResponseScheduleException[];
-};
-
-type ResponseScheduleEvaluation = {
-  active: boolean;
-  localDate: string;
-  localTime: string;
-  reason: "outside_active_range" | "holiday" | "exception" | "office_hours" | "outside_office_hours";
-};
+type ResponseScheduleEvaluation =
+  | { active: true; reason: "always" }
+  | {
+      active: boolean;
+      localDate: string;
+      localTime: string;
+      reason: "outside_active_range" | "holiday" | "exception" | "office_hours" | "outside_office_hours";
+    };
 
 const minuteOfDay = (value: string): number => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
 
@@ -50,6 +46,7 @@ export const evaluateResponseSchedule = (schedule: ResponseScheduleDefinition, i
   const errors = validateResponseSchedule(schedule);
   if (errors.length > 0) throw new Error(errors.join("; "));
   if (!Number.isFinite(instant.getTime())) throw new Error("Schedule evaluation instant is invalid");
+  if (schedule.mode === "always") return { active: true, reason: "always" };
   const timeZone = dates.normalizeTimeZone(schedule.timeZone, "UTC");
   const local = localParts(instant, timeZone);
   const insideActiveRange =
@@ -78,6 +75,7 @@ export const nextResponseScheduleInstant = (schedule: ResponseScheduleDefinition
   const errors = validateResponseSchedule(schedule);
   if (errors.length > 0) throw new Error(errors.join("; "));
   if (!Number.isFinite(after.getTime())) throw new Error("Schedule search instant is invalid");
+  if (schedule.mode === "always") return null;
   const timeZone = dates.normalizeTimeZone(schedule.timeZone, "UTC");
   const initial = localParts(after, timeZone);
   for (let offset = 0; offset <= maxDays; offset += 1) {
@@ -119,7 +117,9 @@ export const decodeStoredResponseScheduleDefinition = (value: unknown): Result<R
     : fail(err.internal("Stored response schedule definition is invalid"));
 };
 export const normalizeResponseScheduleDefinition = (definition: ResponseScheduleDefinitionInput): Result<ResponseScheduleDefinition> => {
-  const normalized: ResponseScheduleDefinition = {
+  if (definition.mode === "always") return ok({ mode: "always" });
+  const normalized: WindowedResponseScheduleDefinition = {
+    mode: "windows",
     timeZone: definition.timeZone.trim(),
     activeRanges: definition.activeRanges,
     weeklyWindows: definition.weeklyWindows,

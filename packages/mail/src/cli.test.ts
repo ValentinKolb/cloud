@@ -3670,6 +3670,7 @@ test("automatic reply commands cover list, create, and revision-checked update",
     minimumIntervalHours: 24,
     inactiveBehavior: "skip",
     schedule: {
+      mode: "windows",
       timeZone: "UTC",
       activeRanges: [],
       weeklyWindows: [{ weekday: 1, start: "09:00", end: "17:00" }],

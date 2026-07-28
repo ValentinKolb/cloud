@@ -7,6 +7,7 @@ import {
 } from "./response-schedule";
 
 const schedule: ResponseScheduleDefinition = {
+  mode: "windows",
   timeZone: "Europe/Berlin",
   activeRanges: [{ from: "2026-01-01", to: null }],
   weeklyWindows: [
@@ -23,6 +24,12 @@ const schedule: ResponseScheduleDefinition = {
 };
 
 describe("Mail inline response timing", () => {
+  test("treats the explicit always mode as active without window data", () => {
+    const instant = new Date("2026-07-16T08:00:00.000Z");
+    expect(evaluateResponseSchedule({ mode: "always" }, instant)).toEqual({ active: true, reason: "always" });
+    expect(nextResponseScheduleInstant({ mode: "always" }, instant)).toBeNull();
+  });
+
   test("evaluates weekly office hours in the configured time zone", () => {
     expect(evaluateResponseSchedule(schedule, new Date("2026-07-16T08:00:00.000Z"))).toMatchObject({
       active: true,
@@ -52,6 +59,7 @@ describe("Mail inline response timing", () => {
 
   test("supports an explicit full local day ending at 24:00", () => {
     const fullDay: ResponseScheduleDefinition = {
+      mode: "windows",
       timeZone: "Europe/Berlin",
       activeRanges: [],
       weeklyWindows: [{ weekday: 4, start: "00:00", end: "24:00" }],

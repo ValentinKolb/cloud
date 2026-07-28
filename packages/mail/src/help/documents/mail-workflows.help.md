@@ -236,6 +236,7 @@ steps:
       body: "Thank you for your message. We will respond during office hours."
       format: markdown
       schedule:
+        mode: windows
         timeZone: Europe/Berlin
         activeRanges: []
         weeklyWindows:
@@ -265,13 +266,12 @@ steps:
 Optional fields and defaults:
 
 - `format`: `plain` by default, or `markdown`
-- `schedule`: optional inline object with `timeZone`, `activeRanges`, `weeklyWindows`, and `exceptions`
 - `inactiveBehavior`: `defer` by default, or `skip`
 - `minimumIntervalHours`: `24` by default, from `0` to `8760`
 
 The sender must be verified and enabled for automatic replies. Mail suppresses loops, bulk/list mail, delivery-status messages, repeated responses to one message, and recipients still inside repeat protection.
 
-`weekday` uses ISO numbers from `1` for Monday through `7` for Sunday. Times are local `HH:mm` values in the configured IANA timezone. Windows cannot overlap or cross midnight; `24:00` is allowed only as an end. An empty `activeRanges` list repeats weekly without a date limit. Each range uses an inclusive `from` date and an inclusive `to` date or `null`. A date exception overrides normal weekly windows: `closed: true` disables the whole date, while `closed: false` uses only the listed exception windows.
+`schedule` is explicit: use `{ mode: always }` for an always-active reply, or `mode: windows` with `timeZone`, `activeRanges`, `weeklyWindows`, and `exceptions`. `weekday` uses ISO numbers from `1` for Monday through `7` for Sunday. Times are local `HH:mm` values in the configured IANA timezone. Windows cannot overlap or cross midnight; `24:00` is allowed only as an end. An empty `activeRanges` list repeats weekly without a date limit. Each range uses an inclusive `from` date and an inclusive `to` date or `null`. A date exception overrides normal weekly windows: `closed: true` disables the whole date, while `closed: false` uses only the listed exception windows.
 
 ## Add conditions {icon="search"}
 

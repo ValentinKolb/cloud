@@ -321,6 +321,7 @@ const validateManagedSchedule = (definition: ResponseScheduleDefinitionInput): R
   const schedule = normalizeResponseScheduleDefinition(definition);
   if (!schedule.ok) return schedule;
   if (
+    schedule.data.mode === "windows" &&
     schedule.data.weeklyWindows.length === 0 &&
     !schedule.data.exceptions.some((exception) => !exception.closed && exception.windows.length > 0)
   ) {

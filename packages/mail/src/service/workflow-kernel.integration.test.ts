@@ -729,7 +729,7 @@ steps:
           },
           occurredAt: "2026-07-26T12:00:00.000Z",
           minimumIntervalHours: 24,
-          schedule: null,
+          schedule: { mode: "always" },
         }),
       );
 

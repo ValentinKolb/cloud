@@ -605,6 +605,7 @@ suite("conversation references and automatic reply policies", () => {
       minimumIntervalHours: 168,
       inactiveBehavior: "skip" as const,
       schedule: {
+        mode: "windows" as const,
         timeZone: "Europe/Berlin",
         activeRanges: [{ from: "2026-07-20", to: "2026-08-03" }],
         weeklyWindows: [
@@ -684,6 +685,7 @@ suite("conversation references and automatic reply policies", () => {
           enabled: false,
           ensureReference: true,
           body: "Your reference is {{ reference.value }}.",
+          schedule: { mode: "always" },
         },
         referenceConfiguration: {
           expectedRevision: referenceBeforeAtomicConflict.revision,
@@ -699,6 +701,7 @@ suite("conversation references and automatic reply policies", () => {
         name: `Reference acknowledgement ${suffix}`,
         enabled: false,
         ensureReference: true,
+        schedule: { mode: "always" },
       },
       referenceConfiguration: {
         pattern: `CASE-{{ year }}-{{ sequence | pad_start: 6 }}`,

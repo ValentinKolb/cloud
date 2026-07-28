@@ -3,6 +3,7 @@ import type {
   ErasedWorkflowAction,
   WorkflowActionContext,
   WorkflowActionResult,
+  WorkflowFieldSchema,
   WorkflowJsonValue,
   WorkflowPlannedEffect,
 } from "@valentinkolb/cloud/workflows";
@@ -57,34 +58,44 @@ const scheduleWindow = object({
   start: text("Inclusive local start time in HH:mm format.", false, 5),
   end: text("Exclusive local end time in HH:mm format; 24:00 is allowed.", false, 5),
 });
-const responseSchedule = object({
-  timeZone: text("IANA timezone used to evaluate dates and local hours.", false, 80),
-  activeRanges: {
-    kind: "array",
-    maxItems: 32,
-    items: object({
-      from: text("Inclusive start date in YYYY-MM-DD format.", false, 10),
-      to: { kind: "value", description: "Inclusive end date in YYYY-MM-DD format, or null for no end." },
+const responseSchedule = {
+  kind: "union",
+  variants: [
+    object({
+      mode: { kind: "string", enum: ["always"], description: "Keep the automatic reply active at all times." },
     }),
-  },
-  weeklyWindows: {
-    kind: "array",
-    maxItems: 64,
-    items: object({
-      weekday: { kind: "number", integer: true, minimum: 1, maximum: 7, description: "ISO weekday from 1 to 7." },
-      ...scheduleWindow.properties,
+    object({
+      mode: { kind: "string", enum: ["windows"], description: "Use explicit date and weekly response windows." },
+      timeZone: text("IANA timezone used to evaluate dates and local hours.", false, 80),
+      activeRanges: {
+        kind: "array",
+        maxItems: 32,
+        items: object({
+          from: text("Inclusive start date in YYYY-MM-DD format.", false, 10),
+          to: { kind: "value", description: "Inclusive end date in YYYY-MM-DD format, or null for no end." },
+        }),
+      },
+      weeklyWindows: {
+        kind: "array",
+        maxItems: 64,
+        items: object({
+          weekday: { kind: "number", integer: true, minimum: 1, maximum: 7, description: "ISO weekday from 1 to 7." },
+          ...scheduleWindow.properties,
+        }),
+      },
+      exceptions: {
+        kind: "array",
+        maxItems: 366,
+        items: object({
+          date: text("Exception date in YYYY-MM-DD format.", false, 10),
+          closed: { kind: "boolean", description: "Whether the schedule is inactive for the whole date." },
+          windows: { kind: "array", maxItems: 32, items: scheduleWindow },
+        }),
+      },
     }),
-  },
-  exceptions: {
-    kind: "array",
-    maxItems: 366,
-    items: object({
-      date: text("Exception date in YYYY-MM-DD format.", false, 10),
-      closed: { kind: "boolean", description: "Whether the schedule is inactive for the whole date." },
-      windows: { kind: "array", maxItems: 32, items: scheduleWindow },
-    }),
-  },
-});
+  ],
+  description: "Explicitly always active or limited to date and weekly windows.",
+} satisfies WorkflowFieldSchema;
 
 const isObject = (value: unknown): value is JsonObject => value !== null && typeof value === "object" && !Array.isArray(value);
 const asObject = (value: unknown, label: string): JsonObject => {
@@ -747,12 +758,12 @@ export const MAIL_WORKFLOW_ACTIONS = {
       subject: text("Reply subject.", false, 998),
       body: text("Reply body.", false, 2 * 1024 * 1024),
       format: { kind: "string", enum: ["plain", "markdown"], optional: true, description: "Reply body format." },
-      schedule: { ...responseSchedule, optional: true, description: "Optional inline response window." },
+      schedule: responseSchedule,
       inactiveBehavior: {
         kind: "string",
         enum: ["skip", "defer"],
         optional: true,
-        description: "Skip or defer outside the response window.",
+        description: "Skip or defer outside a windowed response schedule.",
       },
       minimumIntervalHours: {
         kind: "number",
@@ -780,8 +791,7 @@ export const MAIL_WORKFLOW_ACTIONS = {
         const messageId = asText(message.id, "message.id");
         const conversationId = asText(conversation.id, "conversation.id");
         const senderIdentityId = asText(ctx.binding("sender"), "sender identity");
-        const schedule: ResponseScheduleDefinitionInput | null =
-          values.schedule === undefined ? null : responseScheduleDefinitionSchema.parse(values.schedule);
+        const schedule: ResponseScheduleDefinitionInput = responseScheduleDefinitionSchema.parse(values.schedule);
         const prepared = await sql.begin(async (tx) => {
           const fence = await lockProviderFence(tx, ctx);
           if (!(await mailWorkflowExecutionAuthorityActive(scope.authority, scope.mailboxId, scope.workflowVersionId, tx))) {

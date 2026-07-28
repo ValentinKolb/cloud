@@ -89,7 +89,7 @@ export const prepareAutomaticReplyInTransaction = async (params: {
   occurredAt: string;
   minimumIntervalHours: number;
   inactiveBehavior?: "skip" | "defer";
-  schedule: ResponseScheduleDefinitionInput | null;
+  schedule: ResponseScheduleDefinitionInput;
 }): Promise<Result<PreparedAutomaticReply>> => {
   try {
     const occurredAt = new Date(params.occurredAt);
@@ -179,13 +179,11 @@ export const prepareAutomaticReplyInTransaction = async (params: {
     if (rateRows[0]?.exists) suppressionReasons.push("recipient_rate_limited");
 
     let scheduledAt = new Date();
-    if (params.schedule) {
-      const schedule = responseScheduleDefinitionSchema.safeParse(params.schedule);
-      if (!schedule.success) return fail(err.badInput("Automatic reply response schedule is invalid"));
-      const decision = resolveAutomaticReplySchedule(schedule.data, scheduledAt, inactiveBehavior);
-      if (decision.state === "scheduled") scheduledAt = decision.scheduledAt;
-      else suppressionReasons.push(decision.reason);
-    }
+    const schedule = responseScheduleDefinitionSchema.safeParse(params.schedule);
+    if (!schedule.success) return fail(err.badInput("Automatic reply response schedule is invalid"));
+    const decision = resolveAutomaticReplySchedule(schedule.data, scheduledAt, inactiveBehavior);
+    if (decision.state === "scheduled") scheduledAt = decision.scheduledAt;
+    else suppressionReasons.push(decision.reason);
 
     const effectId = crypto.randomUUID();
     if (suppressionReasons.length > 0) {

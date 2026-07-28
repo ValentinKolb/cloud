@@ -14,20 +14,24 @@ const resolveSchedule = (reference: string, lookup: ScheduleLookup): ResponseSch
   return parsed.data;
 };
 
-const scheduleWorkflowValue = (schedule: ResponseScheduleDefinitionInput): WorkflowJsonValue => ({
-  timeZone: schedule.timeZone,
-  activeRanges: schedule.activeRanges.map((range) => ({ from: range.from, to: range.to })),
-  weeklyWindows: schedule.weeklyWindows.map((window) => ({
-    weekday: window.weekday,
-    start: window.start,
-    end: window.end,
-  })),
-  exceptions: schedule.exceptions.map((exception) => ({
-    date: exception.date,
-    closed: exception.closed,
-    windows: exception.windows.map((window) => ({ start: window.start, end: window.end })),
-  })),
-});
+const scheduleWorkflowValue = (schedule: ResponseScheduleDefinitionInput): WorkflowJsonValue =>
+  schedule.mode === "always"
+    ? { mode: "always" }
+    : {
+        mode: "windows",
+        timeZone: schedule.timeZone,
+        activeRanges: schedule.activeRanges.map((range) => ({ from: range.from, to: range.to })),
+        weeklyWindows: schedule.weeklyWindows.map((window) => ({
+          weekday: window.weekday,
+          start: window.start,
+          end: window.end,
+        })),
+        exceptions: schedule.exceptions.map((exception) => ({
+          date: exception.date,
+          closed: exception.closed,
+          windows: exception.windows.map((window) => ({ start: window.start, end: window.end })),
+        })),
+      };
 
 const migrateSourceValue = (value: unknown, lookup: ScheduleLookup): number => {
   if (Array.isArray(value)) return value.reduce((count, item) => count + migrateSourceValue(item, lookup), 0);

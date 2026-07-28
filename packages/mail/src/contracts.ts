@@ -1750,8 +1750,9 @@ export const ensureConversationReferenceSchema = z
 export type EnsureConversationReference = z.infer<typeof ensureConversationReferenceSchema>;
 
 const responseScheduleWindowSchema = z.object({ start: z.string(), end: z.string() }).strict();
-export const responseScheduleDefinitionSchema = z
+const windowedResponseScheduleDefinitionSchema = z
   .object({
+    mode: z.literal("windows"),
     timeZone: z.string().trim().min(1).max(80),
     activeRanges: z.array(z.object({ from: z.string(), to: z.string().nullable() }).strict()).max(32),
     weeklyWindows: z
@@ -1774,6 +1775,10 @@ export const responseScheduleDefinitionSchema = z
       .max(366),
   })
   .strict();
+export const responseScheduleDefinitionSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("always") }).strict(),
+  windowedResponseScheduleDefinitionSchema,
+]);
 export type ResponseScheduleDefinitionInput = z.infer<typeof responseScheduleDefinitionSchema>;
 
 export const automaticReplyInactiveBehaviorSchema = z.enum(["skip", "defer"]);

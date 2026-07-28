@@ -7,6 +7,7 @@ import { inlineWorkflowResponseSchedules } from "./inline-response-schedule-migr
 import { mailWorkflowManifest } from "./manifest";
 
 const schedule = {
+  mode: "windows" as const,
   timeZone: "Europe/Berlin",
   activeRanges: [],
   weeklyWindows: [{ weekday: 1 as const, start: "09:00", end: "17:00" }],

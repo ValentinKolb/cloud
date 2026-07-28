@@ -203,6 +203,7 @@ describe("automatic reply configuration contracts", () => {
     minimumIntervalHours: 168,
     inactiveBehavior: "skip" as const,
     schedule: {
+      mode: "windows" as const,
       timeZone: "Europe/Berlin",
       activeRanges: [{ from: "2026-07-20", to: "2026-08-03" }],
       weeklyWindows: [{ weekday: 1 as const, start: "00:00", end: "24:00" }],
@@ -212,6 +213,18 @@ describe("automatic reply configuration contracts", () => {
 
   test("keeps presets out of the persisted contract", () => {
     expect(createAutomaticReplyConfigurationSchema.safeParse(configuration).success).toBe(true);
+    expect(createAutomaticReplyConfigurationSchema.safeParse({ ...configuration, schedule: { mode: "always" } }).success).toBe(true);
+    expect(
+      createAutomaticReplyConfigurationSchema.safeParse({
+        ...configuration,
+        schedule: {
+          timeZone: "Europe/Berlin",
+          activeRanges: [],
+          weeklyWindows: [],
+          exceptions: [],
+        },
+      }).success,
+    ).toBe(false);
     expect(createAutomaticReplyConfigurationSchema.safeParse({ ...configuration, preset: "out-of-office" }).success).toBe(false);
     expect(
       updateAutomaticReplyConfigurationSchema.safeParse({

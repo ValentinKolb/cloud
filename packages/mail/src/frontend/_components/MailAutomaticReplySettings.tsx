@@ -190,6 +190,7 @@ const PRESETS: AutomaticReplyPreset[] = [
       minimumIntervalHours: 96,
       inactiveBehavior: "skip",
       schedule: {
+        mode: "windows",
         timeZone,
         activeRanges: [{ from: localDate(), to: localDate() }],
         weeklyWindows: fullWeek(),
@@ -212,7 +213,7 @@ const PRESETS: AutomaticReplyPreset[] = [
       ensureReference: false,
       minimumIntervalHours: 24,
       inactiveBehavior: "defer",
-      schedule: { timeZone, activeRanges: [], weeklyWindows: workingWeek(), exceptions: [] },
+      schedule: { mode: "windows", timeZone, activeRanges: [], weeklyWindows: workingWeek(), exceptions: [] },
     }),
   },
   {
@@ -230,7 +231,7 @@ const PRESETS: AutomaticReplyPreset[] = [
       ensureReference: true,
       minimumIntervalHours: 24,
       inactiveBehavior: "defer",
-      schedule: { timeZone, activeRanges: [], weeklyWindows: fullWeek(), exceptions: [] },
+      schedule: { mode: "always" },
     }),
   },
   {
@@ -248,7 +249,7 @@ const PRESETS: AutomaticReplyPreset[] = [
       ensureReference: false,
       minimumIntervalHours: 24,
       inactiveBehavior: "skip",
-      schedule: { timeZone, activeRanges: [], weeklyWindows: workingWeek(), exceptions: [] },
+      schedule: { mode: "windows", timeZone, activeRanges: [], weeklyWindows: workingWeek(), exceptions: [] },
     }),
   },
 ];
@@ -365,10 +366,11 @@ function AutomaticReplyEditor(props: {
     return selected && !available.some((identity) => identity.id === selected.id) ? [...available, selected] : available;
   };
   const scheduleErrors = () => {
-    const errors = validateResponseScheduleDefinition(draft().schedule);
+    const schedule = draft().schedule;
+    const errors = validateResponseScheduleDefinition(schedule);
+    if (schedule.mode === "always") return errors;
     const hasActiveWindow =
-      draft().schedule.weeklyWindows.length > 0 ||
-      draft().schedule.exceptions.some((exception) => !exception.closed && exception.windows.length > 0);
+      schedule.weeklyWindows.length > 0 || schedule.exceptions.some((exception) => !exception.closed && exception.windows.length > 0);
     return hasActiveWindow ? errors : [...errors, "Add at least one active response window"];
   };
   const update = <K extends keyof AutomaticReplyDraft>(key: K, value: AutomaticReplyDraft[K]) =>
@@ -551,18 +553,20 @@ function AutomaticReplyEditor(props: {
             </Show>
           </div>
           <div class="grid gap-2 md:grid-cols-2">
-            <Select
-              label="Outside active times"
-              description="Skip is best for absences; defer sends at the next active time."
-              icon="ti ti-calendar-off"
-              value={() => draft().inactiveBehavior}
-              selectedLabel={() => (draft().inactiveBehavior === "skip" ? "Do not reply" : "Reply at the next active time")}
-              options={[
-                { id: "skip", label: "Do not reply", description: "Messages outside the schedule are ignored." },
-                { id: "defer", label: "Reply at the next active time", description: "Messages wait until the schedule becomes active." },
-              ]}
-              onChange={(value) => update("inactiveBehavior", value as AutomaticReplyInactiveBehavior)}
-            />
+            <Show when={draft().schedule.mode === "windows"}>
+              <Select
+                label="Outside active times"
+                description="Skip is best for absences; defer sends at the next active time."
+                icon="ti ti-calendar-off"
+                value={() => draft().inactiveBehavior}
+                selectedLabel={() => (draft().inactiveBehavior === "skip" ? "Do not reply" : "Reply at the next active time")}
+                options={[
+                  { id: "skip", label: "Do not reply", description: "Messages outside the schedule are ignored." },
+                  { id: "defer", label: "Reply at the next active time", description: "Messages wait until the schedule becomes active." },
+                ]}
+                onChange={(value) => update("inactiveBehavior", value as AutomaticReplyInactiveBehavior)}
+              />
+            </Show>
             <NumberInput
               label="Repeat protection"
               description="Minimum time before the same sender may receive another reply. The out-of-office preset uses 96 hours (4 days)."

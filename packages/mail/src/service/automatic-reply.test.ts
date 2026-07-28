@@ -3,6 +3,7 @@ import type { ResponseScheduleDefinitionInput } from "../contracts";
 import { resolveAutomaticReplySchedule } from "./automatic-reply";
 
 const schedule: ResponseScheduleDefinitionInput = {
+  mode: "windows",
   timeZone: "Europe/Berlin",
   activeRanges: [{ from: "2026-07-20", to: "2026-07-24" }],
   weeklyWindows: [
@@ -16,6 +17,11 @@ const schedule: ResponseScheduleDefinitionInput = {
 };
 
 describe("automatic reply schedule behavior", () => {
+  test("keeps always-on replies immediate", () => {
+    const instant = new Date("2026-07-18T10:00:00.000Z");
+    expect(resolveAutomaticReplySchedule({ mode: "always" }, instant, "defer")).toEqual({ state: "scheduled", scheduledAt: instant });
+  });
+
   test("suppresses messages outside an out-of-office window", () => {
     expect(resolveAutomaticReplySchedule(schedule, new Date("2026-07-18T10:00:00.000Z"), "skip")).toEqual({
       state: "suppressed",

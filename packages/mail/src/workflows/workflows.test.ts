@@ -13,6 +13,7 @@ const ids = {
 } as const;
 
 const officeHours = {
+  mode: "windows" as const,
   timeZone: "Europe/Berlin",
   activeRanges: [{ from: "2026-01-01", to: null }],
   weeklyWindows: [{ weekday: 1 as const, start: "09:00", end: "17:00" }],
@@ -223,6 +224,7 @@ steps:
       conversation: inputs.conversation
       sender: Support
       schedule:
+        mode: windows
         timeZone: Europe/Berlin
         activeRanges:
           - from: 2026-01-01
@@ -242,6 +244,33 @@ steps:
       "steps.0.automaticReply.sender": ids.supportSender,
     });
     expect(result.plan.steps[0]).toMatchObject({ config: { schedule: officeHours } });
+  });
+
+  test("binds an explicit always-on automatic reply schedule", async () => {
+    const ir = await compile(`inputs:
+  message:
+    type: mailMessage
+  conversation:
+    type: mailConversation
+triggers:
+  messageReceived:
+    with:
+      message: "\${{ trigger.message }}"
+      conversation: "\${{ trigger.conversation }}"
+steps:
+  - automaticReply:
+      message: inputs.message
+      conversation: inputs.conversation
+      sender: Support
+      schedule:
+        mode: always
+      subject: Receipt
+      body: Received
+`);
+    const result = await bindMailWorkflow(ir, catalog());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.steps[0]).toMatchObject({ config: { schedule: { mode: "always" } } });
   });
 
   test("rejects invalid inline automatic reply windows", async () => {
@@ -264,6 +293,7 @@ steps:
       subject: Receipt
       body: Received
       schedule:
+        mode: windows
         timeZone: Europe/Berlin
         activeRanges: []
         weeklyWindows:
@@ -298,6 +328,8 @@ steps:
       sender: Support
       subject: Receipt
       body: Received
+      schedule:
+        mode: always
 `),
       catalog(),
     );
