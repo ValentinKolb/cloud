@@ -45,7 +45,7 @@ export const jobsDurationOptions: Array<{ value: JobsDurationFilter; label: stri
 
 const windows = new Set(jobsWindowOptions.map((option) => option.value));
 const healthFilters = new Set<JobsHealthFilter>(["all", "failed", "stuck", "running", "healthy"]);
-const typeFilters = new Set<JobsTypeFilter>(["all", "job", "schedule", "ai", "http", "notification", "sync", "custom"]);
+const typeFilters = new Set<JobsTypeFilter>(["all", "job", "schedule", "backfill", "ai", "http", "notification", "sync", "custom"]);
 const durationFilters = new Set(jobsDurationOptions.map((option) => option.value));
 
 const parsePage = (value: string | null): number => {

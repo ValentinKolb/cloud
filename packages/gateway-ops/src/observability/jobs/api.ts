@@ -21,7 +21,7 @@ import { buildBackgroundJobRows, filterBackgroundJobRows, jobsObservabilityServi
 
 const HealthSchema = z.enum(["all", "failed", "stuck", "running", "healthy"]).default("all");
 /** Mirrors TraceCategory plus the "all" passthrough the filter accepts. */
-const TypeSchema = z.enum(["all", "job", "schedule", "ai", "http", "notification", "sync", "custom"]).default("all");
+const TypeSchema = z.enum(["all", "job", "schedule", "backfill", "ai", "http", "notification", "sync", "custom"]).default("all");
 
 const WindowSchema = z.enum(["10m", "1h", "12h", "24h", "7d", "30d"]).default("24h");
 

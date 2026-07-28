@@ -1,6 +1,6 @@
+import { navigateTo } from "@k2b/ssr/nav";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@k2b/ssr/nav";
 import {
   buildJobsFilterUrl,
   defaultJobsFilter,
@@ -39,6 +39,7 @@ const typeOptions: FilterChipSection[] = [
       { value: "all", label: "All types", icon: "ti ti-stack-2" },
       { value: "job", label: "Jobs", icon: "ti ti-briefcase" },
       { value: "schedule", label: "Schedules", icon: "ti ti-calendar-time" },
+      { value: "backfill", label: "Backfills", icon: "ti ti-database-import" },
       { value: "ai", label: "AI", icon: "ti ti-sparkles" },
       { value: "sync", label: "Sync", icon: "ti ti-refresh" },
       { value: "notification", label: "Notifications", icon: "ti ti-bell" },

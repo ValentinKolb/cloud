@@ -59,7 +59,7 @@ const HEALTH_VALUES = ["all", "failed", "stuck", "running", "healthy"] as const;
 const WINDOW_VALUES = ["10m", "1h", "12h", "24h", "7d", "30d"] as const;
 
 const windowFlag = () => flag.enum(WINDOW_VALUES, { default: "24h", description: "Lookback window for run statistics" });
-const TYPE_VALUES = ["all", "job", "schedule", "ai", "http", "notification", "sync", "custom"] as const;
+const TYPE_VALUES = ["all", "job", "schedule", "backfill", "ai", "http", "notification", "sync", "custom"] as const;
 
 /** `traceId:spanId`, the identifier `jobs runs` prints and `jobs show` takes. */
 const runKey = (span: { traceId: string; spanId: string }): string => `${span.traceId}:${span.spanId}`;
@@ -87,6 +87,7 @@ export const jobCommands = [
       "cld admin jobs list --json",
       "cld admin jobs list --health stuck",
       "cld admin jobs list --health failed --window 7d",
+      "cld admin jobs list --type backfill",
       "cld admin jobs list --type schedule --search mail",
     ],
     flags: {

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { JobTraceEvent, SchedulerTraceEvent, TraceHandler } from "@k2b/sync";
+import type { JobTraceEvent, PumpTraceEvent, SchedulerTraceEvent, TraceHandler } from "@k2b/sync";
 import { sql } from "bun";
 import type { PaginationParams } from "../../contracts/shared";
 import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "../postgres";
@@ -7,7 +7,7 @@ import { isSensitiveMetadataKey, REDACTED, redactMetadata } from "./redaction";
 
 export type TraceAttributeValue = string | number | boolean | null | undefined;
 export type TraceAttributes = Record<string, TraceAttributeValue>;
-export type TraceCategory = "job" | "schedule" | "ai" | "http" | "notification" | "sync" | "custom";
+export type TraceCategory = "job" | "schedule" | "backfill" | "ai" | "http" | "notification" | "sync" | "custom";
 export type TraceSeverity = "debug" | "info" | "warn" | "error";
 export type TraceSpanKind = "internal" | "server" | "client" | "producer" | "consumer";
 export type TraceStatus = "unset" | "ok" | "error";
@@ -969,6 +969,14 @@ type SyncScheduleTraceConfig<Result = unknown> = {
   summarize?: (event: SchedulerTraceEvent<Result>) => Record<string, unknown> | undefined;
 };
 
+type SyncPumpTraceConfig<Input = void, Cursor = unknown> = {
+  name: string;
+  source: string;
+  appId?: string;
+  attributes?: TraceAttributes | ((event: PumpTraceEvent<Input, Cursor>) => TraceAttributes | undefined);
+  summarize?: (event: PumpTraceEvent<Input, Cursor>) => Record<string, unknown> | undefined;
+};
+
 const fromSyncJob = <Input = void, Result = unknown>(
   config: SyncJobTraceConfig<Input, Result>,
 ): TraceHandler<JobTraceEvent<Input, Result>> => {
@@ -1139,6 +1147,98 @@ const fromSyncSchedule = <Result = unknown>(config: SyncScheduleTraceConfig<Resu
   };
 };
 
+const fromSyncPump = <Input = void, Cursor = unknown>(
+  config: SyncPumpTraceConfig<Input, Cursor>,
+): TraceHandler<PumpTraceEvent<Input, Cursor>> => {
+  return async (event) => {
+    // Item-level dispatch events can be extremely frequent during a large
+    // backfill. Pump state owns exact progress; traces retain lifecycle and
+    // page-level diagnostics without multiplying one database row per item.
+    if (event.type === "dispatched") return;
+
+    const spanKey = `sync:pump:${config.source}:${event.key}`;
+    const common: TraceAttributes = {
+      "sync.system": "pump",
+      "sync.event": event.type,
+      "sync.pump.key": event.key,
+      ...getAttributes({ attributes: config.attributes, event }),
+    };
+    const span = await start({
+      spanKey,
+      name: config.name,
+      source: config.source,
+      appId: config.appId,
+      category: "backfill",
+      kind: "consumer",
+      attributes: common,
+    });
+
+    if (event.type === "submitted") {
+      await record({ context: span, event: "pump.submitted", attributes: common });
+      return;
+    }
+    if (event.type === "started") {
+      await record({
+        context: span,
+        event: "pump.started",
+        attributes: { ...common, "sync.pump.failure_count": event.failureCount },
+      });
+      return;
+    }
+    if (event.type === "pulled") {
+      await record({
+        context: span,
+        event: "pump.pulled",
+        attributes: {
+          ...common,
+          "sync.pump.item_count": event.itemCount,
+          "sync.duration_ms": event.durationMs,
+        },
+      });
+      return;
+    }
+    if (event.type === "rescheduled") {
+      await record({
+        context: span,
+        event: "pump.rescheduled",
+        severity: "warn",
+        attributes: {
+          ...common,
+          "sync.pump.failure_count": event.failureCount,
+          "sync.reschedule.delay_ms": event.delayMs,
+          ...errorAttributes(event.error),
+        },
+      });
+      return;
+    }
+
+    const summary = {
+      ...config.summarize?.(event),
+      status: event.status,
+      dispatched: event.dispatched,
+    };
+    await record({
+      context: span,
+      event: "pump.finished",
+      severity: event.status === "failed" ? "error" : "info",
+      attributes: {
+        ...common,
+        "sync.duration_ms": event.durationMs,
+        "sync.pump.dispatched": event.dispatched,
+        ...(event.error ? errorAttributes(event.error) : {}),
+      },
+      summary,
+    });
+    await end({
+      context: span,
+      status: event.status === "failed" ? "error" : "ok",
+      statusMessage: event.error?.message,
+      endedAt: new Date(),
+      summary,
+    });
+  };
+};
+
 export const trace = {
   start,
   complete,
@@ -1154,5 +1254,6 @@ export const trace = {
   summary,
   cleanup,
   fromSyncJob,
+  fromSyncPump,
   fromSyncSchedule,
 };

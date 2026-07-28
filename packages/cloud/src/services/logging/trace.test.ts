@@ -19,8 +19,46 @@ const canUseTraceDatabase = async (): Promise<boolean> => {
 const suite = (await canUseTraceDatabase()) ? describe : describe.skip;
 
 suite("logging.trace", () => {
-  test("starts one keyed span safely under concurrency", async () => {
+  test("maps Sync pump lifecycle events to one backfill span", async () => {
+    const suffix = crypto.randomUUID();
+    const source = `test:trace:pump:${suffix}`;
+    const key = `sender-rule:${suffix}`;
+    const handler = trace.fromSyncPump<{ mailboxId: string }, { offset: number }>({
+      name: "Sender rule backfill",
+      source,
+      appId: "mail",
+      attributes: (event) => (event.type === "submitted" ? { "mail.mailbox.id": event.input.mailboxId } : undefined),
+    });
 
+    try {
+      await handler({ type: "submitted", key, input: { mailboxId: suffix } });
+      await handler({ type: "started", key, cursor: null, failureCount: 0 });
+      await handler({ type: "pulled", key, itemCount: 2, durationMs: 5 });
+      await handler({ type: "dispatched", key, itemKey: "one", dispatched: 1, durationMs: 3 });
+      await handler({ type: "finished", key, status: "completed", dispatched: 2, durationMs: 20 });
+
+      const result = await trace.list({ page: 1, perPage: 10, offset: 0 }, { filter: { source, category: "backfill" } });
+      expect(result.total).toBe(1);
+      expect(result.spans[0]).toMatchObject({
+        name: "Sender rule backfill",
+        source,
+        appId: "mail",
+        category: "backfill",
+        status: "ok",
+        eventCount: 4,
+        summary: { status: "completed", dispatched: 2 },
+      });
+      expect(result.spans[0]?.attributes).toMatchObject({ "mail.mailbox.id": suffix, "sync.system": "pump" });
+
+      const span = result.spans[0]!;
+      const events = await trace.events({ traceId: span.traceId, spanId: span.spanId });
+      expect(events.map((event) => event.name)).toEqual(["pump.submitted", "pump.started", "pump.pulled", "pump.finished"]);
+    } finally {
+      await sql`DELETE FROM logging.trace_spans WHERE source = ${source}`;
+    }
+  });
+
+  test("starts one keyed span safely under concurrency", async () => {
     const suffix = crypto.randomUUID();
     const source = `test:trace:concurrent:${suffix}`;
     const spanKey = `${source}:run`;
@@ -52,7 +90,6 @@ suite("logging.trace", () => {
   });
 
   test("records span events and redacts sensitive metadata", async () => {
-
     const suffix = crypto.randomUUID();
     const source = `test:trace:${suffix}`;
     const spanKey = `test:trace:${suffix}`;
@@ -116,7 +153,6 @@ suite("logging.trace", () => {
   });
 
   test("persists completed spans in one operation", async () => {
-
     const suffix = crypto.randomUUID();
     const source = `test:trace:complete:${suffix}`;
     const startedAt = Date.now() - 250;
@@ -150,7 +186,6 @@ suite("logging.trace", () => {
   });
 
   test("source groups keep latest status separate from window error stats", async () => {
-
     const suffix = crypto.randomUUID();
     const source = `test:trace:latest:${suffix}`;
     const now = Date.now();
@@ -188,7 +223,6 @@ suite("logging.trace", () => {
   });
 
   test("cleanup removes only completed traces outside retention", async () => {
-
     const suffix = crypto.randomUUID();
     const source = `test:trace:cleanup:${suffix}`;
     const old = await trace.start({ name: "Old trace", source, startedAt: Date.now() - 40 * 86_400_000 });

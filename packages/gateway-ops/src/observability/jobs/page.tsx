@@ -48,8 +48,6 @@ import {
 } from "./service";
 
 const baseUrl = "/admin/observability/jobs";
-const numberFormat = new Intl.NumberFormat("de-DE");
-const percentFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 
 /**
  * A schedule can legitimately be a little late — the handler polls, the tick
@@ -129,6 +127,14 @@ const rowHealth = (row: BackgroundJobOverviewRow) => (row.trace ? groupHealth(ro
 
 const stateBadge = (row: BackgroundJobOverviewRow) => {
   if (row.kind === "trace") {
+    if (row.trace.categories.includes("backfill")) {
+      return (
+        <span class="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
+          <i class="ti ti-database-import" aria-hidden="true" />
+          Backfill
+        </span>
+      );
+    }
     return <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-dimmed dark:bg-zinc-900">Trace only</span>;
   }
   if (row.state === "available") {
@@ -251,6 +257,9 @@ const runColumns: DataTableColumn<TraceSpan>[] = [
 ];
 
 const sourceSubtitle = (group: TraceSourceGroup): string => {
+  if (group.categories.length === 1 && group.categories[0] === "backfill") {
+    return `${formatNumber(group.runs)} backfill ${group.runs === 1 ? "run" : "runs"}`;
+  }
   const parts = [`${formatNumber(group.jobRuns)} job`, `${formatNumber(group.scheduleRuns)} schedule`];
   if (group.aiRuns) parts.push(`${formatNumber(group.aiRuns)} ai`);
   if (group.customRuns) parts.push(`${formatNumber(group.customRuns)} custom`);

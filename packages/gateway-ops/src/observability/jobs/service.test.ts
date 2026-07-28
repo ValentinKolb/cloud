@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { TraceSourceGroup } from "@valentinkolb/cloud/services";
 import {
   type SchedulerControlInfo,
   SchedulerControlNotFoundError,
   SchedulerControlTimeoutError,
   SchedulerControlUnavailableError,
 } from "@k2b/sync";
+import type { TraceSourceGroup } from "@valentinkolb/cloud/services";
 import { buildBackgroundJobRows, filterBackgroundJobRows, normalizeScheduleMetadata, runScheduleNowWithControl } from "./service";
 
 const schedule = (overrides: Partial<SchedulerControlInfo> = {}): SchedulerControlInfo => ({
@@ -127,11 +127,20 @@ describe("jobs observability service", () => {
           },
         }),
       ],
-      [group("gateway:health-webhook-check"), group("auth:ipa:backfill", { categories: ["job"], latestStatus: "error" })],
+      [
+        group("gateway:health-webhook-check"),
+        group("auth:ipa:backfill", { categories: ["job"], latestStatus: "error" }),
+        group("mail:sender-rule-backfill", {
+          categories: ["backfill"],
+          latestCategory: "backfill",
+          latestName: "Sender rule backfill",
+        }),
+      ],
     );
 
     expect(filterBackgroundJobRows(rows, { search: "telemetry" }).map((row) => row.source)).toEqual(["gateway:telemetry:cleanup"]);
     expect(filterBackgroundJobRows(rows, { type: "job" }).map((row) => row.source)).toEqual(["auth:ipa:backfill"]);
+    expect(filterBackgroundJobRows(rows, { type: "backfill" }).map((row) => row.source)).toEqual(["mail:sender-rule-backfill"]);
     expect(filterBackgroundJobRows(rows, { health: "failed" }).map((row) => row.source)).toEqual(["auth:ipa:backfill"]);
     expect(filterBackgroundJobRows(rows, { source: "gateway:health-webhook-check" }).map((row) => row.source)).toEqual([
       "gateway:health-webhook-check",
@@ -140,7 +149,7 @@ describe("jobs observability service", () => {
       filterBackgroundJobRows(rows, { requireTraceMatch: true })
         .map((row) => row.source)
         .sort(),
-    ).toEqual(["auth:ipa:backfill", "gateway:health-webhook-check"]);
+    ).toEqual(["auth:ipa:backfill", "gateway:health-webhook-check", "mail:sender-rule-backfill"]);
   });
 
   test("runScheduleNowWithControl maps accepted and schedulerControl failures", async () => {
