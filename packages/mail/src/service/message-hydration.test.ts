@@ -34,6 +34,28 @@ describe("incoming mail HTML", () => {
     ).toBe('<div class="gmail_quote">history</div><blockquote type="cite" class="yahoo_quoted">quoted</blockquote>');
   });
 
+  test("preserves bounded corporate email styling without active CSS", () => {
+    const sanitized = sanitizeIncomingMailHtml(`
+      <div style="background-color:#f4f4f5;color:#123456;font-family:Arial,sans-serif;padding:16px;position:fixed">
+        <h1 style="font-size:24px;line-height:1.25;margin:0 0 12px">Quarterly update</h1>
+        <table style="border-collapse:collapse;width:100%;background-image:url(https://tracker.example/bg.png)">
+          <tr><td style="border:1px solid #d4d4d8;padding:8px;text-align:left">Revenue</td></tr>
+        </table>
+      </div>
+    `);
+
+    expect(sanitized).toContain("background-color:#f4f4f5");
+    expect(sanitized).toContain("color:#123456");
+    expect(sanitized).toContain("font-family:Arial,sans-serif");
+    expect(sanitized).toContain("padding:16px");
+    expect(sanitized).toContain("font-size:24px");
+    expect(sanitized).toContain("border-collapse:collapse");
+    expect(sanitized).toContain("border:1px solid #d4d4d8");
+    expect(sanitized).not.toContain("position:");
+    expect(sanitized).not.toContain("background-image");
+    expect(sanitized).not.toContain("tracker.example");
+  });
+
   test("keeps remote image locations only in server-side metadata", () => {
     const result = sanitizeIncomingMailHtmlWithRemoteImages(`
       <img src="https://Tracker.Example/pixel?message=123#fragment" data-mail-remote-image="00000000-0000-4000-8000-000000000099" alt="Tracking pixel">

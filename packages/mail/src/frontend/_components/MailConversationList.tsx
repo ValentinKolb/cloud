@@ -195,15 +195,17 @@ export default function MailConversationList(props: {
             <div class="flex min-w-0 items-center gap-2">
               <div class="min-w-0 flex-1">
                 <h1 class="truncate text-base font-semibold text-primary">{props.title}</h1>
-                <p class="flex items-center gap-1 text-xs text-dimmed">
-                  {props.items.length} shown
+                <p class="flex min-w-0 items-center gap-1 overflow-hidden text-xs text-dimmed">
+                  <span class="shrink-0 whitespace-nowrap">{props.items.length} shown</span>
                   <Show when={props.loading}>
-                    <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+                    <i class="ti ti-loader-2 shrink-0 animate-spin" aria-hidden="true" />
                     <span class="sr-only">Loading view</span>
                   </Show>
                   <Show when={props.liveDegraded}>
-                    <i class="ti ti-cloud-off" aria-hidden="true" />
-                    <span>Updates paused</span>
+                    <span class="inline-flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap" title="Live updates paused">
+                      <i class="ti ti-cloud-off shrink-0" aria-hidden="true" />
+                      <span class="truncate">Updates paused</span>
+                    </span>
                   </Show>
                 </p>
               </div>

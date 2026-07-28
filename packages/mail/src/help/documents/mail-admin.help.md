@@ -12,6 +12,7 @@ Mailbox administrators manage the provider connection and the Cloud policies aro
 
 Settings are grouped by intent:
 
+- **Reading** is available to every mailbox reader and controls whether this browser prefers safe HTML or plain text.
 - **Organization** is available to readers for private saved views. Writers can also create shared views and mailbox tags.
 - **Mailbox** is the first category for administrators and controls the shared name and description.
 - **Writing** is available to writers and administrators. It contains personal writing preferences, templates, signature defaults, and the email-design editor. Mailbox-wide content and design require Admin access.

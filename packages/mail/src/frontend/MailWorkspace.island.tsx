@@ -29,6 +29,7 @@ import {
   pruneMailConversationSelection,
   toggleMailConversationSelection,
 } from "./_components/mail-conversation-selection";
+import type { MailConversationToolbarActionId } from "./_components/mail-conversation-toolbar";
 import { mergeMailCursorPage } from "./_components/mail-cursor-page";
 import { preserveUnavailableMailDetail } from "./_components/mail-detail-availability";
 import { createMailDetailPrefetchCache } from "./_components/mail-detail-prefetch";
@@ -69,6 +70,7 @@ export default function MailWorkspace(props: {
   const [selectionLoading, setSelectionLoading] = createSignal(false);
   const [listCollapsed, setListCollapsed] = createSignal(props.initialPreferences.listCollapsed);
   const [detailsOpen, setDetailsOpen] = createSignal(props.initialPreferences.detailsOpen);
+  const [toolbarActions, setToolbarActions] = createSignal(props.initialPreferences.toolbarActions);
   const [presence, setPresence] = createSignal<ConversationPresenceSnapshot>({
     participants: [],
   });
@@ -280,6 +282,7 @@ export default function MailWorkspace(props: {
         writeMailWorkspacePreferences({
           listCollapsed: listCollapsed(),
           detailsOpen: detailsOpen(),
+          toolbarActions: toolbarActions(),
         }),
       120,
     );
@@ -287,6 +290,11 @@ export default function MailWorkspace(props: {
 
   const setCollapsed = (collapsed: boolean) => {
     setListCollapsed(collapsed);
+    persistPreferences();
+  };
+
+  const updateToolbarActions = (actions: MailConversationToolbarActionId[]) => {
+    setToolbarActions(actions);
     persistPreferences();
   };
 
@@ -1371,11 +1379,17 @@ export default function MailWorkspace(props: {
                   dateConfig={props.dateConfig}
                   listCollapsed={listCollapsed()}
                   detailsOpen={detailsOpen()}
+                  toolbarActions={toolbarActions()}
                   onRestoreList={() => setCollapsed(false)}
                   onToggleDetails={() => canShowDetails() && setDetailsVisible(!detailsOpen())}
+                  onToolbarActionsChange={updateToolbarActions}
                   actionPending={actionPending()}
                   onAction={runAction}
                   onOpenHref={openWorkspaceHref}
+                  onManageTags={() => {
+                    const item = selectedListItem();
+                    if (item) return manageConversationTags(item);
+                  }}
                   onMergeConversation={mergeSelectedConversation}
                   onReassignMessage={reassignMessage}
                   onSplitMessage={splitMessage}

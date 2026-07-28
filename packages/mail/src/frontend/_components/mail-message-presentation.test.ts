@@ -9,6 +9,7 @@ import {
   normalizeContentId,
   referencedContentIds,
   referencedRemoteImageIds,
+  resolveMessageBodyFormat,
   rewriteCidSources,
   rewriteRemoteImageSources,
   splitPlainMessageSegments,
@@ -47,6 +48,16 @@ describe("mail message presentation", () => {
     expect(messagePreviewText("123456789", "", 6)).toBe("12345…");
   });
 
+  test("selects the preferred body format with deterministic fallback and per-message override", () => {
+    expect(resolveMessageBodyFormat("html", null, true, true)).toBe("html");
+    expect(resolveMessageBodyFormat("plain", null, true, true)).toBe("plain");
+    expect(resolveMessageBodyFormat("html", "plain", true, true)).toBe("plain");
+    expect(resolveMessageBodyFormat("plain", "html", true, true)).toBe("html");
+    expect(resolveMessageBodyFormat("html", null, false, true)).toBe("plain");
+    expect(resolveMessageBodyFormat("plain", null, true, false)).toBe("html");
+    expect(resolveMessageBodyFormat("html", null, false, false)).toBeNull();
+  });
+
   test("keeps normal sent delivery quiet and presents exceptional delivery states", () => {
     expect(messageDeliveryPresentation("accepted")).toBeNull();
     expect(messageDeliveryPresentation("sent_sync_pending")).toBeNull();
@@ -58,7 +69,7 @@ describe("mail message presentation", () => {
 
   test("offers cancellation only while a queued delivery remains controllable", () => {
     expect(messageDeliveryControlLabel("undo_window", true)).toBe("Undo send");
-    expect(messageDeliveryControlLabel("scheduled", true)).toBe("Cancel send");
+    expect(messageDeliveryControlLabel("scheduled", true)).toBe("Scheduled");
     expect(messageDeliveryControlLabel("sending", true)).toBeNull();
     expect(messageDeliveryControlLabel("undo_window", false)).toBeNull();
   });

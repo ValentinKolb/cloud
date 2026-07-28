@@ -1,13 +1,17 @@
 import type { PanesNode, PanesValue } from "@valentinkolb/cloud/ui";
 import { cookies } from "@valentinkolb/stdlib/browser";
+import { createSignal } from "solid-js";
 
 const COOKIE_NAME = "settings-app-mail";
 const COMPOSER_PANES_COOKIE_NAME = "settings-app-mail-composer-panes";
 const COMPOSER_PANE_IDS = ["editor", "preview"] as const;
 const MIN_PANE_SIZE = 8;
 
-type MailUserPreferences = {
+export type MailReadingFormat = "html" | "plain";
+
+export type MailUserPreferences = {
   composeFormat: "markdown" | "plain";
+  readingFormat: MailReadingFormat;
   undoSeconds: number;
 };
 
@@ -27,6 +31,7 @@ const defaultComposerPanes = (): PanesValue => ({
 
 const DEFAULT_MAIL_USER_PREFERENCES: MailUserPreferences = {
   composeFormat: "markdown",
+  readingFormat: "html",
   undoSeconds: 10,
 };
 
@@ -75,8 +80,11 @@ export const normalizeMailComposerPanes = (value: unknown): PanesValue => {
   return value as PanesValue;
 };
 
-const normalizePreferences = (value: Partial<MailUserPreferences> | undefined): MailUserPreferences => ({
+const [preferencesRevision, setPreferencesRevision] = createSignal(0);
+
+export const normalizeMailUserPreferences = (value: Partial<MailUserPreferences> | undefined): MailUserPreferences => ({
   composeFormat: value?.composeFormat === "plain" ? "plain" : "markdown",
+  readingFormat: value?.readingFormat === "plain" ? "plain" : "html",
   undoSeconds:
     typeof value?.undoSeconds === "number" && Number.isInteger(value.undoSeconds)
       ? Math.min(Math.max(value.undoSeconds, 0), 60)
@@ -89,10 +97,15 @@ const readSettings = (): StoredMailSettings => {
 };
 
 export const readMailUserPreferences = (mailboxId: string): MailUserPreferences =>
-  normalizePreferences(readSettings().mailboxes[mailboxId]);
+  normalizeMailUserPreferences(readSettings().mailboxes[mailboxId]);
+
+export const observeMailUserPreferences = (mailboxId: string): MailUserPreferences => {
+  preferencesRevision();
+  return readMailUserPreferences(mailboxId);
+};
 
 export const writeMailUserPreferences = (mailboxId: string, preferences: MailUserPreferences): MailUserPreferences => {
-  const normalized = normalizePreferences(preferences);
+  const normalized = normalizeMailUserPreferences(preferences);
   const current = readSettings();
   cookies.writeJsonCookie(COOKIE_NAME, {
     mailboxes: {
@@ -100,6 +113,7 @@ export const writeMailUserPreferences = (mailboxId: string, preferences: MailUse
       [mailboxId]: normalized,
     },
   });
+  setPreferencesRevision((revision) => revision + 1);
   return normalized;
 };
 

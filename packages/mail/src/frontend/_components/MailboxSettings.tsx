@@ -32,12 +32,13 @@ const normalizeInitialTab = (tab: string | undefined, canWrite: boolean, canAdmi
   };
   const requested = aliases[tab ?? ""] ?? tab;
   const allowed = new Set([
+    "reading",
     "organization",
     ...(canWrite ? ["writing"] : []),
     ...(canAdmin ? ["mailbox", "delivery", "folders", "access", "danger"] : []),
   ]);
   if (requested && allowed.has(requested)) return requested;
-  return canAdmin ? "mailbox" : canWrite ? "writing" : "organization";
+  return canAdmin ? "mailbox" : canWrite ? "writing" : "reading";
 };
 
 export default function MailboxSettings(props: {
@@ -55,8 +56,10 @@ export default function MailboxSettings(props: {
   const canAdmin = () => props.context.permission === "admin";
   const admin = () => props.context.admin!;
   const initialPreferences = readMailUserPreferences(props.context.mailbox.id);
+  const [savedReadingFormat, setSavedReadingFormat] = createSignal(initialPreferences.readingFormat);
   const [savedComposeFormat, setSavedComposeFormat] = createSignal(initialPreferences.composeFormat);
   const [savedUndoSeconds, setSavedUndoSeconds] = createSignal(initialPreferences.undoSeconds);
+  const [readingFormat, setReadingFormat] = createSignal(initialPreferences.readingFormat);
   const [composeFormat, setComposeFormat] = createSignal(initialPreferences.composeFormat);
   const [undoSeconds, setUndoSeconds] = createSignal(initialPreferences.undoSeconds);
   const [name, setName] = createSignal(props.context.mailbox.name);
@@ -72,6 +75,9 @@ export default function MailboxSettings(props: {
   const healthPresentation = createMemo(() => mailboxHealthPresentation(props.context.mailbox));
 
   const ownDirty = createMemo(() => {
+    if (activeTab() === "reading") {
+      return readingFormat() !== savedReadingFormat();
+    }
     if (activeTab() === "writing") {
       return composeFormat() !== savedComposeFormat() || undoSeconds() !== savedUndoSeconds();
     }
@@ -93,7 +99,9 @@ export default function MailboxSettings(props: {
   const hasUnsavedChanges = () => ownDirty() || Object.values(childDirtyStates()).some(Boolean);
 
   const resetActiveTab = () => {
-    if (activeTab() === "writing") {
+    if (activeTab() === "reading") {
+      setReadingFormat(savedReadingFormat());
+    } else if (activeTab() === "writing") {
       setComposeFormat(savedComposeFormat());
       setUndoSeconds(savedUndoSeconds());
     } else if (activeTab() === "mailbox") {
@@ -129,9 +137,28 @@ export default function MailboxSettings(props: {
     }
   };
 
-  const savePreferences = mutation.create<void, void>({
+  const saveReadingPreferences = mutation.create<void, void>({
     mutation: async () => {
-      writeMailUserPreferences(props.context.mailbox.id, { composeFormat: composeFormat(), undoSeconds: undoSeconds() });
+      writeMailUserPreferences(props.context.mailbox.id, {
+        composeFormat: composeFormat(),
+        readingFormat: readingFormat(),
+        undoSeconds: undoSeconds(),
+      });
+    },
+    onSuccess: () => {
+      setSavedReadingFormat(readingFormat());
+      toast.success("Reading preference saved");
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const saveWritingPreferences = mutation.create<void, void>({
+    mutation: async () => {
+      writeMailUserPreferences(props.context.mailbox.id, {
+        composeFormat: composeFormat(),
+        readingFormat: readingFormat(),
+        undoSeconds: undoSeconds(),
+      });
     },
     onSuccess: () => {
       setSavedComposeFormat(composeFormat());
@@ -270,7 +297,8 @@ export default function MailboxSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
   onCleanup(() => {
-    savePreferences.abort();
+    saveReadingPreferences.abort();
+    saveWritingPreferences.abort();
     saveMailbox.abort();
     updateFolderRole.abort();
     saveAutomaticReplyAccess.abort();
@@ -285,6 +313,40 @@ export default function MailboxSettings(props: {
       onClose={() => void requestClose()}
       closeLabel="Close settings"
     >
+      <SettingsModal.Tab
+        id="reading"
+        title="Reading"
+        icon="ti ti-mail-opened"
+        description="Personal message display preferences for this browser."
+      >
+        <div class="flex flex-col gap-2">
+          <Select
+            label="Default message format"
+            description="HTML preserves safe email layout and styling. Plain text shows only the text alternative."
+            value={readingFormat}
+            onChange={(value) => setReadingFormat(value === "plain" ? "plain" : "html")}
+            options={[
+              { id: "html", label: "HTML", icon: "ti ti-code" },
+              { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
+            ]}
+          />
+          <p class="text-xs text-dimmed">
+            Scripts and active content are always removed. Remote images remain blocked until you choose to load them.
+          </p>
+          <div class="flex justify-end pt-1">
+            <button
+              type="button"
+              class="btn-primary btn-sm"
+              disabled={saveReadingPreferences.loading() || !ownDirty()}
+              onClick={() => saveReadingPreferences.mutate()}
+            >
+              <i class={`ti ${saveReadingPreferences.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+              Save preference
+            </button>
+          </div>
+        </div>
+      </SettingsModal.Tab>
+
       <Show when={canAdmin() && props.context.admin}>
         <SettingsModal.Tab id="mailbox" title="Mailbox" icon="ti ti-id" description="The name and context collaborators see.">
           <div class="flex flex-col gap-2">
@@ -373,10 +435,13 @@ export default function MailboxSettings(props: {
                   <button
                     type="button"
                     class="btn-primary btn-sm"
-                    disabled={savePreferences.loading() || !ownDirty()}
-                    onClick={() => savePreferences.mutate()}
+                    disabled={saveWritingPreferences.loading() || !ownDirty()}
+                    onClick={() => saveWritingPreferences.mutate()}
                   >
-                    <i class={`ti ${savePreferences.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
+                    <i
+                      class={`ti ${saveWritingPreferences.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`}
+                      aria-hidden="true"
+                    />
                     Save preferences
                   </button>
                 </div>

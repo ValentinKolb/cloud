@@ -1,8 +1,8 @@
 import { documentNavigate, Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
-import { CheckboxCard, Dropdown, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, Dropdown, type DropdownItem, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
   ConversationDraftSummary,
@@ -14,11 +14,14 @@ import type {
 } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
+import { openMailConversationToolbarDialog } from "./MailConversationToolbarDialog";
 import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
-import { deriveReplyIdentityId, forwardSubject, replySubject } from "./mail-compose-derivation";
+import { deriveReplyIdentityId, forwardMessageBody, forwardSubject, replySubject } from "./mail-compose-derivation";
 import { mailDraftHref } from "./mail-compose-route";
-import { initialConversationMessageId, isNearConversationEnd } from "./mail-conversation-history";
+import { initialConversationMessageId, isNearConversationStart, newestFirstMessages } from "./mail-conversation-history";
+import type { MailConversationToolbarActionId } from "./mail-conversation-toolbar";
+import { messageDeliveryAllowsResponses } from "./mail-message-presentation";
 import { buildMailListHref } from "./mail-navigation";
 
 type MailConversationComposerRequest = {
@@ -30,6 +33,14 @@ type MailConversationComposerRequest = {
 type DraftLookup = {
   conversationId: string;
   request: MailConversationComposerRequest;
+};
+
+type DirectToolbarAction = {
+  id: MailConversationToolbarActionId;
+  label: string;
+  icon: string;
+  disabled?: boolean;
+  action: () => void;
 };
 
 const intentLabel = (intent: DraftIntent): string =>
@@ -55,18 +66,23 @@ export default function MailConversationReader(props: {
   dateConfig: DateContext;
   listCollapsed: boolean;
   detailsOpen: boolean;
+  toolbarActions: readonly MailConversationToolbarActionId[];
   onRestoreList: () => void;
   onToggleDetails: () => void;
+  onToolbarActionsChange: (actions: MailConversationToolbarActionId[]) => void;
   actionPending: boolean;
   onAction: (actionId: MailActionId, options?: { silent?: boolean }) => void | Promise<void>;
   onOpenHref: (href: string, replace?: boolean) => void | Promise<void>;
+  onManageTags: () => void | Promise<void>;
   onMergeConversation: () => void | Promise<void>;
   onReassignMessage: (messageId: string) => void | Promise<void>;
   onSplitMessage: (messageId: string) => void | Promise<void>;
   onReconcile: () => Promise<void>;
   onClose: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
-  const initialMessageId = initialConversationMessageId(props.messages, props.identities);
+  const initialMessageId = initialConversationMessageId(props.messages);
+  const orderedMessages = createMemo(() => newestFirstMessages(props.messages));
+  const latestMessage = createMemo(() => orderedMessages()[0] ?? null);
   const [expandedMessages, setExpandedMessages] = createSignal(new Set(initialMessageId ? [initialMessageId] : []));
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
   const [pendingNewMessages, setPendingNewMessages] = createSignal(0);
@@ -115,13 +131,13 @@ export default function MailConversationReader(props: {
           });
         }
       }
-      followingNewest = isNearConversationEnd(historyScroller);
+      followingNewest = isNearConversationStart(historyScroller);
     });
   };
 
   const handleReaderScroll = () => {
     if (!historyScroller) return;
-    followingNewest = isNearConversationEnd(historyScroller);
+    followingNewest = isNearConversationStart(historyScroller);
     if (followingNewest && pendingNewMessages() > 0) setPendingNewMessages(0);
   };
 
@@ -445,7 +461,7 @@ export default function MailConversationReader(props: {
     conversationDrafts.abort();
     createdDraft.abort();
     const savedExpanded = nextSelection ? expandedBySelection.get(nextSelection) : null;
-    const targetMessageId = initialConversationMessageId(props.messages, props.identities);
+    const targetMessageId = initialConversationMessageId(props.messages);
     setExpandedMessages(
       savedExpanded
         ? new Set([...savedExpanded].filter((messageId) => nextMessageIds.has(messageId)))
@@ -467,8 +483,7 @@ export default function MailConversationReader(props: {
     const addedMessages = props.messages.filter((message) => !currentMessageIds.has(message.id));
     currentMessageIds = nextMessageIds;
     if (addedMessages.length === 0) return;
-    const targetMessageId =
-      previousMessageCount === 0 ? initialConversationMessageId(props.messages, props.identities) : props.messages.at(-1)?.id;
+    const targetMessageId = previousMessageCount === 0 ? initialConversationMessageId(props.messages) : props.messages.at(-1)?.id;
     if (!targetMessageId) return;
     if (!followingNewest) {
       setPendingNewMessages((current) => current + addedMessages.length);
@@ -552,6 +567,174 @@ export default function MailConversationReader(props: {
         if (active) window.print();
       });
     });
+  };
+
+  const canRespondToLatest = () => {
+    const message = latestMessage();
+    if (!message || !props.canWrite || !props.selectedConversationId) return false;
+    return !message.delivery || messageDeliveryAllowsResponses(message.delivery.state);
+  };
+
+  const respondToLatest = (intent: Extract<DraftIntent, "reply" | "reply_all" | "forward">) => {
+    const message = latestMessage();
+    if (!message || !canRespondToLatest()) return;
+    startComposer(intent, message, intent === "forward" ? forwardMessageBody(message, props.dateConfig) : undefined);
+  };
+
+  const directToolbarAction = (id: MailConversationToolbarActionId): DirectToolbarAction | null => {
+    if (id === "print") {
+      return { id, label: "Print conversation", icon: "ti ti-printer", action: printConversation };
+    }
+    if (id === "reply" || id === "reply_all" || id === "forward") {
+      if (!canRespondToLatest()) return null;
+      const label = id === "reply" ? "Reply" : id === "reply_all" ? "Reply all" : "Forward";
+      const icon = id === "reply" ? "ti ti-arrow-back-up" : id === "reply_all" ? "ti ti-arrow-back-up-double" : "ti ti-arrow-forward-up";
+      return {
+        id,
+        label,
+        icon,
+        disabled: composerBusy(),
+        action: () => respondToLatest(id),
+      };
+    }
+    if (!props.canWrite) return null;
+    if (id === "tags") {
+      return {
+        id,
+        label: "Tags",
+        icon: "ti ti-tags",
+        disabled: props.actionPending,
+        action: () => void props.onManageTags(),
+      };
+    }
+    if (id === "merge") {
+      return {
+        id,
+        label: "Merge with another conversation",
+        icon: "ti ti-git-merge",
+        disabled: props.actionPending,
+        action: () => void props.onMergeConversation(),
+      };
+    }
+    const actionId: MailActionId =
+      id === "spam"
+        ? props.inJunk
+          ? "not_spam"
+          : "junk"
+        : id === "read"
+          ? props.unread
+            ? "mark_read"
+            : "mark_unread"
+          : id === "flag"
+            ? props.flagged
+              ? "unflag"
+              : "flag"
+            : id;
+    const action = getMailAction(actionId);
+    return {
+      id,
+      label: action.label,
+      icon: action.icon,
+      disabled: props.actionPending,
+      action: () => void props.onAction(actionId),
+    };
+  };
+
+  const directToolbarActions = createMemo(() =>
+    props.toolbarActions.flatMap((actionId) => {
+      const action = directToolbarAction(actionId);
+      return action ? [action] : [];
+    }),
+  );
+
+  const customizeToolbar = async () => {
+    const next = await openMailConversationToolbarDialog(props.toolbarActions);
+    if (next) props.onToolbarActionsChange(next);
+  };
+
+  const overflowActions = (): DropdownItem[] => {
+    const actions: DropdownItem[] = [];
+    if (canRespondToLatest()) {
+      actions.push({
+        sectionLabel: "Respond",
+        items: [
+          {
+            label: "Reply",
+            icon: "ti ti-arrow-back-up",
+            action: () => respondToLatest("reply"),
+          },
+          {
+            label: "Reply all",
+            icon: "ti ti-arrow-back-up-double",
+            action: () => respondToLatest("reply_all"),
+          },
+          {
+            label: "Forward",
+            icon: "ti ti-arrow-forward-up",
+            action: () => respondToLatest("forward"),
+          },
+        ],
+      });
+    }
+    if (props.canWrite) {
+      actions.push({
+        sectionLabel: "Conversation",
+        items: [
+          {
+            label: getMailAction("archive").label,
+            icon: getMailAction("archive").icon,
+            action: () => props.onAction("archive"),
+          },
+          {
+            label: getMailAction(props.inJunk ? "not_spam" : "junk").label,
+            icon: getMailAction(props.inJunk ? "not_spam" : "junk").icon,
+            action: () => props.onAction(props.inJunk ? "not_spam" : "junk"),
+          },
+          {
+            label: getMailAction("trash").label,
+            icon: getMailAction("trash").icon,
+            action: () => props.onAction("trash"),
+            variant: "danger",
+          },
+          {
+            label: getMailAction(props.unread ? "mark_read" : "mark_unread").label,
+            icon: getMailAction(props.unread ? "mark_read" : "mark_unread").icon,
+            action: () => props.onAction(props.unread ? "mark_read" : "mark_unread"),
+          },
+          {
+            label: getMailAction(props.flagged ? "unflag" : "flag").label,
+            icon: getMailAction(props.flagged ? "unflag" : "flag").icon,
+            action: () => props.onAction(props.flagged ? "unflag" : "flag"),
+          },
+          {
+            label: getMailAction("move").label,
+            icon: getMailAction("move").icon,
+            action: () => props.onAction("move"),
+          },
+          {
+            label: "Tags",
+            icon: "ti ti-tags",
+            action: props.onManageTags,
+          },
+          {
+            label: "Merge with another conversation",
+            icon: "ti ti-git-merge",
+            action: props.onMergeConversation,
+          },
+        ],
+      });
+    }
+    actions.push({
+      label: "Print conversation",
+      icon: "ti ti-printer",
+      action: printConversation,
+    });
+    actions.push({
+      label: "Customize toolbar",
+      icon: "ti ti-adjustments-horizontal",
+      action: () => void customizeToolbar(),
+    });
+    return actions;
   };
 
   return (
@@ -655,92 +838,49 @@ export default function MailConversationReader(props: {
                 {props.messages.length === 1 ? "" : "s"}
               </p>
             </div>
-            <Show when={props.canWrite}>
-              <div class="flex items-center gap-1">
-                <Tooltip content="Archive">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    aria-label={getMailAction("archive").label}
-                    disabled={props.actionPending}
-                    onClick={() => void props.onAction("archive")}
-                  >
-                    <i class={getMailAction("archive").icon} aria-hidden="true" />
-                  </button>
-                </Tooltip>
-                <Tooltip content={props.inJunk ? "Not spam" : "Move to junk"}>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    aria-label={getMailAction(props.inJunk ? "not_spam" : "junk").label}
-                    disabled={props.actionPending}
-                    onClick={() => void props.onAction(props.inJunk ? "not_spam" : "junk")}
-                  >
-                    <i class={getMailAction(props.inJunk ? "not_spam" : "junk").icon} aria-hidden="true" />
-                  </button>
-                </Tooltip>
-                <Tooltip content="Delete">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    aria-label={getMailAction("trash").label}
-                    disabled={props.actionPending}
-                    onClick={() => void props.onAction("trash")}
-                  >
-                    <i class={getMailAction("trash").icon} aria-hidden="true" />
-                  </button>
-                </Tooltip>
-                <Dropdown
-                  trigger={
-                    <button type="button" class="icon-btn" aria-label="More conversation actions">
-                      <i class="ti ti-dots" aria-hidden="true" />
-                    </button>
-                  }
-                  position="bottom-left"
-                  width="w-52"
-                  elements={[
-                    {
-                      label: getMailAction(props.unread ? "mark_read" : "mark_unread").label,
-                      icon: getMailAction(props.unread ? "mark_read" : "mark_unread").icon,
-                      action: () => props.onAction(props.unread ? "mark_read" : "mark_unread"),
-                    },
-                    {
-                      label: getMailAction(props.flagged ? "unflag" : "flag").label,
-                      icon: getMailAction(props.flagged ? "unflag" : "flag").icon,
-                      action: () => props.onAction(props.flagged ? "unflag" : "flag"),
-                    },
-                    {
-                      label: getMailAction("move").label,
-                      icon: getMailAction("move").icon,
-                      action: () => props.onAction("move"),
-                    },
-                    {
-                      label: "Merge with another conversation",
-                      icon: "ti ti-git-merge",
-                      action: props.onMergeConversation,
-                    },
-                    {
-                      label: "Print conversation",
-                      icon: "ti ti-printer",
-                      action: printConversation,
-                    },
-                  ]}
-                />
+            <div class="flex shrink-0 items-center gap-1">
+              <div class="hidden max-w-[min(40vw,28rem)] items-center gap-1 overflow-x-auto sm:flex">
+                <For each={directToolbarActions()}>
+                  {(action) => (
+                    <Tooltip content={action.label}>
+                      <button
+                        type="button"
+                        class="icon-btn shrink-0"
+                        aria-label={action.label}
+                        data-mail-toolbar-action={action.id}
+                        disabled={action.disabled}
+                        onClick={action.action}
+                      >
+                        <i class={action.icon} aria-hidden="true" />
+                      </button>
+                    </Tooltip>
+                  )}
+                </For>
               </div>
-            </Show>
-            <Tooltip content="Conversation details">
-              <button
-                type="button"
-                class="icon-btn"
-                classList={{ "bg-[var(--ui-selected)]": props.detailsOpen }}
-                aria-label="Toggle conversation details"
-                aria-pressed={props.detailsOpen}
-                data-mail-details-trigger
-                onClick={props.onToggleDetails}
-              >
-                <i class="ti ti-layout-sidebar-right" aria-hidden="true" />
-              </button>
-            </Tooltip>
+              <Dropdown
+                trigger={
+                  <button type="button" class="icon-btn" aria-label="More conversation actions">
+                    <i class="ti ti-dots" aria-hidden="true" />
+                  </button>
+                }
+                position="bottom-left"
+                width="w-56"
+                elements={overflowActions()}
+              />
+              <Tooltip content="Conversation details">
+                <button
+                  type="button"
+                  class="icon-btn"
+                  classList={{ "bg-[var(--ui-selected)]": props.detailsOpen }}
+                  aria-label="Toggle conversation details"
+                  aria-pressed={props.detailsOpen}
+                  data-mail-details-trigger
+                  onClick={props.onToggleDetails}
+                >
+                  <i class="ti ti-layout-sidebar-right" aria-hidden="true" />
+                </button>
+              </Tooltip>
+            </div>
           </div>
         </header>
 
@@ -752,7 +892,7 @@ export default function MailConversationReader(props: {
             onScroll={handleReaderScroll}
           >
             <div class="mx-auto flex w-full max-w-4xl flex-col gap-2">
-              <For each={props.messages}>
+              <For each={orderedMessages()}>
                 {(message) => (
                   <MailMessageCard
                     message={message}
@@ -801,12 +941,12 @@ export default function MailConversationReader(props: {
             {(count) => (
               <button
                 type="button"
-                class="btn-primary btn-sm absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-[var(--ui-shadow-float)]"
+                class="btn-primary btn-sm absolute left-1/2 top-3 z-10 -translate-x-1/2 shadow-[var(--ui-shadow-float)]"
                 aria-live="polite"
                 onClick={jumpToNewest}
               >
                 {count()} new message{count() === 1 ? "" : "s"}
-                <i class="ti ti-arrow-down" aria-hidden="true" />
+                <i class="ti ti-arrow-up" aria-hidden="true" />
               </button>
             )}
           </Show>

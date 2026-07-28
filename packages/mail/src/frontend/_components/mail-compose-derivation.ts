@@ -1,11 +1,25 @@
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import type { DraftIntent, SenderIdentity } from "../../contracts";
 import { deriveReplyAddressObjects } from "../../reply-recipients";
 import type { MessageDetail } from "../../service/messages";
 
 type RecipientSeed = { to: string[]; cc: string[] };
 
+export const formatMailAddress = (address: { name: string | null; address: string }): string =>
+  address.name ? `${address.name} <${address.address}>` : address.address;
+
 export const replySubject = (subject: string): string => (/^re:/i.test(subject) ? subject : `Re: ${subject}`);
 export const forwardSubject = (subject: string): string => (/^fwd:/i.test(subject) ? subject : `Fwd: ${subject}`);
+
+export const forwardMessageBody = (message: MessageDetail, dateConfig: DateContext): string => `
+
+---------- Forwarded message ----------
+From: ${message.from.map(formatMailAddress).join(", ") || "Unknown sender"}
+Date: ${dates.formatDateTime(message.internalDate, dateConfig)}
+Subject: ${message.subject || "(no subject)"}
+To: ${message.to.map(formatMailAddress).join(", ") || "Undisclosed recipients"}
+
+${message.forwardText}`;
 
 export const deriveReplyIdentityId = (message: MessageDetail, identities: SenderIdentity[]): string | null => {
   const verified = identities.filter((identity) => identity.status === "verified");

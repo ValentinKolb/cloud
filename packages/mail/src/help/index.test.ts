@@ -109,6 +109,16 @@ describe("mailHelp", () => {
     expect(work).toContain("Provider keywords");
   });
 
+  test("documents safe HTML reading and the personal plain-text alternative", () => {
+    const work = mailHelp.getMarkdown("mail-work");
+    const admin = mailHelp.getMarkdown("mail-admin");
+
+    expect(work).toContain("View as plain text");
+    expect(work).toContain("Settings > Reading > Default message format");
+    expect(work).toContain("Scripts, forms, embedded objects, external stylesheets");
+    expect(admin).toContain("Reading** is available to every mailbox reader");
+  });
+
   test("documents guided sender rules and resumable existing-message backfills", () => {
     const automation = mailHelp.getMarkdown("mail-automation");
     const work = mailHelp.getMarkdown("mail-work");

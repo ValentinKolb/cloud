@@ -6,6 +6,7 @@ import { sql } from "bun";
 import { type AttachmentStream, MailParser, type MessageText } from "mailparser";
 import sanitizeHtml from "sanitize-html";
 import { deriveConversationWorkState, isAutomaticSubmission } from "./conversation-work-state";
+import { allowedEmailInlineStyles } from "./email-inline-style-policy";
 import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
 import { assertMailboxTransportFence, type MailboxTransportFence } from "./mailbox-transport-fence";
 import { createBlobReadable, type StoredBlob, storeReadableBlob } from "./message-blobs";
@@ -95,6 +96,18 @@ const incomingAllowedTags = [
   "ul",
 ] as const;
 
+const incomingAllowedAttributes: Record<string, string[]> = {
+  ...Object.fromEntries(incomingAllowedTags.map((tag) => [tag, ["style"]])),
+  a: ["href", "title", "target", "rel", "style"],
+  blockquote: ["class", "type", "style"],
+  div: ["class", "style"],
+  img: ["src", "alt", "title", "width", "height", "data-mail-remote-image", "style"],
+  table: ["cellpadding", "cellspacing", "width", "align", "border", "style"],
+  td: ["width", "align", "valign", "colspan", "rowspan", "style"],
+  th: ["width", "align", "valign", "colspan", "rowspan", "style"],
+  tr: ["align", "valign", "style"],
+};
+
 const MAX_REMOTE_IMAGE_COUNT = 64;
 const MAX_REMOTE_IMAGE_URL_BYTES = 128 * 1024;
 const MAX_REMOTE_IMAGE_URL_LENGTH = 8_192;
@@ -128,16 +141,8 @@ export const sanitizeIncomingMailHtmlWithRemoteImages = (html: string): Sanitize
   let remoteUrlBytes = 0;
   const sanitized = sanitizeHtml(html, {
     allowedTags: [...incomingAllowedTags],
-    allowedAttributes: {
-      a: ["href", "title", "target", "rel"],
-      blockquote: ["class", "type"],
-      div: ["class"],
-      img: ["src", "alt", "title", "width", "height", "data-mail-remote-image"],
-      table: ["cellpadding", "cellspacing", "width", "align", "border"],
-      td: ["width", "align", "valign", "colspan", "rowspan"],
-      th: ["width", "align", "valign", "colspan", "rowspan"],
-      tr: ["align", "valign"],
-    },
+    allowedAttributes: incomingAllowedAttributes,
+    allowedStyles: allowedEmailInlineStyles(incomingAllowedTags),
     allowedClasses: {
       blockquote: ["gmail_quote", "yahoo_quoted"],
       div: ["gmail_quote", "yahoo_quoted", "moz-cite-prefix"],

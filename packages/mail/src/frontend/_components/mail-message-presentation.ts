@@ -6,6 +6,8 @@ type PlainMessageSegment = {
   text: string;
 };
 
+export type MessageBodyFormat = "html" | "plain";
+
 export { attachmentPreviewKind } from "../../attachment-preview-policy";
 
 const QUOTED_LINE = /^\s*>/u;
@@ -100,6 +102,20 @@ export const messagePreviewText = (plainText: string | null, forwardText: string
   return normalized.length > maxLength ? `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…` : normalized;
 };
 
+export const resolveMessageBodyFormat = (
+  preferred: MessageBodyFormat,
+  override: MessageBodyFormat | null,
+  htmlAvailable: boolean,
+  plainAvailable: boolean,
+): MessageBodyFormat | null => {
+  const requested = override ?? preferred;
+  if (requested === "html" && htmlAvailable) return "html";
+  if (requested === "plain" && plainAvailable) return "plain";
+  if (htmlAvailable) return "html";
+  if (plainAvailable) return "plain";
+  return null;
+};
+
 export const messageDeliveryPresentation = (state: MessageDeliveryState): { label: string; icon: string; tone: StatusTone } | null => {
   switch (state) {
     case "scheduled":
@@ -127,7 +143,7 @@ export const messageDeliveryPresentation = (state: MessageDeliveryState): { labe
 export const messageDeliveryControlLabel = (state: MessageDeliveryState, canWrite: boolean): string | null => {
   if (!canWrite) return null;
   if (state === "undo_window") return "Undo send";
-  if (state === "scheduled") return "Cancel send";
+  if (state === "scheduled") return "Scheduled";
   return null;
 };
 

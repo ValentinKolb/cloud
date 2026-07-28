@@ -5,6 +5,7 @@ import juice from "juice";
 import postcss from "postcss";
 import selectorParser from "postcss-selector-parser";
 import sanitizeHtml from "sanitize-html";
+import { allowedEmailInlineStyles, EMAIL_INLINE_STYLE_PROPERTY_SET } from "./email-inline-style-policy";
 
 const MAX_CSS_RULES = 200;
 const MAX_CSS_DECLARATIONS = 1_000;
@@ -22,49 +23,11 @@ const MAIL_CONTENT_CLASS = "mail-content";
 const COMPOSE_SEGMENT_START = "\u2063";
 const COMPOSE_SEGMENT_END = "\u2064";
 
-const ALLOWED_PROPERTIES = new Set([
-  "background-color",
-  "border",
-  "border-bottom",
-  "border-color",
-  "border-left",
-  "border-radius",
-  "border-right",
-  "border-style",
-  "border-top",
-  "border-width",
-  "border-collapse",
-  "color",
-  "font-family",
-  "font-size",
-  "font-style",
-  "font-weight",
-  "letter-spacing",
-  "line-height",
-  "margin",
-  "margin-bottom",
-  "margin-left",
-  "margin-right",
-  "margin-top",
-  "max-width",
-  "padding",
-  "padding-bottom",
-  "padding-left",
-  "padding-right",
-  "padding-top",
-  "text-align",
-  "text-decoration",
-  "vertical-align",
-  "white-space",
-  "width",
-]);
-
 const ALLOWED_TAGS = new Set<string>(EMAIL_HTML_TAGS);
 const INLINED_EMAIL_ATTRIBUTES = Object.fromEntries(
   [...EMAIL_HTML_TAGS].map((tag) => [tag, [...new Set([...(EMAIL_HTML_ALLOWED_ATTRIBUTES[tag] ?? []), "style"])]]),
 );
 const UNSAFE_CSS_VALUE = /(?:url|expression|var|attr)\s*\(|[{}@]|[\u0000-\u0008\u000b\u000c\u000e-\u001f]/i;
-const SAFE_CSS_VALUE = /^(?!.*(?:url|expression|var|attr)\s*\()[^{}@\u0000-\u0008\u000b\u000c\u000e-\u001f]*$/i;
 
 export const DEFAULT_MAIL_CSS = `
 .mail-content {
@@ -141,7 +104,7 @@ export const validateComposeCss = (source: string): Result<string> => {
     if (node.type !== "decl") return;
     declarationCount += 1;
     const property = node.prop.toLowerCase();
-    if (!ALLOWED_PROPERTIES.has(property)) {
+    if (!EMAIL_INLINE_STYLE_PROPERTY_SET.has(property)) {
       validationError = `CSS property "${property}" is not allowed`;
       return;
     }
@@ -418,12 +381,7 @@ export const renderComposeContent = (params: {
       allowedTags: [...EMAIL_HTML_TAGS],
       allowedAttributes: INLINED_EMAIL_ATTRIBUTES,
       allowedSchemes: [...EMAIL_HTML_ALLOWED_SCHEMES],
-      allowedStyles: Object.fromEntries(
-        [...EMAIL_HTML_TAGS].map((tag) => [
-          tag,
-          Object.fromEntries([...ALLOWED_PROPERTIES].map((property) => [property, [SAFE_CSS_VALUE]])),
-        ]),
-      ),
+      allowedStyles: allowedEmailInlineStyles(EMAIL_HTML_TAGS),
     });
     if (sourceBytes(html) > MAX_RENDERED_SOURCE_BYTES) {
       return fail(err.badInput("Rendered email content exceeds the safe size limit"));

@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeMailComposerPanes } from "./MailSettingsStore";
+import { normalizeMailComposerPanes, normalizeMailUserPreferences } from "./MailSettingsStore";
+
+describe("Mail reading preferences", () => {
+  test("defaults to safe HTML display and accepts an explicit plain-text preference", () => {
+    expect(normalizeMailUserPreferences(undefined)).toMatchObject({
+      composeFormat: "markdown",
+      readingFormat: "html",
+      undoSeconds: 10,
+    });
+    expect(normalizeMailUserPreferences({ readingFormat: "plain" })).toMatchObject({ readingFormat: "plain" });
+    expect(normalizeMailUserPreferences({ readingFormat: "invalid" as "html" })).toMatchObject({ readingFormat: "html" });
+  });
+});
 
 describe("Mail composer pane preferences", () => {
   test("keeps a valid split layout", () => {

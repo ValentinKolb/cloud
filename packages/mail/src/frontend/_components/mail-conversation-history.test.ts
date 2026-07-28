@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { initialConversationMessageId, isNearConversationEnd, isOutgoingMessage } from "./mail-conversation-history";
+import { initialConversationMessageId, isNearConversationStart, isOutgoingMessage, newestFirstMessages } from "./mail-conversation-history";
 
 const identities = [{ fromAddress: "me@example.com", status: "verified" }];
 
@@ -9,7 +9,7 @@ describe("mail conversation history", () => {
     expect(isOutgoingMessage({ from: [{ address: "me@example.com" }] }, [{ ...identities[0]!, status: "pending" }])).toBeFalse();
   });
 
-  test("opens the first unread incoming message and otherwise the newest message", () => {
+  test("opens the newest message and presents conversation history newest first", () => {
     const messages = [
       { id: "read", from: [{ address: "sender@example.com" }], flags: ["\\Seen"] },
       { id: "outgoing", from: [{ address: "me@example.com" }], flags: [] },
@@ -17,18 +17,14 @@ describe("mail conversation history", () => {
       { id: "newest", from: [{ address: "sender@example.com" }], flags: ["\\Seen"] },
     ];
 
-    expect(initialConversationMessageId(messages, identities)).toBe("unread");
-    expect(
-      initialConversationMessageId(
-        messages.map((message) => ({ ...message, flags: ["\\Seen"] })),
-        identities,
-      ),
-    ).toBe("newest");
-    expect(initialConversationMessageId([], identities)).toBeNull();
+    expect(initialConversationMessageId(messages)).toBe("newest");
+    expect(newestFirstMessages(messages).map((message) => message.id)).toEqual(["newest", "unread", "outgoing", "read"]);
+    expect(messages.map((message) => message.id)).toEqual(["read", "outgoing", "unread", "newest"]);
+    expect(initialConversationMessageId([])).toBeNull();
   });
 
-  test("uses a small end tolerance for live-message following", () => {
-    expect(isNearConversationEnd({ scrollTop: 400, clientHeight: 500, scrollHeight: 980 })).toBeTrue();
-    expect(isNearConversationEnd({ scrollTop: 300, clientHeight: 500, scrollHeight: 980 })).toBeFalse();
+  test("uses a small top tolerance for live-message following", () => {
+    expect(isNearConversationStart({ scrollTop: 40 })).toBeTrue();
+    expect(isNearConversationStart({ scrollTop: 120 })).toBeFalse();
   });
 });

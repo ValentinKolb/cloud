@@ -1,4 +1,5 @@
-import { toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -12,11 +13,14 @@ export default function MailMessageDeliveryControl(props: {
   mailboxId: string;
   delivery: MessageDelivery;
   canWrite: boolean;
+  dateConfig: DateContext;
   onReconcile: () => Promise<void>;
 }) {
   const [now, setNow] = createSignal(Date.now());
   let expiryTimer: number | undefined;
   let reconciledSubmissionId: string | null = null;
+  let scheduledDialogOpen = false;
+  let closeScheduledDialog: (() => void) | null = null;
 
   const clearExpiryTimer = () => {
     if (expiryTimer !== undefined) window.clearTimeout(expiryTimer);
@@ -63,8 +67,8 @@ export default function MailMessageDeliveryControl(props: {
     tick();
   });
 
-  const cancel = mutations.create<void, { submissionId: string }, { reconcile: () => Promise<void> }>({
-    onBefore: () => ({ reconcile: props.onReconcile }),
+  const cancel = mutations.create<void, { submissionId: string }, { reconcile: () => Promise<void>; state: MessageDelivery["state"] }>({
+    onBefore: () => ({ reconcile: props.onReconcile, state: props.delivery.state }),
     mutation: async ({ submissionId }, { abortSignal }) => {
       const route = apiClient.mailboxes[":mailboxId"]["scheduled-sends"][":scheduledSendId"];
       const response = await route.cancel.$post(
@@ -77,43 +81,97 @@ export default function MailMessageDeliveryControl(props: {
       if (!response.ok) throw new Error(await readApiError(response, "Could not undo this send"));
     },
     onSuccess: (_result, context) => {
-      toast.success(
-        props.delivery.state === "scheduled" ? "Scheduled send cancelled. The message was restored as a draft." : "Send undone.",
-      );
+      toast.success(context?.state === "scheduled" ? "Scheduled send cancelled. The message was restored as a draft." : "Send undone.");
       if (context)
         void context.reconcile().catch(() => toast.error("The message changed, but this conversation could not be refreshed yet."));
     },
     onError: (error) => toast.error(error.message),
   });
 
+  const openScheduledDetails = async () => {
+    if (scheduledDialogOpen) return;
+    scheduledDialogOpen = true;
+    const submissionId = props.delivery.submissionId;
+    const scheduledAt = props.delivery.scheduledAt;
+    const dateConfig = props.dateConfig;
+    try {
+      await prompts.dialog<void>(
+        (close) => {
+          closeScheduledDialog = () => close();
+          const cancelScheduledSend = async () => {
+            await cancel.mutate({ submissionId });
+            if (!cancel.error()) close();
+          };
+
+          return (
+            <div class="flex flex-col gap-4">
+              <div class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-3 py-2">
+                <p class="text-xs font-medium text-dimmed">Scheduled delivery</p>
+                <p class="mt-1 text-sm font-semibold text-primary">{dates.formatDateTime(scheduledAt, dateConfig)}</p>
+                <p class="mt-1 text-xs text-dimmed">Time zone: {dateConfig.timeZone}</p>
+              </div>
+              <p class="text-sm text-secondary">
+                Cancel delivery to return this message to Drafts. You can edit it there or schedule it again.
+              </p>
+              <div class="flex flex-wrap items-center justify-end gap-2">
+                <button type="button" class="btn-secondary btn-sm" disabled={cancel.loading()} onClick={() => close()}>
+                  Keep scheduled
+                </button>
+                <button type="button" class="btn-danger btn-sm" disabled={cancel.loading()} onClick={() => void cancelScheduledSend()}>
+                  <i class={`ti ${cancel.loading() ? "ti-loader-2 animate-spin" : "ti-calendar-cancel"}`} aria-hidden="true" />
+                  Cancel send
+                </button>
+              </div>
+            </div>
+          );
+        },
+        { title: "Scheduled message", icon: "ti ti-calendar-time" },
+      );
+    } finally {
+      scheduledDialogOpen = false;
+      closeScheduledDialog = null;
+    }
+  };
+
   onCleanup(() => {
     clearExpiryTimer();
+    closeScheduledDialog?.();
+    closeScheduledDialog = null;
     cancel.abort();
   });
 
   return (
     <Show when={visible() && label()}>
       {(actionLabel) => (
-        <div class="flex flex-wrap items-center gap-2 pb-1 pl-14 pr-3">
+        <div class="flex flex-wrap items-center gap-2 px-3 pb-1">
           <button
             type="button"
-            class={
-              props.delivery.state === "undo_window"
-                ? "k2b-status-badge focus-ui cursor-pointer transition-colors hover:bg-[var(--ui-hover)] disabled:cursor-wait disabled:opacity-60"
-                : "btn-secondary btn-sm"
-            }
-            data-tone="neutral"
+            class="mail-delivery-action-badge focus-ui transition-colors disabled:cursor-wait disabled:opacity-60"
             data-mail-undo-send={props.delivery.state === "undo_window" ? "" : undefined}
+            data-mail-scheduled-send={props.delivery.state === "scheduled" ? "" : undefined}
             disabled={cancel.loading()}
             aria-label={
               props.delivery.state === "undo_window" && remainingSeconds() !== null
                 ? `Undo send, ${remainingSeconds()} seconds remaining`
-                : actionLabel()
+                : "View scheduled delivery details"
             }
-            title={props.delivery.state === "undo_window" ? "Cancel delivery and restore this message as a draft" : undefined}
-            onClick={() => cancel.mutate({ submissionId: props.delivery.submissionId })}
+            title={
+              props.delivery.state === "undo_window"
+                ? "Cancel delivery and restore this message as a draft"
+                : `Scheduled for ${dates.formatDateTime(props.delivery.scheduledAt, props.dateConfig)}`
+            }
+            onClick={() =>
+              props.delivery.state === "scheduled"
+                ? void openScheduledDetails()
+                : void cancel.mutate({ submissionId: props.delivery.submissionId })
+            }
           >
-            <i class={`ti ${cancel.loading() ? "ti-loader-2 animate-spin" : "ti-arrow-back-up"}`} aria-hidden="true" />
+            <i
+              class={`ti ${
+                cancel.loading() ? "ti-loader-2 animate-spin" : props.delivery.state === "scheduled" ? "ti-clock" : "ti-arrow-back-up"
+              }`}
+              aria-hidden="true"
+            />
             <span>{actionLabel()}</span>
           </button>
         </div>

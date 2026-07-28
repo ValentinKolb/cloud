@@ -377,6 +377,45 @@ const runSmoke = async (fixture: Fixture) => {
     });
     if (!readerHasHistory) fail("long-message fixture did not create a meaningful reader scroll range");
 
+    await page.getByRole("button", { name: "More conversation actions", exact: true }).click();
+    const conversationMenu = page.locator('[role="menu"]:popover-open');
+    await conversationMenu.getByText("Customize toolbar", { exact: true }).click();
+    const toolbarDialog = page.getByRole("dialog").filter({ hasText: "Customize toolbar" });
+    await toolbarDialog
+      .locator("label")
+      .filter({ hasText: /^Delete/u })
+      .locator('input[type="checkbox"]')
+      .uncheck();
+    await toolbarDialog.locator("label").filter({ hasText: /^Tags/u }).locator('input[type="checkbox"]').check();
+    await toolbarDialog.getByRole("button", { name: "Save toolbar", exact: true }).click();
+    await page.waitForTimeout(250);
+    const tagsToolbarAction = page.locator('[data-mail-toolbar-action="tags"]');
+    if ((await tagsToolbarAction.count()) === 0) {
+      const workspaceCookie = (await context.cookies()).find((cookie) => cookie.name === "cloud_mail_workspace");
+      fail(`saved Tags action did not reach the toolbar; workspace cookie: ${workspaceCookie?.value ?? "(missing)"}`);
+    }
+    await tagsToolbarAction.waitFor();
+    if ((await page.locator('[data-mail-toolbar-action="trash"]').count()) !== 0) {
+      fail("removed toolbar action remained visible");
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await tagsToolbarAction.waitFor();
+    if ((await page.locator('[data-mail-toolbar-action="trash"]').count()) !== 0) {
+      fail("removed toolbar action returned after SSR reload");
+    }
+    await page.setViewportSize({ width: 390, height: 812 });
+    if (await tagsToolbarAction.isVisible()) fail("direct toolbar actions crowd the compact conversation header");
+    const compactOverflow = page.getByRole("button", { name: "More conversation actions", exact: true });
+    await compactOverflow.click();
+    const compactMenu = page.locator('[role="menu"]:popover-open');
+    await compactMenu.getByText("Tags", { exact: true }).waitFor();
+    await compactMenu.getByText("Customize toolbar", { exact: true }).waitFor();
+    await page.keyboard.press("Escape");
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await tagsToolbarAction.waitFor();
+    ok("conversation toolbar customization survives SSR reload");
+
     await page.getByRole("button", { name: "Reply", exact: true }).click();
     await expectUrl(
       page,

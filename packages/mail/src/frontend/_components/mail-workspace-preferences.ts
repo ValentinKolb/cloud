@@ -1,6 +1,9 @@
+import { type MailConversationToolbarActionId, normalizeMailConversationToolbarActions } from "./mail-conversation-toolbar";
+
 export type MailWorkspacePreferences = {
   listCollapsed: boolean;
   detailsOpen: boolean;
+  toolbarActions: MailConversationToolbarActionId[];
 };
 
 const MAIL_WORKSPACE_COOKIE = "cloud_mail_workspace";
@@ -8,6 +11,9 @@ const MAIL_WORKSPACE_COOKIE = "cloud_mail_workspace";
 const normalizeMailWorkspacePreferences = (value: unknown): MailWorkspacePreferences => ({
   listCollapsed: Boolean(value && typeof value === "object" && (value as { listCollapsed?: unknown }).listCollapsed === true),
   detailsOpen: Boolean(value && typeof value === "object" && (value as { detailsOpen?: unknown }).detailsOpen === true),
+  toolbarActions: normalizeMailConversationToolbarActions(
+    value && typeof value === "object" ? (value as { toolbarActions?: unknown }).toolbarActions : undefined,
+  ),
 });
 
 export const readMailWorkspacePreferences = (cookieHeader: string | null | undefined): MailWorkspacePreferences => {

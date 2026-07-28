@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildMessageDocument, normalizeMessageBodyHeight } from "./MailMessageBody";
+import { buildMessageDocument, normalizeMessageBodyHeight } from "./mail-message-document";
 
 describe("MailMessageBody sizing", () => {
   test("measures the intrinsic message root instead of the iframe viewport", () => {
@@ -24,5 +24,13 @@ describe("MailMessageBody sizing", () => {
 
     expect(document).toContain("Show quoted text");
     expect(document).toContain('blockquote[type="cite"], .gmail_quote, .yahoo_quoted');
+  });
+
+  test("allows only the app-owned iframe bridge script", () => {
+    const document = buildMessageDocument("<p>Safe content</p>", "channel-123");
+
+    expect(document).toContain("script-src 'nonce-channel123'");
+    expect(document).toContain('<script nonce="channel123">');
+    expect(document).not.toContain("script-src 'unsafe-inline'");
   });
 });
