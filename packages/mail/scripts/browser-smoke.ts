@@ -123,11 +123,12 @@ const createFixture = async (): Promise<Fixture> => {
     )
     RETURNING id
   `;
+  // The smoke owns the mailbox health state; background sync must not race its assertions.
   const [folder] = await sql<{ id: string }[]>`
     INSERT INTO mail.folders (
-      remote_resource_id, stable_key, name, role, sync_status
+      remote_resource_id, stable_key, name, role, selected_for_sync, sync_status
     ) VALUES (
-      ${resource!.id}::uuid, 'browser-inbox', 'Inbox', 'inbox', 'current'
+      ${resource!.id}::uuid, 'browser-inbox', 'Inbox', 'inbox', false, 'current'
     )
     RETURNING id
   `;
@@ -291,6 +292,14 @@ const expectUrl = async (page: Page, predicate: (url: URL) => boolean, label: st
   fail(`timed out waiting for ${label}; current URL is ${page.url()}`);
 };
 
+const clickHydratedDropdownTrigger = async (page: Page, locator: Locator) => {
+  await locator.waitFor();
+  const element = await locator.elementHandle();
+  if (!element) fail("interactive control disappeared before hydration");
+  await page.waitForFunction((control) => (control as HTMLElement).getAttribute("aria-haspopup") === "menu", element);
+  await locator.click();
+};
+
 const continueDraft = async (page: Page) => {
   const dialog = page.getByRole("dialog").filter({ hasText: "Continue a draft?" });
   await dialog.getByText("Continue", { exact: true }).first().click();
@@ -347,7 +356,7 @@ const runSmoke = async (fixture: Fixture) => {
     ok("mailbox search uses server-owned literal matching");
 
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Choose list view", exact: true }).click();
+    await clickHydratedDropdownTrigger(page, page.getByRole("button", { name: "Choose list view", exact: true }));
     await page.locator('[role="menu"]:popover-open').getByText("Message view", { exact: true }).click();
     await page
       .locator('[role="list"][aria-label$=" messages"]')
@@ -358,7 +367,7 @@ const runSmoke = async (fixture: Fixture) => {
     if (messageViewPreference?.listMode !== "messages") fail("message view was not persisted in the workspace cookie");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.locator('[role="list"][aria-label$=" messages"]').waitFor();
-    await page.getByRole("button", { name: "Choose list view", exact: true }).click();
+    await clickHydratedDropdownTrigger(page, page.getByRole("button", { name: "Choose list view", exact: true }));
     await page.locator('[role="menu"]:popover-open').getByText("Conversation view", { exact: true }).click();
     await page.locator('[role="list"][aria-label$=" conversations"]').waitFor();
     ok("message list mode survives SSR reload and returns to conversation view");
@@ -534,16 +543,25 @@ const runSmoke = async (fixture: Fixture) => {
     await page.getByRole("button", { name: "Reply", exact: true }).click();
     await expectUrl(
       page,
-      (url) => new RegExp(`/app/mail/${fixture.mailboxId}/compose/[^/]+$`).test(url.pathname),
-      "reply opens its canonical draft route",
+      (url) => new RegExp(`/app/mail/${fixture.mailboxId}/compose/local/[^/]+$`).test(url.pathname),
+      "reply opens a local draft seed without persisting an untouched draft",
     );
+    const [untouchedDraftCount] = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM mail.drafts
+      WHERE mailbox_id = ${fixture.mailboxId}::uuid
+    `;
+    if (untouchedDraftCount?.count !== 0) {
+      fail(`opening an untouched reply persisted ${untouchedDraftCount?.count ?? "unknown"} drafts`);
+    }
     const body = page.getByRole("combobox", { name: "Message body" });
     await body.waitFor({ state: "visible" }).catch(async () => {
       fail(`reply composer did not open\n${errors.join("\n")}\n${(await page.locator("body").innerText()).slice(-2_000)}`);
     });
-    const saveResponse = page.waitForResponse(
+    const materializeResponse = page.waitForResponse(
       (response) =>
-        response.request().method() === "PUT" && /\/api\/mail\/mailboxes\/[^/]+\/drafts\/[^/]+$/.test(new URL(response.url()).pathname),
+        response.request().method() === "POST" &&
+        /\/api\/mail\/mailboxes\/[^/]+\/draft-seeds\/materialize$/.test(new URL(response.url()).pathname),
     );
     await body.click();
     await body.pressSequentially("A");
@@ -559,7 +577,13 @@ const runSmoke = async (fixture: Fixture) => {
     }
     ok("reply keeps focus and content across the first keystroke");
 
-    await saveResponse;
+    const materialized = (await (await materializeResponse).json()) as { id?: unknown };
+    if (typeof materialized.id !== "string") fail("materialized reply returned no draft id");
+    await expectUrl(
+      page,
+      (url) => url.pathname === `/app/mail/${fixture.mailboxId}/compose/${materialized.id}`,
+      "meaningful input promotes the local seed to its canonical draft route",
+    );
     await page.getByRole("button", { name: "Back to mailbox" }).click();
     await body.waitFor({ state: "detached" });
     await expectUrl(
@@ -670,31 +694,24 @@ const runSmoke = async (fixture: Fixture) => {
     });
     const continueIntent = page.getByRole("button", { name: "Continue", exact: true });
     await continueIntent.waitFor();
-    const mailtoDraftRequest = page.waitForRequest(
-      (request) => request.method() === "POST" && /\/api\/mail\/mailboxes\/[^/]+\/drafts$/.test(new URL(request.url()).pathname),
-    );
+    const [draftCountBeforeMailto] = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM mail.drafts
+      WHERE mailbox_id = ${fixture.mailboxId}::uuid
+    `;
     await continueIntent.click();
-    const createdMailtoDraftRequest = await mailtoDraftRequest;
-    const createdMailtoDraftInput = JSON.parse(createdMailtoDraftRequest.postData() ?? "{}") as { body?: unknown };
-    if (createdMailtoDraftInput.body !== "Created from an email link") {
-      fail(`mailto draft request did not preserve the body: ${createdMailtoDraftRequest.postData()}`);
-    }
     await expectUrl(
       page,
-      (url) => new RegExp(`/app/mail/${fixture.mailboxId}/compose/[^/]+$`).test(url.pathname),
-      "mailto creates a canonical durable draft",
+      (url) => new RegExp(`/app/mail/${fixture.mailboxId}/compose/local/[^/]+$`).test(url.pathname),
+      "mailto opens a local draft seed",
     );
-    const mailtoDraftId = new URL(page.url()).pathname.split("/").at(-1);
-    if (!mailtoDraftId) fail("mailto draft route did not contain a draft id");
-    const storedMailtoBody = await page.evaluate(
-      async ({ mailboxId, draftId }) => {
-        const response = await fetch(`/api/mail/mailboxes/${mailboxId}/drafts/${draftId}`);
-        return ((await response.json()) as { body?: unknown }).body;
-      },
-      { mailboxId: fixture.mailboxId, draftId: mailtoDraftId },
-    );
-    if (storedMailtoBody !== "Created from an email link") {
-      fail(`stored mailto draft did not preserve the body: ${JSON.stringify(storedMailtoBody)}`);
+    const [draftCountAfterMailto] = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM mail.drafts
+      WHERE mailbox_id = ${fixture.mailboxId}::uuid
+    `;
+    if (draftCountAfterMailto?.count !== draftCountBeforeMailto?.count) {
+      fail("opening an untouched mailto intent persisted a draft");
     }
     await page.getByRole("button", { name: "Remove recipient@example.test", exact: true }).waitFor();
     if ((await page.getByRole("textbox", { name: "Subject" }).inputValue()) !== "Browser mailto") {
@@ -702,6 +719,30 @@ const runSmoke = async (fixture: Fixture) => {
     }
     const mailtoBody = await body.inputValue();
     if (!mailtoBody.startsWith("Created from an email link")) fail(`mailto body was not preserved: ${JSON.stringify(mailtoBody)}`);
+    const editedMailtoBody = `${mailtoBody}\nAcceptance edit`;
+    const mailtoMaterializeResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        /\/api\/mail\/mailboxes\/[^/]+\/draft-seeds\/materialize$/.test(new URL(response.url()).pathname),
+    );
+    await body.fill(editedMailtoBody);
+    const materializedMailto = (await (await mailtoMaterializeResponse).json()) as { id?: unknown };
+    if (typeof materializedMailto.id !== "string") fail("materialized mailto draft returned no draft id");
+    await expectUrl(
+      page,
+      (url) => url.pathname === `/app/mail/${fixture.mailboxId}/compose/${materializedMailto.id}`,
+      "editing mailto content promotes it to a canonical draft",
+    );
+    const storedMailtoBody = await page.evaluate(
+      async ({ mailboxId, draftId }) => {
+        const response = await fetch(`/api/mail/mailboxes/${mailboxId}/drafts/${draftId}`);
+        return ((await response.json()) as { body?: unknown }).body;
+      },
+      { mailboxId: fixture.mailboxId, draftId: materializedMailto.id },
+    );
+    if (storedMailtoBody !== editedMailtoBody) {
+      fail(`stored mailto draft did not preserve the body: ${JSON.stringify(storedMailtoBody)}`);
+    }
     await page.getByRole("button", { name: "Discard draft", exact: true }).click();
     const discardDialog = page.getByRole("dialog").filter({ hasText: "Discard draft?" });
     await discardDialog.getByRole("button", { name: "Discard draft", exact: true }).click();
