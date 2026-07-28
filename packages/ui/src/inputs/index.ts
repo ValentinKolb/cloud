@@ -2,6 +2,12 @@ export type { CheckboxProps } from "./Checkbox";
 export { Checkbox } from "./Checkbox";
 export type { CheckboxCardProps } from "./CheckboxCard";
 export { CheckboxCard } from "./CheckboxCard";
+export type {
+  ColorInputProps,
+  PinInputProps,
+  SliderProps,
+} from "./ChoiceInputs";
+export { ColorInput, PinInput, Slider } from "./ChoiceInputs";
 export type { ComboboxOption, ComboboxProps } from "./Combobox";
 export { Combobox } from "./Combobox";
 export type { ChoiceOption, ChoiceOptionsLoader } from "./choice";
@@ -16,8 +22,6 @@ export type {
 export { DatePicker, DateRangePicker, DateTimePicker } from "./DatePicker";
 export type { MultiSelectInputProps, MultiSelectOption } from "./MultiSelectInput";
 export { MultiSelectInput } from "./MultiSelectInput";
-export type { NumberInputProps } from "./NumberInput";
-export { NumberInput } from "./NumberInput";
 export type { SelectOption, SelectProps } from "./Select";
 export { Select } from "./Select";
 export type { SelectChipOption, SelectChipProps } from "./SelectChip";
@@ -26,5 +30,3 @@ export type { SwitchProps } from "./Switch";
 export { Switch } from "./Switch";
 export type { TagsInputProps } from "./TagsInput";
 export { TagsInput } from "./TagsInput";
-export type { TextInputProps } from "./TextInput";
-export { TextInput } from "./TextInput";

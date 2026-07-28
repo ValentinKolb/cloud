@@ -22,10 +22,16 @@ The currently accepted complete migrations are:
   `Dropdown`, `RemoveBtn`, `SpotlightSearch`;
 - inputs: `Checkbox`, `CheckboxCard`, `Switch`, `Select`, `Combobox`,
   `MultiSelectInput`, `SelectChip`, `TagsInput`, `DatePicker`,
-  `DateTimePicker`, `DateRangePicker`;
-- layout: `AppOverview`, `DataPanel`, `PanelDialog`, `PanelHeader`;
-- surfaces: `NotFoundState`, `Placeholder`;
+  `DateTimePicker`, `DateRangePicker`, `PinInput`, `Slider`, `ColorInput`;
+- layout: `admin-settings`, `AppOverview`, `DataPanel`, `PanelDialog`,
+  `PanelHeader`, `SettingsModal`;
+- surfaces: `Avatar`, `LinkCard`, `NotFoundState`, `NoticeCard`, `Placeholder`,
+  `ProgressBar`, `StatCell`, `StatGrid`, `StatusBadge`;
 - feedback: `dialog-core`, `prompts`, `toast`, `Tooltip`.
+- content: `CodeDisplay`, `MarkdownView`, `Pagination`, `RangePicker`,
+  `StructuredDataPreview`;
+- widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
+  `WidgetStat`, `WidgetStatus`.
 
 Everything else remains `planned` until it satisfies that same bar. The
 working tree may contain experiments for planned components; those do not

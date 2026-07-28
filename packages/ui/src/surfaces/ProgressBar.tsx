@@ -6,7 +6,8 @@ export type ProgressBarProps = {
   max?: number;
   label?: JSX.Element;
   tone?: StatusTone;
-  size?: "sm" | "md";
+  size?: "xs" | "sm" | "md";
+  showValue?: boolean;
   class?: string;
 };
 
@@ -35,6 +36,9 @@ export function ProgressBar(props: ProgressBarProps): JSX.Element {
           style={{ width: percent() === undefined ? undefined : `${percent()}%` }}
         />
       </div>
+      <Show when={props.showValue && percent() !== undefined}>
+        <span class="k2b-progress__percent">{Math.round(percent() ?? 0)}%</span>
+      </Show>
     </div>
   );
 }

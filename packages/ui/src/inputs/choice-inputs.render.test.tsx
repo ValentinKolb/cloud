@@ -12,7 +12,8 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { Checkbox, CheckboxCard, Combobox, MultiSelectInput, Select, SelectChip, Switch, TagsInput } = await import("../index");
+const { Checkbox, CheckboxCard, ColorInput, Combobox, MultiSelectInput, PinInput, Select, SelectChip, Slider, Switch, TagsInput } =
+  await import("../index");
 
 const options = [
   { value: "platform", label: "Platform", description: "Runtime and infrastructure", icon: "ti ti-server" },
@@ -134,6 +135,61 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain('role="menuitem"');
     expect(html).toContain("Comfortable");
     expect(html).toContain("Compact");
+  });
+
+  test("renders navigable PIN digits instead of one opaque text field", () => {
+    const html = renderToString(() =>
+      createComponent(PinInput, {
+        label: "Access code",
+        description: "Six digits",
+        value: "123",
+        length: 6,
+        required: true,
+        stretch: true,
+      }),
+    );
+
+    expect(html.match(/class="k2b-control k2b-pin-input__digit"/g)).toHaveLength(6);
+    expect(html).toContain('aria-label="Digit 1 of 6"');
+    expect(html).toContain('autocomplete="one-time-code"');
+    expect(html).toContain('data-stretch="true"');
+  });
+
+  test("renders slider value, center track, and reset-capable range semantics", () => {
+    const html = renderToString(() =>
+      createComponent(Slider, {
+        label: "Balance",
+        value: -25,
+        min: -100,
+        max: 100,
+        center: true,
+        defaultValue: 0,
+        valueLabel: (value) => `${value}%`,
+      }),
+    );
+
+    expect(html).toContain('type="range"');
+    expect(html).toContain("linear-gradient");
+    expect(html).toContain("-25%");
+    expect(html).toContain("<output");
+  });
+
+  test("renders compact and transparent-capable color controls", () => {
+    const compact = renderToString(() => createComponent(ColorInput, { value: "#123456", compact: true }));
+    const full = renderToString(() =>
+      createComponent(ColorInput, {
+        label: "Surface",
+        value: "#123456",
+        transparent: true,
+        isTransparent: true,
+      }),
+    );
+
+    expect(compact).toContain("k2b-color-input--compact");
+    expect(compact).toContain('aria-label="Choose color"');
+    expect(full).toContain("transparent");
+    expect(full).toContain('aria-pressed="true"');
+    expect(full).toContain('data-transparent="true"');
   });
 
   test("filters labels, descriptions, and values while skipping disabled keyboard targets", () => {

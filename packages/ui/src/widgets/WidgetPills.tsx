@@ -9,7 +9,9 @@ export type WidgetPill = {
 };
 
 export type WidgetPillsProps = {
-  items: readonly WidgetPill[];
+  items?: readonly WidgetPill[];
+  pills?: readonly WidgetPill[];
+  grow?: boolean;
   class?: string;
 };
 
@@ -22,8 +24,8 @@ const PillContent = (props: { item: WidgetPill }): JSX.Element => (
 
 export function WidgetPills(props: WidgetPillsProps): JSX.Element {
   return (
-    <div class={`k2b-widget-pills ${props.class ?? ""}`}>
-      <For each={props.items}>
+    <div class={`k2b-widget-pills ${props.class ?? ""}`} data-grow={props.grow ? "true" : undefined}>
+      <For each={props.items ?? props.pills ?? []}>
         {(item) => (
           <Show
             when={item.href}

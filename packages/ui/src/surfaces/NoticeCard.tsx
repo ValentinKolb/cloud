@@ -4,6 +4,7 @@ import type { StatusTone } from "./StatusBadge";
 export type NoticeCardProps = {
   title: JSX.Element;
   children?: JSX.Element;
+  detail?: JSX.Element;
   icon?: string;
   tone?: StatusTone;
   action?: JSX.Element;
@@ -11,17 +12,24 @@ export type NoticeCardProps = {
 };
 
 export function NoticeCard(props: NoticeCardProps): JSX.Element {
+  const icon = () => {
+    if (props.icon) return props.icon;
+    if (props.tone === "danger") return "ti ti-alert-circle";
+    if (props.tone === "warning" || props.tone === "degraded") return "ti ti-alert-triangle";
+    return "ti ti-info-circle";
+  };
+
   return (
     <section
       class={`k2b-notice-card ${props.class ?? ""}`}
       data-tone={props.tone ?? "neutral"}
       role={props.tone === "danger" ? "alert" : undefined}
     >
-      <Show when={props.icon}>{(icon) => <i class={`k2b-notice-card__icon ${icon()}`} aria-hidden="true" />}</Show>
+      <i class={`k2b-notice-card__icon ${icon()}`} aria-hidden="true" />
       <div class="k2b-notice-card__content">
         <h3>{props.title}</h3>
-        <Show when={props.children}>
-          <div class="k2b-notice-card__description">{props.children}</div>
+        <Show when={props.detail ?? props.children}>
+          {(detail) => <div class="k2b-notice-card__description">{detail()}</div>}
         </Show>
       </div>
       <Show when={props.action}>

@@ -13,10 +13,10 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const {
   AppOverview,
-  AppWorkspace,
   Button,
-  Chart,
+  CodeDisplay,
   DataPanel,
+  Pagination,
   NoticeCard,
   PanelDialog,
   Placeholder,
@@ -24,7 +24,6 @@ const {
   StatCell,
   StatGrid,
   StatusBadge,
-  TextInput,
   toast,
   Widget,
   WidgetStat,
@@ -47,45 +46,6 @@ describe("@k2b/ui scaffold SSR", () => {
     expect(html).toContain("No records");
   });
 
-  test("renders the compound workspace structure", () => {
-    const html = renderToString(() =>
-      createComponent(AppWorkspace, {
-        get children() {
-          return [
-            createComponent(AppWorkspace.Sidebar, {
-              get children() {
-                return createComponent(AppWorkspace.SidebarItem, { active: true, children: "Overview" });
-              },
-            }),
-            createComponent(AppWorkspace.Content, {
-              get children() {
-                return createComponent(AppWorkspace.Main, { children: "Content" });
-              },
-            }),
-          ];
-        },
-      }),
-    );
-
-    expect(html).toContain("k2b-app-workspace__sidebar");
-    expect(html).toContain("k2b-app-workspace__content");
-    expect(html).toContain("k2b-app-workspace__main");
-  });
-
-  test("renders a real stdlib chart on the server", () => {
-    const html = renderToString(() =>
-      createComponent(Chart, {
-        kind: "line",
-        label: "Requests",
-        series: [{ data: [{ x: 1, y: 2 }] }],
-      }),
-    );
-
-    expect(html).toContain('data-chart-kind="line"');
-    expect(html).toContain("<svg");
-    expect(html).toContain('aria-label="Requests"');
-  });
-
   test("renders accessible foundation controls", () => {
     const button = renderToString(() =>
       createComponent(Button, {
@@ -94,21 +54,9 @@ describe("@k2b/ui scaffold SSR", () => {
         children: "Save",
       }),
     );
-    const input = renderToString(() =>
-      createComponent(TextInput, {
-        label: "Email",
-        description: "Used for updates.",
-        error: "Enter a valid address.",
-        value: "invalid",
-      }),
-    );
 
     expect(button).toContain('aria-busy="true"');
     expect(button).toContain("Saving");
-    expect(input).toContain('aria-invalid="true"');
-    expect(input).toContain("Used for updates.");
-    expect(input).toContain("Enter a valid address.");
-    expect(input).toMatch(/aria-describedby="[^"]+-description [^"]+-error"/);
   });
 
   test("renders semantic status surfaces", () => {
@@ -191,6 +139,25 @@ describe("@k2b/ui scaffold SSR", () => {
     expect(widget).toContain("k2b-widget-status");
     expect(widget).toContain("Operational");
     expect(widget).toContain("Checks");
+  });
+
+  test("renders code content on the server", () => {
+    const code = renderToString(() => createComponent(CodeDisplay, { code: "SELECT 1", language: "sql" }));
+
+    expect(code).toContain("hl-keyword");
+  });
+
+  test("renders URL-first pagination", () => {
+    const pagination = renderToString(() =>
+      createComponent(Pagination, {
+        currentPage: 2,
+        totalPages: 5,
+        href: (page) => `?page=${page}`,
+      }),
+    );
+
+    expect(pagination).toContain('aria-current="page"');
+    expect(pagination).toContain("?page=3");
   });
 
   test("makes toast calls SSR-safe", () => {

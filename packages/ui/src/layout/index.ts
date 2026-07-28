@@ -1,20 +1,24 @@
 export type {
+  SettingsFieldProps,
+  SettingsModalProps,
+  SettingsPanelFooterProps,
+  SettingsSaveBarProps,
+  SettingsTab,
+} from "./Settings";
+export {
+  readSettingsError,
+  SettingsField,
+  SettingsModal,
+  SettingsPanelFooter,
+  SettingsSaveBar,
+  sameSettingValue,
+} from "./Settings";
+export type {
   AppOverviewEmptyStateProps,
   AppOverviewPanelProps,
   AppOverviewProps,
 } from "./AppOverview";
 export { default as AppOverview } from "./AppOverview";
-export type {
-  AppWorkspaceContentProps,
-  AppWorkspaceDetailProps,
-  AppWorkspaceMainProps,
-  AppWorkspaceProps,
-  AppWorkspaceSidebarHeaderProps,
-  AppWorkspaceSidebarItemProps,
-  AppWorkspaceSidebarProps,
-  AppWorkspaceSidebarSectionProps,
-} from "./AppWorkspace";
-export { default as AppWorkspace } from "./AppWorkspace";
 export type { DataPanelProps } from "./DataPanel";
 export { DataPanel } from "./DataPanel";
 export type {

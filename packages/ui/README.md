@@ -6,7 +6,7 @@ styles without a global reset.
 
 ```ts
 import "@k2b/ui/styles.css";
-import { AppWorkspace, Button, TextInput, StatusBadge, prompts } from "@k2b/ui";
+import { Button, DatePicker, StatusBadge, prompts } from "@k2b/ui";
 ```
 
 Wrap the rendered application in the UI scope:
@@ -48,29 +48,32 @@ import "@k2b/ui/icons/tabler.css";
 
 ## Component tranches
 
-The standalone package currently covers foundation and application composition:
+The public package surface only exposes components that have passed the
+standalone SSR, behavior, styling, and migration checks:
 
-- Actions: `Button`, `IconButton`, `CopyButton`, `SegmentedControl`
-- Inputs: `TextInput`, `NumberInput`, `Checkbox`, `Switch`, `Select`
-- Layout: `AppWorkspace`, `AppOverview`, `DataPanel`, `PanelHeader`, `PanelDialog`
+- Actions: buttons, menus, context menus, filter/select chips, spotlight
+  search, copy, remove, and segmented controls
+- Inputs: checkbox and switch controls, select, combobox, multi-select, tags,
+  PIN, slider, color, and date/time pickers
+- Layout: `AppOverview`, `DataPanel`, `PanelHeader`, `PanelDialog`,
+  `SettingsModal`, and generic settings-form helpers
 - Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
   `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`, `NotFoundState`
-- Feedback: scoped dialogs and prompts, `Tooltip`, and scoped `toast`
-- Content: the stdlib-backed `Chart`
+- Feedback: the complete scoped prompt family, `Tooltip`, and scoped `toast`
+- Content: pagination, range navigation, code and Markdown views, and
+  structured-data previews
 - Widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
   `WidgetStat`, and `WidgetStatus`
+
+`MarkdownView` renders trusted, pre-rendered HTML. Consumers must sanitize
+untrusted Markdown before passing it to this presentation component.
 
 Components use direct controlled values and small callback contracts:
 
 ```tsx
-const [name, setName] = createSignal("");
+const [date, setDate] = createSignal<string | null>(null);
 
-<TextInput
-  label="Display name"
-  value={name()}
-  onValueChange={setName}
-  description="Shown to other members."
-/>;
+<DatePicker label="Release date" value={date()} onValueChange={setDate} />;
 ```
 
 The package does not read Cloud routes, services, permissions, or application
@@ -93,6 +96,15 @@ UI showcase: AI, Inputs, Actions, Layout, Surfaces, Feedback, Content, and
 Widgets. Cloud-specific integrations are intentionally not part of this
 package.
 
+Some source files are still package-local migration experiments. Planned
+components are deliberately absent from the root export until their full
+contract is implemented and tested.
+
 Cloud stays on its existing UI until this package is complete. The
 [migration inventory](./MIGRATION.md) records the generic, Cloud-specific, and
 deprecated boundaries without compatibility shims.
+
+The first external acceptance consumer is the Fibel component showcase. It
+will move after the package is verified, before the Cloud big-bang migration.
+That order proves CSS isolation, SSR/hydration, asset imports, theme overrides,
+and public API ergonomics outside the Cloud shell.

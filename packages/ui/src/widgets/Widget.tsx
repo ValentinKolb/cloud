@@ -5,6 +5,7 @@ export type WidgetSize = "content" | "compact" | "standard";
 export type WidgetProps = {
   title: JSX.Element;
   subtitle?: JSX.Element;
+  meta?: JSX.Element;
   icon?: string;
   href?: string;
   action?: JSX.Element;
@@ -13,45 +14,41 @@ export type WidgetProps = {
   children: JSX.Element;
 };
 
-const WidgetHeading = (props: WidgetProps): JSX.Element => (
-  <header class="k2b-widget__header">
+const WidgetHeadingContent = (props: WidgetProps): JSX.Element => (
+  <>
     <Show when={props.icon}>{(icon) => <i class={`${icon()} k2b-widget__icon`} aria-hidden="true" />}</Show>
     <span class="k2b-widget__heading">
       <strong>{props.title}</strong>
-      <Show when={props.subtitle}>
-        <small>{props.subtitle}</small>
+      <Show when={props.meta ?? props.subtitle}>
+        {(meta) => <small>{meta()}</small>}
       </Show>
     </span>
     <Show when={props.action} fallback={props.href ? <i class="ti ti-chevron-right k2b-widget__chevron" aria-hidden="true" /> : null}>
       <span class="k2b-widget__action">{props.action}</span>
     </Show>
-  </header>
+  </>
 );
 
 export function Widget(props: WidgetProps): JSX.Element {
   const className = () => `k2b-widget ${props.class ?? ""}`;
-  const content = (
-    <>
-      <WidgetHeading {...props} />
-      <div class="k2b-widget__body">{props.children}</div>
-    </>
-  );
-
   return (
-    <Show
-      when={props.href}
-      fallback={
-        <section class={className()} data-size={props.size ?? "standard"}>
-          {content}
-        </section>
-      }
-    >
-      {(href) => (
-        <a href={href()} class={className()} data-size={props.size ?? "standard"}>
-          {content}
-        </a>
-      )}
-    </Show>
+    <section class={className()} data-size={props.size ?? "standard"}>
+      <Show
+        when={props.href}
+        fallback={
+          <header class="k2b-widget__header">
+            <WidgetHeadingContent {...props} />
+          </header>
+        }
+      >
+        {(href) => (
+          <a href={href()} class="k2b-widget__header">
+            <WidgetHeadingContent {...props} />
+          </a>
+        )}
+      </Show>
+      <div class="k2b-widget__body">{props.children}</div>
+    </section>
   );
 }
 
