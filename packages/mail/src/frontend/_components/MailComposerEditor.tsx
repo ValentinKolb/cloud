@@ -23,6 +23,7 @@ export default function MailComposerEditor(props: {
   previewLoading: Accessor<boolean>;
   previewError: Accessor<string | undefined>;
   onRetryPreview: () => void;
+  onEditorReady: (element: HTMLTextAreaElement) => void;
 }) {
   const writeSurface = () => (
     <Show
@@ -37,6 +38,7 @@ export default function MailComposerEditor(props: {
           spellcheck
           disabled={!props.editable()}
           completions={props.completions()}
+          textareaRef={props.onEditorReady}
           fill
         />
       }
@@ -50,6 +52,7 @@ export default function MailComposerEditor(props: {
         spellcheck
         disabled={!props.editable()}
         completions={props.completions()}
+        textareaRef={props.onEditorReady}
         fill
       />
     </Show>

@@ -4952,6 +4952,25 @@ const addSenderRuleBackfillPointer = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addDraftMaterializationIdempotency = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.drafts
+    ADD COLUMN materialization_key TEXT,
+    ADD COLUMN materialization_request_hash TEXT CHECK (
+      materialization_request_hash IS NULL OR materialization_request_hash ~ '^[a-f0-9]{64}$'
+    ),
+    ADD CONSTRAINT drafts_materialization_shape_chk CHECK (
+      (materialization_key IS NULL AND materialization_request_hash IS NULL)
+      OR (materialization_key IS NOT NULL AND materialization_request_hash IS NOT NULL)
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX drafts_materialization_idempotency_idx
+    ON mail.drafts (mailbox_id, author_kind, author_id, materialization_key)
+    WHERE materialization_key IS NOT NULL
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -5052,6 +5071,7 @@ const migrations: readonly MailMigration[] = [
   { version: 98, name: "canonical_outbound_messages", run: addCanonicalOutboundMessages },
   { version: 99, name: "composable_sender_rule_actions", run: addComposableSenderRuleActions },
   { version: 100, name: "sender_rule_backfill_pointer", run: addSenderRuleBackfillPointer },
+  { version: 101, name: "draft_materialization_idempotency", run: addDraftMaterializationIdempotency },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

@@ -40,7 +40,9 @@ import {
   mailConversationContextSchema,
   mailingListDispositionInputSchema,
   maintenanceCommandInputSchema,
+  materializeDraftSeedInputSchema,
   mergeConversationsInputSchema,
+  prepareDraftSeedInputSchema,
   providerConnectionInputSchema,
   reassignConversationMessageInputSchema,
   relatedMailPageSchema,
@@ -1537,6 +1539,30 @@ const mailOperationsApi = new Hono<AuthContext>()
     };
     return respond(c, drafts.getDraft(requestContext(c), params.mailboxId, params.draftId));
   })
+  .post("/mailboxes/:mailboxId/draft-seeds", v("param", uuidParamSchema), v("json", prepareDraftSeedInputSchema), async (c) =>
+    respond(
+      c,
+      drafts.prepareDraftSeed({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        origin: c.req.valid("json").origin,
+      }),
+    ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/draft-seeds/materialize",
+    v("param", uuidParamSchema),
+    v("json", materializeDraftSeedInputSchema),
+    async (c) =>
+      respond(
+        c,
+        drafts.materializeDraftSeed({
+          context: requestContext(c),
+          mailboxId: c.req.valid("param").mailboxId,
+          input: c.req.valid("json"),
+        }),
+      ),
+  )
   .post("/mailboxes/:mailboxId/drafts", v("param", uuidParamSchema), v("json", draftContentInputSchema), async (c) =>
     respond(
       c,

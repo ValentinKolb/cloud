@@ -14,6 +14,7 @@ import type {
   DraftRecoveryCopy,
   MailCommand,
   MailDraft,
+  MailDraftSeed,
   MailPriority,
   SenderIdentity,
 } from "../../contracts";
@@ -23,9 +24,11 @@ import MailComposerEditor, { mailComposerPaneVisible } from "./MailComposerEdito
 import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
-import { mailDraftHref } from "./mail-compose-route";
+import { mailDraftHref, mailDraftSeedHref } from "./mail-compose-route";
 import { createMailComposerAttachmentManager } from "./mail-composer-attachment-manager";
+import { focusMailComposerEditorAtStart } from "./mail-composer-editor-focus";
 import { createMailComposerTransition } from "./mail-composer-transition";
+import { removeMailDraftSeed } from "./mail-draft-seed-store";
 import { createMailDraftSession } from "./mail-draft-session";
 import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
 
@@ -47,26 +50,44 @@ const intentIcon = (intent: DraftIntent): string =>
 export default function MailComposer(props: {
   mailboxId: string;
   identities: SenderIdentity[];
-  initialDraft: MailDraft;
+  initialDraft?: MailDraft;
+  initialSeed?: MailDraftSeed;
   popout?: boolean;
   returnHref: string;
   dateConfig: DateContext;
   canShareAttachments?: boolean;
 }) {
+  const initial = props.initialDraft ?? props.initialSeed;
+  if (!initial) throw new Error("MailComposer requires a draft or compose seed");
+  const initialContent = props.initialDraft
+    ? {
+        senderIdentityId: props.initialDraft.senderIdentityId,
+        to: props.initialDraft.to,
+        cc: props.initialDraft.cc,
+        bcc: props.initialDraft.bcc,
+        subject: props.initialDraft.subject,
+        body: props.initialDraft.body,
+        format: props.initialDraft.format,
+        priority: props.initialDraft.priority,
+        requestDeliveryReceipt: props.initialDraft.requestDeliveryReceipt,
+        requestReadReceipt: props.initialDraft.requestReadReceipt,
+      }
+    : props.initialSeed!.content;
   let attachmentInput: HTMLInputElement | undefined;
+  let initialEditorFocusApplied = false;
   const verifiedIdentities = () => props.identities.filter((identity) => identity.status === "verified");
   const preferences = readMailUserPreferences(props.mailboxId);
-  const [identityId, setIdentityId] = createSignal(props.initialDraft.senderIdentityId);
+  const [identityId, setIdentityId] = createSignal(initialContent.senderIdentityId);
   const selectedIdentity = () => verifiedIdentities().find((identity) => identity.id === identityId()) ?? null;
-  const [to, setTo] = createSignal(formatMailRecipients(props.initialDraft.to));
-  const [cc, setCc] = createSignal(formatMailRecipients(props.initialDraft.cc));
-  const [bcc, setBcc] = createSignal(formatMailRecipients(props.initialDraft.bcc));
-  const [subject, setSubject] = createSignal(props.initialDraft.subject);
-  const [body, setBody] = createSignal(props.initialDraft.body);
-  const [format, setFormat] = createSignal<"plain" | "markdown">(props.initialDraft.format);
-  const [priority, setPriority] = createSignal(props.initialDraft.priority);
-  const [requestDeliveryReceipt, setRequestDeliveryReceipt] = createSignal(props.initialDraft.requestDeliveryReceipt);
-  const [requestReadReceipt, setRequestReadReceipt] = createSignal(props.initialDraft.requestReadReceipt);
+  const [to, setTo] = createSignal(formatMailRecipients(initialContent.to));
+  const [cc, setCc] = createSignal(formatMailRecipients(initialContent.cc));
+  const [bcc, setBcc] = createSignal(formatMailRecipients(initialContent.bcc));
+  const [subject, setSubject] = createSignal(initialContent.subject);
+  const [body, setBody] = createSignal(initialContent.body);
+  const [format, setFormat] = createSignal<"plain" | "markdown">(initialContent.format);
+  const [priority, setPriority] = createSignal(initialContent.priority);
+  const [requestDeliveryReceipt, setRequestDeliveryReceipt] = createSignal(initialContent.requestDeliveryReceipt);
+  const [requestReadReceipt, setRequestReadReceipt] = createSignal(initialContent.requestReadReceipt);
   const deliveryOptionsSummary = createMemo(() => {
     const options: string[] = [];
     if (priority() === "high") options.push("high priority");
@@ -75,7 +96,7 @@ export default function MailComposer(props: {
     if (requestReadReceipt()) options.push("read receipt");
     return options;
   });
-  const [showCc, setShowCc] = createSignal(Boolean(props.initialDraft.cc.length || props.initialDraft.bcc.length));
+  const [showCc, setShowCc] = createSignal(Boolean(initialContent.cc.length || initialContent.bcc.length));
   const [composerPanes, setComposerPanes] = createSignal<PanesValue>(readMailComposerPanes());
   const [preview, setPreview] = createSignal<ComposePreview | null>(null);
   const [previewRevision, setPreviewRevision] = createSignal(0);
@@ -84,6 +105,14 @@ export default function MailComposer(props: {
   let disposed = false;
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
   let panePersistenceTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearInitialSeed = () => {
+    if (!props.initialSeed) return;
+    try {
+      removeMailDraftSeed(localStorage, props.mailboxId, props.initialSeed.id);
+    } catch {
+      // Expired local seed cleanup must never block leaving the composer.
+    }
+  };
 
   const content = (): DraftEditableContent => ({
     senderIdentityId: identityId(),
@@ -114,11 +143,24 @@ export default function MailComposer(props: {
   const draftSession = createMailDraftSession({
     mailboxId: props.mailboxId,
     initialDraft: props.initialDraft,
+    initialSeed: props.initialSeed,
     hasVerifiedIdentity: () => verifiedIdentities().length > 0,
     content,
     applyDraftContent,
     isDisposed: () => disposed,
     onRecovered: () => toast("Unsaved changes from this browser were restored.", { title: "Draft recovered" }),
+    onMaterialized: (materialized) => {
+      if (props.initialSeed) {
+        clearInitialSeed();
+        window.history.replaceState(
+          window.history.state,
+          "",
+          mailDraftHref(props.mailboxId, materialized.id, props.returnHref, {
+            popout: props.popout,
+          }),
+        );
+      }
+    },
   });
   const {
     draft,
@@ -135,6 +177,7 @@ export default function MailComposer(props: {
     acquireLease,
     releaseLease,
     resumeCurrentLease,
+    hasUnsavedChanges,
   } = draftSession;
   const previewMutation = mutations.create<ComposePreview, { draft: DraftEditableContentInput; conversationId: string | null }>({
     mutation: async (input, { abortSignal }) => {
@@ -154,9 +197,18 @@ export default function MailComposer(props: {
     () => verifiedIdentities().length > 0 && status() !== "preparing" && status() !== "readonly" && (Boolean(lease()) || !draft()),
   );
   const editable = createMemo(() => canEditDraft() && composerTransition.active() === null);
+  const focusFreshEditorAtStart = (element: HTMLTextAreaElement) => {
+    if (!props.initialSeed || initialEditorFocusApplied) return;
+    queueMicrotask(() => {
+      if (initialEditorFocusApplied || disposed || !editable() || !element.isConnected) return;
+      initialEditorFocusApplied = true;
+      focusMailComposerEditorAtStart(element);
+    });
+  };
   const attachments = createMailComposerAttachmentManager({
     mailboxId: props.mailboxId,
     draft,
+    initialAttachments: () => props.initialSeed?.attachments ?? [],
     setDraft,
     editable,
     persist,
@@ -277,7 +329,7 @@ export default function MailComposer(props: {
       () =>
         void previewMutation.mutate({
           draft: previewDraft,
-          conversationId: draft()?.conversationId ?? props.initialDraft.conversationId,
+          conversationId: draft()?.conversationId ?? initial.conversationId,
         }),
       250,
     );
@@ -297,7 +349,7 @@ export default function MailComposer(props: {
   const validateDelivery = () => {
     if (uploads().length > 0) throw new Error("Finish or cancel attachment uploads before sending.");
     if (to().length + cc().length + bcc().length === 0) throw new Error("Add at least one recipient.");
-    if (!body().trim() && !(draft()?.attachments.length ?? 0)) {
+    if (!body().trim() && !(draft()?.attachments.length ?? props.initialSeed?.attachments.length ?? 0)) {
       throw new Error("Write a message or attach a file before sending.");
     }
   };
@@ -525,7 +577,10 @@ export default function MailComposer(props: {
   const discard = mutations.create<boolean, void>({
     mutation: async (_input, { abortSignal }) => {
       if (uploads().length > 0) throw new Error("Cancel attachment uploads before discarding this draft.");
-      if (!draft()) return true;
+      if (!draft()) {
+        clearInitialSeed();
+        return true;
+      }
       const confirmed = await prompts.confirm("This removes the shared draft for everyone with mailbox access.", {
         title: "Discard draft?",
         confirmText: "Discard draft",
@@ -582,6 +637,11 @@ export default function MailComposer(props: {
     stopScheduledSave();
     let releasedDraft: MailDraft | null = null;
     try {
+      if (!draft() && !hasUnsavedChanges() && typeof href === "string") {
+        clearInitialSeed();
+        navigateTo(href);
+        return;
+      }
       const currentDraft = await persist();
       if (disposed) return void popup?.close();
       if (!currentDraft) throw new Error(statusMessage());
@@ -616,6 +676,11 @@ export default function MailComposer(props: {
   const openWindow = () => {
     const popup = window.open("about:blank", "", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
     if (!popup) return void prompts.error("Allow pop-up windows to open this draft in a separate window.");
+    if (!draft() && !hasUnsavedChanges() && props.initialSeed) {
+      popup.location.replace(mailDraftSeedHref(props.mailboxId, props.initialSeed.id, props.returnHref, { popout: true }));
+      navigateTo(props.returnHref);
+      return;
+    }
     void handoffTo((draftId) => draftHref(draftId, true), popup);
   };
 
@@ -635,7 +700,7 @@ export default function MailComposer(props: {
     }
   };
 
-  const composerIntent = () => draft()?.intent ?? props.initialDraft.intent;
+  const composerIntent = () => draft()?.intent ?? initial.intent;
   const retryPreview = () => setPreviewRevision((revision) => revision + 1);
 
   const slashCompletion = createMemo<Completion[]>(() => [
@@ -650,7 +715,7 @@ export default function MailComposer(props: {
             json: {
               query,
               draft: content(),
-              conversationId: draft()?.conversationId ?? props.initialDraft.conversationId,
+              conversationId: draft()?.conversationId ?? initial.conversationId,
             },
           },
           { init: { signal } },
@@ -782,10 +847,11 @@ export default function MailComposer(props: {
           previewLoading={previewMutation.loading}
           previewError={() => previewMutation.error()?.message}
           onRetryPreview={retryPreview}
+          onEditorReady={focusFreshEditorAtStart}
         />
 
         <MailComposerAttachments
-          attachments={() => draft()?.attachments ?? []}
+          attachments={() => draft()?.attachments ?? props.initialSeed?.attachments ?? []}
           uploads={uploads}
           editable={editable}
           canShare={Boolean(props.canShareAttachments)}
@@ -871,7 +937,7 @@ export default function MailComposer(props: {
             type="button"
             class="icon-btn"
             aria-label="Discard draft"
-            disabled={!draft() || !editable() || discard.loading()}
+            disabled={!editable() || discard.loading()}
             onClick={() => void discardDraft()}
           >
             <i class={`ti ${discard.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" />

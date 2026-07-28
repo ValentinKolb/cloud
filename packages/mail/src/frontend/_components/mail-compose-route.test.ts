@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mailDraftHref, mailDraftReturnHref, mailtoHandlerTemplate, registerMailtoHandler } from "./mail-compose-route";
+import { mailDraftHref, mailDraftReturnHref, mailDraftSeedHref, mailtoHandlerTemplate, registerMailtoHandler } from "./mail-compose-route";
 
 describe("Mail compose routes", () => {
   test("keeps only same-mailbox workspace return locations", () => {
@@ -18,7 +18,19 @@ describe("Mail compose routes", () => {
     expect(mailDraftHref(mailboxId, draftId, `/app/mail/${mailboxId}?view=mine`)).toBe(
       `/app/mail/${mailboxId}/compose/${draftId}?return=%2Fapp%2Fmail%2F${mailboxId}%3Fview%3Dmine`,
     );
-    expect(mailDraftHref(mailboxId, draftId, `/app/mail/${mailboxId}`, { popout: true })).toContain("&window=1");
+    expect(
+      mailDraftHref(mailboxId, draftId, `/app/mail/${mailboxId}`, {
+        popout: true,
+      }),
+    ).toContain("&window=1");
+    expect(mailDraftSeedHref(mailboxId, draftId, `/app/mail/${mailboxId}?view=mine`)).toBe(
+      `/app/mail/${mailboxId}/compose/local/${draftId}?return=%2Fapp%2Fmail%2F${mailboxId}%3Fview%3Dmine`,
+    );
+    expect(
+      mailDraftSeedHref(mailboxId, draftId, `/app/mail/${mailboxId}`, {
+        popout: true,
+      }),
+    ).toContain("&window=1");
   });
 
   test("registers the same-origin mailto landing route and degrades safely", () => {
@@ -33,7 +45,9 @@ describe("Mail compose routes", () => {
     ).toEqual({ kind: "registered" });
     expect(calls).toEqual([["mailto", "https://cloud.example/app/mail/compose?mailto=%s"]]);
     expect(mailtoHandlerTemplate("https://cloud.example")).toBe("https://cloud.example/app/mail/compose?mailto=%s");
-    expect(registerMailtoHandler({}, "https://cloud.example")).toEqual({ kind: "unsupported" });
+    expect(registerMailtoHandler({}, "https://cloud.example")).toEqual({
+      kind: "unsupported",
+    });
     expect(
       registerMailtoHandler(
         {

@@ -12,11 +12,16 @@ import {
   type DraftEditableContentInput,
   type DraftIntent,
   type DraftRecoveryCopy,
+  type DraftSeedOrigin,
   type DeriveDraftFromMessageInput,
   draftContentInputSchema,
+  draftSeedOriginSchema,
   deriveDraftFromMessageInputSchema,
   draftEditableContentInputSchema,
+  type MailDraftSeed,
+  materializeDraftSeedInputSchema,
   MAX_DRAFT_ATTACHMENT_BYTES,
+  type MaterializeDraftSeedInput,
   type MailAddress,
   type MailComposeFormat,
   type MailDraft,
@@ -492,153 +497,650 @@ const storeRecoveryCopy = async (params: {
   `;
 };
 
+type PreparedComposeDraft = {
+  conversationId: string | null;
+  intent: DraftIntent;
+  sourceMessageId: string | null;
+  content: DraftEditableContent;
+  attachments: DraftAttachment[];
+  initialSignatureSource: string | null;
+};
+
+const sourceAttachmentPreviews = async (db: typeof sql, sourceMessageId: string | null): Promise<DraftAttachment[]> => {
+  if (!sourceMessageId) return [];
+  const rows = await db<
+    Array<{
+      id: string;
+      filename: string;
+      content_type: string;
+      byte_length: string | number;
+      content_hash: string;
+      position: string | number;
+      created_at: Date | string;
+    }>
+  >`
+    SELECT
+      attachment.id,
+      left(COALESCE(NULLIF(attachment.filename, ''), 'attachment'), 255) AS filename,
+      left(COALESCE(NULLIF(attachment.content_type, ''), 'application/octet-stream'), 255) AS content_type,
+      blob.byte_length,
+      blob.content_hash,
+      (row_number() OVER (ORDER BY attachment.id) - 1)::int AS position,
+      attachment.created_at
+    FROM mail.attachments attachment
+    JOIN mail.message_part_blobs blob ON blob.id = attachment.blob_id AND blob.complete = true
+    WHERE attachment.message_id = ${sourceMessageId}::uuid
+    ORDER BY attachment.id
+  `;
+  return rows.map((row) => ({
+    id: row.id,
+    filename: row.filename,
+    contentType: row.content_type,
+    byteLength: Number(row.byte_length),
+    contentHash: row.content_hash,
+    position: Number(row.position),
+    createdAt: toIso(row.created_at),
+  }));
+};
+
+const prepareSourceAttachments = async (db: typeof sql, sourceMessageId: string | null): Promise<Result<DraftAttachment[]>> => {
+  if (!sourceMessageId) return ok([]);
+  const [invalid] = await db<{ invalid: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM mail.attachments attachment
+      LEFT JOIN mail.message_part_blobs blob ON blob.id = attachment.blob_id
+      WHERE attachment.message_id = ${sourceMessageId}::uuid
+        AND (blob.id IS NULL OR blob.complete = false OR blob.byte_length > ${MAX_DRAFT_ATTACHMENT_BYTES})
+    ) AS invalid
+  `;
+  return invalid?.invalid
+    ? fail(err.badInput("One or more original attachments cannot be forwarded"))
+    : ok(await sourceAttachmentPreviews(db, sourceMessageId));
+};
+
+const prepareComposeDraftInTransaction = async (params: {
+  db: typeof sql;
+  context: MailRequestContext;
+  mailboxId: string;
+  input: DraftContentInput;
+}): Promise<Result<PreparedComposeDraft>> => {
+  const parsed = draftContentInputSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid draft"));
+  const [mailbox] = await params.db<{ id: string }[]>`
+    SELECT id FROM mail.mailboxes
+    WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
+    FOR SHARE
+  `;
+  if (!mailbox) return fail(err.notFound("Mailbox"));
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", params.db);
+  if (!allowed.ok) return allowed;
+  const identity = await validateIdentity({
+    mailboxId: params.mailboxId,
+    senderIdentityId: parsed.data.senderIdentityId,
+    db: params.db,
+  });
+  if (!identity.ok) return identity;
+  const draftContext = await resolveDraftContext({
+    mailboxId: params.mailboxId,
+    input: parsed.data,
+    db: params.db,
+  });
+  if (!draftContext.ok) return draftContext;
+  if (parsed.data.includeSourceAttachments && draftContext.data.intent !== "forward") {
+    return fail(err.badInput("Original attachments can only be included when forwarding a message"));
+  }
+  const defaultSignature = await resolveDefaultSignatureSource({
+    db: params.db,
+    context: params.context,
+    mailboxId: params.mailboxId,
+    senderIdentityId: parsed.data.senderIdentityId,
+  });
+  const initialSubject =
+    draftContext.data.intent === "reply" || draftContext.data.intent === "reply_all"
+      ? await applyConversationReferenceToReplySubjectInTransaction({
+          db: params.db,
+          mailboxId: params.mailboxId,
+          conversationId: draftContext.data.conversationId!,
+          subject: parsed.data.subject,
+        })
+      : parsed.data.subject;
+  const initialRecipients =
+    draftContext.data.intent === "reply" || draftContext.data.intent === "reply_all"
+      ? await resolveInitialReplyRecipients({
+          db: params.db,
+          mailboxId: params.mailboxId,
+          sourceMessageId: draftContext.data.sourceMessageId!,
+          intent: draftContext.data.intent,
+        })
+      : ok({ to: parsed.data.to, cc: parsed.data.cc });
+  if (!initialRecipients.ok) return initialRecipients;
+  const initialCc = mergeDefaultCc({
+    to: initialRecipients.data.to,
+    cc: initialRecipients.data.cc,
+    bcc: parsed.data.bcc,
+    defaultCc: identity.data.defaultCc,
+  });
+  const initialContent = draftEditableContentInputSchema.safeParse({
+    senderIdentityId: parsed.data.senderIdentityId,
+    to: initialRecipients.data.to,
+    cc: initialCc,
+    bcc: mergeDefaultBcc({
+      to: initialRecipients.data.to,
+      cc: initialCc,
+      bcc: parsed.data.bcc,
+      defaultBcc: identity.data.defaultBcc,
+    }),
+    subject: initialSubject,
+    body: appendSignature(parsed.data.body, defaultSignature, draftContext.data.intent),
+    format: parsed.data.format ?? identity.data.defaultFormat,
+    priority: parsed.data.priority ?? identity.data.defaultPriority,
+    requestDeliveryReceipt: parsed.data.requestDeliveryReceipt ?? identity.data.defaultDeliveryReceipt,
+    requestReadReceipt: parsed.data.requestReadReceipt ?? identity.data.defaultReadReceipt,
+  });
+  if (!initialContent.success) {
+    return fail(err.badInput(initialContent.error.issues[0]?.message ?? "Default signature makes the draft too large"));
+  }
+  const attachments = parsed.data.includeSourceAttachments
+    ? await prepareSourceAttachments(params.db, draftContext.data.sourceMessageId)
+    : ok([]);
+  if (!attachments.ok) return attachments;
+  return ok({
+    ...draftContext.data,
+    content: initialContent.data,
+    attachments: attachments.data,
+    initialSignatureSource: defaultSignature,
+  });
+};
+
+const insertComposeDraftInTransaction = async (params: {
+  db: typeof sql;
+  mailboxId: string;
+  actor: MutableActor;
+  prepared: PreparedComposeDraft;
+  content: DraftEditableContent;
+  materializationKey?: string;
+  materializationRequestHash?: string;
+}): Promise<Result<MailDraft>> => {
+  const identity = await validateIdentity({
+    mailboxId: params.mailboxId,
+    senderIdentityId: params.content.senderIdentityId,
+    db: params.db,
+  });
+  if (!identity.ok) return identity;
+  const [row] = await params.db<DbDraft[]>`
+    INSERT INTO mail.drafts AS d (
+      mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
+      author_kind, author_id, last_editor_kind, last_editor_id,
+      to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format,
+      priority, request_delivery_receipt, request_read_receipt,
+      materialization_key, materialization_request_hash
+    ) VALUES (
+      ${params.mailboxId}::uuid,
+      ${params.prepared.conversationId}::uuid,
+      ${params.prepared.intent},
+      ${params.prepared.sourceMessageId}::uuid,
+      ${params.content.senderIdentityId}::uuid,
+      ${params.actor.kind},
+      ${actorId(params.actor)}::uuid,
+      ${params.actor.kind},
+      ${actorId(params.actor)}::uuid,
+      ${params.content.to}::jsonb,
+      ${params.content.cc}::jsonb,
+      ${params.content.bcc}::jsonb,
+      ${params.content.subject},
+      ${params.content.body},
+      ${params.content.format},
+      ${params.content.priority},
+      ${params.content.requestDeliveryReceipt},
+      ${params.content.requestReadReceipt},
+      ${params.materializationKey ?? null},
+      ${params.materializationRequestHash ?? null}
+    )
+    RETURNING ${draftColumns}
+  `;
+  if (!row) return fail(err.internal("Draft insert returned no row"));
+  let attachmentCount = 0;
+  if (params.prepared.attachments.length > 0 && params.prepared.sourceMessageId) {
+    const copied = await copyForwardAttachments({
+      db: params.db,
+      draftId: row.id,
+      sourceMessageId: params.prepared.sourceMessageId,
+    });
+    if (!copied.ok) return copied;
+    attachmentCount = copied.data;
+  }
+  const [created] = await params.db<DbDraft[]>`
+    SELECT ${draftColumns}
+    FROM mail.drafts d
+    WHERE d.id = ${row.id}::uuid
+  `;
+  if (!created) return fail(err.internal("Created draft could not be loaded"));
+  await insertActivity({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    conversationId: params.prepared.conversationId,
+    actor: params.actor,
+    action: "draft.created",
+    targetType: "draft",
+    targetId: row.id,
+    metadata: {
+      revision: Number(created.revision),
+      intent: params.prepared.intent,
+      sourceMessageId: params.prepared.sourceMessageId,
+      attachmentCount,
+    },
+  });
+  await queueDraftProjectionInTransaction({ db: params.db, draftId: row.id });
+  return ok({
+    ...mapDraft(created),
+    initialSignatureSource: params.prepared.initialSignatureSource,
+  });
+};
+
 export const createDraft = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   input: DraftContentInput;
 }): Promise<Result<MailDraft>> => {
-  const parsed = draftContentInputSchema.safeParse(params.input);
-  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid draft"));
   const actor = mutableActor(params.context);
   if (!actor) return fail(err.forbidden("Draft author is invalid"));
   try {
     const result = await sql.begin(async (tx) => {
-      const [mailbox] = await tx<{ id: string }[]>`
-        SELECT id FROM mail.mailboxes
-        WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL
-        FOR SHARE
-      `;
-      if (!mailbox) return fail(err.notFound("Mailbox"));
-      const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
-      if (!allowed.ok) return allowed;
-      const identity = await validateIdentity({ mailboxId: params.mailboxId, senderIdentityId: parsed.data.senderIdentityId, db: tx });
-      if (!identity.ok) return identity;
-      const draftContext = await resolveDraftContext({ mailboxId: params.mailboxId, input: parsed.data, db: tx });
-      if (!draftContext.ok) return draftContext;
-      if (parsed.data.includeSourceAttachments && draftContext.data.intent !== "forward") {
-        return fail(err.badInput("Original attachments can only be included when forwarding a message"));
-      }
-      const defaultSignature = await resolveDefaultSignatureSource({
+      const prepared = await prepareComposeDraftInTransaction({
+        ...params,
         db: tx,
-        context: params.context,
-        mailboxId: params.mailboxId,
-        senderIdentityId: parsed.data.senderIdentityId,
       });
-      const initialSubject =
-        draftContext.data.intent === "reply" || draftContext.data.intent === "reply_all"
-          ? await applyConversationReferenceToReplySubjectInTransaction({
-              db: tx,
-              mailboxId: params.mailboxId,
-              conversationId: draftContext.data.conversationId!,
-              subject: parsed.data.subject,
-            })
-          : parsed.data.subject;
-      const initialRecipients =
-        draftContext.data.intent === "reply" || draftContext.data.intent === "reply_all"
-          ? await resolveInitialReplyRecipients({
-              db: tx,
-              mailboxId: params.mailboxId,
-              sourceMessageId: draftContext.data.sourceMessageId!,
-              intent: draftContext.data.intent,
-            })
-          : ok({ to: parsed.data.to, cc: parsed.data.cc });
-      if (!initialRecipients.ok) return initialRecipients;
-      const initialBody = appendSignature(parsed.data.body, defaultSignature, draftContext.data.intent);
-      const initialCc = mergeDefaultCc({
-        to: initialRecipients.data.to,
-        cc: initialRecipients.data.cc,
-        bcc: parsed.data.bcc,
-        defaultCc: identity.data.defaultCc,
-      });
-      const initialContent = draftContentInputSchema.safeParse({
-        ...parsed.data,
-        to: initialRecipients.data.to,
-        cc: initialCc,
-        bcc: mergeDefaultBcc({
-          to: initialRecipients.data.to,
-          cc: initialCc,
-          bcc: parsed.data.bcc,
-          defaultBcc: identity.data.defaultBcc,
-        }),
-        subject: initialSubject,
-        body: initialBody,
-        format: parsed.data.format ?? identity.data.defaultFormat,
-        priority: parsed.data.priority ?? identity.data.defaultPriority,
-        requestDeliveryReceipt: parsed.data.requestDeliveryReceipt ?? identity.data.defaultDeliveryReceipt,
-        requestReadReceipt: parsed.data.requestReadReceipt ?? identity.data.defaultReadReceipt,
-      });
-      if (!initialContent.success) {
-        return fail(err.badInput(initialContent.error.issues[0]?.message ?? "Default signature makes the draft too large"));
-      }
-      const [row] = await tx<DbDraft[]>`
-        INSERT INTO mail.drafts AS d (
-          mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
-          author_kind, author_id, last_editor_kind, last_editor_id,
-          to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format,
-          priority, request_delivery_receipt, request_read_receipt
-        ) VALUES (
-          ${params.mailboxId}::uuid,
-          ${draftContext.data.conversationId}::uuid,
-          ${draftContext.data.intent},
-          ${draftContext.data.sourceMessageId}::uuid,
-          ${parsed.data.senderIdentityId}::uuid,
-          ${actor.kind},
-          ${actorId(actor)}::uuid,
-          ${actor.kind},
-          ${actorId(actor)}::uuid,
-          ${initialContent.data.to}::jsonb,
-          ${initialContent.data.cc}::jsonb,
-          ${initialContent.data.bcc}::jsonb,
-          ${initialContent.data.subject},
-          ${initialContent.data.body},
-          ${initialContent.data.format},
-          ${initialContent.data.priority},
-          ${initialContent.data.requestDeliveryReceipt},
-          ${initialContent.data.requestReadReceipt}
-        )
-        RETURNING ${draftColumns}
-      `;
-      if (!row) return fail(err.internal("Draft insert returned no row"));
-      let attachmentCount = 0;
-      if (parsed.data.includeSourceAttachments && draftContext.data.sourceMessageId) {
-        const copied = await copyForwardAttachments({
-          db: tx,
-          draftId: row.id,
-          sourceMessageId: draftContext.data.sourceMessageId,
-        });
-        if (!copied.ok) return copied;
-        attachmentCount = copied.data;
-      }
-      const [created] = await tx<DbDraft[]>`
-        SELECT ${draftColumns}
-        FROM mail.drafts d
-        WHERE d.id = ${row.id}::uuid
-      `;
-      if (!created) return fail(err.internal("Created draft could not be loaded"));
-      await insertActivity({
+      if (!prepared.ok) return prepared;
+      return insertComposeDraftInTransaction({
         db: tx,
         mailboxId: params.mailboxId,
-        conversationId: draftContext.data.conversationId,
         actor,
-        action: "draft.created",
-        targetType: "draft",
-        targetId: row.id,
-        metadata: {
-          revision: Number(created.revision),
-          intent: draftContext.data.intent,
-          sourceMessageId: draftContext.data.sourceMessageId,
-          attachmentCount,
-        },
-      });
-      await queueDraftProjectionInTransaction({ db: tx, draftId: row.id });
-      return ok({
-        ...mapDraft(created),
-        initialSignatureSource: defaultSignature,
+        prepared: prepared.data,
+        content: prepared.data.content,
       });
     });
     return wakeDraftProjection(result);
-  } catch {
+  } catch (error) {
+    log.error("Failed to create draft", { mailboxId: params.mailboxId, error });
     return fail(err.internal("Failed to create draft"));
+  }
+};
+
+type PreparedDerivedDraft = {
+  messageId: string;
+  kind: MailDraft["derivationKind"] & {};
+  content: DraftEditableContent;
+  attachments: DraftAttachment[];
+};
+
+const prepareDerivedDraftInTransaction = async (params: {
+  db: typeof sql;
+  mailboxId: string;
+  messageId: string;
+  input: Omit<DeriveDraftFromMessageInput, "idempotencyKey">;
+}): Promise<Result<PreparedDerivedDraft>> => {
+  const identity = await validateIdentity({
+    mailboxId: params.mailboxId,
+    senderIdentityId: params.input.senderIdentityId,
+    db: params.db,
+  });
+  if (!identity.ok) return identity;
+  const [source] = await params.db<
+    {
+      id: string;
+      subject: string;
+      plain_text: string | null;
+      sanitized_html: string | null;
+      from_addresses: MailAddress[] | string;
+      to_addresses: MailAddress[] | string;
+      cc_addresses: MailAddress[] | string;
+      bcc_addresses: MailAddress[] | string;
+    }[]
+  >`
+    SELECT
+      message.id,
+      message.subject,
+      message.plain_text,
+      message.sanitized_html,
+      COALESCE(addresses.from_addresses, '[]'::jsonb) AS from_addresses,
+      COALESCE(addresses.to_addresses, '[]'::jsonb) AS to_addresses,
+      COALESCE(addresses.cc_addresses, '[]'::jsonb) AS cc_addresses,
+      COALESCE(addresses.bcc_addresses, '[]'::jsonb) AS bcc_addresses
+    FROM mail.message_contents message
+    LEFT JOIN LATERAL (
+      SELECT
+        jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
+          FILTER (WHERE role = 'from') AS from_addresses,
+        jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
+          FILTER (WHERE role = 'to') AS to_addresses,
+        jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
+          FILTER (WHERE role = 'cc') AS cc_addresses,
+        jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
+          FILTER (WHERE role = 'bcc') AS bcc_addresses
+      FROM mail.message_addresses
+      WHERE message_id = message.id
+    ) addresses ON true
+    WHERE message.id = ${params.messageId}::uuid
+      AND message.mailbox_id = ${params.mailboxId}::uuid
+    FOR SHARE OF message
+  `;
+  if (!source) return fail(err.notFound("Message"));
+  if (params.input.kind === "resend") {
+    const from = parseArray(source.from_addresses).map((address) => address.address.trim().toLowerCase());
+    const [owned] = await params.db<{ id: string }[]>`
+      SELECT id
+      FROM mail.sender_identities
+      WHERE mailbox_id = ${params.mailboxId}::uuid
+        AND status = 'verified'
+        AND lower(from_address) IN (
+          SELECT value
+          FROM jsonb_array_elements_text(${from}::jsonb)
+        )
+      LIMIT 1
+    `;
+    if (!owned) return fail(err.badInput("Only a message sent by this mailbox can be resent"));
+  }
+  const content = draftEditableContentInputSchema.safeParse({
+    senderIdentityId: params.input.senderIdentityId,
+    to: parseArray(source.to_addresses),
+    cc: parseArray(source.cc_addresses),
+    bcc: parseArray(source.bcc_addresses),
+    subject: source.subject,
+    body: reusableMessageBody(source.plain_text, source.sanitized_html),
+    format: "plain",
+    priority: identity.data.defaultPriority,
+    requestDeliveryReceipt: identity.data.defaultDeliveryReceipt,
+    requestReadReceipt: identity.data.defaultReadReceipt,
+  });
+  if (!content.success) return fail(err.badInput(content.error.issues[0]?.message ?? "Source message cannot be reused"));
+  const attachments = params.input.includeAttachments ? await prepareSourceAttachments(params.db, params.messageId) : ok([]);
+  if (!attachments.ok) return attachments;
+  return ok({
+    messageId: params.messageId,
+    kind: params.input.kind,
+    content: content.data,
+    attachments: attachments.data,
+  });
+};
+
+const insertDerivedDraftInTransaction = async (params: {
+  db: typeof sql;
+  mailboxId: string;
+  actor: MutableActor;
+  prepared: PreparedDerivedDraft;
+  content: DraftEditableContent;
+  idempotencyKey: string;
+  requestHash: string;
+}): Promise<Result<MailDraft>> => {
+  const identity = await validateIdentity({
+    mailboxId: params.mailboxId,
+    senderIdentityId: params.content.senderIdentityId,
+    db: params.db,
+  });
+  if (!identity.ok) return identity;
+  const [created] = await params.db<DbDraft[]>`
+    INSERT INTO mail.drafts AS d (
+      mailbox_id, conversation_id, intent, source_message_id,
+      derived_from_message_id, derivation_kind, derivation_key, derivation_request_hash,
+      sender_identity_id,
+      author_kind, author_id, last_editor_kind, last_editor_id,
+      to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format,
+      priority, request_delivery_receipt, request_read_receipt
+    ) VALUES (
+      ${params.mailboxId}::uuid, NULL, 'new', NULL,
+      ${params.prepared.messageId}::uuid, ${params.prepared.kind}, ${params.idempotencyKey}, ${params.requestHash},
+      ${params.content.senderIdentityId}::uuid,
+      ${params.actor.kind}, ${actorId(params.actor)}::uuid, ${params.actor.kind}, ${actorId(params.actor)}::uuid,
+      ${params.content.to}::jsonb, ${params.content.cc}::jsonb, ${params.content.bcc}::jsonb,
+      ${params.content.subject}, ${params.content.body}, ${params.content.format},
+      ${params.content.priority}, ${params.content.requestDeliveryReceipt}, ${params.content.requestReadReceipt}
+    )
+    RETURNING ${draftColumns}
+  `;
+  if (!created) return fail(err.internal("Draft insert returned no row"));
+  let attachmentCount = 0;
+  if (params.prepared.attachments.length > 0) {
+    const copied = await copyForwardAttachments({
+      db: params.db,
+      draftId: created.id,
+      sourceMessageId: params.prepared.messageId,
+    });
+    if (!copied.ok) return copied;
+    attachmentCount = copied.data;
+  }
+  const [loaded] = await params.db<DbDraft[]>`
+    SELECT ${draftColumns}
+    FROM mail.drafts d
+    WHERE d.id = ${created.id}::uuid
+  `;
+  if (!loaded) return fail(err.internal("Derived draft could not be loaded"));
+  await insertActivity({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    conversationId: null,
+    actor: params.actor,
+    action: "draft.derived",
+    targetType: "draft",
+    targetId: created.id,
+    metadata: {
+      sourceMessageId: params.prepared.messageId,
+      derivationKind: params.prepared.kind,
+      attachmentCount,
+    },
+  });
+  await queueDraftProjectionInTransaction({
+    db: params.db,
+    draftId: created.id,
+  });
+  return ok(mapDraft(loaded));
+};
+
+const prepareDraftSeedOriginInTransaction = async (params: {
+  db: typeof sql;
+  context: MailRequestContext;
+  mailboxId: string;
+  origin: DraftSeedOrigin;
+}): Promise<Result<Omit<MailDraftSeed, "id" | "mailboxId" | "origin" | "createdAt">>> => {
+  const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", params.db);
+  if (!allowed.ok) return allowed;
+  if (params.origin.kind === "compose") {
+    const prepared = await prepareComposeDraftInTransaction({
+      db: params.db,
+      context: params.context,
+      mailboxId: params.mailboxId,
+      input: params.origin.input,
+    });
+    if (!prepared.ok) return prepared;
+    return ok({
+      conversationId: prepared.data.conversationId,
+      intent: prepared.data.intent,
+      sourceMessageId: prepared.data.sourceMessageId,
+      derivedFromMessageId: null,
+      derivationKind: null,
+      content: prepared.data.content,
+      attachments: prepared.data.attachments,
+      initialSignatureSource: prepared.data.initialSignatureSource,
+    });
+  }
+  const prepared = await prepareDerivedDraftInTransaction({
+    db: params.db,
+    mailboxId: params.mailboxId,
+    messageId: params.origin.messageId,
+    input: params.origin.input,
+  });
+  if (!prepared.ok) return prepared;
+  return ok({
+    conversationId: null,
+    intent: "new",
+    sourceMessageId: null,
+    derivedFromMessageId: prepared.data.messageId,
+    derivationKind: prepared.data.kind,
+    content: prepared.data.content,
+    attachments: prepared.data.attachments,
+    initialSignatureSource: null,
+  });
+};
+
+export const prepareDraftSeed = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  origin: DraftSeedOrigin;
+}): Promise<Result<MailDraftSeed>> => {
+  const parsed = draftSeedOriginSchema.safeParse(params.origin);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid compose request"));
+  if (!mutableActor(params.context)) return fail(err.forbidden("Draft author is invalid"));
+  try {
+    return await sql.begin(async (tx) => {
+      const prepared = await prepareDraftSeedOriginInTransaction({
+        db: tx,
+        context: params.context,
+        mailboxId: params.mailboxId,
+        origin: parsed.data,
+      });
+      if (!prepared.ok) return prepared;
+      const seedOrigin: DraftSeedOrigin =
+        parsed.data.kind === "compose"
+          ? {
+              kind: "compose",
+              input: {
+                senderIdentityId: parsed.data.input.senderIdentityId,
+                to: [],
+                cc: [],
+                bcc: [],
+                subject: "",
+                body: "",
+                conversationId: prepared.data.conversationId,
+                intent: prepared.data.intent,
+                sourceMessageId: prepared.data.sourceMessageId,
+                includeSourceAttachments: prepared.data.attachments.length > 0,
+              },
+            }
+          : parsed.data;
+      return ok({
+        id: crypto.randomUUID(),
+        mailboxId: params.mailboxId,
+        origin: seedOrigin,
+        createdAt: new Date().toISOString(),
+        ...prepared.data,
+      });
+    });
+  } catch (error) {
+    log.error("Failed to prepare draft seed", {
+      mailboxId: params.mailboxId,
+      error,
+    });
+    return fail(err.internal("Failed to prepare message"));
+  }
+};
+
+export const materializeDraftSeed = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: MaterializeDraftSeedInput;
+}): Promise<Result<MailDraft>> => {
+  const parsed = materializeDraftSeedInputSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid compose request"));
+  const actor = mutableActor(params.context);
+  if (!actor) return fail(err.forbidden("Draft author is invalid"));
+  try {
+    const result = await sql.begin(async (tx) => {
+      const requestHash = await sha256Json(parsed.data.origin);
+      const keyColumn = parsed.data.origin.kind === "derive" ? "derivation" : "materialization";
+      const lockKey = [params.mailboxId, actor.kind, actorId(actor), keyColumn, parsed.data.idempotencyKey].join(":");
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+      const existing =
+        parsed.data.origin.kind === "derive"
+          ? (
+              await tx<(DbDraft & { request_hash: string })[]>`
+                SELECT ${draftColumns}, d.derivation_request_hash AS request_hash
+                FROM mail.drafts d
+                WHERE d.mailbox_id = ${params.mailboxId}::uuid
+                  AND d.author_kind = ${actor.kind}
+                  AND d.author_id = ${actorId(actor)}::uuid
+                  AND d.derivation_key = ${parsed.data.idempotencyKey}
+              `
+            )[0]
+          : (
+              await tx<(DbDraft & { request_hash: string })[]>`
+                SELECT ${draftColumns}, d.materialization_request_hash AS request_hash
+                FROM mail.drafts d
+                WHERE d.mailbox_id = ${params.mailboxId}::uuid
+                  AND d.author_kind = ${actor.kind}
+                  AND d.author_id = ${actorId(actor)}::uuid
+                  AND d.materialization_key = ${parsed.data.idempotencyKey}
+              `
+            )[0];
+      if (existing) {
+        return existing.request_hash === requestHash
+          ? ok(mapDraft(existing))
+          : fail(err.conflict("Compose idempotency key conflicts with a different request"));
+      }
+      const validationOrigin: DraftSeedOrigin =
+        parsed.data.origin.kind === "compose"
+          ? {
+              ...parsed.data.origin,
+              input: {
+                ...parsed.data.origin.input,
+                senderIdentityId: parsed.data.draft.senderIdentityId,
+              },
+            }
+          : {
+              ...parsed.data.origin,
+              input: {
+                ...parsed.data.origin.input,
+                senderIdentityId: parsed.data.draft.senderIdentityId,
+              },
+            };
+      const preparedSeed = await prepareDraftSeedOriginInTransaction({
+        db: tx,
+        context: params.context,
+        mailboxId: params.mailboxId,
+        origin: validationOrigin,
+      });
+      if (!preparedSeed.ok) return preparedSeed;
+      if (parsed.data.origin.kind === "derive") {
+        const prepared: PreparedDerivedDraft = {
+          messageId: preparedSeed.data.derivedFromMessageId!,
+          kind: preparedSeed.data.derivationKind!,
+          content: preparedSeed.data.content,
+          attachments: preparedSeed.data.attachments,
+        };
+        return insertDerivedDraftInTransaction({
+          db: tx,
+          mailboxId: params.mailboxId,
+          actor,
+          prepared,
+          content: parsed.data.draft,
+          idempotencyKey: parsed.data.idempotencyKey,
+          requestHash,
+        });
+      }
+      const prepared: PreparedComposeDraft = {
+        conversationId: preparedSeed.data.conversationId,
+        intent: preparedSeed.data.intent,
+        sourceMessageId: preparedSeed.data.sourceMessageId,
+        content: preparedSeed.data.content,
+        attachments: preparedSeed.data.attachments,
+        initialSignatureSource: preparedSeed.data.initialSignatureSource,
+      };
+      return insertComposeDraftInTransaction({
+        db: tx,
+        mailboxId: params.mailboxId,
+        actor,
+        prepared,
+        content: parsed.data.draft,
+        materializationKey: parsed.data.idempotencyKey,
+        materializationRequestHash: requestHash,
+      });
+    });
+    return wakeDraftProjection(result);
+  } catch (error) {
+    log.error("Failed to materialize draft seed", {
+      mailboxId: params.mailboxId,
+      error,
+    });
+    return fail(err.internal("Failed to save draft"));
   }
 };
 
@@ -656,19 +1158,14 @@ export const deriveDraftFromMessage = async (params: {
     const result = await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
-      const requestHash = await sha256Json({
+      const request = {
         messageId: params.messageId,
         kind: parsed.data.kind,
         senderIdentityId: parsed.data.senderIdentityId,
         includeAttachments: parsed.data.includeAttachments,
-      });
-      const derivationLockKey = [
-        params.mailboxId,
-        actor.kind,
-        actorId(actor),
-        "derive",
-        parsed.data.idempotencyKey,
-      ].join(":");
+      };
+      const requestHash = await sha256Json(request);
+      const derivationLockKey = [params.mailboxId, actor.kind, actorId(actor), "derive", parsed.data.idempotencyKey].join(":");
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${derivationLockKey}, 0))`;
       const [existing] = await tx<(DbDraft & { derivation_request_hash: string })[]>`
         SELECT ${draftColumns}, d.derivation_request_hash
@@ -683,127 +1180,22 @@ export const deriveDraftFromMessage = async (params: {
           ? ok(mapDraft(existing))
           : fail(err.conflict("Draft derivation idempotency key conflicts with a different request"));
       }
-      const identity = await validateIdentity({
-        mailboxId: params.mailboxId,
-        senderIdentityId: parsed.data.senderIdentityId,
-        db: tx,
-      });
-      if (!identity.ok) return identity;
-      const [source] = await tx<{
-        id: string;
-        subject: string;
-        plain_text: string | null;
-        sanitized_html: string | null;
-        from_addresses: MailAddress[] | string;
-        to_addresses: MailAddress[] | string;
-        cc_addresses: MailAddress[] | string;
-        bcc_addresses: MailAddress[] | string;
-      }[]>`
-        SELECT
-          message.id,
-          message.subject,
-          message.plain_text,
-          message.sanitized_html,
-          COALESCE(addresses.from_addresses, '[]'::jsonb) AS from_addresses,
-          COALESCE(addresses.to_addresses, '[]'::jsonb) AS to_addresses,
-          COALESCE(addresses.cc_addresses, '[]'::jsonb) AS cc_addresses,
-          COALESCE(addresses.bcc_addresses, '[]'::jsonb) AS bcc_addresses
-        FROM mail.message_contents message
-        LEFT JOIN LATERAL (
-          SELECT
-            jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
-              FILTER (WHERE role = 'from') AS from_addresses,
-            jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
-              FILTER (WHERE role = 'to') AS to_addresses,
-            jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
-              FILTER (WHERE role = 'cc') AS cc_addresses,
-            jsonb_agg(jsonb_build_object('name', display_name, 'address', email) ORDER BY position)
-              FILTER (WHERE role = 'bcc') AS bcc_addresses
-          FROM mail.message_addresses
-          WHERE message_id = message.id
-        ) addresses ON true
-        WHERE message.id = ${params.messageId}::uuid
-          AND message.mailbox_id = ${params.mailboxId}::uuid
-        FOR SHARE OF message
-      `;
-      if (!source) return fail(err.notFound("Message"));
-      if (parsed.data.kind === "resend") {
-        const from = parseArray(source.from_addresses).map((address) => address.address.trim().toLowerCase());
-        const [owned] = await tx<{ id: string }[]>`
-          SELECT id
-          FROM mail.sender_identities
-          WHERE mailbox_id = ${params.mailboxId}::uuid
-            AND status = 'verified'
-            AND lower(from_address) IN (
-              SELECT value
-              FROM jsonb_array_elements_text(${from}::jsonb)
-            )
-          LIMIT 1
-        `;
-        if (!owned) return fail(err.badInput("Only a message sent by this mailbox can be resent"));
-      }
-      const body = reusableMessageBody(source.plain_text, source.sanitized_html);
-      const content = draftEditableContentInputSchema.safeParse({
-        senderIdentityId: parsed.data.senderIdentityId,
-        to: parseArray(source.to_addresses),
-        cc: parseArray(source.cc_addresses),
-        bcc: parseArray(source.bcc_addresses),
-        subject: source.subject,
-        body,
-        format: "plain",
-        priority: identity.data.defaultPriority,
-        requestDeliveryReceipt: identity.data.defaultDeliveryReceipt,
-        requestReadReceipt: identity.data.defaultReadReceipt,
-      });
-      if (!content.success) return fail(err.badInput(content.error.issues[0]?.message ?? "Source message cannot be reused"));
-      const [created] = await tx<DbDraft[]>`
-        INSERT INTO mail.drafts AS d (
-          mailbox_id, conversation_id, intent, source_message_id,
-          derived_from_message_id, derivation_kind, derivation_key, derivation_request_hash,
-          sender_identity_id,
-          author_kind, author_id, last_editor_kind, last_editor_id,
-          to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format,
-          priority, request_delivery_receipt, request_read_receipt
-        ) VALUES (
-          ${params.mailboxId}::uuid, NULL, 'new', NULL,
-          ${params.messageId}::uuid, ${parsed.data.kind}, ${parsed.data.idempotencyKey}, ${requestHash},
-          ${parsed.data.senderIdentityId}::uuid,
-          ${actor.kind}, ${actorId(actor)}::uuid, ${actor.kind}, ${actorId(actor)}::uuid,
-          ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
-          ${content.data.subject}, ${content.data.body}, ${content.data.format},
-          ${content.data.priority}, ${content.data.requestDeliveryReceipt}, ${content.data.requestReadReceipt}
-        )
-        RETURNING ${draftColumns}
-      `;
-      if (!created) return fail(err.internal("Draft insert returned no row"));
-      let attachmentCount = 0;
-      if (parsed.data.includeAttachments) {
-        const copied = await copyForwardAttachments({ db: tx, draftId: created.id, sourceMessageId: params.messageId });
-        if (!copied.ok) return copied;
-        attachmentCount = copied.data;
-      }
-      const [loaded] = await tx<DbDraft[]>`
-        SELECT ${draftColumns}
-        FROM mail.drafts d
-        WHERE d.id = ${created.id}::uuid
-      `;
-      if (!loaded) return fail(err.internal("Derived draft could not be loaded"));
-      await insertActivity({
+      const prepared = await prepareDerivedDraftInTransaction({
         db: tx,
         mailboxId: params.mailboxId,
-        conversationId: null,
+        messageId: params.messageId,
+        input: parsed.data,
+      });
+      if (!prepared.ok) return prepared;
+      return insertDerivedDraftInTransaction({
+        db: tx,
+        mailboxId: params.mailboxId,
         actor,
-        action: "draft.derived",
-        targetType: "draft",
-        targetId: created.id,
-        metadata: {
-          sourceMessageId: params.messageId,
-          derivationKind: parsed.data.kind,
-          attachmentCount,
-        },
+        prepared: prepared.data,
+        content: prepared.data.content,
+        idempotencyKey: parsed.data.idempotencyKey,
+        requestHash,
       });
-      await queueDraftProjectionInTransaction({ db: tx, draftId: created.id });
-      return ok(mapDraft(loaded));
     });
     return wakeDraftProjection(result);
   } catch (error) {

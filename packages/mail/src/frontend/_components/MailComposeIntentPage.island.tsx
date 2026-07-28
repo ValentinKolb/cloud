@@ -2,10 +2,11 @@ import { Placeholder, prompts, Select } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { MailDraft, SenderIdentity } from "../../contracts";
+import type { MailDraftSeed, SenderIdentity } from "../../contracts";
 import { readApiError } from "./api-response";
 import { parseMailtoIntent } from "./mail-compose-intent";
-import { mailDraftHref, mailDraftReturnHref } from "./mail-compose-route";
+import { mailDraftReturnHref, mailDraftSeedHref } from "./mail-compose-route";
+import { storeMailDraftSeed } from "./mail-draft-seed-store";
 
 type WritableMailbox = {
   id: string;
@@ -68,24 +69,29 @@ export default function MailComposeIntentPage(props: {
 
   const selectedMailbox = createMemo(() => props.mailboxes.find((mailbox) => mailbox.id === mailboxId()) ?? null);
   const selectedIdentity = createMemo(() => identities().find((identity) => identity.id === identityId()) ?? null);
-  const draftCreation = mutations.create<MailDraft, { mailboxId: string; identity: SenderIdentity }>({
+  const draftCreation = mutations.create<MailDraftSeed, { mailboxId: string; identity: SenderIdentity }>({
     mutation: async ({ mailboxId: selectedMailboxId, identity }, { abortSignal }) => {
       if (!parsedIntent.ok) throw new Error(parsedIntent.message);
-      const response = await apiClient.mailboxes[":mailboxId"].drafts.$post(
+      const response = await apiClient.mailboxes[":mailboxId"]["draft-seeds"].$post(
         {
           param: { mailboxId: selectedMailboxId },
           json: {
-            senderIdentityId: identity.id,
-            to: parsedIntent.intent.to,
-            cc: parsedIntent.intent.cc,
-            bcc: parsedIntent.intent.bcc,
-            subject: parsedIntent.intent.subject,
-            body: parsedIntent.intent.body,
-            ...(parsedIntent.intent.body ? { format: "plain" as const } : {}),
-            intent: "new",
-            conversationId: null,
-            sourceMessageId: null,
-            includeSourceAttachments: false,
+            origin: {
+              kind: "compose",
+              input: {
+                senderIdentityId: identity.id,
+                to: parsedIntent.intent.to,
+                cc: parsedIntent.intent.cc,
+                bcc: parsedIntent.intent.bcc,
+                subject: parsedIntent.intent.subject,
+                body: parsedIntent.intent.body,
+                ...(parsedIntent.intent.body ? { format: "plain" as const } : {}),
+                intent: "new",
+                conversationId: null,
+                sourceMessageId: null,
+                includeSourceAttachments: false,
+              },
+            },
           },
         },
         { init: { signal: abortSignal } },
@@ -93,10 +99,18 @@ export default function MailComposeIntentPage(props: {
       if (!response.ok) throw new Error(await readApiError(response, "Could not create draft"));
       return response.json();
     },
-    onSuccess: (draft) => {
-      const fallbackReturnHref = `/app/mail/${draft.mailboxId}`;
-      const returnHref = props.returnHref ? mailDraftReturnHref(props.returnHref, draft.mailboxId) : fallbackReturnHref;
-      window.location.replace(mailDraftHref(draft.mailboxId, draft.id, returnHref));
+    onSuccess: (seed) => {
+      try {
+        storeMailDraftSeed(localStorage, seed);
+      } catch {
+        void prompts.error("The browser could not keep this message locally. Free some site storage and try again.", {
+          title: "Could not start message",
+        });
+        return;
+      }
+      const fallbackReturnHref = `/app/mail/${seed.mailboxId}`;
+      const returnHref = props.returnHref ? mailDraftReturnHref(props.returnHref, seed.mailboxId) : fallbackReturnHref;
+      window.location.replace(mailDraftSeedHref(seed.mailboxId, seed.id, returnHref));
     },
     onError: (error) => prompts.error(error.message, { title: "Could not start message" }),
   });

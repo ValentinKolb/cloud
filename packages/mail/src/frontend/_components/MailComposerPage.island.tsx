@@ -1,11 +1,12 @@
 import type { DateContext } from "@valentinkolb/stdlib";
-import type { MailDraft, SenderIdentity } from "../../contracts";
+import type { MailDraft, MailDraftSeed, SenderIdentity } from "../../contracts";
 import MailComposer from "./MailComposer";
 
 export default function MailComposerPage(props: {
   mailboxId: string;
   identities: SenderIdentity[];
-  initialDraft: MailDraft;
+  initialDraft?: MailDraft;
+  initialSeed?: MailDraftSeed;
   returnHref: string;
   popout?: boolean;
   dateConfig: DateContext;
@@ -18,6 +19,7 @@ export default function MailComposerPage(props: {
           mailboxId={props.mailboxId}
           identities={props.identities}
           initialDraft={props.initialDraft}
+          initialSeed={props.initialSeed}
           popout={props.popout}
           returnHref={props.returnHref}
           dateConfig={props.dateConfig}

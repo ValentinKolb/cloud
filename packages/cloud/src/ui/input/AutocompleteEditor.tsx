@@ -106,6 +106,8 @@ export type AutocompleteEditorProps = {
   ariaInvalid?: boolean;
   ariaRequired?: boolean;
   maxLength?: number;
+  /** Receives the underlying textarea for explicit focus and selection control. */
+  textareaRef?: (element: HTMLTextAreaElement) => void;
   /** Visual error state — adds red border. */
   error?: boolean;
   /** Visual variant. Defaults to the compact zinc input surface. */
@@ -556,7 +558,10 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
           <div ref={(el) => (previewEl = el)} class="ac-editor-layer ac-editor-preview" aria-hidden="true" />
         </Show>
         <textarea
-          ref={(el) => (textareaEl = el)}
+          ref={(el) => {
+            textareaEl = el;
+            props.textareaRef?.(el);
+          }}
           id={props.id}
           name={props.name}
           class={useOverlay() ? "ac-editor-layer ac-editor-input ac-editor-input--overlay" : "ac-editor-layer ac-editor-input"}

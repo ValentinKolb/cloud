@@ -121,6 +121,9 @@ suite("mail migrations", () => {
         outbox_review_present: boolean;
         derivation_columns_present: boolean;
         derivation_index_present: boolean;
+        materialization_migration_count: number;
+        materialization_columns_present: boolean;
+        materialization_index_present: boolean;
       }[]
     >`
       SELECT
@@ -152,12 +155,25 @@ suite("mail migrations", () => {
               'derivation_request_hash'
             )
         ) AS derivation_columns_present,
-        to_regclass('mail.drafts_derivation_idempotency_idx') IS NOT NULL AS derivation_index_present
+        to_regclass('mail.drafts_derivation_idempotency_idx') IS NOT NULL AS derivation_index_present,
+        (
+          SELECT count(*) FROM mail.schema_migrations
+          WHERE version = 101 AND name = 'draft_materialization_idempotency'
+        ) AS materialization_migration_count,
+        (
+          SELECT count(*) = 2
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'drafts'
+            AND column_name IN ('materialization_key', 'materialization_request_hash')
+        ) AS materialization_columns_present,
+        to_regclass('mail.drafts_materialization_idempotency_idx') IS NOT NULL AS materialization_index_present
     `;
     expect({
       ...shape,
       safety_migration_count: Number(shape?.safety_migration_count),
       idempotency_migration_count: Number(shape?.idempotency_migration_count),
+      materialization_migration_count: Number(shape?.materialization_migration_count),
     }).toEqual({
       safety_migration_count: 1,
       idempotency_migration_count: 1,
@@ -165,6 +181,9 @@ suite("mail migrations", () => {
       outbox_review_present: true,
       derivation_columns_present: true,
       derivation_index_present: true,
+      materialization_migration_count: 1,
+      materialization_columns_present: true,
+      materialization_index_present: true,
     });
   });
 

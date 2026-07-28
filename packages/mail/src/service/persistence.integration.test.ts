@@ -28,6 +28,8 @@ import {
   getDraft,
   listConversationDrafts,
   listDraftRecoveryCopies,
+  materializeDraftSeed,
+  prepareDraftSeed,
   removeDraftAttachment,
   restoreDraftRecoveryCopy,
   updateDraft,
@@ -185,6 +187,68 @@ suite("mail PostgreSQL foundation", () => {
         sender_identity_id, binding_id, provider_principal, verified_at, saves_sent_automatically
       ) VALUES (${identity!.id}::uuid, ${binding!.id}::uuid, 'sender@example.com', now(), true)
     `;
+
+    const [draftCountBeforeSeed] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM mail.drafts
+      WHERE mailbox_id = ${mailbox.data.id}::uuid
+    `;
+    const preparedSeed = await prepareDraftSeed({
+      context,
+      mailboxId: mailbox.data.id,
+      origin: {
+        kind: "compose",
+        input: {
+          senderIdentityId: identity!.id,
+          to: [],
+          cc: [],
+          bcc: [],
+          subject: "",
+          body: "",
+          intent: "new",
+          conversationId: null,
+          sourceMessageId: null,
+          includeSourceAttachments: false,
+        },
+      },
+    });
+    expect(preparedSeed.ok).toBe(true);
+    if (!preparedSeed.ok) return;
+    const [draftCountAfterSeed] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM mail.drafts
+      WHERE mailbox_id = ${mailbox.data.id}::uuid
+    `;
+    expect(draftCountAfterSeed?.count).toBe(draftCountBeforeSeed?.count);
+
+    const materializedSeed = await materializeDraftSeed({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        idempotencyKey: preparedSeed.data.id,
+        origin: preparedSeed.data.origin,
+        draft: { ...preparedSeed.data.content, body: "First meaningful edit" },
+      },
+    });
+    expect(materializedSeed.ok).toBe(true);
+    if (!materializedSeed.ok) return;
+
+    const replayedMaterialization = await materializeDraftSeed({
+      context,
+      mailboxId: mailbox.data.id,
+      input: {
+        idempotencyKey: preparedSeed.data.id,
+        origin: preparedSeed.data.origin,
+        draft: { ...preparedSeed.data.content, body: "A later retry payload" },
+      },
+    });
+    expect(replayedMaterialization.ok && replayedMaterialization.data.id).toBe(materializedSeed.data.id);
+    const [draftCountAfterMaterialization] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM mail.drafts
+      WHERE mailbox_id = ${mailbox.data.id}::uuid
+    `;
+    expect(draftCountAfterMaterialization?.count).toBe((draftCountBeforeSeed?.count ?? 0) + 1);
 
     const mailboxConnections = await listProviderConnections(context, mailbox.data.id);
     expect(mailboxConnections.ok).toBe(true);

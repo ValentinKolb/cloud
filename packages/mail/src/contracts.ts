@@ -2455,6 +2455,53 @@ export const deriveDraftFromMessageInputSchema = z
   .strict();
 export type DeriveDraftFromMessageInput = z.input<typeof deriveDraftFromMessageInputSchema>;
 
+export const draftSeedOriginSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("compose"),
+      input: draftContentInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("derive"),
+      messageId: z.string().uuid(),
+      input: deriveDraftFromMessageInputSchema.omit({ idempotencyKey: true }),
+    })
+    .strict(),
+]);
+export type DraftSeedOrigin = z.infer<typeof draftSeedOriginSchema>;
+
+export const prepareDraftSeedInputSchema = z.object({ origin: draftSeedOriginSchema }).strict();
+export type PrepareDraftSeedInput = z.infer<typeof prepareDraftSeedInputSchema>;
+
+export const mailDraftSeedSchema = z
+  .object({
+    id: z.string().uuid(),
+    mailboxId: z.string().uuid(),
+    conversationId: z.string().uuid().nullable(),
+    intent: draftIntentSchema,
+    sourceMessageId: z.string().uuid().nullable(),
+    derivedFromMessageId: z.string().uuid().nullable(),
+    derivationKind: draftDerivationKindSchema.nullable(),
+    content: draftEditableContentInputSchema,
+    attachments: z.array(draftAttachmentSchema),
+    initialSignatureSource: z.string().nullable(),
+    origin: draftSeedOriginSchema,
+    createdAt: z.string().datetime(),
+  })
+  .strict();
+export type MailDraftSeed = z.infer<typeof mailDraftSeedSchema>;
+
+export const materializeDraftSeedInputSchema = z
+  .object({
+    idempotencyKey: z.string().uuid(),
+    origin: draftSeedOriginSchema,
+    draft: draftEditableContentInputSchema,
+  })
+  .strict();
+export type MaterializeDraftSeedInput = z.infer<typeof materializeDraftSeedInputSchema>;
+
 export const composeSafetyWarningSchema = z
   .object({
     id: composeSafetyWarningIdSchema,

@@ -14,7 +14,7 @@ import {
   updateComposeTemplate,
   updateMailboxComposeStyle,
 } from "./compose-templates";
-import { createDraft } from "./drafts";
+import { createDraft, prepareDraftSeed } from "./drafts";
 import { createMailbox } from "./mailboxes";
 import { updateSenderIdentity } from "./sender-identities";
 
@@ -237,6 +237,41 @@ suite("mail compose templates", () => {
     if (!identityDefaults.ok) return;
     expect(identityDefaults.data.defaultSignatureTemplateId).toBe(mailboxSignature.data.id);
 
+    const signatureSource = markComposeTemplateSegment("Regards,\n{{ actor.display_name }}");
+    const [draftCountBeforeSeed] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM mail.drafts
+      WHERE mailbox_id = ${mailboxId}::uuid
+    `;
+    const seed = await prepareDraftSeed({
+      context: owner,
+      mailboxId,
+      origin: {
+        kind: "compose",
+        input: {
+          conversationId: null,
+          intent: "new",
+          sourceMessageId: null,
+          senderIdentityId,
+          to: [{ name: null, address: "reader@example.test" }],
+          cc: [],
+          bcc: [],
+          subject: "Hello",
+          body: "",
+        },
+      },
+    });
+    expect(seed.ok).toBe(true);
+    if (!seed.ok) return;
+    expect(seed.data.content.body).toBe(signatureSource);
+    expect(seed.data.initialSignatureSource).toBe(signatureSource);
+    const [draftCountAfterSeed] = await sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM mail.drafts
+      WHERE mailbox_id = ${mailboxId}::uuid
+    `;
+    expect(draftCountAfterSeed?.count).toBe(draftCountBeforeSeed?.count);
+
     const draft = await createDraft({
       context: owner,
       mailboxId,
@@ -254,7 +289,6 @@ suite("mail compose templates", () => {
     });
     expect(draft.ok).toBe(true);
     if (!draft.ok) return;
-    const signatureSource = markComposeTemplateSegment("Regards,\n{{ actor.display_name }}");
     expect(draft.data.body).toBe(`Message body\n\n${signatureSource}`);
     expect(draft.data.initialSignatureSource).toBe(signatureSource);
     expect(draft.data.cc).toEqual([

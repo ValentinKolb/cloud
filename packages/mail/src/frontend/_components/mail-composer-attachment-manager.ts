@@ -3,7 +3,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { Accessor, Setter } from "solid-js";
 import { createSignal, onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { CreateAttachmentLinkInput, CreatedAttachmentLink, MailDraft } from "../../contracts";
+import type { CreateAttachmentLinkInput, CreatedAttachmentLink, DraftAttachment, MailDraft } from "../../contracts";
 import { readApiError } from "./api-response";
 import { promptAttachmentLinkOptions } from "./attachment-link-ui";
 import type { MailComposerUpload } from "./MailComposerAttachments";
@@ -12,6 +12,7 @@ import type { createMailComposerTransition } from "./mail-composer-transition";
 export const createMailComposerAttachmentManager = (options: {
   mailboxId: string;
   draft: Accessor<MailDraft | null>;
+  initialAttachments: Accessor<DraftAttachment[]>;
   setDraft: Setter<MailDraft | null>;
   editable: Accessor<boolean>;
   persist: () => Promise<MailDraft | null>;
@@ -23,6 +24,18 @@ export const createMailComposerAttachmentManager = (options: {
 }) => {
   const [uploads, setUploads] = createSignal<MailComposerUpload[]>([]);
   const uploadControllers = new Map<File, AbortController>();
+  const materializedAttachmentId = (requestedId: string, currentDraft: MailDraft): string => {
+    const initial = options.initialAttachments().find((attachment) => attachment.id === requestedId);
+    if (!initial) return requestedId;
+    return (
+      currentDraft.attachments.find(
+        (attachment) =>
+          attachment.contentHash === initial.contentHash &&
+          attachment.position === initial.position &&
+          attachment.filename === initial.filename,
+      )?.id ?? requestedId
+    );
+  };
 
   const uploadFile = async (file: File) => {
     const controller = new AbortController();
@@ -121,11 +134,13 @@ export const createMailComposerAttachmentManager = (options: {
     const reservation = options.transition.reserve("attachment");
     if (!reservation) return;
     try {
+      const saved = options.draft() ?? (await options.persist());
+      if (!saved) return;
       await options.serializeDraftMutation(async () => {
-        const currentDraft = options.draft();
-        if (!currentDraft) return;
+        const currentDraft = options.draft() ?? saved;
+        const persistedAttachmentId = materializedAttachmentId(attachmentId, currentDraft);
         const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].attachments[":attachmentId"].$delete({
-          param: { mailboxId: options.mailboxId, draftId: currentDraft.id, attachmentId },
+          param: { mailboxId: options.mailboxId, draftId: currentDraft.id, attachmentId: persistedAttachmentId },
           query: { expectedRevision: String(currentDraft.revision) },
         });
         if (!response.ok) return await prompts.error(await readApiError(response, "Failed to remove attachment"));
@@ -138,11 +153,12 @@ export const createMailComposerAttachmentManager = (options: {
 
   const shareAttachment = mutations.create<CreatedAttachmentLink, { attachmentId: string; input: CreateAttachmentLinkInput }>({
     mutation: async ({ attachmentId, input }, { abortSignal }) => {
-      const currentDraft = options.draft();
+      const currentDraft = options.draft() ?? (await options.persist());
       if (!currentDraft) throw new Error("Save the draft before sharing an attachment.");
+      const persistedAttachmentId = materializedAttachmentId(attachmentId, currentDraft);
       const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].attachments[":attachmentId"].links.$post(
         {
-          param: { mailboxId: options.mailboxId, draftId: currentDraft.id, attachmentId },
+          param: { mailboxId: options.mailboxId, draftId: currentDraft.id, attachmentId: persistedAttachmentId },
           json: input,
         },
         { init: { signal: abortSignal } },

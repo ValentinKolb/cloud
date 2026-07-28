@@ -9,7 +9,7 @@ import type {
   DeriveDraftFromMessageInput,
   DraftDerivationKind,
   DraftIntent,
-  MailDraft,
+  MailDraftSeed,
   SenderIdentity,
 } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
@@ -18,7 +18,8 @@ import { openMailConversationToolbarDialog } from "./MailConversationToolbarDial
 import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
 import { deriveReplyIdentityId, forwardMessageBody, forwardSubject, replySubject } from "./mail-compose-derivation";
-import { mailDraftHref } from "./mail-compose-route";
+import { mailDraftHref, mailDraftSeedHref } from "./mail-compose-route";
+import { storeMailDraftSeed } from "./mail-draft-seed-store";
 import { initialConversationMessageId, isNearConversationStart, newestFirstMessages } from "./mail-conversation-history";
 import { MAIL_CONVERSATION_TOOLBAR_SECTIONS, type MailConversationToolbarActionId } from "./mail-conversation-toolbar";
 import { messageDeliveryAllowsResponses } from "./mail-message-presentation";
@@ -165,6 +166,18 @@ export default function MailConversationReader(props: {
     documentNavigate(mailDraftHref(props.mailboxId, draftId, props.requestUrl));
   };
 
+  const openDraftSeed = (seed: MailDraftSeed) => {
+    try {
+      storeMailDraftSeed(localStorage, seed);
+    } catch {
+      void prompts.error("The browser could not keep this message locally. Free some site storage and try again.", {
+        title: "Could not start message",
+      });
+      return;
+    }
+    documentNavigate(mailDraftSeedHref(props.mailboxId, seed.id, props.requestUrl));
+  };
+
   const chooseConversationDraft = async (lookup: DraftLookup, existingDrafts: ConversationDraftSummary[]) => {
     if (!isCurrentLookup(lookup)) return;
     if (existingDrafts.length === 0) return void createConversationDraft(lookup);
@@ -263,23 +276,28 @@ export default function MailConversationReader(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const createdDraft = mutations.create<MailDraft, { lookup: DraftLookup; senderIdentityId: string }, DraftLookup>({
+  const createdDraft = mutations.create<MailDraftSeed, { lookup: DraftLookup; senderIdentityId: string }, DraftLookup>({
     onBefore: ({ lookup }) => lookup,
     mutation: async ({ lookup, senderIdentityId }, { abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"].drafts.$post(
+      const response = await apiClient.mailboxes[":mailboxId"]["draft-seeds"].$post(
         {
           param: { mailboxId: props.mailboxId },
           json: {
-            senderIdentityId,
-            to: [],
-            cc: [],
-            bcc: [],
-            subject: lookup.request.intent === "forward" ? forwardSubject(props.subject) : replySubject(props.subject),
-            body: lookup.request.quotedBody ?? "",
-            conversationId: lookup.conversationId,
-            intent: lookup.request.intent,
-            sourceMessageId: lookup.request.message.id,
-            includeSourceAttachments: lookup.request.intent === "forward" && lookup.request.message.attachments.length > 0,
+            origin: {
+              kind: "compose",
+              input: {
+                senderIdentityId,
+                to: [],
+                cc: [],
+                bcc: [],
+                subject: lookup.request.intent === "forward" ? forwardSubject(props.subject) : replySubject(props.subject),
+                body: lookup.request.quotedBody ?? "",
+                conversationId: lookup.conversationId,
+                intent: lookup.request.intent,
+                sourceMessageId: lookup.request.message.id,
+                includeSourceAttachments: lookup.request.intent === "forward" && lookup.request.message.attachments.length > 0,
+              },
+            },
           },
         },
         { init: { signal: abortSignal } },
@@ -287,8 +305,8 @@ export default function MailConversationReader(props: {
       if (!response.ok) throw new Error(await readApiError(response, "Could not create draft"));
       return response.json();
     },
-    onSuccess: (draft, lookup) => {
-      if (lookup && isCurrentLookup(lookup)) openConversationDraft(lookup, draft.id);
+    onSuccess: (seed, lookup) => {
+      if (lookup && isCurrentLookup(lookup)) openDraftSeed(seed);
     },
     onError: (error) => prompts.error(error.message, { title: "Could not start message" }),
   });
@@ -345,35 +363,42 @@ export default function MailConversationReader(props: {
   };
 
   const derivedDraft = mutations.create<
-    MailDraft,
-    { message: MessageDetail; input: DeriveDraftFromMessageInput },
-    { message: MessageDetail; idempotencyKey: string }
+    MailDraftSeed,
+    {
+      message: MessageDetail;
+      input: Omit<DeriveDraftFromMessageInput, "idempotencyKey">;
+    },
+    { message: MessageDetail }
   >({
-    onBefore: ({ message, input }) => ({ message, idempotencyKey: input.idempotencyKey }),
+    onBefore: ({ message }) => ({ message }),
     mutation: async ({ message, input }, { abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["derive-draft"].$post(
+      const response = await apiClient.mailboxes[":mailboxId"]["draft-seeds"].$post(
         {
-          param: { mailboxId: props.mailboxId, messageId: message.id },
-          json: input,
+          param: { mailboxId: props.mailboxId },
+          json: {
+            origin: {
+              kind: "derive",
+              messageId: message.id,
+              input: {
+                kind: input.kind,
+                senderIdentityId: input.senderIdentityId,
+                includeAttachments: input.includeAttachments,
+              },
+            },
+          },
         },
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not create a draft from this message"));
       return response.json();
     },
-    onSuccess: (created, context) => {
-      if (context) {
-        for (const [requestKey, idempotencyKey] of derivationKeys) {
-          if (idempotencyKey === context.idempotencyKey) derivationKeys.delete(requestKey);
-        }
-      }
+    onSuccess: (seed, context) => {
       if (context && props.messages.some((message) => message.id === context.message.id)) {
-        documentNavigate(mailDraftHref(props.mailboxId, created.id, props.requestUrl));
+        openDraftSeed(seed);
       }
     },
     onError: (error) => prompts.error(error.message),
   });
-  const derivationKeys = new Map<string, string>();
   const composerBusy = () => conversationDrafts.loading() || createdDraft.loading() || derivedDraft.loading();
 
   const startComposer = (intent: DraftIntent, message: MessageDetail, quotedBody?: string) => {
@@ -430,7 +455,7 @@ export default function MailConversationReader(props: {
                   })
                 }
               >
-                <i class="ti ti-file-pencil" aria-hidden="true" /> Create draft
+                <i class="ti ti-file-pencil" aria-hidden="true" /> Continue
               </button>
             </div>
           </div>
@@ -443,10 +468,7 @@ export default function MailConversationReader(props: {
       },
     );
     if (choice && !disposed && selectionKey === props.selectionKey && props.messages.some((current) => current.id === message.id)) {
-      const requestKey = JSON.stringify([message.id, choice.kind, choice.senderIdentityId, choice.includeAttachments]);
-      const idempotencyKey = derivationKeys.get(requestKey) ?? crypto.randomUUID();
-      derivationKeys.set(requestKey, idempotencyKey);
-      derivedDraft.mutate({ message, input: { ...choice, idempotencyKey } });
+      derivedDraft.mutate({ message, input: choice });
     }
   };
 

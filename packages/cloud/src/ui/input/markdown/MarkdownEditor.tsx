@@ -50,6 +50,8 @@ export type MarkdownEditorProps = {
   spellcheck?: boolean;
   name?: string;
   maxLength?: number;
+  /** Receives the underlying textarea for explicit focus and selection control. */
+  textareaRef?: (element: HTMLTextAreaElement) => void;
   /**
    * AutoText dictionary — convenience shortcut for the most common
    * completion shape: a fixed `{ short: long }` map. Internally
@@ -781,7 +783,10 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
         </Show>
         <div ref={(el) => (previewEl = el)} class="md-editor-layer md-editor-preview" aria-hidden="true" />
         <textarea
-          ref={(el) => (textareaEl = el)}
+          ref={(el) => {
+            textareaEl = el;
+            props.textareaRef?.(el);
+          }}
           id={props.id}
           name={props.name}
           class="md-editor-layer md-editor-input"

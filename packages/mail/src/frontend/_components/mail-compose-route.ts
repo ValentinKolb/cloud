@@ -14,6 +14,12 @@ export const mailDraftHref = (mailboxId: string, draftId: string, returnHref: st
   return `/app/mail/${mailboxId}/compose/${draftId}?${query}`;
 };
 
+export const mailDraftSeedHref = (mailboxId: string, seedId: string, returnHref: string, options: { popout?: boolean } = {}): string => {
+  const query = new URLSearchParams({ return: mailDraftReturnHref(returnHref, mailboxId) });
+  if (options.popout) query.set("window", "1");
+  return `/app/mail/${mailboxId}/compose/local/${seedId}?${query}`;
+};
+
 export const mailtoHandlerTemplate = (origin: string): string => `${origin.replace(/\/+$/, "")}/app/mail/compose?mailto=%s`;
 
 type MailtoRegistrationResult = { kind: "registered" } | { kind: "unsupported" } | { kind: "failed"; message: string };

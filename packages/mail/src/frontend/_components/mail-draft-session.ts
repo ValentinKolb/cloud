@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { AcquiredDraftLease, DraftEditableContent, MailDraft } from "../../contracts";
+import type { AcquiredDraftLease, DraftEditableContent, MailDraft, MailDraftSeed } from "../../contracts";
 import { readApiError } from "./api-response";
 import { advanceMailDraftJournalAfterSave, type MailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
 
@@ -35,25 +35,31 @@ const draftEditableContent = (draft: MailDraft): DraftEditableContent => ({
   requestReadReceipt: draft.requestReadReceipt,
 });
 
+export const draftSeedContentChanged = (seed: MailDraftSeed, content: DraftEditableContent): boolean =>
+  JSON.stringify(content) !== JSON.stringify(seed.content);
+
 export const createMailDraftSession = (options: {
   mailboxId: string;
-  initialDraft: MailDraft;
+  initialDraft?: MailDraft;
+  initialSeed?: MailDraftSeed;
   hasVerifiedIdentity: () => boolean;
   content: () => DraftEditableContent;
   applyDraftContent: (content: DraftEditableContent) => void;
   isDisposed: () => boolean;
   onRecovered: () => void;
+  onMaterialized: (draft: MailDraft) => void;
 }) => {
-  const [draft, setDraft] = createSignal<MailDraft | null>(options.initialDraft);
+  const [draft, setDraft] = createSignal<MailDraft | null>(options.initialDraft ?? null);
   const [lease, setLease] = createSignal<AcquiredDraftLease | null>(null);
-  const [status, setStatus] = createSignal<ComposerStatus>("preparing");
-  const [statusMessage, setStatusMessage] = createSignal("Preparing draft...");
+  const [status, setStatus] = createSignal<ComposerStatus>(options.initialSeed ? "local" : "preparing");
+  const [statusMessage, setStatusMessage] = createSignal(options.initialSeed ? "" : "Preparing draft...");
   const [initialized, setInitialized] = createSignal(false);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatGeneration = 0;
   let initializePromise: Promise<MailDraft | null> | null = null;
-  let lastSavedContent = "";
+  const seedBaseline = options.initialSeed ? JSON.stringify(options.initialSeed.content) : null;
+  let lastSavedContent = seedBaseline ?? "";
   const serializeMutation = createSerializedDraftMutationQueue();
 
   const serializedContent = () => JSON.stringify(options.content());
@@ -210,9 +216,44 @@ export const createMailDraftSession = (options: {
   };
 
   const persist = async (): Promise<MailDraft | null> => {
-    if (!draft() || !lease()) await ensureDraft();
     return await serializeMutation(async () => {
-      const currentDraft = draft();
+      let currentDraft = draft();
+      if (!currentDraft && options.initialSeed) {
+        const nextContent = options.content();
+        setStatus("saving");
+        setStatusMessage("Saving draft...");
+        const response = await apiClient.mailboxes[":mailboxId"]["draft-seeds"].materialize.$post({
+          param: { mailboxId: options.mailboxId },
+          json: {
+            idempotencyKey: options.initialSeed.id,
+            origin: options.initialSeed.origin,
+            draft: nextContent,
+          },
+        });
+        if (!response.ok) {
+          if (options.isDisposed()) return null;
+          setStatus("error");
+          setStatusMessage(await readApiError(response, "Draft could not be saved"));
+          return null;
+        }
+        currentDraft = await response.json();
+        lastSavedContent = JSON.stringify(draftEditableContent(currentDraft));
+        setDraft(currentDraft);
+        try {
+          options.onMaterialized(currentDraft);
+        } catch {
+          // URL and local-seed cleanup are best-effort; the durable draft remains authoritative.
+        }
+        if (options.isDisposed()) return currentDraft;
+        const acquired = await acquireLease(currentDraft);
+        if (!acquired) return currentDraft;
+        setStatus("saved");
+        setStatusMessage("");
+        return currentDraft;
+      }
+      if (!currentDraft || !lease()) {
+        currentDraft = await ensureDraft();
+      }
       if (!currentDraft || !lease()) return null;
       const nextContent = options.content();
       const serialized = JSON.stringify(nextContent);
@@ -298,7 +339,15 @@ export const createMailDraftSession = (options: {
   createEffect(() => {
     const serialized = serializedContent();
     const currentDraft = draft();
-    if (!initialized() || !currentDraft || serialized === lastSavedContent) return;
+    if (!initialized() || serialized === lastSavedContent) {
+      if (!currentDraft && seedBaseline === serialized) stopScheduledSave();
+      return;
+    }
+    if (!currentDraft) {
+      stopScheduledSave();
+      saveTimer = setTimeout(() => void persist(), 700);
+      return;
+    }
     localStorage.setItem(
       draftKey(currentDraft.id),
       JSON.stringify({
@@ -317,6 +366,10 @@ export const createMailDraftSession = (options: {
     if (!options.hasVerifiedIdentity()) {
       setStatus("readonly");
       setStatusMessage("Configure and verify an identity before composing mail.");
+      return;
+    }
+    if (options.initialSeed) {
+      setInitialized(true);
       return;
     }
     void ensureDraft();
@@ -354,5 +407,9 @@ export const createMailDraftSession = (options: {
     markCurrentContentSaved: () => {
       lastSavedContent = serializedContent();
     },
+    hasUnsavedChanges: () =>
+      !draft() && options.initialSeed
+        ? draftSeedContentChanged(options.initialSeed, options.content())
+        : serializedContent() !== lastSavedContent,
   };
 };
