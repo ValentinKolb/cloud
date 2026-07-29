@@ -25,8 +25,12 @@ export type SegmentedControlProps<T extends string = string> = SegmentedControlC
 export function SegmentedControl<T extends string = string>(props: SegmentedControlProps<T>): JSX.Element {
   const buttons: HTMLButtonElement[] = [];
   const currentValue = createMemo<T>(() => (typeof props.value === "function" ? props.value() : props.value));
-  const enabled = () =>
-    props.options.map((option, index) => ({ option, index })).filter(({ option }) => !props.disabled && !option.disabled);
+  const enabled = createMemo(() =>
+    props.options.map((option, index) => ({ option, index })).filter(({ option }) => !props.disabled && !option.disabled),
+  );
+  const selectedEnabled = createMemo(() =>
+    props.options.some((option) => option.value === currentValue() && !props.disabled && !option.disabled),
+  );
   const emit = (value: T) => {
     const onChange = props.onChange ?? props.onValueChange;
     onChange?.(value);
@@ -52,8 +56,7 @@ export function SegmentedControl<T extends string = string>(props: SegmentedCont
   const tabIndex = (index: number, value: T) => {
     if (props.disabled || props.options[index]?.disabled) return -1;
     if (currentValue() === value) return 0;
-    const selectedEnabled = props.options.some((option) => option.value === currentValue() && !props.disabled && !option.disabled);
-    return !selectedEnabled && enabled()[0]?.index === index ? 0 : -1;
+    return !selectedEnabled() && enabled()[0]?.index === index ? 0 : -1;
   };
   const divider = (index: number, value: T) =>
     index < props.options.length - 1 && currentValue() !== value && currentValue() !== props.options[index + 1]?.value;

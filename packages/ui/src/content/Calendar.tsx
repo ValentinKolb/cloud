@@ -3,6 +3,7 @@ import { dates as calendar, type DateContext } from "@k2b/stdlib";
 import type { JSX, ParentProps } from "solid-js";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import SegmentedControl from "../actions/SegmentedControl";
+import { layoutCalendarIntervals } from "./calendar-event-layout";
 import { calendarDayIndexAtPoint, calendarMinuteAtPoint, startCalendarPointerSession } from "./calendar-pointer";
 
 export type CalendarView = "day" | "week" | "month" | "year" | "mobile-month";
@@ -310,39 +311,17 @@ const previewSegments = (preview: CalendarPreview | null, days: Date[], context?
     : [];
 
 const timedEventLayouts = (events: NormalizedEvent[]): TimedEventLayout[] => {
-  const sorted = [...events].sort((a, b) => a.startDate.getTime() - b.startDate.getTime() || b.endDate.getTime() - a.endDate.getTime());
-  const groups: NormalizedEvent[][] = [];
-  let currentGroup: NormalizedEvent[] = [];
-  let currentGroupEnd = 0;
-
-  for (const event of sorted) {
-    const start = event.startDate.getTime();
-    const end = event.endDate.getTime();
-    if (currentGroup.length === 0 || start < currentGroupEnd) {
-      currentGroup.push(event);
-      currentGroupEnd = Math.max(currentGroupEnd, end);
-      continue;
-    }
-    groups.push(currentGroup);
-    currentGroup = [event];
-    currentGroupEnd = end;
-  }
-  if (currentGroup.length > 0) groups.push(currentGroup);
-
-  return groups.flatMap((group, groupId) => {
-    const laneEnds: number[] = [];
-    const assigned = group.map((event) => {
-      const start = event.startDate.getTime();
-      const lane = laneEnds.findIndex((end) => end <= start);
-      const nextLane = lane >= 0 ? lane : laneEnds.length;
-      laneEnds[nextLane] = event.endDate.getTime();
-      return { event, lane: nextLane };
-    });
-    const lanes = Math.max(1, laneEnds.length);
-    const groupStartDate = new Date(Math.min(...group.map((event) => event.startDate.getTime())));
-    const groupEndDate = new Date(Math.max(...group.map((event) => event.endDate.getTime())));
-    return assigned.map((item) => ({ ...item, lanes, groupId, groupStartDate, groupEndDate }));
-  });
+  return layoutCalendarIntervals(events, (event) => ({
+    start: event.startDate.getTime(),
+    end: event.endDate.getTime(),
+  })).map(({ item: event, lane, lanes, groupId, groupStart, groupEnd }) => ({
+    event,
+    lane,
+    lanes,
+    groupId,
+    groupStartDate: new Date(groupStart),
+    groupEndDate: new Date(groupEnd),
+  }));
 };
 
 const EventChip = (props: {
@@ -354,7 +333,7 @@ const EventChip = (props: {
   moving?: boolean;
   onMovePointerDown?: (event: PointerEvent, onActivate: () => void) => void;
 }): JSX.Element => {
-  const dateConfig = () => ownerDateConfig(props.owner);
+  const dateConfig = createMemo(() => ownerDateConfig(props.owner));
   const color = () => props.event.color ?? "blue";
   const selected = () => Boolean(props.owner.selectedEventId) && props.owner.selectedEventId === props.event.id;
   const style = () =>
@@ -699,7 +678,7 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
       </CalendarNavigationLink>
     );
   };
-  const viewOptions = () =>
+  const viewOptions = createMemo(() =>
     (
       [
         { value: "day", label: props.labels.day },
@@ -707,7 +686,8 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
         { value: "month", label: props.labels.month },
         { value: "year", label: props.labels.year },
       ] satisfies Array<{ value: CalendarView; label: string }>
-    ).filter((option) => !props.owner.views || props.owner.views.includes(option.value));
+    ).filter((option) => !props.owner.views || props.owner.views.includes(option.value)),
+  );
 
   return (
     <header class="k2b-calendar-header">
@@ -747,15 +727,15 @@ const MonthView = (props: {
   events: NormalizedEvent[];
   labels: Required<CalendarLabels>;
 }): JSX.Element => {
-  const dateConfig = () => ownerDateConfig(props.owner);
+  const dateConfig = createMemo(() => ownerDateConfig(props.owner));
   const [movePreview, setMovePreview] = createSignal<CalendarPreview | null>(null);
   const [movingEventId, setMovingEventId] = createSignal("");
   let cancelInteraction: (() => void) | undefined;
   let suppressSlotClickUntil = 0;
-  const month = () => zonedYearMonth(props.date, dateConfig());
-  const weeks = () => calendar.getMonthGrid(month().year, month().month, dateConfig());
-  const weekdays = () => calendar.weekdays(dateConfig());
-  const todayKey = () => calendar.formatDateKey(props.now, dateConfig());
+  const month = createMemo(() => zonedYearMonth(props.date, dateConfig()));
+  const weeks = createMemo(() => calendar.getMonthGrid(month().year, month().month, dateConfig()));
+  const weekdays = createMemo(() => calendar.weekdays(dateConfig()));
+  const todayKey = createMemo(() => calendar.formatDateKey(props.now, dateConfig()));
   const eventsByDay = createMemo(() => {
     const grouped = new Map<string, NormalizedEvent[]>();
     for (const event of props.events) {
@@ -925,12 +905,12 @@ const TimeGridView = (props: {
   labels: Required<CalendarLabels>;
   days: Date[];
 }): JSX.Element => {
-  const dateConfig = () => ownerDateConfig(props.owner);
+  const dateConfig = createMemo(() => ownerDateConfig(props.owner));
   const gridStartHour = () => props.owner.visibleStartHour ?? 0;
   const gridEndHour = () => props.owner.visibleEndHour ?? 23;
   const businessStartHour = () => props.owner.startHour ?? 8;
   const businessEndHour = () => props.owner.endHour ?? 18;
-  const hours = () => Array.from({ length: gridEndHour() - gridStartHour() + 1 }, (_, index) => gridStartHour() + index);
+  const hours = createMemo(() => Array.from({ length: gridEndHour() - gridStartHour() + 1 }, (_, index) => gridStartHour() + index));
   const [timePreview, setTimePreview] = createSignal<CalendarPreview | null>(null);
   const [movingEventId, setMovingEventId] = createSignal("");
   const [expandedOverflow, setExpandedOverflow] = createSignal("");
@@ -941,7 +921,16 @@ const TimeGridView = (props: {
   let cancelInteraction: (() => void) | undefined;
   let suppressSlotClickUntil = 0;
   const slotEnd = (start: Date) => addMinutes(start, 60);
-  const previewEvents = () => previewSegments(timePreview(), props.days, dateConfig());
+  const previewEvents = createMemo(() => previewSegments(timePreview(), props.days, dateConfig()));
+  const eventsByDay = createMemo(() => {
+    const grouped = new Map<string, { allDay: NormalizedEvent[]; timed: NormalizedEvent[] }>();
+    for (const event of props.events) {
+      const bucket = grouped.get(event.dayKey) ?? { allDay: [], timed: [] };
+      (event.allDay ? bucket.allDay : bucket.timed).push(event);
+      grouped.set(event.dayKey, bucket);
+    }
+    return grouped;
+  });
   const clearInteraction = () => {
     setTimePreview(null);
     setMovingEventId("");
@@ -1156,7 +1145,7 @@ const TimeGridView = (props: {
           <For each={props.days}>
             {(day) => {
               const dayKey = calendar.formatDateKey(day, dateConfig());
-              const allDay = () => props.events.filter((event) => event.dayKey === dayKey && event.allDay);
+              const allDay = () => eventsByDay().get(dayKey)?.allDay ?? [];
               const previewAllDay = previewEvents().filter((event) => event.dayKey === dayKey && event.allDay);
               return (
                 <div
@@ -1234,8 +1223,7 @@ const TimeGridView = (props: {
           <For each={props.days}>
             {(day) => {
               const dayKey = calendar.formatDateKey(day, dateConfig());
-              const timed = () => props.events.filter((event) => event.dayKey === dayKey && !event.allDay);
-              const layouts = () => timedEventLayouts(timed());
+              const layouts = createMemo(() => timedEventLayouts(eventsByDay().get(dayKey)?.timed ?? []));
               return (
                 <div
                   class="k2b-calendar-time-grid__column"
@@ -1405,64 +1393,79 @@ const TimeGridView = (props: {
   );
 };
 
-const YearView = (props: { owner: CalendarProps; date: Date; now: Date; events: NormalizedEvent[] }): JSX.Element => (
-  <div class="k2b-calendar-year">
-    <For
-      each={Array.from({ length: 12 }, (_, month) =>
-        zonedMonthDate(zonedYearMonth(props.date, ownerDateConfig(props.owner)).year, month, ownerDateConfig(props.owner)),
-      )}
-    >
-      {(monthDate) => (
-        <div class="k2b-calendar-year__month">
-          <div class="k2b-calendar-year__title">
-            {monthDate.toLocaleDateString(ownerDateConfig(props.owner).locale ?? "en", {
-              month: "long",
-              timeZone: ownerDateConfig(props.owner).timeZone,
-            })}
-          </div>
-          <div class="k2b-calendar-year__grid">
-            <For
-              each={calendar
-                .getMonthGrid(
-                  zonedYearMonth(monthDate, ownerDateConfig(props.owner)).year,
-                  zonedYearMonth(monthDate, ownerDateConfig(props.owner)).month,
-                  ownerDateConfig(props.owner),
-                )
-                .flat()}
-            >
-              {(day) => {
-                const dateConfig = ownerDateConfig(props.owner);
-                const events = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day, dateConfig));
-                const isToday = calendar.formatDateKey(day, dateConfig) === calendar.formatDateKey(props.now, dateConfig);
-                return (
+const YearView = (props: { owner: CalendarProps; date: Date; now: Date; events: NormalizedEvent[] }): JSX.Element => {
+  const dateConfig = createMemo(() => ownerDateConfig(props.owner));
+  const year = createMemo(() => zonedYearMonth(props.date, dateConfig()).year);
+  const todayKey = createMemo(() => calendar.formatDateKey(props.now, dateConfig()));
+  const eventsByDay = createMemo(() => {
+    const grouped = new Map<string, NormalizedEvent[]>();
+    for (const event of props.events) {
+      const events = grouped.get(event.dayKey);
+      if (events) events.push(event);
+      else grouped.set(event.dayKey, [event]);
+    }
+    return grouped;
+  });
+  const months = createMemo(() => {
+    const context = dateConfig();
+    return Array.from({ length: 12 }, (_, month) => {
+      const date = zonedMonthDate(year(), month, context);
+      return {
+        date,
+        label: date.toLocaleDateString(context.locale ?? "en", { month: "long", timeZone: context.timeZone }),
+        days: calendar.getMonthGrid(year(), month, context).flat().map((day) => {
+          const key = calendar.formatDateKey(day, context);
+          return {
+            date: day,
+            events: eventsByDay().get(key) ?? [],
+            isToday: key === todayKey(),
+            outside: !calendar.isSameMonth(day, date, context),
+            number: calendar.formatDayNumber(day, context),
+          };
+        }),
+      };
+    });
+  });
+
+  return (
+    <div class="k2b-calendar-year">
+      <For each={months()}>
+        {(month) => (
+          <div class="k2b-calendar-year__month">
+            <div class="k2b-calendar-year__title">{month.label}</div>
+            <div class="k2b-calendar-year__grid">
+              <For each={month.days}>
+                {(day) => (
                   <CalendarNavigationLink
                     owner={props.owner}
-                    href={props.owner.getDateHref?.(day, "day") ?? "#"}
+                    href={props.owner.getDateHref?.(day.date, "day") ?? "#"}
                     anchorProps={{
                       class: "k2b-calendar-year__day",
-                      "data-today": isToday ? "true" : undefined,
-                      "data-outside": !calendar.isSameMonth(day, monthDate, dateConfig) ? "true" : undefined,
+                      "data-today": day.isToday ? "true" : undefined,
+                      "data-outside": day.outside ? "true" : undefined,
                     }}
                   >
-                    {calendar.formatDayNumber(day, dateConfig)}
-                    <Show when={events.length > 0}>
-                      <span
-                        class="k2b-calendar-year__indicator"
-                        data-color={events[0]!.colorHex ? undefined : (events[0]!.color ?? "blue")}
-                        data-today={isToday ? "true" : undefined}
-                        style={events[0]!.colorHex ? { "background-color": isToday ? "white" : events[0]!.colorHex } : undefined}
-                      />
+                    {day.number}
+                    <Show when={day.events[0]}>
+                      {(event) => (
+                        <span
+                          class="k2b-calendar-year__indicator"
+                          data-color={event().colorHex ? undefined : (event().color ?? "blue")}
+                          data-today={day.isToday ? "true" : undefined}
+                          style={event().colorHex ? { "background-color": day.isToday ? "white" : event().colorHex } : undefined}
+                        />
+                      )}
                     </Show>
                   </CalendarNavigationLink>
-                );
-              }}
-            </For>
+                )}
+              </For>
+            </div>
           </div>
-        </div>
-      )}
-    </For>
-  </div>
-);
+        )}
+      </For>
+    </div>
+  );
+};
 
 const MobileMonthView = (props: {
   owner: CalendarProps;
@@ -1472,8 +1475,9 @@ const MobileMonthView = (props: {
   events: NormalizedEvent[];
   labels: Required<CalendarLabels>;
 }): JSX.Element => {
-  const dateConfig = () => ownerDateConfig(props.owner);
-  const selectedEvents = () => props.events.filter((event) => event.dayKey === calendar.formatDateKey(props.selectedDate, dateConfig()));
+  const dateConfig = createMemo(() => ownerDateConfig(props.owner));
+  const selectedDateKey = createMemo(() => calendar.formatDateKey(props.selectedDate, dateConfig()));
+  const selectedEvents = createMemo(() => props.events.filter((event) => event.dayKey === selectedDateKey()));
   return (
     <div class="k2b-calendar-mobile-month">
       <MonthView
@@ -1513,20 +1517,20 @@ const CalendarBody = (props: { children: JSX.Element }): JSX.Element => (
 
 const Calendar = (props: CalendarProps): JSX.Element => {
   const view = () => props.view ?? "month";
-  const dateConfig = () => ownerDateConfig(props);
+  const dateConfig = createMemo(() => ownerDateConfig(props));
   const safeDate = (value: Date | string) => {
     const parsed = parseDate(value);
     return validDate(parsed) ? parsed : calendar.today(dateConfig());
   };
-  const date = () => safeDate(props.date);
-  const selectedDate = () => safeDate(props.selectedDate ?? props.date);
+  const date = createMemo(() => safeDate(props.date));
+  const selectedDate = createMemo(() => safeDate(props.selectedDate ?? props.date));
   const [now, setNow] = createSignal(new Date());
-  const normalizedEvents = () => normalizeEvents(props.events, dateConfig());
-  const mergedLabels = () => ({ ...labels, ...props.labels });
-  const days = () => {
+  const normalizedEvents = createMemo(() => normalizeEvents(props.events, dateConfig()));
+  const mergedLabels = createMemo(() => ({ ...labels, ...props.labels }));
+  const days = createMemo(() => {
     if (view() === "day") return [date()];
     return calendar.getWeekDays(date(), dateConfig());
-  };
+  });
   onMount(() => {
     const updateNow = () => setNow(new Date());
     const interval = window.setInterval(updateNow, 60_000);

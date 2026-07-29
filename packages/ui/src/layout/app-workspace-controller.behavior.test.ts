@@ -160,6 +160,29 @@ describe("AppWorkspace resize controller behaviour", () => {
     dispose();
   });
 
+  test("resizes a detail panel from its leading edge", () => {
+    const { root } = workspace();
+    const panel = document.createElement("aside");
+    panel.id = "record";
+    panel.className = "k2b-app-workspace__detail";
+    panel.dataset.workspaceResizable = "true";
+    setRect(panel, { height: 700, width: 384 });
+    root.append(panel);
+    const handle = document.createElement("button");
+    handle.dataset.appWorkspaceResize = "detail";
+    handle.dataset.workspacePanelId = "record";
+    handle.dataset.workspaceResizeEdge = "start";
+    handle.setAttribute("aria-controls", panel.id);
+    root.insertBefore(handle, panel);
+    const written: unknown[] = [];
+    const dispose = installAppWorkspaceController({ root, writeState: (state) => written.push(state) });
+
+    dispatchKey(handle, "ArrowLeft");
+    expect(root.style.getPropertyValue("--k2b-workspace-detail-record-width")).toBe("392px");
+    expect(written.at(-1)).toMatchObject({ detailWidths: { record: 392 } });
+    dispose();
+  });
+
   test("tracks a live sidebar pointer continuously before applying its snap", () => {
     const { handle, root } = workspace({ collapsible: true });
     const dispose = installAppWorkspaceController({ root });

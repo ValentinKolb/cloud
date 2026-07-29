@@ -254,11 +254,11 @@ function DatePickerPanel(props: {
   dateConfig?: DateContext;
 }): JSX.Element {
   const [view, setView] = createSignal<PanelView>("days");
-  const context = () => pickerContext(props.dateConfig);
-  const month = () => yearMonth(props.visibleMonth(), context());
-  const weeks = () => dates.getMonthGrid(month().year, month().month, context());
-  const weekdays = () => dates.weekdays(context());
-  const months = () => monthNames(context());
+  const context = createMemo(() => pickerContext(props.dateConfig));
+  const month = createMemo(() => yearMonth(props.visibleMonth(), context()));
+  const weeks = createMemo(() => dates.getMonthGrid(month().year, month().month, context()));
+  const weekdays = createMemo(() => dates.weekdays(context()));
+  const months = createMemo(() => monthNames(context()));
   const dayNameFormatter = createMemo(
     () =>
       new Intl.DateTimeFormat(context().locale, {
@@ -269,21 +269,37 @@ function DatePickerPanel(props: {
         timeZone: context().timeZone,
       }),
   );
+  const dayRows = createMemo(() => {
+    const visibleMonth = props.visibleMonth();
+    const dateContext = context();
+    const formatter = dayNameFormatter();
+    return weeks().map((week) =>
+      week.map((day) => ({
+        day,
+        key: dates.formatDateKey(day, dateContext),
+        outside: !dates.isSameMonth(day, visibleMonth, dateContext),
+        label: formatter.format(day),
+        number: dates.formatDayNumber(day, dateContext),
+      })),
+    );
+  });
   let calendar: HTMLElement | undefined;
   // Days that belong to the visible month; the roving tabindex must land on one
   // of them or the grid becomes unreachable by keyboard after month navigation.
-  const monthDayKeys = () =>
-    weeks()
+  const monthDayKeys = createMemo(() =>
+    dayRows()
       .flat()
-      .filter((day) => dates.isSameMonth(day, props.visibleMonth(), context()))
-      .map((day) => dateKey(day, context()));
+      .filter((day) => !day.outside)
+      .map((day) => day.key),
+  );
   // Remembers where arrow-key navigation left off so Tab returns to that day.
   const [focusedKey, setFocusedKey] = createSignal<string>();
-  const defaultFocus = () =>
+  const defaultFocus = createMemo(() =>
     resolveFocusDay(
       monthDayKeys(),
       focusedKey() || props.focusDate?.() || props.selected?.() || dateKey(dates.today(context()), context()),
-    );
+    ),
+  );
 
   const moveMonth = (delta: number) => props.setVisibleMonth(dates.addMonths(props.visibleMonth(), delta, context()));
   const moveYear = (delta: number) => props.setVisibleMonth(monthDate(month().year + delta, month().month, context()));
@@ -372,39 +388,37 @@ function DatePickerPanel(props: {
           <For each={weekdays()}>{(day) => <span>{day}</span>}</For>
         </div>
         <div class="k2b-date-grid" role="grid">
-          <For each={weeks()}>
+          <For each={dayRows()}>
             {(week) => (
               <div class="k2b-date-week" role="row">
                 <For each={week}>
-                  {(day) => {
-                    const key = () => dateKey(day, context());
-                    const selected = () => props.selected?.() === key();
+                  {(cell) => {
+                    const selected = () => props.selected?.() === cell.key;
                     const range = () => props.range?.() ?? { start: null, end: null };
-                    const active = () => selected() || isRangeEdge(key(), range());
-                    const outside = () => !dates.isSameMonth(day, props.visibleMonth(), context());
-                    const focusable = () => key() === defaultFocus();
+                    const active = () => selected() || isRangeEdge(cell.key, range());
+                    const focusable = () => cell.key === defaultFocus();
                     return (
                       <button
                         type="button"
                         role="gridcell"
-                        data-date-day={key()}
+                        data-date-day={cell.key}
                         data-date-focus={focusable() ? "true" : undefined}
-                        data-outside={outside() ? "true" : undefined}
-                        data-in-range={inRange(key(), range()) && !active() ? "true" : undefined}
-                        aria-label={dayNameFormatter().format(day)}
+                        data-outside={cell.outside ? "true" : undefined}
+                        data-in-range={inRange(cell.key, range()) && !active() ? "true" : undefined}
+                        aria-label={cell.label}
                         aria-selected={active()}
                         tabIndex={focusable() ? 0 : -1}
-                        onClick={() => props.onSelect(key())}
-                        onKeyDown={(event) => handleDayKeyDown(event, day)}
+                        onClick={() => props.onSelect(cell.key)}
+                        onKeyDown={(event) => handleDayKeyDown(event, cell.day)}
                         onBlur={() => props.onDayPreview?.(null)}
                         onFocus={() => {
-                          setFocusedKey(key());
-                          props.onDayPreview?.(key());
+                          setFocusedKey(cell.key);
+                          props.onDayPreview?.(cell.key);
                         }}
-                        onPointerEnter={() => props.onDayPreview?.(key())}
+                        onPointerEnter={() => props.onDayPreview?.(cell.key)}
                         onPointerLeave={() => props.onDayPreview?.(null)}
                       >
-                        {dates.formatDayNumber(day, context())}
+                        {cell.number}
                       </button>
                     );
                   }}
@@ -709,7 +723,10 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
               <TimeInput label="Start" time={startTime()} onChange={setStartTime} />
               <TimeInput label="End" time={endTime()} onChange={setEndTime} />
             </div>
-            <Show when={props.durationPresets?.length}>
+          </Show>
+
+          <div class="k2b-date-actions">
+            <Show when={withTime() && props.durationPresets?.length}>
               <div class="k2b-date-durations" role="group" aria-label="Duration presets">
                 <For each={props.durationPresets}>
                   {(preset) => (
@@ -720,9 +737,6 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
                 </For>
               </div>
             </Show>
-          </Show>
-
-          <div class="k2b-date-actions">
             {/* Only a half-picked range is uncommittable; an empty draft must stay
                 applicable so a "clear" date preset can be committed. */}
             <button

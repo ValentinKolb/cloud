@@ -4,6 +4,11 @@
 
 The application owns the content and which regions are open.
 
+The frame owns its surface hierarchy: `Main` uses the base surface, while the
+navigation, contextual details, and bottom drawer use the subtle surface.
+Applications should keep region wrappers transparent and add cards or panels
+only where the content needs another visual level.
+
 ## Use AppWorkspace
 
 Use it for resource lists, readers, editors, and operational screens that need persistent navigation around a primary work area.
@@ -15,7 +20,6 @@ Use `AppOverview` for a simple landing page. Use `Panes` inside `AppWorkspace.Ma
 ```tsx
 import {
   AppWorkspace,
-  installAppWorkspaceController,
   normalizeAppWorkspaceLayoutState,
   type AppWorkspaceLayoutState,
 } from "@k2b/ui";
@@ -41,6 +45,10 @@ controls visibility, so local state and SSR DOM identity remain stable.
 
 Provide both `SidebarMobile` and `SidebarDesktop` when the workspace has navigation. Sidebar items with an `href` remain real links.
 
+Set `collapsible` on `Sidebar` to let the shared resize controller snap it to
+the compact rail. The collapsed flag is part of `AppWorkspaceLayoutState`, so
+the host can restore the same navigation state on the next mount.
+
 Set `scrollPreserveKey` on scrolling sidebar bodies when enhanced navigation should restore their position.
 
 The sidebar compound members cover these jobs:
@@ -58,47 +66,38 @@ The sidebar compound members cover these jobs:
 
 `MainPane.label` names the region. Sidebar icon actions and item actions require a clear `label`.
 
-Resize handles are separators with orientation, limits, and the controlled region. Do not replace them with application-specific handles.
+Resize handles are separators with orientation, limits, and the controlled
+region. Their pointer target is wider than the visible one-pixel guide. Do not
+replace them with application-specific handles.
 
 ## Activate resizing
 
 The complete workspace and its separator metadata render on the server. The
-package does not install browser listeners or choose a persistence mechanism
-automatically.
+component installs a controller scoped to its root after hydration. Pointer and
+keyboard resizing therefore work by default without an additional island or
+installer call.
 
-Install the controller once inside the hydrated owner. Pass `root` to limit
-event delegation when a page can contain more than one workspace. `readState`
-and `writeState` are generic seams: the application may use memory, local
-storage, a cookie endpoint, or no persistence. The UI package does not know an
-application id or cookie name.
+Persistence remains application-owned. Pass an accessor through `layoutState`
+and receive settled changes through `onLayoutChange`. The application may use
+memory, local storage, a cookie endpoint, or no persistence. The UI package does
+not know an application id or cookie name.
 
 ```tsx
-import {
-  installAppWorkspaceController,
-  type AppWorkspaceLayoutState,
-} from "@k2b/ui";
-import { onCleanup, onMount } from "solid-js";
-
-let shell: HTMLDivElement | undefined;
-
-onMount(() => {
-  if (!shell) return;
-  const dispose = installAppWorkspaceController({
-    root: shell,
-    readState: () => storedLayout(),
-    writeState: (state: AppWorkspaceLayoutState) => saveLayout(state),
-  });
-  onCleanup(dispose);
-});
-
-<div ref={shell}>
-  <AppWorkspace>{/* regions */}</AppWorkspace>
-</div>;
+<AppWorkspace
+  layoutState={() => storedLayout()}
+  onLayoutChange={(state: AppWorkspaceLayoutState) => saveLayout(state)}
+>
+  {/* regions */}
+</AppWorkspace>;
 ```
 
 The controller handles pointer and keyboard resizing, clamps sizes to the
 available workspace, updates separator values, and writes only after a resize
 settles or a keyboard step completes.
+
+Set `controller={false}` only when a custom host installs the exported
+`installAppWorkspaceController` itself. Installing both controllers would
+register every interaction twice.
 
 ## Restore layout state
 
@@ -141,8 +140,8 @@ reimplementing those lower-level rules.
 
 ## Runtime
 
-Rendering and state normalization are SSR-safe. Install the controller only in
-the browser and dispose it with the hydrated owner.
+Rendering and state normalization are SSR-safe. `AppWorkspace` installs and
+disposes its controller after hydration.
 
 The package exports parse, normalize, serialize, and style helpers for layout state. The application decides where that state is stored and can apply the same state during SSR to avoid geometry jumps.
 

@@ -83,7 +83,7 @@ const actionableItems = (menu: HTMLElement | undefined): HTMLElement[] =>
             "[role='menuitemradio']:not([aria-disabled='true'])",
           ].join(", "),
         ),
-      ).filter((item, index, items) => items.indexOf(item) === index)
+      )
     : [];
 
 const focusMenuItem = (menu: HTMLElement | undefined, index: number): void => {

@@ -304,10 +304,11 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
     });
     return result;
   });
+  const anchorRegion = createMemo(() => regions().find((candidate) => candidate.type === "primary") ?? regions()[0]);
   // Presence of a MainPane slot — not of an *open* one — decides the split
   // layout. Deriving it from `regions()` made a workspace whose panes are all
   // closed fall back to `resolved()`, which renders the raw slot objects.
-  const hasPanes = () => values().some(mainPaneSlot);
+  const hasPanes = createMemo(() => values().some(mainPaneSlot));
 
   return (
     <main
@@ -317,7 +318,7 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
     >
       <Show when={hasPanes()} fallback={resolved() as JSX.Element}>
         {regions().flatMap((region) => {
-          const anchor = regions().find((candidate) => candidate.type === "primary") ?? regions()[0];
+          const anchor = anchorRegion();
           const activeMobilePane = props.mobilePane ?? (anchor?.type === "pane" ? anchor.slot.props.id : "main");
           if (region.type === "primary") {
             return (
@@ -498,9 +499,9 @@ function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
   const domId = `k2b-workspace-sidebar-${generatedId}`;
   const resolved = children(() => props.children);
   const slots = createMemo(() => flatten(resolved()).filter(sidebarChildSlot));
-  const header = () => slots().find((slot): slot is SidebarHeaderSlot => slot.kind === SIDEBAR_HEADER);
-  const mobile = () => slots().find((slot) => slot.kind === SIDEBAR_MOBILE);
-  const desktop = () => slots().find((slot) => slot.kind === SIDEBAR_DESKTOP);
+  const header = createMemo(() => slots().find((slot): slot is SidebarHeaderSlot => slot.kind === SIDEBAR_HEADER));
+  const mobile = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_MOBILE));
+  const desktop = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_DESKTOP));
   return (
     <>
       <Show when={header() && mobile()}>
@@ -583,19 +584,19 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
   const resolved = children(() => props.children);
   const values = createMemo(() => flatten(resolved()));
   const slots = createMemo(() => values().filter(sidebarItemSlot));
-  const iconSlot = () => slots().find((slot) => slot.kind === SIDEBAR_ITEM_ICON) as
+  const iconSlot = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_ITEM_ICON) as
     | (AppWorkspaceSidebarItemIconProps & { kind: typeof SIDEBAR_ITEM_ICON })
-    | undefined;
-  const labelSlot = () => slots().find((slot) => slot.kind === SIDEBAR_ITEM_LABEL) as
+    | undefined);
+  const labelSlot = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_ITEM_LABEL) as
     | (AppWorkspaceSidebarItemLabelProps & { kind: typeof SIDEBAR_ITEM_LABEL })
-    | undefined;
-  const metaSlot = () => slots().find((slot) => slot.kind === SIDEBAR_ITEM_META) as
+    | undefined);
+  const metaSlot = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_ITEM_META) as
     | (AppWorkspaceSidebarItemMetaProps & { kind: typeof SIDEBAR_ITEM_META })
-    | undefined;
-  const actionSlot = () => slots().find((slot) => slot.kind === SIDEBAR_ITEM_ACTION) as
+    | undefined);
+  const actionSlot = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_ITEM_ACTION) as
     | (AppWorkspaceSidebarItemActionProps & { kind: typeof SIDEBAR_ITEM_ACTION })
-    | undefined;
-  const legacy = () => values().filter((value) => !sidebarItemSlot(value));
+    | undefined);
+  const legacy = createMemo(() => values().filter((value) => !sidebarItemSlot(value)));
   const label = () => labelSlot()?.children ?? (legacy().length === 1 ? legacy()[0] : legacy());
   const icon = () => iconSlot()?.icon ?? props.icon;
   const iconContent = () => iconSlot()?.children;

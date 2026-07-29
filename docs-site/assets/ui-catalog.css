@@ -371,6 +371,30 @@
   height: min(34rem, 70vh);
 }
 
+.ui-workspace-demo .ui-demo-pane {
+  background: transparent;
+}
+
+.ui-workspace-demo__body {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.ui-workspace-demo__body > span {
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+}
+
+.ui-workspace-demo__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
 .ui-panes-demo {
   height: min(26rem, 62vh);
 }

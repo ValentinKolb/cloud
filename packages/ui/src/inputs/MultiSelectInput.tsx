@@ -59,7 +59,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
     () => props.fetchDebounceMs ?? props.debounceMs ?? 200,
   );
   const isAsync = () => Boolean(props.fetchData || props.loadOptions);
-  const sourceOptions = () => (isAsync() ? asyncOptions.options() : (props.options ?? []).map(normalize));
+  const sourceOptions = createMemo(() => (isAsync() ? asyncOptions.options() : (props.options ?? []).map(normalize)));
   // Cloud's multi-select always renders its search field, and filters a static
   // option list client-side while a remote loader filters server-side.
   const searchable = () => isAsync() || (props.searchable ?? true);
@@ -76,6 +76,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
   const selected = createMemo(() =>
     values().map((value) => optionByValue().get(value) ?? ({ value, label: value } as NormalizedOption)),
   );
+  const selectedValues = createMemo(() => new Set(values()));
   const popover = createChoicePopover(() => Boolean(props.disabled));
   const focusedOption = () => visibleOptions()[focusedIndex()];
 
@@ -83,7 +84,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
     const unique = [...new Set(next)];
     commitFieldValue(props, unique);
   };
-  const isSelected = (value: string) => values().includes(value);
+  const isSelected = (value: string) => selectedValues().has(value);
   const focusFirst = () => setFocusedIndex(nextEnabledChoiceIndex(visibleOptions(), -1, 1));
   const open = () => {
     if (props.disabled) return;

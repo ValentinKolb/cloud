@@ -65,6 +65,14 @@ export const buildTree = (entries: FileTreeEntry[], previous: TreeNode[] = []): 
     // Register all ancestor folders of every entry.
     for (let dir = parentOf(entry.path); dir !== "/"; dir = parentOf(dir)) folders.add(dir);
   }
+  const childrenByParent = new Map<string, string[]>();
+  for (const path of new Set([...byPath.keys(), ...folders])) {
+    if (path === "/") continue;
+    const parent = parentOf(path);
+    const children = childrenByParent.get(parent);
+    if (children) children.push(path);
+    else childrenByParent.set(parent, [path]);
+  }
 
   const nodeFor = (path: string, depth: number): TreeNode => {
     const entry = byPath.get(path) ?? { path, kind: "folder" as const };
@@ -81,16 +89,8 @@ export const buildTree = (entries: FileTreeEntry[], previous: TreeNode[] = []): 
   };
 
   const childrenOf = (dir: string, depth: number): TreeNode[] => {
-    const prefix = dir === "/" ? "/" : `${dir}/`;
-    const names = new Set<string>();
-    for (const path of [...byPath.keys(), ...folders]) {
-      if (!path.startsWith(prefix) || path === dir) continue;
-      const rest = path.slice(prefix.length);
-      const head = rest.split("/")[0];
-      if (head) names.add(head);
-    }
-    const nodes = [...names].map((name) => {
-      const node = nodeFor(`${prefix}${name}`, depth);
+    const nodes = (childrenByParent.get(dir) ?? []).map((path) => {
+      const node = nodeFor(path, depth);
       if (node.isFolder) node.children = childrenOf(node.entry.path, depth + 1);
       return node;
     });

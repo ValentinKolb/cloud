@@ -408,6 +408,43 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       return matches.map((match) => match[1] ?? "").join(";");
     };
 
+    test("keeps workspace drawers in the content column and resize handles out of layout", () => {
+      expect(rule(".k2b-app-workspace")).toContain('grid-template-areas:"mobile" "content" "drawer"');
+      expect(rule(".k2b-app-workspace__drawer")).toContain("grid-area:drawer");
+
+      const resize = rule(".k2b-app-workspace__resize");
+      expect(resize).toContain("position:absolute");
+      expect(resize).toContain("width:var(--k2b-workspace-resize-hit-size)");
+      const inlineResize = rule(
+        ".k2b-app-workspace__main>.k2b-app-workspace__resize[data-app-workspace-resize=pane],.k2b-ui .k2b-app-workspace__content>.k2b-app-workspace__resize[data-app-workspace-resize=detail]",
+      );
+      expect(inlineResize).toContain("flex:0 0 var(--k2b-workspace-resize-hit-size)");
+      // The detail handle is emitted before its panel. Giving only the handle
+      // an order moves it behind the panel and puts the hit target on the
+      // trailing edge instead of between main and detail.
+      expect(inlineResize).not.toContain("order:");
+    });
+
+    test("keeps the workspace surface hierarchy aligned with Cloud", () => {
+      expect(rule(".k2b-app-workspace")).toContain("--k2b-workspace-resize-hit-size:1.25rem");
+      expect(rule(".k2b-app-workspace")).toContain("background:var(--k2b-surface)");
+      expect(rule(".k2b-app-workspace__sidebar")).toContain("background:var(--k2b-surface-muted)");
+      expect(rule(".k2b-app-workspace__detail")).toContain("background:var(--k2b-surface-muted)");
+      expect(rule(".k2b-app-workspace__drawer")).toContain("background:var(--k2b-surface-muted)");
+    });
+
+    test("reduces a collapsible sidebar to an intentional icon rail", () => {
+      expect(css).toMatch(
+        /data-sidebar-collapsed=true\][^{]*sidebar-header>:not\(\.k2b-app-workspace__sidebar-header-icon\)\{display:none!important/,
+      );
+      expect(css).toMatch(
+        /data-sidebar-collapsed=true\][^{]*sidebar-item-label[^}]*\{display:none!important/,
+      );
+      expect(css).toMatch(
+        /data-sidebar-collapsed=true\][^{]*:is\(\.k2b-app-workspace__sidebar-item,[^{]*\)\{justify-content:center/,
+      );
+    });
+
     test("keeps DataPanel on Cloud's px-3 py-2 rhythm", () => {
       // Cloud: `flex flex-col gap-2 px-3 py-2`, with `search` and `filters`
       // stacked as siblings rather than laid side by side.

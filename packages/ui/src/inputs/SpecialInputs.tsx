@@ -1,5 +1,5 @@
 import { fuzzy } from "@k2b/stdlib";
-import type { JSX } from "solid-js";
+import { createMemo, type JSX } from "solid-js";
 import { Select, type SelectOption } from "./Select";
 import type { ValueFieldProps } from "./field-contract";
 import { resolveMaybeAccessor } from "./field-contract";
@@ -35,7 +35,7 @@ export function IconInput(props: IconInputProps): JSX.Element {
       })
       .map((match) => match.item);
   };
-  const selectedOption = () => options().find((option) => option.value === resolveMaybeAccessor(props.value));
+  const selectedOption = createMemo(() => options().find((option) => option.value === resolveMaybeAccessor(props.value)));
 
   return (
     <Select

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
+import { dates } from "@k2b/stdlib";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import {
@@ -188,6 +189,30 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(html).toContain("ti ti-calendar-time");
   });
 
+  test("builds the timezone-aware month grid once per rendered panel", () => {
+    const getMonthGrid = dates.getMonthGrid;
+    const mutableDates = dates as { -readonly [Key in keyof typeof dates]: (typeof dates)[Key] };
+    let calls = 0;
+    mutableDates.getMonthGrid = (...args: Parameters<typeof getMonthGrid>) => {
+      calls += 1;
+      return getMonthGrid(...args);
+    };
+
+    try {
+      renderToString(() =>
+        createComponent(DateTimePicker, {
+          label: "Starts at",
+          value: "2026-07-27T12:30:00.000Z",
+          dateConfig: { timeZone: "Europe/Berlin", locale: "en" },
+        }),
+      );
+    } finally {
+      mutableDates.getMonthGrid = getMonthGrid;
+    }
+
+    expect(calls).toBe(1);
+  });
+
   test("renders date ranges, preview state, times, and duration presets", () => {
     const html = renderToString(() =>
       createComponent(DateRangePicker, {
@@ -211,6 +236,9 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(html).toContain('aria-label="Duration presets"');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("1 hour");
+    expect(html).toMatch(
+      /class="k2b-date-actions"[^>]*>[\s\S]*class="k2b-date-durations"[\s\S]*>Apply<\/button>/,
+    );
   });
 
   test("does not expose the deprecated native compatibility wrapper", () => {

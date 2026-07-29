@@ -41,7 +41,7 @@ const focusableItems = (menu: HTMLElement | undefined): HTMLElement[] =>
             "[role='menuitemradio']:not([aria-disabled='true'])",
           ].join(", "),
         ),
-      ).filter((item, index, items) => items.indexOf(item) === index)
+      )
     : [];
 
 /** Right-click menu with keyboard invocation, one-open-at-a-time behavior, and viewport clamping. */
@@ -55,7 +55,7 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
 
   const isOpen = () => position() !== undefined;
   const hostClass = createMemo(() => (typeof props.class === "function" ? props.class(isOpen()) : props.class));
-  const elements = (): readonly DropdownItem[] =>
+  const elements = createMemo<readonly DropdownItem[]>(() =>
     props.elements ??
     (props.items ?? []).map((item) => ({
       label: item.label,
@@ -67,7 +67,8 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
         : {
             action: () => item.onSelect?.(),
           }),
-    }));
+    })),
+  );
 
   const dismiss = (event: PointerEvent) => {
     if (menu?.contains(event.target as Node)) return;

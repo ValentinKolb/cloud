@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
+import { dates } from "@k2b/stdlib";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import type { CalendarEvent } from "./Calendar";
@@ -56,6 +57,36 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html).toContain("Review");
     expect(html).toContain("Review, 09:00 to 10:00");
     expect(html).toContain("view=day");
+  });
+
+  test("indexes year-view events once instead of rescanning them for every day", () => {
+    const formatDateKey = dates.formatDateKey;
+    const mutableDates = dates as { -readonly [Key in keyof typeof dates]: (typeof dates)[Key] };
+    let calls = 0;
+    mutableDates.formatDateKey = (...args: Parameters<typeof formatDateKey>) => {
+      calls += 1;
+      return formatDateKey(...args);
+    };
+
+    try {
+      renderToString(() =>
+        createComponent(Calendar, {
+          date: "2026-07-15T12:00:00Z",
+          view: "year",
+          timeZone: "Europe/Berlin",
+          events: Array.from({ length: 64 }, (_, index) => ({
+            id: String(index),
+            title: `Event ${index}`,
+            start: "2026-07-15T09:00:00Z",
+            end: "2026-07-15T10:00:00Z",
+          })),
+        }),
+      );
+    } finally {
+      mutableDates.formatDateKey = formatDateKey;
+    }
+
+    expect(calls).toBeLessThan(2_000);
   });
 
   test("keeps code language defaults and custom documentation hooks", () => {

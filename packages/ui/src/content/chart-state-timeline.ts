@@ -132,6 +132,7 @@ export const renderStateTimelineSvg = (
   const rowsBottom = Math.min(height - AXIS_HEIGHT - legendHeight, TOP + rows.length * ROW_HEIGHT);
   const stateStyles = new Map((opts.states ?? []).map((state, index) => [state.state, { ...state, index }]));
   const stateKeys = opts.states?.map((state) => state.state) ?? [...new Set(rows.flatMap((row) => row.intervals.map((i) => i.state)))];
+  const stateIndexes = new Map(stateKeys.map((state, index) => [state, index]));
   const body: string[] = [];
   const maxLabelChars = Math.max(4, Math.floor((gutter - 18) / 6.3));
 
@@ -154,7 +155,7 @@ export const renderStateTimelineSvg = (
       const x = mapRange(from, viewport, [plotLeft, plotRight]);
       const x2 = mapRange(to, viewport, [plotLeft, plotRight]);
       const style = stateStyles.get(interval.state);
-      const stateIndex = style?.index ?? Math.max(0, stateKeys.indexOf(interval.state));
+      const stateIndex = style?.index ?? stateIndexes.get(interval.state) ?? 0;
       const color = style?.color ? ` fill="${escapeXml(style.color)}"` : "";
       const rect = `<rect class="stdlib-chart-state-region stdlib-chart-series-${stateIndex % 8}"${color} x="${fmt(
         x,

@@ -61,10 +61,10 @@ export function Select(props: SelectProps): JSX.Element {
   );
   const isAsync = () => Boolean(props.fetchData || props.loadOptions);
   const isSearchable = () => isAsync() || Boolean(props.searchable);
-  const sourceOptions = () => (isAsync() ? loader.options() : (props.options ?? []).map(normalize));
+  const sourceOptions = createMemo(() => (isAsync() ? loader.options() : (props.options ?? []).map(normalize)));
   // Remote loaders filter server-side; a static list has to be filtered here or
   // the search field would render but do nothing.
-  const options = () => (isAsync() || !props.searchable ? sourceOptions() : filterChoiceOptions(sourceOptions(), query()));
+  const options = createMemo(() => (isAsync() || !props.searchable ? sourceOptions() : filterChoiceOptions(sourceOptions(), query())));
   const selected = createMemo(() => {
     const current = value();
     if (!current) return undefined;

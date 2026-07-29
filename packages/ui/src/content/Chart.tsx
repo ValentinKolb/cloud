@@ -1,7 +1,7 @@
 import type { MapViewport } from "@k2b/stdlib";
 import { charts } from "@k2b/stdlib";
 import type { JSX } from "solid-js";
-import { createEffect, createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 import { DEFAULT_MAP_VIEWPORT, normalizeMapViewport, panMapViewport, zoomMapViewport } from "./chart-map-viewport";
 import {
   panStateTimelineViewport,
@@ -417,12 +417,26 @@ const Chart = (props: ChartProps): JSX.Element => {
     }
   };
 
-  const lineXValues = (): number[] => {
-    if (props.kind !== "line") return [];
-    return [...new Set(props.series.flatMap((series) => series.data.map((point) => point.x)).filter(Number.isFinite))].sort(
-      (left, right) => left - right,
-    );
-  };
+  const lineInspection = createMemo(() => {
+    if (props.kind !== "line") {
+      return {
+        values: [] as number[],
+        series: [] as Array<{ label: string; points: Map<number, { x: number; y: number }> }>,
+      };
+    }
+    const values = new Set<number>();
+    const series = props.series.map((entry) => {
+      const points = new Map<number, { x: number; y: number }>();
+      for (const point of entry.data) {
+        if (!Number.isFinite(point.x)) continue;
+        values.add(point.x);
+        if (Number.isFinite(point.y) && !points.has(point.x)) points.set(point.x, point);
+      }
+      return { label: entry.label ?? "Series", points };
+    });
+    return { values: [...values].sort((left, right) => left - right), series };
+  });
+  const lineXValues = () => lineInspection().values;
 
   const linePlotBounds = (): { left: number; right: number } => {
     if (props.kind !== "line") return { left: 0, right: size().width };
@@ -437,13 +451,15 @@ const Chart = (props: ChartProps): JSX.Element => {
 
   const showLinePoint = (index: number, pointerY?: number) => {
     if (props.kind !== "line" || !chartTooltipRef || !lineAnchorRef) return;
-    const values = lineXValues();
-    const x = values[Math.min(values.length - 1, Math.max(0, index))];
+    const inspection = lineInspection();
+    const values = inspection.values;
+    const pointIndex = Math.min(values.length - 1, Math.max(0, index));
+    const x = values[pointIndex];
     if (x === undefined) return;
-    const points = props.series
+    const points = inspection.series
       .map((series) => {
-        const point = series.data.find((candidate) => candidate.x === x && Number.isFinite(candidate.y));
-        return point ? { label: series.label ?? "Series", point } : null;
+        const point = series.points.get(x);
+        return point ? { label: series.label, point } : null;
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (points.length === 0) return;
@@ -457,7 +473,7 @@ const Chart = (props: ChartProps): JSX.Element => {
     const ratio = max === min ? 0.5 : (x - min) / (max - min);
     lineAnchorRef.style.left = `${bounds.left + ratio * (bounds.right - bounds.left)}px`;
     lineAnchorRef.style.top = `${Math.min(size().height - 8, Math.max(8, pointerY ?? 24))}px`;
-    setLinePointIndex(values.indexOf(x));
+    setLinePointIndex(pointIndex);
     setLineInspectionActive(true);
     try {
       if (!chartTooltipRef.matches(":popover-open")) chartTooltipRef.showPopover();
@@ -477,10 +493,15 @@ const Chart = (props: ChartProps): JSX.Element => {
     const localX = event.clientX - rect.left;
     const ratio = Math.min(1, Math.max(0, (localX - bounds.left) / Math.max(1, bounds.right - bounds.left)));
     const target = (values[0] ?? 0) + ratio * ((values.at(-1) ?? 0) - (values[0] ?? 0));
-    const index = values.reduce(
-      (nearest, value, current) => (Math.abs(value - target) < Math.abs(values[nearest]! - target) ? current : nearest),
-      0,
-    );
+    let low = 0;
+    let high = values.length - 1;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (values[middle]! < target) low = middle + 1;
+      else high = middle;
+    }
+    const previous = Math.max(0, low - 1);
+    const index = Math.abs(values[previous]! - target) <= Math.abs(values[low]! - target) ? previous : low;
     showLinePoint(index, event.clientY - rect.top);
   };
 

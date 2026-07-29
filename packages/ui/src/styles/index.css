@@ -1952,6 +1952,47 @@
   display: none;
 }
 
+.k2b-ui
+  .k2b-app-workspace[data-sidebar-collapsed="true"]
+  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
+  .k2b-app-workspace__sidebar-header {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.k2b-ui
+  .k2b-app-workspace[data-sidebar-collapsed="true"]
+  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
+  .k2b-app-workspace__sidebar-header
+  > :not(.k2b-app-workspace__sidebar-header-icon),
+.k2b-ui
+  .k2b-app-workspace[data-sidebar-collapsed="true"]
+  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
+  :is(
+    .k2b-app-workspace__sidebar-section > h2,
+    .k2b-app-workspace__sidebar-icon-grid-wrap > h2,
+    .k2b-app-workspace__sidebar-item-label,
+    .k2b-app-workspace__sidebar-item-meta,
+    .k2b-app-workspace__sidebar-item-action
+  ) {
+  display: none !important;
+}
+
+.k2b-ui
+  .k2b-app-workspace[data-sidebar-collapsed="true"]
+  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
+  :is(.k2b-app-workspace__sidebar-item, .k2b-app-workspace__sidebar-item-main) {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.k2b-ui
+  .k2b-app-workspace[data-sidebar-collapsed="true"]
+  .k2b-app-workspace__sidebar[data-workspace-collapsible="true"]
+  .k2b-app-workspace__sidebar-icon-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .k2b-ui .k2b-floating-window > header > i {
   flex-shrink: 0;
   color: var(--k2b-window-accent, var(--k2b-text-muted));
@@ -3135,8 +3176,7 @@
 }
 
 .k2b-ui .k2b-date-actions,
-.k2b-ui .k2b-date-range-times,
-.k2b-ui .k2b-date-durations {
+.k2b-ui .k2b-date-range-times {
   display: flex;
   min-width: 0;
   align-items: flex-end;
@@ -3149,6 +3189,7 @@
 }
 
 .k2b-ui .k2b-date-apply {
+  flex: 0 0 auto;
   min-height: 2rem;
   padding: 0.375rem 0.75rem;
   border: 0;
@@ -3167,8 +3208,21 @@
 }
 
 .k2b-ui .k2b-date-durations {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 0.25rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.125rem 0;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.k2b-ui .k2b-date-durations button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .k2b-ui .k2b-date-durations button[aria-pressed="true"] {

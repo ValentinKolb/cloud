@@ -19,58 +19,115 @@ import { createSignal, Show } from "solid-js";
 import { DemoCard } from "../DemoCard";
 import { DemoGrid, type DemoSection } from "./types";
 
-const WorkspaceDemo = () => (
-  <DemoCard id="workspace" chip={{ kind: "component", name: "AppWorkspace", from: "@k2b/ui" }} description="A portable application frame with responsive navigation, peer panes, contextual detail, a bottom drawer, and controller-ready resize metadata." code={`<AppWorkspace>
-  <AppWorkspace.Sidebar>…</AppWorkspace.Sidebar>
+const WorkspaceDemo = () => {
+  const [activeView, setActiveView] = createSignal<"items" | "activity">("items");
+  const [paneOpen, setPaneOpen] = createSignal(false);
+  const [detailOpen, setDetailOpen] = createSignal(true);
+  const [drawerOpen, setDrawerOpen] = createSignal(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  const togglePane = () => setPaneOpen((open) => !open);
+  const toggleDetail = () => setDetailOpen((open) => !open);
+  const workspace = (collapsed: boolean) => (
+    <AppWorkspace
+      layoutState={() => ({ version: 2, sidebarWidth: 208, sidebarCollapsed: collapsed })}
+      onLayoutChange={(state) => setSidebarCollapsed(Boolean(state.sidebarCollapsed))}
+    >
+      <AppWorkspace.Sidebar collapsible>
+        <AppWorkspace.SidebarHeader title="Inventory" subtitle="12 items" icon="ti ti-box" />
+        <AppWorkspace.SidebarDesktop>
+          <AppWorkspace.SidebarBody>
+            <AppWorkspace.SidebarItem active={activeView() === "items"} onClick={() => setActiveView("items")}>
+              <AppWorkspace.SidebarItemIcon icon="ti ti-list" />
+              <AppWorkspace.SidebarItemLabel>Items</AppWorkspace.SidebarItemLabel>
+              <AppWorkspace.SidebarItemMeta>12</AppWorkspace.SidebarItemMeta>
+            </AppWorkspace.SidebarItem>
+            <AppWorkspace.SidebarItem active={activeView() === "activity"} onClick={() => setActiveView("activity")}>
+              <AppWorkspace.SidebarItemIcon icon="ti ti-history" />
+              <AppWorkspace.SidebarItemLabel>Activity</AppWorkspace.SidebarItemLabel>
+            </AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarBody>
+        </AppWorkspace.SidebarDesktop>
+        <AppWorkspace.SidebarMobile>
+          <AppWorkspace.SidebarMobileItems>
+            <AppWorkspace.SidebarItem active={activeView() === "items"} icon="ti ti-list" onClick={() => setActiveView("items")}>
+              Items
+            </AppWorkspace.SidebarItem>
+            <AppWorkspace.SidebarItem
+              active={activeView() === "activity"}
+              icon="ti ti-history"
+              onClick={() => setActiveView("activity")}
+            >
+              Activity
+            </AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarMobileItems>
+        </AppWorkspace.SidebarMobile>
+      </AppWorkspace.Sidebar>
+      <AppWorkspace.Content>
+        <AppWorkspace.Main mobilePane="main">
+          <div class="ui-demo-pane">
+            <div class="ui-workspace-demo__body">
+              <strong>{activeView() === "items" ? "Inventory items" : "Recent activity"}</strong>
+              <span>Main 1</span>
+              <div class="ui-workspace-demo__actions">
+                <Button size="sm" variant="secondary" onClick={() => setSidebarCollapsed(!collapsed)}>
+                  {collapsed ? "Expand navigation" : "Collapse navigation"}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={togglePane}>
+                  {paneOpen() ? "Hide Main 2" : "Show Main 2"}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={toggleDetail}>
+                  {detailOpen() ? "Hide detail" : "Show detail"}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setDrawerOpen((open) => !open)}>
+                  {drawerOpen() ? "Hide events" : "Show events"}
+                </Button>
+              </div>
+            </div>
+          </div>
+          <AppWorkspace.MainPane id="main-2" label="Main 2" open={paneOpen()}>
+            <div class="ui-demo-pane">Main 2</div>
+          </AppWorkspace.MainPane>
+        </AppWorkspace.Main>
+        <AppWorkspace.Detail id="record" open={detailOpen()} width="sm">
+          <div class="ui-demo-pane">Selected item</div>
+        </AppWorkspace.Detail>
+      </AppWorkspace.Content>
+      <AppWorkspace.BottomDrawer id="events" open={drawerOpen()} height="sm">
+        <div class="ui-demo-pane">Recent events</div>
+      </AppWorkspace.BottomDrawer>
+    </AppWorkspace>
+  );
+
+  return (
+    <DemoCard
+      id="workspace"
+      chip={{ kind: "component", name: "AppWorkspace", from: "@k2b/ui" }}
+      description="A portable application frame with responsive navigation, peer panes, contextual detail, a bottom drawer, and pointer and keyboard resizing."
+      code={`const [layout, setLayout] = createSignal<AppWorkspaceLayoutState>({ version: 2, sidebarWidth: 208 });
+const [paneOpen, setPaneOpen] = createSignal(false);
+const [detailOpen, setDetailOpen] = createSignal(true);
+const [drawerOpen, setDrawerOpen] = createSignal(true);
+
+<AppWorkspace layoutState={layout} onLayoutChange={setLayout}>
+  <AppWorkspace.Sidebar collapsible>…</AppWorkspace.Sidebar>
   <AppWorkspace.Content>
     <AppWorkspace.Main>
-      <AppWorkspace.MainPane id="activity" label="Activity">…</AppWorkspace.MainPane>
+      <AppWorkspace.MainPane id="main-2" label="Main 2" open={paneOpen()}>…</AppWorkspace.MainPane>
       …
     </AppWorkspace.Main>
-    <AppWorkspace.Detail id="record" open>…</AppWorkspace.Detail>
+    <AppWorkspace.Detail id="record" open={detailOpen()}>…</AppWorkspace.Detail>
   </AppWorkspace.Content>
-  <AppWorkspace.BottomDrawer id="events" open={false}>…</AppWorkspace.BottomDrawer>
-</AppWorkspace>`}>
-    <div class="ui-workspace-demo">
-      <AppWorkspace resizable={false}>
-        <AppWorkspace.Sidebar>
-          <AppWorkspace.SidebarHeader title="Inventory" subtitle="12 items" icon="ti ti-box" />
-          <AppWorkspace.SidebarDesktop>
-            <AppWorkspace.SidebarBody>
-              <AppWorkspace.SidebarItem active>
-                <AppWorkspace.SidebarItemIcon icon="ti ti-list" />
-                <AppWorkspace.SidebarItemLabel>Items</AppWorkspace.SidebarItemLabel>
-                <AppWorkspace.SidebarItemMeta>12</AppWorkspace.SidebarItemMeta>
-              </AppWorkspace.SidebarItem>
-              <AppWorkspace.SidebarItem>
-                <AppWorkspace.SidebarItemIcon icon="ti ti-history" />
-                <AppWorkspace.SidebarItemLabel>Activity</AppWorkspace.SidebarItemLabel>
-              </AppWorkspace.SidebarItem>
-            </AppWorkspace.SidebarBody>
-          </AppWorkspace.SidebarDesktop>
-          <AppWorkspace.SidebarMobile>
-            <AppWorkspace.SidebarMobileItems>
-              <AppWorkspace.SidebarItem active icon="ti ti-list">Items</AppWorkspace.SidebarItem>
-              <AppWorkspace.SidebarItem icon="ti ti-history">Activity</AppWorkspace.SidebarItem>
-            </AppWorkspace.SidebarMobileItems>
-          </AppWorkspace.SidebarMobile>
-        </AppWorkspace.Sidebar>
-        <AppWorkspace.Content>
-          <AppWorkspace.Main mobilePane="main">
-            <div class="ui-demo-pane">Primary work area</div>
-            <AppWorkspace.MainPane id="activity" label="Activity" open resizable={false}>
-              <div class="ui-demo-pane">Peer activity pane</div>
-            </AppWorkspace.MainPane>
-          </AppWorkspace.Main>
-          <AppWorkspace.Detail id="record" open width="sm"><div class="ui-demo-pane">Selected item</div></AppWorkspace.Detail>
-        </AppWorkspace.Content>
-        <AppWorkspace.BottomDrawer id="events" open={false}>
-          <div class="ui-demo-pane">Recent events</div>
-        </AppWorkspace.BottomDrawer>
-      </AppWorkspace>
-    </div>
-  </DemoCard>
-);
+  <AppWorkspace.BottomDrawer id="events" open={drawerOpen()}>…</AppWorkspace.BottomDrawer>
+</AppWorkspace>`}
+    >
+      <div class="ui-workspace-demo">
+        <Show when={sidebarCollapsed()} fallback={workspace(false)}>
+          {workspace(true)}
+        </Show>
+      </div>
+    </DemoCard>
+  );
+};
 
 const PanesDemo = () => {
   const [value, setValue] = createSignal(createPanesValue(["source", "preview", "data"]));

@@ -101,13 +101,22 @@ export function FilterChip(props: FilterChipProps): JSX.Element {
 
   createEffect(() => setLocalValue([...props.value]));
 
+  const selectedValues = createMemo(() => new Set(localValue()));
+  const defaultValues = createMemo(() => new Set(props.defaultValue ?? []));
+  const sectionByValue = createMemo(() => {
+    const sections = new Map<string, FilterChipSection>();
+    for (const section of props.options) {
+      for (const option of section.options) sections.set(option.value, section);
+    }
+    return sections;
+  });
   const hasDefault = () => (props.defaultValue?.length ?? 0) > 0;
-  const selected = (value: string) => localValue().includes(value);
+  const selected = (value: string) => selectedValues().has(value);
   const active = () => props.isActive ?? localValue().length > 0;
   const atDefault = () => {
     if (!props.defaultValue) return false;
     const current = localValue();
-    return current.length === props.defaultValue.length && current.every((value) => props.defaultValue?.includes(value));
+    return current.length === props.defaultValue.length && current.every((value) => defaultValues().has(value));
   };
   const emit = (value: string[]) => {
     setLocalValue(value);
@@ -115,7 +124,7 @@ export function FilterChip(props: FilterChipProps): JSX.Element {
     onChange?.(value);
   };
   const toggle = (value: string) => {
-    const section = props.options.find((candidate) => candidate.options.some((option) => option.value === value));
+    const section = sectionByValue().get(value);
     if (!section) return;
     const current = localValue();
     if (section.multiple) {

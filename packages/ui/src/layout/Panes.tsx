@@ -505,11 +505,12 @@ function PanesLeaf(
     node: () => PanesLeafNode;
   },
 ) {
-  const elements = () => props.node().elementIds.flatMap((id) => props.elementById.get(id) ?? []);
-  const activeId = () =>
+  const elements = createMemo(() => props.node().elementIds.flatMap((id) => props.elementById.get(id) ?? []));
+  const activeId = createMemo(() =>
     props.node().elementIds.includes(props.node().activeElementId ?? "")
       ? props.node().activeElementId
-      : props.node().elementIds[0];
+      : props.node().elementIds[0],
+  );
   const presentation = () => props.node().presentation ?? "tabs";
   const activeElement = () => props.elementById.get(activeId() ?? "");
   const activeElementTitle = () => {

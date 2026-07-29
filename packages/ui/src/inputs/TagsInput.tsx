@@ -18,6 +18,19 @@ export function TagsInput(props: TagsInputProps): JSX.Element {
   const error = () => resolveMaybeAccessor(props.error);
   const placeholder = () => props.placeholder ?? "Tags (e.g. Tag 1, Tag 2,...)";
   const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
+  const parseTags = (text: string): string[] => {
+    const tags: string[] = [];
+    const seen = new Set<string>();
+    const limit = props.maxTags === undefined ? Number.POSITIVE_INFINITY : Math.max(0, Math.floor(props.maxTags));
+    for (const rawTag of text.split(",")) {
+      const tag = normalize(rawTag);
+      if (!tag || seen.has(tag)) continue;
+      if (tags.length >= limit) break;
+      seen.add(tag);
+      tags.push(tag);
+    }
+    return tags;
+  };
   const escapeHtml = (text: string) =>
     text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   const renderTags = (tags: readonly string[]) =>
@@ -58,9 +71,11 @@ export function TagsInput(props: TagsInputProps): JSX.Element {
           onBlur={(event) => {
             if (props.disabled) return;
             const previous = value();
-            const next = (event.currentTarget.textContent ?? "").split(",").map(normalize).filter(Boolean).filter((tag, index, all) => all.indexOf(tag) === index).slice(0, props.maxTags);
-            const added = next.filter((tag) => !previous.includes(tag));
-            const removed = previous.filter((tag) => !next.includes(tag));
+            const next = parseTags(event.currentTarget.textContent ?? "");
+            const previousTags = new Set(previous);
+            const nextTags = new Set(next);
+            const added = next.filter((tag) => !previousTags.has(tag));
+            const removed = previous.filter((tag) => !nextTags.has(tag));
             const announcement = document.getElementById(announcementId);
             if (announcement) announcement.textContent = `${added.length ? `Tags added: ${added.join(", ")}. ` : ""}${removed.length ? `Tags removed: ${removed.join(", ")}.` : ""}`;
             commitFieldValue(props, next);

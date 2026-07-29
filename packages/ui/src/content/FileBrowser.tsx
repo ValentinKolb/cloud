@@ -7,7 +7,7 @@
  */
 import { createZip, downloadFileFromContent } from "@k2b/stdlib/browser";
 import { mutation } from "@k2b/stdlib/solid";
-import { createEffect, createResource, createSignal, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, Show, untrack } from "solid-js";
 import { dialogCore } from "../feedback/dialog-core";
 import { prompts } from "../feedback/prompts";
 import Dropdown from "../actions/Dropdown";
@@ -70,7 +70,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
     void refetch();
   });
 
-  const allEntries = (): FileTreeEntry[] => {
+  const allEntries = createMemo<FileTreeEntry[]>(() => {
     const loaded = entries() ?? [];
     const real = new Set(loaded.map((entry) => entry.path));
     return [
@@ -79,8 +79,8 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
         .filter((path) => !real.has(path))
         .map((path) => ({ path, kind: "folder" as const })),
     ];
-  };
-  const selectedEntry = () => allEntries().find((entry) => entry.path === selectedPath()) ?? null;
+  });
+  const selectedEntry = createMemo(() => allEntries().find((entry) => entry.path === selectedPath()) ?? null);
   const fileMutation = mutation.create<void, () => Promise<void>>({
     mutation: (work) => work(),
     onSuccess: () => void refetch(),
