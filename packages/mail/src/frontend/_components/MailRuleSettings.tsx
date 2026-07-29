@@ -100,60 +100,10 @@ function MailRuleConditionsEditor(props: {
 
   return (
     <div class="flex flex-col gap-2">
-      <Show when={props.conditions.items.length > 1}>
-        <div class="max-w-64">
-          <Select
-            label="Match mode"
-            value={() => props.conditions.mode}
-            onChange={(mode) => props.onChange({ ...props.conditions, mode: mode as MailRuleConditions["mode"] })}
-            options={[
-              { id: "all", label: "All conditions" },
-              { id: "any", label: "Any condition" },
-            ]}
-          />
-        </div>
-      </Show>
       <For each={props.conditions.items}>
         {(condition, index) => (
           <div class="rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-2">
-            <div class="mb-1 flex min-h-7 items-center justify-between gap-2">
-              <span class="text-[11px] font-semibold text-secondary">Condition {index() + 1}</span>
-              <div class="flex items-center gap-1">
-                <button
-                  type="button"
-                  class="icon-btn icon-btn-sm"
-                  aria-label="Move condition up"
-                  disabled={index() === 0}
-                  onClick={() => move(index(), -1)}
-                >
-                  <i class="ti ti-arrow-up" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  class="icon-btn icon-btn-sm"
-                  aria-label="Move condition down"
-                  disabled={index() === props.conditions.items.length - 1}
-                  onClick={() => move(index(), 1)}
-                >
-                  <i class="ti ti-arrow-down" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  class="icon-btn icon-btn-sm"
-                  aria-label="Remove condition"
-                  disabled={props.conditions.items.length === 1}
-                  onClick={() =>
-                    props.onChange({
-                      ...props.conditions,
-                      items: props.conditions.items.filter((_, candidateIndex) => candidateIndex !== index()),
-                    })
-                  }
-                >
-                  <i class="ti ti-x" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-            <div class="flex flex-wrap items-end gap-2">
+            <div class="flex flex-wrap items-end gap-2 md:flex-nowrap">
               <div class="min-w-40 flex-[1_1_11rem]">
                 <Select
                   label="Field"
@@ -210,20 +160,79 @@ function MailRuleConditionsEditor(props: {
                   />
                 </Show>
               </div>
+              <div class="flex h-9 shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  aria-label="Move condition up"
+                  disabled={index() === 0}
+                  onClick={() => move(index(), -1)}
+                >
+                  <i class="ti ti-arrow-up" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  aria-label="Move condition down"
+                  disabled={index() === props.conditions.items.length - 1}
+                  onClick={() => move(index(), 1)}
+                >
+                  <i class="ti ti-arrow-down" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  aria-label="Remove condition"
+                  disabled={props.conditions.items.length === 1}
+                  onClick={() =>
+                    props.onChange({
+                      ...props.conditions,
+                      items: props.conditions.items.filter((_, candidateIndex) => candidateIndex !== index()),
+                    })
+                  }
+                >
+                  <i class="ti ti-x" aria-hidden="true" />
+                </button>
+              </div>
             </div>
           </div>
         )}
       </For>
-      <Show when={props.conditions.items.length < 8}>
-        <button
-          type="button"
-          class="btn-secondary btn-sm self-start"
-          onClick={() => props.onChange({ ...props.conditions, items: [...props.conditions.items, initialCondition("subject")] })}
-        >
-          <i class="ti ti-plus" aria-hidden="true" />
-          Add condition
-        </button>
-      </Show>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <Show when={props.conditions.items.length < 8}>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            onClick={() => props.onChange({ ...props.conditions, items: [...props.conditions.items, initialCondition("subject")] })}
+          >
+            <i class="ti ti-plus" aria-hidden="true" />
+            Add condition
+          </button>
+        </Show>
+        <Show when={props.conditions.items.length > 1}>
+          <div class="ml-auto w-56">
+            <Select
+              ariaLabel="Match conditions"
+              value={() => props.conditions.mode}
+              onChange={(mode) => props.onChange({ ...props.conditions, mode: mode as MailRuleConditions["mode"] })}
+              options={[
+                {
+                  id: "all",
+                  label: "Match all",
+                  icon: "ti ti-list-check",
+                  description: "Run the rule only when every condition matches.",
+                },
+                {
+                  id: "any",
+                  label: "Match any",
+                  icon: "ti ti-list-details",
+                  description: "Run the rule when at least one condition matches.",
+                },
+              ]}
+            />
+          </div>
+        </Show>
+      </div>
       <Show when={props.validationMessage}>
         {(message) => (
           <p class="text-xs text-red-600 dark:text-red-400" role="alert">

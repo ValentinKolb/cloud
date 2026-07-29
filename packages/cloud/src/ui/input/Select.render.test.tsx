@@ -26,3 +26,32 @@ test("colored options keep their label and render a decorative color marker", ()
   expect(html).toContain("background-color:#2563eb");
   expect(html).toContain('aria-hidden="true"');
 });
+
+test("compact selects expose an explicit accessible name and descriptive icon options", () => {
+  const html = renderToString(() =>
+    createComponent(Select, {
+      ariaLabel: "Match conditions",
+      value: () => "all",
+      options: [
+        {
+          id: "all",
+          label: "Match all",
+          icon: "ti ti-list-check",
+          description: "Run only when every condition matches.",
+        },
+        {
+          id: "any",
+          label: "Match any",
+          icon: "ti ti-list-details",
+          description: "Run when at least one condition matches.",
+        },
+      ],
+    }),
+  );
+
+  expect(html).toContain('aria-label="Match conditions"');
+  expect(html).toContain('aria-label="Match conditions options"');
+  expect(html).toContain("ti ti-list-check");
+  expect(html).toContain("Run only when every condition matches.");
+  expect(html).toContain("Run when at least one condition matches.");
+});

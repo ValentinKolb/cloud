@@ -23,6 +23,7 @@ type FetchDataFn = (query: string, signal: AbortSignal) => Promise<SelectOption[
 
 type SelectInputProps = {
   label?: string;
+  ariaLabel?: string;
   description?: string;
   placeholder?: string;
   icon?: string;
@@ -58,6 +59,7 @@ const SelectInput = (props: SelectInputProps) => {
   const disabled = () => props.disabled ?? false;
   const clearable = () => props.clearable ?? false;
   const isSearchable = () => Boolean(props.fetchData);
+  const accessibleLabel = () => props.ariaLabel ?? props.label ?? "Select an option";
 
   // Normalize a raw option (string | object) into the always-object shape
   // the renderer expects. Used for both static options and fetchData
@@ -323,7 +325,7 @@ const SelectInput = (props: SelectInputProps) => {
             role="combobox"
             aria-expanded={isOpen()}
             aria-haspopup="listbox"
-            aria-label={!props.label ? "Select an option" : undefined}
+            aria-label={accessibleLabel()}
             aria-describedby={a11y.ariaDescribedBy()}
             aria-invalid={!!props.error?.()}
             aria-required={props.required}
@@ -356,7 +358,7 @@ const SelectInput = (props: SelectInputProps) => {
           classList={{ dark: isDarkTheme() }}
           onKeyDown={handleKeyDown}
           onClick={handleDialogClick}
-          aria-label="Options"
+          aria-label={`${accessibleLabel()} options`}
         >
           {/* Search input — only in fetchData mode. Borderless, no
                 icon, no divider underneath: the dropdown's own border
@@ -378,7 +380,7 @@ const SelectInput = (props: SelectInputProps) => {
               aria-label="Search options"
             />
           </Show>
-          <div class="flex max-h-60 flex-col gap-1 overflow-y-auto" role="listbox" aria-label={props.label || "Options"}>
+          <div class="flex max-h-60 flex-col gap-1 overflow-y-auto" role="listbox" aria-label={`${accessibleLabel()} options`}>
             {/* Loading row — single dim line. The previous results
                   would be more jarring than a small spinner here. */}
             <Show when={isSearchable() && fetchMut.loading()}>
