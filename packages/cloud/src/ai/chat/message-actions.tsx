@@ -15,7 +15,7 @@ type ForkMessageHandler = (entry: AiStoredMessage, input?: AiForkMessageInput) =
 type RetryMessageHandler = (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>;
 type RetrySteerHandler = (block: Extract<AiTurnBlock, { kind: "steer_message" }>) => void | Promise<void>;
 
-export type AiMessageListActions = {
+export type AiChatActions = {
   /** Prevents turn-continuation actions while the current turn is stopping. */
   actionDisabled?: () => boolean;
   onApproval?: ApprovalHandler;
@@ -32,12 +32,12 @@ export type AiMessageListActions = {
 const assistantBlocks = (message: Message): Extract<Message, { role: "assistant" }>["content"] =>
   message.role === "assistant" ? message.content : [];
 
-const AiMessageActionContext = createContext<AiMessageListActions>({});
+const AiChatActionContext = createContext<AiChatActions>({});
 
-export const useAiMessageActions = () => useContext(AiMessageActionContext);
+export const useAiChatActions = () => useContext(AiChatActionContext);
 
-export function AiMessageActionsProvider(props: { actions?: AiMessageListActions; children: JSX.Element }) {
-  return <AiMessageActionContext.Provider value={props.actions ?? {}}>{props.children}</AiMessageActionContext.Provider>;
+export function AiChatActionsProvider(props: { actions?: AiChatActions; children: JSX.Element }) {
+  return <AiChatActionContext.Provider value={props.actions ?? {}}>{props.children}</AiChatActionContext.Provider>;
 }
 
 const usageValue = (usage: Usage | null | undefined, key: "input" | "output" | "total" | "creditsUsed") => {
@@ -235,7 +235,7 @@ const openForkMessageDialog = async (
 };
 
 export function AssistantMessageActions(props: { entry: AiStoredMessage; entries: AiStoredMessage[]; copyText: string }) {
-  const actions = useAiMessageActions();
+  const actions = useAiChatActions();
   const { copy, wasCopied } = clipboard.create(1400);
   const fork = mutation.create<void, void>({
     mutation: async () => {

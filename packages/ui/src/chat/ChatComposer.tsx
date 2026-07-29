@@ -31,6 +31,8 @@ export type ChatAttachment = {
   kind?: "file" | "image";
   icon?: string;
   previewUrl?: string;
+  /** Opaque application-owned payload returned unchanged with ChatSendInput. */
+  data?: unknown;
 };
 
 export type ChatSendInput = {
@@ -104,8 +106,10 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const [dragActive, setDragActive] = createSignal(false);
   const [addingFiles, setAddingFiles] = createSignal(false);
   const [submitting, setSubmitting] = createSignal(false);
+  let composerRef: HTMLElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
+  let sawRunning = Boolean(props.running);
 
   const attachments = () => props.attachments ?? [];
   const commands = () => props.commands ?? [];
@@ -150,6 +154,24 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   createEffect(() => {
     props.focusToken;
     if (props.focusToken !== undefined) queueMicrotask(focus);
+  });
+
+  createEffect(() => {
+    const running = Boolean(props.running);
+    if (sawRunning && !running && !props.disabled && typeof document !== "undefined") {
+      const active = document.activeElement as HTMLElement | null;
+      const insideComposer = Boolean(active && composerRef?.contains(active));
+      const editingElsewhere = Boolean(
+        active &&
+          active !== document.body &&
+          !insideComposer &&
+          (active.matches("input, textarea, select") ||
+            active.isContentEditable ||
+            active.closest("[role='dialog'], [popover]")),
+      );
+      if (!editingElsewhere) queueMicrotask(focus);
+    }
+    sawRunning = running;
   });
 
   const setAttachments = (next: readonly ChatAttachment[]) =>
@@ -254,6 +276,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
 
   return (
     <section
+      ref={composerRef}
       class={`k2b-chat-composer ${props.class ?? ""}`}
       data-running={props.running ? "true" : undefined}
       data-drag-active={dragActive() ? "true" : undefined}
@@ -286,10 +309,10 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       </Show>
 
       <Show when={attachments().length > 0}>
-        <div class="k2b-chat-composer__attachments" aria-label="Attachments">
+        <div class="k2b-chat-composer__attachments" role="list" aria-label="Attachments">
           <For each={attachments()}>
             {(attachment) => (
-              <div class="k2b-chat-composer__attachment">
+              <div class="k2b-chat-composer__attachment" role="listitem">
                 <Show
                   when={attachment.kind === "image" && attachment.previewUrl}
                   fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
@@ -322,6 +345,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
 
       <div
         class="k2b-chat-composer__input"
+        role="group"
+        aria-label="Message input"
         onDragEnter={(event) => {
           if (!canSelectFiles() || !event.dataTransfer?.types.includes("Files")) return;
           event.preventDefault();
@@ -349,6 +374,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
             Drop files to attach
           </div>
         </Show>
+        {/* Biome cannot infer that the ARIA popup attributes disappear together with the conditional combobox role. */}
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the rendered DOM only receives these attributes while role=combobox */}
         <textarea
           ref={textareaRef}
           rows={1}
@@ -410,7 +437,11 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               label={false}
               options={modelOptions()}
               value={props.selectedModelId ?? null}
-              onValueChange={(value) => value && props.onModelChange?.(value)}
+              onValueChange={(value) => {
+                if (!value) return;
+                props.onModelChange?.(value);
+                queueMicrotask(focus);
+              }}
               disabled={blocked() || props.running || !props.onModelChange}
               placeholder="Model"
             />

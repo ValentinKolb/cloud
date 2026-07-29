@@ -1,4 +1,10 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
+import {
+  ChatComposer,
+  ChatContextUsage,
+  ChatTimeline,
+  type ChatCommand,
+} from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationTimelineEntry,
@@ -8,16 +14,22 @@ import type {
 } from "@valentinkolb/cloud/ai";
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import {
-  AiComposer,
+  AiChatActionsProvider,
+  AiChatProjection,
+  AiChatTurnNavigator,
   type AiComposerAttachment,
   type AiComposerSendInput,
-  AiMessageList,
-  type AiSlashCommand,
+  aiChatAttachments,
+  aiChatModelOptions,
+  aiComposerAttachmentRecords,
+  aiComposerFileAccept,
+  aiComposerSendInput,
   aiLatestUsageSnapshot,
+  readAiComposerFiles,
 } from "@valentinkolb/cloud/ai/ui";
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
 import { openAssistantConversationEditor } from "./AssistantConversationEditor";
@@ -101,6 +113,8 @@ export default function AssistantWorkspace(props: Props) {
   const [composerDrafts, setComposerDrafts] = createSignal<Record<string, string>>({});
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
   const [filesDialogOpen, setFilesDialogOpen] = createSignal(false);
+  const [timelineViewport, setTimelineViewport] = createSignal<HTMLDivElement>();
+  const [timelineContent, setTimelineContent] = createSignal<HTMLDivElement>();
 
   const canUseComposer = createMemo(() => props.status.ok && props.status.enabled && props.models.length > 0);
   const usageSnapshot = createMemo(() => aiLatestUsageSnapshot(chat.messages()));
@@ -120,6 +134,18 @@ export default function AssistantWorkspace(props: Props) {
     const key = composerSessionKey();
     setComposerAttachments((current) => ({ ...current, [key]: attachments }));
   };
+  const selectedModel = createMemo(
+    () => props.models.find((model) => model.id === selectedModelId()) ?? null,
+  );
+  const supportsVision = () => Boolean(selectedModel()?.capabilities.includes("vision"));
+  createEffect(() => {
+    selectedModelId();
+    if (supportsVision()) return;
+    const current = activeComposerAttachments();
+    if (!current.some((attachment) => attachment.kind === "image")) return;
+    setActiveComposerAttachments(current.filter((attachment) => attachment.kind !== "image"));
+    chat.setError("Image attachments were removed because the selected model does not support vision.");
+  });
   const focusComposer = () => setComposerFocusToken((value) => value + 1);
   const commitConversationUrl = (conversationId: string, replace = false) => {
     const href = assistantConversationHref(window.location.href, conversationId);
@@ -247,7 +273,7 @@ export default function AssistantWorkspace(props: Props) {
     onError: (error) => chat.setError(error.message),
   });
 
-  const slashCommands = (): AiSlashCommand[] => [
+  const slashCommands = (): ChatCommand[] => [
     {
       name: "new",
       description: "Start a new conversation",
@@ -326,6 +352,27 @@ export default function AssistantWorkspace(props: Props) {
     },
   ];
 
+  const addComposerFiles = async (files: readonly File[]) => {
+    const sessionKey = composerSessionKey();
+    const current = activeComposerAttachments();
+    const result = await readAiComposerFiles(files, {
+      supportsVision: supportsVision(),
+      currentCount: current.length,
+    });
+    const attachmentErrors = [...result.errors];
+    if (result.discarded > 0) {
+      attachmentErrors.push(
+        `${result.discarded} attachment${result.discarded === 1 ? "" : "s"} discarded because the limit was reached.`,
+      );
+    }
+    if (attachmentErrors.length > 0) chat.setError(attachmentErrors.join(" "));
+    if (result.attachments.length === 0) return;
+    setComposerAttachments((all) => ({
+      ...all,
+      [sessionKey]: [...(all[sessionKey] ?? []), ...result.attachments],
+    }));
+  };
+
   const updateConversation = (updated: AiConversation) => {
     chat.setConversations((prev) => prev.map((conversation) => (conversation.id === updated.id ? updated : conversation)));
   };
@@ -365,25 +412,9 @@ export default function AssistantWorkspace(props: Props) {
       />
 
       <AppWorkspace.Content>
-        <AppWorkspace.Main>
-          <section class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-messages">
-            <AiMessageList
-              session={{
-                conversationId: chat.activeConversationId,
-                messages: chat.messages,
-                activeTurn: chat.activeTurn,
-                loading: chat.loadingConversation,
-                history: {
-                  hasMore: chat.hasMoreHistory,
-                  loading: chat.loadingOlder,
-                  loadOlder: chat.loadOlderMessages,
-                },
-                timeline: {
-                  entries: chat.timeline,
-                  loading: chat.timelineLoading,
-                  loadThrough: chat.loadHistoryThroughSeq,
-                },
-              }}
+        <AppWorkspace.Main class="k2b-ui">
+          <section class="min-h-0 flex-1 overflow-hidden" data-scroll-preserve="assistant-messages">
+            <AiChatActionsProvider
               actions={{
                 actionDisabled: () => chat.runStatus() === "stopping",
                 onApproval: async (request, input) => {
@@ -407,8 +438,35 @@ export default function AssistantWorkspace(props: Props) {
                 onOpenFile: (path) => void openFiles(path),
                 fileUrl: chat.fileContentUrl,
               }}
-              emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
-            />
+            >
+              <AiChatProjection
+                messages={chat.messages()}
+                activeTurn={chat.activeTurn()}
+                render={(items) => (
+                  <ChatTimeline
+                    class="ai-message-list-container h-full"
+                    conversationKey={chat.activeConversationId()}
+                    items={items()}
+                    loading={chat.loadingConversation()}
+                    hasMore={chat.hasMoreHistory()}
+                    loadingOlder={chat.loadingOlder()}
+                    onLoadOlder={chat.loadOlderMessages}
+                    emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
+                    viewportRef={setTimelineViewport}
+                    contentRef={setTimelineContent}
+                    navigation={
+                      <AiChatTurnNavigator
+                        entries={chat.timeline()}
+                        loading={chat.timelineLoading()}
+                        viewport={timelineViewport}
+                        content={timelineContent}
+                        loadThrough={chat.loadHistoryThroughSeq}
+                      />
+                    }
+                  />
+                )}
+              />
+            </AiChatActionsProvider>
           </section>
 
           <div class="shrink-0 px-[var(--ui-space-section)] pb-[var(--ui-space-section)] pt-2">
@@ -427,56 +485,81 @@ export default function AssistantWorkspace(props: Props) {
                 </div>
               </Show>
 
-              <AiComposer
-                models={{
-                  profiles: () => props.models,
-                  selectedId: selectedModelId,
-                  onSelect: setSelectedModelId,
+              <ChatComposer
+                value={composerDraft()}
+                onValueChange={setComposerDraft}
+                attachments={aiChatAttachments(activeComposerAttachments())}
+                onAttachmentsChange={(next) =>
+                  setActiveComposerAttachments(aiComposerAttachmentRecords(next))
+                }
+                fileSelection={{
+                  onSelect: addComposerFiles,
+                  accept: aiComposerFileAccept,
+                  disabled: chat.running(),
+                  label: "Attach files",
                 }}
-                state={{
-                  sessionKey: composerSessionKey,
-                  draft: composerDraft,
-                  onDraftChange: setComposerDraft,
-                  attachments: activeComposerAttachments,
-                  onAttachmentsChange: setActiveComposerAttachments,
-                  restoreSession: (sessionKey, state) => {
-                    const draft = state.draft;
-                    if (draft !== undefined) {
-                      setComposerDrafts((current) => ({ ...current, [sessionKey]: draft }));
-                    }
-                    const attachments = state.attachments;
-                    if (attachments !== undefined) {
-                      setComposerAttachments((current) => ({ ...current, [sessionKey]: attachments }));
-                    }
-                  },
-                  disabled: () => !canUseComposer() || newConversation.loading() || chat.loadingConversation(),
-                  running: chat.running,
-                  canStop: () => Boolean(chat.activeTurn()),
-                  stopping: () => chat.runStatus() === "stopping",
-                  focusToken: composerFocusToken,
-                  placeholder: props.status.enabled
+                models={aiChatModelOptions(props.models)}
+                selectedModelId={selectedModelId()}
+                onModelChange={setSelectedModelId}
+                commands={slashCommands()}
+                disabled={!canUseComposer() || newConversation.loading() || chat.loadingConversation()}
+                running={chat.running()}
+                stopping={chat.runStatus() === "stopping"}
+                focusToken={composerFocusToken()}
+                placeholder={
+                  props.status.enabled
                     ? chat.runStatus() === "stopping"
                       ? "Stopping response"
                       : chat.running()
                         ? "Steer the current response"
                         : "Ask Assistant anything or type / ..."
-                    : "AI is not configured",
-                  usage: () => usageSnapshot()?.request ?? null,
-                  loopUsage: () => usageSnapshot()?.loop ?? null,
-                  contextWindow: () => usageModel()?.contextWindow,
-                  contextModelLabel: () => usageModel()?.label,
-                  files: {
-                    count: chat.vfsFileCount,
-                    onOpen: () => void openFiles("/"),
-                  },
-                }}
-                actions={{
-                  onNewConversation: () => void createAndFocusConversation(),
-                  slashCommands,
-                  send,
-                  steer,
-                  stop: chat.abort,
-                }}
+                    : "AI is not configured"
+                }
+                onSend={(input) => send(aiComposerSendInput(input))}
+                onSteer={steer}
+                onStop={
+                  chat.activeTurn()
+                    ? async () => {
+                        await chat.abort();
+                      }
+                    : undefined
+                }
+                onError={(error) =>
+                  chat.setError(error instanceof Error ? error.message : "Chat action failed.")
+                }
+                actions={
+                  <button
+                    type="button"
+                    class="k2b-chat-composer__icon-action"
+                    aria-label="New chat"
+                    title="New chat"
+                    disabled={newConversation.loading()}
+                    onClick={() => void createAndFocusConversation()}
+                  >
+                    <i class="ti ti-message-plus" aria-hidden="true" />
+                  </button>
+                }
+                context={
+                  <>
+                    <Show when={chat.vfsFileCount() > 0}>
+                      <button
+                        type="button"
+                        class="k2b-chat-composer__icon-action"
+                        aria-label={`${chat.vfsFileCount()} files in this chat`}
+                        title="Files in this chat"
+                        onClick={() => void openFiles("/")}
+                      >
+                        <i class="ti ti-files" aria-hidden="true" />
+                      </button>
+                    </Show>
+                    <ChatContextUsage
+                      usage={usageSnapshot()?.request ?? null}
+                      loopUsage={usageSnapshot()?.loop ?? null}
+                      contextWindow={usageModel()?.contextWindow}
+                      modelLabel={usageModel()?.label}
+                    />
+                  </>
+                }
               />
             </div>
           </div>

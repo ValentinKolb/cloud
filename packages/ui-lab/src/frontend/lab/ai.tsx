@@ -1,10 +1,21 @@
 import type { AiPublicModelProfile, AiStoredMessage, AiTurnBlock } from "@valentinkolb/cloud/ai";
 import type { AiActiveTurn } from "@valentinkolb/cloud/ai/solid";
-import { AiComposer, AiContextIndicator, AiMessageList } from "@valentinkolb/cloud/ai/ui";
+import {
+  AiChatActionsProvider,
+  AiChatProjection,
+  aiChatModelOptions,
+} from "@valentinkolb/cloud/ai/ui";
+import {
+  ChatComposer,
+  ChatContextUsage,
+  ChatTimeline,
+  type ChatCommand,
+} from "@k2b/ui";
 import { createSignal } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_AI_UI = "@valentinkolb/cloud/ai/ui";
+const FROM_K2B_UI = "@k2b/ui";
 
 const now = new Date().toISOString();
 const cardArgs = {
@@ -166,95 +177,111 @@ export const AiChatBlocksDemo = () => {
     submitted()
       ? null
       : { turnId: "turn-1", attempt: 1, seq: 1, status: "waiting_for_action", modelProfileId: "demo", blocks: [surveyBlock] };
-
   return (
     <DemoCard
       id="ai-chat-blocks"
-      chip={{ kind: "component", name: "AiMessageList", from: FROM_AI_UI }}
-      description="Assistant and app-specific chats use the same block renderer for text, thinking, default cards, and interactive frontend tools."
-      code={`<AiMessageList
-  session={{ messages: () => messages, activeTurn: () => activeTurn }}
-  actions={{ onFrontendToolResult: (request, result) => continueTurn(request, result) }}
-/>`}
+      chip={[
+        { kind: "component", name: "ChatTimeline", from: FROM_K2B_UI },
+        { kind: "component", name: "AiChatProjection", from: FROM_AI_UI },
+      ]}
+      description="The portable timeline owns chat presentation while Cloud projects protocol messages, tools, and actions into it."
+      code={`<AiChatActionsProvider actions={{ onFrontendToolResult: continueTurn }}>
+  <AiChatProjection
+    messages={messages}
+    activeTurn={activeTurn}
+    render={(items) => (
+      <ChatTimeline items={items()} emptyTitle="Start a conversation" />
+    )}
+  />
+</AiChatActionsProvider>`}
     >
-      <div class="h-[34rem] overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
-        <AiMessageList
-          session={{
-            messages: () => demoMessages,
-            activeTurn,
-          }}
+      <div class="k2b-ui h-[34rem] overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
+        <AiChatActionsProvider
           actions={{
             onRetryMessage: () => undefined,
             onFrontendToolResult: () => {
               setSubmitted(true);
             },
           }}
-        />
+        >
+          <AiChatProjection
+            messages={demoMessages}
+            activeTurn={activeTurn()}
+            render={(items) => (
+              <ChatTimeline items={items()} emptyTitle="Start a conversation" />
+            )}
+          />
+        </AiChatActionsProvider>
       </div>
     </DemoCard>
   );
 };
 
-export const AiComposerDemo = () => {
+export const ChatComposerDemo = () => {
+  const [draft, setDraft] = createSignal("");
   const [selectedModelId, setSelectedModelId] = createSignal(demoModels[0]!.id);
+  const commands: ChatCommand[] = [
+    {
+      name: "summarize",
+      description: "Prepare a summary request",
+      icon: "ti ti-list-details",
+      action: ({ setValue }) => setValue("Summarize this:\n"),
+    },
+  ];
   return (
     <DemoCard
       id="ai-composer"
-      chip={{ kind: "component", name: "AiComposer", from: FROM_AI_UI }}
-      description="Minimal Assistant composer with text model dropdown, action menu, in-field attachment previews, context indicator, and borderless send action."
-      code={`<AiComposer
-  models={{ profiles: () => models, selectedId: selectedModelId, onSelect: setSelectedModelId }}
-  state={{ disabled: () => false, running: () => false }}
-  actions={{ onNewConversation: createConversation, send: sendMessage, steer: steerMessage, stop }}
+      chip={[
+        { kind: "component", name: "ChatComposer", from: FROM_K2B_UI },
+        { kind: "component", name: "aiChatModelOptions", from: FROM_AI_UI },
+      ]}
+      description="The portable composer owns interaction and accessibility. Cloud only adapts its model profiles and outgoing payload."
+      code={`<ChatComposer
+  value={draft()}
+  onValueChange={setDraft}
+  models={aiChatModelOptions(models)}
+  selectedModelId={selectedModelId()}
+  onModelChange={setSelectedModelId}
+  onSend={sendMessage}
 />`}
     >
-      <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-        <AiComposer
-          models={{
-            profiles: () => demoModels,
-            selectedId: selectedModelId,
-            onSelect: setSelectedModelId,
-          }}
-          state={{
-            disabled: () => false,
-            running: () => false,
-            usage: () => ({ input: 15_876, output: 32, total: 15_908 }),
-            loopUsage: () => ({ input: 69_944, output: 819, total: 70_763 }),
-          }}
-          actions={{
-            onNewConversation: () => undefined,
-            slashCommands: () => [
-              {
-                name: "summarize",
-                description: "Prepare a summary request",
-                icon: "ti ti-list-details",
-                action: ({ setDraft }) => setDraft("Summarize this:\n"),
-              },
-            ],
-            send: () => true,
-            steer: () => true,
-            stop: () => true,
-          }}
+      <div class="k2b-ui rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+        <ChatComposer
+          value={draft()}
+          onValueChange={setDraft}
+          models={aiChatModelOptions(demoModels)}
+          selectedModelId={selectedModelId()}
+          onModelChange={setSelectedModelId}
+          commands={commands}
+          onSend={() => true}
+          context={
+            <ChatContextUsage
+              usage={{ input: 15_876, output: 32, total: 15_908 }}
+              loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
+              contextWindow={262_000}
+              modelLabel="vLLM Qwen 3.6"
+            />
+          }
         />
       </div>
     </DemoCard>
   );
 };
 
-export const AiContextIndicatorDemo = () => (
+export const ChatContextUsageDemo = () => (
   <DemoCard
     id="ai-context-indicator"
-    chip={{ kind: "component", name: "AiContextIndicator", from: FROM_AI_UI }}
+    chip={{ kind: "component", name: "ChatContextUsage", from: FROM_K2B_UI }}
     description="Compact request-context disclosure. Pointer hover and keyboard focus reveal the same token breakdown; Escape closes the tooltip."
-    code={`<AiContextIndicator
+    code={`<ChatContextUsage
   usage={{ input: 31_200, output: 1_560, total: 32_760 }}
   loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
   contextWindow={262_000}
   modelLabel="vLLM Qwen 3.6"
 />`}
   >
-    <div class="flex min-h-28 items-end justify-end rounded-lg bg-zinc-50 p-4 dark:bg-zinc-950">
-      <AiContextIndicator
+    <div class="k2b-ui flex min-h-28 items-end justify-end rounded-lg bg-zinc-50 p-4 dark:bg-zinc-950">
+      <ChatContextUsage
         usage={{ input: 31_200, output: 1_560, total: 32_760 }}
         loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
         contextWindow={262_000}

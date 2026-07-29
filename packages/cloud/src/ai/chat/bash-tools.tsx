@@ -2,7 +2,7 @@ import { fileIcons, highlight } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import { formatAiFileSize } from "../attachments";
 import type { AiTurnBlock } from "../protocol";
-import { useAiMessageActions } from "./message-actions";
+import { useAiChatActions } from "./message-actions";
 import { isRecord } from "./message-utils";
 import { ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
 
@@ -146,7 +146,7 @@ const presentResult = (block: ToolBlock): PresentResult | null => {
 
 /** File handed to the user from the conversation VFS — a quiet row, matching the other tool rows. */
 export function PresentToolBlock(props: { block: ToolBlock }) {
-  const actions = useAiMessageActions();
+  const actions = useAiChatActions();
   const file = () => presentResult(props.block);
   const title = () => (isRecord(props.block.args) && typeof props.block.args.title === "string" ? props.block.args.title : null);
   const name = () => {

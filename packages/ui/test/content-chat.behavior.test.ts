@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createComponent } from "solid-js";
+import { createComponent, createSignal } from "solid-js";
 import { isServer, render } from "solid-js/web";
 import { createDomTestHarness } from "./dom";
 
@@ -104,6 +104,42 @@ describe("@k2b/ui content and chat behavior", () => {
     expect(viewport?.getAttribute("tabindex")).toBe("0");
 
     dispose();
+    dom.cleanup();
+  });
+
+  test("restores composer focus after a run without stealing another editor", async () => {
+    const dom = createDomTestHarness();
+    const { ChatComposer } = await import("../src/chat/ChatComposer");
+    const [running, setRunning] = createSignal(true);
+    const externalInput = dom.document.createElement("input");
+    dom.document.body.append(externalInput);
+
+    const dispose = render(
+      () =>
+        createComponent(ChatComposer, {
+          value: "",
+          onValueChange: () => undefined,
+          onSend: () => undefined,
+          get running() {
+            return running();
+          },
+        }),
+      dom.root,
+    );
+    const composerInput = dom.root.querySelector<HTMLTextAreaElement>("textarea");
+
+    setRunning(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(dom.document.activeElement).toBe(composerInput);
+
+    setRunning(true);
+    externalInput.focus();
+    setRunning(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(dom.document.activeElement).toBe(externalInput);
+
+    dispose();
+    externalInput.remove();
     dom.cleanup();
   });
 });

@@ -34,6 +34,7 @@ COPY packages/proxy-auth/package.json    packages/proxy-auth/
 COPY packages/quotes/package.json        packages/quotes/
 COPY packages/spaces/package.json        packages/spaces/
 COPY packages/tools/package.json         packages/tools/
+COPY packages/ui/package.json            packages/ui/
 COPY packages/ui-lab/package.json        packages/ui-lab/
 COPY packages/venue/package.json         packages/venue/
 COPY packages/weather/package.json       packages/weather/
@@ -57,6 +58,10 @@ ENV APP_ID=${APP_ID} \
 COPY packages packages
 COPY styles.css ./
 
+# The runtime install stays production-only. @k2b/ui's stylesheet is compiled
+# in this disposable build stage, so install its build-time toolchain here.
+RUN bun install --frozen-lockfile --ignore-scripts
+RUN bun run --cwd packages/ui build
 RUN bun run packages/cloud/scripts/build.ts
 
 # ──────────────────────────────────────────────────────────────────────

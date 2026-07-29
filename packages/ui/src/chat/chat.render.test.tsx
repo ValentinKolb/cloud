@@ -169,6 +169,18 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).not.toContain("AiStoredMessage");
   });
 
+  test("renders application navigation outside the conversation live region", () => {
+    const html = renderToString(() =>
+      createComponent(ChatTimeline, {
+        items: [{ kind: "message", id: "one", role: "user", content: "Hello" }],
+        navigation: "Turn navigation",
+      }),
+    );
+
+    expect(html).toContain("k2b-chat-timeline__navigation");
+    expect(html.indexOf("Turn navigation")).toBeLessThan(html.indexOf('role="log"'));
+  });
+
   test("renders the empty state and formats compact token values", () => {
     const html = renderToString(() =>
       createComponent(ChatTimeline, {

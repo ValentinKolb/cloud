@@ -1,5 +1,9 @@
 import type { AiPublicModelProfile } from "@valentinkolb/cloud/ai";
-import { AiComposer, AiContextIndicator, AiMessageList } from "@valentinkolb/cloud/ai/ui";
+import {
+  AiChatActionsProvider,
+  AiChatProjection,
+  aiChatModelOptions,
+} from "@valentinkolb/cloud/ai/ui";
 import {
   Widget,
   WidgetHero,
@@ -8,6 +12,12 @@ import {
   WidgetStat,
   WidgetStatus,
 } from "@valentinkolb/cloud/ui";
+import {
+  ChatComposer,
+  ChatContextUsage,
+  ChatTimeline,
+  type ChatCommand,
+} from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { DemoCard } from "../DemoCard";
 import { DemoGrid, type DemoSection } from "./types";
@@ -34,105 +44,81 @@ const cloudComposerModels: AiPublicModelProfile[] = [
 ];
 
 const AssistantDemo = () => {
+  const [draft, setDraft] = createSignal("");
   const [selectedModelId, setSelectedModelId] = createSignal(cloudComposerModels[0]!.id);
+  const commands: ChatCommand[] = [
+    {
+      name: "summarize",
+      description: "Prepare a summary request",
+      icon: "ti ti-list-details",
+      action: ({ setValue }) => setValue("Summarize this:\n"),
+    },
+  ];
   return (
     <>
       <DemoCard
         id="ai-message-list"
         chip={[
-          { kind: "component", name: "AiMessageList", from: "@valentinkolb/cloud/ai/ui" },
-          { kind: "component", name: "AiContextIndicator", from: "@valentinkolb/cloud/ai/ui" },
+          { kind: "component", name: "ChatTimeline", from: "@k2b/ui" },
+          { kind: "component", name: "AiChatProjection", from: "@valentinkolb/cloud/ai/ui" },
         ]}
-        description="Cloud message and usage adapters with an empty, backend-free session fixture."
-        code={`<AiMessageList
-  session={{
-    conversationId: () => null,
-    messages: () => [],
-    activeTurn: () => null,
-  }}
-  emptyTitle="Start a conversation"
-/>
-<AiContextIndicator
-  usage={{ input: 15_876, output: 32, total: 15_908 }}
-  loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
-  contextWindow={262_000}
-  modelLabel="vLLM Qwen 3.6"
-/>`}
+        description="The generic timeline owns chat presentation. Cloud projects its persisted messages and active turn into that contract."
+        code={`<AiChatActionsProvider actions={messageActions}>
+  <AiChatProjection
+    messages={session.messages}
+    activeTurn={session.activeTurn}
+    render={(items) => (
+      <ChatTimeline items={items()} emptyTitle="Start a conversation" />
+    )}
+  />
+</AiChatActionsProvider>`}
       >
-        <div class="flex min-h-48 flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <div class="flex justify-end">
-            <AiContextIndicator
-              usage={{ input: 15_876, output: 32, total: 15_908 }}
-              loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
-              contextWindow={262_000}
-              modelLabel="vLLM Qwen 3.6"
+        <div class="k2b-ui h-48 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
+          <AiChatActionsProvider>
+            <AiChatProjection
+              messages={[]}
+              activeTurn={null}
+              render={(items) => (
+                <ChatTimeline items={items()} emptyTitle="Start a conversation" />
+              )}
             />
-          </div>
-          <AiMessageList
-            session={{
-              conversationId: () => null,
-              messages: () => [],
-              activeTurn: () => null,
-            }}
-            emptyTitle="Start a conversation"
-          />
+          </AiChatActionsProvider>
         </div>
       </DemoCard>
 
       <DemoCard
         id="ai-composer"
-        chip={{ kind: "component", name: "AiComposer", from: "@valentinkolb/cloud/ai/ui" }}
-        description="Exact public composer contract with local model selection and inert catalog actions."
-        code={`<AiComposer
-  models={{
-    profiles: () => models,
-    selectedId: selectedModelId,
-    onSelect: setSelectedModelId,
-  }}
-  state={{
-    disabled: () => false,
-    running: () => false,
-    attachments: () => [],
-    onAttachmentsChange: () => undefined,
-  }}
-  actions={{
-    send: (input) => sendMessage(input),
-    steer: (message) => steerMessage(message),
-    stop: () => stopTurn(),
-  }}
+        chip={[
+          { kind: "component", name: "ChatComposer", from: "@k2b/ui" },
+          { kind: "component", name: "aiChatModelOptions", from: "@valentinkolb/cloud/ai/ui" },
+        ]}
+        description="The generic composer owns interaction and accessibility. Cloud only adapts model profiles and outgoing payloads."
+        code={`<ChatComposer
+  value={draft()}
+  onValueChange={setDraft}
+  models={aiChatModelOptions(models)}
+  selectedModelId={selectedModelId()}
+  onModelChange={setSelectedModelId}
+  onSend={(input) => sendMessage(aiComposerSendInput(input))}
 />`}
       >
-        <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <AiComposer
-            models={{
-              profiles: () => cloudComposerModels,
-              selectedId: selectedModelId,
-              onSelect: setSelectedModelId,
-            }}
-            state={{
-              disabled: () => false,
-              running: () => false,
-              attachments: () => [],
-              onAttachmentsChange: () => undefined,
-              usage: () => ({ input: 15_876, output: 32, total: 15_908 }),
-              loopUsage: () => ({ input: 69_944, output: 819, total: 70_763 }),
-              contextWindow: () => 262_000,
-              contextModelLabel: () => "vLLM Qwen 3.6",
-            }}
-            actions={{
-              onNewConversation: () => undefined,
-              slashCommands: () => [
-                {
-                  name: "summarize",
-                  description: "Prepare a summary request",
-                  icon: "ti ti-list-details",
-                  action: ({ setDraft }) => setDraft("Summarize this:\n"),
-                },
-              ],
-              send: () => true,
-              steer: () => true,
-              stop: () => true,
-            }}
+        <div class="k2b-ui rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+          <ChatComposer
+            value={draft()}
+            onValueChange={setDraft}
+            models={aiChatModelOptions(cloudComposerModels)}
+            selectedModelId={selectedModelId()}
+            onModelChange={setSelectedModelId}
+            commands={commands}
+            onSend={() => true}
+            context={
+              <ChatContextUsage
+                usage={{ input: 15_876, output: 32, total: 15_908 }}
+                loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
+                contextWindow={262_000}
+                modelLabel="vLLM Qwen 3.6"
+              />
+            }
           />
         </div>
       </DemoCard>

@@ -55,6 +55,9 @@ export type ChatTimelineProps = {
   onLoadOlder?: () => boolean | void | Promise<boolean | void>;
   emptyTitle?: JSX.Element;
   emptyDescription?: JSX.Element;
+  navigation?: JSX.Element;
+  viewportRef?: (element: HTMLDivElement) => void;
+  contentRef?: (element: HTMLDivElement) => void;
   label?: string;
   followThreshold?: number;
   class?: string;
@@ -182,15 +185,26 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
   return (
     <section class={`k2b-chat-timeline ${props.class ?? ""}`} aria-label={props.label ?? "Conversation"}>
       <div
-        ref={viewportRef}
+        ref={(element) => {
+          viewportRef = element;
+          props.viewportRef?.(element);
+        }}
         class="k2b-chat-timeline__viewport"
         role="region"
         aria-label={`${props.label ?? "Conversation"} messages`}
         tabIndex={0}
         onScroll={updatePinned}
       >
+        <Show when={props.navigation}>
+          <div class="k2b-chat-timeline__navigation" aria-live="off">
+            {props.navigation}
+          </div>
+        </Show>
         <div
-          ref={contentRef}
+          ref={(element) => {
+            contentRef = element;
+            props.contentRef?.(element);
+          }}
           class="k2b-chat-timeline__content"
           role="log"
           aria-live="polite"

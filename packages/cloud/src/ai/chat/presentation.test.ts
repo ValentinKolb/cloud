@@ -4,10 +4,10 @@ import { resolve } from "node:path";
 import { type AiTurnBlock, splitActiveTurnBlocks } from "../protocol";
 
 test("distinguishes a pending response from model reasoning", () => {
-  const messageListSource = readFileSync(resolve(import.meta.dir, "message-list.tsx"), "utf8");
+  const presentationSource = readFileSync(resolve(import.meta.dir, "presentation.tsx"), "utf8");
   const blocksSource = readFileSync(resolve(import.meta.dir, "blocks.tsx"), "utf8");
 
-  expect(messageListSource).toContain('const AI_PENDING_TURN_LABEL = "Generating response"');
+  expect(presentationSource).toContain('label: "Generating response"');
   expect(blocksSource).toContain('label: "Thinking"');
   expect(blocksSource).toContain('label: "Show reasoning"');
 });

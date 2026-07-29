@@ -3967,6 +3967,13 @@
   outline-offset: -2px;
 }
 
+.k2b-ui .k2b-chat-timeline__navigation {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  height: 0;
+}
+
 .k2b-ui .k2b-chat-timeline__content {
   position: relative;
   display: flex;

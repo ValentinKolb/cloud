@@ -1,6 +1,6 @@
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
-import { AiChatBlocksDemo, AiComposerDemo, AiContextIndicatorDemo } from "../lab/ai";
+import { AiChatBlocksDemo, ChatComposerDemo, ChatContextUsageDemo } from "../lab/ai";
 import { AiSkillsManagerDemo } from "../lab/ai-skills";
 import {
   ActionHierarchy,
@@ -222,7 +222,7 @@ export const uiLabDocs: UiLabDocSection[] = [
         () => (
           <DemoGrid columns="one">
             <AiChatBlocksDemo />
-            <AiComposerDemo />
+            <ChatComposerDemo />
           </DemoGrid>
         ),
       ),
@@ -235,10 +235,10 @@ export const uiLabDocs: UiLabDocSection[] = [
         ["ai-context-indicator"],
         () => (
           <DemoGrid columns="one">
-            <AiContextIndicatorDemo />
+            <ChatContextUsageDemo />
           </DemoGrid>
         ),
-        { exports: ["AiContextIndicator"], source: "@valentinkolb/cloud/ai/ui" },
+        { exports: ["ChatContextUsage"], source: "@k2b/ui" },
       ),
     ],
   },

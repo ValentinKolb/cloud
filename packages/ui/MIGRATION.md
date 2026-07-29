@@ -1,7 +1,9 @@
 # Cloud UI migration inventory
 
-Cloud stays on `@valentinkolb/cloud/ui` until `@k2b/ui` is complete. There are
-no compatibility re-exports and no incremental application migration.
+Cloud stays on `@valentinkolb/cloud/ui` for the remaining component families
+until the package-wide big bang. Chat completed an earlier hard cut because its
+generic package contract and Cloud protocol boundary are now explicit. There
+are no compatibility re-exports.
 
 [`migration-inventory.json`](./migration-inventory.json) covers the public
 exports of both `packages/cloud/src/ui/index.ts` and
@@ -43,11 +45,11 @@ The currently checker-accepted source migrations are:
 - widgets: `Widget`, `WidgetCard`, `WidgetHero`, `WidgetList`, `WidgetPills`,
   `WidgetStat`, `WidgetStatus`.
 
-The chat family is deliberately absent from that list. `migration-inventory.json`
-has no `ai` group, and every export of `packages/cloud/src/ai/ui.tsx` is
-classified `cloud-owned`, so `ChatComposer`, `ChatTimeline`, `ChatMessage`,
-`ChatActivity` and `ChatContextUsage` are not checker-accepted source
-migrations. They are additive, as the next paragraph describes.
+The chat family is deliberately absent from that source-migration list.
+`migration-inventory.json` has no `ai` group: `ChatComposer`, `ChatTimeline`,
+`ChatMessage`, `ChatActivity`, and `ChatContextUsage` are additive portable
+components rather than renamed Cloud sources. Every remaining export of
+`packages/cloud/src/ai/ui.tsx` is a Cloud-owned protocol adapter.
 
 The generic chat family is additive rather than a rename of Cloud's AI
 composite. It owns controlled composition, portable attachments, slash
@@ -67,11 +69,11 @@ navigation, and accessible announcements.
 
 Cloud-owned controllers and domain contracts remain outside the package. This
 includes permission and principal editors, resource API keys, workflow
-authoring, stored AI protocols/controllers, and the existing
-`AiComposer`/`AiMessageList` protocol composites. Cloud's `./misc/Avatar`
-source also stays Cloud-specific because it owns an accounts route. The
-package `Avatar` is an additive portable presentation adapter; it does not
-claim migration of that routed source contract.
+authoring, stored AI protocols/controllers, timeline projection, action
+bindings, and composer payload adapters. Cloud's `./misc/Avatar` source also
+stays Cloud-specific because it owns an accounts route. The package `Avatar`
+is an additive portable presentation adapter; it does not claim migration of
+that routed source contract.
 
 `Button` and `IconButton` are additive package foundations. Cloud has no
 single public source module with the same contract, so they are intentionally
@@ -106,7 +108,9 @@ duplicate classifications.
 4. Done: fix package boundaries and APIs found by that migration, including
    standalone Calendar styles, namespaced toast ownership, single-layer
    editor focus treatment, and isolated Cloud-only showcase CSS.
-5. Migrate Cloud and all built-in apps in one hard cut.
+5. Done for chat: migrate Assistant and both showcases in one hard cut, then
+   remove the duplicate Cloud chat presentation components. The remaining
+   Cloud UI families still wait for the package-wide big bang.
 
 ## Intentional divergences from Cloud
 
@@ -176,27 +180,24 @@ Known and accepted: `ChatMessage` timestamps and token counts format through
 render different text until hydration. The `timeLabel` prop is the escape hatch;
 pinning a locale inside the package would be worse.
 
-## Future Cloud chat cutover
+## Completed Cloud chat cutover
 
-Do not add compatibility shims. During the Cloud big bang, add a thin
-Cloud-owned adapter and update every consumer together:
+The cutover has no compatibility shims:
 
-1. Project `AiStoredMessage`, `AiActiveTurn`, and the existing timeline model
-   into `ChatTimelineItem[]`. Tool calls, approvals, surveys, cards, shell
-   output, and web results remain Cloud-owned JSX passed as message or activity
-   content.
-2. Map Cloud model profiles to `ChatModelOption[]`.
-3. Map `ChatSendInput` to the Cloud controller. Convert portable attachments
-   and browser `File` selections to Cloud inline/VFS attachments there.
-4. Keep retry/fork lookup, approval decisions, steering, persistence,
-   permissions, and session lifecycle in Cloud. Expose only their buttons and
-   handlers through generic actions and callbacks.
-5. Replace all built-in app imports in one change, then remove the old Cloud
-   presentation exports only after the last caller is gone.
-6. Update the official AI documentation, especially
-   `docs-site/docs/en/ai/chat-interface.md` and the generated Cloud developer
-   references, after the adapter is final. Document the generic UI contract
-   separately from Cloud's protocol and controller contract.
+1. `AiChatProjection` reactively projects `AiStoredMessage` and `AiActiveTurn`
+   into `ChatTimelineItem[]` below `AiChatActionsProvider`. Tool calls,
+   approvals, surveys, cards, shell output, and web results remain Cloud-owned
+   JSX content.
+2. `aiChatModelOptions`, `aiChatAttachments`,
+   `aiComposerAttachmentRecords`, and `aiComposerSendInput` bridge the generic
+   controlled composer contract to Cloud records in both directions.
+3. `AiChatActionsProvider` binds retry, fork, approval, frontend-tool, and file
+   behavior without introducing a second timeline or message shell.
+4. Assistant, UI Lab, and Fibel compose the generic package components.
+5. The former `AiComposer`, `AiMessageList`, and `AiContextIndicator` exports
+   and implementations were removed after the final caller migrated.
+6. Official AI documentation describes the generic presentation contract
+   separately from Cloud's controller and protocol.
 
 The Fibel showcase exercises the public package boundary outside the Cloud
 shell. `packages/ui/fixture` is the authoritative standalone SSR and hydration

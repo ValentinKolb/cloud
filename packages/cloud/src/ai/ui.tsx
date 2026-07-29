@@ -1,18 +1,32 @@
 import { latestLoopUsage, latestUsage, latestUsageSnapshot, textFromMessage } from "./chat/message-utils";
 
 export {
-  AiComposer,
-  type AiComposerActions,
-  type AiComposerModels,
+  aiChatAttachments,
+  aiChatModelOptions,
+  aiComposerAttachmentRecords,
+  aiComposerFileAccept,
+  aiComposerSendInput,
+  type AiComposerAttachment,
+  type AiComposerFileResult,
   type AiComposerSendInput,
-  type AiComposerState,
-  AiContextIndicator,
-  type AiSlashCommand,
-  type AiSlashCommandContext,
-} from "./chat/composer";
-export type { AiTurnActionRequest } from "./chat/message-actions";
-export { AiMessageList, type AiMessageListActions, type AiMessageListSession } from "./chat/message-list";
-export type { AiComposerAttachment, AiForkMessageInput, AiRetryMessageInput } from "./chat/message-utils";
+  readAiComposerFiles,
+} from "./chat/composer-adapter";
+export type {
+  AiChatActions,
+  AiTurnActionRequest,
+} from "./chat/message-actions";
+export {
+  AiChatActionsProvider,
+  AiChatProjection,
+  AiChatTurnNavigator,
+  type AiChatProjectionProps,
+  type AiChatTimelineSession,
+  type AiChatTurnNavigatorProps,
+} from "./chat/presentation";
+export type {
+  AiForkMessageInput,
+  AiRetryMessageInput,
+} from "./chat/message-utils";
 
 export const aiLatestUsage = latestUsage;
 export const aiLatestLoopUsage = latestLoopUsage;

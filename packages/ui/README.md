@@ -204,9 +204,12 @@ Pass persisted input through `normalizePanesValue(stored, ids)`. It accepts
 legacy versionless values defensively and always returns the current versioned
 shape.
 
-Cloud stays on its existing UI until this package is complete. The
-[migration inventory](./MIGRATION.md) records the generic, Cloud-specific, and
-deprecated boundaries without compatibility shims.
+Cloud stays on its existing UI for component families that have not reached
+the package-wide big bang. Chat already completed a hard cut: built-in
+consumers compose these generic components with thin Cloud protocol adapters,
+without compatibility shims or a duplicate Cloud chat component set. The
+[migration inventory](./MIGRATION.md) records the remaining generic,
+Cloud-specific, and deprecated boundaries.
 
 The Fibel component showcase is the first external acceptance consumer. Its
 portable pages import `@k2b/ui` directly, while Cloud API integrations remain

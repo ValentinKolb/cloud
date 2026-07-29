@@ -4,7 +4,7 @@ import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";
 import { isRenderableTurnBlock } from "../protocol";
 import { BashToolBlock, PresentToolBlock } from "./bash-tools";
-import { useAiMessageActions } from "./message-actions";
+import { useAiChatActions } from "./message-actions";
 import {
   displayToolName,
   formatToolDetailText,
@@ -115,7 +115,7 @@ function ToolResultDisclosure(props: { name: string; toolName: string; args?: un
 }
 
 function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
-  const actions = useAiMessageActions();
+  const actions = useAiChatActions();
   const request = () => ({ turnId: props.turnId, callId: props.block.callId, name: props.block.name });
   const pending = () => props.block.status === "awaiting_approval";
   const actionDisabled = () => actions.actionDisabled?.() ?? false;
@@ -193,7 +193,7 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
 }
 
 function SurveyToolView(props: { turnId: string; block: ToolBlock }) {
-  const actions = useAiMessageActions();
+  const actions = useAiChatActions();
   const request = () => ({ turnId: props.turnId, callId: props.block.callId, name: props.block.name });
   const submit = actions.onFrontendToolResult;
   const submittedResult = () =>

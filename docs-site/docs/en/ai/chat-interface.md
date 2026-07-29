@@ -10,17 +10,33 @@ updated: 2026-07-27
 
 # Chat interface
 
-Cloud provides the Solid controller and components for chat surfaces.
+Compose Cloud chat from two layers:
 
-Use them together. The controller owns transport and state. The components own
-presentation.
+- `@k2b/ui` owns the generic timeline, message shell, composer, attachments,
+  model selection, commands, context usage, loading, and accessibility.
+- `@valentinkolb/cloud/ai` owns the controller, session protocol, persistence,
+  tools, approvals, files, retry, fork, and steering policy.
 
-## Create the controller
+Cloud adapters project protocol state and payloads across that boundary. There
+is no second Cloud-specific chat component set.
+
+## Compose a Cloud chat
 
 ```tsx
 import type { AiPublicModelProfile } from "@valentinkolb/cloud/ai";
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
-import { AiComposer, AiMessageList } from "@valentinkolb/cloud/ai/ui";
+import {
+  AiChatActionsProvider,
+  AiChatProjection,
+  aiChatModelOptions,
+  aiComposerSendInput,
+} from "@valentinkolb/cloud/ai/ui";
+import {
+  ChatComposer,
+  ChatContextUsage,
+  ChatTimeline,
+} from "@k2b/ui";
+import { createSignal } from "solid-js";
 
 export function ItemChat(props: {
   itemId: string;
@@ -32,41 +48,59 @@ export function ItemChat(props: {
     baseUrl: `/api/inventory/ai/items/${props.itemId}`,
     trackViewedState: true,
   });
+  const [draft, setDraft] = createSignal("");
 
   return (
-    <>
-      <AiMessageList
-        session={{
-          messages: chat.messages,
-          activeTurn: chat.activeTurn,
-          loading: chat.loadingConversation,
-        }}
-      />
-      <AiComposer
-        models={{
-          profiles: () => props.models,
-          selectedId: props.selectedModelId,
-          onSelect: props.selectModel,
-        }}
-        state={{
-          disabled: () => false,
-          running: chat.running,
-          canStop: () => Boolean(chat.activeTurn()),
-          stopping: () => chat.runStatus() === "stopping",
-        }}
+    <div class="k2b-ui">
+      <AiChatActionsProvider
         actions={{
-          send: chat.send,
-          steer: chat.steer,
-          stop: chat.abort,
+          onApproval: chat.respondToApproval,
+          onFrontendToolResult: chat.submitFrontendToolResult,
+          fileUrl: chat.fileContentUrl,
         }}
+      >
+        <AiChatProjection
+          messages={chat.messages()}
+          activeTurn={chat.activeTurn()}
+          render={(items) => (
+            <ChatTimeline
+              items={items()}
+              loading={chat.loadingConversation()}
+              hasMore={chat.hasMoreHistory()}
+              loadingOlder={chat.loadingOlder()}
+              onLoadOlder={chat.loadOlderMessages}
+            />
+          )}
+        />
+      </AiChatActionsProvider>
+
+      <ChatComposer
+        value={draft()}
+        onValueChange={setDraft}
+        models={aiChatModelOptions(props.models)}
+        selectedModelId={props.selectedModelId()}
+        onModelChange={props.selectModel}
+        running={chat.running()}
+        stopping={chat.runStatus() === "stopping"}
+        onSend={(input) =>
+          chat.send({
+            ...aiComposerSendInput(input),
+            modelProfileId: props.selectedModelId(),
+          })
+        }
+        onSteer={chat.steer}
+        onStop={async () => {
+          await chat.abort();
+        }}
+        context={<ChatContextUsage contextWindow={128_000} />}
       />
-    </>
+    </div>
   );
 }
 ```
 
-The exact component props depend on the chosen composition. Use the exported
-types from `@valentinkolb/cloud/ai/ui`.
+Keep the `k2b-ui` scope on the nearest stable application root and import
+`@k2b/ui/styles.css` once in the application stylesheet.
 
 The controller exposes:
 
@@ -94,7 +128,9 @@ Render tool input and output as data. Do not inject model text as HTML.
 
 ## Handle frontend tools
 
-Pass handlers through `frontendTools`.
+Pass approval, frontend-tool, retry, fork, and file handlers through
+`AiChatActionsProvider`. Rich Cloud blocks remain Cloud-owned JSX inside the
+generic timeline.
 
 The controller claims each call once, runs the handler, and sends the result
 back to the turn. Show interaction tools only when the relevant application
@@ -102,5 +138,5 @@ view is present.
 
 Server tools remain the default for domain access.
 
-See [Observability](/docs/en/operations/observability#operate-ai-workloads) for
+See [Observability](/en/docs/operations/observability#operate-ai-workloads) for
 runtime monitoring and production checks.

@@ -26,6 +26,7 @@ COPY packages/proxy-auth/package.json packages/proxy-auth/
 COPY packages/quotes/package.json packages/quotes/
 COPY packages/spaces/package.json packages/spaces/
 COPY packages/tools/package.json packages/tools/
+COPY packages/ui/package.json packages/ui/
 COPY packages/ui-lab/package.json packages/ui-lab/
 COPY packages/venue/package.json packages/venue/
 COPY packages/weather/package.json packages/weather/
@@ -42,5 +43,7 @@ RUN bun install --frozen-lockfile --ignore-scripts
 #    live source on top of these defaults at runtime.
 COPY packages/ packages/
 COPY styles.css ./
+
+RUN bun run --cwd packages/ui build
 
 EXPOSE 3000

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@k2b/ui/styles.css";
 @plugin "@tailwindcss/typography";
 
 /* global.css carries cloud-lib classes — UI primitives, layouts, shared
