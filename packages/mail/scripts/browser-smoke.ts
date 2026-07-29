@@ -389,6 +389,15 @@ const runSmoke = async (fixture: Fixture) => {
       (url) => url.pathname === `/app/mail/${fixture.mailboxId}/automations`,
       "mailbox tools open the automation workspace",
     );
+    await page.goto(`${mailboxPath}/automations/rules?new=1`, { waitUntil: "domcontentloaded" });
+    const ruleDialog = page.getByRole("dialog").filter({ hasText: "Create mail rule" });
+    const ruleValue = ruleDialog.getByRole("textbox", { name: "Value", exact: true });
+    await ruleValue.pressSequentially("focus-stays");
+    if ((await ruleValue.inputValue()) !== "focus-stays") fail("mail rule condition input lost keystrokes");
+    if (!(await ruleValue.evaluate((input) => document.activeElement === input))) {
+      fail("mail rule condition input lost focus while typing");
+    }
+    ok("mail rule condition input preserves focus while updating immutable state");
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
 
     await page.setViewportSize({ width: 390, height: 812 });

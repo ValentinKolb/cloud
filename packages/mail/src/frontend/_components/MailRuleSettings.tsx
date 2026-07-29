@@ -14,7 +14,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import {
   type MailRuleAction,
@@ -100,26 +100,27 @@ function MailRuleConditionsEditor(props: {
 
   return (
     <div class="flex flex-col gap-2">
-      <For each={props.conditions.items}>
+      <Index each={props.conditions.items}>
         {(condition, index) => (
           <div class="rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-2">
             <div class="flex flex-wrap items-end gap-2 md:flex-nowrap">
               <div class="min-w-40 flex-[1_1_11rem]">
                 <Select
                   label="Field"
-                  value={() => condition.field}
-                  onChange={(field) => replace(index(), initialCondition(field as RuleConditionField))}
+                  value={() => condition().field}
+                  onChange={(field) => replace(index, initialCondition(field as RuleConditionField))}
                   options={Object.entries(conditionFieldLabels).map(([id, label]) => ({ id, label }))}
                 />
               </div>
-              <Show when={condition.field === "subject" || condition.field === "body_text"}>
+              <Show when={condition().field === "subject" || condition().field === "body_text"}>
                 <div class="min-w-32 flex-[0.75_1_9rem]">
                   <Select
                     label="Operator"
-                    value={() => (condition.field === "subject" || condition.field === "body_text" ? condition.operator : "is")}
+                    value={() => (condition().field === "subject" || condition().field === "body_text" ? condition().operator : "is")}
                     onChange={(operator) => {
-                      if (condition.field === "subject" || condition.field === "body_text") {
-                        replace(index(), { ...condition, operator: operator as TextOperator });
+                      const current = condition();
+                      if (current.field === "subject" || current.field === "body_text") {
+                        replace(index, { ...current, operator: operator as TextOperator });
                       }
                     }}
                     options={Object.entries(textOperatorLabels).map(([id, label]) => ({ id, label }))}
@@ -128,31 +129,35 @@ function MailRuleConditionsEditor(props: {
               </Show>
               <div class="min-w-48 flex-[1.5_1_16rem]">
                 <Show
-                  when={condition.field === "attachment_presence"}
+                  when={condition().field === "attachment_presence"}
                   fallback={
                     <TextInput
                       label="Value"
-                      type={condition.field === "sender_address" ? "email" : "text"}
-                      value={() => (condition.field === "attachment_presence" ? "" : condition.value)}
+                      type={condition().field === "sender_address" ? "email" : "text"}
+                      value={() => {
+                        const current = condition();
+                        return current.field === "attachment_presence" ? "" : current.value;
+                      }}
                       onInput={(value) => {
-                        if (condition.field !== "attachment_presence") replace(index(), { ...condition, value });
+                        const current = condition();
+                        if (current.field !== "attachment_presence") replace(index, { ...current, value });
                       }}
                       placeholder={
-                        condition.field === "sender_address"
+                        condition().field === "sender_address"
                           ? "sender@example.com"
-                          : condition.field === "sender_domain"
+                          : condition().field === "sender_domain"
                             ? "example.com"
                             : "Text to match"
                       }
-                      maxLength={condition.field === "sender_address" || condition.field === "sender_domain" ? 320 : 1_000}
+                      maxLength={condition().field === "sender_address" || condition().field === "sender_domain" ? 320 : 1_000}
                       required
                     />
                   }
                 >
                   <Select
                     label="Value"
-                    value={() => (condition.field === "attachment_presence" && condition.value ? "yes" : "no")}
-                    onChange={(value) => replace(index(), { field: "attachment_presence", operator: "is", value: value === "yes" })}
+                    value={() => (condition().field === "attachment_presence" && condition().value ? "yes" : "no")}
+                    onChange={(value) => replace(index, { field: "attachment_presence", operator: "is", value: value === "yes" })}
                     options={[
                       { id: "yes", label: "Has attachments" },
                       { id: "no", label: "Has no attachments" },
@@ -165,8 +170,8 @@ function MailRuleConditionsEditor(props: {
                   type="button"
                   class="icon-btn icon-btn-sm"
                   aria-label="Move condition up"
-                  disabled={index() === 0}
-                  onClick={() => move(index(), -1)}
+                  disabled={index === 0}
+                  onClick={() => move(index, -1)}
                 >
                   <i class="ti ti-arrow-up" aria-hidden="true" />
                 </button>
@@ -174,8 +179,8 @@ function MailRuleConditionsEditor(props: {
                   type="button"
                   class="icon-btn icon-btn-sm"
                   aria-label="Move condition down"
-                  disabled={index() === props.conditions.items.length - 1}
-                  onClick={() => move(index(), 1)}
+                  disabled={index === props.conditions.items.length - 1}
+                  onClick={() => move(index, 1)}
                 >
                   <i class="ti ti-arrow-down" aria-hidden="true" />
                 </button>
@@ -187,7 +192,7 @@ function MailRuleConditionsEditor(props: {
                   onClick={() =>
                     props.onChange({
                       ...props.conditions,
-                      items: props.conditions.items.filter((_, candidateIndex) => candidateIndex !== index()),
+                      items: props.conditions.items.filter((_, candidateIndex) => candidateIndex !== index),
                     })
                   }
                 >
@@ -197,7 +202,7 @@ function MailRuleConditionsEditor(props: {
             </div>
           </div>
         )}
-      </For>
+      </Index>
       <div class="flex flex-wrap items-center gap-2">
         <Show when={props.conditions.items.length < 8}>
           <button
