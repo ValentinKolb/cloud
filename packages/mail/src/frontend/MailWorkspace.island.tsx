@@ -42,6 +42,7 @@ import {
 } from "./_components/mail-list-optimistic";
 import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
 import { buildMailListHref } from "./_components/mail-navigation";
+import { createMailPresenceSession } from "./_components/mail-presence-session";
 import { observeMailUserPreferences } from "./_components/MailSettingsStore";
 import type { MailUserPreferences } from "./_components/mail-user-preferences";
 import { type MailWorkspaceActionOptions, runMailWorkspaceAction } from "./_components/mail-workspace-action-controller";
@@ -357,43 +358,43 @@ export default function MailWorkspace(props: {
       return;
     }
     const peerId = crypto.randomUUID();
-    let stopped = false;
-    let requestQueue = Promise.resolve();
-    const heartbeat = () => {
-      if (document.visibilityState !== "visible") return;
-      requestQueue = requestQueue.then(async () => {
-        if (stopped) return;
-        try {
-          const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].presence.$put({
+    const session = createMailPresenceSession({
+      heartbeat: async (signal) => {
+        const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].presence.$put(
+          {
             param: { mailboxId, conversationId },
             json: {
               peerId,
               mode: "viewing",
             },
-          });
-          if (response.ok && !stopped) setPresence(await response.json());
-        } catch {
-          // Presence is best-effort and must never interrupt mailbox work.
-        }
-      });
-    };
-    void heartbeat();
-    const timer = window.setInterval(() => void heartbeat(), 10_000);
-    const onVisibility = () => void heartbeat();
-    document.addEventListener("visibilitychange", onVisibility);
-    onCleanup(() => {
-      stopped = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibility);
-      setPresence({ participants: [] });
-      void requestQueue
-        .then(() =>
-          apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].presence.$delete({
+          },
+          { init: { signal } },
+        );
+        return response.ok ? response.json() : null;
+      },
+      leave: async () => {
+        await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].presence.$delete(
+          {
             param: { mailboxId, conversationId },
             json: { peerId },
-          }),
-        )
-        .catch(() => undefined);
+          },
+          { init: { keepalive: true } },
+        );
+      },
+      onSnapshot: setPresence,
+    });
+    const heartbeat = () => {
+      if (document.visibilityState === "visible") void session.heartbeat();
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 10_000);
+    const onVisibility = heartbeat;
+    document.addEventListener("visibilitychange", onVisibility);
+    onCleanup(() => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      session.dispose();
+      setPresence({ participants: [] });
     });
   });
 

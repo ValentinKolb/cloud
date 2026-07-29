@@ -315,7 +315,7 @@ const assertMailboxToolsMenu = async (menu: Locator) => {
     "Sync mailbox",
     "Mailbox health",
     "Automations",
-    "Sender rules",
+    "Rules",
     "Subscriptions",
     "Remote images",
     "Shared links",

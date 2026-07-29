@@ -13,6 +13,7 @@ import type {
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../live-events";
 import type { MailSubscriptionWorkspaceData } from "../service/subscription-workspace";
 import { readApiError } from "./_components/api-response";
+import { createMailLiveRefreshCoordinator } from "./_components/mail-live-refresh";
 
 const statusLabel = (status: MailSubscriptionSummary["status"]): string =>
   status === "requesting"
@@ -34,6 +35,7 @@ const statusClass = (status: MailSubscriptionSummary["status"]): string =>
 
 const formatDate = (value: string): string =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+const isAbortError = (error: unknown): boolean => error instanceof Error && error.name === "AbortError";
 
 const mergePages = (current: MailSubscriptionSummary[], page: MailSubscriptionPage): MailSubscriptionSummary[] => {
   const merged = new Map(current.map((item) => [item.listKey, item]));
@@ -48,31 +50,51 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
   const [items, setItems] = createSignal(initialItems);
   const [nextCursor, setNextCursor] = createSignal(props.data.subscriptions.nextCursor);
   const [pendingAction, setPendingAction] = createSignal<string | null>(null);
+  const [liveTransportDegraded, setLiveTransportDegraded] = createSignal(false);
+  const [liveSnapshotDegraded, setLiveSnapshotDegraded] = createSignal(false);
+  const liveDegraded = createMemo(() => liveTransportDegraded() || liveSnapshotDegraded());
   const canWrite = createMemo(() => props.data.permission === "write" || props.data.permission === "admin");
-  let markLiveApplied: (cursor: string) => void = () => undefined;
-  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingLiveCursor: string | null = null;
+  let markLiveApplied: (cursor: string | null | undefined) => void = () => undefined;
+  let liveTransportTimer: ReturnType<typeof setTimeout> | null = null;
+  let refreshController: AbortController | null = null;
+  let refreshRequest = 0;
   let disposed = false;
 
-  const refresh = mutations.create<MailSubscriptionPage, { liveCursor: string | null }, { liveCursor: string | null }>({
-    onBefore: (input) => ({ liveCursor: input.liveCursor }),
-    mutation: async (_input, { abortSignal }) => {
+  const refreshSubscriptions = async (): Promise<"applied" | "failed" | "stale"> => {
+    const request = ++refreshRequest;
+    refreshController?.abort();
+    const controller = new AbortController();
+    refreshController = controller;
+    try {
       const response = await apiClient.mailboxes[":mailboxId"].subscriptions.$get(
         {
           param: { mailboxId: props.data.mailbox.id },
           query: { limit: "50", listKey: props.initialListKey ?? undefined },
         },
-        { init: { signal: abortSignal } },
+        { init: { signal: controller.signal } },
       );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not refresh subscriptions"));
-      return response.json();
-    },
-    onSuccess: (page, context) => {
+      if (!response.ok) return "failed";
+      const page = await response.json();
+      if (disposed || request !== refreshRequest) return "stale";
       setItems(page.items);
       setNextCursor(page.nextCursor);
-      if (context?.liveCursor) markLiveApplied(context.liveCursor);
+      return "applied";
+    } catch (error) {
+      return isAbortError(error) ? "stale" : "failed";
+    } finally {
+      if (refreshController === controller) refreshController = null;
+    }
+  };
+
+  const liveRefresh = createMailLiveRefreshCoordinator({
+    delayMs: 150,
+    isBlocked: () => false,
+    refresh: refreshSubscriptions,
+    onApplied: (cursor) => {
+      setLiveSnapshotDegraded(false);
+      markLiveApplied(cursor);
     },
-    onError: (error) => toast.error(error.message),
+    onFailed: () => setLiveSnapshotDegraded(true),
   });
 
   const loadMore = mutations.create<MailSubscriptionPage, string>({
@@ -90,17 +112,6 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
     },
     onError: (error) => toast.error(error.message),
   });
-
-  const scheduleRefresh = (liveCursor: string) => {
-    pendingLiveCursor = liveCursor;
-    if (refreshTimer) return;
-    refreshTimer = setTimeout(() => {
-      refreshTimer = null;
-      const cursor = pendingLiveCursor;
-      pendingLiveCursor = null;
-      void refresh.mutate({ liveCursor: cursor });
-    }, 150);
-  };
 
   const unsubscribe = mutations.create<{ item: MailSubscriptionSummary; result: UnsubscribeMailingListResult }, MailSubscriptionSummary>({
     mutation: async (item, { abortSignal }) => {
@@ -132,7 +143,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
     },
     onError: (error) => {
       toast.error(error.message);
-      void refresh.mutate({ liveCursor: null });
+      liveRefresh.schedule();
     },
   });
 
@@ -231,19 +242,33 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
         if (!message) throw new Error("Invalid Mail live server message");
         return message;
       },
+      onStatus: (status) => {
+        if (liveTransportTimer) clearTimeout(liveTransportTimer);
+        liveTransportTimer = null;
+        if (status === "reconnecting") {
+          if (!liveTransportDegraded()) {
+            liveTransportTimer = setTimeout(() => {
+              liveTransportTimer = null;
+              if (!disposed) setLiveTransportDegraded(true);
+            }, 2_000);
+          }
+          return;
+        }
+        if (status === "open" || status === "paused" || status === "closed") setLiveTransportDegraded(false);
+      },
       onMessage: (message, controls) => {
         if (message.payload.mailboxId && message.payload.mailboxId !== props.data.mailbox.id) {
           controls.terminate({ code: "resource_mismatch", message: "Mail live subscription changed resources" });
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.ready) {
-          if (props.data.initialLiveCursor === null || readyReceived) void refresh.mutate({ liveCursor: message.payload.cursor });
+          if (props.data.initialLiveCursor === null || readyReceived) liveRefresh.schedule(message.payload.cursor);
           else controls.markApplied(message.payload.cursor);
           readyReceived = true;
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.event) {
-          scheduleRefresh(message.payload.cursor);
+          liveRefresh.schedule(message.payload.cursor);
           return;
         }
         if (message.type === MAIL_LIVE_WS_TYPE.revoked) {
@@ -263,12 +288,13 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
     live.connect();
     onCleanup(() => {
       disposed = true;
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = null;
-      pendingLiveCursor = null;
+      refreshRequest += 1;
+      if (liveTransportTimer) clearTimeout(liveTransportTimer);
+      refreshController?.abort();
+      refreshController = null;
+      liveRefresh.dispose();
       live.dispose();
       markLiveApplied = () => undefined;
-      refresh.abort();
       loadMore.abort();
       unsubscribe.abort();
       dispose.abort();
@@ -326,8 +352,14 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
             <div class="mx-auto flex w-full max-w-5xl flex-col gap-2">
               <header>
                 <h1 class="text-base font-semibold text-primary">Subscriptions</h1>
-                <p class="mt-0.5 text-xs text-dimmed">
-                  Mailing lists detected from their messages. Unsubscribing never deletes existing mail.
+                <p class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-dimmed">
+                  <span>Mailing lists detected from their messages. Unsubscribing never deletes existing mail.</span>
+                  <Show when={liveDegraded()}>
+                    <span class="inline-flex items-center gap-1 whitespace-nowrap" title="Live updates paused">
+                      <i class="ti ti-cloud-off" aria-hidden="true" />
+                      Updates paused
+                    </span>
+                  </Show>
                 </p>
               </header>
 

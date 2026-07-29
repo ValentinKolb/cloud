@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { AcquiredDraftLease, DraftEditableContent, MailDraft, MailDraftSeed } from "../../contracts";
 import { readApiError } from "./api-response";
+import { type DraftLeaseHeartbeatResult, recoverDraftLeaseHeartbeat } from "./mail-draft-lease-recovery";
 import { advanceMailDraftJournalAfterSave, type MailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
 
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
@@ -18,9 +19,8 @@ export const createSerializedDraftMutationQueue = () => {
   };
 };
 
-type LeaseHeartbeatResult = { kind: "ok"; lease: AcquiredDraftLease } | { kind: "rejected" } | { kind: "unavailable" };
-
 const journalKey = (mailboxId: string, draftId: string): string => `cloud:mail:draft:${mailboxId}:${draftId}`;
+const isAbortError = (error: unknown): boolean => error instanceof Error && error.name === "AbortError";
 
 const draftEditableContent = (draft: MailDraft): DraftEditableContent => ({
   senderIdentityId: draft.senderIdentityId,
@@ -56,6 +56,7 @@ export const createMailDraftSession = (options: {
   const [initialized, setInitialized] = createSignal(false);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let heartbeatController: AbortController | null = null;
   let heartbeatGeneration = 0;
   let initializePromise: Promise<MailDraft | null> | null = null;
   const seedBaseline = options.initialSeed ? JSON.stringify(options.initialSeed.content) : null;
@@ -68,6 +69,8 @@ export const createMailDraftSession = (options: {
     heartbeatGeneration += 1;
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
+    heartbeatController?.abort();
+    heartbeatController = null;
   };
   const stopScheduledSave = () => {
     if (saveTimer) clearTimeout(saveTimer);
@@ -106,14 +109,22 @@ export const createMailDraftSession = (options: {
     }
   };
 
-  const heartbeatLease = async (currentDraft: MailDraft, currentLease: AcquiredDraftLease): Promise<LeaseHeartbeatResult> => {
+  const heartbeatLease = async (
+    currentDraft: MailDraft,
+    currentLease: AcquiredDraftLease,
+    signal?: AbortSignal,
+  ): Promise<DraftLeaseHeartbeatResult> => {
     try {
-      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$put({
-        param: { mailboxId: options.mailboxId, draftId: currentDraft.id },
-        json: { token: currentLease.token },
-      });
+      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$put(
+        {
+          param: { mailboxId: options.mailboxId, draftId: currentDraft.id },
+          json: { token: currentLease.token },
+        },
+        { init: { signal } },
+      );
       return response.ok ? { kind: "ok", lease: await response.json() } : { kind: "rejected" };
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw error;
       return { kind: "unavailable" };
     }
   };
@@ -126,7 +137,20 @@ export const createMailDraftSession = (options: {
       const activeDraft = draft();
       const activeLease = lease();
       if (!activeDraft || !activeLease) return;
-      const heartbeat = await heartbeatLease(activeDraft, activeLease);
+      const controller = new AbortController();
+      heartbeatController = controller;
+      let heartbeat: DraftLeaseHeartbeatResult;
+      try {
+        heartbeat = await recoverDraftLeaseHeartbeat({
+          heartbeat: () => heartbeatLease(activeDraft, activeLease, controller.signal),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (options.isDisposed() || generation !== heartbeatGeneration || isAbortError(error)) return;
+        heartbeat = { kind: "unavailable" };
+      } finally {
+        if (heartbeatController === controller) heartbeatController = null;
+      }
       if (options.isDisposed() || generation !== heartbeatGeneration) return;
       if (heartbeat.kind === "unavailable") {
         setStatus("readonly");
@@ -305,7 +329,20 @@ export const createMailDraftSession = (options: {
     stopHeartbeat();
     const generation = heartbeatGeneration;
     setStatus("preparing");
-    const heartbeat = await heartbeatLease(currentDraft, currentLease);
+    const controller = new AbortController();
+    heartbeatController = controller;
+    let heartbeat: DraftLeaseHeartbeatResult;
+    try {
+      heartbeat = await recoverDraftLeaseHeartbeat({
+        heartbeat: () => heartbeatLease(currentDraft, currentLease, controller.signal),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (options.isDisposed() || generation !== heartbeatGeneration || isAbortError(error)) return;
+      heartbeat = { kind: "unavailable" };
+    } finally {
+      if (heartbeatController === controller) heartbeatController = null;
+    }
     if (options.isDisposed() || generation !== heartbeatGeneration) return;
     if (heartbeat.kind === "ok") {
       setLease(heartbeat.lease);
