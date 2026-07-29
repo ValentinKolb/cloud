@@ -36,7 +36,7 @@
     "fixture:dev": "NODE_ENV=development bun --preload ./fixture/src/preload.ts ./fixture/src/server.ts",
     "fixture:typecheck": "tsc -p fixture/tsconfig.json --noEmit --pretty false",
     "test": "bun run build && bun test src && bun run test:dom",
-    "test:dom": "bun --conditions=browser test ./test/dom-harness.test.ts",
+    "test:dom": "bun test --conditions=browser --preload ./test/solid-dom-preload.ts ./test",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false && bun run typecheck:dom",
     "typecheck:dom": "tsc -p test/tsconfig.json --noEmit --pretty false",
     "prepack": "bun run build"
@@ -54,8 +54,11 @@
     "solid-js": "^1.9.10"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/preset-typescript": "^7.29.7",
     "@k2b/ssr": "0.12.0",
     "@types/bun": "1.3.9",
+    "babel-preset-solid": "^1.9.12",
     "bun-plugin-tailwind": "^0.1.2",
     "happy-dom": "20.11.1",
     "hono": "^4.11.1",

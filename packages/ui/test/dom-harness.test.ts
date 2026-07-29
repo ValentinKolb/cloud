@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createEffect, createSignal, onCleanup } from "solid-js";
+import { createComponent, createEffect, createSignal, onCleanup } from "solid-js";
 import { isServer, render } from "solid-js/web";
 import { createDomTestHarness } from "./dom";
 
@@ -63,6 +63,53 @@ describe("@k2b/ui DOM test harness", () => {
     expect(renderedToast?.dataset.closing).toBe("true");
     await Bun.sleep(220);
     expect(container?.childElementCount).toBe(0);
+
+    dom.cleanup();
+  });
+
+  test("mounts a controlled TextInput and disposes its owner", async () => {
+    const dom = createDomTestHarness();
+    const { TextInput } = await import("../src/inputs/TextInput");
+    const inputCalls: string[] = [];
+    let ownerDisposed = false;
+    let setControlledValue: (value: string) => void = () => {};
+
+    const dispose = render(() => {
+      const [value, setValue] = createSignal("Initial");
+      setControlledValue = setValue;
+      onCleanup(() => {
+        ownerDisposed = true;
+      });
+
+      return createComponent(TextInput, {
+        label: "Project",
+        value,
+        onValueChange: (next) => {
+          inputCalls.push(next);
+          setValue(next.toUpperCase());
+        },
+      });
+    }, dom.root);
+
+    const input = dom.root.querySelector<HTMLInputElement>("input");
+    expect(input?.value).toBe("Initial");
+
+    setControlledValue("External");
+    expect(input?.value).toBe("External");
+
+    input?.focus();
+    expect(dom.document.activeElement).toBe(input);
+
+    if (input) {
+      input.value = "typed";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    expect(inputCalls).toEqual(["typed"]);
+    expect(input?.value).toBe("TYPED");
+
+    dispose();
+    expect(ownerDisposed).toBe(true);
+    expect(dom.root.childElementCount).toBe(0);
 
     dom.cleanup();
   });
