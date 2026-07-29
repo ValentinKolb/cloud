@@ -39,6 +39,7 @@ const workflowErrorMessage = (run: WorkflowRunSummary): string | null => {
   const message = run.error.message;
   if (typeof message === "string" && message !== "[object Object]") return message;
   const code = run.error.code;
+  if (code === "CONFLICT") return "Another change prevented this automation from applying its action.";
   return typeof code === "string" ? sentenceCase(code) : null;
 };
 

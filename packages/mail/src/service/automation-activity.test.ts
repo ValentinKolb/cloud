@@ -94,8 +94,18 @@ describe("Mail automation activity projection", () => {
     ).toMatchObject({ status: "failed", detail: "Provider unavailable" });
   });
 
-  test("never exposes broken object coercion from an older stored workflow error", () => {
+  test("keeps detailed errors and explains older broken conflict records", () => {
     const failed = run("rule", "failed");
+    failed.error = { code: "CONFLICT", message: "The message changed before the action could be applied", retryable: false };
+    expect(
+      projectMailWorkflowActivity({
+        mailboxId: "mailbox-1",
+        run: failed,
+        replyWorkflowIds: new Set(),
+        mailRuleWorkflowIds: new Set(["rule"]),
+      }),
+    ).toMatchObject({ detail: "The message changed before the action could be applied" });
+
     failed.error = { code: "CONFLICT", message: "[object Object]", retryable: false };
     expect(
       projectMailWorkflowActivity({
@@ -104,7 +114,7 @@ describe("Mail automation activity projection", () => {
         replyWorkflowIds: new Set(),
         mailRuleWorkflowIds: new Set(["rule"]),
       }),
-    ).toMatchObject({ detail: "Conflict" });
+    ).toMatchObject({ detail: "Another change prevented this automation from applying its action." });
   });
 
   test("summarizes active and actionable entries", () => {

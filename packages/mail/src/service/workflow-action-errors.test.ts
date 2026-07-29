@@ -16,4 +16,19 @@ describe("Mail workflow action failures", () => {
       retryable: false,
     });
   });
+
+  test("preserves messages from structured service failures", () => {
+    expect(
+      mailWorkflowActionFailure({
+        code: "CONFLICT",
+        message: "The message changed before the action could be applied",
+        status: 409,
+      }),
+    ).toMatchObject({
+      code: "CONFLICT",
+      message: "The message changed before the action could be applied",
+      retryable: false,
+    });
+    expect(mailWorkflowActionFailure({ code: "CONFLICT" }).message).toBe("Mail workflow action failed (CONFLICT)");
+  });
 });

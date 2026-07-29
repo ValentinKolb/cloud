@@ -61,7 +61,7 @@ export default function MailAutomationActivityTable(props: { items: MailAutomati
         if (col.id === "kind") return <span class="badge">{kindLabels[row.kind]}</span>;
         if (col.id === "name")
           return (
-            <a class="font-medium text-primary hover:underline" href={row.href}>
+            <a class="block truncate font-medium text-primary hover:underline" href={row.href}>
               {row.name}
             </a>
           );
@@ -73,10 +73,12 @@ export default function MailAutomationActivityTable(props: { items: MailAutomati
               icon={["queued", "running", "waiting"].includes(row.status) ? "ti ti-loader-2 animate-spin" : undefined}
             />
           );
+        if (col.id === "detail") return <span class="block whitespace-normal">{row.detail ?? "—"}</span>;
         if (col.id === "duration") return <span class="tabular-nums">{formatDuration(row.durationMs)}</span>;
         if (col.id === "occurredAt") return <time dateTime={row.occurredAt}>{formatDate(row.occurredAt)}</time>;
         return render(row.detail);
       }}
+      cellContentClass="min-w-0"
     />
   );
 }
