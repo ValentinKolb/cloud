@@ -38,7 +38,7 @@
     "!src/styles/css-contract-test-helpers.ts"
   ],
   "scripts": {
-    "build": "bun run scripts/build.ts",
+    "build": "\"$npm_execpath\" run scripts/build.ts",
     "check:declarations": "bun run scripts/check-declarations.ts",
     "check:migration": "bun run scripts/check-migration-inventory.ts",
     "check:packed-consumer": "\"$npm_execpath\" run build && \"$npm_execpath\" run scripts/check-packed-consumer.ts",
