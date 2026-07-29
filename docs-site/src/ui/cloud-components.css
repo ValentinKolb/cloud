@@ -2,6 +2,12 @@
  * Loaded only by pages in the explicit Cloud section. Portable @k2b/ui pages
  * never receive Cloud tokens, utilities, resets, or source scanning.
  */
+/*
+ * Cloud's Tailwind utilities share names such as `.fixed` with the Fibel shell.
+ * Namespace generated utilities so this later-loaded demo stylesheet cannot
+ * override the surrounding documentation layout.
+ */
+@config "./cloud-components.tailwind.ts";
 @import "tailwindcss/utilities";
 @import "../../../packages/cloud/src/styles/tokens.css";
 @import "../../../packages/cloud/src/styles/utilities-buttons.css";

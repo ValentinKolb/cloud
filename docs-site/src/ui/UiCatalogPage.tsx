@@ -70,7 +70,10 @@ function ComponentShowcase(props: ComponentShowcaseProps) {
         <p>{props.description}</p>
       </header>
       <section class="ui-reference-playground" aria-label="Live component example">
-        <div class="k2b-ui ui-demo-scope">
+        <div
+          class="k2b-ui ui-demo-scope"
+          classList={{ "cloud-ui-scope": props.section === "cloud" }}
+        >
           <CatalogDemo section={props.section} slug={props.slug} />
         </div>
       </section>
