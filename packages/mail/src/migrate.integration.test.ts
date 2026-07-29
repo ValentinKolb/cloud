@@ -7,7 +7,7 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
-  test("installs managed sender rules once with soft-delete invariants", async () => {
+  test("installs managed mail rules once with soft-delete invariants", async () => {
     await migrate();
     await migrate();
     const [shape] = await sql<
@@ -25,6 +25,10 @@ suite("mail migrations", () => {
         backfill_pointer_applied_count: number;
         backfill_pointer_present: boolean;
         liquid_templates_applied_count: number;
+        generalized_rules_applied_count: number;
+        canonical_rule_names_applied_count: number;
+        conditions_present: boolean;
+        legacy_match_removed: boolean;
       }[]
     >`
       SELECT
@@ -33,26 +37,26 @@ suite("mail migrations", () => {
           FROM mail.schema_migrations
           WHERE version = 92 AND name = 'managed_sender_rules_hardening'
         ) AS applied_count,
-        to_regclass('mail.sender_rules') IS NOT NULL AS table_present,
+        to_regclass('mail.mail_rules') IS NOT NULL AS table_present,
         EXISTS (
           SELECT 1
           FROM information_schema.columns
           WHERE table_schema = 'mail'
-            AND table_name = 'sender_rules'
+            AND table_name = 'mail_rules'
             AND column_name = 'deleted_at'
         ) AS deleted_at_present,
-        to_regclass('mail.sender_rules_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
+        to_regclass('mail.mail_rules_mailbox_name_idx') IS NOT NULL AS active_name_index_present,
         EXISTS (
           SELECT 1
           FROM pg_trigger
-          WHERE tgrelid = 'mail.sender_rules'::regclass
-            AND tgname = 'sender_rules_touch_updated_at'
+          WHERE tgrelid = 'mail.mail_rules'::regclass
+            AND tgname = 'mail_rules_touch_updated_at'
             AND NOT tgisinternal
         ) AS touch_trigger_present,
         EXISTS (
           SELECT 1
           FROM pg_constraint
-          WHERE conrelid = 'mail.sender_rules'::regclass
+          WHERE conrelid = 'mail.mail_rules'::regclass
             AND contype = 'f'
             AND confrelid = 'mail.workflow_profile'::regclass
             AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (workflow_id)%'
@@ -66,21 +70,21 @@ suite("mail migrations", () => {
           SELECT 1
           FROM information_schema.columns
           WHERE table_schema = 'mail'
-            AND table_name = 'sender_rules'
+            AND table_name = 'mail_rules'
             AND column_name = 'actions'
         ) AS actions_present,
         NOT EXISTS (
           SELECT 1
           FROM information_schema.columns
           WHERE table_schema = 'mail'
-            AND table_name = 'sender_rules'
+            AND table_name = 'mail_rules'
             AND column_name = 'action'
         ) AS legacy_action_removed,
         EXISTS (
           SELECT 1
           FROM pg_constraint
-          WHERE conrelid = 'mail.sender_rules'::regclass
-            AND conname = 'sender_rules_actions_check'
+          WHERE conrelid = 'mail.mail_rules'::regclass
+            AND conname = 'mail_rules_actions_check'
         ) AS actions_constraint_present,
         (
           SELECT count(*)::int
@@ -91,14 +95,38 @@ suite("mail migrations", () => {
           SELECT 1
           FROM information_schema.columns
           WHERE table_schema = 'mail'
-            AND table_name = 'sender_rules'
+            AND table_name = 'mail_rules'
             AND column_name = 'latest_backfill_operation_id'
         ) AS backfill_pointer_present,
         (
           SELECT count(*)::int
           FROM mail.schema_migrations
           WHERE version = 102 AND name = 'liquid_mail_templates'
-        ) AS liquid_templates_applied_count
+        ) AS liquid_templates_applied_count,
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 103 AND name = 'generalized_mail_rules'
+        ) AS generalized_rules_applied_count,
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 104 AND name = 'canonical_mail_rule_object_names'
+        ) AS canonical_rule_names_applied_count,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'mail_rules'
+            AND column_name = 'conditions'
+        ) AS conditions_present,
+        NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'mail_rules'
+            AND column_name IN ('match_kind', 'match_value')
+        ) AS legacy_match_removed
     `;
     expect(shape).toEqual({
       applied_count: 1,
@@ -114,6 +142,10 @@ suite("mail migrations", () => {
       backfill_pointer_applied_count: 1,
       backfill_pointer_present: true,
       liquid_templates_applied_count: 1,
+      generalized_rules_applied_count: 1,
+      canonical_rule_names_applied_count: 1,
+      conditions_present: true,
+      legacy_match_removed: true,
     });
   });
 
@@ -1097,7 +1129,7 @@ suite("mail migrations", () => {
             ('mail.workflow_profile', 'workflows.workflow'),
             ('mail.workflow_run_state', 'workflows.run'),
             ('mail.automatic_reply_configurations', 'mail.workflow_profile'),
-            ('mail.sender_rules', 'mail.workflow_profile'),
+            ('mail.mail_rules', 'mail.workflow_profile'),
             ('mail.automatic_reply_effects', 'workflows.version'),
             ('mail.automatic_reply_effects', 'workflows.run')
           ) expected(source_table, target_table)

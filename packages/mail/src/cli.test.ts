@@ -29,7 +29,7 @@ const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
 const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
 const ATTACHMENT_LINK_ID = "00000000-0000-4000-8000-000000000026";
 const REMOTE_CONTENT_RULE_ID = "00000000-0000-4000-8000-000000000027";
-const SENDER_RULE_ID = "00000000-0000-4000-8000-000000000028";
+const MAIL_RULE_ID = "00000000-0000-4000-8000-000000000028";
 
 const mailbox = {
   id: MAILBOX_ID,
@@ -275,7 +275,7 @@ test("subscription commands expose safe list actions and durable disposition", a
 
 test("remote content commands manage personal sender and domain rules", async () => {
   const requests: Array<{ method: string; path: string; body: unknown }> = [];
-  const senderRule = {
+  const mailRule = {
     id: REMOTE_CONTENT_RULE_ID,
     mailboxId: MAILBOX_ID,
     scope: "sender",
@@ -285,11 +285,11 @@ test("remote content commands manage personal sender and domain rules", async ()
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
     const base = `/api/mail/mailboxes/${MAILBOX_ID}/remote-content-rules`;
-    if (request.method === "GET" && url.pathname === base) return api([senderRule]);
+    if (request.method === "GET" && url.pathname === base) return api([mailRule]);
     if (request.method === "POST" && url.pathname === base) {
       const body = await request.json();
       requests.push({ method: request.method, path: url.pathname, body });
-      return api({ ...senderRule, scope: body.scope, value: body.value });
+      return api({ ...mailRule, scope: body.scope, value: body.value });
     }
     if (request.method === "DELETE" && url.pathname === `${base}/${REMOTE_CONTENT_RULE_ID}`) {
       requests.push({ method: request.method, path: url.pathname, body: null });
@@ -316,7 +316,7 @@ test("remote content commands manage personal sender and domain rules", async ()
   ]);
 
   expect([listed, sender, domain, removed].every((result) => result.exitCode === 0 && result.stderr === "")).toBe(true);
-  expect(JSON.parse(listed.stdout)).toEqual([senderRule]);
+  expect(JSON.parse(listed.stdout)).toEqual([mailRule]);
   expect(JSON.parse(sender.stdout).value).toBe("sender@example.com");
   expect(JSON.parse(domain.stdout).value).toBe("example.com");
   expect(refused.exitCode).not.toBe(0);
@@ -3743,14 +3743,16 @@ test("automatic reply commands cover list, create, and revision-checked update",
 test("sender commands cover preview, bounded read updates, and durable existing-message backfills", async () => {
   const operationId = crypto.randomUUID();
   const rule = {
-    id: SENDER_RULE_ID,
+    id: MAIL_RULE_ID,
     mailboxId: MAILBOX_ID,
     workflowId: WORKFLOW_ID,
     workflowVersionId: crypto.randomUUID(),
     name: "Example sender",
     enabled: true,
-    matchKind: "sender",
-    matchValue: "sender@example.test",
+    conditions: {
+      mode: "all",
+      items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }],
+    },
     actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
     workflowSource: "name: Example sender",
     revision: 3,
@@ -3760,9 +3762,9 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
-    const base = `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules`;
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules`;
     if (request.method === "GET" && url.pathname === base) return api([rule]);
-    if (request.method === "GET" && url.pathname === `${base}/${SENDER_RULE_ID}`) return api(rule);
+    if (request.method === "GET" && url.pathname === `${base}/${MAIL_RULE_ID}`) return api(rule);
     if (request.method === "POST" && url.pathname === `${base}/preview`) {
       requests.push({ method: request.method, path: url.pathname, body: (await request.json()) as Record<string, unknown> });
       return api({ messageCount: 6, conversationCount: 4 });
@@ -3771,15 +3773,15 @@ test("sender commands cover preview, bounded read updates, and durable existing-
       requests.push({ method: request.method, path: url.pathname, body: (await request.json()) as Record<string, unknown> });
       return api({ commandIds: [COMMAND_ID], messageCount: 1, applicationLimit: 100, capped: false });
     }
-    if (request.method === "POST" && url.pathname === `${base}/${SENDER_RULE_ID}/backfills`) {
+    if (request.method === "POST" && url.pathname === `${base}/${MAIL_RULE_ID}/backfills`) {
       const body = (await request.json()) as Record<string, unknown>;
       requests.push({ method: request.method, path: url.pathname, body });
       return api({
         operationId: body.operationId,
-        ruleId: SENDER_RULE_ID,
+        ruleId: MAIL_RULE_ID,
         workflowVersionId: rule.workflowVersionId,
         state: "queued",
-        matchedCount: 6,
+        candidateCount: 6,
         alreadyAcceptedCount: 0,
         newlyAcceptedCount: 0,
         remainingCount: 6,
@@ -3789,14 +3791,14 @@ test("sender commands cover preview, bounded read updates, and durable existing-
         updatedAt: "2026-07-28T00:00:00.000Z",
       });
     }
-    if (request.method === "GET" && url.pathname === `${base}/${SENDER_RULE_ID}/backfills/${operationId}`) {
+    if (request.method === "GET" && url.pathname === `${base}/${MAIL_RULE_ID}/backfills/${operationId}`) {
       requests.push({ method: request.method, path: url.pathname });
       return api({
         operationId,
-        ruleId: SENDER_RULE_ID,
+        ruleId: MAIL_RULE_ID,
         workflowVersionId: rule.workflowVersionId,
         state: "running",
-        matchedCount: 6,
+        candidateCount: 6,
         alreadyAcceptedCount: 2,
         newlyAcceptedCount: 3,
         remainingCount: 1,
@@ -3806,14 +3808,14 @@ test("sender commands cover preview, bounded read updates, and durable existing-
         updatedAt: "2026-07-28T00:00:01.000Z",
       });
     }
-    if (request.method === "DELETE" && url.pathname === `${base}/${SENDER_RULE_ID}/backfills/${operationId}`) {
+    if (request.method === "DELETE" && url.pathname === `${base}/${MAIL_RULE_ID}/backfills/${operationId}`) {
       requests.push({ method: request.method, path: url.pathname });
       return api({
         operationId,
-        ruleId: SENDER_RULE_ID,
+        ruleId: MAIL_RULE_ID,
         workflowVersionId: rule.workflowVersionId,
         state: "canceled",
-        matchedCount: 6,
+        candidateCount: 6,
         alreadyAcceptedCount: 2,
         newlyAcceptedCount: 3,
         remainingCount: 1,
@@ -3858,10 +3860,10 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   const started = await runCli(origin, [
     "--json",
     "mail",
-    "sender-rule",
+    "rule",
     "backfill",
     "start",
-    SENDER_RULE_ID,
+    MAIL_RULE_ID,
     "--mailbox",
     MAILBOX_ID,
     "--revision",
@@ -3869,24 +3871,14 @@ test("sender commands cover preview, bounded read updates, and durable existing-
     "--yes",
   ]);
   const startedResult = JSON.parse(started.stdout);
-  const status = await runCli(origin, [
-    "--json",
-    "mail",
-    "sender-rule",
-    "backfill",
-    "status",
-    SENDER_RULE_ID,
-    operationId,
-    "--mailbox",
-    MAILBOX_ID,
-  ]);
+  const status = await runCli(origin, ["--json", "mail", "rule", "backfill", "status", MAIL_RULE_ID, operationId, "--mailbox", MAILBOX_ID]);
   const canceled = await runCli(origin, [
     "--json",
     "mail",
-    "sender-rule",
+    "rule",
     "backfill",
     "cancel",
-    SENDER_RULE_ID,
+    MAIL_RULE_ID,
     operationId,
     "--mailbox",
     MAILBOX_ID,
@@ -3897,17 +3889,22 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   expect(JSON.parse(previewed.stdout)).toMatchObject({ messageCount: 6, conversationCount: 4 });
   expect(JSON.parse(markedRead.stdout)).toMatchObject({ messageCount: 1 });
   expect(startedResult).toMatchObject({
-    ruleId: SENDER_RULE_ID,
+    ruleId: MAIL_RULE_ID,
     state: "queued",
-    matchedCount: 6,
+    candidateCount: 6,
   });
   expect(JSON.parse(status.stdout)).toMatchObject({ operationId, state: "running", remainingCount: 1 });
   expect(JSON.parse(canceled.stdout)).toMatchObject({ operationId, state: "canceled" });
   expect(requests).toHaveLength(5);
   expect(requests[0]).toEqual({
     method: "POST",
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/preview`,
-    body: { matchKind: "sender", matchValue: "sender@example.test" },
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/preview`,
+    body: {
+      conditions: {
+        mode: "all",
+        items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }],
+      },
+    },
   });
   expect(requests[1]?.body).toEqual({
     matchKind: "domain",
@@ -3916,29 +3913,31 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   });
   expect(requests[2]).toMatchObject({
     method: "POST",
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/${SENDER_RULE_ID}/backfills`,
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}/backfills`,
     body: { expectedRevision: 3, operationId: expect.any(String) },
   });
   expect(requests[3]).toEqual({
     method: "GET",
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/${SENDER_RULE_ID}/backfills/${operationId}`,
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}/backfills/${operationId}`,
   });
   expect(requests[4]).toEqual({
     method: "DELETE",
-    path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/${SENDER_RULE_ID}/backfills/${operationId}`,
+    path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}/backfills/${operationId}`,
   });
-});
+}, 20_000);
 
-test("sender-rule CRUD preserves explicit revision fences and JSONL output", async () => {
+test("mail rule CRUD preserves grouped conditions, revision fences, and JSONL output", async () => {
   const rule = {
-    id: SENDER_RULE_ID,
+    id: MAIL_RULE_ID,
     mailboxId: MAILBOX_ID,
     workflowId: WORKFLOW_ID,
     workflowVersionId: crypto.randomUUID(),
     name: "Example sender",
     enabled: true,
-    matchKind: "sender",
-    matchValue: "sender@example.test",
+    conditions: {
+      mode: "all",
+      items: [{ field: "sender_address", operator: "is", value: "sender@example.test" }],
+    },
     actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
     workflowSource: "name: Example sender",
     revision: 3,
@@ -3948,7 +3947,7 @@ test("sender-rule CRUD preserves explicit revision fences and JSONL output", asy
   const mutations: Array<{ method: string; path: string; body: unknown }> = [];
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
-    const base = `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules`;
+    const base = `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules`;
     if (request.method === "GET" && url.pathname === `${base}/catalog`) {
       return api({
         folders: [{ id: FOLDER_ID, name: "Inbox", role: "inbox" }],
@@ -3957,12 +3956,12 @@ test("sender-rule CRUD preserves explicit revision fences and JSONL output", asy
       });
     }
     if (request.method === "GET" && url.pathname === base) return api([rule]);
-    if (request.method === "GET" && url.pathname === `${base}/${SENDER_RULE_ID}`) return api(rule);
+    if (request.method === "GET" && url.pathname === `${base}/${MAIL_RULE_ID}`) return api(rule);
     if (url.pathname === base && request.method === "POST") {
       mutations.push({ method: request.method, path: url.pathname, body: await request.json() });
       return api(rule);
     }
-    if (url.pathname === `${base}/${SENDER_RULE_ID}` && (request.method === "PUT" || request.method === "DELETE")) {
+    if (url.pathname === `${base}/${MAIL_RULE_ID}` && (request.method === "PUT" || request.method === "DELETE")) {
       mutations.push({ method: request.method, path: url.pathname, body: await request.json() });
       return api(request.method === "PUT" ? { ...rule, name: "Updated sender", enabled: false, revision: 4 } : rule);
     }
@@ -3971,21 +3970,21 @@ test("sender-rule CRUD preserves explicit revision fences and JSONL output", asy
   servers.push(server);
   const origin = `http://127.0.0.1:${server.port}`;
 
-  const listed = await runCli(origin, ["--jsonl", "mail", "sender-rule", "list", "--mailbox", MAILBOX_ID]);
-  const catalog = await runCli(origin, ["--json", "mail", "sender-rule", "catalog", "--mailbox", MAILBOX_ID]);
+  const listed = await runCli(origin, ["--jsonl", "mail", "rule", "list", "--mailbox", MAILBOX_ID]);
+  const catalog = await runCli(origin, ["--json", "mail", "rule", "catalog", "--mailbox", MAILBOX_ID]);
   const created = await runCli(origin, [
     "--json",
     "mail",
-    "sender-rule",
+    "rule",
     "create",
     "--mailbox",
     MAILBOX_ID,
     "--name",
     "Example sender",
-    "--match",
-    "sender",
-    "--value",
-    "sender@example.test",
+    "--condition",
+    "sender:is:sender@example.test",
+    "--condition",
+    "subject:contains:invoice:urgent",
     "--action",
     "mark_read",
     "--action",
@@ -3994,9 +3993,9 @@ test("sender-rule CRUD preserves explicit revision fences and JSONL output", asy
   const updated = await runCli(origin, [
     "--json",
     "mail",
-    "sender-rule",
+    "rule",
     "update",
-    SENDER_RULE_ID,
+    MAIL_RULE_ID,
     "--mailbox",
     MAILBOX_ID,
     "--revision",
@@ -4008,9 +4007,9 @@ test("sender-rule CRUD preserves explicit revision fences and JSONL output", asy
   const stale = await runCli(origin, [
     "--json",
     "mail",
-    "sender-rule",
+    "rule",
     "update",
-    SENDER_RULE_ID,
+    MAIL_RULE_ID,
     "--mailbox",
     MAILBOX_ID,
     "--revision",
@@ -4021,9 +4020,9 @@ test("sender-rule CRUD preserves explicit revision fences and JSONL output", asy
   const deleted = await runCli(origin, [
     "--json",
     "mail",
-    "sender-rule",
+    "rule",
     "delete",
-    SENDER_RULE_ID,
+    MAIL_RULE_ID,
     "--mailbox",
     MAILBOX_ID,
     "--revision",
@@ -4034,39 +4033,43 @@ test("sender-rule CRUD preserves explicit revision fences and JSONL output", asy
   expect([listed.exitCode, catalog.exitCode, created.exitCode, updated.exitCode, deleted.exitCode]).toEqual([0, 0, 0, 0, 0]);
   expect(JSON.parse(listed.stdout)).toEqual(rule);
   expect(JSON.parse(catalog.stdout)).toMatchObject({ folders: [{ id: FOLDER_ID, name: "Inbox" }] });
-  expect(JSON.parse(created.stdout)).toMatchObject({ id: SENDER_RULE_ID, revision: 3 });
+  expect(JSON.parse(created.stdout)).toMatchObject({ id: MAIL_RULE_ID, revision: 3 });
   expect(JSON.parse(updated.stdout)).toMatchObject({ name: "Updated sender", enabled: false, revision: 4 });
   expect(stale.exitCode).toBe(1);
-  expect(stale.stderr).toContain("Sender rule is at revision 3, not 2");
-  expect(JSON.parse(deleted.stdout)).toMatchObject({ id: SENDER_RULE_ID, revision: 3 });
+  expect(stale.stderr).toContain("Mail rule is at revision 3, not 2");
+  expect(JSON.parse(deleted.stdout)).toMatchObject({ id: MAIL_RULE_ID, revision: 3 });
   expect(mutations).toEqual([
     {
       method: "POST",
-      path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules`,
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules`,
       body: {
         name: "Example sender",
         enabled: true,
-        matchKind: "sender",
-        matchValue: "sender@example.test",
+        conditions: {
+          mode: "all",
+          items: [
+            { field: "sender_address", operator: "is", value: "sender@example.test" },
+            { field: "subject", operator: "contains", value: "invoice:urgent" },
+          ],
+        },
         actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
       },
     },
     {
       method: "PUT",
-      path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/${SENDER_RULE_ID}`,
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}`,
       body: {
         expectedRevision: 3,
         name: "Updated sender",
         enabled: false,
-        matchKind: "sender",
-        matchValue: "sender@example.test",
+        conditions: rule.conditions,
         actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
       },
     },
     {
       method: "DELETE",
-      path: `/api/mail/mailboxes/${MAILBOX_ID}/sender-rules/${SENDER_RULE_ID}`,
+      path: `/api/mail/mailboxes/${MAILBOX_ID}/mail-rules/${MAIL_RULE_ID}`,
       body: { expectedRevision: 3 },
     },
   ]);
-});
+}, 20_000);

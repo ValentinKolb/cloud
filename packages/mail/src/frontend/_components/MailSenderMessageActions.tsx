@@ -2,10 +2,10 @@ import { Dropdown, type DropdownItem, prompts, toast } from "@valentinkolb/cloud
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, on, onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { DraftDerivationKind, SenderIdentity, SenderRuleMatchKind } from "../../contracts";
+import type { DraftDerivationKind, MailRuleConditions, SenderIdentity, SenderMatchKind } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
-import { openMailSenderRuleEditor, type RuleActionKind } from "./MailSenderRuleSettings";
+import { openMailRuleEditor, type RuleActionKind } from "./MailRuleSettings";
 import { isOutgoingMessage } from "./mail-conversation-history";
 import { resolveMailMessageActionVisibility } from "./mail-message-action-visibility";
 import { buildExactSenderSearchHref, senderDomainFromAddress } from "./mail-navigation";
@@ -31,15 +31,22 @@ export default function MailSenderMessageActions(props: {
   onSplitMessage: (messageId: string) => void | Promise<void>;
   onDeriveMessage: (kind: DraftDerivationKind, message: MessageDetail) => unknown;
 }) {
-  const openSenderRule = (address: string, options: { matchKind?: SenderRuleMatchKind; action?: RuleActionKind; name?: string } = {}) => {
+  const openMailRule = (address: string, options: { matchKind?: SenderMatchKind; action?: RuleActionKind; name?: string } = {}) => {
     const matchKind = options.matchKind ?? "sender";
     const matchValue = matchKind === "domain" ? senderDomainFromAddress(address) : address;
     if (!matchValue) return void prompts.error("This message does not contain a complete sender domain.");
-    void openMailSenderRuleEditor({
+    const initialConditions: MailRuleConditions = {
+      mode: "all",
+      items: [
+        matchKind === "sender"
+          ? { field: "sender_address", operator: "is", value: matchValue }
+          : { field: "sender_domain", operator: "is", value: matchValue },
+      ],
+    };
+    void openMailRuleEditor({
       mailboxId: props.mailboxId,
       initialName: options.name ?? `Messages from ${matchValue}`,
-      initialMatchKind: matchKind,
-      initialMatchValue: matchValue,
+      initialConditions,
       initialAction: options.action ?? "mark_read",
       onSaved: () => undefined,
     });
@@ -156,10 +163,15 @@ export default function MailSenderMessageActions(props: {
 
   const markSenderRead = mutation.create<boolean, { address: string; selectionKey: string | null }, SelectionContext>({
     mutation: async ({ address }, { abortSignal }) => {
-      const previewResponse = await apiClient.mailboxes[":mailboxId"]["sender-rules"].preview.$post(
+      const previewResponse = await apiClient.mailboxes[":mailboxId"]["mail-rules"].preview.$post(
         {
           param: { mailboxId: props.mailboxId },
-          json: { matchKind: "sender", matchValue: address },
+          json: {
+            conditions: {
+              mode: "all",
+              items: [{ field: "sender_address", operator: "is", value: address }],
+            },
+          },
         },
         { init: { signal: abortSignal } },
       );
@@ -176,7 +188,7 @@ export default function MailSenderMessageActions(props: {
         { title: `Mark messages from ${address} as read?`, confirmText: "Mark as read" },
       );
       if (!confirmed || abortSignal.aborted) return false;
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"]["mark-read"].$post(
+      const response = await apiClient.mailboxes[":mailboxId"]["mail-rules"]["mark-read"].$post(
         {
           param: { mailboxId: props.mailboxId },
           json: { matchKind: "sender", matchValue: address, idempotencyKey: crypto.randomUUID() },
@@ -255,12 +267,12 @@ export default function MailSenderMessageActions(props: {
                 sectionLabel: "Sender",
                 items: [
                   ...(findSenderHref() ? [{ label: "Find all from this sender", icon: "ti ti-search", href: findSenderHref()! }] : []),
-                  ...(actionVisibility().createSenderRule
+                  ...(actionVisibility().createMailRule
                     ? [
                         {
                           label: "Create rule from sender",
                           icon: "ti ti-filter-plus",
-                          action: () => openSenderRule(sender()!.address),
+                          action: () => openMailRule(sender()!.address),
                         },
                       ]
                     : []),
@@ -278,7 +290,7 @@ export default function MailSenderMessageActions(props: {
                         {
                           label: "Block sender",
                           icon: "ti ti-user-x",
-                          action: () => openSenderRule(sender()!.address, { action: "junk", name: `Block ${sender()!.address}` }),
+                          action: () => openMailRule(sender()!.address, { action: "junk", name: `Block ${sender()!.address}` }),
                         },
                         ...(senderDomainFromAddress(sender()!.address)
                           ? [
@@ -286,7 +298,7 @@ export default function MailSenderMessageActions(props: {
                                 label: "Block sender domain",
                                 icon: "ti ti-world-x",
                                 action: () =>
-                                  openSenderRule(sender()!.address, {
+                                  openMailRule(sender()!.address, {
                                     matchKind: "domain",
                                     action: "junk",
                                     name: `Block ${senderDomainFromAddress(sender()!.address)}`,

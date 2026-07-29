@@ -315,6 +315,7 @@ const evaluateCondition = async (
   }
   const normalizedLeft = normalizeWorkflowText(left);
   const normalizedRight = normalizeWorkflowText(right);
+  if (condition.operator === "textEquals") return normalizedLeft === normalizedRight;
   if (condition.operator === "contains") return normalizedLeft.includes(normalizedRight);
   if (condition.operator === "startsWith") return normalizedLeft.startsWith(normalizedRight);
   return normalizedLeft.endsWith(normalizedRight);

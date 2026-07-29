@@ -21,9 +21,9 @@ import { normalizeEmailAddress } from "./address-normalization";
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { imapSmtpConnector } from "./connectors";
 import { resolveRoleFolder } from "./folders";
+import { validateDestructiveMailRulesForMailbox } from "./mail-rules";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
-import { validateDestructiveSenderRulesForMailbox } from "./sender-rules";
 
 type DbIdentity = {
   id: string;
@@ -338,7 +338,7 @@ export const createSenderIdentity = async (params: {
         FROM mail.sender_identities
         WHERE mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
       `;
-      const safe = await validateDestructiveSenderRulesForMailbox({
+      const safe = await validateDestructiveMailRulesForMailbox({
         mailboxId: params.mailboxId,
         identityAddresses: [...existingIdentities.map((identity) => identity.from_address), fromAddress],
         db: tx,
@@ -517,7 +517,7 @@ export const updateSenderIdentity = async (params: {
           FROM mail.sender_identities
           WHERE mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
         `;
-        const safe = await validateDestructiveSenderRulesForMailbox({
+        const safe = await validateDestructiveMailRulesForMailbox({
           mailboxId: params.mailboxId,
           identityAddresses: identities.map((identity) => (identity.id === current.id ? fromAddress : identity.from_address)),
           db: tx,

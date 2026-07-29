@@ -51,6 +51,11 @@ import {
   type MailDraft,
   type MailingListDispositionResult,
   type MailPriority,
+  type MailRuleAction,
+  type MailRuleBackfill,
+  type MailRuleCondition,
+  type MailRuleConditions,
+  type MailRuleMatchPreview,
   type MailSearchExpression,
   type MailStorageSummary,
   type MailSubscriptionPage,
@@ -60,6 +65,8 @@ import {
   type MailWorkflowVersion,
   type MarkSenderMessagesReadResult,
   type MessageInspector,
+  mailRuleActionsSchema,
+  mailRuleConditionsSchema,
   mailSearchExpressionSchema,
   type PlatformMailOperations,
   type ProviderBinding,
@@ -69,11 +76,7 @@ import {
   type SavedConversationViewFilter,
   type ScheduledSendPage,
   type SenderIdentity,
-  type SenderRuleAction,
-  type SenderRuleBackfill,
-  type SenderRuleMatchPreview,
   savedConversationViewFilterSchema,
-  senderRuleActionsSchema,
   type UnsubscribeMailingListResult,
   type WorkflowEffectBudget,
   type WorkflowValidation,
@@ -87,13 +90,13 @@ import type {
 } from "./service/conversation-reference";
 import type { MergeConversationsResult, ReassignConversationMessageResult, SplitConversationResult } from "./service/conversations";
 import type { AddConversationLocalTagsResult, ConversationLocalTags, LocalTag } from "./service/local-tags";
+import type { MailRule } from "./service/mail-rules";
 import type { ConversationSummary, MailFolderView, MessageDetail, MessageSummary } from "./service/messages";
 import type { DiscoveredMailConfiguration } from "./service/onboarding-discovery";
 import type { ConversationReminder } from "./service/reminders";
 import type { RemoteContentRule } from "./service/remote-content";
 import type { SavedConversationView } from "./service/saved-views";
 import type { MessageSearchHit, MessageSearchPage } from "./service/search";
-import type { SenderRule } from "./service/sender-rules";
 import type { MailWorkflowCatalogSnapshot } from "./workflows/catalog";
 
 type MailboxWithPermission = Mailbox & { permission: PermissionLevel };
@@ -1112,8 +1115,8 @@ const conversationKeywordCommand = (path: string, summary: string, operation: "a
     },
   });
 
-const senderRuleActions = (values: string[]): SenderRuleAction[] => {
-  const actions = values.map((value): SenderRuleAction => {
+const mailRuleActions = (values: string[]): MailRuleAction[] => {
+  const actions = values.map((value): MailRuleAction => {
     const separator = value.indexOf(":");
     const kind = separator === -1 ? value : value.slice(0, separator);
     const argument = separator === -1 ? "" : value.slice(separator + 1).trim();
@@ -1129,15 +1132,48 @@ const senderRuleActions = (values: string[]): SenderRuleAction[] => {
       return { kind, status: argument };
     }
     throw new Error(
-      `Invalid sender-rule action “${value}”. Use junk, trash, mark_read, add_keyword:<keyword>, move_to_folder:<folder-id>, add_local_tag:<tag-id>, assign_user:<user-id>, or set_status:<needs_action|waiting|done>.`,
+      `Invalid mail-rule action “${value}”. Use junk, trash, mark_read, add_keyword:<keyword>, move_to_folder:<folder-id>, add_local_tag:<tag-id>, assign_user:<user-id>, or set_status:<needs_action|waiting|done>.`,
     );
   });
-  const parsed = senderRuleActionsSchema.safeParse(actions);
-  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid sender-rule actions.");
+  const parsed = mailRuleActionsSchema.safeParse(actions);
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid mail-rule actions.");
   return parsed.data;
 };
 
-const senderRuleActionLabel = (action: SenderRuleAction): string => {
+const mailRuleConditions = (mode: MailRuleConditions["mode"], values: string[]): MailRuleConditions => {
+  const conditions = values.map((value): MailRuleCondition => {
+    const [field = "", operator = "", ...valueParts] = value.split(":");
+    const argument = valueParts.join(":").trim();
+    if ((field === "sender" || field === "domain") && operator === "is" && argument) {
+      return field === "sender"
+        ? { field: "sender_address", operator, value: argument }
+        : { field: "sender_domain", operator, value: argument };
+    }
+    if ((field === "subject" || field === "body") && ["is", "contains", "starts_with", "ends_with"].includes(operator) && argument) {
+      return {
+        field: field === "subject" ? "subject" : "body_text",
+        operator: operator as Extract<MailRuleCondition, { field: "subject" }>["operator"],
+        value: argument,
+      };
+    }
+    if (field === "attachment" && operator === "is" && (argument === "true" || argument === "false")) {
+      return { field: "attachment_presence", operator, value: argument === "true" };
+    }
+    throw new Error(
+      `Invalid mail-rule condition “${value}”. Use sender:is:<address>, domain:is:<domain>, subject:<is|contains|starts_with|ends_with>:<text>, body:<is|contains|starts_with|ends_with>:<text>, or attachment:is:<true|false>.`,
+    );
+  });
+  const parsed = mailRuleConditionsSchema.safeParse({ mode, items: conditions });
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid mail-rule conditions.");
+  return parsed.data;
+};
+
+const mailRuleConditionLabel = (condition: MailRuleCondition): string => {
+  if (condition.field === "attachment_presence") return condition.value ? "has attachments" : "has no attachments";
+  return `${condition.field} ${condition.operator} ${condition.value}`;
+};
+
+const mailRuleActionLabel = (action: MailRuleAction): string => {
   if (action.kind === "add_keyword") return `add keyword ${action.keyword}`;
   if (action.kind === "move_to_folder") return `move to folder ${action.folderId}`;
   if (action.kind === "add_local_tag") return `add local tag ${action.tagId}`;
@@ -5304,31 +5340,34 @@ export default defineCliCommands({
         ctx.print(`Updated automatic reply ${configuration.name} to revision ${configuration.revision}.`);
       },
     }),
-    command("sender-rule catalog", {
-      summary: "List folders, Cloud tags, and users available to guided sender rules",
+    command("rule catalog", {
+      summary: "List folders, Cloud tags, and users available to guided mail rules",
       flags: mailboxFlag,
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const catalog = await readApi<MailWorkflowCatalogSnapshot>(ctx, `/mailboxes/${mailbox.id}/sender-rules/catalog`);
+        const catalog = await readApi<MailWorkflowCatalogSnapshot>(ctx, `/mailboxes/${mailbox.id}/mail-rules/catalog`);
         if (printStructured(ctx, catalog)) return;
         ctx.print(`Folders: ${catalog.folders.map((folder) => `${folder.name} (${folder.id})`).join(", ") || "none"}`);
         ctx.print(`Cloud tags: ${(catalog.localTags ?? []).map((tag) => `${tag.name} (${tag.id})`).join(", ") || "none"}`);
         ctx.print(`Assignable users: ${catalog.assignableUsers.map((user) => `${user.name} (${user.id})`).join(", ") || "none"}`);
       },
     }),
-    command("sender-rule list", {
-      summary: "List guided sender and domain rules",
+    command("rule list", {
+      summary: "List guided mail rules",
       flags: mailboxFlag,
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rules = await readApi<SenderRule[]>(ctx, `/mailboxes/${mailbox.id}/sender-rules`);
+        const rules = await readApi<MailRule[]>(ctx, `/mailboxes/${mailbox.id}/mail-rules`);
         printTable(
           ctx,
           rules,
           rules.map((rule) => ({
             name: rule.name,
-            match: rule.matchKind === "sender" ? rule.matchValue : `*@${rule.matchValue}`,
-            actions: rule.actions.map(senderRuleActionLabel).join(", "),
+            match:
+              rule.conditions.items.length === 1
+                ? mailRuleConditionLabel(rule.conditions.items[0]!)
+                : `${rule.conditions.mode} (${rule.conditions.items.length})`,
+            actions: rule.actions.map(mailRuleActionLabel).join(", "),
             enabled: rule.enabled ? "yes" : "no",
             revision: rule.revision,
             id: rule.id,
@@ -5344,17 +5383,18 @@ export default defineCliCommands({
         );
       },
     }),
-    command("sender-rule get", {
-      summary: "Show one guided sender rule and its generated workflow source",
-      args: { ruleId: arg.required({ description: "Sender rule id" }) },
+    command("rule get", {
+      summary: "Show one guided mail rule and its generated workflow source",
+      args: { ruleId: arg.required({ description: "Mail rule id" }) },
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rule = await readApi<SenderRule>(ctx, `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}`);
+        const rule = await readApi<MailRule>(ctx, `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}`);
         if (printStructured(ctx, rule)) return;
         ctx.print(`${rule.name} (${rule.id})`);
-        ctx.print(`Match: ${rule.matchKind} ${rule.matchValue}`);
-        rule.actions.forEach((action, index) => ctx.print(`Action ${index + 1}: ${senderRuleActionLabel(action)}`));
+        ctx.print(`Match: ${rule.conditions.mode}`);
+        rule.conditions.items.forEach((condition, index) => ctx.print(`Condition ${index + 1}: ${mailRuleConditionLabel(condition)}`));
+        rule.actions.forEach((action, index) => ctx.print(`Action ${index + 1}: ${mailRuleActionLabel(action)}`));
         ctx.print(`Enabled: ${rule.enabled ? "yes" : "no"}; revision: ${rule.revision}`);
         ctx.print("");
         ctx.print(rule.workflowSource);
@@ -5370,10 +5410,19 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         if (!flags.match || !flags.value) throw new Error("Missing required sender match flags.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const preview = await readApi<SenderRuleMatchPreview>(
+        const preview = await readApi<MailRuleMatchPreview>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-rules/preview`,
-          jsonRequest("POST", { matchKind: flags.match, matchValue: flags.value }),
+          `/mailboxes/${mailbox.id}/mail-rules/preview`,
+          jsonRequest("POST", {
+            conditions: {
+              mode: "all",
+              items: [
+                flags.match === "sender"
+                  ? { field: "sender_address", operator: "is", value: flags.value }
+                  : { field: "sender_domain", operator: "is", value: flags.value },
+              ],
+            },
+          }),
         );
         if (printStructured(ctx, preview)) return;
         ctx.print(
@@ -5398,7 +5447,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<MarkSenderMessagesReadResult>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-rules/mark-read`,
+          `/mailboxes/${mailbox.id}/mail-rules/mark-read`,
           jsonRequest("POST", {
             matchKind: flags.match,
             matchValue: flags.value,
@@ -5413,13 +5462,17 @@ export default defineCliCommands({
         );
       },
     }),
-    command("sender-rule create", {
-      summary: "Create a guided sender rule backed by a managed workflow",
+    command("rule create", {
+      summary: "Create a guided mail rule backed by a managed workflow",
       flags: {
         ...mailboxFlag,
         name: flag.string({ required: true, description: "Rule name" }),
-        match: flag.enum(["sender", "domain"] as const, { required: true, description: "Match one sender address or domain" }),
-        value: flag.string({ required: true, description: "Sender email address or complete domain" }),
+        matchMode: flag.enum(["all", "any"] as const, { description: "Require all or any conditions", default: "all" }),
+        condition: flag.stringList({
+          separator: "\0",
+          description:
+            "Condition; repeat. sender:is:<address>, domain:is:<domain>, subject:<operator>:<text>, body:<operator>:<text>, attachment:is:<true|false>",
+        }),
         action: flag.stringList({
           description:
             "Ordered action; repeat. Values: junk, trash, mark_read, add_keyword:<value>, move_to_folder:<id>, add_local_tag:<id>, assign_user:<id>, set_status:<value>",
@@ -5428,32 +5481,34 @@ export default defineCliCommands({
         disabled: flag.boolean({ description: "Create the rule disabled" }),
       },
       run: async ({ ctx, flags }) => {
-        if (!flags.name || !flags.match || !flags.value || flags.action.length === 0)
-          throw new Error("Missing required sender-rule flags.");
+        if (!flags.name || flags.condition.length === 0 || flags.action.length === 0) throw new Error("Missing required mail-rule flags.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const rule = await readApi<SenderRule>(
+        const rule = await readApi<MailRule>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-rules`,
+          `/mailboxes/${mailbox.id}/mail-rules`,
           jsonRequest("POST", {
             name: flags.name,
             enabled: !flags.disabled,
-            matchKind: flags.match,
-            matchValue: flags.value,
-            actions: senderRuleActions(flags.action),
+            conditions: mailRuleConditions(flags.matchMode ?? "all", flags.condition),
+            actions: mailRuleActions(flags.action),
           }),
         );
         if (printStructured(ctx, rule)) return;
-        ctx.print(`Created sender rule ${rule.name} (${rule.id}) at revision ${rule.revision}.`);
+        ctx.print(`Created mail rule ${rule.name} (${rule.id}) at revision ${rule.revision}.`);
       },
     }),
-    command("sender-rule update", {
-      summary: "Update a guided sender rule at its current revision",
-      args: { ruleId: arg.required({ description: "Sender rule id" }) },
+    command("rule update", {
+      summary: "Update a guided mail rule at its current revision",
+      args: { ruleId: arg.required({ description: "Mail rule id" }) },
       flags: {
         ...mailboxFlag,
         name: flag.string({ description: "Rule name" }),
-        match: flag.enum(["sender", "domain"] as const, { description: "Match one sender address or domain" }),
-        value: flag.string({ description: "Sender email address or complete domain" }),
+        matchMode: flag.enum(["all", "any"] as const, { description: "Require all or any replacement conditions" }),
+        condition: flag.stringList({
+          separator: "\0",
+          description:
+            "Replacement condition set; repeat. sender:is:<address>, domain:is:<domain>, subject:<operator>:<text>, body:<operator>:<text>, attachment:is:<true|false>",
+        }),
         action: flag.stringList({
           description:
             "Replacement ordered action plan; repeat. Values: junk, trash, mark_read, add_keyword:<value>, move_to_folder:<id>, add_local_tag:<id>, assign_user:<id>, set_status:<value>",
@@ -5465,67 +5520,72 @@ export default defineCliCommands({
       },
       run: async ({ ctx, args, flags }) => {
         if (flags.enable && flags.disable) throw new Error("Use either --enable or --disable.");
-        if (flags.revision === undefined) throw new Error("Missing expected sender-rule revision.");
+        if (flags.revision === undefined) throw new Error("Missing expected mail-rule revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<SenderRule>(ctx, `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}`);
-        if (current.revision !== flags.revision) throw new Error(`Sender rule is at revision ${current.revision}, not ${flags.revision}.`);
-        const nextActions = flags.action.length > 0 ? senderRuleActions(flags.action) : current.actions;
-        const rule = await readApi<SenderRule>(
+        const current = await readApi<MailRule>(ctx, `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}`);
+        if (current.revision !== flags.revision) throw new Error(`Mail rule is at revision ${current.revision}, not ${flags.revision}.`);
+        const nextActions = flags.action.length > 0 ? mailRuleActions(flags.action) : current.actions;
+        const nextConditions =
+          flags.condition.length > 0
+            ? mailRuleConditions(flags.matchMode ?? current.conditions.mode, flags.condition)
+            : flags.matchMode
+              ? { ...current.conditions, mode: flags.matchMode }
+              : current.conditions;
+        const rule = await readApi<MailRule>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-rules/${current.id}`,
+          `/mailboxes/${mailbox.id}/mail-rules/${current.id}`,
           jsonRequest("PUT", {
             expectedRevision: flags.revision,
             name: flags.name ?? current.name,
             enabled: flags.enable || flags.disable ? flags.enable : current.enabled,
-            matchKind: flags.match ?? current.matchKind,
-            matchValue: flags.value ?? current.matchValue,
+            conditions: nextConditions,
             actions: nextActions,
           }),
         );
         if (printStructured(ctx, rule)) return;
-        ctx.print(`Updated sender rule ${rule.name} to revision ${rule.revision}.`);
+        ctx.print(`Updated mail rule ${rule.name} to revision ${rule.revision}.`);
       },
     }),
-    command("sender-rule delete", {
-      summary: "Delete a guided sender rule and disable its managed workflow",
-      args: { ruleId: arg.required({ description: "Sender rule id" }) },
+    command("rule delete", {
+      summary: "Delete a guided mail rule and disable its managed workflow",
+      args: { ruleId: arg.required({ description: "Mail rule id" }) },
       flags: {
         ...mailboxFlag,
         revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
-        yes: confirmFlag("Confirm sender-rule deletion"),
+        yes: confirmFlag("Confirm mail-rule deletion"),
       },
       run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to delete the sender rule.");
-        if (flags.revision === undefined) throw new Error("Missing expected sender-rule revision.");
+        if (!flags.yes) throw new Error("Pass --yes to delete the mail rule.");
+        if (flags.revision === undefined) throw new Error("Missing expected mail-rule revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<SenderRule>(ctx, `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}`);
-        if (current.revision !== flags.revision) throw new Error(`Sender rule is at revision ${current.revision}, not ${flags.revision}.`);
-        const deleted = await readApi<SenderRule>(
+        const current = await readApi<MailRule>(ctx, `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}`);
+        if (current.revision !== flags.revision) throw new Error(`Mail rule is at revision ${current.revision}, not ${flags.revision}.`);
+        const deleted = await readApi<MailRule>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-rules/${current.id}`,
+          `/mailboxes/${mailbox.id}/mail-rules/${current.id}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, deleted)) return;
-        ctx.print(`Deleted sender rule ${deleted.name}.`);
+        ctx.print(`Deleted mail rule ${deleted.name}.`);
       },
     }),
-    command("sender-rule backfill start", {
-      summary: "Apply one enabled sender rule to all existing matching messages",
-      args: { ruleId: arg.required({ description: "Sender rule id" }) },
+    command("rule backfill start", {
+      summary: "Apply one enabled mail rule to all existing matching messages",
+      args: { ruleId: arg.required({ description: "Mail rule id" }) },
       flags: {
         ...mailboxFlag,
         revision: flag.int({ required: true, min: 1, description: "Expected current revision" }),
-        yes: confirmFlag("Confirm starting the sender-rule backfill"),
+        yes: confirmFlag("Confirm starting the mail-rule backfill"),
       },
       run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to start the sender-rule backfill.");
-        if (flags.revision === undefined) throw new Error("Missing expected sender-rule revision.");
+        if (!flags.yes) throw new Error("Pass --yes to start the mail-rule backfill.");
+        if (flags.revision === undefined) throw new Error("Missing expected mail-rule revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<SenderRule>(ctx, `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}`);
-        if (current.revision !== flags.revision) throw new Error(`Sender rule is at revision ${current.revision}, not ${flags.revision}.`);
-        const result = await readApi<SenderRuleBackfill>(
+        const current = await readApi<MailRule>(ctx, `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}`);
+        if (current.revision !== flags.revision) throw new Error(`Mail rule is at revision ${current.revision}, not ${flags.revision}.`);
+        const result = await readApi<MailRuleBackfill>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-rules/${current.id}/backfills`,
+          `/mailboxes/${mailbox.id}/mail-rules/${current.id}/backfills`,
           jsonRequest("POST", {
             operationId: crypto.randomUUID(),
             expectedRevision: flags.revision,
@@ -5533,35 +5593,35 @@ export default defineCliCommands({
         );
         if (printStructured(ctx, result)) return;
         ctx.print(
-          `Started backfill ${result.operationId} for ${result.matchedCount} matching message${result.matchedCount === 1 ? "" : "s"}.`,
+          `Started backfill ${result.operationId} for ${result.candidateCount} candidate message${result.candidateCount === 1 ? "" : "s"}.`,
         );
       },
     }),
-    command("sender-rule backfill status", {
-      summary: "Show one sender-rule backfill",
+    command("rule backfill status", {
+      summary: "Show one mail-rule backfill",
       args: {
-        ruleId: arg.required({ description: "Sender rule id" }),
+        ruleId: arg.required({ description: "Mail rule id" }),
         operationId: arg.required({ description: "Backfill operation id" }),
       },
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const result = await readApi<SenderRuleBackfill>(
+        const result = await readApi<MailRuleBackfill>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}/backfills/${args.operationId}`,
+          `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}/backfills/${args.operationId}`,
         );
         if (printStructured(ctx, result)) return;
         ctx.print(
-          `${result.state}: ${result.alreadyAcceptedCount + result.newlyAcceptedCount}/${result.matchedCount} accepted, ${
+          `${result.state}: ${result.alreadyAcceptedCount + result.newlyAcceptedCount}/${result.candidateCount} accepted, ${
             result.remainingCount
           } remaining${result.lastError ? ` · ${result.lastError}` : ""}`,
         );
       },
     }),
-    command("sender-rule backfill cancel", {
-      summary: "Cancel one active sender-rule backfill",
+    command("rule backfill cancel", {
+      summary: "Cancel one active mail-rule backfill",
       args: {
-        ruleId: arg.required({ description: "Sender rule id" }),
+        ruleId: arg.required({ description: "Mail rule id" }),
         operationId: arg.required({ description: "Backfill operation id" }),
       },
       flags: {
@@ -5569,11 +5629,11 @@ export default defineCliCommands({
         yes: confirmFlag("Confirm canceling the backfill"),
       },
       run: async ({ ctx, args, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to cancel the sender-rule backfill.");
+        if (!flags.yes) throw new Error("Pass --yes to cancel the mail-rule backfill.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const result = await readApi<SenderRuleBackfill>(
+        const result = await readApi<MailRuleBackfill>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-rules/${args.ruleId}/backfills/${args.operationId}`,
+          `/mailboxes/${mailbox.id}/mail-rules/${args.ruleId}/backfills/${args.operationId}`,
           { method: "DELETE" },
         );
         if (printStructured(ctx, result)) return;

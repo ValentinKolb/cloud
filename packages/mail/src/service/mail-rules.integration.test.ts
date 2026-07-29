@@ -9,18 +9,18 @@ import { createLocalTag } from "./local-tags";
 import { createMailbox, updateMailbox } from "./mailboxes";
 import { createSenderIdentity } from "./sender-identities";
 import {
-  cancelSenderRuleBackfill,
-  createSenderRule,
-  deleteSenderRule,
-  getSenderRuleBackfill,
-  listSenderRules,
+  cancelMailRuleBackfill,
+  createMailRule,
+  deleteMailRule,
+  getMailRuleBackfill,
+  listMailRules,
   markSenderMessagesRead,
-  previewSenderRuleMatches,
-  setSenderRuleEnabled,
-  startSenderRuleBackfill,
-  stopSenderRuleBackfillRuntime,
-  updateSenderRule,
-} from "./sender-rules";
+  previewMailRuleMatches,
+  setMailRuleEnabled,
+  startMailRuleBackfill,
+  stopMailRuleBackfillRuntime,
+  updateMailRule,
+} from "./mail-rules";
 import { listWorkflows } from "./workflow-definition-service";
 
 const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
@@ -46,10 +46,19 @@ const contextFor = (user: TestUser): MailRequestContext => ({
     } as never,
   },
   accessSubject: { type: "user", userId: user.id },
-  requestId: `mail-sender-rules-${user.uid}`,
+  requestId: `mail-rules-${user.uid}`,
 });
 
-suite("mail sender rules", () => {
+const ruleConditions = (kind: "sender" | "domain", value: string) => ({
+  mode: "all" as const,
+  items: [
+    kind === "sender"
+      ? ({ field: "sender_address", operator: "is", value } as const)
+      : ({ field: "sender_domain", operator: "is", value } as const),
+  ],
+});
+
+suite("mail rules", () => {
   const suffix = crypto.randomUUID().slice(0, 8);
   const userIds: string[] = [];
   const accessIds: string[] = [];
@@ -63,7 +72,7 @@ suite("mail sender rules", () => {
   const waitForBackfill = async (ruleId: string, operationId: string) => {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-      const result = await getSenderRuleBackfill({ context: ownerContext, mailboxId, ruleId, operationId });
+      const result = await getMailRuleBackfill({ context: ownerContext, mailboxId, ruleId, operationId });
       if (!result.ok) throw new Error(result.error.message);
       if (!["queued", "running", "waiting"].includes(result.data.state)) return result.data;
       await Bun.sleep(25);
@@ -85,15 +94,15 @@ suite("mail sender rules", () => {
         size_bytes, content_hash, hydration_status, plain_text
       ) VALUES (
         ${mailboxId}::uuid,
-        ${`<sender-rule-${suffix}-${params.uid}@example.test>`},
-        ${`Sender rule ${params.uid}`},
-        ${`sender rule ${params.uid}`},
+        ${`<mail-rule-${suffix}-${params.uid}@example.test>`},
+        ${`Mail rule ${params.uid}`},
+        ${`mail rule ${params.uid}`},
         ${internalDate},
         ${internalDate},
         ${params.sizeBytes ?? 256},
         ${params.uid.toString(16).padStart(64, "0")},
         'complete',
-        ${`Sender rule body ${params.uid}`}
+        ${`Mail rule body ${params.uid}`}
       )
       RETURNING id
     `;
@@ -103,7 +112,7 @@ suite("mail sender rules", () => {
         ${message!.id}::uuid,
         'from',
         0,
-        'Sender rule fixture',
+        'Mail rule fixture',
         ${params.sender},
         ${params.normalizedSender ?? params.sender.toLowerCase()}
       )
@@ -127,8 +136,8 @@ suite("mail sender rules", () => {
       INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at)
       VALUES (
         ${mailboxId}::uuid,
-        ${`Sender rule ${params.uid}`},
-        'Sender rule fixture',
+        ${`Mail rule ${params.uid}`},
+        'Mail rule fixture',
         ${internalDate},
         ${internalDate}
       )
@@ -144,8 +153,8 @@ suite("mail sender rules", () => {
   beforeAll(async () => {
     await migrate();
     const createUser = async (role: string): Promise<TestUser> => {
-      const uid = `mail-sender-rules-${role}-${suffix}`;
-      const displayName = `${role} sender rule test`;
+      const uid = `mail-rules-${role}-${suffix}`;
+      const displayName = `${role} mail rule test`;
       const [row] = await sql<{ id: string }[]>`
         INSERT INTO auth.users (uid, provider, profile, display_name, admin)
         VALUES (${uid}, 'local', 'user', ${displayName}, false)
@@ -163,7 +172,7 @@ suite("mail sender rules", () => {
     writerContext = contextFor(writer);
     readerContext = contextFor(reader);
 
-    const mailbox = await createMailbox(ownerContext, { name: `Sender rules ${suffix}` });
+    const mailbox = await createMailbox(ownerContext, { name: `Mail rules ${suffix}` });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
     for (const [userId, permission] of [
@@ -198,19 +207,19 @@ suite("mail sender rules", () => {
     const localTag = await createLocalTag({
       context: ownerContext,
       mailboxId,
-      input: { name: "Sender rule test", color: "#2563eb" },
+      input: { name: "Mail rule test", color: "#2563eb" },
     });
     if (!localTag.ok) throw new Error(localTag.error.message);
     localTagId = localTag.data.id;
     const scopeFingerprint = "c".repeat(64);
-    const encryptedSecret = await encryptSecret({ kind: "password", password: `sender-rules-${suffix}` });
+    const encryptedSecret = await encryptSecret({ kind: "password", password: `mail-rules-${suffix}` });
     const [connection] = await sql<{ id: string }[]>`
       INSERT INTO mail.provider_connections (
         owner_mailbox_id, name, email, username, imap_host, imap_port, imap_tls_mode,
         smtp_host, smtp_port, smtp_tls_mode, secret_kind, encrypted_secret,
         authenticated_principal, capabilities, server_identity, last_verified_at
       ) VALUES (
-        ${mailboxId}::uuid, 'Sender rules fixture', 'support@example.test', 'support@example.test',
+        ${mailboxId}::uuid, 'Mail rules fixture', 'support@example.test', 'support@example.test',
         'imap.example.test', 993, 'implicit', 'smtp.example.test', 587, 'starttls',
         'password', ${encryptedSecret}, 'support@example.test', '{}'::jsonb, '{}'::jsonb, now()
       )
@@ -233,7 +242,7 @@ suite("mail sender rules", () => {
     `;
     const [folder] = await sql<{ id: string }[]>`
       INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, 'sender-rules-inbox', 'Inbox', 'inbox', 'current')
+      VALUES (${resource!.id}::uuid, 'mail-rules-inbox', 'Inbox', 'inbox', 'current')
       RETURNING id
     `;
     folderId = folder!.id;
@@ -253,8 +262,8 @@ suite("mail sender rules", () => {
     const roleFolders = await sql<{ id: string; role: "junk" | "trash" }[]>`
       INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
       VALUES
-        (${resource!.id}::uuid, 'sender-rules-junk', 'Junk', 'junk', 'current'),
-        (${resource!.id}::uuid, 'sender-rules-trash', 'Trash', 'trash', 'current')
+        (${resource!.id}::uuid, 'mail-rules-junk', 'Junk', 'junk', 'current'),
+        (${resource!.id}::uuid, 'mail-rules-trash', 'Trash', 'trash', 'current')
       RETURNING id, role
     `;
     for (const roleFolder of roleFolders) {
@@ -275,11 +284,11 @@ suite("mail sender rules", () => {
   });
 
   afterAll(async () => {
-    await stopSenderRuleBackfillRuntime();
+    await stopMailRuleBackfillRuntime();
     if (mailboxId) {
       await sql`
         DELETE FROM logging.trace_spans
-        WHERE source = 'mail:sender-rule-backfill'
+        WHERE source = 'mail:mail-rule-backfill'
           AND attributes->>'mail.mailbox.id' = ${mailboxId}
       `;
       const rows = await sql<{ access_id: string }[]>`
@@ -304,28 +313,26 @@ suite("mail sender rules", () => {
   });
 
   test("enforces mailbox permissions and maintains immutable workflow versions", async () => {
-    const denied = await createSenderRule({
+    const denied = await createMailRule({
       context: writerContext,
       mailboxId,
       input: {
         name: "Writer rule",
         enabled: true,
-        matchKind: "sender",
-        matchValue: "external@example.test",
+        conditions: ruleConditions("sender", "external@example.test"),
         actions: [{ kind: "mark_read" }],
       },
     });
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error.code).toBe("FORBIDDEN");
 
-    const created = await createSenderRule({
+    const created = await createMailRule({
       context: ownerContext,
       mailboxId,
       input: {
         name: "  Read trusted sender  ",
         enabled: true,
-        matchKind: "sender",
-        matchValue: " External@Example.TEST ",
+        conditions: ruleConditions("sender", " External@Example.TEST "),
         actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
       },
     });
@@ -334,32 +341,30 @@ suite("mail sender rules", () => {
     expect(created.data).toMatchObject({
       name: "Read trusted sender",
       enabled: true,
-      matchKind: "sender",
-      matchValue: "external@example.test",
+      conditions: ruleConditions("sender", "external@example.test"),
       actions: [{ kind: "mark_read" }, { kind: "set_status", status: "needs_action" }],
       revision: 1,
     });
 
-    const readerList = await listSenderRules(readerContext, mailboxId);
+    const readerList = await listMailRules(readerContext, mailboxId);
     expect(readerList.ok).toBe(true);
     if (!readerList.ok) throw new Error(readerList.error.message);
     expect(readerList.data.map((rule) => rule.id)).toContain(created.data.id);
 
-    const duplicate = await createSenderRule({
+    const duplicate = await createMailRule({
       context: ownerContext,
       mailboxId,
       input: {
         name: "read   trusted SENDER",
         enabled: true,
-        matchKind: "sender",
-        matchValue: "other@example.test",
+        conditions: ruleConditions("sender", "other@example.test"),
         actions: [{ kind: "mark_read" }],
       },
     });
     expect(duplicate.ok).toBe(false);
     if (!duplicate.ok) expect(duplicate.error.code).toBe("CONFLICT");
 
-    const updated = await updateSenderRule({
+    const updated = await updateMailRule({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
@@ -367,14 +372,13 @@ suite("mail sender rules", () => {
         expectedRevision: created.data.revision,
         name: created.data.name,
         enabled: true,
-        matchKind: "domain",
-        matchValue: "MÜNICH.Example",
+        conditions: ruleConditions("domain", "MÜNICH.Example"),
         actions: [{ kind: "mark_read" }, { kind: "set_status", status: "waiting" }],
       },
     });
     expect(updated.ok).toBe(true);
     if (!updated.ok) throw new Error(updated.error.message);
-    expect(updated.data.matchValue).toBe("xn--mnich-kva.example");
+    expect(updated.data.conditions.items[0]).toMatchObject({ field: "sender_domain", value: "xn--mnich-kva.example" });
     expect(updated.data.revision).toBe(2);
 
     const [versionCount] = await sql<{ count: string }[]>`
@@ -384,7 +388,7 @@ suite("mail sender rules", () => {
     `;
     expect(Number(versionCount?.count)).toBe(2);
 
-    const disabled = await setSenderRuleEnabled({
+    const disabled = await setMailRuleEnabled({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
@@ -394,7 +398,7 @@ suite("mail sender rules", () => {
     if (!disabled.ok) throw new Error(disabled.error.message);
     expect(disabled.data).toMatchObject({ enabled: false, revision: 3 });
 
-    const staleDelete = await deleteSenderRule({
+    const staleDelete = await deleteMailRule({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
@@ -403,14 +407,14 @@ suite("mail sender rules", () => {
     expect(staleDelete.ok).toBe(false);
     if (!staleDelete.ok) expect(staleDelete.error.code).toBe("CONFLICT");
 
-    const deleted = await deleteSenderRule({
+    const deleted = await deleteMailRule({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
       input: { expectedRevision: disabled.data.revision },
     });
     expect(deleted.ok).toBe(true);
-    const afterDelete = await listSenderRules(ownerContext, mailboxId);
+    const afterDelete = await listMailRules(ownerContext, mailboxId);
     expect(afterDelete.ok).toBe(true);
     if (afterDelete.ok) expect(afterDelete.data.some((rule) => rule.id === created.data.id)).toBe(false);
     const visibleWorkflows = await listWorkflows(ownerContext, mailboxId);
@@ -432,36 +436,30 @@ suite("mail sender rules", () => {
     for (const input of [
       {
         name: "Own identity",
-        matchKind: "sender" as const,
-        matchValue: "SUPPORT@EXAMPLE.TEST",
+        conditions: ruleConditions("sender", "SUPPORT@EXAMPLE.TEST"),
       },
       {
         name: "Internal sender",
-        matchKind: "sender" as const,
-        matchValue: "person@internal.example",
+        conditions: ruleConditions("sender", "person@internal.example"),
       },
       {
         name: "Internal domain",
-        matchKind: "domain" as const,
-        matchValue: "INTERNAL.EXAMPLE",
+        conditions: ruleConditions("domain", "INTERNAL.EXAMPLE"),
       },
       {
         name: "Internal subdomain sender",
-        matchKind: "sender" as const,
-        matchValue: "person@team.internal.example",
+        conditions: ruleConditions("sender", "person@team.internal.example"),
       },
       {
         name: "Internal subdomain",
-        matchKind: "domain" as const,
-        matchValue: "team.internal.example",
+        conditions: ruleConditions("domain", "team.internal.example"),
       },
       {
         name: "Broad parent domain",
-        matchKind: "domain" as const,
-        matchValue: "example.test",
+        conditions: ruleConditions("domain", "example.test"),
       },
     ]) {
-      const result = await createSenderRule({
+      const result = await createMailRule({
         context: ownerContext,
         mailboxId,
         input: {
@@ -479,27 +477,25 @@ suite("mail sender rules", () => {
   });
 
   test("prevents conflicting destructive rules and later safety changes", async () => {
-    const created = await createSenderRule({
+    const created = await createMailRule({
       context: ownerContext,
       mailboxId,
       input: {
         name: "Risky domain",
         enabled: true,
-        matchKind: "domain",
-        matchValue: "risky.example",
+        conditions: ruleConditions("domain", "risky.example"),
         actions: [{ kind: "junk" }],
       },
     });
     if (!created.ok) throw new Error(created.error.message);
 
-    const overlap = await createSenderRule({
+    const overlap = await createMailRule({
       context: ownerContext,
       mailboxId,
       input: {
         name: "Conflicting sender",
         enabled: true,
-        matchKind: "sender",
-        matchValue: "person@risky.example",
+        conditions: ruleConditions("sender", "person@risky.example"),
         actions: [{ kind: "trash" }],
       },
     });
@@ -526,7 +522,7 @@ suite("mail sender rules", () => {
     expect(identity.ok).toBe(false);
     if (!identity.ok) expect(identity.error.code).toBe("CONFLICT");
 
-    const deleted = await deleteSenderRule({
+    const deleted = await deleteMailRule({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
@@ -536,14 +532,14 @@ suite("mail sender rules", () => {
   });
 
   test("uses read access for previews and write access for bounded sender actions", async () => {
-    const preview = await previewSenderRuleMatches({
+    const preview = await previewMailRuleMatches({
       context: readerContext,
       mailboxId,
-      input: { matchKind: "sender", matchValue: "nobody@external.example" },
+      input: { conditions: ruleConditions("sender", "nobody@external.example") },
     });
     expect(preview).toEqual({
       ok: true,
-      data: { messageCount: 0, conversationCount: 0, applicationLimit: 100, capped: false },
+      data: { messageCount: 0, conversationCount: 0, applicationLimit: 100, capped: false, exact: true },
     });
 
     const denied = await markSenderMessagesRead({
@@ -567,10 +563,10 @@ suite("mail sender rules", () => {
 
   test("rejects own identities for sender-wide actions and completes catalog-backed rule mutations", async () => {
     const ownSender = "support@example.test";
-    const preview = await previewSenderRuleMatches({
+    const preview = await previewMailRuleMatches({
       context: ownerContext,
       mailboxId,
-      input: { matchKind: "sender", matchValue: ownSender },
+      input: { conditions: ruleConditions("sender", ownSender) },
     });
     expect(preview.ok).toBe(false);
     if (!preview.ok) expect(preview.error).toMatchObject({ code: "BAD_INPUT" });
@@ -583,14 +579,13 @@ suite("mail sender rules", () => {
     expect(read.ok).toBe(false);
     if (!read.ok) expect(read.error).toMatchObject({ code: "BAD_INPUT" });
 
-    const rejectedCreate = await createSenderRule({
+    const rejectedCreate = await createMailRule({
       context: ownerContext,
       mailboxId,
       input: {
         name: "Own sender",
         enabled: true,
-        matchKind: "sender",
-        matchValue: ownSender,
+        conditions: ruleConditions("sender", ownSender),
         actions: [{ kind: "mark_read" }],
       },
     });
@@ -598,24 +593,23 @@ suite("mail sender rules", () => {
     if (!rejectedCreate.ok) expect(rejectedCreate.error).toMatchObject({ code: "BAD_INPUT" });
 
     const created = await Promise.race([
-      createSenderRule({
+      createMailRule({
         context: ownerContext,
         mailboxId,
         input: {
-          name: "Catalog-backed sender rule",
+          name: "Catalog-backed mail rule",
           enabled: true,
-          matchKind: "sender",
-          matchValue: `catalog-${suffix}@external.example`,
+          conditions: ruleConditions("sender", `catalog-${suffix}@external.example`),
           actions: [{ kind: "add_local_tag", tagId: localTagId }],
         },
       }),
       Bun.sleep(5_000).then(() => {
-        throw new Error("Catalog-backed sender rule creation did not complete");
+        throw new Error("Catalog-backed mail rule creation did not complete");
       }),
     ]);
     if (!created.ok) throw new Error(created.error.message);
 
-    const rejectedUpdate = await updateSenderRule({
+    const rejectedUpdate = await updateMailRule({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
@@ -623,15 +617,14 @@ suite("mail sender rules", () => {
         expectedRevision: created.data.revision,
         name: created.data.name,
         enabled: true,
-        matchKind: "sender",
-        matchValue: ownSender,
+        conditions: ruleConditions("sender", ownSender),
         actions: created.data.actions,
       },
     });
     expect(rejectedUpdate.ok).toBe(false);
     if (!rejectedUpdate.ok) expect(rejectedUpdate.error).toMatchObject({ code: "BAD_INPUT" });
 
-    const deleted = await deleteSenderRule({
+    const deleted = await deleteMailRule({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
@@ -641,20 +634,19 @@ suite("mail sender rules", () => {
   });
 
   test("requires an enabled current revision before applying a rule to existing messages", async () => {
-    const created = await createSenderRule({
+    const created = await createMailRule({
       context: ownerContext,
       mailboxId,
       input: {
         name: "Disabled retroactive rule",
         enabled: false,
-        matchKind: "sender",
-        matchValue: "retroactive@external.example",
+        conditions: ruleConditions("sender", "retroactive@external.example"),
         actions: [{ kind: "mark_read" }],
       },
     });
     if (!created.ok) throw new Error(created.error.message);
 
-    const result = await startSenderRuleBackfill({
+    const result = await startMailRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
@@ -670,19 +662,19 @@ suite("mail sender rules", () => {
     await seedMessage({ sender: "person@münich.example", normalizedSender: sender, uid: 1002 });
     await seedMessage({ sender: "support@example.test", uid: 1003 });
 
-    const preview = await previewSenderRuleMatches({
+    const preview = await previewMailRuleMatches({
       context: ownerContext,
       mailboxId,
-      input: { matchKind: "domain", matchValue: "münich.example" },
+      input: { conditions: ruleConditions("domain", "münich.example") },
     });
     expect(preview).toEqual({
       ok: true,
-      data: { messageCount: 2, conversationCount: 2, applicationLimit: 100, capped: false },
+      data: { messageCount: 2, conversationCount: 2, applicationLimit: 100, capped: false, exact: true },
     });
-    const outbound = await previewSenderRuleMatches({
+    const outbound = await previewMailRuleMatches({
       context: ownerContext,
       mailboxId,
-      input: { matchKind: "sender", matchValue: "support@example.test" },
+      input: { conditions: ruleConditions("sender", "support@example.test") },
     });
     expect(outbound.ok).toBe(false);
     if (!outbound.ok) expect(outbound.error.code).toBe("BAD_INPUT");
@@ -734,42 +726,41 @@ suite("mail sender rules", () => {
     const sender = `retro-${suffix}@external.example`;
     await seedMessage({ sender, uid: 1101 });
     await seedMessage({ sender, uid: 1102 });
-    const created = await createSenderRule({
+    const created = await createMailRule({
       context: ownerContext,
       mailboxId,
       input: {
         name: "Retroactive stable version",
         enabled: true,
-        matchKind: "sender",
-        matchValue: sender,
+        conditions: ruleConditions("sender", sender),
         actions: [{ kind: "mark_read" }],
       },
     });
     if (!created.ok) throw new Error(created.error.message);
 
     const firstOperationId = crypto.randomUUID();
-    const first = await startSenderRuleBackfill({
+    const first = await startMailRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
       input: { operationId: firstOperationId, expectedRevision: created.data.revision },
     });
     if (!first.ok) throw new Error(first.error.message);
-    expect(first.data).toMatchObject({ operationId: firstOperationId, matchedCount: 2 });
-    const afterStart = await listSenderRules(ownerContext, mailboxId);
+    expect(first.data).toMatchObject({ operationId: firstOperationId, candidateCount: 2 });
+    const afterStart = await listMailRules(ownerContext, mailboxId);
     if (!afterStart.ok) throw new Error(afterStart.error.message);
     expect(afterStart.data.find((rule) => rule.id === created.data.id)?.latestBackfillOperationId).toBe(firstOperationId);
     const firstComplete = await waitForBackfill(created.data.id, firstOperationId);
     expect(firstComplete).toMatchObject({
       state: "completed",
-      matchedCount: 2,
+      candidateCount: 2,
       alreadyAcceptedCount: 0,
       newlyAcceptedCount: 2,
       remainingCount: 0,
       failureCount: 0,
     });
 
-    const renamed = await updateSenderRule({
+    const renamed = await updateMailRule({
       context: ownerContext,
       mailboxId,
       ruleId: created.data.id,
@@ -777,8 +768,7 @@ suite("mail sender rules", () => {
         expectedRevision: created.data.revision,
         name: "Renamed stable version",
         enabled: true,
-        matchKind: created.data.matchKind,
-        matchValue: created.data.matchValue,
+        conditions: created.data.conditions,
         actions: created.data.actions,
       },
     });
@@ -786,7 +776,7 @@ suite("mail sender rules", () => {
     expect(renamed.data.workflowVersionId).toBe(created.data.workflowVersionId);
 
     const secondOperationId = crypto.randomUUID();
-    const second = await startSenderRuleBackfill({
+    const second = await startMailRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: renamed.data.id,
@@ -796,13 +786,13 @@ suite("mail sender rules", () => {
     const secondComplete = await waitForBackfill(renamed.data.id, secondOperationId);
     expect(secondComplete).toMatchObject({
       state: "completed",
-      matchedCount: 2,
+      candidateCount: 2,
       alreadyAcceptedCount: 2,
       newlyAcceptedCount: 0,
       remainingCount: 0,
     });
 
-    const changed = await updateSenderRule({
+    const changed = await updateMailRule({
       context: ownerContext,
       mailboxId,
       ruleId: renamed.data.id,
@@ -810,8 +800,7 @@ suite("mail sender rules", () => {
         expectedRevision: renamed.data.revision,
         name: renamed.data.name,
         enabled: true,
-        matchKind: renamed.data.matchKind,
-        matchValue: renamed.data.matchValue,
+        conditions: renamed.data.conditions,
         actions: [{ kind: "add_keyword", keyword: "backfilled" }],
       },
     });
@@ -819,7 +808,7 @@ suite("mail sender rules", () => {
     expect(changed.data.workflowVersionId).not.toBe(renamed.data.workflowVersionId);
     expect(changed.data.latestBackfillOperationId).toBeNull();
     const changedOperationId = crypto.randomUUID();
-    const changedStarted = await startSenderRuleBackfill({
+    const changedStarted = await startMailRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: changed.data.id,
@@ -829,21 +818,21 @@ suite("mail sender rules", () => {
     const changedComplete = await waitForBackfill(changed.data.id, changedOperationId);
     expect(changedComplete).toMatchObject({
       state: "completed",
-      matchedCount: 2,
+      candidateCount: 2,
       alreadyAcceptedCount: 0,
       newlyAcceptedCount: 2,
       remainingCount: 0,
     });
 
     const canceledOperationId = crypto.randomUUID();
-    const startedForCancel = await startSenderRuleBackfill({
+    const startedForCancel = await startMailRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: changed.data.id,
       input: { operationId: canceledOperationId, expectedRevision: changed.data.revision },
     });
     if (!startedForCancel.ok) throw new Error(startedForCancel.error.message);
-    const canceled = await cancelSenderRuleBackfill({
+    const canceled = await cancelMailRuleBackfill({
       context: ownerContext,
       mailboxId,
       ruleId: changed.data.id,

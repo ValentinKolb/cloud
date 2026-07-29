@@ -222,6 +222,7 @@ steps:
   - if:
       all:
         - contains: ["\${{ inputs.subject }}", "STRASSE"]
+        - textEquals: ["\${{ inputs.sender }}", "PERSON@EXAMPLE.COM"]
         - not:
             any:
               - startsWith: ["\${{ inputs.subject }}", spam]
@@ -236,6 +237,7 @@ steps:
         operator: "all",
         conditions: [
           { operator: "contains", operands: ["${{ inputs.subject }}", "STRASSE"] },
+          { operator: "textEquals", operands: ["${{ inputs.sender }}", "PERSON@EXAMPLE.COM"] },
           {
             operator: "not",
             condition: {

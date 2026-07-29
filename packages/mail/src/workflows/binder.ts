@@ -368,7 +368,10 @@ const bindCondition = (
       const operandPath = [...path, condition.operator, index];
       const value = bindValue(operand, operandPath, scope, context);
       if (
-        (condition.operator === "contains" || condition.operator === "startsWith" || condition.operator === "endsWith") &&
+        (condition.operator === "textEquals" ||
+          condition.operator === "contains" ||
+          condition.operator === "startsWith" ||
+          condition.operator === "endsWith") &&
         value.type !== "core.text" &&
         value.type !== "core.value"
       ) {

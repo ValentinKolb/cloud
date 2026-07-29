@@ -7,7 +7,7 @@ import type {
 
 const kindLabels: Record<MailAutomationActivityKind, string> = {
   automatic_reply: "Automatic reply",
-  sender_rule: "Sender rule",
+  mail_rule: "Mail rule",
   workflow: "Workflow",
   backfill: "Backfill",
 };

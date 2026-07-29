@@ -16,10 +16,10 @@ import {
 } from "./automation-activity";
 import type { ConversationReferenceConfiguration } from "./conversation-reference";
 import * as conversationReferences from "./conversation-reference";
+import type { MailRule } from "./mail-rules";
+import * as mailRules from "./mail-rules";
 import * as mailboxes from "./mailboxes";
 import * as senderIdentities from "./sender-identities";
-import type { SenderRule } from "./sender-rules";
-import * as senderRules from "./sender-rules";
 import { loadMailWorkflowCatalog } from "./workflow-catalog-service";
 import * as workflows from "./workflows";
 
@@ -33,7 +33,7 @@ export type MailAutomationAccessData = {
 export type MailAutomationOverviewData = MailAutomationAccessData & {
   canManageAutomaticReplies: boolean;
   automaticReplies: AutomaticReplyConfiguration[];
-  senderRules: SenderRule[] | null;
+  mailRules: MailRule[] | null;
   customWorkflows: MailWorkflow[] | null;
   recentActivity: MailAutomationActivityItem[] | null;
 };
@@ -45,8 +45,8 @@ export type MailAutomaticRepliesWorkspaceData = MailAutomationAccessData & {
   referenceConfiguration: ConversationReferenceConfiguration | null;
 };
 
-export type MailSenderRulesWorkspaceData = MailAutomationAccessData & {
-  senderRules: SenderRule[];
+export type MailRulesWorkspaceData = MailAutomationAccessData & {
+  mailRules: MailRule[];
   catalog: MailWorkflowCatalogSnapshot;
 };
 
@@ -85,7 +85,7 @@ const loadAdminAccess = async (context: MailRequestContext, mailboxId: string): 
   return result.data.permission === "admin" ? result : fail(err.forbidden("Mailbox administration permission required"));
 };
 
-const customWorkflows = (definitions: MailWorkflow[], replies: AutomaticReplyConfiguration[], rules: SenderRule[]): MailWorkflow[] => {
+const customWorkflows = (definitions: MailWorkflow[], replies: AutomaticReplyConfiguration[], rules: MailRule[]): MailWorkflow[] => {
   const managedIds = new Set([...replies.map((item) => item.workflowId), ...rules.map((item) => item.workflowId)]);
   return definitions.filter((workflow) => !managedIds.has(workflow.id));
 };
@@ -93,7 +93,7 @@ const customWorkflows = (definitions: MailWorkflow[], replies: AutomaticReplyCon
 const loadActivityItems = async (
   mailboxId: string,
   replies: AutomaticReplyConfiguration[],
-  rules: SenderRule[],
+  rules: MailRule[],
   limit = 200,
 ): Promise<MailAutomationActivityItem[]> => {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000);
@@ -104,7 +104,7 @@ const loadActivityItems = async (
       {
         filter: {
           appId: "mail",
-          source: "mail:sender-rule-backfill",
+          source: "mail:mail-rule-backfill",
           category: "backfill",
           window: "30d",
           attributeEquals: { "mail.mailbox.id": mailboxId },
@@ -113,14 +113,14 @@ const loadActivityItems = async (
     ),
   ]);
   const replyWorkflowIds = new Set(replies.map((configuration) => configuration.workflowId));
-  const senderRuleWorkflowIds = new Set(rules.map((rule) => rule.workflowId));
+  const mailRuleWorkflowIds = new Set(rules.map((rule) => rule.workflowId));
   const ruleNames = new Map(rules.map((rule) => [rule.id, rule.name]));
   const workflowNames = new Map([
     ...replies.map((configuration) => [configuration.workflowId, configuration.name] as const),
     ...rules.map((rule) => [rule.workflowId, rule.name] as const),
   ]);
   return [
-    ...runs.map((run) => projectMailWorkflowActivity({ mailboxId, run, replyWorkflowIds, senderRuleWorkflowIds, workflowNames })),
+    ...runs.map((run) => projectMailWorkflowActivity({ mailboxId, run, replyWorkflowIds, mailRuleWorkflowIds, workflowNames })),
     ...backfills.spans.map((span) => projectMailBackfillActivity({ mailboxId, span, ruleNames })),
   ]
     .toSorted((left, right) => right.occurredAt.localeCompare(left.occurredAt))
@@ -144,14 +144,14 @@ export const loadMailAutomationOverview = async (
       ...accessResult.data,
       canManageAutomaticReplies: managementPermission.ok,
       automaticReplies: replyResult.data,
-      senderRules: null,
+      mailRules: null,
       customWorkflows: null,
       recentActivity: null,
     });
   }
 
   const [ruleResult, workflowResult] = await Promise.all([
-    senderRules.listSenderRules(context, mailboxId),
+    mailRules.listMailRules(context, mailboxId),
     workflows.listWorkflows(context, mailboxId),
   ]);
   if (!ruleResult.ok) return fail(ruleResult.error);
@@ -167,7 +167,7 @@ export const loadMailAutomationOverview = async (
     ...accessResult.data,
     canManageAutomaticReplies: true,
     automaticReplies: replyResult.data,
-    senderRules: ruleResult.data,
+    mailRules: ruleResult.data,
     customWorkflows: customWorkflows(workflowResult.data, replyResult.data, ruleResult.data),
     recentActivity,
   });
@@ -197,20 +197,17 @@ export const loadMailAutomaticRepliesWorkspace = async (
   });
 };
 
-export const loadMailSenderRulesWorkspace = async (
-  context: MailRequestContext,
-  mailboxId: string,
-): Promise<Result<MailSenderRulesWorkspaceData>> => {
+export const loadMailRulesWorkspace = async (context: MailRequestContext, mailboxId: string): Promise<Result<MailRulesWorkspaceData>> => {
   const accessResult = await loadAdminAccess(context, mailboxId);
   if (!accessResult.ok) return accessResult;
   const [ruleResult, catalog] = await Promise.all([
-    senderRules.listSenderRules(context, mailboxId),
+    mailRules.listMailRules(context, mailboxId),
     loadMailWorkflowCatalog({ context, mailboxId }),
   ]);
   if (!ruleResult.ok) return fail(ruleResult.error);
   return ok({
     ...accessResult.data,
-    senderRules: ruleResult.data,
+    mailRules: ruleResult.data,
     catalog: snapshotMailWorkflowCatalog(catalog),
   });
 };
@@ -224,7 +221,7 @@ export const loadMailWorkflowsWorkspace = async (
   const [workflowResult, replyResult, ruleResult, referenceResult] = await Promise.all([
     workflows.listWorkflows(context, mailboxId),
     automaticReplies.listAutomaticReplyConfigurations(context, mailboxId),
-    senderRules.listSenderRules(context, mailboxId),
+    mailRules.listMailRules(context, mailboxId),
     conversationReferences.getConversationReferenceConfiguration(context, mailboxId),
   ]);
   if (!workflowResult.ok) return fail(workflowResult.error);
@@ -246,7 +243,7 @@ export const loadMailAutomationActivity = async (
   if (!accessResult.ok) return accessResult;
   const [replyResult, ruleResult] = await Promise.all([
     automaticReplies.listAutomaticReplyConfigurations(context, mailboxId),
-    senderRules.listSenderRules(context, mailboxId),
+    mailRules.listMailRules(context, mailboxId),
   ]);
   if (!replyResult.ok) return fail(replyResult.error);
   if (!ruleResult.ok) return fail(ruleResult.error);

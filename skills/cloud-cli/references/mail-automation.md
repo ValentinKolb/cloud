@@ -7,7 +7,7 @@ Read this reference when configuring managed automatic replies, conversation ref
 | Need | Use |
 | --- | --- |
 | Out-of-office or receipt acknowledgement | `automatic-reply ...` |
-| Exact sender/domain routing plus Cloud tags, assignment, or status | `sender-rule ...` |
+| Guided sender, content, or attachment routing plus Cloud actions | `rule ...` |
 | Permanent human-facing conversation ids | `reference ...` plus `ensureConversationReference` |
 | Conditional routing, tagging, assignment, drafts, sends, or notifications | `workflow ...` |
 
@@ -102,41 +102,41 @@ Schedule rules are evaluated in `timeZone`:
 
 Mail also suppresses unsafe automatic responses such as bulk mail, mailing-list mail, delivery-status notifications, self-mail, and messages that request no automatic reply.
 
-## Manage guided sender rules
+## Manage guided mail rules
 
-Sender rules are managed workflows with a narrow, reviewable contract:
+Mail rules are managed workflows with a narrow, reviewable contract:
 
 ```bash
-cld --json mail sender-rule catalog
-cld --json mail sender-rule list
-cld --json mail sender-rule create \
+cld --json mail rule catalog
+cld --json mail rule list
+cld --json mail rule create \
   --name "Route customer mail" \
-  --match sender \
-  --value customer@example.com \
+  --condition sender:is:customer@example.com \
+  --condition subject:contains:invoice \
   --action move_to_folder:<folder-id> \
   --action add_local_tag:<tag-id> \
   --action assign_user:<user-id> \
   --action set_status:needs_action
-cld --json mail sender-rule get <rule-id>
-cld --json mail sender-rule update <rule-id> --revision <revision> --action junk
-cld mail sender-rule delete <rule-id> --revision <revision> --yes
+cld --json mail rule get <rule-id>
+cld --json mail rule update <rule-id> --revision <revision> --action junk
+cld mail rule delete <rule-id> --revision <revision> --yes
 ```
 
-Repeat `--action` in execution order. A guided rule accepts at most one provider message action: `junk`, `trash`, `mark_read`, `add_keyword:<keyword>`, or `move_to_folder:<folder-id>`. It can additionally add distinct Cloud tags with `add_local_tag:<tag-id>`, assign one user with `assign_user:<user-id>`, and set one status with `set_status:<needs_action|waiting|done>`. `sender-rule catalog` returns the mailbox-scoped folder, tag, and user ids accepted by these actions. Passing any `--action` during update replaces the complete action plan; omit it to retain the current plan.
+Repeat `--condition` and choose `--match-mode all|any`. Supported conditions are exact sender/domain, subject or body text with `is`, `contains`, `starts_with`, or `ends_with`, and attachment presence. Repeat `--action` in execution order. A guided rule accepts at most one provider message action: `junk`, `trash`, `mark_read`, `add_keyword:<keyword>`, or `move_to_folder:<folder-id>`. It can additionally add distinct Cloud tags with `add_local_tag:<tag-id>`, assign one user with `assign_user:<user-id>`, and set one status with `set_status:<needs_action|waiting|done>`. `rule catalog` returns the mailbox-scoped folder, tag, and user ids accepted by these actions. Passing any `--condition` or `--action` during update replaces that complete set; omit it to retain the current set.
 
-Exact-sender rules and sender-wide actions accept incoming external senders only; Cloud rejects a mailbox's own active identities. Domain rules remain available for inbound mail from people who share an internal domain. Destructive rules additionally reject configured internal domains and subdomains, and unsafe parent domains. `sender-rule get` exposes the exact generated workflow YAML.
+Rules and sender-wide actions apply to incoming mail only; Cloud rejects a mailbox's own active identities. Destructive rules must restrict every possible match to an external sender or domain and reject configured internal domains, subdomains, and unsafe parent domains. `rule get` exposes the exact generated workflow YAML.
 
 Preview sender-scoped work before changing existing messages:
 
 ```bash
 cld --json mail sender preview --match sender --value news@example.com
 cld --json mail sender mark-read --match domain --value example.com --idempotency-key <stable-key> --yes
-cld --json mail sender-rule backfill start <rule-id> --revision <revision> --yes
-cld --json mail sender-rule backfill status <rule-id> <operation-id>
-cld --json mail sender-rule backfill cancel <rule-id> <operation-id> --yes
+cld --json mail rule backfill start <rule-id> --revision <revision> --yes
+cld --json mail rule backfill status <rule-id> <operation-id>
+cld --json mail rule backfill cancel <rule-id> <operation-id> --yes
 ```
 
-`sender mark-read` is a bounded interactive action for at most 100 matches. It uses the durable command outbox and accepts `--idempotency-key`, so an agent retry returns the original batch. A sender-rule backfill instead walks every matching message with a durable cursor and emits targeted events into the same workflow runtime used for new mail. `start` returns an `operationId`; use it with `status` or `cancel`. Starting another backfill is safe: messages already accepted for the rule's current immutable workflow version are skipped. Update, delete, and backfill start require the revision shown by `sender-rule get`; they refuse stale state instead of silently adopting the latest revision.
+`sender mark-read` is a bounded interactive action for at most 100 matches. It uses the durable command outbox and accepts `--idempotency-key`, so an agent retry returns the original batch. A rule backfill instead walks every candidate message with a durable cursor and emits targeted events into the same workflow runtime used for new mail. `start` returns an `operationId`; use it with `status` or `cancel`. Starting another backfill is safe: messages already accepted for the rule's current immutable workflow version are skipped. Update, delete, and backfill start require the revision shown by `rule get`; they refuse stale state instead of silently adopting the latest revision.
 
 ## Configure conversation references
 
@@ -238,7 +238,7 @@ Use `${{ inputs.<name> }}` for a whole input and `${{ inputs.<name>.<field> }}` 
 Conditions are recursive and contain exactly one operator:
 
 - `equals` and `notEquals` compare two values.
-- `contains`, `startsWith`, and `endsWith` compare two text values.
+- `textEquals`, `contains`, `startsWith`, and `endsWith` compare two normalized, case-insensitive text values.
 - `exists` accepts one reference such as `inputs.conversation.assigneeUserId`.
 - `all` and `any` contain one or more conditions; `not` contains one condition.
 

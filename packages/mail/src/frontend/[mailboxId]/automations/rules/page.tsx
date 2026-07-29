@@ -3,9 +3,9 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../../config";
 import { mailHelp } from "../../../../help";
 import type { MailRequestContext } from "../../../../service";
-import { loadMailSenderRulesWorkspace } from "../../../../service/automation-workspace";
+import { loadMailRulesWorkspace } from "../../../../service/automation-workspace";
 import MailLayoutHelp from "../../../_components/help/MailLayoutHelp.island";
-import MailSenderRulesPage from "../../../MailSenderRulesPage.island";
+import MailRulesPage from "../../../MailRulesPage.island";
 
 export default ssr<AuthContext>(async (c) => {
   const mailboxId = c.req.param("mailboxId") ?? "";
@@ -17,7 +17,7 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
-  const result = await loadMailSenderRulesWorkspace(context, mailboxId);
+  const result = await loadMailRulesWorkspace(context, mailboxId);
   if (!result.ok) return c.redirect(`/app/mail/${mailboxId}/automations`);
   return () => (
     <Layout
@@ -28,11 +28,11 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Mail", href: "/app/mail" },
         { title: result.data.mailbox.name, href: `/app/mail/${mailboxId}` },
         { title: "Automations", href: `/app/mail/${mailboxId}/automations` },
-        { title: "Sender rules" },
+        { title: "Mail rules" },
       ]}
     >
       <MailLayoutHelp documents={mailHelp.manifest} />
-      <MailSenderRulesPage data={result.data} currentUserEmail={user.mail} openNew={c.req.query("new") === "1"} />
+      <MailRulesPage data={result.data} currentUserEmail={user.mail} openNew={c.req.query("new") === "1"} />
     </Layout>
   );
 });

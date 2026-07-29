@@ -1,14 +1,10 @@
 import { createSignal } from "solid-js";
-import type { MailSenderRulesWorkspaceData } from "../service/automation-workspace";
+import type { MailRulesWorkspaceData } from "../service/automation-workspace";
 import MailAutomationShell from "./_components/MailAutomationShell";
-import MailSenderRuleSettings from "./_components/MailSenderRuleSettings";
+import MailRuleSettings from "./_components/MailRuleSettings";
 
-export default function MailSenderRulesPage(props: {
-  data: MailSenderRulesWorkspaceData;
-  currentUserEmail: string | null;
-  openNew: boolean;
-}) {
-  const [rules, setRules] = createSignal(props.data.senderRules);
+export default function MailRulesPage(props: { data: MailRulesWorkspaceData; currentUserEmail: string | null; openNew: boolean }) {
+  const [rules, setRules] = createSignal(props.data.mailRules);
   const base = `/app/mail/${props.data.mailbox.id}/automations/rules`;
   return (
     <MailAutomationShell
@@ -18,7 +14,7 @@ export default function MailSenderRulesPage(props: {
       activePage="rules"
     >
       <header>
-        <h1 class="text-base font-semibold text-primary">Sender rules</h1>
+        <h1 class="text-base font-semibold text-primary">Mail rules</h1>
         <p class="mt-0.5 text-xs text-dimmed">Process future matching messages with one or more guided actions.</p>
       </header>
       <div class="info-block-info flex items-start gap-2">
@@ -27,7 +23,7 @@ export default function MailSenderRulesPage(props: {
           Rules run after synchronization. Applying a rule to existing mail uses a resumable backfill and remains separately observable.
         </span>
       </div>
-      <MailSenderRuleSettings
+      <MailRuleSettings
         mailboxId={props.data.mailbox.id}
         catalog={props.data.catalog}
         initialRules={rules()}

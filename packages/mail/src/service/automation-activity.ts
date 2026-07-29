@@ -2,7 +2,7 @@ import type { TraceSpan } from "@valentinkolb/cloud/services";
 import type { WorkflowRunState } from "@valentinkolb/cloud/workflows";
 import type { WorkflowRunSummary } from "@valentinkolb/cloud/workflows/store";
 
-export type MailAutomationActivityKind = "automatic_reply" | "sender_rule" | "workflow" | "backfill";
+export type MailAutomationActivityKind = "automatic_reply" | "mail_rule" | "workflow" | "backfill";
 export type MailAutomationActivityStatus = WorkflowRunState | "completed";
 
 export type MailAutomationActivityItem = {
@@ -46,16 +46,16 @@ export const projectMailWorkflowActivity = (params: {
   mailboxId: string;
   run: WorkflowRunSummary;
   replyWorkflowIds: ReadonlySet<string>;
-  senderRuleWorkflowIds: ReadonlySet<string>;
+  mailRuleWorkflowIds: ReadonlySet<string>;
   workflowNames?: ReadonlyMap<string, string>;
 }): MailAutomationActivityItem => {
-  const { mailboxId, run, replyWorkflowIds, senderRuleWorkflowIds, workflowNames } = params;
+  const { mailboxId, run, replyWorkflowIds, mailRuleWorkflowIds, workflowNames } = params;
   const kind: MailAutomationActivityKind = replyWorkflowIds.has(run.workflowId)
     ? "automatic_reply"
-    : senderRuleWorkflowIds.has(run.workflowId)
-      ? "sender_rule"
+    : mailRuleWorkflowIds.has(run.workflowId)
+      ? "mail_rule"
       : "workflow";
-  const section = kind === "automatic_reply" ? "replies" : kind === "sender_rule" ? "rules" : "workflows";
+  const section = kind === "automatic_reply" ? "replies" : kind === "mail_rule" ? "rules" : "workflows";
   return {
     id: `run:${run.id}`,
     kind,
@@ -79,7 +79,7 @@ export const projectMailBackfillActivity = (params: {
   ruleNames: ReadonlyMap<string, string>;
 }): MailAutomationActivityItem => {
   const { mailboxId, span, ruleNames } = params;
-  const ruleId = attributeString(span, "mail.sender_rule.id");
+  const ruleId = attributeString(span, "mail.mail_rule.id");
   const dispatched = span.summary?.dispatched;
   const summaryStatus = span.summary?.status;
   const status: MailAutomationActivityStatus = span.endedAt
@@ -90,7 +90,7 @@ export const projectMailBackfillActivity = (params: {
   return {
     id: `backfill:${span.traceId}:${span.spanId}`,
     kind: "backfill",
-    name: ruleId ? `Backfill · ${ruleNames.get(ruleId) ?? "Sender rule"}` : "Sender rule backfill",
+    name: ruleId ? `Backfill · ${ruleNames.get(ruleId) ?? "Mail rule"}` : "Mail rule backfill",
     status,
     occurredAt: span.startedAt,
     durationMs: span.durationMs,

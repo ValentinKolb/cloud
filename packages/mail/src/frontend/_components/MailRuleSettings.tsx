@@ -17,38 +17,222 @@ import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import {
-  type SenderRuleAction,
-  type SenderRuleBackfill,
-  type SenderRuleMatchKind,
-  type SenderRuleMatchPreview,
-  senderRuleActionsSchema,
+  type MailRuleAction,
+  type MailRuleBackfill,
+  type MailRuleCondition,
+  type MailRuleConditions,
+  type MailRuleMatchPreview,
+  mailRuleConditionsSchema,
+  mailRuleActionsSchema,
 } from "../../contracts";
-import type { SenderRule } from "../../service/sender-rules";
+import type { MailRule } from "../../service/mail-rules";
 import type { MailWorkflowCatalogSnapshot } from "../../workflows/catalog";
 import { readApiError } from "./api-response";
 import { waitForMailPageTransition } from "./mail-page-transition";
 import {
-  createSenderRuleAction,
-  initialSenderRuleAction,
+  createMailRuleAction,
+  initialMailRuleAction,
   type RuleActionKind,
-  senderRuleActionKindLabels,
-  senderRuleActionKindsFor,
-  senderRuleActionLabel,
-  senderRuleDestinationFolders,
-  senderRuleStatusLabels,
-} from "./mail-sender-rule-actions";
+  mailRuleActionKindLabels,
+  mailRuleActionKindsFor,
+  mailRuleActionLabel,
+  mailRuleDestinationFolders,
+  mailRuleStatusLabels,
+} from "./mail-rule-actions";
 
-export type { RuleActionKind } from "./mail-sender-rule-actions";
+export type { RuleActionKind } from "./mail-rule-actions";
 
-const matchLabel = (rule: SenderRule): string => (rule.matchKind === "sender" ? rule.matchValue : `*@${rule.matchValue}`);
-const activeBackfillStates = new Set<SenderRuleBackfill["state"]>(["queued", "running", "waiting"]);
+type RuleConditionField = MailRuleCondition["field"];
+type TextCondition = Extract<MailRuleCondition, { field: "subject" | "body_text" }>;
+type TextOperator = TextCondition["operator"];
 
-function SenderRuleActionFields(props: {
-  action: SenderRuleAction;
+const conditionFieldLabels: Record<RuleConditionField, string> = {
+  sender_address: "Sender address",
+  sender_domain: "Sender domain",
+  subject: "Subject",
+  body_text: "Message body",
+  attachment_presence: "Attachments",
+};
+
+const textOperatorLabels: Record<TextOperator, string> = {
+  is: "is",
+  contains: "contains",
+  starts_with: "starts with",
+  ends_with: "ends with",
+};
+
+const initialCondition = (field: RuleConditionField = "sender_address"): MailRuleCondition => {
+  if (field === "attachment_presence") return { field, operator: "is", value: true };
+  if (field === "sender_address" || field === "sender_domain") return { field, operator: "is", value: "" };
+  return { field, operator: "contains", value: "" };
+};
+
+const conditionLabel = (condition: MailRuleCondition): string => {
+  if (condition.field === "attachment_presence") return condition.value ? "Has attachments" : "Has no attachments";
+  if (condition.field === "sender_address") return condition.value;
+  if (condition.field === "sender_domain") return `*@${condition.value}`;
+  return `${conditionFieldLabels[condition.field]} ${textOperatorLabels[condition.operator]} “${condition.value}”`;
+};
+
+const matchLabel = (rule: MailRule): string =>
+  rule.conditions.items.length === 1
+    ? conditionLabel(rule.conditions.items[0]!)
+    : `${rule.conditions.mode === "all" ? "All" : "Any"} of ${rule.conditions.items.length} conditions`;
+const activeBackfillStates = new Set<MailRuleBackfill["state"]>(["queued", "running", "waiting"]);
+
+function MailRuleConditionsEditor(props: {
+  conditions: MailRuleConditions;
+  validationMessage: string | null;
+  onChange: (conditions: MailRuleConditions) => void;
+}) {
+  const replace = (index: number, condition: MailRuleCondition) =>
+    props.onChange({
+      ...props.conditions,
+      items: props.conditions.items.map((candidate, candidateIndex) => (candidateIndex === index ? condition : candidate)),
+    });
+  const move = (index: number, offset: -1 | 1) => {
+    const destination = index + offset;
+    if (destination < 0 || destination >= props.conditions.items.length) return;
+    const items = [...props.conditions.items];
+    [items[index], items[destination]] = [items[destination]!, items[index]!];
+    props.onChange({ ...props.conditions, items });
+  };
+
+  return (
+    <div class="flex flex-col gap-2">
+      <Show when={props.conditions.items.length > 1}>
+        <Select
+          label="Match mode"
+          value={() => props.conditions.mode}
+          onChange={(mode) => props.onChange({ ...props.conditions, mode: mode as MailRuleConditions["mode"] })}
+          options={[
+            { id: "all", label: "All conditions" },
+            { id: "any", label: "Any condition" },
+          ]}
+        />
+      </Show>
+      <For each={props.conditions.items}>
+        {(condition, index) => (
+          <div class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3">
+            <div class="grid gap-2 md:grid-cols-[10rem_9rem_minmax(12rem,1fr)_auto] md:items-end">
+              <Select
+                label={`Condition ${index() + 1}`}
+                value={() => condition.field}
+                onChange={(field) => replace(index(), initialCondition(field as RuleConditionField))}
+                options={Object.entries(conditionFieldLabels).map(([id, label]) => ({ id, label }))}
+              />
+              <Show
+                when={condition.field === "subject" || condition.field === "body_text"}
+                fallback={<div class="hidden md:block" aria-hidden="true" />}
+              >
+                <Select
+                  label="Operator"
+                  value={() => (condition.field === "subject" || condition.field === "body_text" ? condition.operator : "is")}
+                  onChange={(operator) => {
+                    if (condition.field === "subject" || condition.field === "body_text") {
+                      replace(index(), { ...condition, operator: operator as TextOperator });
+                    }
+                  }}
+                  options={Object.entries(textOperatorLabels).map(([id, label]) => ({ id, label }))}
+                />
+              </Show>
+              <Show
+                when={condition.field === "attachment_presence"}
+                fallback={
+                  <TextInput
+                    label="Value"
+                    type={condition.field === "sender_address" ? "email" : "text"}
+                    value={() => (condition.field === "attachment_presence" ? "" : condition.value)}
+                    onInput={(value) => {
+                      if (condition.field !== "attachment_presence") replace(index(), { ...condition, value });
+                    }}
+                    placeholder={
+                      condition.field === "sender_address"
+                        ? "sender@example.com"
+                        : condition.field === "sender_domain"
+                          ? "example.com"
+                          : "Text to match"
+                    }
+                    maxLength={condition.field === "sender_address" || condition.field === "sender_domain" ? 320 : 1_000}
+                    required
+                  />
+                }
+              >
+                <Select
+                  label="Value"
+                  value={() => (condition.field === "attachment_presence" && condition.value ? "yes" : "no")}
+                  onChange={(value) => replace(index(), { field: "attachment_presence", operator: "is", value: value === "yes" })}
+                  options={[
+                    { id: "yes", label: "Has attachments" },
+                    { id: "no", label: "Has no attachments" },
+                  ]}
+                />
+              </Show>
+              <div class="flex h-9 items-center justify-end gap-1">
+                <button
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  aria-label="Move condition up"
+                  disabled={index() === 0}
+                  onClick={() => move(index(), -1)}
+                >
+                  <i class="ti ti-arrow-up" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  aria-label="Move condition down"
+                  disabled={index() === props.conditions.items.length - 1}
+                  onClick={() => move(index(), 1)}
+                >
+                  <i class="ti ti-arrow-down" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn icon-btn-sm"
+                  aria-label="Remove condition"
+                  disabled={props.conditions.items.length === 1}
+                  onClick={() =>
+                    props.onChange({
+                      ...props.conditions,
+                      items: props.conditions.items.filter((_, candidateIndex) => candidateIndex !== index()),
+                    })
+                  }
+                >
+                  <i class="ti ti-x" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </For>
+      <Show when={props.conditions.items.length < 8}>
+        <button
+          type="button"
+          class="btn-secondary btn-sm self-start"
+          onClick={() => props.onChange({ ...props.conditions, items: [...props.conditions.items, initialCondition("subject")] })}
+        >
+          <i class="ti ti-plus" aria-hidden="true" />
+          Add condition
+        </button>
+      </Show>
+      <Show when={props.validationMessage}>
+        {(message) => (
+          <p class="text-xs text-red-600 dark:text-red-400" role="alert">
+            {message()}
+          </p>
+        )}
+      </Show>
+    </div>
+  );
+}
+
+function MailRuleActionFields(props: {
+  action: MailRuleAction;
   index: number;
-  actions: SenderRuleAction[];
+  actions: MailRuleAction[];
   catalog: MailWorkflowCatalogSnapshot;
-  onChange: (action: SenderRuleAction) => void;
+  onChange: (action: MailRuleAction) => void;
 }) {
   if (props.action.kind === "add_keyword") {
     return (
@@ -68,7 +252,7 @@ function SenderRuleActionFields(props: {
         label="Destination folder"
         value={() => (props.action.kind === "move_to_folder" ? props.action.folderId : "")}
         onChange={(folderId) => props.onChange({ kind: "move_to_folder", folderId })}
-        options={senderRuleDestinationFolders(props.catalog).map((folder) => ({ id: folder.id, label: folder.name }))}
+        options={mailRuleDestinationFolders(props.catalog).map((folder) => ({ id: folder.id, label: folder.name }))}
       />
     );
   }
@@ -104,29 +288,29 @@ function SenderRuleActionFields(props: {
         onChange={(status) =>
           props.onChange({
             kind: "set_status",
-            status: status as Extract<SenderRuleAction, { kind: "set_status" }>["status"],
+            status: status as Extract<MailRuleAction, { kind: "set_status" }>["status"],
           })
         }
-        options={Object.entries(senderRuleStatusLabels).map(([id, label]) => ({ id, label }))}
+        options={Object.entries(mailRuleStatusLabels).map(([id, label]) => ({ id, label }))}
       />
     );
   }
   return null;
 }
 
-function SenderRuleActionsEditor(props: {
-  actions: SenderRuleAction[];
+function MailRuleActionsEditor(props: {
+  actions: MailRuleAction[];
   catalog: MailWorkflowCatalogSnapshot | null;
   catalogError: Error | null;
   validationMessage: string | null;
-  onChange: (actions: SenderRuleAction[]) => void;
+  onChange: (actions: MailRuleAction[]) => void;
   onRetry: () => void;
 }) {
-  const actionKindsFor = (index?: number) => senderRuleActionKindsFor({ actions: props.actions, catalog: props.catalog, index });
-  const replaceAction = (index: number, action: SenderRuleAction) =>
+  const actionKindsFor = (index?: number) => mailRuleActionKindsFor({ actions: props.actions, catalog: props.catalog, index });
+  const replaceAction = (index: number, action: MailRuleAction) =>
     props.onChange(props.actions.map((candidate, candidateIndex) => (candidateIndex === index ? action : candidate)));
   const createAction = (kind: RuleActionKind, index?: number) =>
-    createSenderRuleAction({ kind, actions: props.actions, catalog: props.catalog, index });
+    createMailRuleAction({ kind, actions: props.actions, catalog: props.catalog, index });
   const changeActionKind = (index: number, kind: RuleActionKind) => {
     const action = createAction(kind, index);
     if (action) replaceAction(index, action);
@@ -170,7 +354,7 @@ function SenderRuleActionsEditor(props: {
                     label={`Action ${index() + 1}`}
                     value={() => action.kind}
                     onChange={(kind) => changeActionKind(index(), kind as RuleActionKind)}
-                    options={actionKindsFor(index()).map((kind) => ({ id: kind, label: senderRuleActionKindLabels[kind] }))}
+                    options={actionKindsFor(index()).map((kind) => ({ id: kind, label: mailRuleActionKindLabels[kind] }))}
                   />
                   <div class="flex h-9 items-center justify-end gap-1">
                     <button
@@ -203,7 +387,7 @@ function SenderRuleActionsEditor(props: {
                   </div>
                 </div>
                 <div class="mt-2 empty:hidden">
-                  <SenderRuleActionFields
+                  <MailRuleActionFields
                     action={action}
                     index={index()}
                     actions={props.actions}
@@ -225,7 +409,7 @@ function SenderRuleActionsEditor(props: {
               position="bottom-right"
               width="w-56"
               elements={actionKindsFor().map((kind) => ({
-                label: senderRuleActionKindLabels[kind],
+                label: mailRuleActionKindLabels[kind],
                 action: () => {
                   const action = createAction(kind);
                   if (action) props.onChange([...props.actions, action]);
@@ -246,31 +430,31 @@ function SenderRuleActionsEditor(props: {
   );
 }
 
-function SenderRuleEditor(props: {
+function MailRuleEditor(props: {
   mailboxId: string;
-  rule: SenderRule | null;
-  initialMatchKind?: SenderRuleMatchKind;
-  initialMatchValue?: string;
+  rule: MailRule | null;
+  initialConditions?: MailRuleConditions;
   initialAction?: RuleActionKind;
   initialName?: string;
   initialCatalog?: MailWorkflowCatalogSnapshot;
   close: () => void;
-  onSaved: (rule: SenderRule) => void;
-  onBackfillStarted?: (backfill: SenderRuleBackfill) => void;
+  onSaved: (rule: MailRule) => void;
+  onBackfillStarted?: (backfill: MailRuleBackfill) => void;
 }) {
   const [name, setName] = createSignal(props.rule?.name ?? props.initialName ?? "");
   const [enabled, setEnabled] = createSignal(props.rule?.enabled ?? true);
-  const [matchKind, setMatchKind] = createSignal<SenderRuleMatchKind>(props.rule?.matchKind ?? props.initialMatchKind ?? "sender");
-  const [matchValue, setMatchValue] = createSignal(props.rule?.matchValue ?? props.initialMatchValue ?? "");
-  const [actions, setActions] = createSignal<SenderRuleAction[]>(
-    props.rule?.actions ?? [initialSenderRuleAction(props.initialAction ?? "junk", props.initialCatalog)],
+  const [conditions, setConditions] = createSignal<MailRuleConditions>(
+    props.rule?.conditions ?? props.initialConditions ?? { mode: "all", items: [initialCondition()] },
+  );
+  const [actions, setActions] = createSignal<MailRuleAction[]>(
+    props.rule?.actions ?? [initialMailRuleAction(props.initialAction ?? "junk", props.initialCatalog)],
   );
   const [applyExisting, setApplyExisting] = createSignal(false);
   const [catalog, setCatalog] = createSignal<MailWorkflowCatalogSnapshot | null>(props.initialCatalog ?? null);
 
   const catalogLoad = mutation.create<MailWorkflowCatalogSnapshot, void>({
     mutation: async (_, { abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"].catalog.$get(
+      const response = await apiClient.mailboxes[":mailboxId"]["mail-rules"].catalog.$get(
         { param: { mailboxId: props.mailboxId } },
         { init: { signal: abortSignal } },
       );
@@ -280,33 +464,34 @@ function SenderRuleEditor(props: {
     onSuccess: setCatalog,
   });
 
-  const save = mutation.create<{ rule: SenderRule; backfill: SenderRuleBackfill | null; backfillError: string | null } | null, boolean>({
+  const save = mutation.create<{ rule: MailRule; backfill: MailRuleBackfill | null; backfillError: string | null } | null, boolean>({
     mutation: async (applyToExisting, { abortSignal }) => {
       const input = {
         name: name().trim(),
         enabled: enabled(),
-        matchKind: matchKind(),
-        matchValue: matchValue().trim(),
+        conditions: conditions(),
         actions: actions(),
       };
       if (applyToExisting) {
-        const previewResponse = await apiClient.mailboxes[":mailboxId"]["sender-rules"].preview.$post(
+        const previewResponse = await apiClient.mailboxes[":mailboxId"]["mail-rules"].preview.$post(
           {
             param: { mailboxId: props.mailboxId },
-            json: { matchKind: input.matchKind, matchValue: input.matchValue },
+            json: { conditions: input.conditions },
           },
           { init: { signal: abortSignal } },
         );
         if (!previewResponse.ok) throw new Error(await readApiError(previewResponse, "Could not preview existing messages"));
-        const preview: SenderRuleMatchPreview = await previewResponse.json();
+        const preview: MailRuleMatchPreview = await previewResponse.json();
         if (preview.messageCount === 0) {
           toast("No existing messages match this rule", { title: "Rule applies to future mail" });
           applyToExisting = false;
         } else {
           const confirmed = await prompts.confirm(
-            `${preview.messageCount} existing message${preview.messageCount === 1 ? "" : "s"} in ${
-              preview.conversationCount
-            } conversation${preview.conversationCount === 1 ? "" : "s"} match. A background backfill applies the same workflow to all of them. Messages already accepted for this workflow version are skipped.`,
+            preview.exact
+              ? `${preview.messageCount} existing message${preview.messageCount === 1 ? "" : "s"} in ${
+                  preview.conversationCount
+                } conversation${preview.conversationCount === 1 ? "" : "s"} match. The backfill applies the same workflow and skips messages already accepted for this workflow version.`
+              : `${preview.messageCount} existing incoming message${preview.messageCount === 1 ? "" : "s"} will be scanned. The workflow evaluates content and attachment conditions per message and skips messages already accepted for this workflow version.`,
             {
               title: "Apply rule to existing messages?",
               confirmText: `Start backfill`,
@@ -316,24 +501,24 @@ function SenderRuleEditor(props: {
         }
       }
       const response = props.rule
-        ? await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].$put(
+        ? await apiClient.mailboxes[":mailboxId"]["mail-rules"][":ruleId"].$put(
             {
               param: { mailboxId: props.mailboxId, ruleId: props.rule.id },
               json: { ...input, expectedRevision: props.rule.revision },
             },
             { init: { signal: abortSignal } },
           )
-        : await apiClient.mailboxes[":mailboxId"]["sender-rules"].$post(
+        : await apiClient.mailboxes[":mailboxId"]["mail-rules"].$post(
             {
               param: { mailboxId: props.mailboxId },
               json: input,
             },
             { init: { signal: abortSignal } },
           );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not save sender rule"));
+      if (!response.ok) throw new Error(await readApiError(response, "Could not save mail rule"));
       const rule = await response.json();
       if (!applyToExisting) return { rule, backfill: null, backfillError: null };
-      const backfillResponse = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].backfills.$post(
+      const backfillResponse = await apiClient.mailboxes[":mailboxId"]["mail-rules"][":ruleId"].backfills.$post(
         {
           param: { mailboxId: props.mailboxId, ruleId: rule.id },
           json: { operationId: crypto.randomUUID(), expectedRevision: rule.revision },
@@ -355,27 +540,32 @@ function SenderRuleEditor(props: {
       if (result.backfill) props.onBackfillStarted?.(result.backfill);
       toast.success(
         result.backfill
-          ? `Sender rule saved; backfill started for ${result.backfill.matchedCount} matching message${
-              result.backfill.matchedCount === 1 ? "" : "s"
+          ? `Mail rule saved; backfill started for ${result.backfill.candidateCount} candidate message${
+              result.backfill.candidateCount === 1 ? "" : "s"
             }`
           : props.rule
-            ? "Sender rule updated"
-            : "Sender rule created",
+            ? "Mail rule updated"
+            : "Mail rule created",
       );
       props.close();
       if (result.backfillError) {
-        void prompts.error(`The sender rule was saved, but its backfill did not start: ${result.backfillError}`);
+        void prompts.error(`The mail rule was saved, but its backfill did not start: ${result.backfillError}`);
       }
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const actionValidation = () => senderRuleActionsSchema.safeParse(actions());
+  const actionValidation = () => mailRuleActionsSchema.safeParse(actions());
+  const conditionValidation = () => mailRuleConditionsSchema.safeParse(conditions());
+  const conditionValidationMessage = () => {
+    const result = conditionValidation();
+    return result.success ? null : "Complete every condition before saving.";
+  };
   const actionValidationMessage = () => {
     const result = actionValidation();
-    return result.success ? null : (result.error.issues[0]?.message ?? "Choose valid sender rule actions");
+    return result.success ? null : "Complete every action before saving.";
   };
-  const valid = () => name().trim().length > 0 && matchValue().trim().length > 0 && Boolean(catalog()) && actionValidation().success;
+  const valid = () => name().trim().length > 0 && conditionValidation().success && Boolean(catalog()) && actionValidation().success;
 
   const submit = () => save.mutate(applyExisting() && enabled());
   onMount(() => {
@@ -389,7 +579,7 @@ function SenderRuleEditor(props: {
   return (
     <PanelDialog>
       <PanelDialog.Header
-        title={props.rule ? "Edit sender rule" : "Create sender rule"}
+        title={props.rule ? "Edit mail rule" : "Create mail rule"}
         subtitle="Future matching messages are processed by the workflow runtime."
         icon="ti ti-filter-cog"
         close={props.close}
@@ -398,37 +588,18 @@ function SenderRuleEditor(props: {
       <PanelDialog.Body>
         <PanelDialog.Section
           title="Match"
-          subtitle="Use one exact sender address or a complete domain. Address and international-domain normalization happens on save."
+          subtitle="Combine up to eight conditions. Sender addresses and international domains are normalized on save."
           icon="ti ti-at"
         >
           <TextInput label="Rule name" value={name} onInput={setName} maxLength={120} required />
-          <div class="grid gap-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
-            <Select
-              label="Match"
-              value={matchKind}
-              onChange={(value) => setMatchKind(value as SenderRuleMatchKind)}
-              options={[
-                { id: "sender", label: "Sender address" },
-                { id: "domain", label: "Sender domain" },
-              ]}
-            />
-            <TextInput
-              label={matchKind() === "sender" ? "Email address" : "Domain"}
-              type={matchKind() === "sender" ? "email" : "text"}
-              placeholder={matchKind() === "sender" ? "sender@example.com" : "example.com"}
-              value={matchValue}
-              onInput={setMatchValue}
-              maxLength={320}
-              required
-            />
-          </div>
+          <MailRuleConditionsEditor conditions={conditions()} validationMessage={conditionValidationMessage()} onChange={setConditions} />
         </PanelDialog.Section>
         <PanelDialog.Section
           title="Actions"
           subtitle="Actions run from top to bottom. One rule may change the provider message once and then update Cloud collaboration state."
           icon="ti ti-bolt"
         >
-          <SenderRuleActionsEditor
+          <MailRuleActionsEditor
             actions={actions()}
             catalog={catalog()}
             catalogError={catalogLoad.error() ?? null}
@@ -481,24 +652,22 @@ function SenderRuleEditor(props: {
   );
 }
 
-export const openMailSenderRuleEditor = (params: {
+export const openMailRuleEditor = (params: {
   mailboxId: string;
-  rule?: SenderRule | null;
+  rule?: MailRule | null;
   catalog?: MailWorkflowCatalogSnapshot;
-  initialMatchKind?: SenderRuleMatchKind;
-  initialMatchValue?: string;
+  initialConditions?: MailRuleConditions;
   initialAction?: RuleActionKind;
   initialName?: string;
-  onSaved: (rule: SenderRule) => void;
-  onBackfillStarted?: (backfill: SenderRuleBackfill) => void;
+  onSaved: (rule: MailRule) => void;
+  onBackfillStarted?: (backfill: MailRuleBackfill) => void;
 }) =>
   dialogCore.open<void>(
     (close) => (
-      <SenderRuleEditor
+      <MailRuleEditor
         mailboxId={params.mailboxId}
         rule={params.rule ?? null}
-        initialMatchKind={params.initialMatchKind}
-        initialMatchValue={params.initialMatchValue}
+        initialConditions={params.initialConditions}
         initialAction={params.initialAction}
         initialName={params.initialName}
         initialCatalog={params.catalog}
@@ -510,22 +679,22 @@ export const openMailSenderRuleEditor = (params: {
     panelDialogOptions,
   );
 
-export default function MailSenderRuleSettings(props: {
+export default function MailRuleSettings(props: {
   mailboxId: string;
   catalog: MailWorkflowCatalogSnapshot;
-  initialRules: SenderRule[];
-  onRulesChange?: (rules: SenderRule[]) => void;
+  initialRules: MailRule[];
+  onRulesChange?: (rules: MailRule[]) => void;
   openNew?: boolean;
   onOpenNewHandled?: () => void;
 }) {
   const [rules, setRules] = createSignal(props.initialRules);
-  const [backfills, setBackfills] = createSignal<Record<string, SenderRuleBackfill>>({});
+  const [backfills, setBackfills] = createSignal<Record<string, MailRuleBackfill>>({});
   const [loadedBackfillRules, setLoadedBackfillRules] = createSignal<Set<string>>(new Set());
-  const publish = (next: SenderRule[]) => {
+  const publish = (next: MailRule[]) => {
     setRules(next);
     props.onRulesChange?.(next);
   };
-  const upsert = (rule: SenderRule) => {
+  const upsert = (rule: MailRule) => {
     const previous = rules().find((current) => current.id === rule.id);
     if (previous && previous.workflowVersionId !== rule.workflowVersionId) {
       setBackfills((current) => {
@@ -541,58 +710,58 @@ export default function MailSenderRuleSettings(props: {
     }
     publish([...rules().filter((current) => current.id !== rule.id), rule].sort((left, right) => left.name.localeCompare(right.name)));
   };
-  const rememberBackfill = (backfill: SenderRuleBackfill) => {
+  const rememberBackfill = (backfill: MailRuleBackfill) => {
     setBackfills((current) => ({ ...current, [backfill.ruleId]: backfill }));
     setLoadedBackfillRules((current) => new Set(current).add(backfill.ruleId));
   };
 
-  const toggle = mutation.create<SenderRule, { rule: SenderRule; enabled: boolean }>({
+  const toggle = mutation.create<MailRule, { rule: MailRule; enabled: boolean }>({
     mutation: async ({ rule, enabled }, { abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].enabled.$patch(
+      const response = await apiClient.mailboxes[":mailboxId"]["mail-rules"][":ruleId"].enabled.$patch(
         {
           param: { mailboxId: props.mailboxId, ruleId: rule.id },
           json: { expectedRevision: rule.revision, enabled },
         },
         { init: { signal: abortSignal } },
       );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not change sender rule"));
+      if (!response.ok) throw new Error(await readApiError(response, "Could not change mail rule"));
       return response.json();
     },
     onSuccess: upsert,
     onError: (error) => prompts.error(error.message),
   });
 
-  const remove = mutation.create<{ rule: SenderRule; cancelled: boolean }, SenderRule>({
+  const remove = mutation.create<{ rule: MailRule; cancelled: boolean }, MailRule>({
     mutation: async (rule, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         `Delete “${rule.name}”? Future messages will no longer be processed by this rule. Existing messages are not changed.`,
-        { title: "Delete sender rule?", confirmText: "Delete rule", variant: "danger" },
+        { title: "Delete mail rule?", confirmText: "Delete rule", variant: "danger" },
       );
       if (!confirmed || abortSignal.aborted) return { rule, cancelled: true };
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].$delete(
+      const response = await apiClient.mailboxes[":mailboxId"]["mail-rules"][":ruleId"].$delete(
         {
           param: { mailboxId: props.mailboxId, ruleId: rule.id },
           json: { expectedRevision: rule.revision },
         },
         { init: { signal: abortSignal } },
       );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not delete sender rule"));
+      if (!response.ok) throw new Error(await readApiError(response, "Could not delete mail rule"));
       return { rule: await response.json(), cancelled: false };
     },
     onSuccess: ({ rule, cancelled }) => {
       if (cancelled) return;
       publish(rules().filter((candidate) => candidate.id !== rule.id));
-      toast.success("Sender rule deleted");
+      toast.success("Mail rule deleted");
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const startBackfill = mutation.create<SenderRuleBackfill | null, SenderRule>({
+  const startBackfill = mutation.create<MailRuleBackfill | null, MailRule>({
     mutation: async (rule, { abortSignal }) => {
-      const previewResponse = await apiClient.mailboxes[":mailboxId"]["sender-rules"].preview.$post(
+      const previewResponse = await apiClient.mailboxes[":mailboxId"]["mail-rules"].preview.$post(
         {
           param: { mailboxId: props.mailboxId },
-          json: { matchKind: rule.matchKind, matchValue: rule.matchValue },
+          json: { conditions: rule.conditions },
         },
         { init: { signal: abortSignal } },
       );
@@ -603,40 +772,42 @@ export default function MailSenderRuleSettings(props: {
         return null;
       }
       const confirmed = await prompts.confirm(
-        `${preview.messageCount} existing message${preview.messageCount === 1 ? "" : "s"} match. The background backfill processes all of them and skips messages already accepted for this workflow version.`,
-        { title: "Start sender-rule backfill?", confirmText: "Start backfill" },
+        preview.exact
+          ? `${preview.messageCount} existing message${preview.messageCount === 1 ? "" : "s"} match. The background backfill processes them and skips messages already accepted for this workflow version.`
+          : `${preview.messageCount} existing incoming message${preview.messageCount === 1 ? "" : "s"} will be scanned. The workflow evaluates each message and skips messages already accepted for this workflow version.`,
+        { title: "Start mail-rule backfill?", confirmText: "Start backfill" },
       );
       if (!confirmed || abortSignal.aborted) return null;
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].backfills.$post(
+      const response = await apiClient.mailboxes[":mailboxId"]["mail-rules"][":ruleId"].backfills.$post(
         {
           param: { mailboxId: props.mailboxId, ruleId: rule.id },
           json: { operationId: crypto.randomUUID(), expectedRevision: rule.revision },
         },
         { init: { signal: abortSignal } },
       );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not start sender-rule backfill"));
+      if (!response.ok) throw new Error(await readApiError(response, "Could not start mail-rule backfill"));
       return response.json();
     },
     onSuccess: (backfill) => {
       if (!backfill) return;
       rememberBackfill(backfill);
-      toast.success(`Backfill started for ${backfill.matchedCount} matching message${backfill.matchedCount === 1 ? "" : "s"}`);
+      toast.success(`Backfill started for ${backfill.candidateCount} candidate message${backfill.candidateCount === 1 ? "" : "s"}`);
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const cancelBackfill = mutation.create<SenderRuleBackfill | null, { rule: SenderRule; backfill: SenderRuleBackfill }>({
+  const cancelBackfill = mutation.create<MailRuleBackfill | null, { rule: MailRule; backfill: MailRuleBackfill }>({
     mutation: async ({ rule, backfill }, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         "Stop this backfill? Messages already accepted by the workflow remain processed. You can safely run the backfill again later.",
-        { title: "Cancel sender-rule backfill?", confirmText: "Cancel backfill", variant: "danger" },
+        { title: "Cancel mail-rule backfill?", confirmText: "Cancel backfill", variant: "danger" },
       );
       if (!confirmed || abortSignal.aborted) return null;
-      const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].backfills[":operationId"].$delete(
+      const response = await apiClient.mailboxes[":mailboxId"]["mail-rules"][":ruleId"].backfills[":operationId"].$delete(
         { param: { mailboxId: props.mailboxId, ruleId: rule.id, operationId: backfill.operationId } },
         { init: { signal: abortSignal } },
       );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not cancel sender-rule backfill"));
+      if (!response.ok) throw new Error(await readApiError(response, "Could not cancel mail-rule backfill"));
       return response.json();
     },
     onSuccess: (backfill) => {
@@ -657,7 +828,7 @@ export default function MailSenderRuleSettings(props: {
     try {
       const updates = await Promise.all(
         active.map(async (backfill) => {
-          const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].backfills[":operationId"].$get({
+          const response = await apiClient.mailboxes[":mailboxId"]["mail-rules"][":ruleId"].backfills[":operationId"].$get({
             param: { mailboxId: props.mailboxId, ruleId: backfill.ruleId, operationId: backfill.operationId },
           });
           return response.ok ? response.json() : null;
@@ -679,7 +850,7 @@ export default function MailSenderRuleSettings(props: {
     await Promise.all(
       persisted.map(async ({ ruleId, operationId }) => {
         try {
-          const response = await apiClient.mailboxes[":mailboxId"]["sender-rules"][":ruleId"].backfills[":operationId"].$get({
+          const response = await apiClient.mailboxes[":mailboxId"]["mail-rules"][":ruleId"].backfills[":operationId"].$get({
             param: { mailboxId: props.mailboxId, ruleId, operationId },
           });
           if (response.ok && !disposed) rememberBackfill(await response.json());
@@ -700,7 +871,7 @@ export default function MailSenderRuleSettings(props: {
         await waitForMailPageTransition();
         if (disposed) return;
         props.onOpenNewHandled?.();
-        await openMailSenderRuleEditor({
+        await openMailRuleEditor({
           mailboxId: props.mailboxId,
           catalog: props.catalog,
           onSaved: upsert,
@@ -718,13 +889,13 @@ export default function MailSenderRuleSettings(props: {
     cancelBackfill.abort();
   });
 
-  const columns: DataTableColumn<SenderRule>[] = [
+  const columns: DataTableColumn<MailRule>[] = [
     { id: "name", header: "Rule", value: (rule) => rule.name },
     { id: "match", header: "Matches", value: matchLabel },
     {
       id: "actions",
       header: "Actions",
-      value: (rule) => rule.actions.map((action) => senderRuleActionLabel(action, props.catalog)).join(" · "),
+      value: (rule) => rule.actions.map((action) => mailRuleActionLabel(action, props.catalog)).join(" · "),
     },
     {
       id: "backfill",
@@ -751,7 +922,7 @@ export default function MailSenderRuleSettings(props: {
     <section class="paper overflow-hidden">
       <div class="flex flex-wrap items-start justify-between gap-3 px-3 py-3">
         <div>
-          <h2 class="text-xs font-semibold text-primary">Sender rules</h2>
+          <h2 class="text-xs font-semibold text-primary">Mail rules</h2>
           <p class="mt-0.5 text-[11px] text-dimmed">
             {rules().length} managed workflow{rules().length === 1 ? "" : "s"} for future incoming messages
           </p>
@@ -760,7 +931,7 @@ export default function MailSenderRuleSettings(props: {
           type="button"
           class="btn-primary btn-sm"
           onClick={() =>
-            void openMailSenderRuleEditor({
+            void openMailRuleEditor({
               mailboxId: props.mailboxId,
               catalog: props.catalog,
               onSaved: upsert,
@@ -778,7 +949,7 @@ export default function MailSenderRuleSettings(props: {
         class="overflow-x-auto"
         tableClass={rules().length > 0 ? "w-full min-w-[42rem] text-xs" : "w-full text-xs"}
         hoverRows
-        empty={"No sender rules. Create a guided rule to process future messages from one sender or domain."}
+        empty={"No mail rules. Create a guided rule to process future matching messages."}
         renderCell={({ row, col, render }) => {
           if (col.id === "enabled") {
             return (
@@ -804,7 +975,7 @@ export default function MailSenderRuleSettings(props: {
               return (
                 <span class="badge bg-[var(--ui-selected)] text-accent">
                   <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
-                  Backfill · {accepted}/{backfill.matchedCount}
+                  Backfill · {accepted}/{backfill.candidateCount}
                 </span>
               );
             }
@@ -830,7 +1001,7 @@ export default function MailSenderRuleSettings(props: {
                     label: "Edit rule",
                     icon: "ti ti-pencil",
                     action: () =>
-                      void openMailSenderRuleEditor({
+                      void openMailRuleEditor({
                         mailboxId: props.mailboxId,
                         catalog: props.catalog,
                         rule: row,

@@ -22,6 +22,7 @@ import * as health from "./health";
 import { imapPushRuntime } from "./imap-push-runtime";
 import * as listSubscriptions from "./list-subscriptions";
 import * as localTags from "./local-tags";
+import * as mailRules from "./mail-rules";
 import * as mailboxes from "./mailboxes";
 import * as hydration from "./message-hydration";
 import * as messageInspector from "./message-inspector";
@@ -40,7 +41,6 @@ import { cancelSendCommand } from "./scheduled-sends";
 import * as search from "./search";
 import * as senderIdentities from "./sender-identities";
 import * as senderIdentityTransports from "./sender-identity-transports";
-import * as senderRules from "./sender-rules";
 import * as settingsContext from "./settings-context";
 import * as storageObservability from "./storage-observability";
 import * as subscriptionWorkspace from "./subscription-workspace";
@@ -53,10 +53,10 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
     await scheduledMailRuntime.start();
     await imapPushRuntime.start();
-    senderRules.startSenderRuleBackfillRuntime();
+    mailRules.startMailRuleBackfillRuntime();
   },
   stop: () =>
-    stopRuntimeResources([senderRules.stopSenderRuleBackfillRuntime, () => imapPushRuntime.stop(), () => scheduledMailRuntime.stop()]),
+    stopRuntimeResources([mailRules.stopMailRuleBackfillRuntime, () => imapPushRuntime.stop(), () => scheduledMailRuntime.stop()]),
 });
 
 export const mailRuntime = {
@@ -90,6 +90,7 @@ export {
   localTags,
   mailboxAccess,
   mailboxes,
+  mailRules,
   messageInspector,
   messages,
   notificationTargets,
@@ -104,7 +105,6 @@ export {
   search,
   senderIdentities,
   senderIdentityTransports,
-  senderRules,
   settingsContext,
   storageObservability,
   subscriptionWorkspace,
@@ -152,7 +152,7 @@ export const mailService = {
   search,
   senderIdentities,
   senderIdentityTransports,
-  senderRules,
+  mailRules,
   settingsContext,
   storageObservability,
   triage,

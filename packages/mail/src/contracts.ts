@@ -1889,10 +1889,46 @@ export const updateAutomaticReplySetupSchema = z
   });
 export type UpdateAutomaticReplySetup = z.infer<typeof updateAutomaticReplySetupSchema>;
 
-export const senderRuleMatchKindSchema = z.enum(["sender", "domain"]);
-export type SenderRuleMatchKind = z.infer<typeof senderRuleMatchKindSchema>;
+export const senderMatchKindSchema = z.enum(["sender", "domain"]);
+export type SenderMatchKind = z.infer<typeof senderMatchKindSchema>;
 
-export const senderRuleActionSchema = z.discriminatedUnion("kind", [
+export const mailRuleMatchModeSchema = z.enum(["all", "any"]);
+export type MailRuleMatchMode = z.infer<typeof mailRuleMatchModeSchema>;
+
+export const mailRuleTextOperatorSchema = z.enum(["is", "contains", "starts_with", "ends_with"]);
+export type MailRuleTextOperator = z.infer<typeof mailRuleTextOperatorSchema>;
+
+const mailRuleTextValueSchema = z.string().trim().min(1).max(1_000);
+
+export const mailRuleConditionSchema = z.discriminatedUnion("field", [
+  z.object({ field: z.literal("sender_address"), operator: z.literal("is"), value: z.string().trim().min(1).max(320) }).strict(),
+  z.object({ field: z.literal("sender_domain"), operator: z.literal("is"), value: z.string().trim().min(1).max(253) }).strict(),
+  z.object({ field: z.literal("subject"), operator: mailRuleTextOperatorSchema, value: mailRuleTextValueSchema }).strict(),
+  z.object({ field: z.literal("body_text"), operator: mailRuleTextOperatorSchema, value: mailRuleTextValueSchema }).strict(),
+  z.object({ field: z.literal("attachment_presence"), operator: z.literal("is"), value: z.boolean() }).strict(),
+]);
+export type MailRuleCondition = z.infer<typeof mailRuleConditionSchema>;
+
+export const mailRuleConditionsSchema = z
+  .object({
+    mode: mailRuleMatchModeSchema,
+    items: z.array(mailRuleConditionSchema).min(1, "Add at least one condition").max(8, "A mail rule can have at most 8 conditions"),
+  })
+  .strict()
+  .superRefine((conditions, context) => {
+    const seen = new Set<string>();
+    conditions.items.forEach((condition, index) => {
+      const key = JSON.stringify(condition);
+      if (!seen.has(key)) {
+        seen.add(key);
+        return;
+      }
+      context.addIssue({ code: "custom", message: "Remove duplicate mail rule conditions", path: ["items", index] });
+    });
+  });
+export type MailRuleConditions = z.infer<typeof mailRuleConditionsSchema>;
+
+export const mailRuleActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("junk") }).strict(),
   z.object({ kind: z.literal("trash") }).strict(),
   z.object({ kind: z.literal("mark_read") }).strict(),
@@ -1902,27 +1938,27 @@ export const senderRuleActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("assign_user"), userId: z.string().uuid() }).strict(),
   z.object({ kind: z.literal("set_status"), status: conversationWorkStatusSchema }).strict(),
 ]);
-export type SenderRuleAction = z.infer<typeof senderRuleActionSchema>;
+export type MailRuleAction = z.infer<typeof mailRuleActionSchema>;
 
-const senderRuleProviderActionKinds = new Set<SenderRuleAction["kind"]>(["junk", "trash", "mark_read", "add_keyword", "move_to_folder"]);
+const mailRuleProviderActionKinds = new Set<MailRuleAction["kind"]>(["junk", "trash", "mark_read", "add_keyword", "move_to_folder"]);
 
-export const senderRuleActionsSchema = z
-  .array(senderRuleActionSchema)
+export const mailRuleActionsSchema = z
+  .array(mailRuleActionSchema)
   .min(1, "Add at least one action")
-  .max(8, "A sender rule can have at most 8 actions")
+  .max(8, "A mail rule can have at most 8 actions")
   .superRefine((actions, context) => {
-    const providerActions = actions.filter((action) => senderRuleProviderActionKinds.has(action.kind));
+    const providerActions = actions.filter((action) => mailRuleProviderActionKinds.has(action.kind));
     if (providerActions.length > 1) {
       context.addIssue({
         code: "custom",
-        message: "A sender rule can have at most one provider message action",
+        message: "A mail rule can have at most one provider message action",
       });
     }
     for (const uniqueKind of ["assign_user", "set_status"] as const) {
       if (actions.filter((action) => action.kind === uniqueKind).length > 1) {
         context.addIssue({
           code: "custom",
-          message: uniqueKind === "assign_user" ? "A sender rule can assign only one user" : "A sender rule can set only one status",
+          message: uniqueKind === "assign_user" ? "A mail rule can assign only one user" : "A mail rule can set only one status",
         });
       }
     }
@@ -1935,96 +1971,96 @@ export const senderRuleActionsSchema = z
       }
       context.addIssue({
         code: "custom",
-        message: "Remove duplicate sender rule actions",
+        message: "Remove duplicate mail rule actions",
         path: [index],
       });
     });
   });
-export type SenderRuleActions = z.infer<typeof senderRuleActionsSchema>;
+export type MailRuleActions = z.infer<typeof mailRuleActionsSchema>;
 
-const senderRuleFields = {
+const mailRuleFields = {
   name: z.string().trim().min(1).max(120),
   enabled: z.boolean(),
-  matchKind: senderRuleMatchKindSchema,
-  matchValue: z.string().trim().min(1).max(320),
-  actions: senderRuleActionsSchema,
+  conditions: mailRuleConditionsSchema,
+  actions: mailRuleActionsSchema,
 } as const;
 
-const validateSenderRuleMatch = (value: { matchKind: SenderRuleMatchKind; matchValue: string }, context: z.RefinementCtx): void => {
-  const matchValue = value.matchValue.trim();
-  const valid = value.matchKind === "sender" ? /^[^\s@]+@[^\s@]+$/u.test(matchValue) : !/[\s@/:]/u.test(matchValue);
-  if (!valid) {
+const validateMailRuleConditions = (value: { conditions: MailRuleConditions }, context: z.RefinementCtx): void => {
+  value.conditions.items.forEach((condition, index) => {
+    if (condition.field !== "sender_address" && condition.field !== "sender_domain") return;
+    const valid = condition.field === "sender_address" ? /^[^\s@]+@[^\s@]+$/u.test(condition.value) : !/[\s@/:]/u.test(condition.value);
+    if (valid) return;
     context.addIssue({
       code: "custom",
-      message: value.matchKind === "sender" ? "Enter a valid sender email address" : "Enter a valid sender domain",
-      path: ["matchValue"],
+      message: condition.field === "sender_address" ? "Enter a valid sender email address" : "Enter a valid sender domain",
+      path: ["conditions", "items", index, "value"],
     });
-  }
+  });
 };
 
-export const createSenderRuleSchema = z
+export const createMailRuleSchema = z
   .object({
-    ...senderRuleFields,
+    ...mailRuleFields,
     enabled: z.boolean().default(true),
   })
   .strict()
-  .superRefine(validateSenderRuleMatch);
-export type CreateSenderRule = z.infer<typeof createSenderRuleSchema>;
+  .superRefine(validateMailRuleConditions);
+export type CreateMailRule = z.infer<typeof createMailRuleSchema>;
 
-export const updateSenderRuleSchema = z
+export const updateMailRuleSchema = z
   .object({
     expectedRevision: z.number().int().positive(),
-    ...senderRuleFields,
+    ...mailRuleFields,
   })
   .strict()
-  .superRefine(validateSenderRuleMatch);
-export type UpdateSenderRule = z.infer<typeof updateSenderRuleSchema>;
+  .superRefine(validateMailRuleConditions);
+export type UpdateMailRule = z.infer<typeof updateMailRuleSchema>;
 
-export const setSenderRuleEnabledSchema = z
+export const setMailRuleEnabledSchema = z
   .object({
     expectedRevision: z.number().int().positive(),
     enabled: z.boolean(),
   })
   .strict();
-export type SetSenderRuleEnabled = z.infer<typeof setSenderRuleEnabledSchema>;
+export type SetMailRuleEnabled = z.infer<typeof setMailRuleEnabledSchema>;
 
-export const deleteSenderRuleSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
-export type DeleteSenderRule = z.infer<typeof deleteSenderRuleSchema>;
+export const deleteMailRuleSchema = z.object({ expectedRevision: z.number().int().positive() }).strict();
+export type DeleteMailRule = z.infer<typeof deleteMailRuleSchema>;
 
-export const previewSenderRuleMatchesInputSchema = z
+export const previewMailRuleMatchesInputSchema = z
   .object({
-    matchKind: senderRuleMatchKindSchema,
-    matchValue: z.string().trim().min(1).max(320),
+    conditions: mailRuleConditionsSchema,
   })
   .strict()
-  .superRefine(validateSenderRuleMatch);
-export type PreviewSenderRuleMatchesInput = z.infer<typeof previewSenderRuleMatchesInputSchema>;
+  .superRefine(validateMailRuleConditions);
+export type PreviewMailRuleMatchesInput = z.infer<typeof previewMailRuleMatchesInputSchema>;
 
-export const senderRuleMatchPreviewSchema = z
+export const mailRuleMatchPreviewSchema = z
   .object({
     messageCount: z.number().int().nonnegative(),
     conversationCount: z.number().int().nonnegative(),
+    exact: z.boolean(),
     applicationLimit: z.number().int().positive(),
     capped: z.boolean(),
   })
   .strict();
-export type SenderRuleMatchPreview = z.infer<typeof senderRuleMatchPreviewSchema>;
+export type MailRuleMatchPreview = z.infer<typeof mailRuleMatchPreviewSchema>;
 
-export const startSenderRuleBackfillInputSchema = z
+export const startMailRuleBackfillInputSchema = z
   .object({
     operationId: z.string().uuid(),
     expectedRevision: z.number().int().positive(),
   })
   .strict();
-export type StartSenderRuleBackfillInput = z.infer<typeof startSenderRuleBackfillInputSchema>;
+export type StartMailRuleBackfillInput = z.infer<typeof startMailRuleBackfillInputSchema>;
 
-export const senderRuleBackfillSchema = z
+export const mailRuleBackfillSchema = z
   .object({
     operationId: z.string().uuid(),
     ruleId: z.string().uuid(),
     workflowVersionId: z.string().uuid(),
     state: z.enum(["queued", "running", "waiting", "completed", "failed", "canceled"]),
-    matchedCount: z.number().int().nonnegative(),
+    candidateCount: z.number().int().nonnegative(),
     alreadyAcceptedCount: z.number().int().nonnegative(),
     newlyAcceptedCount: z.number().int().nonnegative(),
     remainingCount: z.number().int().nonnegative(),
@@ -2034,16 +2070,32 @@ export const senderRuleBackfillSchema = z
     updatedAt: z.string().datetime(),
   })
   .strict();
-export type SenderRuleBackfill = z.infer<typeof senderRuleBackfillSchema>;
+export type MailRuleBackfill = z.infer<typeof mailRuleBackfillSchema>;
 
 export const markSenderMessagesReadInputSchema = z
   .object({
-    matchKind: senderRuleMatchKindSchema,
+    matchKind: senderMatchKindSchema,
     matchValue: z.string().trim().min(1).max(320),
     idempotencyKey: z.string().trim().min(1).max(150),
   })
   .strict()
-  .superRefine(validateSenderRuleMatch);
+  .superRefine((value, context) =>
+    validateMailRuleConditions(
+      {
+        conditions: {
+          mode: "all",
+          items: [
+            {
+              field: value.matchKind === "sender" ? "sender_address" : "sender_domain",
+              operator: "is",
+              value: value.matchValue,
+            },
+          ],
+        },
+      },
+      context,
+    ),
+  );
 export type MarkSenderMessagesReadInput = z.infer<typeof markSenderMessagesReadInputSchema>;
 
 export const markSenderMessagesReadResultSchema = z

@@ -4686,9 +4686,9 @@ const addDraftDerivationIdempotency = async (db: SqlClient): Promise<void> => {
   `;
 };
 
-const addManagedSenderRules = async (db: SqlClient): Promise<void> => {
+const addManagedMailRules = async (db: SqlClient): Promise<void> => {
   await db`
-    CREATE TABLE mail.sender_rules (
+    CREATE TABLE mail.mail_rules (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       workflow_id UUID NOT NULL,
@@ -4720,29 +4720,29 @@ const addManagedSenderRules = async (db: SqlClient): Promise<void> => {
     )
   `;
   await db`
-    CREATE UNIQUE INDEX sender_rules_mailbox_name_idx
-    ON mail.sender_rules (mailbox_id, normalized_name)
+    CREATE UNIQUE INDEX mail_rules_mailbox_name_idx
+    ON mail.mail_rules (mailbox_id, normalized_name)
     WHERE deleted_at IS NULL
   `;
   await db`
-    CREATE INDEX sender_rules_mailbox_idx
-    ON mail.sender_rules (mailbox_id, enabled DESC, normalized_name, id)
+    CREATE INDEX mail_rules_mailbox_idx
+    ON mail.mail_rules (mailbox_id, enabled DESC, normalized_name, id)
   `;
   await db`
-    CREATE TRIGGER sender_rules_touch_updated_at
-    BEFORE UPDATE ON mail.sender_rules
+    CREATE TRIGGER mail_rules_touch_updated_at
+    BEFORE UPDATE ON mail.mail_rules
     FOR EACH ROW EXECUTE FUNCTION mail.touch_updated_at()
   `;
 };
 
-const hardenManagedSenderRules = async (db: SqlClient): Promise<void> => {
+const hardenManagedMailRules = async (db: SqlClient): Promise<void> => {
   await db`
-    ALTER TABLE mail.sender_rules
+    ALTER TABLE mail.mail_rules
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ
   `;
   await db`
-    CREATE UNIQUE INDEX IF NOT EXISTS sender_rules_mailbox_name_idx
-    ON mail.sender_rules (mailbox_id, normalized_name)
+    CREATE UNIQUE INDEX IF NOT EXISTS mail_rules_mailbox_name_idx
+    ON mail.mail_rules (mailbox_id, normalized_name)
     WHERE deleted_at IS NULL
   `;
 };
@@ -4778,8 +4778,8 @@ const migrateWorkflowsToKernel = async (db: SqlClient): Promise<void> => {
     DROP CONSTRAINT IF EXISTS automatic_reply_configurations_workflow_id_mailbox_id_fkey
   `;
   await db`
-    ALTER TABLE mail.sender_rules
-    DROP CONSTRAINT IF EXISTS sender_rules_workflow_id_mailbox_id_fkey
+    ALTER TABLE mail.mail_rules
+    DROP CONSTRAINT IF EXISTS mail_rules_workflow_id_mailbox_id_fkey
   `;
   await db`
     ALTER TABLE mail.workflows
@@ -4801,7 +4801,7 @@ const migrateWorkflowsToKernel = async (db: SqlClient): Promise<void> => {
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       priority INTEGER NOT NULL DEFAULT 100 CHECK (priority BETWEEN -1000 AND 1000),
       enabled BOOLEAN NOT NULL DEFAULT false,
-      managed_by TEXT CHECK (managed_by IS NULL OR managed_by IN ('automatic_reply', 'sender_rule')),
+      managed_by TEXT CHECK (managed_by IS NULL OR managed_by IN ('automatic_reply', 'mail_rule')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (id, mailbox_id)
@@ -4832,8 +4832,8 @@ const migrateWorkflowsToKernel = async (db: SqlClient): Promise<void> => {
     FOREIGN KEY (workflow_id) REFERENCES mail.workflow_profile(id) ON DELETE RESTRICT
   `;
   await db`
-    ALTER TABLE mail.sender_rules
-    ADD CONSTRAINT sender_rules_workflow_id_fkey
+    ALTER TABLE mail.mail_rules
+    ADD CONSTRAINT mail_rules_workflow_id_fkey
     FOREIGN KEY (workflow_id) REFERENCES mail.workflow_profile(id) ON DELETE CASCADE
   `;
 
@@ -4891,7 +4891,7 @@ const addWorkflowProfileManager = async (db: SqlClient): Promise<void> => {
   await db`
     ALTER TABLE mail.workflow_profile
     ADD COLUMN IF NOT EXISTS managed_by TEXT
-      CHECK (managed_by IS NULL OR managed_by IN ('automatic_reply', 'sender_rule'))
+      CHECK (managed_by IS NULL OR managed_by IN ('automatic_reply', 'mail_rule'))
   `;
 };
 
@@ -4939,26 +4939,26 @@ const addCanonicalOutboundMessages = async (db: SqlClient): Promise<void> => {
   `;
 };
 
-const addComposableSenderRuleActions = async (db: SqlClient): Promise<void> => {
-  await db`ALTER TABLE mail.sender_rules DROP CONSTRAINT IF EXISTS sender_rules_action_check`;
-  await db`ALTER TABLE mail.sender_rules RENAME COLUMN action TO actions`;
+const addComposableMailRuleActions = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.mail_rules DROP CONSTRAINT IF EXISTS mail_rules_action_check`;
+  await db`ALTER TABLE mail.mail_rules RENAME COLUMN action TO actions`;
   await db`
-    UPDATE mail.sender_rules
+    UPDATE mail.mail_rules
     SET actions = jsonb_build_array(actions)
     WHERE jsonb_typeof(actions) = 'object'
   `;
   await db`
-    ALTER TABLE mail.sender_rules
-    ADD CONSTRAINT sender_rules_actions_check CHECK (
+    ALTER TABLE mail.mail_rules
+    ADD CONSTRAINT mail_rules_actions_check CHECK (
       jsonb_typeof(actions) = 'array'
       AND jsonb_array_length(actions) BETWEEN 1 AND 8
     )
   `;
 };
 
-const addSenderRuleBackfillPointer = async (db: SqlClient): Promise<void> => {
+const addMailRuleBackfillPointer = async (db: SqlClient): Promise<void> => {
   await db`
-    ALTER TABLE mail.sender_rules
+    ALTER TABLE mail.mail_rules
     ADD COLUMN latest_backfill_operation_id UUID
   `;
 };
@@ -5236,6 +5236,99 @@ const migrateMailTemplatesToLiquid = async (db: SqlClient): Promise<void> => {
   }
 };
 
+const generalizeMailRules = async (db: SqlClient): Promise<void> => {
+  await db`
+    DO $$
+    BEGIN
+      IF to_regclass('mail.sender_rules') IS NOT NULL
+        AND to_regclass('mail.mail_rules') IS NULL
+      THEN
+        ALTER TABLE mail.sender_rules RENAME TO mail_rules;
+      END IF;
+    END
+    $$
+  `;
+  await db`
+    ALTER TABLE mail.mail_rules
+    ADD COLUMN IF NOT EXISTS conditions JSONB
+  `;
+  await db`
+    UPDATE mail.mail_rules
+    SET conditions = jsonb_build_object(
+      'mode', 'all',
+      'items', jsonb_build_array(
+        jsonb_build_object(
+          'field', CASE match_kind WHEN 'sender' THEN 'sender_address' ELSE 'sender_domain' END,
+          'operator', 'is',
+          'value', match_value
+        )
+      )
+    )
+    WHERE conditions IS NULL
+  `;
+  await db`
+    ALTER TABLE mail.mail_rules
+    ALTER COLUMN conditions SET NOT NULL,
+    ADD CONSTRAINT mail_rules_conditions_chk CHECK (
+      jsonb_typeof(conditions) = 'object'
+      AND conditions->>'mode' IN ('all', 'any')
+      AND jsonb_typeof(conditions->'items') = 'array'
+      AND jsonb_array_length(conditions->'items') BETWEEN 1 AND 8
+    ),
+    DROP COLUMN match_kind,
+    DROP COLUMN match_value
+  `;
+  await db`
+    ALTER TABLE mail.workflow_profile
+    DROP CONSTRAINT IF EXISTS workflow_profile_managed_by_check
+  `;
+  await db`
+    UPDATE mail.workflow_profile
+    SET managed_by = 'mail_rule'
+    WHERE managed_by = 'sender_rule'
+  `;
+  await db`
+    ALTER TABLE mail.workflow_profile
+    ADD CONSTRAINT workflow_profile_managed_by_check
+      CHECK (managed_by IS NULL OR managed_by IN ('automatic_reply', 'mail_rule'))
+  `;
+};
+
+const canonicalizeMailRuleObjectNames = async (db: SqlClient): Promise<void> => {
+  await db`
+    DO $$
+    BEGIN
+      IF to_regclass('mail.sender_rules_mailbox_name_idx') IS NOT NULL
+        AND to_regclass('mail.mail_rules_mailbox_name_idx') IS NULL
+      THEN
+        ALTER INDEX mail.sender_rules_mailbox_name_idx RENAME TO mail_rules_mailbox_name_idx;
+      END IF;
+      IF to_regclass('mail.sender_rules_mailbox_idx') IS NOT NULL
+        AND to_regclass('mail.mail_rules_mailbox_idx') IS NULL
+      THEN
+        ALTER INDEX mail.sender_rules_mailbox_idx RENAME TO mail_rules_mailbox_idx;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = 'mail.mail_rules'::regclass
+          AND tgname = 'sender_rules_touch_updated_at'
+          AND NOT tgisinternal
+      ) THEN
+        ALTER TRIGGER sender_rules_touch_updated_at ON mail.mail_rules RENAME TO mail_rules_touch_updated_at;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'mail.mail_rules'::regclass
+          AND conname = 'sender_rules_actions_check'
+      ) THEN
+        ALTER TABLE mail.mail_rules
+        RENAME CONSTRAINT sender_rules_actions_check TO mail_rules_actions_check;
+      END IF;
+    END
+    $$
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -5326,18 +5419,20 @@ const migrations: readonly MailMigration[] = [
   { version: 88, name: "identity_delivery_options", run: addIdentityDeliveryOptions },
   { version: 89, name: "composer_safety_message_reuse", run: addComposerSafetyAndMessageReuse },
   { version: 90, name: "draft_derivation_idempotency", run: addDraftDerivationIdempotency },
-  { version: 91, name: "managed_sender_rules", run: addManagedSenderRules },
-  { version: 92, name: "managed_sender_rules_hardening", run: hardenManagedSenderRules },
+  { version: 91, name: "managed_sender_rules", run: addManagedMailRules },
+  { version: 92, name: "managed_sender_rules_hardening", run: hardenManagedMailRules },
   { version: 93, name: "shared_workflow_kernel", run: migrateWorkflowsToKernel },
   { version: 94, name: "workflow_command_generation_fence", run: addWorkflowCommandGenerationFence },
   { version: 95, name: "workflow_profile_manager", run: addWorkflowProfileManager },
   { version: 96, name: "sender_read_batches", run: addSenderReadBatches },
   { version: 97, name: "provider_oauth_sent_mode", run: addProviderOAuthSentMode },
   { version: 98, name: "canonical_outbound_messages", run: addCanonicalOutboundMessages },
-  { version: 99, name: "composable_sender_rule_actions", run: addComposableSenderRuleActions },
-  { version: 100, name: "sender_rule_backfill_pointer", run: addSenderRuleBackfillPointer },
+  { version: 99, name: "composable_sender_rule_actions", run: addComposableMailRuleActions },
+  { version: 100, name: "sender_rule_backfill_pointer", run: addMailRuleBackfillPointer },
   { version: 101, name: "draft_materialization_idempotency", run: addDraftMaterializationIdempotency },
   { version: 102, name: "liquid_mail_templates", run: migrateMailTemplatesToLiquid },
+  { version: 103, name: "generalized_mail_rules", run: generalizeMailRules },
+  { version: 104, name: "canonical_mail_rule_object_names", run: canonicalizeMailRuleObjectNames },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

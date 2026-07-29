@@ -10,8 +10,8 @@ import {
   createConversationCommentSchema,
   createDraftAttachmentUploadSchema,
   createLocalTagSchema,
+  createMailRuleSchema,
   createSenderIdentityInputSchema,
-  createSenderRuleSchema,
   createWorkflowInputSchema,
   createWorkflowVersionInputSchema,
   deactivateWorkflowInputSchema,
@@ -24,12 +24,12 @@ import {
   mergeConversationsInputSchema,
   messageStateChangeSchema,
   parseConnectorCapabilities,
-  previewSenderRuleMatchesInputSchema,
+  previewMailRuleMatchesInputSchema,
   reassignConversationMessageInputSchema,
   restoreWorkflowVersionInputSchema,
   scheduledSendPageSchema,
   splitConversationInputSchema,
-  startSenderRuleBackfillInputSchema,
+  startMailRuleBackfillInputSchema,
   updateAutomaticReplyConfigurationSchema,
   updateAutomaticReplySetupSchema,
   updateConversationCollaborationSchema,
@@ -282,21 +282,27 @@ describe("automatic reply configuration contracts", () => {
   });
 });
 
-describe("sender rule contracts", () => {
-  test("accepts sender and domain matches with composable supported actions", () => {
+describe("mail rule contracts", () => {
+  test("accepts grouped message conditions with composable supported actions", () => {
     expect(
-      createSenderRuleSchema.safeParse({
+      createMailRuleSchema.safeParse({
         name: "Block noisy sender",
-        matchKind: "sender",
-        matchValue: "News@Example.COM",
+        conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: "News@Example.COM" }] },
         actions: [{ kind: "junk" }],
       }).success,
     ).toBe(true);
     expect(
-      createSenderRuleSchema.safeParse({
+      createMailRuleSchema.safeParse({
         name: "Route and assign domain",
-        matchKind: "domain",
-        matchValue: "sub.example.com",
+        conditions: {
+          mode: "all",
+          items: [
+            { field: "sender_domain", operator: "is", value: "sub.example.com" },
+            { field: "subject", operator: "contains", value: "invoice" },
+            { field: "body_text", operator: "starts_with", value: "Hello" },
+            { field: "attachment_presence", operator: "is", value: true },
+          ],
+        },
         actions: [
           { kind: "move_to_folder", folderId: "00000000-0000-4000-8000-000000000001" },
           { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000002" },
@@ -307,28 +313,25 @@ describe("sender rule contracts", () => {
     ).toBe(true);
   });
 
-  test("rejects malformed match values and unsupported action payloads", () => {
+  test("rejects malformed or duplicate conditions and unsupported action payloads", () => {
     expect(
-      createSenderRuleSchema.safeParse({
+      createMailRuleSchema.safeParse({
         name: "Bad sender",
-        matchKind: "sender",
-        matchValue: "example.com",
+        conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: "example.com" }] },
         actions: [{ kind: "junk" }],
       }).success,
     ).toBe(false);
     expect(
-      createSenderRuleSchema.safeParse({
+      createMailRuleSchema.safeParse({
         name: "Bad domain",
-        matchKind: "domain",
-        matchValue: "person@example.com",
+        conditions: { mode: "all", items: [{ field: "sender_domain", operator: "is", value: "person@example.com" }] },
         actions: [{ kind: "junk" }],
       }).success,
     ).toBe(false);
     expect(
-      createSenderRuleSchema.safeParse({
+      createMailRuleSchema.safeParse({
         name: "Unsafe action",
-        matchKind: "sender",
-        matchValue: "person@example.com",
+        conditions: { mode: "all", items: [{ field: "subject", operator: "regex", value: ".*" }] },
         actions: [{ kind: "execute", command: "rm -rf /" }],
       }).success,
     ).toBe(false);
@@ -337,17 +340,19 @@ describe("sender rule contracts", () => {
   test("rejects multiple provider mutations and duplicate collaboration actions", () => {
     const base = {
       name: "Invalid action plan",
-      matchKind: "sender" as const,
-      matchValue: "person@example.com",
+      conditions: {
+        mode: "all" as const,
+        items: [{ field: "sender_address" as const, operator: "is" as const, value: "person@example.com" }],
+      },
     };
     expect(
-      createSenderRuleSchema.safeParse({
+      createMailRuleSchema.safeParse({
         ...base,
         actions: [{ kind: "junk" }, { kind: "mark_read" }],
       }).success,
     ).toBe(false);
     expect(
-      createSenderRuleSchema.safeParse({
+      createMailRuleSchema.safeParse({
         ...base,
         actions: [
           { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000001" },
@@ -358,7 +363,11 @@ describe("sender rule contracts", () => {
   });
 
   test("requires bounded, explicit inputs for previews and existing-message actions", () => {
-    expect(previewSenderRuleMatchesInputSchema.safeParse({ matchKind: "sender", matchValue: "person@example.com" }).success).toBe(true);
+    expect(
+      previewMailRuleMatchesInputSchema.safeParse({
+        conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: "person@example.com" }] },
+      }).success,
+    ).toBe(true);
     expect(
       markSenderMessagesReadInputSchema.safeParse({
         matchKind: "domain",
@@ -367,13 +376,13 @@ describe("sender rule contracts", () => {
       }).success,
     ).toBe(true);
     expect(
-      startSenderRuleBackfillInputSchema.safeParse({
+      startMailRuleBackfillInputSchema.safeParse({
         operationId: "6962b64e-6de0-4e73-838b-f067d805f46e",
         expectedRevision: 2,
       }).success,
     ).toBe(true);
     expect(
-      startSenderRuleBackfillInputSchema.safeParse({
+      startMailRuleBackfillInputSchema.safeParse({
         operationId: "6962b64e-6de0-4e73-838b-f067d805f46e",
         expectedRevision: 0,
       }).success,

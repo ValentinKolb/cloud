@@ -6,28 +6,30 @@ description: Configure automatic replies, conversation references, and safe work
 order: 60
 ---
 
-Open **Automations** from **Mailbox tools**. The full-width overview shows what is active and opens the exact setup you select. **Automatic replies** and **Sender rules** cover common tasks. Mailbox admins also see **Activity** and **Workflows** under Advanced.
+Open **Automations** from **Mailbox tools**. The full-width overview shows what is active and opens the exact setup you select. **Automatic replies** and **Mail rules** cover common tasks. Mailbox admins also see **Activity** and **Workflows** under Advanced.
 
 ## Choose the right automation tool {icon="route"}
 
 | Need | Use |
 | --- | --- |
 | Send an out-of-office or receipt acknowledgement | **Automatic replies** |
-| Route, mark, or label mail from one sender or domain | **Sender rules** |
+| Route, mark, or label matching mail | **Mail rules** |
 | Give conversations permanent human-facing IDs | A reference acknowledgement or custom **Workflow** |
 | Tag, move, assign, change status, allocate references, or send guarded replies from conditions | **Workflows** |
 
 The tools can work together, but creating one does not activate another. Reference-number settings define the format; a workflow still decides when to allocate a number. Saving a workflow does not activate it.
 
-## Create a sender or domain rule {icon="filter-cog"}
+## Create a mail rule {icon="filter-cog"}
 
-Mailbox admins can create a guided rule under **Automations > Sender rules** or directly from a message's organization menu. Choose one exact sender address or one complete domain, then add up to eight ordered actions. A rule can perform one provider message action—move to junk, trash, or another folder; mark as read; or add a provider keyword—and combine it with Cloud-local tags, one assignee, and one conversation status.
+Mailbox admins can create a guided rule under **Automations > Rules** or directly from a message's organization menu. Combine up to eight sender, domain, subject, body-text, or attachment-presence conditions and choose whether all or any condition must match. Then add up to eight ordered actions. A rule can perform one provider message action—move to junk, trash, or another folder; mark as read; or add a provider keyword—and combine it with Cloud-local tags, one assignee, and one conversation status.
 
 Mail generates canonical workflow YAML from these fields and shows it in the editor. Actions run from top to bottom through the same workflow runtime used by advanced automations. Keep using the guided editor for managed rules. Changing the match or action plan creates a new immutable workflow version; changing only the name or active state updates the managed rule without duplicating identical workflow source. Destructive rules cannot target a mailbox identity, a configured internal domain, its subdomains, or an unsafe parent domain.
 
-For automation through `cld`, run `mail sender-rule catalog` to discover valid folder, tag, and user IDs. Repeat `--action` to define the ordered plan, for example `--action move_to_folder:<folder-id> --action add_local_tag:<tag-id> --action set_status:needs_action`.
+For automation through `cld`, run `mail rule catalog` to discover valid folder, tag, and user IDs. Repeat `--condition` and `--action` to define the rule, for example `--condition sender:is:person@example.com --condition subject:contains:invoice --action move_to_folder:<folder-id> --action add_local_tag:<tag-id>`.
 
-Enabled rules process future received messages. Turn on **Also apply to existing matching messages** to preview the affected count and start a resumable background backfill through the same workflow runtime. The backfill processes every matching message that existed when it started. Its durable cursor survives restarts, a failed message is retried without stopping unrelated workflow runs, and a repeated backfill skips messages already accepted for the same immutable workflow version. The sender-rule menu shows progress and lets you cancel or run it again. Disabling or deleting a rule stops future matches and never reverses already completed effects.
+Text conditions support exact, contains, starts-with, and ends-with matching. Regular expressions are intentionally unavailable until Mail can enforce a bounded RE2-compatible matcher.
+
+Enabled rules process future received messages. Turn on **Also apply to existing matching messages** to preview the work and start a resumable background backfill through the same workflow runtime. Sender-only conditions have an exact preview; content and attachment conditions show the number of candidate messages that will be scanned by the workflow. The durable cursor survives restarts, a failed message is retried without stopping unrelated workflow runs, and a repeated backfill skips messages already accepted for the same immutable workflow version. The rule menu shows progress and lets you cancel or run it again. Disabling or deleting a rule stops future matches and never reverses already completed effects.
 
 ## Configure an automatic reply {icon="send"}
 
@@ -117,7 +119,7 @@ Effect budgets are hard upper bounds for moves, sends, keyword changes, and coll
 
 ## Observe and stop workflow runs {icon="activity"}
 
-Mailbox administrators use **Automations > Activity** for mailbox-scoped automatic replies, sender-rule matches, custom workflows, and resumable backfills. The table shows the automation type, state, duration, time, and a bounded failure or result message. Platform administrators retain the cross-application detail view under **Admin > Observability > Workflows**.
+Mailbox administrators use **Automations > Activity** for mailbox-scoped automatic replies, mail-rule matches, custom workflows, and resumable backfills. The table shows the automation type, state, duration, time, and a bounded failure or result message. Platform administrators retain the cross-application detail view under **Admin > Observability > Workflows**.
 
 Select **Cancel** when no further effects should start. Cancellation does not reverse mail moves, sends, or collaboration changes that already completed. A run that needs attention waits for an administrator to record whether an uncertain external effect completed. Disabling a Mail workflow prevents new trigger matches; it does not rewrite completed history.
 

@@ -124,13 +124,13 @@ describe("mailHelp", () => {
     expect(admin).toContain("Reading** is available to every mailbox reader");
   });
 
-  test("documents guided sender rules and resumable existing-message backfills", () => {
+  test("documents guided mail rules and resumable existing-message backfills", () => {
     const automation = mailHelp.getMarkdown("mail-automation");
     const work = mailHelp.getMarkdown("mail-work");
 
-    expect(automation).toContain("Automations > Sender rules");
+    expect(automation).toContain("Automations > Rules");
     expect(automation).toContain("up to eight ordered actions");
-    expect(automation).toContain("mail sender-rule catalog");
+    expect(automation).toContain("mail rule catalog");
     expect(automation).toContain("shows it in the editor");
     expect(automation).toContain("resumable background backfill");
     expect(automation).toContain("skips messages already accepted");

@@ -16,7 +16,7 @@ describe("resolveMailMessageActionVisibility", () => {
   test("shows inbound sender actions and hides resend", () => {
     expect(resolveMailMessageActionVisibility({ ...base, outgoing: false })).toEqual({
       findSender: true,
-      createSenderRule: true,
+      createMailRule: true,
       markSenderRead: true,
       blockSender: true,
       manageUnsubscribe: true,
@@ -31,7 +31,7 @@ describe("resolveMailMessageActionVisibility", () => {
   test("hides every inbound sender action for an own outbound message", () => {
     expect(resolveMailMessageActionVisibility({ ...base, outgoing: true })).toEqual({
       findSender: false,
-      createSenderRule: false,
+      createMailRule: false,
       markSenderRead: false,
       blockSender: false,
       manageUnsubscribe: false,
@@ -53,7 +53,7 @@ describe("resolveMailMessageActionVisibility", () => {
       }),
     ).toEqual({
       findSender: true,
-      createSenderRule: false,
+      createMailRule: false,
       markSenderRead: false,
       blockSender: false,
       manageUnsubscribe: false,

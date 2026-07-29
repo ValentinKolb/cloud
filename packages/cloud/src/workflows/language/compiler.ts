@@ -211,7 +211,7 @@ const compileCondition = (
   const operators = Object.keys(value);
   if (
     operators.length !== 1 ||
-    !["equals", "notEquals", "contains", "startsWith", "endsWith", "exists", "all", "any", "not"].includes(operators[0]!)
+    !["equals", "notEquals", "textEquals", "contains", "startsWith", "endsWith", "exists", "all", "any", "not"].includes(operators[0]!)
   ) {
     addDiagnostic(context, "condition.operator", "Condition must contain exactly one supported operator", path);
     return undefined;
@@ -245,7 +245,7 @@ const compileCondition = (
     return undefined;
   }
   return {
-    operator: operator as "equals" | "notEquals" | "contains" | "startsWith" | "endsWith",
+    operator: operator as "equals" | "notEquals" | "textEquals" | "contains" | "startsWith" | "endsWith",
     operands: [normalizeWorkflowJson(operand[0]!), normalizeWorkflowJson(operand[1]!)],
   };
 };

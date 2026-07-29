@@ -6,7 +6,7 @@ import MailAutomationShell from "./_components/MailAutomationShell";
 
 export default function MailAutomationOverview(props: { data: MailAutomationOverviewData; currentUserEmail: string | null }) {
   const activeReply = () => props.data.automaticReplies.find((configuration) => configuration.enabled) ?? null;
-  const activeRules = () => props.data.senderRules?.filter((rule) => rule.enabled).length ?? 0;
+  const activeRules = () => props.data.mailRules?.filter((rule) => rule.enabled).length ?? 0;
   const activeWorkflows = () => props.data.customWorkflows?.filter((workflow) => workflow.activeVersionId).length ?? 0;
   const failures = () =>
     props.data.recentActivity?.filter((item) => item.status === "failed" || item.status === "needs_attention").length ?? 0;
@@ -34,9 +34,9 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
         />
         <Show when={props.data.permission === "admin"}>
           <StatCell
-            label="Sender rules"
+            label="Rules"
             value={activeRules()}
-            sub={`${props.data.senderRules?.length ?? 0} configured`}
+            sub={`${props.data.mailRules?.length ?? 0} configured`}
             href={`${base}/rules`}
             accent={{ tone: "blue", icon: "ti ti-filter-cog" }}
           />
@@ -96,7 +96,7 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
                 <i class="ti ti-filter-plus" aria-hidden="true" />
               </span>
               <span>
-                <span class="block text-sm font-semibold text-primary">Create a sender rule</span>
+                <span class="block text-sm font-semibold text-primary">Create a mail rule</span>
                 <span class="mt-1 block text-xs leading-relaxed text-dimmed">Route, tag, assign, or update matching messages.</span>
               </span>
             </a>
@@ -121,7 +121,7 @@ export default function MailAutomationOverview(props: { data: MailAutomationOver
             <div class="flex items-start justify-between gap-3 px-3 py-3">
               <div>
                 <h2 class="text-sm font-semibold text-primary">Recent activity</h2>
-                <p class="mt-0.5 text-xs text-dimmed">Workflow runs and sender-rule backfills for this mailbox.</p>
+                <p class="mt-0.5 text-xs text-dimmed">Workflow runs and mail-rule backfills for this mailbox.</p>
               </div>
               <a class="btn-simple btn-sm" href={`${base}/activity`}>
                 View all <i class="ti ti-arrow-right" aria-hidden="true" />

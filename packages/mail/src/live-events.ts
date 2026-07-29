@@ -29,7 +29,7 @@ const MailMailboxChangedEventSchema = z
       "local_tag",
       "reference_configuration",
       "automatic_reply",
-      "sender_rule",
+      "mail_rule",
       "scheduled_send",
       "subscription",
       "folder",

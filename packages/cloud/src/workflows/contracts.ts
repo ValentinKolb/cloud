@@ -107,7 +107,7 @@ export type WorkflowIrTrigger = {
 
 export type WorkflowCondition =
   | { operator: "equals" | "notEquals"; operands: [WorkflowJsonValue, WorkflowJsonValue] }
-  | { operator: "contains" | "startsWith" | "endsWith"; operands: [WorkflowJsonValue, WorkflowJsonValue] }
+  | { operator: "textEquals" | "contains" | "startsWith" | "endsWith"; operands: [WorkflowJsonValue, WorkflowJsonValue] }
   | { operator: "exists"; reference: string }
   | { operator: "all"; conditions: WorkflowCondition[] }
   | { operator: "any"; conditions: WorkflowCondition[] }

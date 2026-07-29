@@ -28,9 +28,9 @@ import {
   userBackedActor,
 } from "./auth";
 import { publishMailMailboxEvent } from "./events";
+import { validateDestructiveMailRulesForMailbox } from "./mail-rules";
 import { pauseDeletedMailboxExecution, pauseMailboxTransport } from "./mailbox-lifecycle";
 import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
-import { validateDestructiveSenderRulesForMailbox } from "./sender-rules";
 
 type DbMailbox = {
   id: string;
@@ -379,7 +379,7 @@ export const updateMailbox = async (params: {
         unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
         if (composeSafety) {
           unwrap(
-            await validateDestructiveSenderRulesForMailbox({
+            await validateDestructiveMailRulesForMailbox({
               mailboxId: params.mailboxId,
               internalDomains: composeSafety.data.internalDomains,
               db: tx,

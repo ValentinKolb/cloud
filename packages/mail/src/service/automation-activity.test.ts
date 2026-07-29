@@ -29,16 +29,16 @@ const backfillSpan = (overrides: Partial<TraceSpan> = {}): TraceSpan => ({
   traceId: "trace-1",
   spanId: "span-1",
   traceparent: "00-trace-1-span-1-01",
-  spanKey: "sync:pump:mail:sender-rule-backfill:one",
+  spanKey: "sync:pump:mail:mail-rule-backfill:one",
   parentSpanId: null,
-  name: "Sender rule backfill",
-  source: "mail:sender-rule-backfill",
+  name: "Mail rule backfill",
+  source: "mail:mail-rule-backfill",
   appId: "mail",
   category: "backfill",
   kind: "internal",
   status: "ok",
   statusMessage: null,
-  attributes: { "mail.mailbox.id": "mailbox-1", "mail.sender_rule.id": "rule-1" },
+  attributes: { "mail.mailbox.id": "mailbox-1", "mail.mail_rule.id": "rule-1" },
   summary: { status: "completed", dispatched: 3 },
   eventCount: 4,
   startedAt: "2026-07-28T10:00:00.000Z",
@@ -49,11 +49,11 @@ const backfillSpan = (overrides: Partial<TraceSpan> = {}): TraceSpan => ({
 });
 
 describe("Mail automation activity projection", () => {
-  test("distinguishes guided replies, sender rules, and custom workflows", () => {
+  test("distinguishes guided replies, mail rules, and custom workflows", () => {
     const common = {
       mailboxId: "mailbox-1",
       replyWorkflowIds: new Set(["reply"]),
-      senderRuleWorkflowIds: new Set(["rule"]),
+      mailRuleWorkflowIds: new Set(["rule"]),
       workflowNames: new Map([["rule", "Invoices"]]),
     };
     expect(projectMailWorkflowActivity({ ...common, run: run("reply") })).toMatchObject({
@@ -62,7 +62,7 @@ describe("Mail automation activity projection", () => {
       href: "/app/mail/mailbox-1/automations/replies",
     });
     expect(projectMailWorkflowActivity({ ...common, run: run("rule") })).toMatchObject({
-      kind: "sender_rule",
+      kind: "mail_rule",
       name: "Invoices",
       href: "/app/mail/mailbox-1/automations/rules",
     });
@@ -102,7 +102,7 @@ describe("Mail automation activity projection", () => {
         mailboxId: "mailbox-1",
         run: failed,
         replyWorkflowIds: new Set(),
-        senderRuleWorkflowIds: new Set(["rule"]),
+        mailRuleWorkflowIds: new Set(["rule"]),
       }),
     ).toMatchObject({ detail: "Conflict" });
   });
@@ -111,7 +111,7 @@ describe("Mail automation activity projection", () => {
     const common = {
       mailboxId: "mailbox-1",
       replyWorkflowIds: new Set<string>(),
-      senderRuleWorkflowIds: new Set<string>(),
+      mailRuleWorkflowIds: new Set<string>(),
     };
     const items = [
       projectMailWorkflowActivity({ ...common, run: run("one", "running") }),

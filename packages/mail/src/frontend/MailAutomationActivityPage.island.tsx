@@ -14,7 +14,7 @@ export default function MailAutomationActivityPage(props: { data: MailAutomation
       <div class="flex flex-wrap items-start justify-between gap-3">
         <header>
           <h1 class="text-base font-semibold text-primary">Activity</h1>
-          <p class="mt-0.5 text-xs text-dimmed">Workflow runs and sender-rule backfills for this mailbox during the last 30 days.</p>
+          <p class="mt-0.5 text-xs text-dimmed">Workflow runs and mail-rule backfills for this mailbox during the last 30 days.</p>
         </header>
         <a class="btn-secondary btn-sm" href={`/app/mail/${props.data.mailbox.id}/automations/activity`}>
           <i class="ti ti-refresh" aria-hidden="true" /> Refresh
