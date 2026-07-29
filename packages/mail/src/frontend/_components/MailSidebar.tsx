@@ -375,7 +375,7 @@ export default function MailSidebar(props: {
   );
 
   return (
-    <AppWorkspace.Sidebar collapsible>
+    <AppWorkspace.Sidebar>
       <AppWorkspace.SidebarHeader
         title={props.mailboxName}
         subtitle="Mailbox"

@@ -303,7 +303,7 @@ export default function MailSubscriptionWorkspace(props: { data: MailSubscriptio
 
   return (
     <AppWorkspace>
-      <AppWorkspace.Sidebar collapsible>
+      <AppWorkspace.Sidebar>
         <AppWorkspace.SidebarHeader
           title="Subscriptions"
           subtitle={props.data.mailbox.name}

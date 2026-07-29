@@ -332,6 +332,14 @@ const runSmoke = async (fixture: Fixture) => {
     viewport: { width: 1440, height: 900 },
   });
   await addSessionCookie(context, fixture.sessionToken);
+  await context.addCookies([
+    {
+      name: "cloud_workspace_mail",
+      value: encodeURIComponent(JSON.stringify({ version: 2, sidebarWidth: 248, sidebarCollapsed: true })),
+      url: BASE_URL,
+      sameSite: "Lax",
+    },
+  ]);
   const errors: string[] = [];
   const page = await context.newPage();
   page.setDefaultTimeout(TIMEOUT);
@@ -339,6 +347,14 @@ const runSmoke = async (fixture: Fixture) => {
 
   try {
     const mailboxPath = `/app/mail/${fixture.mailboxId}`;
+    const staleCollapseResponse = await context.request.get(mailboxPath);
+    const staleCollapseHtml = await staleCollapseResponse.text();
+    if (!staleCollapseHtml.includes("--workspace-sidebar-width:248px")) {
+      fail("Mail SSR did not restore the expanded sidebar width from a stale collapsed preference");
+    }
+    if (staleCollapseHtml.includes('data-workspace-sidebar-collapsed="true"')) {
+      fail("Mail SSR rendered a stale collapsed sidebar state");
+    }
     await page.goto(`/app/mail?q=${encodeURIComponent(fixture.mailboxName)}`, { waitUntil: "domcontentloaded" });
     await page.getByText(fixture.mailboxName, { exact: true }).waitFor();
     await page.waitForFunction(
@@ -356,6 +372,22 @@ const runSmoke = async (fixture: Fixture) => {
     ok("mailbox search uses server-owned literal matching");
 
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
+    const desktopSidebar = page.locator(".workspace-sidebar");
+    await desktopSidebar.waitFor();
+    if ((await desktopSidebar.getAttribute("data-workspace-collapsible")) !== "false") {
+      fail("Mail desktop navigation still opts into sidebar collapse");
+    }
+    if (Math.round(await desktopSidebar.evaluate((element) => element.getBoundingClientRect().width)) !== 248) {
+      fail("Mail desktop navigation shifted away from its SSR-restored expanded width");
+    }
+    const sidebarResizeHandle = page.getByRole("separator", { name: "Resize navigation" });
+    await sidebarResizeHandle.focus();
+    await page.keyboard.press("Home");
+    await page.waitForFunction(() => Math.round(document.querySelector(".workspace-sidebar")?.getBoundingClientRect().width ?? 0) === 176);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Math.round(document.querySelector(".workspace-sidebar")?.getBoundingClientRect().width ?? 0) === 176);
+    ok("Mail sidebar stays expanded, keyboard-resizable, and SSR-stable");
+
     await clickHydratedDropdownTrigger(page, page.getByRole("button", { name: "Choose list view", exact: true }));
     await page.locator('[role="menu"]:popover-open').getByText("Message view", { exact: true }).click();
     await page
@@ -372,7 +404,6 @@ const runSmoke = async (fixture: Fixture) => {
     await page.locator('[role="list"][aria-label$=" conversations"]').waitFor();
     ok("message list mode survives SSR reload and returns to conversation view");
 
-    const desktopSidebar = page.locator(".workspace-sidebar");
     const desktopDirectActions = (await desktopSidebar.locator(".sidebar-footer > button, .sidebar-footer > a").allTextContents()).map(
       (label) => label.trim(),
     );
@@ -389,6 +420,13 @@ const runSmoke = async (fixture: Fixture) => {
       (url) => url.pathname === `/app/mail/${fixture.mailboxId}/automations`,
       "mailbox tools open the automation workspace",
     );
+    await page.goBack({ waitUntil: "domcontentloaded" });
+    await expectUrl(page, (url) => url.pathname === mailboxPath, "browser back returns to the mailbox");
+    if (Math.round(await desktopSidebar.evaluate((element) => element.getBoundingClientRect().width)) !== 176) {
+      fail("Mail sidebar width changed after browser back");
+    }
+    await page.goForward({ waitUntil: "domcontentloaded" });
+    await expectUrl(page, (url) => url.pathname === `/app/mail/${fixture.mailboxId}/automations`, "browser forward returns to automations");
     await page.goto(`${mailboxPath}/automations/rules?new=1`, { waitUntil: "domcontentloaded" });
     const ruleDialog = page.getByRole("dialog").filter({ hasText: "Create mail rule" });
     const ruleValue = ruleDialog.getByRole("textbox", { name: "Value", exact: true });

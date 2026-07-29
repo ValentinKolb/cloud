@@ -6,7 +6,7 @@ import { dates } from "../shared";
 import { readThemeFromCookieHeader } from "../shared/theme";
 import type { LayoutBreadcrumb } from "../ui/layout";
 import Avatar from "../ui/misc/Avatar";
-import { appWorkspaceLayoutStyle, readAppWorkspaceLayoutCookie } from "../ui/misc/app-workspace-state";
+import { appWorkspaceLayoutStyle, readAppWorkspaceLayoutCookie, resolveAppWorkspaceLayoutForSidebar } from "../ui/misc/app-workspace-state";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
 import AppWorkspaceController from "./AppWorkspaceController.island";
 import { appAccentStyle, appAppearanceStyle, resolveCurrentApp } from "./app-appearance";
@@ -49,6 +49,7 @@ type LayoutProps = {
   fullWidth?: boolean /** Delegate scrolling and clipping to the page's work surface. */;
   focusMode?: boolean /** Render only the app canvas and content for dedicated editors or pop-out windows. */;
   flushCanvas?: boolean /** Remove app-canvas spacing for edge-to-edge focus surfaces such as pop-out windows. */;
+  workspaceSidebarCollapsible?: boolean /** Resolve persisted sidebar geometry for the page's sidebar policy during SSR. */;
 }; // ==========================
 // Helpers
 function active(pathname: string, match: string): string {
@@ -137,14 +138,26 @@ function ExpiryWarnings({ user }: { user: User }) {
 // Sub-Components
 // ==========================
 // Main Layout
-export default function Layout({ children, c, title, fullPage, fullWidth, focusMode, flushCanvas }: LayoutProps) {
+export default function Layout({
+  children,
+  c,
+  title,
+  fullPage,
+  fullWidth,
+  focusMode,
+  flushCanvas,
+  workspaceSidebarCollapsible,
+}: LayoutProps) {
   const runtime = getRuntimeContext(c);
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
   c.get("page").theme = readThemeFromCookieHeader(cookie);
   const user = c.get("user");
   const pathname = new URL(c.req.raw.url).pathname;
   const currentApp = resolveCurrentApp(runtime.apps, pathname);
-  const workspaceLayout = readAppWorkspaceLayoutCookie(cookie, currentApp?.id);
+  const workspaceLayout = resolveAppWorkspaceLayoutForSidebar(
+    readAppWorkspaceLayoutCookie(cookie, currentApp?.id),
+    workspaceSidebarCollapsible,
+  );
   const { primary: primaryApps, more: moreApps } = buildNavLinks(runtime.apps, user);
   const allApps = [...primaryApps, ...moreApps];
   const launchpadApps: AppLaunchpadApp[] = allApps.map((app) => ({

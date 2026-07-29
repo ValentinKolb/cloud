@@ -31,7 +31,12 @@ export default ssr<AuthContext>(async (c) => {
   const dateConfig = getDateConfig(c);
 
   return () => (
-    <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Mail", href: "/app/mail" }, { title: data.mailbox.name }]}>
+    <Layout
+      c={c}
+      fullPage
+      workspaceSidebarCollapsible={false}
+      title={[{ title: "Start", href: "/" }, { title: "Mail", href: "/app/mail" }, { title: data.mailbox.name }]}
+    >
       <MailLayoutHelp documents={mailHelp.manifest} />
       <MailWorkspace
         data={data}

@@ -62,7 +62,7 @@ export default function MailAutomationShell(props: {
 
   return (
     <AppWorkspace>
-      <AppWorkspace.Sidebar collapsible>
+      <AppWorkspace.Sidebar>
         <AppWorkspace.SidebarHeader
           title="Automations"
           subtitle={props.mailbox.name}

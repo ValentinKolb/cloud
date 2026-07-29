@@ -25,6 +25,7 @@ export default ssr<AuthContext>(async (c) => {
     <Layout
       c={c}
       fullPage
+      workspaceSidebarCollapsible={false}
       title={[
         { title: "Start", href: "/" },
         { title: "Mail", href: "/app/mail" },

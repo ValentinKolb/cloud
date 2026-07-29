@@ -102,6 +102,11 @@ export const appWorkspaceCookieName = (appId: string): string => `cloud_workspac
 export const appWorkspacePanelVariable = (kind: "pane" | "detail" | "drawer", panelId: string): string =>
   `--workspace-${kind}-${safeAppWorkspacePanelId(panelId)}-${kind === "drawer" ? "height" : "width"}`;
 
+export const resolveAppWorkspaceLayoutForSidebar = (
+  state: AppWorkspaceLayoutState | null,
+  collapsible: boolean | undefined,
+): AppWorkspaceLayoutState | null => (collapsible === false && state?.sidebarCollapsed ? { ...state, sidebarCollapsed: false } : state);
+
 export const normalizeAppWorkspaceLayoutState = (value: unknown): AppWorkspaceLayoutState | null => {
   if (!value || typeof value !== "object") return null;
   const candidate = value as {

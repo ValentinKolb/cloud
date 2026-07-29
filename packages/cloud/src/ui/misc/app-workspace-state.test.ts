@@ -6,6 +6,7 @@ import {
   normalizeAppWorkspaceLayoutState,
   parseAppWorkspaceLayoutState,
   readAppWorkspaceLayoutCookie,
+  resolveAppWorkspaceLayoutForSidebar,
   resolveAppWorkspaceSidebarWidth,
   serializeAppWorkspaceLayoutState,
   shouldCollapseAppWorkspaceSidebar,
@@ -101,6 +102,21 @@ describe("AppWorkspace layout state", () => {
       drawerHeights: undefined,
     });
     expect(appWorkspaceLayoutStyle(state)).toBe("--workspace-sidebar-width:64px");
+  });
+
+  test("renders the expanded width when a page disables sidebar collapse", () => {
+    const state = normalizeAppWorkspaceLayoutState({ version: 2, sidebarWidth: 248, sidebarCollapsed: true });
+    const resolved = resolveAppWorkspaceLayoutForSidebar(state, false);
+    expect(resolved).toEqual({
+      version: 2,
+      sidebarWidth: 248,
+      sidebarCollapsed: false,
+      paneWidths: undefined,
+      detailWidths: undefined,
+      drawerHeights: undefined,
+    });
+    expect(appWorkspaceLayoutStyle(resolved)).toBe("--workspace-sidebar-width:248px");
+    expect(resolveAppWorkspaceLayoutForSidebar(state, true)).toBe(state);
   });
 
   test("snaps only opt-in sidebars to the collapsed width", () => {
