@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildMessageDocument, normalizeMessageBodyHeight } from "./mail-message-document";
+import { buildMessageDocument, estimateInitialMessageBodyHeight, normalizeMessageBodyHeight } from "./mail-message-document";
 
 describe("MailMessageBody sizing", () => {
   test("measures the intrinsic message root instead of the iframe viewport", () => {
@@ -19,6 +19,14 @@ describe("MailMessageBody sizing", () => {
     expect(normalizeMessageBodyHeight(Number.NaN)).toBe(32);
   });
 
+  test("estimates a deterministic visible SSR height before the exact frame measurement", () => {
+    expect(estimateInitialMessageBodyHeight(null, null)).toBe(32);
+    expect(estimateInitialMessageBodyHeight("Short message", null)).toBe(32);
+    expect(estimateInitialMessageBodyHeight("Line one\nLine two\nLine three", null)).toBe(68);
+    expect(estimateInitialMessageBodyHeight("Message", "<table><tr><td>Message</td></tr></table>")).toBe(120);
+    expect(estimateInitialMessageBodyHeight("x".repeat(10_000), null)).toBe(480);
+  });
+
   test("collapses only explicit HTML quote containers", () => {
     const document = buildMessageDocument('<p>New content</p><blockquote type="cite">Old content</blockquote>', "test-channel");
 
@@ -31,6 +39,8 @@ describe("MailMessageBody sizing", () => {
 
     expect(document).toContain("script-src 'nonce-channel123'");
     expect(document).toContain('<script nonce="channel123">');
+    expect(document).toContain('data.source === "cloud-mail-host"');
+    expect(document).toContain('data.type === "measure"');
     expect(document).not.toContain("script-src 'unsafe-inline'");
   });
 

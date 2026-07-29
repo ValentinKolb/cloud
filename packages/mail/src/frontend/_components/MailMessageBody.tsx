@@ -4,7 +4,7 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import { apiClient } from "../../api/client";
 import type { MessageRemoteContent, RemoteContentRule } from "../../service/remote-content";
 import { readApiError } from "./api-response";
-import { buildMessageDocument, normalizeMessageBodyHeight } from "./mail-message-document";
+import { buildMessageDocument, estimateInitialMessageBodyHeight, normalizeMessageBodyHeight } from "./mail-message-document";
 import {
   type MessageBodyFormat,
   normalizeContentId,
@@ -33,8 +33,10 @@ export default function MailMessageBody(props: {
   remoteContent: MessageRemoteContent;
   onSelectionChange: (value: string) => void;
 }) {
-  const channel = crypto.randomUUID();
-  const [height, setHeight] = createSignal(32);
+  // These values are serialized into the SSR markup. Keep them deterministic
+  // so hydration preserves the already-rendered message frame.
+  const channel = `mail-message-${props.messageId}`;
+  const [height, setHeight] = createSignal(estimateInitialMessageBodyHeight(props.plainText, props.html));
   const [cidUrls, setCidUrls] = createSignal(new Map<string, string>());
   const [remoteUrls, setRemoteUrls] = createSignal(new Map<string, string>());
   const [remoteLoading, setRemoteLoading] = createSignal(false);
@@ -163,8 +165,13 @@ export default function MailMessageBody(props: {
     }
   };
 
+  const requestFrameMeasurement = () => {
+    frame?.contentWindow?.postMessage({ source: "cloud-mail-host", channel, type: "measure" }, "*");
+  };
+
   onMount(() => {
     window.addEventListener("message", receiveMessage);
+    requestAnimationFrame(requestFrameMeasurement);
     if (props.format === "plain" && props.plainText) document.addEventListener("selectionchange", reportPlainSelection);
     const controller = new AbortController();
     const objectUrls = new Set<string>();
@@ -286,6 +293,7 @@ export default function MailMessageBody(props: {
           sandbox="allow-scripts allow-popups"
           referrerpolicy="no-referrer"
           srcdoc={documentSource()}
+          onLoad={requestFrameMeasurement}
         />
       </div>
     </Show>

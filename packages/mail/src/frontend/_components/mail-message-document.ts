@@ -1,4 +1,33 @@
-export const normalizeMessageBodyHeight = (value: number): number => (Number.isFinite(value) ? Math.max(Math.ceil(value), 32) : 32);
+const MIN_MESSAGE_BODY_HEIGHT = 32;
+const MAX_INITIAL_MESSAGE_BODY_HEIGHT = 480;
+const ESTIMATED_LINE_HEIGHT = 22;
+const ESTIMATED_LINE_WIDTH = 88;
+
+export const normalizeMessageBodyHeight = (value: number): number =>
+  Number.isFinite(value) ? Math.max(Math.ceil(value), MIN_MESSAGE_BODY_HEIGHT) : MIN_MESSAGE_BODY_HEIGHT;
+
+export const estimateInitialMessageBodyHeight = (plainText: string | null, html: string | null): number => {
+  const source =
+    plainText?.trim() ||
+    html
+      ?.replace(/<(br|hr)\b[^>]*>/giu, "\n")
+      .replace(/<\/(address|article|blockquote|div|h[1-6]|li|p|pre|section|table|tr)>/giu, "\n")
+      .replace(/<[^>]+>/gu, " ")
+      .replace(/&nbsp;/giu, " ")
+      .trim() ||
+    "";
+  if (!source) return MIN_MESSAGE_BODY_HEIGHT;
+
+  const lineCount = source.split(/\r?\n/u).reduce((total, line) => {
+    const length = line.trim().length;
+    return total + Math.max(1, Math.ceil(length / ESTIMATED_LINE_WIDTH));
+  }, 0);
+  const mediaAllowance = html && /<(img|table)\b/iu.test(html) ? 96 : 0;
+  return Math.min(
+    Math.max(MIN_MESSAGE_BODY_HEIGHT, lineCount * ESTIMATED_LINE_HEIGHT + mediaAllowance + 2),
+    MAX_INITIAL_MESSAGE_BODY_HEIGHT,
+  );
+};
 
 export const buildMessageDocument = (html: string, channel: string): string => {
   const channelLiteral = JSON.stringify(channel).replaceAll("<", "\\u003c");
@@ -53,6 +82,16 @@ export const buildMessageDocument = (html: string, channel: string): string => {
       });
       const root = document.getElementById("mail-message-root");
       const reportHeight = () => post("height", Math.ceil((root?.getBoundingClientRect().height || 0) + 2));
+      addEventListener("message", (event) => {
+        const data = event.data;
+        if (
+          event.source === parent &&
+          data &&
+          data.source === "cloud-mail-host" &&
+          data.channel === channel &&
+          data.type === "measure"
+        ) reportHeight();
+      });
       if (root) new ResizeObserver(reportHeight).observe(root);
       reportHeight();
     })();
