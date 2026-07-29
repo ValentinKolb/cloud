@@ -266,6 +266,17 @@ const addSessionCookie = async (context: BrowserContext, sessionToken: string) =
   ]);
 };
 
+const addStaleCollapsedMailWorkspaceCookie = async (context: BrowserContext) => {
+  await context.addCookies([
+    {
+      name: "cloud_workspace_mail",
+      value: encodeURIComponent(JSON.stringify({ version: 2, sidebarWidth: 248, sidebarCollapsed: true })),
+      url: BASE_URL,
+      sameSite: "Lax",
+    },
+  ]);
+};
+
 const watchPage = (page: Page, errors: string[]) => {
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => {
@@ -332,14 +343,7 @@ const runSmoke = async (fixture: Fixture) => {
     viewport: { width: 1440, height: 900 },
   });
   await addSessionCookie(context, fixture.sessionToken);
-  await context.addCookies([
-    {
-      name: "cloud_workspace_mail",
-      value: encodeURIComponent(JSON.stringify({ version: 2, sidebarWidth: 248, sidebarCollapsed: true })),
-      url: BASE_URL,
-      sameSite: "Lax",
-    },
-  ]);
+  await addStaleCollapsedMailWorkspaceCookie(context);
   const errors: string[] = [];
   const page = await context.newPage();
   page.setDefaultTimeout(TIMEOUT);
@@ -371,6 +375,7 @@ const runSmoke = async (fixture: Fixture) => {
     await page.getByText(fixture.mailboxName, { exact: true }).waitFor();
     ok("mailbox search uses server-owned literal matching");
 
+    await addStaleCollapsedMailWorkspaceCookie(context);
     await page.goto(mailboxPath, { waitUntil: "domcontentloaded" });
     const desktopSidebar = page.locator(".workspace-sidebar");
     await desktopSidebar.waitFor();
