@@ -97,6 +97,7 @@ describe("mailHelp", () => {
     expect(admin).toContain("Cloud **Admin** access");
     expect(admin).toContain("Reconcile storage** queues a background reconciliation");
     expect(admin).toContain("continue to show the last completed snapshot until that job finishes");
+    expect(admin).toContain("cld mail admin mailbox access list|grant|set|revoke");
     expect(work).toContain("Mailbox tools > Shared links");
   });
 

@@ -1387,6 +1387,20 @@ export const platformMailboxOperationSummarySchema = z
       search: operatorCoverageSchema,
       threads: operatorCoverageSchema,
     }),
+    access: z
+      .object({
+        total: z.number().int().nonnegative(),
+        administrators: z.number().int().nonnegative(),
+      })
+      .strict(),
+    storage: z
+      .object({
+        messageCount: z.number().int().nonnegative(),
+        logicalTotalBytes: z.number().int().nonnegative(),
+        calculatedAt: z.string().datetime(),
+      })
+      .strict()
+      .nullable(),
     attentionCount: z.number().int().nonnegative(),
   })
   .strict();
@@ -1395,6 +1409,8 @@ export type PlatformMailboxOperationSummary = z.infer<typeof platformMailboxOper
 export const platformMailOperationsSchema = z
   .object({
     mailboxes: z.array(platformMailboxOperationSummarySchema),
+    mailboxCount: z.number().int().nonnegative(),
+    withoutAdministratorCount: z.number().int().nonnegative(),
     attentionCount: z.number().int().nonnegative(),
     generatedAt: z.string().datetime(),
     nextCursor: z.string().nullable(),

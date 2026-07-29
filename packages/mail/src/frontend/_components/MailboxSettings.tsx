@@ -620,6 +620,7 @@ export default function MailboxSettings(props: {
                 </div>
                 <PermissionEditor
                   initialEntries={admin().accessEntries}
+                  allowAuthenticated={false}
                   allowServiceAccounts
                   canEdit
                   grantAccess={async (principal, permission) => {

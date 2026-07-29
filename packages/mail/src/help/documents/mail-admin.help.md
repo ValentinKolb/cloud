@@ -109,6 +109,8 @@ Provider-side namespace, subscription, or permission changes can make a folder u
 
 When an unavailable folder is permanently gone, choose **Remove from Mail** from its actions menu. Confirming removes the unavailable folder and unavailable subfolders from Cloud Mail's folder list. It does not delete anything at the provider and does not remove mirrored messages or history. If the provider exposes the folder again, the next rediscovery restores it automatically.
 
+Agents can change provider subscriptions with `cld mail folder subscribe` and `cld mail folder unsubscribe`. Both commands create the same durable, observable provider command as the web app.
+
 ## Configure access {icon="shield-lock"}
 
 **Access** uses the standard Cloud permission editor. Grant the narrowest permission that supports the person's job:
@@ -138,7 +140,16 @@ The CLI provides the same mailbox-admin operations through `cld mail attachment 
 
 ## Review Mail storage {icon="database"}
 
-Cloud **Admin** access, which is separate from mailbox Admin access, is required for **Administration > Mail** and the `cld mail admin storage` commands. The page shows durable per-mailbox snapshots for provider-reported mail bytes, received-attachment breakdowns, finalized and active draft uploads, publicly shared references, and logical totals. It also shows physical Mail relation and blob-store bytes without exposing message or attachment content.
+Cloud **Admin** access, which is separate from mailbox Admin access, is required for **Administration > Mail**. The page lists every active mailbox with redacted health, synchronization, storage, access-count, and attention data. It never exposes message or attachment content.
+
+Use **Permissions** on a mailbox to recover an orphaned mailbox or correct an accidental grant. This is an explicit, audited access change; Cloud administrators do not implicitly receive mailbox-content access. Add a replacement administrator before removing the last existing administrator.
+
+The CLI exposes the same recovery surface:
+
+- `cld mail admin mailbox list` discovers mailboxes, including those the current administrator cannot open.
+- `cld mail admin mailbox get <mailbox>` shows one redacted operations record.
+- `cld mail admin mailbox access list|grant|set|revoke <mailbox>` manages direct user, group, or service-account grants.
+- `cld mail admin storage show|reconcile` reads or refreshes storage observability.
 
 **Reconcile storage** queues a background reconciliation. The page and `cld mail admin storage show` continue to show the last completed snapshot until that job finishes; queuing the job does not synchronously update the numbers. These values are observability data, not storage quotas, and do not provide content drilldown.
 

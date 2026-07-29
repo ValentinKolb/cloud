@@ -2,7 +2,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Readable } from "node:stream";
 import { sql } from "bun";
 import { migrate } from "../migrate";
-import { grantMailboxAccess } from "./access";
+import {
+  grantMailboxAccess,
+  grantMailboxAccessAsPlatformAdmin,
+  listMailboxAccessAsPlatformAdmin,
+  revokeMailboxAccessAsPlatformAdmin,
+  updateMailboxAccessAsPlatformAdmin,
+} from "./access";
 import type { MailRequestContext } from "./auth";
 import { resolveMailExecution } from "./execution";
 import {
@@ -88,6 +94,82 @@ suite("reversible mailbox lifecycle", () => {
         WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${userIds}::jsonb))
       `;
     }
+  });
+
+  test("platform administrators can repair access without implicit mailbox access", async () => {
+    const created = await createMailbox(ownerContext, { name: `Recovery ${suffix}` });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    mailboxIds.push(created.data.id);
+
+    expect((await getMailbox(platformContext, created.data.id)).ok).toBe(false);
+    expect((await listMailboxAccessAsPlatformAdmin(ownerContext, created.data.id)).ok).toBe(false);
+    const initial = await listMailboxAccessAsPlatformAdmin(platformContext, created.data.id);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const ownerEntry = initial.data.find((entry) => entry.permission === "admin");
+    expect(ownerEntry).toBeDefined();
+    if (!ownerEntry) return;
+
+    const readerId = readerContext.accessSubject.type === "user" ? readerContext.accessSubject.userId : "";
+    const replacement = await grantMailboxAccessAsPlatformAdmin({
+      context: platformContext,
+      mailboxId: created.data.id,
+      principal: { type: "user", userId: readerId },
+      permission: "admin",
+    });
+    expect(replacement.ok).toBe(true);
+    if (!replacement.ok) return;
+
+    expect(
+      (
+        await updateMailboxAccessAsPlatformAdmin({
+          context: platformContext,
+          mailboxId: created.data.id,
+          accessId: ownerEntry.id,
+          permission: "read",
+        })
+      ).ok,
+    ).toBe(true);
+    const lastAdminRemoval = await revokeMailboxAccessAsPlatformAdmin({
+      context: platformContext,
+      mailboxId: created.data.id,
+      accessId: replacement.data.id,
+    });
+    expect(lastAdminRemoval.ok).toBe(false);
+
+    expect(
+      (
+        await updateMailboxAccessAsPlatformAdmin({
+          context: platformContext,
+          mailboxId: created.data.id,
+          accessId: ownerEntry.id,
+          permission: "admin",
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      (
+        await revokeMailboxAccessAsPlatformAdmin({
+          context: platformContext,
+          mailboxId: created.data.id,
+          accessId: replacement.data.id,
+        })
+      ).ok,
+    ).toBe(true);
+
+    const [auditEntry] = await sql<{ authority: string | null }[]>`
+      SELECT (metadata #>> '{}')::jsonb ->> 'authority' AS authority
+      FROM audit.events
+      WHERE target_type = 'mailbox'
+        AND target_id = ${created.data.id}
+        AND action = 'mail.mailbox.access.grant'
+        AND request_id = ${platformContext.requestId}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    expect(auditEntry?.authority).toBe("platform_admin");
+    expect((await getMailbox(platformContext, created.data.id)).ok).toBe(false);
   });
 
   test("delete fences work and restore remains paused", async () => {

@@ -33,6 +33,7 @@ export type AccessCommandAdapter<TResource extends AccessResource> = {
   revoke: (ctx: CloudCliContext, resource: TResource, accessId: string) => Promise<void>;
   allowedPermissions?: readonly AccessPermission[];
   allowPublic?: boolean;
+  allowAuthenticated?: boolean;
   allowServiceAccounts?: boolean;
   examples?: {
     list?: readonly string[];
@@ -206,11 +207,23 @@ const resolveEntityPrincipal = async (ctx: CloudCliContext, kind: PrincipalKind,
 export const resolveAccessPrincipal = async (
   ctx: CloudCliContext,
   flags: PrincipalFlags,
-  options: { allowPublic?: boolean; allowServiceAccounts?: boolean } = {},
+  options: { allowPublic?: boolean; allowAuthenticated?: boolean; allowServiceAccounts?: boolean } = {},
 ): Promise<Principal> => {
   const count = principalFlagCount(flags);
-  if (count !== 1) throw new Error("Pass exactly one principal flag: --user, --group, --authenticated, --public, or --service-account.");
+  if (count !== 1) {
+    const allowedFlags = [
+      "--user",
+      "--group",
+      ...(options.allowAuthenticated === false ? [] : ["--authenticated"]),
+      ...(options.allowPublic === true ? ["--public"] : []),
+      ...(options.allowServiceAccounts === true ? ["--service-account"] : []),
+    ];
+    throw new Error(`Pass exactly one principal flag: ${allowedFlags.join(", ")}.`);
+  }
   if (flags.public && options.allowPublic !== true) throw new Error("This resource does not allow public access grants.");
+  if (flags.authenticated && options.allowAuthenticated === false) {
+    throw new Error("This resource does not allow authenticated-audience grants.");
+  }
   if (flags.serviceAccount && options.allowServiceAccounts !== true) {
     throw new Error("Service-account grants are hidden by default. Enable allowServiceAccounts for this access command.");
   }
@@ -300,13 +313,17 @@ const printPrincipalEntities = (ctx: CloudCliContext, payload: EntitiesResponse)
   ] as CloudCliTableColumn<(typeof rows)[number]>[]);
 };
 
-const principalFlags = (options: { includePublicFlag: boolean; includeServiceAccountFlag: boolean }) => ({
+const principalFlags = (options: {
+  includePublicFlag: boolean;
+  includeAuthenticatedFlag: boolean;
+  includeServiceAccountFlag: boolean;
+}) => ({
   user: flag.string({ description: "User id, uid, email, or exact display name" }),
   group: flag.string({ description: "Group id or exact name" }),
   ...(options.includeServiceAccountFlag
     ? { serviceAccount: flag.string({ name: "service-account", description: "Service account id or exact name" }) }
     : {}),
-  authenticated: flag.boolean({ description: "Signed-in users, including guests" }),
+  ...(options.includeAuthenticatedFlag ? { authenticated: flag.boolean({ description: "Signed-in users, including guests" }) } : {}),
   ...(options.includePublicFlag ? { public: flag.boolean({ description: "Anyone with the link, including anonymous users" }) } : {}),
 });
 
@@ -319,6 +336,7 @@ export const createAccessCommands = <TResource extends AccessResource>(adapter: 
   const searchableKinds = adapter.allowServiceAccounts ? PRINCIPAL_KINDS : (["user", "group"] as const);
   const principalFlagOptions = {
     includePublicFlag: adapter.allowPublic === true,
+    includeAuthenticatedFlag: adapter.allowAuthenticated !== false,
     includeServiceAccountFlag: adapter.allowServiceAccounts === true,
   };
   const resolve = (ctx: CloudCliContext, args: string[]) => adapter.resolveResource(ctx, args);

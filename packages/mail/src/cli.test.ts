@@ -43,6 +43,22 @@ const mailbox = {
   updatedAt: "2026-07-12T00:00:00.000Z",
 };
 
+const platformMailboxSummary = {
+  mailboxId: MAILBOX_ID,
+  mailboxName: "Support",
+  health: "active",
+  syncEnabled: true,
+  sync: { lastAt: null, lagSeconds: 12 },
+  coverage: {
+    hydration: { total: 2, covered: 2 },
+    search: { total: 2, covered: 1 },
+    threads: { total: 2, covered: 2 },
+  },
+  access: { total: 1, administrators: 1 },
+  storage: null,
+  attentionCount: 0,
+};
+
 const mailCommand = (state: string) => ({
   id: COMMAND_ID,
   mailboxId: MAILBOX_ID,
@@ -1479,37 +1495,9 @@ test("admin operations reads the redacted platform operator endpoint", async () 
   const server = withMailbox((request) =>
     new URL(request.url).pathname === "/api/mail/admin/operations"
       ? api({
-          mailboxes: [
-            {
-              mailboxId: MAILBOX_ID,
-              mailboxName: "Support",
-              health: "active",
-              syncEnabled: true,
-              sync: { lastAt: null, lagSeconds: 12, states: {} },
-              coverage: {
-                hydration: { total: 2, covered: 2 },
-                search: { total: 2, covered: 1 },
-                threads: { total: 2, covered: 2 },
-              },
-              queues: { commands: {}, outbox: {}, workflows: {}, automaticReplies: {}, automaticReplySuppressions: {} },
-              connectors: {
-                activeBindings: 1,
-                degradedBindings: 0,
-                capabilities: {},
-                pushModes: {},
-                pushStates: {},
-                draftProjectionStates: {},
-              },
-              search: { configuredBackend: "auto", effectiveBackend: "postgres", fallbackActive: false },
-              references: { configured: false, allocated: 0 },
-              folders: [],
-              attentionCommands: [],
-              attentionCount: 0,
-              nextAttentionCursor: null,
-              actions: [],
-              generatedAt: "2026-07-21T10:00:00.000Z",
-            },
-          ],
+          mailboxes: [platformMailboxSummary],
+          mailboxCount: 1,
+          withoutAdministratorCount: 0,
           attentionCount: 0,
           generatedAt: "2026-07-21T10:00:00.000Z",
           nextCursor: null,
@@ -1522,6 +1510,167 @@ test("admin operations reads the redacted platform operator endpoint", async () 
 
   expect(result.exitCode).toBe(0);
   expect(JSON.parse(result.stdout)).toMatchObject({ mailboxes: [{ mailboxId: MAILBOX_ID, coverage: { search: { covered: 1 } } }] });
+});
+
+test("admin mailbox list preserves server pagination and recovery counts", async () => {
+  let requested = "";
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    requested = `${url.pathname}${url.search}`;
+    if (url.pathname === "/api/mail/admin/operations") {
+      return api({
+        mailboxes: [platformMailboxSummary],
+        mailboxCount: 3,
+        withoutAdministratorCount: 1,
+        attentionCount: 2,
+        generatedAt: "2026-07-21T10:00:00.000Z",
+        nextCursor: "next-page",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "admin",
+    "mailbox",
+    "list",
+    "--query",
+    "Support",
+    "--limit",
+    "25",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(requested).toBe("/api/mail/admin/operations?limit=25&q=Support");
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    mailboxCount: 3,
+    withoutAdministratorCount: 1,
+    nextCursor: "next-page",
+  });
+});
+
+test("admin mailbox name resolution checks every page for ambiguity", async () => {
+  const secondMailboxId = "00000000-0000-4000-8000-000000000092";
+  const requested: string[] = [];
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    requested.push(`${url.pathname}${url.search}`);
+    if (url.pathname !== "/api/mail/admin/operations") {
+      return api({ message: "unexpected" }, { status: 500 });
+    }
+    const firstPage = !url.searchParams.has("cursor");
+    return api({
+      mailboxes: [
+        {
+          ...platformMailboxSummary,
+          mailboxId: firstPage ? MAILBOX_ID : secondMailboxId,
+          mailboxName: "Shared",
+        },
+      ],
+      mailboxCount: 2,
+      withoutAdministratorCount: 0,
+      attentionCount: 0,
+      generatedAt: "2026-07-21T10:00:00.000Z",
+      nextCursor: firstPage ? "next-page" : null,
+    });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["mail", "admin", "mailbox", "access", "list", "Shared"]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain('Mailbox "Shared" is ambiguous; use its id.');
+  expect(requested).toEqual([
+    "/api/mail/admin/operations?q=Shared&limit=100",
+    "/api/mail/admin/operations?q=Shared&limit=100&cursor=next-page",
+  ]);
+});
+
+test("admin mailbox access can repair a service-account grant without mailbox membership", async () => {
+  const serviceAccountId = "00000000-0000-4000-8000-000000000090";
+  let granted: unknown;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    const operationsPath = `/api/mail/admin/mailboxes/${MAILBOX_ID}/operations`;
+    const accessPath = `/api/mail/admin/mailboxes/${MAILBOX_ID}/access`;
+    if (request.method === "GET" && url.pathname === operationsPath) return api(platformMailboxSummary);
+    if (request.method === "GET" && url.pathname === accessPath) return api([]);
+    if (request.method === "POST" && url.pathname === accessPath) {
+      granted = await request.json();
+      return api({
+        id: "00000000-0000-4000-8000-000000000091",
+        principal: { type: "service_account", serviceAccountId },
+        permission: "admin",
+        displayName: "Mail repair agent",
+        createdAt: "2026-07-21T10:00:00.000Z",
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "admin",
+    "mailbox",
+    "access",
+    "set",
+    MAILBOX_ID,
+    "--service-account",
+    serviceAccountId,
+    "--permission",
+    "admin",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(granted).toEqual({
+    principal: { type: "service_account", serviceAccountId },
+    permission: "admin",
+  });
+  expect(JSON.parse(result.stdout)).toMatchObject({ action: "created", entry: { permission: "admin" } });
+});
+
+test("folder subscription commands enqueue the durable provider change", async () => {
+  const requests: unknown[] = [];
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands`) {
+      const body = await request.json();
+      requests.push(body);
+      return api({ ...mailCommand("queued"), kind: "set_folder_subscription", payload: body });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const subscribed = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "folder",
+    "subscribe",
+    FOLDER_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+  const unsubscribed = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "folder",
+    "unsubscribe",
+    FOLDER_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(subscribed.exitCode).toBe(0);
+  expect(unsubscribed.exitCode).toBe(0);
+  expect(requests).toEqual([
+    expect.objectContaining({ kind: "set_folder_subscription", folderId: FOLDER_ID, subscribed: true }),
+    expect.objectContaining({ kind: "set_folder_subscription", folderId: FOLDER_ID, subscribed: false }),
+  ]);
 });
 
 test("rediscover submits a typed durable maintenance command and can wait", async () => {

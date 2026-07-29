@@ -129,7 +129,7 @@ const subscriptionQuerySchema = cursorQuerySchema.extend({
 });
 const platformOperationsQuerySchema = z.object({
   cursor: z.string().max(2_000).optional(),
-  limit: z.coerce.number().int().min(1).max(10).default(10),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
   q: z.string().trim().max(200).optional(),
 });
 const mailboxOperationsQuerySchema = z.object({
@@ -1996,6 +1996,53 @@ const adminApi = new Hono<AuthContext>()
   .get("/admin/operations", v("query", platformOperationsQuerySchema), async (c) =>
     respond(c, operations.getPlatformMailOperations(requestContext(c), c.req.valid("query"))),
   )
+  .get("/admin/mailboxes/:mailboxId/operations", v("param", uuidParamSchema), async (c) =>
+    respond(c, operations.getPlatformMailboxOperation(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .get("/admin/mailboxes/:mailboxId/access", v("param", uuidParamSchema), async (c) =>
+    respond(c, mailboxAccess.listMailboxAccessAsPlatformAdmin(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .post("/admin/mailboxes/:mailboxId/access", v("param", uuidParamSchema), v("json", GrantAccessSchema), async (c) => {
+    const input = c.req.valid("json");
+    if (input.permission === "none") return respond(c, fail(err.badInput("Access permission cannot be none")));
+    return respond(
+      c,
+      mailboxAccess.grantMailboxAccessAsPlatformAdmin({
+        context: requestContext(c),
+        mailboxId: c.req.valid("param").mailboxId,
+        principal: input.principal,
+        permission: input.permission,
+      }),
+    );
+  })
+  .patch(
+    "/admin/mailboxes/:mailboxId/access/:accessId",
+    v("param", mailboxAndIdParamSchema("accessId")),
+    v("json", UpdateAccessSchema),
+    async (c) => {
+      const params = c.req.valid("param") as { mailboxId: string; accessId: string };
+      const { permission } = c.req.valid("json");
+      if (permission === "none") return respond(c, fail(err.badInput("Use DELETE to revoke access")));
+      return respond(
+        c,
+        mailboxAccess.updateMailboxAccessAsPlatformAdmin({
+          context: requestContext(c),
+          ...params,
+          permission,
+        }),
+      );
+    },
+  )
+  .delete("/admin/mailboxes/:mailboxId/access/:accessId", v("param", mailboxAndIdParamSchema("accessId")), async (c) => {
+    const params = c.req.valid("param") as { mailboxId: string; accessId: string };
+    return respond(
+      c,
+      mailboxAccess.revokeMailboxAccessAsPlatformAdmin({
+        context: requestContext(c),
+        ...params,
+      }),
+    );
+  })
   .get("/admin/storage", async (c) => respond(c, storageObservability.getMailStorageSummary(requestContext(c))))
   .post("/admin/storage/reconcile", async (c) => respond(c, storageObservability.requestMailStorageReconciliation(requestContext(c))));
 

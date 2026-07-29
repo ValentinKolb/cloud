@@ -51,6 +51,8 @@ const platformSummary = {
   syncEnabled: true,
   sync: { lastAt: null, lagSeconds: null },
   coverage: snapshot.coverage,
+  access: { total: 1, administrators: 1 },
+  storage: null,
   attentionCount: 0,
 };
 
@@ -132,10 +134,21 @@ describe("Mail operator read model contract", () => {
     expect(
       platformMailOperationsSchema.parse({
         mailboxes: [platformSummary],
+        mailboxCount: 8,
+        withoutAdministratorCount: 2,
         attentionCount: 42,
         generatedAt: snapshot.generatedAt,
         nextCursor: null,
       }).attentionCount,
     ).toBe(42);
+  });
+
+  test("keeps platform recovery aggregates redacted", () => {
+    expect(
+      platformMailboxOperationSummarySchema.safeParse({
+        ...platformSummary,
+        access: { ...platformSummary.access, principals: ["person@example.com"] },
+      }).success,
+    ).toBe(false);
   });
 });

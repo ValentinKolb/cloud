@@ -10,6 +10,18 @@ describe("Mail API composition", () => {
     expect(mailboxRoute).toBeDefined();
   });
 
+  test("exposes explicit platform-admin mailbox recovery routes", () => {
+    expect(api.routes.some((route) => route.method === "GET" && route.path === "/admin/mailboxes/:mailboxId/operations")).toBe(true);
+    expect(api.routes.some((route) => route.method === "GET" && route.path === "/admin/mailboxes/:mailboxId/access")).toBe(true);
+    expect(api.routes.some((route) => route.method === "POST" && route.path === "/admin/mailboxes/:mailboxId/access")).toBe(true);
+    expect(api.routes.some((route) => route.method === "PATCH" && route.path === "/admin/mailboxes/:mailboxId/access/:accessId")).toBe(
+      true,
+    );
+    expect(api.routes.some((route) => route.method === "DELETE" && route.path === "/admin/mailboxes/:mailboxId/access/:accessId")).toBe(
+      true,
+    );
+  });
+
   test("exposes mailbox-scoped subscription routes", () => {
     expect(api.routes.some((route) => route.method === "GET" && route.path === "/mailboxes/:mailboxId/subscriptions")).toBe(true);
     expect(api.routes.some((route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/subscriptions/unsubscribe")).toBe(

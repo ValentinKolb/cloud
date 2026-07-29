@@ -6,6 +6,7 @@ import {
   type MailboxHealth,
   type MailboxOperatorOperations,
   mailboxOperatorOperationsSchema,
+  type PlatformMailboxOperationSummary,
   type PlatformMailOperations,
   platformMailOperationsSchema,
   type SearchBackend,
@@ -455,15 +456,35 @@ export const getPlatformMailOperations = async (
   const cursor = decodePlatformCursor(query.cursor);
   if (!cursor.ok) return cursor;
   try {
-    const limit = Math.min(Math.max(query.limit ?? 10, 1), 10);
-    const search = query.q?.trim() ? `%${escapeLikePattern(query.q.trim())}%` : null;
-    const [attention, rows] = await Promise.all([
-      sql<{ count: number | string }[]>`
-        SELECT COUNT(*) AS count
-        FROM mail.commands command
-        JOIN mail.mailboxes mailbox ON mailbox.id = command.mailbox_id
+    const limit = Math.min(Math.max(query.limit ?? 25, 1), 100);
+    const rawSearch = query.q?.trim() || null;
+    const search = rawSearch ? `%${escapeLikePattern(rawSearch)}%` : null;
+    const [global, rows] = await Promise.all([
+      sql<
+        {
+          count: number | string;
+          without_administrator_count: number | string;
+          attention_count: number | string;
+        }[]
+      >`
+        SELECT
+          COUNT(*) AS count,
+          COUNT(*) FILTER (
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM mail.mailbox_access mailbox_access
+              JOIN auth.access access ON access.id = mailbox_access.access_id
+              WHERE mailbox_access.mailbox_id = mailbox.id AND access.permission = 'admin'
+            )
+          ) AS without_administrator_count,
+          COALESCE(SUM((
+            SELECT COUNT(*)
+            FROM mail.commands command
+            WHERE command.mailbox_id = mailbox.id
+              AND command.state IN ('failed', 'ambiguous', 'needs_attention')
+          )), 0) AS attention_count
+        FROM mail.mailboxes mailbox
         WHERE mailbox.deleted_at IS NULL
-          AND command.state IN ('failed', 'ambiguous', 'needs_attention')
       `,
       sql<
         Array<{
@@ -480,6 +501,11 @@ export const getPlatformMailOperations = async (
           search_total: number | string;
           indexed: number | string;
           threaded: number | string;
+          access_count: number | string;
+          administrator_count: number | string;
+          storage_message_count: number | string | null;
+          logical_total_bytes: number | string | null;
+          storage_calculated_at: Date | string | null;
           attention_count: number | string;
         }>
       >`
@@ -487,7 +513,11 @@ export const getPlatformMailOperations = async (
           SELECT id, name, created_at, health, sync_enabled
           FROM mail.mailboxes
           WHERE deleted_at IS NULL
-            AND (${search}::text IS NULL OR LOWER(name) LIKE LOWER(${search}) ESCAPE '\\')
+            AND (
+              ${search}::text IS NULL
+              OR LOWER(name) LIKE LOWER(${search}) ESCAPE '\\'
+              OR id::text = ${rawSearch}
+            )
             AND (${cursor.data?.createdAt ?? null}::timestamptz IS NULL
               OR (created_at, id) > (${cursor.data?.createdAt ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid))
           ORDER BY created_at, id
@@ -509,6 +539,11 @@ export const getPlatformMailOperations = async (
           COALESCE(coverage.search_total, 0) AS search_total,
           COALESCE(coverage.indexed, 0) AS indexed,
           COALESCE(coverage.threaded, 0) AS threaded,
+          COALESCE(access_summary.access_count, 0) AS access_count,
+          COALESCE(access_summary.administrator_count, 0) AS administrator_count,
+          storage.message_count AS storage_message_count,
+          storage.logical_total_bytes,
+          storage.calculated_at AS storage_calculated_at,
           COALESCE(commands.attention_count, 0) AS attention_count
         FROM mailbox_page mailbox
         LEFT JOIN LATERAL (
@@ -531,6 +566,15 @@ export const getPlatformMailOperations = async (
           FROM mail.message_contents message
           WHERE message.mailbox_id = mailbox.id
         ) coverage ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            COUNT(*) AS access_count,
+            COUNT(*) FILTER (WHERE access.permission = 'admin') AS administrator_count
+          FROM mail.mailbox_access mailbox_access
+          JOIN auth.access access ON access.id = mailbox_access.access_id
+          WHERE mailbox_access.mailbox_id = mailbox.id
+        ) access_summary ON true
+        LEFT JOIN mail.storage_usage_snapshots storage ON storage.mailbox_id = mailbox.id
         LEFT JOIN LATERAL (
           SELECT COUNT(*) AS attention_count
           FROM mail.commands command
@@ -565,13 +609,27 @@ export const getPlatformMailOperations = async (
           covered: toSafeCount(mailbox.threaded),
         },
       },
+      access: {
+        total: toSafeCount(mailbox.access_count),
+        administrators: toSafeCount(mailbox.administrator_count),
+      },
+      storage:
+        mailbox.storage_calculated_at == null
+          ? null
+          : {
+              messageCount: toSafeCount(mailbox.storage_message_count ?? 0),
+              logicalTotalBytes: toSafeCount(mailbox.logical_total_bytes ?? 0),
+              calculatedAt: toIso(mailbox.storage_calculated_at)!,
+            },
       attentionCount: toSafeCount(mailbox.attention_count),
     }));
     const last = page.at(-1);
     return ok(
       platformMailOperationsSchema.parse({
         mailboxes: values,
-        attentionCount: toSafeCount(attention[0]?.count ?? 0),
+        mailboxCount: toSafeCount(global[0]?.count ?? 0),
+        withoutAdministratorCount: toSafeCount(global[0]?.without_administrator_count ?? 0),
+        attentionCount: toSafeCount(global[0]?.attention_count ?? 0),
         generatedAt: new Date().toISOString(),
         nextCursor: hasMore && last ? encodePlatformCursor(last) : null,
       }),
@@ -579,4 +637,14 @@ export const getPlatformMailOperations = async (
   } catch {
     return fail(err.internal("Failed to load platform Mail operator status"));
   }
+};
+
+export const getPlatformMailboxOperation = async (
+  context: MailRequestContext,
+  mailboxId: string,
+): Promise<Result<PlatformMailboxOperationSummary>> => {
+  const result = await getPlatformMailOperations(context, { q: mailboxId, limit: 2 });
+  if (!result.ok) return result;
+  const mailbox = result.data.mailboxes.find((candidate) => candidate.mailboxId === mailboxId);
+  return mailbox ? ok(mailbox) : fail(err.notFound("Mailbox"));
 };

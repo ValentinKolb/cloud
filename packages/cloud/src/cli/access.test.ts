@@ -47,7 +47,7 @@ const createContext = (
 
 const createModule = (
   state: { entries: AccessEntry[]; grants: Principal[]; updates: string[]; revokes: string[] },
-  options: { allowServiceAccounts?: boolean } = {},
+  options: { allowAuthenticated?: boolean; allowServiceAccounts?: boolean } = {},
 ) =>
   defineCliCommands({
     name: "demo",
@@ -55,6 +55,7 @@ const createModule = (
     commands: createAccessCommands({
       resourceLabel: "demo",
       resourceArgLabel: "demo",
+      allowAuthenticated: options.allowAuthenticated,
       allowServiceAccounts: options.allowServiceAccounts,
       resolveResource: async (_ctx, args) => ({ id: args[0] ?? "default", label: args[0] ?? "default" }),
       list: async () => state.entries,
@@ -85,6 +86,15 @@ describe("access CLI helper", () => {
     const help = lines.join("\n");
     expect(help).toContain("--authenticated");
     expect(help).not.toContain("--public");
+  });
+
+  test("can hide unsupported authenticated-audience grants", async () => {
+    const mod = createModule({ entries: [], grants: [], updates: [], revokes: [] }, { allowAuthenticated: false });
+    const { ctx, lines } = createContext(["access", "grant"], { help: true }, () => Response.json({}));
+
+    await mod.run(ctx);
+
+    expect(lines.join("\n")).not.toContain("--authenticated");
   });
 
   test("set resolves a principal and updates an existing direct grant", async () => {

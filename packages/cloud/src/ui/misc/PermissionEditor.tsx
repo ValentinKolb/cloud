@@ -41,9 +41,12 @@ type PermissionEditorProps = {
    *  hierarchical resources the parent ACL still applies. */
   revokeAccess: (accessId: string) => Promise<void>;
 
-  /** Allow granting `public` access from this editor. The
-   *  authenticated principal is always allowed (no flag needed). */
+  /** Allow granting `public` access from this editor. */
   allowPublic?: boolean;
+
+  /** Allow granting access to every authenticated user. Defaults to
+   *  true; resources with an explicit principal allowlist can disable it. */
+  allowAuthenticated?: boolean;
 
   /** Allow granting service accounts. Off by default so ordinary
    *  permission pickers stay user/group focused. */
@@ -152,6 +155,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
   const [entries, setEntries] = createSignal<AccessEntry[]>([...props.initialEntries]);
   const canEdit = () => props.canEdit !== false;
   const allowPublic = () => props.allowPublic === true;
+  const allowAuthenticated = () => props.allowAuthenticated !== false;
   const allowed = () => resolveAllowedLevels(props.allowedLevels);
   const isSinglePicker = () => allowed().length === 1;
 
@@ -230,7 +234,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
     // Synthetic principals — only when allowed AND not already granted.
     // Placed first so they're visible immediately on focus, before any
     // typing kicks off a backend request.
-    if (!hasAuthenticatedEntry()) {
+    if (allowAuthenticated() && !hasAuthenticatedEntry()) {
       map.set("auth", { type: "authenticated" });
       opts.push({
         id: "auth",
@@ -349,7 +353,15 @@ export default function PermissionEditor(props: PermissionEditorProps) {
           a higher level. KISS: one decision per step. */}
       <Show when={canEdit()}>
         <Combobox
-          placeholder={props.allowServiceAccounts ? "Add user, group, service account or audience..." : "Add user, group or audience..."}
+          placeholder={
+            props.allowServiceAccounts
+              ? allowAuthenticated()
+                ? "Add user, group, service account or audience..."
+                : "Add user, group or service account..."
+              : allowAuthenticated()
+                ? "Add user, group or audience..."
+                : "Add user or group..."
+          }
           fetchData={fetchPrincipals}
           onSelect={handleSelect}
           disabled={busy()}

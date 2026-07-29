@@ -68,6 +68,7 @@ import {
   mailRuleActionsSchema,
   mailRuleConditionsSchema,
   mailSearchExpressionSchema,
+  type PlatformMailboxOperationSummary,
   type PlatformMailOperations,
   type ProviderBinding,
   type ProviderConnection,
@@ -426,7 +427,62 @@ const mailboxAccessCommands = createAccessCommands({
       method: "DELETE",
     });
   },
+  allowAuthenticated: false,
+  allowServiceAccounts: true,
 });
+
+type AdminMailboxResource = {
+  id: string;
+  label: string;
+};
+
+const resolveAdminMailbox = async (ctx: CloudCliContext, ref?: string): Promise<AdminMailboxResource> => {
+  if (!ref) throw new Error("Pass a mailbox id or exact name.");
+  if (isUuid(ref)) {
+    const mailbox = await readApi<PlatformMailboxOperationSummary>(ctx, `/admin/mailboxes/${ref}/operations`);
+    return { id: mailbox.mailboxId, label: `${mailbox.mailboxName} (${mailbox.mailboxId})` };
+  }
+  const exact: PlatformMailboxOperationSummary[] = [];
+  let cursor: string | null = null;
+  do {
+    const query = new URLSearchParams({ q: ref, limit: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const result = await readApi<PlatformMailOperations>(ctx, `/admin/operations?${query}`);
+    exact.push(...result.mailboxes.filter((mailbox) => mailbox.mailboxName === ref));
+    cursor = result.nextCursor;
+  } while (cursor && exact.length < 2);
+  if (exact.length === 1) {
+    const mailbox = exact[0]!;
+    return { id: mailbox.mailboxId, label: `${mailbox.mailboxName} (${mailbox.mailboxId})` };
+  }
+  if (exact.length > 1) throw new Error(`Mailbox "${ref}" is ambiguous; use its id.`);
+  throw new Error(`Mailbox "${ref}" was not found.`);
+};
+
+const adminMailboxAccessCommands = createAccessCommands({
+  resourceLabel: "mailbox",
+  resourceArgLabel: "mailbox",
+  resourceArgDescription: "Mailbox id or exact name.",
+  resolveResource: async (ctx, args) => resolveAdminMailbox(ctx, args[0]),
+  list: (ctx, mailbox) => readApi<AccessEntry[]>(ctx, `/admin/mailboxes/${mailbox.id}/access`),
+  grant: (ctx, mailbox, principal: Principal, permission: PermissionLevel) =>
+    readApi<AccessEntry>(ctx, `/admin/mailboxes/${mailbox.id}/access`, jsonRequest("POST", { principal, permission })),
+  update: async (ctx, mailbox, accessId, permission) => {
+    await readApi(ctx, `/admin/mailboxes/${mailbox.id}/access/${accessId}`, jsonRequest("PATCH", { permission }));
+  },
+  revoke: async (ctx, mailbox, accessId) => {
+    await readApi(ctx, `/admin/mailboxes/${mailbox.id}/access/${accessId}`, { method: "DELETE" });
+  },
+  allowAuthenticated: false,
+  allowServiceAccounts: true,
+  examples: {
+    list: ["cld mail admin mailbox access list <mailbox>"],
+    set: ["cld mail admin mailbox access set <mailbox> --user person@example.com --permission admin"],
+  },
+}).map((definition) => ({
+  ...definition,
+  path: ["admin", "mailbox", ...definition.path],
+}));
 
 const parsePort = (value: number | undefined, fallback: number): number => value ?? fallback;
 const parseAddresses = (values: string[]): Array<{ name: null; address: string }> =>
@@ -2141,25 +2197,94 @@ export default defineCliCommands({
         let cursor: string | null = null;
         let generatedAt = new Date(0).toISOString();
         let attentionCount = 0;
+        let mailboxCount = 0;
+        let withoutAdministratorCount = 0;
         do {
-          const query = new URLSearchParams({ limit: "10" });
+          const query = new URLSearchParams({ limit: "100" });
           if (cursor) query.set("cursor", cursor);
           const page = await readApi<PlatformMailOperations>(ctx, `/admin/operations?${query}`);
           mailboxes.push(...page.mailboxes);
           generatedAt = page.generatedAt;
           attentionCount = page.attentionCount;
+          mailboxCount = page.mailboxCount;
+          withoutAdministratorCount = page.withoutAdministratorCount;
           cursor = page.nextCursor;
         } while (cursor);
-        const value: PlatformMailOperations = { mailboxes, attentionCount, generatedAt, nextCursor: null };
+        const value: PlatformMailOperations = {
+          mailboxes,
+          mailboxCount,
+          withoutAdministratorCount,
+          attentionCount,
+          generatedAt,
+          nextCursor: null,
+        };
         if (printStructured(ctx, value)) return;
-        ctx.print(`Mailboxes: ${value.mailboxes.length}; snapshot ${value.generatedAt}.`);
+        ctx.print(
+          `Mailboxes: ${value.mailboxCount}; without administrator: ${value.withoutAdministratorCount}; snapshot ${value.generatedAt}.`,
+        );
         for (const mailbox of value.mailboxes) {
           ctx.print(
-            `${mailbox.mailboxName} (${mailbox.mailboxId}): ${mailbox.health}; lag ${mailbox.sync.lagSeconds ?? "never"}s; search ${mailbox.coverage.search.covered}/${mailbox.coverage.search.total}; attention ${mailbox.attentionCount}`,
+            `${mailbox.mailboxName} (${mailbox.mailboxId}): ${mailbox.health}; admins ${mailbox.access.administrators}; lag ${
+              mailbox.sync.lagSeconds ?? "never"
+            }s; search ${mailbox.coverage.search.covered}/${mailbox.coverage.search.total}; attention ${mailbox.attentionCount}`,
           );
         }
       },
     }),
+    command("admin mailbox list", {
+      summary: "List active mailboxes for access recovery",
+      flags: {
+        query: flag.string({ name: "query", aliases: ["q"], description: "Mailbox name or id search" }),
+        cursor: flag.string({ description: "Opaque cursor from the previous page" }),
+        limit: flag.int({ min: 1, max: 100, default: 50 }),
+      },
+      run: async ({ ctx, flags }) => {
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
+        if (flags.query) query.set("q", flags.query);
+        if (flags.cursor) query.set("cursor", flags.cursor);
+        const result = await readApi<PlatformMailOperations>(ctx, `/admin/operations?${query}`);
+        if (printStructured(ctx, result)) return;
+        ctx.print(
+          `${result.mailboxCount} active mailboxes; ${result.withoutAdministratorCount} without an administrator; ${result.attentionCount} commands need attention.`,
+        );
+        ctx.table(
+          result.mailboxes.map((mailbox) => ({
+            name: mailbox.mailboxName,
+            health: mailbox.health,
+            admins: mailbox.access.administrators,
+            access: mailbox.access.total,
+            attention: mailbox.attentionCount,
+            id: mailbox.mailboxId,
+          })),
+          [
+            { key: "name", label: "MAILBOX" },
+            { key: "health", label: "HEALTH" },
+            { key: "admins", label: "ADMINS" },
+            { key: "access", label: "ACCESS" },
+            { key: "attention", label: "ATTENTION" },
+            { key: "id", label: "ID" },
+          ],
+        );
+        if (result.nextCursor) ctx.print(`Next cursor: ${result.nextCursor}`);
+      },
+    }),
+    command("admin mailbox get", {
+      summary: "Show one redacted mailbox operations record",
+      args: { mailbox: arg.required({ description: "Mailbox id or exact name" }) },
+      run: async ({ ctx, args }) => {
+        const resolved = await resolveAdminMailbox(ctx, args.mailbox);
+        const mailbox = await readApi<PlatformMailboxOperationSummary>(ctx, `/admin/mailboxes/${resolved.id}/operations`);
+        if (printStructured(ctx, mailbox)) return;
+        ctx.print(`${mailbox.mailboxName} (${mailbox.mailboxId})`);
+        ctx.print(
+          `Health ${mailbox.health}; administrators ${mailbox.access.administrators}; access entries ${mailbox.access.total}; attention ${mailbox.attentionCount}.`,
+        );
+        ctx.print(
+          `Last sync ${mailbox.sync.lastAt ?? "never"}; logical storage ${mailbox.storage ? text.pprintBytes(mailbox.storage.logicalTotalBytes) : "not reconciled"}.`,
+        );
+      },
+    }),
+    ...adminMailboxAccessCommands,
     command("admin storage show", {
       summary: "Show the last completed Mail storage snapshot",
       run: async ({ ctx }) => {

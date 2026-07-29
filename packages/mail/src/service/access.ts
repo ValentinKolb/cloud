@@ -223,8 +223,27 @@ export const requireMailboxPermission = async (
   return hasPermission(permission, required) ? ok(permission) : fail(err.forbidden("Access denied"));
 };
 
-export const listMailboxAccess = async (context: MailRequestContext, mailboxId: string): Promise<Result<AccessEntry[]>> => {
-  const allowed = await requireMailboxPermission(context, mailboxId, "admin");
+type AccessAuthority = "mailbox_admin" | "platform_admin";
+
+const authorizeAccessManagement = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  authority: AccessAuthority,
+  db: SqlClient = sql,
+): Promise<Result<void>> => {
+  if (authority === "mailbox_admin") {
+    const allowed = await requireMailboxPermission(context, mailboxId, "admin", db);
+    return allowed.ok ? ok() : fail(allowed.error);
+  }
+  return (await isCurrentPlatformAdmin(context, db)) ? ok() : fail(err.forbidden("Cloud administration access is required"));
+};
+
+const listMailboxAccessWithAuthority = async (
+  context: MailRequestContext,
+  mailboxId: string,
+  authority: AccessAuthority,
+): Promise<Result<AccessEntry[]>> => {
+  const allowed = await authorizeAccessManagement(context, mailboxId, authority);
   if (!allowed.ok) return allowed;
 
   const rows = await sql<DbAccess[]>`
@@ -242,11 +261,12 @@ export const listMailboxAccess = async (context: MailRequestContext, mailboxId: 
   return ok(await resolveDisplayNames(rows.map(mapAccess)));
 };
 
-export const grantMailboxAccess = async (params: {
+const grantMailboxAccessWithAuthority = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   principal: Principal;
   permission: Exclude<PermissionLevel, "none">;
+  authority: AccessAuthority;
 }): Promise<Result<AccessEntry>> => {
   const principalResult = assertShareablePrincipal(params.principal);
   if (!principalResult.ok) return principalResult;
@@ -255,7 +275,7 @@ export const grantMailboxAccess = async (params: {
     async () => {
       const created = await sql.begin(async (tx) => {
         if (!(await lockMailbox(params.mailboxId, tx))) unwrap(fail(err.notFound("Mailbox")));
-        unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
+        unwrap(await authorizeAccessManagement(params.context, params.mailboxId, params.authority, tx));
         if (await getPrincipalGrant(params.mailboxId, params.principal, tx)) unwrap(fail(err.conflict("Mailbox access")));
 
         const created = unwrap(await createAccess({ principal: params.principal, permission: params.permission }, tx));
@@ -270,7 +290,12 @@ export const grantMailboxAccess = async (params: {
             actor: auditActorFromRequest(params.context),
             target: { type: "mailbox", id: params.mailboxId },
             requestId: params.context.requestId,
-            metadata: { accessId: created.id, principal: params.principal, permission: params.permission },
+            metadata: {
+              accessId: created.id,
+              principal: params.principal,
+              permission: params.permission,
+              authority: params.authority,
+            },
           },
           tx,
         );
@@ -309,17 +334,18 @@ const ensureAdminRemains = (entries: DbAccess[], accessId: string, nextPermissio
   return fail(err.badInput("A mailbox must keep at least one administrator"));
 };
 
-export const updateMailboxAccess = async (params: {
+const updateMailboxAccessWithAuthority = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   accessId: string;
   permission: Exclude<PermissionLevel, "none">;
+  authority: AccessAuthority;
 }): Promise<Result<void>> =>
   tryCatch(
     () =>
       sql.begin(async (tx) => {
         if (!(await lockMailbox(params.mailboxId, tx))) unwrap(fail(err.notFound("Mailbox")));
-        unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
+        unwrap(await authorizeAccessManagement(params.context, params.mailboxId, params.authority, tx));
         const entries = await lockAccessEntries(params.mailboxId, tx);
         unwrap(ensureAdminRemains(entries, params.accessId, params.permission));
         unwrap(await updateAccess({ id: params.accessId, permission: params.permission }, tx));
@@ -330,7 +356,7 @@ export const updateMailboxAccess = async (params: {
             actor: auditActorFromRequest(params.context),
             target: { type: "mailbox", id: params.mailboxId },
             requestId: params.context.requestId,
-            metadata: { accessId: params.accessId, permission: params.permission },
+            metadata: { accessId: params.accessId, permission: params.permission, authority: params.authority },
           },
           tx,
         );
@@ -338,16 +364,17 @@ export const updateMailboxAccess = async (params: {
     () => err.internal("Failed to update mailbox access"),
   );
 
-export const revokeMailboxAccess = async (params: {
+const revokeMailboxAccessWithAuthority = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   accessId: string;
+  authority: AccessAuthority;
 }): Promise<Result<void>> =>
   tryCatch(
     () =>
       sql.begin(async (tx) => {
         if (!(await lockMailbox(params.mailboxId, tx))) unwrap(fail(err.notFound("Mailbox")));
-        unwrap(await requireMailboxPermission(params.context, params.mailboxId, "admin", tx));
+        unwrap(await authorizeAccessManagement(params.context, params.mailboxId, params.authority, tx));
         const entries = await lockAccessEntries(params.mailboxId, tx);
         unwrap(ensureAdminRemains(entries, params.accessId, null));
         await tx`
@@ -362,10 +389,53 @@ export const revokeMailboxAccess = async (params: {
             actor: auditActorFromRequest(params.context),
             target: { type: "mailbox", id: params.mailboxId },
             requestId: params.context.requestId,
-            metadata: { accessId: params.accessId },
+            metadata: { accessId: params.accessId, authority: params.authority },
           },
           tx,
         );
       }),
     () => err.internal("Failed to revoke mailbox access"),
   );
+
+export const listMailboxAccess = (context: MailRequestContext, mailboxId: string): Promise<Result<AccessEntry[]>> =>
+  listMailboxAccessWithAuthority(context, mailboxId, "mailbox_admin");
+
+export const listMailboxAccessAsPlatformAdmin = (context: MailRequestContext, mailboxId: string): Promise<Result<AccessEntry[]>> =>
+  listMailboxAccessWithAuthority(context, mailboxId, "platform_admin");
+
+export const grantMailboxAccess = (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  principal: Principal;
+  permission: Exclude<PermissionLevel, "none">;
+}): Promise<Result<AccessEntry>> => grantMailboxAccessWithAuthority({ ...params, authority: "mailbox_admin" });
+
+export const grantMailboxAccessAsPlatformAdmin = (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  principal: Principal;
+  permission: Exclude<PermissionLevel, "none">;
+}): Promise<Result<AccessEntry>> => grantMailboxAccessWithAuthority({ ...params, authority: "platform_admin" });
+
+export const updateMailboxAccess = (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  accessId: string;
+  permission: Exclude<PermissionLevel, "none">;
+}): Promise<Result<void>> => updateMailboxAccessWithAuthority({ ...params, authority: "mailbox_admin" });
+
+export const updateMailboxAccessAsPlatformAdmin = (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  accessId: string;
+  permission: Exclude<PermissionLevel, "none">;
+}): Promise<Result<void>> => updateMailboxAccessWithAuthority({ ...params, authority: "platform_admin" });
+
+export const revokeMailboxAccess = (params: { context: MailRequestContext; mailboxId: string; accessId: string }): Promise<Result<void>> =>
+  revokeMailboxAccessWithAuthority({ ...params, authority: "mailbox_admin" });
+
+export const revokeMailboxAccessAsPlatformAdmin = (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  accessId: string;
+}): Promise<Result<void>> => revokeMailboxAccessWithAuthority({ ...params, authority: "platform_admin" });
