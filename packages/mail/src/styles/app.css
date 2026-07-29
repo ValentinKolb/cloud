@@ -54,6 +54,45 @@
     background: transparent;
   }
 
+  .mail-list-primary-text {
+    color: var(--color-zinc-700);
+  }
+
+  .mail-list-entry-active .mail-list-primary-text {
+    color: var(--color-zinc-900);
+  }
+
+  .dark .mail-list-primary-text {
+    color: var(--color-zinc-500);
+  }
+
+  .dark .mail-list-entry:is(.mail-list-entry-active, :hover, :focus-within) .mail-list-primary-text {
+    color: var(--color-zinc-100);
+  }
+
+  .mail-recipient-input:has(.mail-recipient-pill-shell :focus-visible):focus-within,
+  .mail-recipient-input[data-editing="true"]:focus-within {
+    border-color: var(--ui-field-border) !important;
+    background: var(--ui-field) !important;
+    box-shadow: var(--ui-control-recess) !important;
+  }
+
+  .mail-recipient-pill-shell:has(:focus-visible),
+  .mail-recipient-edit:focus {
+    border-color: var(--ui-field-focus-border);
+    background: var(--ui-field-focus);
+    box-shadow: var(--ui-focus);
+  }
+
+  .mail-recipient-pill:focus-visible {
+    outline: none;
+  }
+
+  .mail-recipient-edit {
+    border: 1px solid transparent;
+    background: var(--ui-surface);
+  }
+
   .mail-list-unread-dot {
     width: 0.5rem;
     height: 0.5rem;

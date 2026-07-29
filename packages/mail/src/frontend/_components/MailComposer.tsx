@@ -800,7 +800,7 @@ export default function MailComposer(props: {
 
       <div class="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-3">
         <div class="grid shrink-0 gap-1.5 py-1.5 text-sm lg:grid-cols-2">
-          <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+          <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2">
             <span class="text-dimmed">From</span>
             <Select
               placeholder="Choose identity"
@@ -816,7 +816,7 @@ export default function MailComposer(props: {
               disabled={!editable()}
             />
           </div>
-          <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+          <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2">
             <span class="text-dimmed">To</span>
             <div class="flex min-w-0 items-center gap-2">
               <div class="min-w-0 flex-1">
@@ -830,16 +830,16 @@ export default function MailComposer(props: {
             </div>
           </div>
           <Show when={showCc()}>
-            <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+            <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2">
               <span class="text-dimmed">Cc</span>
               <MailRecipientInput placeholder="Cc recipients" value={cc} onChange={setCc} disabled={!editable()} />
             </div>
-            <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2">
+            <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2">
               <span class="text-dimmed">Bcc</span>
               <MailRecipientInput placeholder="Bcc recipients" value={bcc} onChange={setBcc} disabled={!editable()} />
             </div>
           </Show>
-          <div class="grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-2 lg:col-span-2">
+          <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2 lg:col-span-2">
             <span class="text-dimmed">Subject</span>
             <TextInput ariaLabel="Subject" value={subject} onInput={setSubject} maxLength={998} disabled={!editable()} />
           </div>

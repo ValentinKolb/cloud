@@ -162,20 +162,23 @@ export default function MailRecipientInput(props: {
 
   return (
     <div class="relative min-w-0">
-      <div class="input flex min-h-[var(--ui-control-md)] w-full flex-wrap items-center gap-1 px-2 py-1">
+      <div
+        class="input mail-recipient-input flex min-h-[var(--ui-control-md)] w-full flex-wrap items-center gap-1 px-2 py-1"
+        data-editing={editingIndex() === null ? undefined : "true"}
+      >
         <i class="ti ti-at shrink-0 text-dimmed" aria-hidden="true" />
         <For each={props.value()}>
           {(recipient, index) => (
             <Show
               when={editingIndex() === index()}
               fallback={
-                <span class="chip h-7 max-w-56 py-0">
+                <span class="chip mail-recipient-pill-shell h-7 max-w-56 py-0">
                   <button
                     ref={(element) => {
                       pillButtons[index()] = element;
                     }}
                     type="button"
-                    class="focus-ui min-w-0 flex-1 truncate rounded text-left"
+                    class="mail-recipient-pill min-w-0 flex-1 truncate rounded text-left"
                     aria-label={`Edit ${recipient}`}
                     title={`${recipient} — click or press Enter to edit`}
                     disabled={props.disabled}
@@ -198,7 +201,7 @@ export default function MailRecipientInput(props: {
             >
               <input
                 ref={input}
-                class="h-7 min-w-40 max-w-72 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface)] px-2 text-xs outline-none"
+                class="mail-recipient-edit h-7 min-w-40 max-w-72 rounded-[var(--ui-radius-control)] px-2 text-xs outline-none"
                 value={query()}
                 disabled={props.disabled}
                 aria-label={`Edit ${recipient}`}

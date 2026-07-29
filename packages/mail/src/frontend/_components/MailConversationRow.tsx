@@ -130,7 +130,7 @@ export default function MailConversationRow(props: {
         </span>
         <span class="mail-list-copy">
           <span
-            class={`flex min-w-0 items-center gap-1 text-sm ${selected() ? "text-primary" : "text-secondary"}`}
+            class="mail-list-primary-text flex min-w-0 items-center gap-1 text-sm"
             classList={{
               "font-semibold": props.item.unread,
               "font-medium": !props.item.unread,
@@ -154,7 +154,7 @@ export default function MailConversationRow(props: {
               </Tooltip>
             </Show>
           </span>
-          <span class={`min-w-0 truncate text-xs font-medium ${selected() ? "text-primary" : "text-secondary"}`}>
+          <span class="mail-list-primary-text min-w-0 truncate text-xs font-medium">
             <Show when={props.item.primaryReference}>
               <span class="mr-1 font-mono text-[0.6875rem] text-dimmed">{props.item.primaryReference}</span>
             </Show>
