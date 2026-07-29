@@ -1,15 +1,23 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import * as ts from "typescript";
 
 type GenericMigrationStatus = "implemented" | "planned";
 type AdditionalMigrationStatus = GenericMigrationStatus | "cloud-owned";
-type GenericEntry = { source: string; status: GenericMigrationStatus };
+type GenericEntry = {
+  source: string;
+  status: GenericMigrationStatus;
+  target?: string;
+  test?: string;
+  covers?: string[];
+};
 type AdditionalSource = {
   source: string;
   exports: Array<{ name: string; status: AdditionalMigrationStatus }>;
 };
 type Inventory = {
+  version: number;
+  source: string;
   generic: Record<string, GenericEntry[]>;
   additionalSources?: AdditionalSource[];
   cloudSpecific: string[];
@@ -17,8 +25,84 @@ type Inventory = {
 };
 
 const packageRoot = resolve(import.meta.dir, "..");
-const cloudUiRoot = resolve(packageRoot, "../cloud/src/ui");
+const repositoryRoot = resolve(packageRoot, "../..");
 const inventory = JSON.parse(readFileSync(join(packageRoot, "migration-inventory.json"), "utf8")) as Inventory;
+const inventoryErrors: string[] = [];
+const MINIMUM_PUBLIC_EXPORTS = 332;
+const MINIMUM_PUBLIC_MODULES = 85;
+const MINIMUM_ADDITIONAL_EXPORTS = 19;
+
+if (inventory.version !== 1) {
+  inventoryErrors.push(`version must be 1, received ${JSON.stringify(inventory.version)}`);
+}
+
+const resolveContainedPath = (root: string, path: unknown, field: string): string | undefined => {
+  if (typeof path !== "string" || path.length === 0) {
+    inventoryErrors.push(`${field} must be a non-empty relative path`);
+    return undefined;
+  }
+
+  const file = resolve(root, path);
+  const fromRoot = relative(root, file);
+  if (isAbsolute(path) || fromRoot === ".." || fromRoot.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+    inventoryErrors.push(`${field} must stay within ${relative(repositoryRoot, root) || "the repository"}`);
+    return undefined;
+  }
+  if (!existsSync(file)) {
+    inventoryErrors.push(`${field} does not exist: ${path}`);
+    return undefined;
+  }
+  return file;
+};
+
+const cloudUiEntry = resolveContainedPath(repositoryRoot, inventory.source, "source");
+if (cloudUiEntry && ![".ts", ".tsx"].includes(extname(cloudUiEntry))) {
+  inventoryErrors.push(`source must be a TypeScript module: ${inventory.source}`);
+}
+
+for (const entry of Object.values(inventory.generic).flat()) {
+  if (entry.status === "planned") {
+    inventoryErrors.push(`${entry.source} is planned; the migration baseline only accepts implemented entries`);
+    continue;
+  }
+  if (entry.status !== "implemented") continue;
+
+  const target = resolveContainedPath(packageRoot, entry.target, `${entry.source} target`);
+  if (target && ![".ts", ".tsx"].includes(extname(target))) {
+    inventoryErrors.push(`${entry.source} target must be a TypeScript module: ${entry.target}`);
+  }
+  const test = resolveContainedPath(packageRoot, entry.test, `${entry.source} test`);
+  if (test && !/\.test\.tsx?$/.test(test)) {
+    inventoryErrors.push(`${entry.source} test must be a focused .test.ts or .test.tsx file: ${entry.test}`);
+  }
+  if (entry.covers !== undefined && (!Array.isArray(entry.covers) || entry.covers.length === 0)) {
+    inventoryErrors.push(`${entry.source} covers must be a non-empty string array when present`);
+  }
+  if (entry.covers?.some((name) => typeof name !== "string" || name.length === 0)) {
+    inventoryErrors.push(`${entry.source} covers must contain only non-empty names`);
+  }
+  if (target && test) {
+    const testSource = readFileSync(test, "utf8");
+    const targetName = basename(target, extname(target));
+    const sourceName = entry.source.slice(entry.source.lastIndexOf("/") + 1);
+    const evidenceNames = entry.covers ?? [targetName, sourceName];
+    const mentions = (name: string) =>
+      new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(testSource);
+    const hasEvidence = entry.covers ? evidenceNames.every(mentions) : evidenceNames.some(mentions);
+    if (!hasEvidence) {
+      inventoryErrors.push(
+        `${entry.source} test ${entry.test} does not mention ${entry.covers ? "its declared coverage" : "its source or target"}: ${evidenceNames.join(", ")}`,
+      );
+    }
+  }
+}
+
+if (inventoryErrors.length > 0) {
+  console.error(`Invalid migration inventory:\n- ${inventoryErrors.join("\n- ")}`);
+  process.exit(1);
+}
+
+const cloudUiRoot = dirname(cloudUiEntry!);
 const validGenericStatuses = new Set<GenericMigrationStatus>(["implemented", "planned"]);
 const validAdditionalStatuses = new Set<AdditionalMigrationStatus>([
   ...validGenericStatuses,
@@ -55,49 +139,45 @@ const moduleName = (file: string): string => {
   return name.startsWith("..") ? name : `./${name}`;
 };
 
-const exportedByModule = new Map<string, Set<string>>();
-const visited = new Set<string>();
+const exportedNamesCache = new Map<string, Set<string>>();
+type ExportKind = "type" | "value";
+type ExportSymbols = Map<string, Set<ExportKind>>;
+const exportedSymbolsCache = new Map<string, ExportSymbols>();
 
-const visitBarrel = (file: string) => {
-  if (visited.has(file)) return;
-  visited.add(file);
-
-  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
-  for (const statement of source.statements) {
-    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-
-    const target = resolveModule(file, statement.moduleSpecifier.text);
-    if (!statement.exportClause) {
-      visitBarrel(target);
-      continue;
-    }
-    if (!ts.isNamedExports(statement.exportClause)) continue;
-
-    const name = moduleName(target);
-    const exports = exportedByModule.get(name) ?? new Set<string>();
-    for (const element of statement.exportClause.elements) exports.add(element.name.text);
-    exportedByModule.set(name, exports);
-  }
+const addKind = (symbols: ExportSymbols, name: string, ...kinds: ExportKind[]) => {
+  const current = symbols.get(name) ?? new Set<ExportKind>();
+  for (const kind of kinds) current.add(kind);
+  symbols.set(name, current);
 };
 
-visitBarrel(join(cloudUiRoot, "index.ts"));
-
-const exportedNames = (file: string): Set<string> => {
-  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
-  const names = new Set<string>();
-
+const addDeclaredExports = (source: ts.SourceFile, names: Set<string>, symbols?: ExportSymbols) => {
   for (const statement of source.statements) {
-    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
-      for (const element of statement.exportClause.elements) names.add(element.name.text);
+    if (ts.isExportAssignment(statement)) {
+      names.add("default");
+      if (symbols) addKind(symbols, "default", "value");
+      continue;
+    }
+
+    if (ts.isExportDeclaration(statement)) {
+      if (!statement.moduleSpecifier && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          names.add(element.name.text);
+          if (symbols) addKind(symbols, element.name.text, statement.isTypeOnly || element.isTypeOnly ? "type" : "value");
+        }
+      }
       continue;
     }
 
     const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
     if (!modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) names.add("default");
 
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
+        if (ts.isIdentifier(declaration.name)) {
+          names.add(declaration.name.text);
+          if (symbols) addKind(symbols, declaration.name.text, "value");
+        }
       }
       continue;
     }
@@ -111,11 +191,110 @@ const exportedNames = (file: string): Set<string> => {
       statement.name
     ) {
       names.add(statement.name.text);
+      if (symbols) {
+        if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+          addKind(symbols, statement.name.text, "type");
+        } else if (ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+          addKind(symbols, statement.name.text, "type", "value");
+        } else {
+          addKind(symbols, statement.name.text, "value");
+        }
+      }
+    }
+  }
+};
+
+const exportedSymbols = (file: string): ExportSymbols => {
+  const cached = exportedSymbolsCache.get(file);
+  if (cached) return cached;
+
+  const symbols: ExportSymbols = new Map();
+  exportedSymbolsCache.set(file, symbols);
+  const names = new Set<string>();
+  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  addDeclaredExports(source, names, symbols);
+
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      if (!statement.exportClause) {
+        if (!statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+        for (const [name, kinds] of exportedSymbols(resolveModule(file, statement.moduleSpecifier.text))) {
+          if (name !== "default") addKind(symbols, name, ...kinds);
+        }
+        continue;
+      }
+
+      if (ts.isNamedExports(statement.exportClause)) {
+        const target =
+          statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)
+            ? exportedSymbols(resolveModule(file, statement.moduleSpecifier.text))
+            : undefined;
+        for (const element of statement.exportClause.elements) {
+          if (statement.isTypeOnly || element.isTypeOnly) {
+            addKind(symbols, element.name.text, "type");
+            continue;
+          }
+          const original = element.propertyName?.text ?? element.name.text;
+          const kinds = target?.get(original);
+          const resolvedKinds: ExportKind[] = kinds?.size ? [...kinds] : ["value"];
+          addKind(symbols, element.name.text, ...resolvedKinds);
+        }
+      } else {
+        addKind(symbols, statement.exportClause.name.text, "value");
+      }
+      continue;
     }
   }
 
+  return symbols;
+};
+
+const exportedNames = (file: string): Set<string> => {
+  const cached = exportedNamesCache.get(file);
+  if (cached) return cached;
+  const names = new Set(exportedSymbols(file).keys());
+  exportedNamesCache.set(file, names);
   return names;
 };
+
+const exportedByModule = new Map<string, Set<string>>();
+const visited = new Set<string>();
+
+const visitBarrel = (file: string) => {
+  if (visited.has(file)) return;
+  visited.add(file);
+
+  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  for (const statement of source.statements) {
+    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) {
+      continue;
+    }
+
+    const target = resolveModule(file, statement.moduleSpecifier.text);
+    if (!statement.exportClause) {
+      visitBarrel(target);
+      continue;
+    }
+
+    const name = moduleName(target);
+    const exports = exportedByModule.get(name) ?? new Set<string>();
+    if (ts.isNamedExports(statement.exportClause)) {
+      for (const element of statement.exportClause.elements) exports.add(element.name.text);
+    } else {
+      exports.add(statement.exportClause.name.text);
+    }
+    exportedByModule.set(name, exports);
+  }
+
+  if (file !== cloudUiEntry) {
+    const directExports = exportedByModule.get(moduleName(file)) ?? new Set<string>();
+    addDeclaredExports(source, directExports);
+    directExports.delete("default");
+    if (directExports.size > 0) exportedByModule.set(moduleName(file), directExports);
+  }
+};
+
+visitBarrel(cloudUiEntry!);
 
 const classified = [
   ...Object.values(inventory.generic)
@@ -144,8 +323,40 @@ if (duplicates.length || missing.length || stale.length) {
   process.exit(1);
 }
 
+const migrationErrors: string[] = [];
+for (const entry of Object.values(inventory.generic).flat()) {
+  if (entry.status !== "implemented") continue;
+
+  const sourceExports = exportedByModule.get(entry.source) ?? new Set<string>();
+  const target = resolve(packageRoot, entry.target!);
+  const sourceModule = resolve(cloudUiRoot, entry.source);
+  const sourceFile = [
+    `${sourceModule}.ts`,
+    `${sourceModule}.tsx`,
+    join(sourceModule, "index.ts"),
+    join(sourceModule, "index.tsx"),
+  ].find(existsSync);
+  const sourceSymbols = sourceFile ? exportedSymbols(sourceFile) : new Map<string, Set<ExportKind>>();
+  const targetSymbols = exportedSymbols(target);
+  const missingTargetExports = [...sourceExports].filter((name) => {
+    const required = sourceSymbols.get(name) ?? new Set<ExportKind>(["value"]);
+    const actual = targetSymbols.get(name);
+    return !actual || [...required].some((kind) => !actual.has(kind));
+  });
+  if (missingTargetExports.length > 0) {
+    migrationErrors.push(
+      `${entry.source} target ${entry.target} is missing exports: ${missingTargetExports.sort().join(", ")}`,
+    );
+  }
+}
+
+if (migrationErrors.length > 0) {
+  console.error(`Incomplete implemented migrations:\n- ${migrationErrors.join("\n- ")}`);
+  process.exit(1);
+}
+
 for (const additional of inventory.additionalSources ?? []) {
-  const file = resolve(packageRoot, "../..", additional.source);
+  const file = resolve(repositoryRoot, additional.source);
   if (!existsSync(file)) {
     console.error(`Additional migration source does not exist: ${additional.source}`);
     process.exit(1);
@@ -168,6 +379,21 @@ for (const additional of inventory.additionalSources ?? []) {
 
 const exportCount = [...exportedByModule.values()].reduce((count, exports) => count + exports.size, 0);
 const additionalExportCount = (inventory.additionalSources ?? []).reduce((count, source) => count + source.exports.length, 0);
+const baselineErrors = [
+  ...(exportCount < MINIMUM_PUBLIC_EXPORTS
+    ? [`public export count fell below ${MINIMUM_PUBLIC_EXPORTS}: ${exportCount}`]
+    : []),
+  ...(publicModules.size < MINIMUM_PUBLIC_MODULES
+    ? [`public module count fell below ${MINIMUM_PUBLIC_MODULES}: ${publicModules.size}`]
+    : []),
+  ...(additionalExportCount < MINIMUM_ADDITIONAL_EXPORTS
+    ? [`additional export count fell below ${MINIMUM_ADDITIONAL_EXPORTS}: ${additionalExportCount}`]
+    : []),
+];
+if (baselineErrors.length > 0) {
+  console.error(`Migration baseline regressed:\n- ${baselineErrors.join("\n- ")}`);
+  process.exit(1);
+}
 console.log(
   `Migration inventory covers ${exportCount} public exports from ${publicModules.size} UI modules and ${additionalExportCount} exports from ${
     inventory.additionalSources?.length ?? 0

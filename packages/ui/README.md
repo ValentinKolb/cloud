@@ -34,6 +34,18 @@ JavaScript:
 }
 ```
 
+AI surfaces can use a distinct semantic treatment without changing the general
+application accent:
+
+```css
+.k2b-ui {
+  --k2b-ai-accent: #0891b2;
+  --k2b-ai-accent-hover: #0e7490;
+  --k2b-ai-border: #06b6d4;
+  --k2b-ai-surface: #ecfeff;
+}
+```
+
 IBM Plex is an optional preset:
 
 ```ts
@@ -61,7 +73,8 @@ standalone SSR, behavior, styling, and migration checks:
   `SettingsModal`, `AppWorkspace`, `Panes`, `FloatingWindow`, and generic
   settings-form helpers
 - Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
-  `ProgressBar`, `NoticeCard`, `NoticeGrid`, `Placeholder`, `NotFoundState`
+  `ProgressBar`, `NoticeCard` (with `NoticeCard.Grid`), `Placeholder`,
+  `NotFoundState`
 - Feedback: the complete scoped prompt family, `Tooltip`, and scoped `toast`
 - AI: controlled `ChatComposer`, scrolling `ChatTimeline`, `ChatMessage`,
   `ChatActivity`, and compact `ChatContextUsage`
@@ -75,24 +88,60 @@ standalone SSR, behavior, styling, and migration checks:
 `MarkdownView` renders trusted, pre-rendered HTML. Consumers must sanitize
 untrusted Markdown before passing it to this presentation component.
 
-Components use direct controlled values and small callback contracts:
+## Field contract
+
+Form controls share one controlled contract. The same prop always has the same
+meaning:
+
+- `id`, `class`, `label`, `description`, `error`, `required`, and `disabled`
+  describe the field around the control.
+- Use a visible `label` whenever possible. If the surrounding UI already
+  provides the label, use the native `"aria-label"` or `"aria-describedby"`
+  props. A placeholder is never an accessible label.
+- `value` accepts either a direct value or a Solid accessor.
+- `onValueChange` reports every controlled edit.
+- `onValueCommit` reports the value when the user finishes the edit: on blur
+  or Enter for text-like controls, and on an explicit selection or Apply action
+  for pickers.
 
 ```tsx
+const [name, setName] = createSignal("");
 const [date, setDate] = createSignal<string | null>(null);
 
-<DatePicker label="Release date" value={date()} onValueChange={setDate} />;
+<TextInput
+  label="Project name"
+  value={name}
+  onValueChange={setName}
+  onValueCommit={saveName}
+/>
+<DatePicker
+  label="Release date"
+  value={date}
+  onValueChange={setDate}
+  onValueCommit={saveReleaseDate}
+/>
 ```
+
+Select, date, combobox, tags, and text controls use the same field metadata,
+ARIA wiring, disabled and invalid states, and stable one-border focus shell.
+Control-specific props only describe genuinely different behavior. For
+example, `Combobox` owns a transient search `query` and hands the selected
+domain object to `onSelect`; `FileDropzone` and `ImageCropper` are action/editor
+primitives rather than value fields.
 
 The package does not read Cloud routes, services, permissions, or application
 state. Product-specific composition stays with the consuming application.
+`Avatar` is therefore an additive portable presentation adapter. It does not
+migrate Cloud's routed `./misc/Avatar` source contract, which remains
+Cloud-specific.
 
 Composition components intentionally use semantic data instead of application
 stores:
 
 ```tsx
 <Widget title="Platform health" icon="ti ti-heartbeat">
-  <WidgetStatus title="Operational" tone="success" />
-  <WidgetPills items={[{ label: "Checks", value: 48, tone: "success" }]} />
+  <WidgetStatus title="Operational" tone="ok" />
+  <WidgetPills pills={[{ label: "Checks", value: 48, tone: "emerald" }]} />
 </Widget>
 ```
 
@@ -125,10 +174,13 @@ const [draft, setDraft] = createSignal("");
 />;
 ```
 
-Return `false` or throw from `onSend`/`onSteer` to restore the controlled
-draft and attachments. Use `onError` for user-facing error reporting. Raw
-selected files are handed to `fileSelection.onSelect`; storage and upload
-policy remain application-owned.
+Return `false` or throw from `onSend` to restore the controlled draft and
+attachments; `onSteer` restores the draft it consumed. A synchronous throw and
+a rejected promise are treated identically, and the failure is handed to
+`onError` for user-facing reporting. Raw selected files are handed to
+`fileSelection.onSelect`; storage and upload policy remain application-owned.
+`ChatTimeline` requests older items through `hasMore`/`onLoadOlder` and keeps
+the reader's position once they are prepended.
 
 `Panes` is a controlled, serializable layout for IDE-like workspaces. The
 package owns tabs, nested splits, resize and drag-and-drop; applications own
@@ -156,7 +208,41 @@ Cloud stays on its existing UI until this package is complete. The
 [migration inventory](./MIGRATION.md) records the generic, Cloud-specific, and
 deprecated boundaries without compatibility shims.
 
-The first external acceptance consumer is the Fibel component showcase. It
-will move after the package is verified, before the Cloud big-bang migration.
-That order proves CSS isolation, SSR/hydration, asset imports, theme overrides,
-and public API ergonomics outside the Cloud shell.
+The Fibel component showcase is the first external acceptance consumer. Its
+portable pages import `@k2b/ui` directly, while Cloud API integrations remain
+in a visibly separate section. It exercises the package boundary and public
+API ergonomics outside the Cloud shell before the Cloud big-bang migration.
+Neither the showcase nor `packages/ui/fixture` is a browser certification: the
+fixture has an automated server-render and shipped-class check, but it does not
+prove browser hydration or interaction. Treat it as a standalone package and
+SSR smoke test, and see the acceptance sequence in [MIGRATION.md](./MIGRATION.md)
+for the separate browser acceptance gate.
+
+## Verification
+
+```bash
+bun run typecheck          # package sources
+bun run test               # builds the stylesheet first, then runs every suite
+bun run build              # dist/styles.css and the optional font/icon presets
+bun run check:migration    # migration-inventory.json against both UI surfaces
+bun run fixture:typecheck  # standalone consumer fixture
+bun run fixture:build      # standalone SSR build, no Cloud CSS or runtime
+```
+
+Do not use bare `bun test` as the package verification command: several guards
+compare rendered markup with `dist/styles.css`. The fixture render guard rejects
+a missing or stale stylesheet so this mistake fails loudly, but `bun run test`
+is the supported one-step command.
+
+Three contracts are enforced by tests rather than convention, because each one
+regressed silently during the extraction:
+
+- `src/styles/class-contract.test.ts` — the package renders no class its own
+  stylesheet cannot style, renders only `k2b-`-prefixed names, and claims no
+  unprefixed name inside the `.k2b-ui` scope. `styles/entry.css` only
+  `@reference`s Tailwind, so a leftover utility class in markup styles nothing.
+- `src/styles/focus-contract.test.ts` — at most one focus signal per rule, and
+  AI tokens stay inside AI surfaces.
+- Per-group single-ownership tests — a selector may be declared in only one
+  stylesheet. Two partial declarations of the same selector merge into a third
+  geometry matching neither Cloud nor either source.

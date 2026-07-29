@@ -60,21 +60,21 @@ describe("@k2b/ui scaffold SSR", () => {
   });
 
   test("renders semantic status surfaces", () => {
-    const badge = renderToString(() => createComponent(StatusBadge, { tone: "success", dot: true, children: "Healthy" }));
+    const badge = renderToString(() => createComponent(StatusBadge, { tone: "ok", variant: "dot", label: "Healthy" }));
     const progress = renderToString(() => createComponent(ProgressBar, { label: "Readiness", value: 42 }));
     const notice = renderToString(() =>
       createComponent(NoticeCard, {
         title: "Package boundary",
-        tone: "danger",
-        children: "No Cloud dependency.",
+        tone: "error",
+        detail: "No Cloud dependency.",
       }),
     );
 
-    expect(badge).toContain('data-tone="success"');
+    expect(badge).toContain('data-tone="ok"');
     expect(badge).toContain("Healthy");
     expect(progress).toContain('role="progressbar"');
     expect(progress).toContain('aria-valuenow="42"');
-    expect(notice).toContain('role="alert"');
+    expect(notice).toContain('data-tone="error"');
     expect(notice).toContain("No Cloud dependency.");
   });
 
@@ -83,6 +83,7 @@ describe("@k2b/ui scaffold SSR", () => {
       createComponent(AppOverview, {
         title: "Operations",
         subtitle: "Generic overview",
+        icon: "ti ti-activity",
         get children() {
           return createComponent(AppOverview.Main, {
             title: "Runtime",
@@ -110,7 +111,7 @@ describe("@k2b/ui scaffold SSR", () => {
 
     expect(html).toContain("k2b-app-overview__main");
     expect(html).toContain("k2b-data-panel");
-    expect(html).toContain("--k2b-stat-columns:2");
+    expect(html).toContain('data-columns="2"');
     expect(html).toContain("Requests");
   });
 
@@ -127,7 +128,7 @@ describe("@k2b/ui scaffold SSR", () => {
         title: "Health",
         get children() {
           return [
-            createComponent(WidgetStatus, { title: "Operational", tone: "success" }),
+            createComponent(WidgetStatus, { title: "Operational", tone: "ok" }),
             createComponent(WidgetStat, { label: "Checks", value: 42 }),
           ];
         },
@@ -142,9 +143,9 @@ describe("@k2b/ui scaffold SSR", () => {
   });
 
   test("renders code content on the server", () => {
-    const code = renderToString(() => createComponent(CodeDisplay, { code: "SELECT 1", language: "sql" }));
+    const code = renderToString(() => createComponent(CodeDisplay, { code: "const value = 1", language: "ts" }));
 
-    expect(code).toContain("hl-keyword");
+    expect(code).toContain("cd-k");
   });
 
   test("renders URL-first pagination", () => {
@@ -152,7 +153,7 @@ describe("@k2b/ui scaffold SSR", () => {
       createComponent(Pagination, {
         currentPage: 2,
         totalPages: 5,
-        href: (page) => `?page=${page}`,
+        baseUrl: "?page=",
       }),
     );
 
@@ -160,8 +161,11 @@ describe("@k2b/ui scaffold SSR", () => {
     expect(pagination).toContain("?page=3");
   });
 
-  test("makes toast calls SSR-safe", () => {
+  test("returns a no-op toast handle without a DOM", () => {
+    expect(globalThis.document).toBeUndefined();
     const handle = toast.success("Saved");
+    expect(typeof handle.update).toBe("function");
+    expect(typeof handle.dismiss).toBe("function");
     expect(() => handle.update("Updated")).not.toThrow();
     expect(() => handle.dismiss()).not.toThrow();
   });

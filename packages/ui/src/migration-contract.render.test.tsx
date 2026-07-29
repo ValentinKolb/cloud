@@ -185,10 +185,16 @@ describe("@k2b/ui complete Cloud UI migrations", () => {
     expect(panelDialogWorkspaceOptions.panelClassName).toContain("is-workspace");
   });
 
-  test("validates and resets the complete prompt form state", () => {
+  test("uses required and custom prompt validation and resets form state", () => {
     createRoot((dispose) => {
       const state = createFormState({
-        name: { type: "text", required: true, minLength: 3, default: "Ada" },
+        name: {
+          type: "text",
+          required: true,
+          minLength: 3,
+          default: "Ada",
+          validate: (value: string | undefined) => (value === "x" ? "choose another name" : null),
+        },
         count: { type: "number", min: 1, max: 5, default: 2 },
         pin: { type: "pin", length: 4, default: "12" },
         tags: { type: "tags", minTags: 2, maxTags: 3, default: ["ui", "solid"] },
@@ -196,12 +202,12 @@ describe("@k2b/ui complete Cloud UI migrations", () => {
         note: { type: "info", content: "Not part of the result." },
       } as const);
 
-      expect(state.validateAll()).toBe(false);
-      expect(state.errors.pin).toBe("enter 4 digits");
+      expect(state.validateAll()).toBe(true);
+      expect(state.errors.pin).toBeUndefined();
       state.updateField("pin", "1234");
       expect(state.validateAll()).toBe(true);
       state.updateField("name", "x");
-      expect(state.errors.name).toBe("minimum 3 characters");
+      expect(state.errors.name).toBe("choose another name");
       state.reset();
       expect(state.values.name).toBe("Ada");
       expect(state.values.pin).toBe("12");
@@ -210,8 +216,11 @@ describe("@k2b/ui complete Cloud UI migrations", () => {
     });
   });
 
-  test("keeps toast entry points inert during SSR", () => {
+  test("returns no-op toast handles without a DOM", () => {
+    expect(globalThis.document).toBeUndefined();
     const handle = toast.success("Saved", { duration: 0 });
+    expect(typeof handle.update).toBe("function");
+    expect(typeof handle.dismiss).toBe("function");
     expect(() => handle.update("Done", { variant: "error" })).not.toThrow();
     expect(() => handle.dismiss()).not.toThrow();
     expect(() => toast.dismissAll()).not.toThrow();

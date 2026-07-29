@@ -1,0 +1,142 @@
+import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
+import {
+  focusSignalCount,
+  isFocusSelector,
+  readShippedCssRules,
+  shippedStyleFiles,
+} from "./css-contract-test-helpers";
+
+const stylesDir = import.meta.dir;
+const rules = readShippedCssRules(stylesDir);
+
+describe("@k2b/ui focus and color contract", () => {
+  test("uses a clear general focus color in light and dark themes", async () => {
+    const css = await Bun.file(resolve(stylesDir, "index.css")).text();
+
+    expect(css).toContain("--k2b-focus-ring: var(--k2b-accent-500);");
+    expect(css).toContain("--k2b-focus-ring: var(--k2b-accent-400);");
+  });
+
+  test("renders at most one focus signal per focused selector", () => {
+    const focused = rules.filter((rule) => isFocusSelector(rule.selector));
+    const grouped = new Map<string, typeof focused>();
+    for (const rule of focused) {
+      const key = `${rule.context}||${rule.selector}`;
+      grouped.set(key, [...(grouped.get(key) ?? []), rule]);
+    }
+    const signaled = [...grouped.values()].filter((group) => focusSignalCount(group.map((rule) => rule.body).join(";")) > 0);
+    const divergent = signaled
+      .filter((group) => focusSignalCount(group.map((rule) => rule.body).join(";")) > 1)
+      .map((group) => group.map((rule) => `${rule.file}: ${rule.selector}`).join(" + "));
+
+    expect(shippedStyleFiles(stylesDir)).toEqual([
+      "index.css",
+      "feedback-parity.css",
+      "layout-parity.css",
+      "surfaces-widgets-parity.css",
+      "content-parity.css",
+      "editors-parity.css",
+    ]);
+    expect(focused.length).toBeGreaterThan(0);
+    expect(signaled.length).toBeGreaterThan(0);
+    expect(divergent).toEqual([]);
+  });
+
+  test("recognizes literal and token-based focus signals after stripping comments", () => {
+    expect(focusSignalCount("border-color: var(--k2b-focus-ring); outline: 2px solid #6366f1")).toBe(2);
+    expect(focusSignalCount("/* outline: 2px solid red */ border-color: var(--k2b-focus-ring)")).toBe(1);
+    expect(isFocusSelector(".k2b-field[data-focused=true]")).toBe(true);
+    expect(isFocusSelector(".k2b-field.is-focused")).toBe(true);
+  });
+
+  test("keeps shared fields aligned with Cloud's filled field contract", async () => {
+    const css = await Bun.file(resolve(stylesDir, "index.css")).text();
+    const shared = [
+      ".k2b-ui .k2b-input-shell",
+      ".k2b-ui .k2b-choice-trigger",
+      ".k2b-ui .k2b-multi-select-trigger",
+      ".k2b-ui .k2b-combobox__input",
+      ".k2b-ui .k2b-tags-input",
+      ".k2b-ui .k2b-date-trigger",
+      ".k2b-ui .k2b-color-input__value",
+    ];
+    expect(css).toContain("--k2b-focus-inset: inset 0 0 0 2px");
+    for (const selector of shared) {
+      const body = rules.filter((rule) => rule.selector === selector).map((rule) => rule.body).join("\n");
+      expect(body, selector).toMatch(/min-height:\s*2\.25rem/);
+      expect(body, selector).toMatch(/border:\s*1px solid transparent/);
+      expect(body, selector).toMatch(/background:\s*var\(--k2b-surface-muted\)/);
+    }
+    expect(css).not.toContain(".k2b-select-shell");
+    expect(css).toMatch(
+      /\.k2b-ui \.k2b-input\s*\{[^}]*padding:\s*0\.375rem 0\.5rem;[^}]*font-size:\s*0\.875rem;[^}]*line-height:\s*1\.25rem;/s,
+    );
+  });
+
+  test("keeps AI theme tokens inside AI and chat components", () => {
+    // The AI palette may only be spent where a selector says it is an AI
+    // surface: the `.k2b-ai-*` / `.k2b-chat-*` families, or a component class
+    // whose own name opts in with an `-ai` suffix (e.g. the settings save bar's
+    // `saveClass: "btn-ai"` variant). Anything else would bleed the AI accent
+    // into general chrome.
+    const leaked = rules
+      .filter((rule) => rule.body.includes("var(--k2b-ai-"))
+      .filter((rule) => !/\.k2b-(?:ai|chat)-|\.k2b-[\w-]*-ai(?![\w-])/.test(rule.selector))
+      .map((rule) => `${rule.file}: ${rule.selector}`);
+
+    expect(leaked).toEqual([]);
+  });
+
+  test("removes native focus chrome from controls inside compound focus shells", () => {
+    const controlledEditors = [
+      ".k2b-ui .k2b-input",
+      ".k2b-ui .k2b-autocomplete__input",
+      ".k2b-ui .k2b-markdown-editor__input",
+      ".k2b-ui .k2b-combobox__input > input",
+      ".k2b-ui .k2b-tags-input > [contenteditable]",
+      ".k2b-ui .k2b-chat-composer__input textarea",
+    ];
+
+    for (const selector of controlledEditors) {
+      const editableCss = rules
+        .filter((rule) => rule.selector.split(",").map((part) => part.trim()).includes(selector))
+        .map((rule) => rule.body)
+        .join("\n");
+      expect(editableCss, selector).toMatch(/border:\s*0(?:\s*!important)?/);
+      expect(editableCss, selector).toMatch(/outline:\s*(?:0|none)(?:\s*!important)?/);
+    }
+  });
+
+  test("keeps the tags editor geometry stable while its markup changes on focus", () => {
+    const selector = ".k2b-ui .k2b-tags-input > [contenteditable]";
+    const editableCss = rules
+      .filter((rule) => rule.selector.split(",").map((part) => part.trim()).includes(selector))
+      .map((rule) => rule.body)
+      .join("\n");
+
+    expect(editableCss).toMatch(/box-sizing:\s*border-box/);
+    expect(editableCss).toMatch(/height:\s*2rem/);
+    expect(editableCss).toMatch(/overflow:\s*hidden/);
+    expect(editableCss).toMatch(/white-space:\s*nowrap/);
+  });
+
+  test("lets autocomplete popovers apply their measured viewport position", () => {
+    const selector = ".k2b-ui .k2b-autocomplete__options";
+    const popoverCss = rules
+      .filter((rule) => rule.selector.split(",").map((part) => part.trim()).includes(selector))
+      .map((rule) => rule.body)
+      .join("\n");
+
+    expect(popoverCss).toMatch(/position:\s*fixed/);
+    expect(popoverCss).toMatch(/inset:\s*unset/);
+    expect(popoverCss).not.toMatch(/inset:\s*(?:auto|unset)\s*!important/);
+  });
+
+  test("uses a surface change instead of a decorative active-pane underline", async () => {
+    const css = await Bun.file(resolve(stylesDir, "index.css")).text();
+
+    expect(css).not.toContain(".k2b-ui .k2b-panes__tab::after");
+    expect(css).not.toContain(".k2b-ui .k2b-panes__tab[data-active=\"true\"]::after");
+  });
+});
