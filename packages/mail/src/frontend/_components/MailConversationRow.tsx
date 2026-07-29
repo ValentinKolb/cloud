@@ -65,6 +65,7 @@ export default function MailConversationRow(props: {
       class="mail-list-entry group relative"
       classList={{
         "mail-list-entry-active": selected(),
+        "mail-list-entry-unread": props.item.unread,
         "mail-list-entry-selected": bulkSelected(),
         "mail-list-entry-selection-mode": props.state.selectionMode,
       }}
@@ -154,7 +155,13 @@ export default function MailConversationRow(props: {
               </Tooltip>
             </Show>
           </span>
-          <span class="mail-list-primary-text min-w-0 truncate text-xs font-medium">
+          <span
+            class="mail-list-primary-text min-w-0 truncate text-xs"
+            classList={{
+              "font-semibold": props.item.unread,
+              "font-medium": !props.item.unread,
+            }}
+          >
             <Show when={props.item.primaryReference}>
               <span class="mr-1 font-mono text-[0.6875rem] text-dimmed">{props.item.primaryReference}</span>
             </Show>
