@@ -198,7 +198,7 @@ function MailRuleConditionsEditor(props: {
           </div>
         )}
       </For>
-      <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <Show when={props.conditions.items.length < 8}>
           <button
             type="button"
@@ -210,7 +210,7 @@ function MailRuleConditionsEditor(props: {
           </button>
         </Show>
         <Show when={props.conditions.items.length > 1}>
-          <div class="ml-auto w-56">
+          <div class="w-56">
             <Select
               ariaLabel="Match conditions"
               value={() => props.conditions.mode}
