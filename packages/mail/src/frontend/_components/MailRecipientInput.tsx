@@ -163,7 +163,7 @@ export default function MailRecipientInput(props: {
   return (
     <div class="relative min-w-0">
       <div
-        class="input mail-recipient-input flex min-h-[var(--ui-control-md)] w-full flex-wrap items-center gap-1 px-2 py-1"
+        class="input no-scrollbar mail-recipient-input flex h-[var(--ui-control-md)] w-full flex-nowrap items-center gap-1 overflow-x-auto overflow-y-hidden px-2 py-1"
         data-editing={editingIndex() === null ? undefined : "true"}
       >
         <i class="ti ti-at shrink-0 text-dimmed" aria-hidden="true" />
@@ -172,7 +172,7 @@ export default function MailRecipientInput(props: {
             <Show
               when={editingIndex() === index()}
               fallback={
-                <span class="chip mail-recipient-pill-shell h-7 max-w-56 py-0">
+                <span class="chip mail-recipient-pill-shell h-7 max-w-56 shrink-0 py-0">
                   <button
                     ref={(element) => {
                       pillButtons[index()] = element;

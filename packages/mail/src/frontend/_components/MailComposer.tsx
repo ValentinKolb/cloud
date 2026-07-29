@@ -1,5 +1,16 @@
 import { navigateTo } from "@k2b/ssr/nav";
-import { CheckboxCard, type Completion, type PanesValue, prompts, Select, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
+import {
+  CheckboxCard,
+  type Completion,
+  Dropdown,
+  type DropdownItem,
+  type PanesValue,
+  prompts,
+  Select,
+  TextInput,
+  Tooltip,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -79,6 +90,13 @@ export default function MailComposer(props: {
   const preferences = readMailUserPreferences(props.mailboxId);
   const [identityId, setIdentityId] = createSignal(initialContent.senderIdentityId);
   const selectedIdentity = () => verifiedIdentities().find((identity) => identity.id === identityId()) ?? null;
+  const identityMenuItems = createMemo<DropdownItem[]>(() =>
+    verifiedIdentities().map((identity) => ({
+      icon: identity.id === identityId() ? "ti ti-check" : "ti ti-user",
+      label: `${identity.label} · ${identity.fromAddress}`,
+      action: () => setIdentityId(identity.id),
+    })),
+  );
   const [to, setTo] = createSignal(formatMailRecipients(initialContent.to));
   const [cc, setCc] = createSignal(formatMailRecipients(initialContent.cc));
   const [bcc, setBcc] = createSignal(formatMailRecipients(initialContent.bcc));
@@ -176,6 +194,7 @@ export default function MailComposer(props: {
     stopHeartbeat,
     acquireLease,
     releaseLease,
+    releaseLeaseOnExit,
     resumeCurrentLease,
     hasUnsavedChanges,
   } = draftSession;
@@ -626,38 +645,62 @@ export default function MailComposer(props: {
 
   const draftHref = (draftId: string, popout = false) => mailDraftHref(props.mailboxId, draftId, props.returnHref, { popout });
 
-  const handoffTo = async (href: string | ((draftId: string) => string), popup?: Window): Promise<void> => {
+  const leaveComposer = async (): Promise<void> => {
     if (uploads().length > 0) {
-      popup?.close();
+      await prompts.error("Finish or cancel attachment uploads before closing this draft.");
+      return;
+    }
+    const reservation = composerTransition.reserve("handoff");
+    if (!reservation) return;
+    stopScheduledSave();
+    try {
+      if (!draft() && !hasUnsavedChanges()) {
+        clearInitialSeed();
+        navigateTo(props.returnHref);
+        return;
+      }
+      if (draft() && !lease()) {
+        navigateTo(props.returnHref);
+        return;
+      }
+      const currentDraft = await persist();
+      if (disposed) return;
+      if (!currentDraft) throw new Error(statusMessage());
+      try {
+        await releaseLease(currentDraft);
+      } catch {
+        await releaseLeaseOnExit();
+      }
+      if (!disposed) navigateTo(props.returnHref);
+    } catch (error) {
+      if (!disposed) await prompts.error(error instanceof Error ? error.message : "Could not close the draft");
+    } finally {
+      composerTransition.release(reservation);
+    }
+  };
+
+  const handoffTo = async (href: (draftId: string) => string, popup: Window): Promise<void> => {
+    if (uploads().length > 0) {
+      popup.close();
       await prompts.error("Finish or cancel attachment uploads before moving this draft.");
       return;
     }
     const reservation = composerTransition.reserve("handoff");
-    if (!reservation) return void popup?.close();
+    if (!reservation) return void popup.close();
     stopScheduledSave();
     let releasedDraft: MailDraft | null = null;
     try {
-      if (!draft() && !hasUnsavedChanges() && typeof href === "string") {
-        clearInitialSeed();
-        navigateTo(href);
-        return;
-      }
       const currentDraft = await persist();
-      if (disposed) return void popup?.close();
+      if (disposed) return void popup.close();
       if (!currentDraft) throw new Error(statusMessage());
       await releaseLease(currentDraft);
-      if (disposed) return void popup?.close();
+      if (disposed) return void popup.close();
       releasedDraft = currentDraft;
-      const target = typeof href === "function" ? href(currentDraft.id) : href;
-      if (popup) {
-        popup.name = `mail-draft-${currentDraft.id}`;
-        popup.location.replace(target);
-        navigateTo(props.returnHref);
-        return;
-      }
-      navigateTo(target);
+      popup.name = `mail-draft-${currentDraft.id}`;
+      popup.location.replace(href(currentDraft.id));
+      navigateTo(props.returnHref);
     } catch (error) {
-      popup?.close();
+      popup.close();
       if (disposed) return;
       if (releasedDraft && !disposed) {
         try {
@@ -702,6 +745,46 @@ export default function MailComposer(props: {
 
   const composerIntent = () => draft()?.intent ?? initial.intent;
   const retryPreview = () => setPreviewRevision((revision) => revision + 1);
+  const IdentitySwitcher = () => {
+    const label = () => selectedIdentity()?.label ?? "Choose sender";
+    const address = () => selectedIdentity()?.fromAddress ?? "";
+    const Content = () => (
+      <>
+        <span class="shrink-0 text-dimmed">from</span>
+        <span class="min-w-0 truncate font-medium text-secondary" title={address()}>
+          {label()}
+        </span>
+      </>
+    );
+
+    return (
+      <Show
+        when={verifiedIdentities().length > 1}
+        fallback={
+          <span class="flex min-w-0 items-center gap-1.5">
+            <Content />
+          </span>
+        }
+      >
+        <Dropdown
+          position="bottom-right"
+          width="w-72"
+          elements={identityMenuItems()}
+          trigger={
+            <button
+              type="button"
+              class="focus-ui flex max-w-[min(18rem,45vw)] min-w-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] px-1.5 py-1 text-sm hover:bg-[var(--ui-hover)] disabled:cursor-default"
+              aria-label={`Change sender identity. Current sender: ${label()}${address() ? `, ${address()}` : ""}`}
+              disabled={!editable()}
+            >
+              <Content />
+              <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" aria-hidden="true" />
+            </button>
+          }
+        />
+      </Show>
+    );
+  };
 
   const slashCompletion = createMemo<Completion[]>(() => [
     {
@@ -746,12 +829,14 @@ export default function MailComposer(props: {
               class="icon-btn"
               aria-label="Back to mailbox"
               disabled={composerTransition.active() !== null}
-              onClick={() => void handoffTo(props.returnHref)}
+              onClick={() => void leaveComposer()}
             >
               <i class="ti ti-arrow-left" aria-hidden="true" />
             </button>
           </Tooltip>
-          <span class="min-w-0 flex-1 truncate text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
+          <span class="shrink-0 text-sm font-semibold text-primary">{intentLabel(composerIntent())}</span>
+          <IdentitySwitcher />
+          <span class="min-w-0 flex-1" />
           <Show when={status() === "error" || status() === "readonly"}>
             <span class="min-w-0 truncate text-xs text-red-600 dark:text-red-300" role="status">
               {statusMessage()}
@@ -798,25 +883,15 @@ export default function MailComposer(props: {
         </div>
       </Show>
 
+      <Show when={props.popout}>
+        <div class="flex shrink-0 items-center bg-[var(--ui-surface-subtle)] px-3 py-1.5">
+          <IdentitySwitcher />
+        </div>
+      </Show>
+
       <div class="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-3">
         <div class="grid shrink-0 gap-1.5 py-1.5 text-sm lg:grid-cols-2">
-          <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2">
-            <span class="text-dimmed">From</span>
-            <Select
-              placeholder="Choose identity"
-              value={identityId}
-              onChange={(value) => {
-                setIdentityId(value);
-              }}
-              options={verifiedIdentities().map((identity) => ({
-                id: identity.id,
-                label: identity.label,
-                description: `${identity.displayName ? `${identity.displayName} · ` : ""}${identity.fromAddress}`,
-              }))}
-              disabled={!editable()}
-            />
-          </div>
-          <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2">
+          <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-2 lg:col-span-2">
             <span class="text-dimmed">To</span>
             <div class="flex min-w-0 items-center gap-2">
               <div class="min-w-0 flex-1">
