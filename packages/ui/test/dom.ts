@@ -17,6 +17,7 @@ const globalBindings = (window: Window): Record<string, unknown> => ({
   Node: window.Node,
   Element: window.Element,
   HTMLElement: window.HTMLElement,
+  HTMLHeadElement: window.HTMLHeadElement,
   SVGElement: window.SVGElement,
   DocumentFragment: window.DocumentFragment,
   Event: window.Event,

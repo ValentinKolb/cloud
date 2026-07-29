@@ -1,257 +1,315 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import Placeholder from "../surfaces/Placeholder";
 
-export type DataTableAlign = "left" | "center" | "right";
-export type DataTableSort = { key: string; direction: "asc" | "desc" };
 export type DataTableColumn<T> = {
   id: string;
-  header: JSX.Element | ((column: DataTableColumn<T>) => JSX.Element);
-  subtitle?: JSX.Element | ((column: DataTableColumn<T>) => JSX.Element);
+  header: JSX.Element | ((ctx: { col: DataTableColumn<T> }) => JSX.Element);
+  subtitle?: JSX.Element | ((ctx: { col: DataTableColumn<T> }) => JSX.Element);
   value?: keyof T | ((row: T) => unknown);
-  align?: DataTableAlign;
-  sortable?: boolean | string;
   class?: string;
   headerClass?: string;
   cellClass?: string;
+  /** Defaults to right for numeric values and left for everything else. */
+  align?: "left" | "center" | "right";
+  /**
+   * Marks the column sortable. Pass a string when the server's sort key
+   * differs from the column id — they often do, because one column can show a
+   * rate while another sorts by the absolute count behind it.
+   */
+  sortable?: boolean | string;
 };
+
+export type DataTableSort = { key: string; direction: "asc" | "desc" };
+
+export type DataTableRenderCell<T> = (ctx: {
+  row: T;
+  col: DataTableColumn<T>;
+  value: unknown;
+  render: (value: unknown) => JSX.Element;
+}) => JSX.Element;
+
+export type DataTableRenderHeader<T> = (ctx: { col: DataTableColumn<T>; render: () => JSX.Element }) => JSX.Element;
 
 export type DataTableFooter<T> = {
   values?: Record<string, unknown>;
-  renderCell?: (context: {
-    column: DataTableColumn<T>;
-    value: unknown;
-    render: (value: unknown) => JSX.Element;
-  }) => JSX.Element;
+  renderCell?: (ctx: { col: DataTableColumn<T>; value: unknown; render: (value: unknown) => JSX.Element }) => JSX.Element;
 };
 
 export type DataTableProps<T> = {
   rows: readonly T[];
   columns: readonly DataTableColumn<T>[];
   getRowId?: (row: T) => string;
+  /** Current server-side ordering, or null when the default applies. */
   sort?: DataTableSort | null;
-  sortHref?: (sort: DataTableSort) => string;
-  onSort?: (sort: DataTableSort) => void;
+  /**
+   * Link target for a sortable header. Link-based because every admin table is
+   * server-rendered: sorting is a query change, not client state.
+   */
+  sortHref?: (next: DataTableSort) => string;
   selectedRowId?: string | null;
+  rowClass?: string | ((row: T) => string | undefined);
+  hoverRows?: boolean;
   onRowClick?: (row: T) => void;
   onRowDoubleClick?: (row: T) => void;
-  rowClass?: string | ((row: T) => string | undefined);
-  renderCell?: (context: {
-    row: T;
-    column: DataTableColumn<T>;
-    value: unknown;
-    render: (value: unknown) => JSX.Element;
-  }) => JSX.Element;
-  renderHeader?: (context: {
-    column: DataTableColumn<T>;
-    render: () => JSX.Element;
-  }) => JSX.Element;
-  empty?: JSX.Element;
+  renderCell?: DataTableRenderCell<T>;
+  renderHeader?: DataTableRenderHeader<T>;
   footer?: DataTableFooter<T>;
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  empty?: JSX.Element;
   density?: "compact" | "normal";
   stickyHeader?: boolean;
-  stickyFooter?: boolean;
-  hoverRows?: boolean;
   highlightColumns?: boolean;
   verticalAlign?: "top" | "middle" | "bottom";
+  cellContentClass?: string;
   fillHeight?: boolean;
-  ariaLabel?: string;
   class?: string;
   tableClass?: string;
+  scrollPreserveKey?: string | false;
 };
 
-export const renderDataTableValue = (value: unknown): JSX.Element => {
-  if (value === null || value === undefined || value === "") {
-    return (
-      <span>
-        <span class="k2b-visually-hidden">No value</span>—
-      </span>
-    );
-  }
+const defaultRender = (value: unknown): JSX.Element => {
+  if (value === null || value === undefined || value === "") return "—";
   if (value instanceof Date) return value.toLocaleString();
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number" || typeof value === "bigint" || typeof value === "string") return String(value);
+  if (typeof value === "number" || typeof value === "bigint") return String(value);
+  if (typeof value === "string") return value;
   return JSON.stringify(value);
 };
 
-const columnPart = <T,>(
+const renderColumnPart = <T,>(
   part: DataTableColumn<T>["header"] | DataTableColumn<T>["subtitle"],
-  column: DataTableColumn<T>,
-): JSX.Element => (typeof part === "function" ? part(column) : part);
+  col: DataTableColumn<T>,
+): JSX.Element => {
+  if (typeof part === "function") return part({ col });
+  return part;
+};
 
-export function DataTable<T>(props: DataTableProps<T>): JSX.Element {
-  let scrollRoot: HTMLDivElement | undefined;
-  let loadMoreTarget: HTMLDivElement | undefined;
-  let canLoadMore = false;
-  let loadingMore = false;
-  let loadMore: (() => void) | undefined;
+const rowInteractiveSelector = [
+  "a[href]",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "summary",
+  "[contenteditable]",
+  "[role='button']",
+  "[role='checkbox']",
+  "[role='link']",
+  "[role='menuitem']",
+  "[role='option']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='tab']",
+  "[tabindex]",
+].join(",");
+
+const isNestedRowControl = (event: Event): boolean =>
+  event.target instanceof Element &&
+  event.target.closest(rowInteractiveSelector) !== event.currentTarget;
+
+export default function DataTable<T>(props: DataTableProps<T>) {
   const [hoveredColumn, setHoveredColumn] = createSignal<number | null>(null);
-  const interactiveRows = () => !!props.onRowClick || !!props.onRowDoubleClick;
-  const hoverRows = () => props.hoverRows ?? interactiveRows();
-  const valueOf = (row: T, column: DataTableColumn<T>) =>
-    typeof column.value === "function" ? column.value(row) : column.value ? row[column.value] : undefined;
-  const alignment = (column: DataTableColumn<T>): DataTableAlign => {
-    if (column.align) return column.align;
-    const first = props.rows.map((row) => valueOf(row, column)).find((value) => value !== null && value !== undefined && value !== "");
-    return typeof first === "number" || typeof first === "bigint" ? "right" : "left";
+  let scrollRef: HTMLDivElement | undefined;
+  let loadMoreRef: HTMLDivElement | undefined;
+  let hasMore = false;
+  let loadingMore = false;
+  let onLoadMore: (() => void) | undefined;
+  const rowId = (row: T) => props.getRowId?.(row);
+  const isInteractive = () => !!props.onRowClick || !!props.onRowDoubleClick;
+  const shouldHoverRows = () => props.hoverRows ?? isInteractive();
+  const shouldRenderLoadMoreSentinel = () => !!props.onLoadMore;
+  const cellContentClass = () => props.cellContentClass ?? "k2b-data-table__cell-text";
+  const tableClass = () => props.tableClass ?? "k2b-data-table";
+  const columnHighlighted = (index: number) =>
+    props.highlightColumns !== false && shouldHoverRows() && hoveredColumn() === index ? "true" : undefined;
+  const setHoveredColumnIfEnabled = (index: number) => {
+    if (shouldHoverRows()) setHoveredColumn(index);
   };
-  const sortKey = (column: DataTableColumn<T>) =>
-    column.sortable === true ? column.id : typeof column.sortable === "string" ? column.sortable : null;
-  const nextSort = (column: DataTableColumn<T>): DataTableSort | null => {
-    const key = sortKey(column);
-    if (!key) return null;
-    return { key, direction: props.sort?.key === key && props.sort.direction === "asc" ? "desc" : "asc" };
+
+  const isNearBottom = () => {
+    if (!scrollRef) return false;
+    return scrollRef.scrollTop + scrollRef.clientHeight >= scrollRef.scrollHeight - 240;
   };
-  const ariaSort = (column: DataTableColumn<T>): "ascending" | "descending" | "none" | undefined => {
-    if (!sortKey(column)) return undefined;
-    if (props.sort?.key !== sortKey(column)) return "none";
-    return props.sort.direction === "asc" ? "ascending" : "descending";
+
+  const maybeLoadMore = () => {
+    if (!hasMore || loadingMore || !onLoadMore) return;
+    if (!isNearBottom()) return;
+    onLoadMore();
   };
-  const header = (column: DataTableColumn<T>) => {
-    const content = (
-      <span class="k2b-data-table__header-content">
-        <span>{columnPart(column.header, column)}</span>
-        <Show when={column.subtitle !== undefined}>
-          <small>{columnPart(column.subtitle, column)}</small>
+
+  const valueOf = (row: T, col: DataTableColumn<T>) => {
+    if (typeof col.value === "function") return col.value(row);
+    if (col.value) return row[col.value];
+    return undefined;
+  };
+
+  const columnAlign = (col: DataTableColumn<T>) => {
+    if (col.align) return col.align;
+    for (const row of props.rows) {
+      const value = valueOf(row, col);
+      if (value === null || value === undefined || value === "") continue;
+      return typeof value === "number" || typeof value === "bigint" ? "right" : "left";
+    }
+    return "left";
+  };
+
+  /** `data-align` mirrors Cloud's `text-left/center/right` on the same cell. */
+  const alignAttr = (col: DataTableColumn<T>) => {
+    const align = columnAlign(col);
+    return align === "left" ? undefined : align;
+  };
+
+  const sortKeyOf = (col: DataTableColumn<T>): string | null =>
+    col.sortable === true ? col.id : typeof col.sortable === "string" ? col.sortable : null;
+
+  /**
+   * Sorting is a link, not a handler: these tables are server-rendered, so the
+   * order belongs in the URL. Clicking the active column flips its direction.
+   */
+  const sortLinkFor = (col: DataTableColumn<T>): { href: string; active: boolean; direction: "asc" | "desc" } | null => {
+    const key = sortKeyOf(col);
+    if (!key || !props.sortHref) return null;
+    const active = props.sort?.key === key;
+    const direction: "asc" | "desc" = active && props.sort?.direction === "desc" ? "asc" : "desc";
+    return { href: props.sortHref({ key, direction }), active, direction };
+  };
+
+  /** Only a sortable column carries a sort state; the rest carry none at all. */
+  const ariaSortFor = (col: DataTableColumn<T>): "ascending" | "descending" | "none" | undefined => {
+    const sort = sortLinkFor(col);
+    if (!sort) return undefined;
+    if (!sort.active) return "none";
+    return props.sort?.direction === "asc" ? "ascending" : "descending";
+  };
+
+  const renderHeaderDefault = (col: DataTableColumn<T>): JSX.Element => {
+    const sort = sortLinkFor(col);
+    const title = (
+      <>
+        <span class="k2b-data-table__header-title">{renderColumnPart(col.header, col)}</span>
+        <Show when={col.subtitle !== undefined}>
+          <span class="k2b-data-table__header-subtitle">{renderColumnPart(col.subtitle, col)}</span>
         </Show>
-        <Show when={sortKey(column)}>
+      </>
+    );
+
+    if (!sort)
+      return (
+        <div class="k2b-data-table__header-content" data-align={alignAttr(col)}>
+          {title}
+        </div>
+      );
+
+    return (
+      <a href={sort.href} class="k2b-data-table__header-content k2b-data-table__sort" data-align={alignAttr(col)}>
+        <span class="k2b-data-table__header-line">
+          {title}
+          {/* Inactive columns keep a dimmed marker so the row reads as sortable. */}
           <i
-            class={`ti ${props.sort?.key === sortKey(column) && props.sort.direction === "asc" ? "ti-arrow-up" : "ti-arrow-down"}`}
-            data-active={props.sort?.key === sortKey(column) ? "true" : undefined}
+            class={`k2b-data-table__sort-icon ti ${props.sort?.direction === "asc" && sort.active ? "ti-arrow-up" : "ti-arrow-down"}`}
+            data-active={sort.active ? "true" : undefined}
             aria-hidden="true"
           />
-        </Show>
-      </span>
+        </span>
+      </a>
     );
-    const next = nextSort(column);
-    if (!next) return content;
-    if (props.sortHref) return <a href={props.sortHref(next)}>{content}</a>;
-    if (props.onSort) return <button type="button" onClick={() => props.onSort?.(next)}>{content}</button>;
-    return content;
   };
-  const rowClass = (row: T) => (typeof props.rowClass === "function" ? props.rowClass(row) ?? "" : props.rowClass ?? "");
-  const maybeLoadMore = () => {
-    if (!scrollRoot || !canLoadMore || loadingMore || !loadMore) return;
-    if (scrollRoot.scrollTop + scrollRoot.clientHeight >= scrollRoot.scrollHeight - 240) loadMore();
+
+  const renderCellDefault = (row: T, col: DataTableColumn<T>) => defaultRender(valueOf(row, col));
+
+  const onRowKeyDown = (event: KeyboardEvent, row: T) => {
+    if (!isInteractive()) return;
+    if (isNestedRowControl(event)) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    props.onRowClick?.(row);
+  };
+
+  const onRowClick = (event: MouseEvent, row: T) => {
+    if (isNestedRowControl(event)) return;
+    props.onRowClick?.(row);
+  };
+
+  const onRowDoubleClick = (event: MouseEvent, row: T) => {
+    if (isNestedRowControl(event)) return;
+    props.onRowDoubleClick?.(row);
+  };
+
+  const rowClass = (row: T) => {
+    if (typeof props.rowClass === "function") return props.rowClass(row) ?? "";
+    return props.rowClass ?? "";
   };
 
   onMount(() => {
-    if (typeof IntersectionObserver === "undefined" || !scrollRoot || !loadMoreTarget) return;
-    const observer = new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && maybeLoadMore(), {
-      root: scrollRoot,
-      rootMargin: "240px",
-    });
-    observer.observe(loadMoreTarget);
+    if (typeof IntersectionObserver === "undefined" || !scrollRef || !loadMoreRef) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) maybeLoadMore();
+      },
+      { root: scrollRef, rootMargin: "240px" },
+    );
+    observer.observe(loadMoreRef);
     onCleanup(() => observer.disconnect());
   });
+
   createEffect(() => {
     props.rows.length;
-    canLoadMore = !!props.hasMore;
+    hasMore = !!props.hasMore;
     loadingMore = !!props.loadingMore;
-    loadMore = props.onLoadMore;
+    onLoadMore = props.onLoadMore;
     maybeLoadMore();
   });
 
   return (
-    <Show
-      when={props.columns.length > 0}
-      fallback={<div class="k2b-data-table__empty" role="status">No columns</div>}
-    >
+    <Show when={props.columns.length > 0} fallback={<Placeholder surface="paper">No columns.</Placeholder>}>
       <div
-        ref={scrollRoot}
-        class={`k2b-table-wrap ${props.class ?? ""}`}
-        data-density={props.density ?? "normal"}
+        ref={scrollRef}
         role="region"
-        aria-label={props.ariaLabel ?? "Data table"}
+        aria-label="Data table"
+        class={`k2b-table-wrap ${props.class ?? ""}`}
+        data-density={props.density === "compact" ? "compact" : undefined}
+        data-surface={props.class ? undefined : "paper"}
+        data-scroll-preserve={props.scrollPreserveKey || undefined}
         onScroll={maybeLoadMore}
         onMouseLeave={() => setHoveredColumn(null)}
       >
-        <table class={`k2b-data-table ${props.tableClass ?? ""}`} data-fill={props.fillHeight ? "true" : undefined}>
-          <thead data-sticky={props.stickyHeader === false ? undefined : "true"}>
-            <tr>
+        <table class={tableClass()} data-fill={props.fillHeight ? "true" : undefined}>
+          <thead class="k2b-data-table__head" data-sticky={props.stickyHeader === false ? undefined : "true"}>
+            <tr class="k2b-data-table__head-row">
               <For each={props.columns}>
-                {(column, index) => (
+                {(col, index) => (
                   <th
-                    scope="col"
-                    class={`${column.headerClass ?? ""} ${column.class ?? ""}`}
-                    data-align={alignment(column)}
-                    data-highlighted={props.highlightColumns && hoveredColumn() === index() ? "true" : undefined}
-                    aria-sort={ariaSort(column)}
-                    onMouseEnter={() => props.highlightColumns && setHoveredColumn(index())}
+                    class={`${col.headerClass ?? ""} ${col.class ?? ""}`}
+                    data-align={alignAttr(col)}
+                    data-highlighted={columnHighlighted(index())}
+                    aria-sort={ariaSortFor(col)}
+                    onMouseEnter={() => setHoveredColumnIfEnabled(index())}
                   >
-                    {props.renderHeader?.({ column, render: () => header(column) }) ?? header(column)}
+                    {props.renderHeader ? props.renderHeader({ col, render: () => renderHeaderDefault(col) }) : renderHeaderDefault(col)}
                   </th>
                 )}
               </For>
             </tr>
           </thead>
-          <tbody>
-            <For
-              each={props.rows}
-              fallback={
-                <tr>
-                  <td class="k2b-data-table__empty" colspan={props.columns.length}>{props.empty ?? "No records"}</td>
-                </tr>
-              }
-            >
-              {(row) => {
-                const id = () => props.getRowId?.(row);
-                return (
-                  <tr
-                    class={rowClass(row)}
-                    data-selected={id() && props.selectedRowId === id() ? "true" : undefined}
-                    data-clickable={interactiveRows() ? "true" : undefined}
-                    data-hover={hoverRows() ? "true" : undefined}
-                    tabindex={interactiveRows() ? 0 : undefined}
-                    onClick={() => props.onRowClick?.(row)}
-                    onDblClick={() => props.onRowDoubleClick?.(row)}
-                    onKeyDown={(event) => {
-                      if (!interactiveRows() || (event.key !== "Enter" && event.key !== " ")) return;
-                      event.preventDefault();
-                      props.onRowClick?.(row);
-                    }}
-                  >
-                    <For each={props.columns}>
-                      {(column, index) => {
-                        const value = () => valueOf(row, column);
-                        return (
-                          <td
-                            class={`${column.cellClass ?? ""} ${column.class ?? ""}`}
-                            data-align={alignment(column)}
-                            data-valign={props.verticalAlign ?? "middle"}
-                            data-highlighted={props.highlightColumns && hoveredColumn() === index() ? "true" : undefined}
-                            onMouseEnter={() => props.highlightColumns && setHoveredColumn(index())}
-                          >
-                            {props.renderCell?.({
-                              row,
-                              column,
-                              value: value(),
-                              render: renderDataTableValue,
-                            }) ?? renderDataTableValue(value())}
-                          </td>
-                        );
-                      }}
-                    </For>
-                  </tr>
-                );
-              }}
-            </For>
-            <Show when={props.fillHeight && props.rows.length > 0}>
-              <tr aria-hidden="true"><td class="k2b-data-table__fill" colspan={props.columns.length} /></tr>
-            </Show>
-          </tbody>
           <Show when={props.footer}>
             {(footer) => (
-              <tfoot data-sticky={props.stickyFooter ? "true" : undefined}>
-                <tr>
+              <tfoot class="k2b-data-table__foot" data-sticky="true">
+                <tr class="k2b-data-table__foot-row">
                   <For each={props.columns}>
-                    {(column) => {
-                      const value = () => footer().values?.[column.id];
+                    {(col, index) => {
+                      const value = () => footer().values?.[col.id];
                       return (
-                        <td data-align={alignment(column)}>
-                          {footer().renderCell?.({ column, value: value(), render: renderDataTableValue }) ??
-                            renderDataTableValue(value())}
+                        <td
+                          class="k2b-data-table__footer-cell"
+                          data-align={alignAttr(col)}
+                          data-highlighted={columnHighlighted(index())}
+                          onMouseEnter={() => setHoveredColumnIfEnabled(index())}
+                        >
+                          {footer().renderCell
+                            ? footer().renderCell!({ col, value: value(), render: defaultRender })
+                            : defaultRender(value())}
                         </td>
                       );
                     }}
@@ -260,12 +318,71 @@ export function DataTable<T>(props: DataTableProps<T>): JSX.Element {
               </tfoot>
             )}
           </Show>
+          <tbody>
+            <Show
+              when={props.rows.length > 0}
+              fallback={
+                <tr>
+                  <td class="k2b-data-table__empty" colspan={props.columns.length}>
+                    <Placeholder>{props.empty ?? "No records"}</Placeholder>
+                  </td>
+                </tr>
+              }
+            >
+              <For each={props.rows}>
+                {(row) => {
+                  const id = () => rowId(row);
+                  const isSelected = () => props.selectedRowId && id() === props.selectedRowId;
+                  return (
+                    <tr
+                      class={`k2b-data-table__row ${rowClass(row)}`}
+                      data-hover={shouldHoverRows() ? "true" : undefined}
+                      data-clickable={shouldHoverRows() && isInteractive() ? "true" : undefined}
+                      data-selected={isSelected() ? "true" : undefined}
+                      tabIndex={isInteractive() ? 0 : undefined}
+                      onClick={(event) => onRowClick(event, row)}
+                      onDblClick={(event) => onRowDoubleClick(event, row)}
+                      onKeyDown={(e) => onRowKeyDown(e, row)}
+                    >
+                      <For each={props.columns}>
+                        {(col, index) => {
+                          const value = () => valueOf(row, col);
+                          return (
+                            <td
+                              class={`${col.cellClass ?? ""} ${col.class ?? ""}`}
+                              data-align={alignAttr(col)}
+                              data-valign={props.verticalAlign && props.verticalAlign !== "middle" ? props.verticalAlign : undefined}
+                              data-highlighted={columnHighlighted(index())}
+                              onMouseEnter={() => setHoveredColumnIfEnabled(index())}
+                            >
+                              <div class={cellContentClass()}>
+                                {props.renderCell
+                                  ? props.renderCell({
+                                      row,
+                                      col,
+                                      value: value(),
+                                      render: (v) => renderCellDefault(row, { ...col, value: () => v }),
+                                    })
+                                  : defaultRender(value())}
+                              </div>
+                            </td>
+                          );
+                        }}
+                      </For>
+                    </tr>
+                  );
+                }}
+              </For>
+              <Show when={props.fillHeight}>
+                <tr aria-hidden="true">
+                  <td class="k2b-data-table__fill" colspan={props.columns.length} />
+                </tr>
+              </Show>
+            </Show>
+          </tbody>
         </table>
-        <Show when={props.onLoadMore}>
-          <div ref={loadMoreTarget} class="k2b-data-table__sentinel" aria-hidden="true" />
-          <Show when={props.loadingMore}>
-            <p class="k2b-data-table__loading" role="status">Loading more…</p>
-          </Show>
+        <Show when={shouldRenderLoadMoreSentinel()}>
+          <div ref={loadMoreRef} class="k2b-data-table__sentinel" aria-hidden="true" />
         </Show>
       </div>
     </Show>

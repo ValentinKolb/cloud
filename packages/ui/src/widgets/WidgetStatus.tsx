@@ -1,42 +1,30 @@
 import { type JSX, Show } from "solid-js";
-import type { StatusTone } from "../surfaces";
+
+export type WidgetStatusTone = "ok" | "warn" | "error" | "info";
 
 export type WidgetStatusProps = {
-  title: JSX.Element;
-  description?: JSX.Element;
-  message?: JSX.Element;
+  tone: WidgetStatusTone;
+  title: string;
+  message?: string;
   icon?: string;
-  tone?: StatusTone;
   grow?: boolean;
-  class?: string;
+};
+
+const DEFAULT_ICONS: Record<WidgetStatusTone, string> = {
+  ok: "ti ti-circle-check",
+  warn: "ti ti-alert-triangle",
+  error: "ti ti-alert-circle",
+  info: "ti ti-info-circle",
 };
 
 export function WidgetStatus(props: WidgetStatusProps): JSX.Element {
-  const tone = () => props.tone ?? "neutral";
-  const icon = () => {
-    if (props.icon) return props.icon;
-    if (tone() === "success") return "ti ti-circle-check";
-    if (tone() === "warning" || tone() === "degraded") return "ti ti-alert-triangle";
-    if (tone() === "danger") return "ti ti-alert-circle";
-    if (tone() === "info") return "ti ti-info-circle";
-    if (tone() === "running") return "ti ti-loader-2";
-    return "ti ti-minus";
-  };
-
   return (
-    <div
-      class={`k2b-widget-status ${props.class ?? ""}`}
-      data-k2b-tone
-      data-tone={tone()}
-      data-grow={props.grow ? "true" : undefined}
-    >
-      <i class={`${icon()} k2b-widget-status__icon`} aria-hidden="true" />
-      <span>
-        <strong>{props.title}</strong>
-        <Show when={props.description ?? props.message}>
-          {(description) => <small>{description()}</small>}
-        </Show>
-      </span>
+    <div class="k2b-widget-status" data-tone={props.tone} data-grow={props.grow ? "true" : undefined}>
+      <i class={`${props.icon ?? DEFAULT_ICONS[props.tone]} k2b-widget-status__icon`} aria-hidden="true" />
+      <div class="k2b-widget-status__copy">
+        <span class="k2b-widget-status__title">{props.title}</span>
+        <Show when={props.message}>{(message) => <span class="k2b-widget-status__message">{message()}</span>}</Show>
+      </div>
     </div>
   );
 }

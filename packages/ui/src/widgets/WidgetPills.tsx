@@ -1,45 +1,32 @@
 import { For, type JSX, Show } from "solid-js";
-import type { StatusTone } from "../surfaces";
+import type { WidgetTone } from "./WidgetHero";
 
 export type WidgetPill = {
-  label: JSX.Element;
-  value: JSX.Element;
-  tone?: StatusTone;
+  label: string;
+  value: string | number;
+  tone?: WidgetTone;
   href?: string;
 };
 
 export type WidgetPillsProps = {
-  items?: readonly WidgetPill[];
-  pills?: readonly WidgetPill[];
+  pills: WidgetPill[];
   grow?: boolean;
-  class?: string;
 };
 
-const PillContent = (props: { item: WidgetPill }): JSX.Element => (
-  <>
-    <span>{props.item.label}</span>
-    <strong>{props.item.value}</strong>
-  </>
-);
+function Content(props: { pill: WidgetPill }): JSX.Element {
+  return <><span class="k2b-widget-pill__label">{props.pill.label}</span><span class="k2b-widget-pill__value">{props.pill.value}</span></>;
+}
 
 export function WidgetPills(props: WidgetPillsProps): JSX.Element {
   return (
-    <div class={`k2b-widget-pills ${props.class ?? ""}`} data-grow={props.grow ? "true" : undefined}>
-      <For each={props.items ?? props.pills ?? []}>
-        {(item) => (
+    <div class="k2b-widget-pills" data-grow={props.grow ? "true" : undefined}>
+      <For each={props.pills}>
+        {(pill) => (
           <Show
-            when={item.href}
-            fallback={
-              <span class="k2b-widget-pill" data-k2b-tone data-tone={item.tone ?? "neutral"}>
-                <PillContent item={item} />
-              </span>
-            }
+            when={pill.href}
+            fallback={<span class="k2b-widget-pill" data-tone={pill.tone ?? "zinc"}><Content pill={pill} /></span>}
           >
-            {(href) => (
-              <a href={href()} class="k2b-widget-pill" data-k2b-tone data-tone={item.tone ?? "neutral"}>
-                <PillContent item={item} />
-              </a>
-            )}
+            {(href) => <a href={href()} class="k2b-widget-pill" data-tone={pill.tone ?? "zinc"}><Content pill={pill} /></a>}
           </Show>
         )}
       </For>

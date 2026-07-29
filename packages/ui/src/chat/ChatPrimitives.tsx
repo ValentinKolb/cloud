@@ -176,8 +176,14 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
   const percent = () =>
     windowSize() > 0 ? Math.min(100, Math.round((total() / windowSize()) * 100)) : null;
   const remaining = () => (windowSize() > 0 ? Math.max(0, windowSize() - total()) : null);
+  const reported = () => total() > 0;
   const accessibleLabel = () => {
-    const usage = total() > 0 ? `${total().toLocaleString()} tokens used` : "Context usage unavailable";
+    if (!reported()) {
+      return windowSize() > 0
+        ? `Context usage unavailable, ${windowSize().toLocaleString()} token context window`
+        : "Context usage unavailable";
+    }
+    const usage = `${total().toLocaleString()} tokens used`;
     return percent() === null ? usage : `${usage}, ${percent()}% of the context window`;
   };
 
@@ -192,7 +198,7 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
             <ProgressBar
               value={percent() ?? 0}
               size="xs"
-              tone={(percent() ?? 0) >= 85 ? "danger" : "info"}
+              tone={(percent() ?? 0) >= 85 ? "danger" : "primary"}
               label="Context window used"
             />
           </Show>
@@ -236,12 +242,12 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
       <button
         type="button"
         class="k2b-chat-context"
-        data-warning={(percent() ?? 0) >= 85 ? "true" : undefined}
+        data-warning={reported() && (percent() ?? 0) >= 85 ? "true" : undefined}
         aria-label={accessibleLabel()}
       >
         <i class="ti ti-brain" aria-hidden="true" />
-        <span>{total() > 0 ? formatChatTokens(total()) : windowSize() > 0 ? formatChatTokens(windowSize()) : "Context"}</span>
-        <Show when={percent() !== null}>
+        <span>{reported() ? formatChatTokens(total()) : "Context"}</span>
+        <Show when={reported() && percent() !== null}>
           <small>{percent()}%</small>
         </Show>
       </button>

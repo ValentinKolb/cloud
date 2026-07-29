@@ -182,7 +182,10 @@ describe("@k2b/ui content behaviour", () => {
     );
 
     expect(html).toContain('role="tree"');
+    expect(html).toContain('aria-label="Files"');
     expect(html).toContain('role="treeitem"');
+    expect(html).toContain('aria-level="1"');
+    expect(html).toContain('aria-level="2"');
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('data-state="selected"');
     // Root entries sit at 6px, one level deeper at 6 + 14px.
@@ -190,6 +193,10 @@ describe("@k2b/ui content behaviour", () => {
     expect(html).toContain("padding-left:20px");
     expect(html).toContain("new");
     expect(html).toContain("Actions for app.ts");
+    const contextHost = /<div[^>]*class="k2b-content-file-tree__context-host"[^>]*>/.exec(html)?.[0] ?? "";
+    expect(contextHost).toContain('role="group"');
+    expect(contextHost).toContain('tabindex="-1"');
+    expect(contextHost).not.toContain('role="button"');
     // Colour utilities from `fileIcons` are stripped — only the glyph survives.
     expect(html).not.toContain("text-blue-500");
   });

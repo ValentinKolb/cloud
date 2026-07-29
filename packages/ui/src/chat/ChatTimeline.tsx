@@ -6,6 +6,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import Placeholder from "../surfaces/Placeholder";
 import { isChatNearBottom, restoredChatScrollTop } from "./chat-behavior";
@@ -70,6 +71,9 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
   let lastConversationKey: string | null | undefined;
 
   const loadingOlder = () => Boolean(props.loadingOlder || loadingOlderInternally());
+  const canLoadOlder = () => Boolean(props.onLoadOlder && props.hasMore && !loadingOlder());
+  const hasHistoryControls = () =>
+    loadingOlder() || historyError() !== null || canLoadOlder();
   const hasContent = () => props.items.length > 0;
   const threshold = () => Math.max(0, props.followThreshold ?? 96);
 
@@ -172,7 +176,7 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
   createEffect(() => {
     props.items.length;
     props.items.at(-1)?.id;
-    scheduleFollow();
+    untrack(scheduleFollow);
   });
 
   return (
@@ -180,6 +184,9 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
       <div
         ref={viewportRef}
         class="k2b-chat-timeline__viewport"
+        role="region"
+        aria-label={`${props.label ?? "Conversation"} messages`}
+        tabIndex={0}
         onScroll={updatePinned}
       >
         <div
@@ -191,32 +198,46 @@ export function ChatTimeline(props: ChatTimelineProps): JSX.Element {
           aria-busy={props.loading ? "true" : undefined}
         >
           <div ref={topSentinelRef} class="k2b-chat-timeline__sentinel" aria-hidden="true" />
-          <Show when={loadingOlder()}>
-            <ChatActivity
-              label="Loading older messages"
-              icon="ti ti-history"
-              trailing={<i class="ti ti-loader-2 k2b-spin" aria-hidden="true" />}
-            />
-          </Show>
-          <Show when={historyError()}>
-            {(message) => (
-              <ChatActivity
-                label="Could not load older messages"
-                description={message()}
-                icon="ti ti-alert-circle"
-                tone="danger"
-                trailing={
-                  <button
-                    type="button"
-                    class="k2b-chat-timeline__retry"
-                    aria-label="Retry loading older messages"
-                    onClick={() => void loadOlder()}
-                  >
-                    <i class="ti ti-refresh" aria-hidden="true" />
-                  </button>
-                }
-              />
-            )}
+          <Show when={hasHistoryControls()}>
+            <div class="k2b-chat-timeline__history" aria-live="off">
+              <Show when={canLoadOlder()}>
+                <button
+                  type="button"
+                  class="k2b-chat-timeline__older"
+                  onClick={() => void loadOlder()}
+                >
+                  <i class="ti ti-history" aria-hidden="true" />
+                  Load older messages
+                </button>
+              </Show>
+              <Show when={loadingOlder()}>
+                <ChatActivity
+                  label="Loading older messages"
+                  icon="ti ti-history"
+                  trailing={<i class="ti ti-loader-2 k2b-spin" aria-hidden="true" />}
+                />
+              </Show>
+              <Show when={historyError()}>
+                {(message) => (
+                  <ChatActivity
+                    label="Could not load older messages"
+                    description={message()}
+                    icon="ti ti-alert-circle"
+                    tone="danger"
+                    trailing={
+                      <button
+                        type="button"
+                        class="k2b-chat-timeline__retry"
+                        aria-label="Retry loading older messages"
+                        onClick={() => void loadOlder()}
+                      >
+                        <i class="ti ti-refresh" aria-hidden="true" />
+                      </button>
+                    }
+                  />
+                )}
+              </Show>
+            </div>
           </Show>
           <Show
             when={!props.loading && hasContent()}

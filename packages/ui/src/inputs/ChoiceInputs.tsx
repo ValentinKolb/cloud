@@ -1,19 +1,9 @@
 import { For, type JSX, Show, splitProps } from "solid-js";
-import { createFieldMeta, Field, fieldDescribedBy } from "../internal/field";
+import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
+import type { FieldProps, MaybeAccessor, ValueFieldProps } from "./field-contract";
+import { commitFieldValue, resolveMaybeAccessor } from "./field-contract";
 
-type ChoiceFieldProps = {
-  label?: JSX.Element;
-  description?: JSX.Element;
-  error?: JSX.Element;
-  class?: string;
-  id?: string;
-  required?: boolean;
-  disabled?: boolean;
-};
-
-export type PinInputProps = ChoiceFieldProps & {
-  value?: string | null;
-  onValueChange?: (value: string) => void;
+export type PinInputProps = ValueFieldProps<string> & {
   length?: number;
   name?: string;
   stretch?: boolean;
@@ -23,13 +13,18 @@ export function PinInput(props: PinInputProps): JSX.Element {
   const meta = createFieldMeta(props.id);
   const length = () => Math.max(1, props.length ?? 6);
   let inputs: HTMLInputElement[] = [];
-  const digits = () => (props.value ?? "").replace(/\D/g, "").slice(0, length());
+  const digits = () => (resolveMaybeAccessor(props.value) ?? "").replace(/\D/g, "").slice(0, length());
+  const error = () => resolveMaybeAccessor(props.error);
+  const emit = (value: string) => {
+    props.onValueChange?.(value);
+    if (value.length === length()) props.onValueCommit?.(value);
+  };
 
   const updateDigit = (index: number, input: string) => {
     if (props.disabled) return;
     const digit = input.replace(/\D/g, "").slice(-1);
     const current = digits();
-    props.onValueChange?.(`${current.slice(0, index)}${digit}${current.slice(index + 1)}`);
+    emit(`${current.slice(0, index)}${digit}${current.slice(index + 1)}`);
     if (digit && index < length() - 1) {
       inputs[index + 1]?.focus();
       inputs[index + 1]?.select();
@@ -49,7 +44,7 @@ export function PinInput(props: PinInputProps): JSX.Element {
     } else if (event.key === "Backspace" && !digits()[index] && index > 0) {
       event.preventDefault();
       const current = digits();
-      props.onValueChange?.(`${current.slice(0, index - 1)}${current.slice(index)}`);
+      emit(`${current.slice(0, index - 1)}${current.slice(index)}`);
       inputs[index - 1]?.focus();
       inputs[index - 1]?.select();
     }
@@ -64,7 +59,7 @@ export function PinInput(props: PinInputProps): JSX.Element {
     const start = focused >= 0 ? focused : 0;
     const insert = pasted.slice(0, length() - start);
     const current = digits();
-    props.onValueChange?.(`${current.slice(0, start)}${insert}${current.slice(start + insert.length)}`.slice(0, length()));
+    emit(`${current.slice(0, start)}${insert}${current.slice(start + insert.length)}`.slice(0, length()));
     const next = Math.min(start + insert.length, length() - 1);
     inputs[next]?.focus();
     inputs[next]?.select();
@@ -75,15 +70,17 @@ export function PinInput(props: PinInputProps): JSX.Element {
       class={props.class}
       label={props.label}
       description={props.description}
-      error={props.error}
+      error={error()}
       meta={meta}
       required={props.required}
+      disabled={props.disabled}
     >
       <div
         class="k2b-pin-input"
+        id={meta.controlId}
         data-stretch={props.stretch ? "true" : undefined}
         role="group"
-        aria-describedby={fieldDescribedBy(meta, props.description, props.error)}
+        {...fieldControlAria(meta, props)}
         onPaste={handlePaste}
       >
         <For each={Array.from({ length: length() })}>
@@ -92,19 +89,17 @@ export function PinInput(props: PinInputProps): JSX.Element {
               ref={(element) => {
                 inputs[index()] = element;
               }}
-              id={index() === 0 ? meta.controlId : undefined}
               class="k2b-control k2b-pin-input__digit"
-              name={index() === 0 ? props.name : undefined}
+              data-filled={digits()[index()] ? "true" : undefined}
               type="text"
               inputmode="numeric"
-              autocomplete={index() === 0 ? "one-time-code" : "off"}
+              autocomplete="off"
               pattern="[0-9]"
               maxlength={1}
               value={digits()[index()] ?? ""}
-              required={index() === 0 ? props.required : undefined}
+              required={props.required}
               disabled={props.disabled}
-              aria-label={`Digit ${index() + 1} of ${length()}`}
-              aria-invalid={props.error ? "true" : undefined}
+              aria-label={`PIN digit ${index() + 1} of ${length()}`}
               onInput={(event) => updateDigit(index(), event.currentTarget.value)}
               onKeyDown={(event) => handleKeyDown(index(), event)}
               onFocus={(event) => event.currentTarget.select()}
@@ -112,15 +107,16 @@ export function PinInput(props: PinInputProps): JSX.Element {
           )}
         </For>
       </div>
+      <Show when={props.name}>{(name) => <input type="hidden" name={name()} value={digits()} />}</Show>
     </Field>
   );
 }
 
-export type SliderProps = ChoiceFieldProps &
-  Omit<JSX.InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onInput"> & {
-    value?: number;
-    onValueChange?: (value: number) => void;
-    valueLabel?: (value: number) => string;
+export type SliderProps = FieldProps &
+  Omit<JSX.InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onInput" | "onChange" | keyof FieldProps> &
+  ValueFieldProps<number> & {
+    value: MaybeAccessor<number>;
+    formatValue?: (value: number) => string;
     showValue?: boolean;
     center?: boolean;
     defaultValue?: number;
@@ -128,6 +124,8 @@ export type SliderProps = ChoiceFieldProps &
 
 export function Slider(props: SliderProps): JSX.Element {
   const [local, rest] = splitProps(props, [
+    "aria-describedby",
+    "aria-label",
     "center",
     "class",
     "defaultValue",
@@ -136,14 +134,17 @@ export function Slider(props: SliderProps): JSX.Element {
     "id",
     "label",
     "onValueChange",
+    "onValueCommit",
+    "required",
     "showValue",
     "value",
-    "valueLabel",
+    "formatValue",
   ]);
   const meta = createFieldMeta(local.id);
   const min = () => Number(rest.min ?? 0);
   const max = () => Number(rest.max ?? 100);
-  const value = () => local.value ?? min();
+  const value = () => resolveMaybeAccessor(local.value) ?? min();
+  const error = () => resolveMaybeAccessor(local.error);
   const percentage = () => {
     const span = max() - min();
     return span <= 0 ? 0 : Math.min(100, Math.max(0, ((value() - min()) / span) * 100));
@@ -164,9 +165,10 @@ export function Slider(props: SliderProps): JSX.Element {
       class={local.class}
       label={local.label}
       description={local.description}
-      error={local.error}
+      error={error()}
       meta={meta}
-      required={rest.required}
+      required={local.required}
+      disabled={rest.disabled}
     >
       <div class="k2b-slider">
         <input
@@ -175,44 +177,47 @@ export function Slider(props: SliderProps): JSX.Element {
           type="range"
           value={value()}
           style={{ background: track() }}
-          aria-describedby={fieldDescribedBy(meta, local.description, local.error, rest["aria-describedby"])}
-          aria-invalid={local.error ? "true" : undefined}
+          {...fieldControlAria(meta, local)}
           onInput={(event) => local.onValueChange?.(event.currentTarget.valueAsNumber)}
-          onDblClick={() => local.onValueChange?.(resetValue())}
+          onChange={(event) => local.onValueCommit?.(event.currentTarget.valueAsNumber)}
+          onDblClick={() => {
+            const next = resetValue();
+            commitFieldValue(local, next);
+          }}
         />
         <Show when={local.showValue ?? true}>
-          <output for={meta.controlId}>{local.valueLabel?.(value()) ?? value()}</output>
+          <output for={meta.controlId}>{local.formatValue?.(value()) ?? value()}</output>
         </Show>
       </div>
     </Field>
   );
 }
 
-export type ColorInputProps = ChoiceFieldProps & {
-  value?: string | null;
-  onValueChange?: (value: string) => void;
+export type ColorInputProps = ValueFieldProps<string> & {
   name?: string;
   compact?: boolean;
   transparent?: boolean;
-  isTransparent?: boolean;
-  onTransparentChange?: (value: boolean) => void;
+  transparentValue?: MaybeAccessor<boolean>;
+  onTransparentValueChange?: (value: boolean) => void;
 };
 
 export function ColorInput(props: ColorInputProps): JSX.Element {
   const meta = createFieldMeta(props.id);
-  const currentColor = () => props.value || "#3b82f6";
+  const currentColor = () => resolveMaybeAccessor(props.value) || "#3b82f6";
+  const isTransparent = () => resolveMaybeAccessor(props.transparentValue) ?? false;
+  const error = () => resolveMaybeAccessor(props.error);
   const compact = () => props.compact ?? !props.label;
   let picker: HTMLInputElement | undefined;
 
-  if (compact()) {
-    return (
-      <span class={`k2b-color-input k2b-color-input--compact ${props.class ?? ""}`}>
+  const control = () =>
+    compact() ? (
+      <span class="k2b-color-input k2b-color-input--compact">
         <button
           type="button"
           class="k2b-color-input__swatch"
           style={{ "background-color": currentColor() }}
           disabled={props.disabled}
-          aria-label={typeof props.label === "string" ? props.label : "Choose color"}
+          {...fieldControlAria(meta, props)}
           onClick={() => picker?.click()}
         />
         <input
@@ -224,47 +229,37 @@ export function ColorInput(props: ColorInputProps): JSX.Element {
           value={currentColor()}
           disabled={props.disabled}
           onInput={(event) => props.onValueChange?.(event.currentTarget.value)}
+          onChange={(event) => props.onValueCommit?.(event.currentTarget.value)}
         />
       </span>
-    );
-  }
-
-  return (
-    <Field
-      class={props.class}
-      label={props.label}
-      description={props.description}
-      error={props.error}
-      meta={meta}
-      required={props.required}
-    >
+    ) : (
       <div
-        class="k2b-color-input k2b-color-input--full"
-        data-disabled={props.disabled || props.isTransparent ? "true" : undefined}
+        class="k2b-color-input"
+        data-disabled={props.disabled || isTransparent() ? "true" : undefined}
+        data-invalid={error() ? "true" : undefined}
       >
         <button
           type="button"
           class="k2b-color-input__value"
-          disabled={props.disabled || props.isTransparent}
-          aria-describedby={fieldDescribedBy(meta, props.description, props.error)}
-          aria-invalid={props.error ? "true" : undefined}
+          disabled={props.disabled || isTransparent()}
+          {...fieldControlAria(meta, props)}
           onClick={() => picker?.click()}
         >
           <span
             class="k2b-color-input__swatch"
-            data-transparent={props.isTransparent ? "true" : undefined}
-            style={props.isTransparent ? undefined : { "background-color": currentColor() }}
+            data-transparent={isTransparent() ? "true" : undefined}
+            style={isTransparent() ? undefined : { "background-color": currentColor() }}
           />
-          <code>{props.isTransparent ? "transparent" : currentColor().toUpperCase()}</code>
+          <code>{isTransparent() ? "transparent" : currentColor().toUpperCase()}</code>
         </button>
         <Show when={props.transparent}>
           <button
             type="button"
             class="k2b-color-input__transparent"
-            aria-label={props.isTransparent ? "Use a color" : "Use transparent"}
-            aria-pressed={props.isTransparent}
+            aria-label={isTransparent() ? "Use a color" : "Use transparent"}
+            aria-pressed={isTransparent()}
             disabled={props.disabled}
-            onClick={() => props.onTransparentChange?.(!props.isTransparent)}
+            onClick={() => props.onTransparentValueChange?.(!isTransparent())}
           >
             <i class="ti ti-grid-dots" aria-hidden="true" />
           </button>
@@ -276,10 +271,24 @@ export function ColorInput(props: ColorInputProps): JSX.Element {
           type="color"
           name={props.name}
           value={currentColor()}
-          disabled={props.disabled || props.isTransparent}
+          disabled={props.disabled || isTransparent()}
           onInput={(event) => props.onValueChange?.(event.currentTarget.value)}
+          onChange={(event) => props.onValueCommit?.(event.currentTarget.value)}
         />
       </div>
+    );
+
+  return (
+    <Field
+      class={props.class}
+      label={props.label}
+      description={props.description}
+      error={error()}
+      meta={meta}
+      required={props.required}
+      disabled={props.disabled}
+    >
+      {control()}
     </Field>
   );
 }

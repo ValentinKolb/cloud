@@ -7,6 +7,12 @@ export const filterChatCommands = <T extends { name: string }>(
   return commands.filter((command) => command.name.toLowerCase().startsWith(query));
 };
 
+export const nextChatCommandIndex = (
+  index: number,
+  length: number,
+  direction: 1 | -1,
+): number => (length <= 0 ? 0 : (index + direction + length) % length);
+
 export const isChatNearBottom = (
   scrollHeight: number,
   scrollTop: number,
@@ -19,3 +25,49 @@ export const restoredChatScrollTop = (
   previousScrollHeight: number,
   nextScrollHeight: number,
 ): number => Math.max(0, previousScrollTop + nextScrollHeight - previousScrollHeight);
+
+export type ChatSubmissionRun = {
+  /** Clears the controlled draft (and attachments) before the handler runs. */
+  clear: () => void;
+  /**
+   * The application handler. A synchronous throw, a rejected promise, and a
+   * `false` result all count as a rejected submission.
+   */
+  perform: () => boolean | void | Promise<boolean | void>;
+  /** Restores the cleared draft (and attachments) after a rejected submission. */
+  restore: () => void;
+  onError?: (error: unknown) => void;
+};
+
+/**
+ * Runs one composer submission with optimistic clearing. Resolves to `true`
+ * when the handler accepted the submission. A synchronous throw is handled
+ * exactly like a rejected promise so a controlled draft is never lost.
+ */
+export const runChatSubmission = async (run: ChatSubmissionRun): Promise<boolean> => {
+  run.clear();
+  try {
+    if ((await run.perform()) === false) {
+      run.restore();
+      return false;
+    }
+    return true;
+  } catch (error) {
+    run.onError?.(error);
+    run.restore();
+    return false;
+  }
+};
+
+/** Reports a handler failure without letting a synchronous throw escape. */
+export const reportChatFailure = (
+  perform: () => unknown,
+  onError?: (error: unknown) => void,
+): void => {
+  try {
+    const result = perform();
+    if (result instanceof Promise) void result.catch((error) => onError?.(error));
+  } catch (error) {
+    onError?.(error);
+  }
+};

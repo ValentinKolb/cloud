@@ -20,16 +20,20 @@ describe("@k2b/ui complete settings surfaces", () => {
       createComponent(SettingsModal, {
         title: "Application settings",
         activeTab: "security",
-        tabs: [
-          { id: "general", title: "General", content: "General content" },
-          {
+        children: [
+          createComponent(SettingsModal.Tab, {
+            id: "general",
+            title: "General",
+            children: "General content",
+          }),
+          createComponent(SettingsModal.Tab, {
             id: "security",
             title: "Security",
             description: "Authentication controls",
             icon: "ti ti-lock",
             tone: "danger",
-            content: "Security content",
-          },
+            children: "Security content",
+          }),
         ],
       }),
     );
@@ -47,16 +51,21 @@ describe("@k2b/ui complete settings surfaces", () => {
       createComponent(SettingsField, {
         label: "Endpoint",
         description: "Public service URL",
-        changed: true,
-        error: "Invalid URL",
+        changed: () => true,
+        error: () => "Invalid URL",
         children: "control",
       }),
     );
     const bar = renderToString(() =>
-      createComponent(SettingsSaveBar, { changeCount: 2, onDiscard: () => {}, onSave: () => {} }),
+      createComponent(SettingsSaveBar, { changeCount: 2, loading: () => false, onDiscard: () => {}, onSave: () => {} }),
     );
     const footer = renderToString(() =>
-      createComponent(SettingsPanelFooter, { changeCount: 0, onDiscard: () => {}, onSave: () => {} }),
+      createComponent(SettingsPanelFooter, {
+        changeCount: 0,
+        loading: () => false,
+        onDiscard: () => {},
+        onSave: () => {},
+      }),
     );
 
     expect(field).toContain("Unsaved");
@@ -64,6 +73,11 @@ describe("@k2b/ui complete settings surfaces", () => {
     expect(bar).toContain("2</strong> unsaved changes");
     expect(footer).toContain("No unsaved changes");
     expect(footer.match(/disabled/g)?.length).toBeGreaterThanOrEqual(2);
+
+    // Cloud labels the save action with a floppy glyph on both surfaces; the
+    // port rendered a bare text button.
+    expect(bar).toContain("ti ti-device-floppy");
+    expect(footer).toContain("ti ti-device-floppy");
   });
 
   test("compares setting values and safely parses API failures", async () => {

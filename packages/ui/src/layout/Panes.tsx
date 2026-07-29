@@ -13,6 +13,7 @@ import {
   findPanesLeaf,
   normalizePanesSizes,
   normalizePanesValue,
+  PANES_MAX_ID_LENGTH,
   PANES_MIN_SIZE,
   resizePanesSplit,
   type PanesDirection,
@@ -24,19 +25,22 @@ import {
   type PanesSplitZone,
   type PanesValue,
 } from "./panes-state";
+import type { MaybeAccessor } from "../inputs/field-contract";
+
+export type {
+  PanesLeafNode,
+  PanesLeafPresentation,
+  PanesNode,
+  PanesSplitNode,
+  PanesValue,
+} from "./panes-state";
+export { createPanesValue, normalizePanesValue } from "./panes-state";
 
 const ELEMENT_SLOT = Symbol("Panes.Element");
 
-type MaybeAccessor<T> = T | (() => T);
-
 type PanesElementSlot = {
   readonly kind: typeof ELEMENT_SLOT;
-  id: string;
-  title?: string;
-  icon?: string;
-  closable?: MaybeAccessor<boolean>;
-  onClose?: () => void;
-  children: JSX.Element;
+  readonly props: PanesElementProps;
 };
 
 export type PanesRootProps = {
@@ -91,16 +95,27 @@ const collectElementSlots = (value: unknown): PanesElementSlot[] => {
 const readMaybe = (value: MaybeAccessor<boolean> | undefined, fallback: boolean): boolean =>
   typeof value === "function" ? value() : (value ?? fallback);
 
+const elementId = (element: PanesElementSlot): string => element.props.id;
+const elementTitle = (element: PanesElementSlot): string =>
+  element.props.title ?? element.props.id;
+
 const iconClass = (icon: string | undefined): string => {
-  const value = icon?.trim() || "ti-layout-bottombar";
+  const value = icon?.trim() || "ti-layout-sidebar-right";
   return value.startsWith("ti ") ? value : `ti ${value}`;
 };
 
+/**
+ * `normalizePanesValue` accepts node and element ids up to
+ * `PANES_MAX_ID_LENGTH`, so truncating here at a shorter length let two ids
+ * that agree on their first N characters produce the same `tabId`/`panelId` —
+ * duplicate DOM ids, `aria-controls` pointing at the wrong panel, and
+ * `focusTab` focusing the wrong tab.
+ */
 const safeDomId = (value: string): string =>
-  value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 96) || "pane";
+  value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, PANES_MAX_ID_LENGTH) || "pane";
 
 const elementClosable = (element: PanesElementSlot): boolean =>
-  !!element.onClose && readMaybe(element.closable, true);
+  !!element.props.onClose && readMaybe(element.props.closable, true);
 
 const leafEdgeZone = (
   pointer: DndPointer,
@@ -180,16 +195,17 @@ const buildIntent = (
 const sameIntent = (a: PanesDropIntent | null, b: PanesDropIntent | null): boolean =>
   JSON.stringify(a) === JSON.stringify(b);
 
-const CloseButton = (props: { element: PanesElementSlot }) => (
+const CloseButton = (props: { element: PanesElementSlot; tabIndex?: number }) => (
   <button
     type="button"
     class="k2b-panes__close"
-    title={`Close ${props.element.title ?? props.element.id}`}
-    aria-label={`Close ${props.element.title ?? props.element.id}`}
+    tabIndex={props.tabIndex}
+    title={`Close ${elementTitle(props.element)}`}
+    aria-label={`Close ${elementTitle(props.element)}`}
     onPointerDown={(event) => event.stopPropagation()}
     onClick={(event) => {
       event.stopPropagation();
-      props.element.onClose?.();
+      props.element.props.onClose?.();
     }}
   >
     <i class="ti ti-x" aria-hidden="true" />
@@ -199,12 +215,7 @@ const CloseButton = (props: { element: PanesElementSlot }) => (
 function PanesElement(props: PanesElementProps): JSX.Element {
   return {
     kind: ELEMENT_SLOT,
-    id: props.id,
-    title: props.title,
-    icon: props.icon,
-    closable: props.closable,
-    onClose: props.onClose,
-    children: props.children,
+    props,
   } satisfies PanesElementSlot as unknown as JSX.Element;
 }
 
@@ -212,8 +223,8 @@ const PanesRoot = (props: PanesRootProps) => {
   const instanceId = `k2b-panes-${createUniqueId()}`;
   const resolved = children(() => props.children);
   const slots = createMemo(() => collectElementSlots(resolved.toArray()));
-  const elementById = createMemo(() => new Map(slots().map((slot) => [slot.id, slot])));
-  const elementIds = createMemo(() => slots().map((slot) => slot.id));
+  const elementById = createMemo(() => new Map(slots().map((slot) => [elementId(slot), slot])));
+  const elementIds = createMemo(() => slots().map(elementId));
   const presentation = () => props.leafPresentation ?? "tabs";
   const value = createMemo(() => normalizePanesValue(props.value, elementIds(), presentation()));
   const canResize = () => readMaybe(props.allowResize, true);
@@ -501,6 +512,10 @@ function PanesLeaf(
       : props.node().elementIds[0];
   const presentation = () => props.node().presentation ?? "tabs";
   const activeElement = () => props.elementById.get(activeId() ?? "");
+  const activeElementTitle = () => {
+    const element = activeElement();
+    return element ? elementTitle(element) : props.node().id;
+  };
   const mergePreviewElement = () => {
     const intent = props.dnd.intent();
     if (intent?.kind !== "move" || intent.leafId !== props.node().id) return null;
@@ -521,11 +536,19 @@ function PanesLeaf(
   const focusTab = (index: number) => {
     const element = elements()[index];
     if (!element) return;
-    props.onActive(props.node().id, element.id);
-    queueMicrotask(() => document.getElementById(tabId(element.id))?.focus());
+    props.onActive(props.node().id, elementId(element));
+    queueMicrotask(() => document.getElementById(tabId(elementId(element)))?.focus());
   };
 
-  const onTabKeyDown = (event: KeyboardEvent, index: number) => {
+  const onTabKeyDown = (event: KeyboardEvent, index: number, element: PanesElementSlot) => {
+    if (
+      (event.key === "Delete" || event.key === "Backspace") &&
+      elementClosable(element)
+    ) {
+      event.preventDefault();
+      element.props.onClose?.();
+      return;
+    }
     const count = elements().length;
     if (count < 2) return;
     let next: number | null = null;
@@ -546,7 +569,7 @@ function PanesLeaf(
           meta: {
             kind: "leaf",
             leafId: props.node().id,
-            label: `pane ${activeElement()?.title ?? activeElement()?.id ?? props.node().id}`,
+            label: `pane ${activeElementTitle()}`,
           },
           disabled:
             !props.canMove() ||
@@ -564,10 +587,10 @@ function PanesLeaf(
               <div
                 ref={(header) => {
                   props.dnd.draggable(header, () => ({
-                    id: `panes-element:${element().id}`,
+                    id: `panes-element:${elementId(element())}`,
                     meta: {
-                      elementId: element().id,
-                      label: element().title ?? element().id,
+                      elementId: elementId(element()),
+                      label: elementTitle(element()),
                     },
                     disabled: !props.canMove(),
                     focusable: false,
@@ -577,7 +600,7 @@ function PanesLeaf(
                 }}
                 class="k2b-panes__single-header"
                 data-dnd-active={
-                  props.dnd.activeId() === `panes-element:${element().id}` ? "true" : undefined
+                  props.dnd.activeId() === `panes-element:${elementId(element())}` ? "true" : undefined
                 }
               >
                 <Show when={props.canMove()}>
@@ -585,18 +608,19 @@ function PanesLeaf(
                     type="button"
                     data-panes-drag-handle
                     class="k2b-panes__drag"
+                    tabIndex={-1}
                     title="Move pane"
-                    aria-label={`Move ${element().title ?? element().id}`}
+                    aria-label={`Move ${elementTitle(element())}`}
                   >
                     <i class="ti ti-grip-vertical" aria-hidden="true" />
                   </button>
                 </Show>
-                <i class={`${iconClass(element().icon)} k2b-panes__icon`} aria-hidden="true" />
-                <span title={element().title ?? element().id}>
-                  {element().title ?? element().id}
+                <i class={`${iconClass(element().props.icon)} k2b-panes__icon`} aria-hidden="true" />
+                <span title={elementTitle(element())}>
+                  {elementTitle(element())}
                 </span>
                 <Show when={elementClosable(element())}>
-                  <CloseButton element={element()} />
+                  <CloseButton element={element()} tabIndex={-1} />
                 </Show>
               </div>
             )}
@@ -611,25 +635,25 @@ function PanesLeaf(
         >
           <For each={elements()}>
             {(element, index) => {
-              const active = () => activeId() === element.id;
+              const active = () => activeId() === elementId(element);
               return (
                 <div
                   ref={(tab) => {
                     props.dnd.droppable(tab, () => ({
-                      id: `panes-tab:${props.node().id}:${element.id}`,
+                      id: `panes-tab:${props.node().id}:${elementId(element)}`,
                       meta: {
                         kind: "tab",
                         leafId: props.node().id,
-                        beforeElementId: element.id,
-                        label: `before ${element.title ?? element.id}`,
+                        beforeElementId: elementId(element),
+                        label: `before ${elementTitle(element)}`,
                       },
                       disabled: !props.canReorder(),
                     }));
                     props.dnd.draggable(tab, () => ({
-                      id: `panes-element:${element.id}`,
+                      id: `panes-element:${elementId(element)}`,
                       meta: {
-                        elementId: element.id,
-                        label: element.title ?? element.id,
+                        elementId: elementId(element),
+                        label: elementTitle(element),
                       },
                       disabled: !props.canMove(),
                       focusable: false,
@@ -638,9 +662,10 @@ function PanesLeaf(
                     }));
                   }}
                   class="k2b-panes__tab"
+                  role="presentation"
                   data-active={active() ? "true" : undefined}
                   data-dnd-active={
-                    props.dnd.activeId() === `panes-element:${element.id}` ? "true" : undefined
+                    props.dnd.activeId() === `panes-element:${elementId(element)}` ? "true" : undefined
                   }
                 >
                   <Show when={props.canMove()}>
@@ -648,29 +673,33 @@ function PanesLeaf(
                       type="button"
                       data-panes-drag-handle
                       class="k2b-panes__drag"
+                      tabIndex={-1}
                       title="Move tab"
-                      aria-label={`Move ${element.title ?? element.id}`}
+                      aria-label={`Move ${elementTitle(element)}`}
                     >
                       <i class="ti ti-grip-vertical" aria-hidden="true" />
                     </button>
                   </Show>
                   <button
-                    id={tabId(element.id)}
+                    id={tabId(elementId(element))}
                     type="button"
                     role="tab"
                     class="k2b-panes__tab-button"
                     aria-selected={active()}
-                    aria-controls={panelId(element.id)}
+                    aria-controls={panelId(elementId(element))}
+                    aria-posinset={index() + 1}
+                    aria-setsize={elements().length}
+                    aria-keyshortcuts={elementClosable(element) ? "Delete Backspace" : undefined}
                     tabIndex={active() ? 0 : -1}
-                    title={element.title ?? element.id}
-                    onClick={() => props.onActive(props.node().id, element.id)}
-                    onKeyDown={(event) => onTabKeyDown(event, index())}
+                    title={elementTitle(element)}
+                    onClick={() => props.onActive(props.node().id, elementId(element))}
+                    onKeyDown={(event) => onTabKeyDown(event, index(), element)}
                   >
-                    <i class={`${iconClass(element.icon)} k2b-panes__icon`} aria-hidden="true" />
-                    <span>{element.title ?? element.id}</span>
+                    <i class={`${iconClass(element.props.icon)} k2b-panes__icon`} aria-hidden="true" />
+                    <span>{elementTitle(element)}</span>
                   </button>
                   <Show when={elementClosable(element)}>
-                    <CloseButton element={element} />
+                    <CloseButton element={element} tabIndex={-1} />
                   </Show>
                 </div>
               );
@@ -680,8 +709,8 @@ function PanesLeaf(
             {(element) => (
               <div class="k2b-panes__merge-preview" aria-hidden="true">
                 <i class="ti ti-plus" />
-                <i class={iconClass(element().icon)} />
-                <span>{element().title ?? element().id}</span>
+                <i class={iconClass(element().props.icon)} />
+                <span>{elementTitle(element())}</span>
               </div>
             )}
           </Show>
@@ -694,19 +723,19 @@ function PanesLeaf(
       >
         <For each={elements()}>
           {(element) => {
-            const visible = () => activeId() === element.id || presentation() === "stack";
+            const visible = () => activeId() === elementId(element) || presentation() === "stack";
             return (
               <div
-                id={panelId(element.id)}
+                id={panelId(elementId(element))}
                 class="k2b-panes__panel"
                 role={showTabs() ? "tabpanel" : "region"}
-                aria-labelledby={showTabs() ? tabId(element.id) : undefined}
-                aria-label={!showTabs() ? element.title ?? element.id : undefined}
+                aria-labelledby={showTabs() ? tabId(elementId(element)) : undefined}
+                aria-label={!showTabs() ? elementTitle(element) : undefined}
                 hidden={!visible()}
                 data-active={visible() ? "true" : undefined}
               >
                 <Show when={props.keepMounted || visible()}>
-                  {element.children}
+                  {element.props.children}
                 </Show>
               </div>
             );

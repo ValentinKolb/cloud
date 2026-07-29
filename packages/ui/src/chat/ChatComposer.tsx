@@ -9,7 +9,12 @@ import {
   Show,
 } from "solid-js";
 import { Select, type SelectOption } from "../inputs/Select";
-import { filterChatCommands } from "./chat-behavior";
+import {
+  filterChatCommands,
+  nextChatCommandIndex,
+  reportChatFailure,
+  runChatSubmission,
+} from "./chat-behavior";
 
 export type ChatModelOption = {
   id: string;
@@ -105,6 +110,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const attachments = () => props.attachments ?? [];
   const commands = () => props.commands ?? [];
   const commandMatches = createMemo(() => filterChatCommands(props.value, commands()));
+  const commandsOpen = () => commandMatches().length > 0;
   const selectedCommand = () => commandMatches()[selectedCommandIndex()];
   const blocked = () => Boolean(props.disabled || props.stopping || addingFiles() || submitting());
   const canSubmit = () =>
@@ -157,7 +163,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     try {
       await props.fileSelection?.onSelect(selected);
     } catch (error) {
-      props.fileSelection?.onError?.(error);
+      const report = props.fileSelection?.onError ?? props.onError;
+      report?.(error);
     } finally {
       setAddingFiles(false);
       if (fileInputRef) fileInputRef.value = "";
@@ -167,47 +174,35 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
 
   const submit = async () => {
     if (!canSubmit()) return;
-    const text = props.value.trim();
+    const steering = Boolean(props.running && props.onSteer);
+    const previousValue = props.value;
+    const previousAttachments = attachments();
+    const text = previousValue.trim();
 
-    if (props.running && props.onSteer) {
-      props.onValueChange("");
-      setSubmitting(true);
-      const accepted = await Promise.resolve(props.onSteer(text))
-        .then((result) => result !== false)
-        .catch((error) => {
-          props.onError?.(error);
-          return false;
-        })
-        .finally(() => setSubmitting(false));
-      if (!accepted) props.onValueChange(text);
+    setSubmitting(true);
+    try {
+      await runChatSubmission({
+        clear: () => {
+          props.onValueChange("");
+          if (!steering) setAttachments([]);
+        },
+        perform: () =>
+          steering
+            ? props.onSteer?.(text)
+            : props.onSend({ text, attachments: previousAttachments }),
+        restore: () => {
+          props.onValueChange(previousValue);
+          if (!steering) setAttachments(previousAttachments);
+        },
+        onError: (error) => props.onError?.(error),
+      });
+    } finally {
+      setSubmitting(false);
       queueMicrotask(() => {
         autoResize();
         focus();
       });
-      return;
     }
-
-    const previousAttachments = attachments();
-    props.onValueChange("");
-    setAttachments([]);
-    setSubmitting(true);
-    const accepted = await Promise.resolve(
-      props.onSend({ text, attachments: previousAttachments }),
-    )
-      .then((result) => result !== false)
-      .catch((error) => {
-        props.onError?.(error);
-        return false;
-      })
-      .finally(() => setSubmitting(false));
-    if (!accepted) {
-      props.onValueChange(text);
-      setAttachments(previousAttachments);
-    }
-    queueMicrotask(() => {
-      autoResize();
-      focus();
-    });
   };
 
   const executeCommand = async (command: ChatCommand) => {
@@ -233,8 +228,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       if (event.key === "ArrowUp" || event.key === "ArrowDown") {
         event.preventDefault();
         const direction = event.key === "ArrowUp" ? -1 : 1;
-        setSelectedCommandIndex(
-          (index) => (index + direction + matches.length) % matches.length,
+        setSelectedCommandIndex((index) =>
+          nextChatCommandIndex(index, matches.length, direction),
         );
         return;
       }
@@ -265,7 +260,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       role="group"
       aria-label={props.label ?? "Message composer"}
     >
-      <Show when={commandMatches().length > 0}>
+      <Show when={commandsOpen()}>
         <div id={commandListId} class="k2b-chat-composer__commands" role="listbox" aria-label="Commands">
           <For each={commandMatches()}>
             {(command, index) => (
@@ -273,6 +268,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                 id={`${commandListId}-${index()}`}
                 type="button"
                 role="option"
+                tabIndex={-1}
                 aria-selected={index() === selectedCommandIndex()}
                 data-active={index() === selectedCommandIndex() ? "true" : undefined}
                 onPointerDown={(event) => event.preventDefault()}
@@ -360,8 +356,10 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           disabled={blocked()}
           placeholder={props.placeholder ?? "Write a message or type / for commands"}
           aria-label={props.inputLabel ?? "Message"}
-          aria-controls={commandMatches().length > 0 ? commandListId : undefined}
-          aria-expanded={commandMatches().length > 0 ? "true" : undefined}
+          role={commandsOpen() ? "combobox" : undefined}
+          aria-autocomplete={commandsOpen() ? "list" : undefined}
+          aria-controls={commandsOpen() ? commandListId : undefined}
+          aria-expanded={commandsOpen() ? "true" : undefined}
           aria-activedescendant={
             selectedCommand() ? `${commandListId}-${selectedCommandIndex()}` : undefined
           }
@@ -430,9 +428,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               disabled={props.stopping}
               aria-label={props.stopping ? "Stopping" : "Stop"}
               title={props.stopping ? "Stopping" : "Stop"}
-              onClick={() =>
-                void Promise.resolve(props.onStop?.()).catch((error) => props.onError?.(error))
-              }
+              onClick={() => reportChatFailure(() => props.onStop?.(), props.onError)}
             >
               <i class={props.stopping ? "ti ti-loader-2 k2b-spin" : "ti ti-player-stop"} aria-hidden="true" />
             </button>

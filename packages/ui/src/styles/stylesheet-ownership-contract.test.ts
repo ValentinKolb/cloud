@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { readShippedCssRules, shippedStyleFiles } from "./css-contract-test-helpers";
 
 const rules = readShippedCssRules(import.meta.dir);
@@ -38,5 +40,18 @@ describe("@k2b/ui shipped stylesheet ownership", () => {
       .sort();
 
     expect(shared).toEqual([]);
+  });
+
+  test("keeps FileView geometry and nested editor fill with their respective owners", () => {
+    const content = readFileSync(resolve(import.meta.dir, "content-parity.css"), "utf8");
+    const editors = readFileSync(resolve(import.meta.dir, "editors-parity.css"), "utf8");
+    const contentSelector = ".k2b-ui .k2b-content-file-view__editor";
+    const editorSelector = '.k2b-ui .k2b-markdown-editor[data-fill="true"]';
+
+    expect(content).toContain(contentSelector);
+    expect(content).not.toContain(editorSelector);
+    expect(content).not.toMatch(/\.k2b-content-file-view__editor\s*>\s*\.k2b-field/);
+    expect(editors).toContain(editorSelector);
+    expect(editors).not.toContain(contentSelector);
   });
 });

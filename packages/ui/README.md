@@ -239,10 +239,13 @@ regressed silently during the extraction:
 
 - `src/styles/class-contract.test.ts` — the package renders no class its own
   stylesheet cannot style, renders only `k2b-`-prefixed names, and claims no
-  unprefixed name inside the `.k2b-ui` scope. `styles/entry.css` only
-  `@reference`s Tailwind, so a leftover utility class in markup styles nothing.
-- `src/styles/focus-contract.test.ts` — at most one focus signal per rule, and
-  AI tokens stay inside AI surfaces.
+  unprefixed name inside the `.k2b-ui` scope. `styles/entry.css` imports the six
+  scoped source sheets; Tailwind `@reference` directives live in source sheets
+  such as `index.css` and `content-parity.css` and emit no generic utilities, so
+  a leftover utility class in markup styles nothing.
+- `src/styles/focus-contract.test.ts` — at most one focus signal per selector
+  and cascade context, box-shadow-only focus rings have a forced-colors outline
+  fallback, and AI tokens stay inside AI surfaces.
 - Per-group single-ownership tests — a selector may be declared in only one
   stylesheet. Two partial declarations of the same selector merge into a third
   geometry matching neither Cloud nor either source.

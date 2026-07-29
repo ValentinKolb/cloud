@@ -1,44 +1,33 @@
-import { type JSX, Show } from "solid-js";
-import type { StatusTone } from "./StatusBadge";
+import type { JSX } from "solid-js";
 
 export type ProgressBarProps = {
-  value?: number;
-  max?: number;
-  label?: JSX.Element;
-  tone?: StatusTone;
+  value: number;
   size?: "xs" | "sm" | "md";
+  tone?: "primary" | "success" | "danger";
   showValue?: boolean;
+  label?: string;
   class?: string;
 };
 
-export function ProgressBar(props: ProgressBarProps): JSX.Element {
-  const max = () => Math.max(props.max ?? 100, 1);
-  const value = () => (props.value === undefined ? undefined : Math.min(Math.max(props.value, 0), max()));
-  const percent = () => (value() === undefined ? undefined : ((value() ?? 0) / max()) * 100);
+const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
+export function ProgressBar(props: ProgressBarProps): JSX.Element {
+  const percent = () => clamp(props.value);
   return (
-    <div class={`k2b-progress ${props.class ?? ""}`} data-size={props.size ?? "md"} data-tone={props.tone ?? "info"}>
-      <Show when={props.label}>
-        <div class="k2b-progress__label">{props.label}</div>
-      </Show>
+    <div class={`k2b-progress ${props.class ?? ""}`} data-size={props.size ?? "md"} data-tone={props.tone ?? "primary"}>
       <div
         class="k2b-progress__track"
         role="progressbar"
-        aria-label={typeof props.label === "string" ? props.label : undefined}
-        aria-valuemin={0}
-        aria-valuemax={max()}
-        aria-valuenow={value()}
-        aria-busy={value() === undefined ? "true" : undefined}
+        aria-label={props.label ?? "Progress"}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={percent()}
       >
-        <div
-          class="k2b-progress__value"
-          data-indeterminate={value() === undefined ? "true" : undefined}
-          style={{ width: percent() === undefined ? undefined : `${percent()}%` }}
-        />
+        <div class="k2b-progress__value" style={`width: ${percent()}%`} />
       </div>
-      <Show when={props.showValue && percent() !== undefined}>
-        <span class="k2b-progress__percent">{Math.round(percent() ?? 0)}%</span>
-      </Show>
+      {props.showValue ? <span class="k2b-progress__percent">{percent()}%</span> : null}
     </div>
   );
 }
+
+export default ProgressBar;

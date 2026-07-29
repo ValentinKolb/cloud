@@ -1,0 +1,620 @@
+/* Source-faithful feedback surfaces (dialogs, prompts, toasts, tooltip).
+ *
+ * This file is the single owner of `.k2b-dialog*`, `.k2b-prompt*`,
+ * `.k2b-toast*` and tooltip chrome. The duplicates that used to live in
+ * index.css were removed: two definitions of the same class in two files
+ * produced a half-and-half cascade (index padding + parity padding-bottom,
+ * index max-height + parity height, …) that matched neither Cloud nor
+ * itself. Geometry mirrors Cloud's dialog-panel, prompt-panel, prompt search
+ * surface, tooltip and toast rules, expressed with the package's own
+ * `--k2b-*` tokens.
+ */
+
+/* The dialog viewport budget (`--k2b-dialog-available-*`) is declared once, in
+   `layout-parity.css`, next to the panel-dialog frame that also consumes it.
+   A floating window or workspace dialog has no business reading a
+   `--k2b-feedback-*` variable, and Cloud names it `--ui-dialog-available-*`. */
+.k2b-ui {
+  --k2b-feedback-tooltip-surface: var(--k2b-neutral-900);
+  --k2b-feedback-tooltip-border: var(--k2b-neutral-800);
+  --k2b-feedback-tooltip-text: #fff;
+  --k2b-feedback-backdrop: rgb(0 0 0 / 0.45);
+}
+
+.k2b-ui[data-theme="dark"],
+.k2b-ui.k2b-dark,
+.dark .k2b-ui {
+  --k2b-feedback-tooltip-surface: var(--k2b-neutral-800);
+  --k2b-feedback-tooltip-border: var(--k2b-neutral-700);
+  --k2b-feedback-tooltip-text: var(--k2b-neutral-100);
+  --k2b-feedback-backdrop: rgb(0 0 0 / 0.35);
+}
+
+/* ---------------------------------------------------------------- dialog */
+
+.k2b-ui .k2b-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--k2b-border-strong);
+  border-radius: var(--k2b-radius-dialog);
+  color: var(--k2b-text);
+  background: var(--k2b-surface-elevated);
+  box-shadow: var(--k2b-shadow-float);
+  transform: translate(-50%, -50%);
+}
+
+/* Default size sits in `:where()` so a consumer frame class of equal class
+ * count (`.k2b-panel-dialog-frame`) keeps its own width no matter which
+ * stylesheet is imported last. Explicit size modifiers stay at normal
+ * specificity because only prompt dialogs use them. */
+.k2b-ui :where(.k2b-dialog) {
+  width: min(var(--k2b-dialog-available-width), 28rem);
+  max-height: min(90vh, var(--k2b-dialog-available-height));
+}
+
+.k2b-ui .k2b-dialog--small {
+  width: min(var(--k2b-dialog-available-width), 22rem);
+  max-height: min(72vh, var(--k2b-dialog-available-height));
+}
+
+.k2b-ui .k2b-dialog--medium {
+  width: min(var(--k2b-dialog-available-width), 28rem);
+  max-height: min(90vh, var(--k2b-dialog-available-height));
+}
+
+.k2b-ui .k2b-dialog--large {
+  width: min(var(--k2b-dialog-available-width), 48rem);
+  max-height: min(86vh, var(--k2b-dialog-available-height));
+}
+
+.k2b-ui .k2b-dialog--wide {
+  width: min(var(--k2b-dialog-available-width), 64rem);
+  max-height: min(90vh, var(--k2b-dialog-available-height));
+}
+
+.k2b-ui .k2b-dialog--danger {
+  border-color: color-mix(in srgb, var(--k2b-danger-500) 28%, var(--k2b-border-strong));
+}
+
+.k2b-ui .k2b-dialog--success {
+  border-color: color-mix(in srgb, var(--k2b-success-500) 24%, var(--k2b-border-strong));
+}
+
+.k2b-ui .k2b-dialog.is-bare {
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.k2b-ui .k2b-dialog::backdrop {
+  background: var(--k2b-feedback-backdrop);
+  backdrop-filter: blur(8px);
+}
+
+/* `::backdrop` does not inherit from the dialog in every engine, so the dark
+ * value is restated instead of relying on the custom property alone. */
+.k2b-ui[data-theme="dark"] .k2b-dialog::backdrop,
+.k2b-ui.k2b-dark .k2b-dialog::backdrop,
+.dark .k2b-ui .k2b-dialog::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+
+.k2b-ui .k2b-dialog__viewport {
+  display: flex;
+  min-height: 0;
+  max-height: inherit;
+  flex-direction: column;
+  color: var(--k2b-text-secondary);
+  font-size: 1rem;
+}
+
+.k2b-ui .k2b-dialog__viewport.is-bare,
+.k2b-ui .k2b-dialog__viewport.is-search {
+  max-width: var(--k2b-dialog-available-width);
+  max-height: var(--k2b-dialog-available-height);
+  height: 100%;
+}
+
+.k2b-ui .k2b-dialog__panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0;
+  padding: 1rem;
+  border-radius: inherit;
+  background: inherit;
+}
+
+/* Custom `prompts.dialog` bodies are arbitrary markup with no `__body`
+ * padding, so the stack supplies Cloud's `gap-4` between header and body. */
+.k2b-ui .k2b-dialog__stack {
+  gap: 1rem;
+}
+
+.k2b-ui .k2b-dialog__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1rem;
+  padding: 0 0 0.5rem;
+}
+
+.k2b-ui .k2b-dialog__header > i {
+  color: var(--k2b-action);
+}
+
+.k2b-ui .k2b-dialog__header h2 {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--k2b-text);
+  font-size: 1rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k2b-ui .k2b-dialog__header-spacer {
+  min-width: 0;
+  flex: 1;
+}
+
+.k2b-ui .k2b-dialog__close {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: var(--k2b-radius-control);
+  color: var(--k2b-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.k2b-ui .k2b-dialog__close:hover {
+  color: var(--k2b-text);
+  background: var(--k2b-hover);
+}
+
+.k2b-ui .k2b-dialog__close:focus-visible {
+  outline: 2px solid var(--k2b-focus-ring);
+  outline-offset: 2px;
+}
+
+.k2b-ui .k2b-dialog__body {
+  padding: 1rem 0;
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+}
+
+.k2b-ui .k2b-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 0;
+  background: transparent;
+}
+
+/* ----------------------------------------------------------- prompt form */
+
+.k2b-ui .k2b-prompt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  white-space: normal;
+}
+
+.k2b-ui .k2b-prompt-form__info {
+  color: var(--k2b-text-muted);
+  font-size: 0.875rem;
+}
+
+.k2b-ui .k2b-prompt-form__info > p {
+  margin: 0;
+}
+
+.k2b-ui .k2b-prompt-copy {
+  color: var(--k2b-text);
+  font-size: 0.875rem;
+}
+
+/* --------------------------------------------------------- prompt search */
+
+.k2b-ui .k2b-dialog--search {
+  --k2b-search-dialog-height: min(50vh, var(--k2b-dialog-available-height));
+  --k2b-search-body-max: calc(var(--k2b-search-dialog-height) - 3.5rem);
+  width: min(var(--k2b-dialog-available-width), 46rem);
+  height: var(--k2b-search-dialog-height);
+  max-height: var(--k2b-dialog-available-height);
+}
+
+.k2b-ui .k2b-prompt-search-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-bottom: 0.25rem;
+}
+
+.k2b-ui .k2b-prompt-search-shell__title {
+  margin: 0;
+  padding: 0 0.25rem;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.k2b-ui .k2b-prompt-search {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--k2b-border-strong);
+  border-radius: var(--k2b-radius-dialog);
+  color: var(--k2b-text);
+  background: var(--k2b-surface-elevated);
+  box-shadow: var(--k2b-shadow-float);
+}
+
+.k2b-ui .k2b-prompt-search__input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  background: var(--k2b-surface-muted);
+  transition: background-color 150ms ease-out;
+}
+
+/* Cloud signals search focus on the field row, not on the bare input. */
+.k2b-ui .k2b-prompt-search__input:focus-within {
+  background: color-mix(in srgb, var(--k2b-focus-ring) 4%, var(--k2b-surface));
+}
+
+.k2b-ui .k2b-prompt-search__input > i {
+  color: var(--k2b-text-muted);
+  transition: color 150ms ease-out;
+}
+
+.k2b-ui .k2b-prompt-search__input:focus-within > i {
+  color: var(--k2b-focus-ring);
+}
+
+.k2b-ui .k2b-prompt-search__input input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font-size: 0.875rem;
+  caret-color: var(--k2b-focus-ring);
+  outline: 0;
+}
+
+.k2b-ui .k2b-prompt-search__input input::placeholder {
+  color: var(--k2b-text-muted);
+}
+
+.k2b-ui .k2b-prompt-search__collapse {
+  overflow: hidden;
+  transition:
+    height 200ms ease-out,
+    opacity 200ms ease-out;
+}
+
+.k2b-ui .k2b-prompt-search__results {
+  height: 100%;
+  min-height: 0;
+  padding: 0 0.5rem 0.5rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.k2b-ui .k2b-prompt-search__results > p {
+  margin: 0;
+  padding: 0.5rem 0.375rem;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+}
+
+.k2b-ui .k2b-prompt-search__error {
+  margin: 0 0 0.5rem;
+  padding: 0.5rem;
+  border-radius: var(--k2b-radius-control);
+  color: var(--k2b-danger-text);
+  background: var(--k2b-danger-surface);
+  font-size: 0.75rem;
+}
+
+.k2b-ui .k2b-prompt-search__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.k2b-ui .k2b-prompt-search__list > button {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.5rem;
+  border: 0;
+  border-radius: var(--k2b-radius-control);
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  transition:
+    color 150ms ease-out,
+    background-color 150ms ease-out;
+  cursor: pointer;
+}
+
+.k2b-ui .k2b-prompt-search__list > button:hover:not([data-active="true"]) {
+  background: var(--k2b-surface-muted);
+}
+
+.k2b-ui .k2b-prompt-search__list > button[data-active="true"] {
+  color: var(--k2b-info-text);
+  background: var(--k2b-info-surface);
+}
+
+.k2b-ui .k2b-prompt-search__list > button:focus-visible {
+  outline: 2px solid var(--k2b-focus-ring);
+  outline-offset: -2px;
+}
+
+.k2b-ui .k2b-prompt-search__list > button > span {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* Cloud renders the result label at normal weight; `<strong>` only carries
+ * the semantics. */
+.k2b-ui .k2b-prompt-search__list strong {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k2b-ui .k2b-prompt-search__list small {
+  margin-top: 0.125rem;
+  overflow: hidden;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k2b-ui .k2b-prompt-search__preview {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  margin-top: 0.125rem;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--k2b-radius-control);
+  background: var(--k2b-surface-muted);
+}
+
+.k2b-ui .k2b-prompt-search__preview > i {
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+}
+
+.k2b-ui .k2b-prompt-search__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* --------------------------------------------------------------- tooltip */
+
+.k2b-ui .k2b-tooltip-wrapper {
+  display: inline-flex;
+}
+
+/* Only the `k2b-`-prefixed class is owned here. The unprefixed Cloud-era
+ * surface name is deliberately not styled: it would restyle any consumer
+ * element that happens to carry it. */
+.k2b-ui [popover].k2b-tooltip {
+  position: fixed;
+  inset: auto;
+  z-index: 100;
+  max-width: min(18rem, calc(100vw - 1rem));
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--k2b-feedback-tooltip-border);
+  border-radius: var(--k2b-radius-control);
+  color: var(--k2b-feedback-tooltip-text);
+  background: var(--k2b-feedback-tooltip-surface);
+  box-shadow: var(--k2b-shadow-float);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  white-space: normal;
+  transform: none;
+  transition:
+    opacity 120ms,
+    overlay 120ms allow-discrete,
+    display 120ms allow-discrete;
+  pointer-events: auto;
+}
+
+.k2b-ui [popover].k2b-tooltip:popover-open {
+  display: block;
+
+  @starting-style {
+    opacity: 0;
+    transform: none;
+  }
+}
+
+/* ----------------------------------------------------------------- toast */
+
+.k2b-ui [data-k2b-toast-container] > .k2b-toast {
+  display: flex;
+  width: 100%;
+  align-items: stretch;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--k2b-border-strong);
+  border-radius: var(--k2b-radius-surface);
+  opacity: 0;
+  color: var(--k2b-text);
+  background: var(--k2b-surface-elevated);
+  box-shadow: var(--k2b-shadow-float);
+  transform: translateX(0.5rem);
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.k2b-ui [data-k2b-toast-container] > .k2b-toast[data-open="true"] {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.k2b-ui [data-k2b-toast-container] > .k2b-toast[data-closing="true"] {
+  opacity: 0;
+  transform: translateX(0.5rem);
+}
+
+.k2b-ui .k2b-toast__icon {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  align-self: flex-start;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 1rem;
+}
+
+.k2b-ui .k2b-toast__icon[data-tone="info"] {
+  color: var(--k2b-info-text);
+  background: var(--k2b-info-surface);
+}
+
+.k2b-ui .k2b-toast__icon[data-tone="success"] {
+  color: var(--k2b-success-text);
+  background: var(--k2b-success-surface);
+}
+
+.k2b-ui .k2b-toast__icon[data-tone="danger"] {
+  color: var(--k2b-danger-text);
+  background: var(--k2b-danger-surface);
+}
+
+.k2b-ui .k2b-toast__content {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-self: center;
+  gap: 0.125rem;
+}
+
+.k2b-ui .k2b-toast__title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.k2b-ui .k2b-toast__description {
+  overflow-wrap: anywhere;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.375;
+}
+
+.k2b-ui .k2b-toast__action {
+  align-self: flex-start;
+  margin-top: 0.25rem;
+  color: var(--k2b-action);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.k2b-ui .k2b-toast__action:hover {
+  text-decoration: underline;
+}
+
+.k2b-ui .k2b-toast__action:focus-visible {
+  outline: 2px solid var(--k2b-focus-ring);
+  outline-offset: 2px;
+}
+
+.k2b-ui .k2b-toast__close {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  border: 0;
+  border-radius: var(--k2b-radius-control);
+  color: var(--k2b-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.k2b-ui .k2b-toast__close:hover {
+  color: var(--k2b-text);
+  background: var(--k2b-hover);
+}
+
+.k2b-ui .k2b-toast__close:focus-visible {
+  outline: 2px solid var(--k2b-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------ responsive */
+
+@media (min-height: 68.75rem) {
+  .k2b-ui .k2b-dialog--search {
+    --k2b-search-dialog-height: min(33vh, var(--k2b-dialog-available-height));
+  }
+}
+
+@media (forced-colors: active) {
+  .k2b-ui .k2b-prompt-search__input:focus-within {
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k2b-ui .k2b-prompt-search__input,
+  .k2b-ui .k2b-prompt-search__input > i,
+  .k2b-ui .k2b-prompt-search__list > button,
+  .k2b-ui .k2b-prompt-search__collapse,
+  .k2b-ui [popover].k2b-tooltip,
+  .k2b-ui [data-k2b-toast-container] > .k2b-toast {
+    transition: none;
+  }
+}

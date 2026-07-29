@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, type Setter } from "solid-js";
+import { createEffect, createSignal, onCleanup, type Setter } from "solid-js";
 
 export type ChoiceOption<T extends string = string> = {
   value: T;
@@ -77,7 +77,10 @@ export function createChoiceLoader<T extends string>(
       const next = await loadOptions(query, currentController.signal);
       if (currentRequest === request && !currentController.signal.aborted) setOptions(next);
     } catch (reason) {
-      if (currentRequest === request && !currentController.signal.aborted) setError(errorMessage(reason));
+      if (currentRequest === request && !currentController.signal.aborted) {
+        setOptions([]);
+        setError(errorMessage(reason));
+      }
     } finally {
       if (currentRequest === request) setLoading(false);
     }
@@ -114,7 +117,10 @@ export const placeChoicePopover = (trigger: HTMLElement, popover: HTMLElement): 
   const margin = 8;
   const gap = 4;
   const triggerRect = trigger.getBoundingClientRect();
-  const width = Math.min(Math.max(triggerRect.width, 240), window.innerWidth - margin * 2);
+  // Cloud sizes its dropdowns to the trigger exactly (`dialog.style.width =
+  // rect.width`). Keep that so a narrow toolbar select does not open a wide
+  // panel that no longer lines up with the control it belongs to.
+  const width = Math.min(triggerRect.width, window.innerWidth - margin * 2);
   popover.style.width = `${width}px`;
 
   const popoverRect = popover.getBoundingClientRect();
@@ -164,7 +170,9 @@ export function createChoicePopover(disabled: () => boolean): {
     if (restoreFocus) queueMicrotask(() => trigger()?.focus());
   };
 
-  onMount(() => {
+  createEffect(() => {
+    if (!open()) return;
+
     const dismiss = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node) || trigger()?.contains(target) || popover()?.contains(target)) return;
@@ -172,10 +180,19 @@ export function createChoicePopover(disabled: () => boolean): {
     };
     const reposition = () => place();
 
+    // Async option lists arrive after the popover is already open, so the first
+    // placement measures an empty panel. Re-place whenever the panel resizes,
+    // otherwise a dropdown that grows past the viewport bottom stays clipped.
+    const popoverElement = popover();
+    const observer =
+      popoverElement && typeof ResizeObserver !== "undefined" ? new ResizeObserver(reposition) : undefined;
+    if (popoverElement) observer?.observe(popoverElement);
+
     document.addEventListener("pointerdown", dismiss, true);
     window.addEventListener("resize", reposition);
     window.addEventListener("scroll", reposition, true);
     onCleanup(() => {
+      observer?.disconnect();
       document.removeEventListener("pointerdown", dismiss, true);
       window.removeEventListener("resize", reposition);
       window.removeEventListener("scroll", reposition, true);

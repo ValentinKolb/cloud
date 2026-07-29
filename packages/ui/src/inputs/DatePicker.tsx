@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { createFieldMeta, Field, fieldDescribedBy } from "../internal/field";
+import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
 import {
   type DateRangeValue,
   dateKey,
@@ -12,15 +12,19 @@ import {
   isCompleteTime,
   isRangeEdge,
   monthDate,
+  monthNames,
   normalizeTimeInput,
   orderedRange,
   parseDateValue,
   pickerContext,
   previewRange,
+  resolveFocusDay,
   splitDateTime,
   toDateTimeValue,
   yearMonth,
 } from "./date-picker";
+import type { MaybeAccessor, ValueFieldProps } from "./field-contract";
+import { commitFieldValue, resolveMaybeAccessor } from "./field-contract";
 
 export type { DateRangeValue } from "./date-picker";
 
@@ -34,25 +38,17 @@ export type DurationPreset = {
   minutes: number;
 };
 
-type BasePickerProps<T> = {
-  id?: string;
-  class?: string;
-  label?: JSX.Element;
-  description?: JSX.Element;
-  error?: JSX.Element;
+export type DatePickerBaseProps<T> = Omit<ValueFieldProps<T>, "value"> & {
   placeholder?: string;
-  value: T;
-  onValueChange?: (value: T) => void;
+  value: MaybeAccessor<T>;
   presets?: readonly DatePreset<T>[];
   dateConfig?: DateContext;
   clearable?: boolean;
-  disabled?: boolean;
-  required?: boolean;
 };
 
-export type DatePickerProps = BasePickerProps<string | null>;
-export type DateTimePickerProps = BasePickerProps<string | null>;
-export type DateRangePickerProps = BasePickerProps<DateRangeValue> & {
+export type DatePickerProps = DatePickerBaseProps<string | null>;
+export type DateTimePickerProps = DatePickerBaseProps<string | null>;
+export type DateRangePickerProps = DatePickerBaseProps<DateRangeValue> & {
   withTime?: boolean;
   datePresets?: readonly DatePreset<string | null>[];
   durationPresets?: readonly DurationPreset[];
@@ -73,8 +69,10 @@ export const placeDatePopover = (trigger: HTMLElement, popover: HTMLElement, wid
   const margin = 8;
   const gap = 4;
   const rect = trigger.getBoundingClientRect();
+  // Keep the panel at its designed width instead of stretching to a full-width
+  // trigger; it only ever shrinks to fit a narrow viewport.
   const preferredWidth = wide ? 440 : 336;
-  const width = Math.min(Math.max(rect.width, preferredWidth), window.innerWidth - margin * 2);
+  const width = Math.min(preferredWidth, window.innerWidth - margin * 2);
   popover.style.width = `${width}px`;
 
   const popoverRect = popover.getBoundingClientRect();
@@ -91,7 +89,7 @@ export const placeDatePopover = (trigger: HTMLElement, popover: HTMLElement, wid
 };
 
 function PickerShell<T>(props: {
-  owner: BasePickerProps<T>;
+  owner: DatePickerBaseProps<T>;
   icon: string;
   valueLabel: () => string;
   valueContent?: () => JSX.Element;
@@ -104,6 +102,7 @@ function PickerShell<T>(props: {
 }): JSX.Element {
   const meta = createFieldMeta(props.owner.id);
   const [open, setOpen] = createSignal(false);
+  const error = () => resolveMaybeAccessor(props.owner.error);
   let trigger: HTMLButtonElement | undefined;
   let popover: HTMLDivElement | undefined;
 
@@ -147,11 +146,12 @@ function PickerShell<T>(props: {
       class={props.owner.class}
       label={props.owner.label}
       description={props.owner.description}
-      error={props.owner.error}
+      error={error()}
       required={props.owner.required}
+      disabled={props.owner.disabled}
       meta={meta}
     >
-      <div class="k2b-date-picker" data-invalid={props.owner.error ? "true" : undefined}>
+      <div class="k2b-date-picker" data-invalid={error() ? "true" : undefined}>
         <button
           ref={trigger}
           id={meta.controlId}
@@ -163,8 +163,7 @@ function PickerShell<T>(props: {
           aria-haspopup="dialog"
           aria-expanded={open()}
           aria-controls={`${meta.controlId}-popover`}
-          aria-describedby={fieldDescribedBy(meta, props.owner.description, props.owner.error)}
-          aria-invalid={props.owner.error ? "true" : undefined}
+          {...fieldControlAria(meta, props.owner)}
           onClick={toggle}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
@@ -189,7 +188,7 @@ function PickerShell<T>(props: {
             aria-label="Clear date"
             onClick={(event) => {
               event.stopPropagation();
-              props.owner.onValueChange?.(props.clearValue);
+              commitFieldValue(props.owner, props.clearValue);
               trigger?.focus();
             }}
           >
@@ -259,18 +258,42 @@ function DatePickerPanel(props: {
   const month = () => yearMonth(props.visibleMonth(), context());
   const weeks = () => dates.getMonthGrid(month().year, month().month, context());
   const weekdays = () => dates.weekdays(context());
-  const monthNames = () => dates.months(context());
-  const defaultFocus = () => props.focusDate?.() || props.selected?.() || dateKey(dates.today(context()), context());
+  const months = () => monthNames(context());
+  const dayNameFormatter = createMemo(
+    () =>
+      new Intl.DateTimeFormat(context().locale, {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: context().timeZone,
+      }),
+  );
+  let calendar: HTMLElement | undefined;
+  // Days that belong to the visible month; the roving tabindex must land on one
+  // of them or the grid becomes unreachable by keyboard after month navigation.
+  const monthDayKeys = () =>
+    weeks()
+      .flat()
+      .filter((day) => dates.isSameMonth(day, props.visibleMonth(), context()))
+      .map((day) => dateKey(day, context()));
+  // Remembers where arrow-key navigation left off so Tab returns to that day.
+  const [focusedKey, setFocusedKey] = createSignal<string>();
+  const defaultFocus = () =>
+    resolveFocusDay(
+      monthDayKeys(),
+      focusedKey() || props.focusDate?.() || props.selected?.() || dateKey(dates.today(context()), context()),
+    );
 
   const moveMonth = (delta: number) => props.setVisibleMonth(dates.addMonths(props.visibleMonth(), delta, context()));
   const moveYear = (delta: number) => props.setVisibleMonth(monthDate(month().year + delta, month().month, context()));
   const previousLabel = () => (view() === "days" ? "Previous month" : "Previous year");
   const nextLabel = () => (view() === "days" ? "Next month" : "Next year");
 
-  const focusDate = (source: HTMLButtonElement, date: Date) => {
+  const focusDate = (date: Date) => {
     const targetKey = dateKey(date, context());
     if (!dates.isSameMonth(date, props.visibleMonth(), context())) props.setVisibleMonth(date);
-    queueMicrotask(() => source.closest(".k2b-date-calendar")?.querySelector<HTMLElement>(`[data-date-day="${targetKey}"]`)?.focus());
+    queueMicrotask(() => calendar?.querySelector<HTMLElement>(`[data-date-day="${targetKey}"]`)?.focus());
   };
 
   const handleDayKeyDown = (event: KeyboardEvent, day: Date) => {
@@ -278,12 +301,12 @@ function DatePickerPanel(props: {
     const delta = deltas[event.key];
     if (delta !== undefined) {
       event.preventDefault();
-      focusDate(event.currentTarget as HTMLButtonElement, dates.addDays(day, delta, context()));
+      focusDate(dates.addDays(day, delta, context()));
       return;
     }
     if (event.key === "PageUp" || event.key === "PageDown") {
       event.preventDefault();
-      focusDate(event.currentTarget as HTMLButtonElement, dates.addMonths(day, event.key === "PageUp" ? -1 : 1, context()));
+      focusDate(dates.addMonths(day, event.key === "PageUp" ? -1 : 1, context()));
       return;
     }
     if (event.key === "Home" || event.key === "End") {
@@ -293,12 +316,12 @@ function DatePickerPanel(props: {
       );
       const index = buttons.indexOf(event.currentTarget as HTMLButtonElement);
       const offset = event.key === "Home" ? -(index % 7) : 6 - (index % 7);
-      focusDate(event.currentTarget as HTMLButtonElement, dates.addDays(day, offset, context()));
+      focusDate(dates.addDays(day, offset, context()));
     }
   };
 
   return (
-    <section class="k2b-date-calendar" aria-label="Calendar">
+    <section ref={calendar} class="k2b-date-calendar" aria-label="Calendar">
       <header class="k2b-date-calendar__header">
         <button
           type="button"
@@ -326,12 +349,12 @@ function DatePickerPanel(props: {
       <Show
         when={view() === "days"}
         fallback={
-          <div class="k2b-date-months" role="grid" aria-label={`Months in ${month().year}`}>
-            <For each={monthNames()}>
+          <div class="k2b-date-months" role="group" aria-label={`Months in ${month().year}`}>
+            <For each={months()}>
               {(name, index) => (
                 <button
                   type="button"
-                  role="gridcell"
+                  aria-pressed={index() === month().month}
                   data-selected={index() === month().month ? "true" : undefined}
                   onClick={() => {
                     props.setVisibleMonth(monthDate(month().year, index(), context()));
@@ -349,35 +372,45 @@ function DatePickerPanel(props: {
           <For each={weekdays()}>{(day) => <span>{day}</span>}</For>
         </div>
         <div class="k2b-date-grid" role="grid">
-          <For each={weeks().flat()}>
-            {(day) => {
-              const key = () => dateKey(day, context());
-              const selected = () => props.selected?.() === key();
-              const range = () => props.range?.() ?? { start: null, end: null };
-              const active = () => selected() || isRangeEdge(key(), range());
-              const outside = () => !dates.isSameMonth(day, props.visibleMonth(), context());
-              const focusable = () => key() === defaultFocus();
-              return (
-                <button
-                  type="button"
-                  role="gridcell"
-                  data-date-day={key()}
-                  data-date-focus={focusable() ? "true" : undefined}
-                  data-outside={outside() ? "true" : undefined}
-                  data-in-range={inRange(key(), range()) && !active() ? "true" : undefined}
-                  aria-selected={active()}
-                  tabIndex={focusable() ? 0 : -1}
-                  onClick={() => props.onSelect(key())}
-                  onKeyDown={(event) => handleDayKeyDown(event, day)}
-                  onBlur={() => props.onDayPreview?.(null)}
-                  onFocus={() => props.onDayPreview?.(key())}
-                  onPointerEnter={() => props.onDayPreview?.(key())}
-                  onPointerLeave={() => props.onDayPreview?.(null)}
-                >
-                  {dates.formatDayNumber(day, context())}
-                </button>
-              );
-            }}
+          <For each={weeks()}>
+            {(week) => (
+              <div class="k2b-date-week" role="row">
+                <For each={week}>
+                  {(day) => {
+                    const key = () => dateKey(day, context());
+                    const selected = () => props.selected?.() === key();
+                    const range = () => props.range?.() ?? { start: null, end: null };
+                    const active = () => selected() || isRangeEdge(key(), range());
+                    const outside = () => !dates.isSameMonth(day, props.visibleMonth(), context());
+                    const focusable = () => key() === defaultFocus();
+                    return (
+                      <button
+                        type="button"
+                        role="gridcell"
+                        data-date-day={key()}
+                        data-date-focus={focusable() ? "true" : undefined}
+                        data-outside={outside() ? "true" : undefined}
+                        data-in-range={inRange(key(), range()) && !active() ? "true" : undefined}
+                        aria-label={dayNameFormatter().format(day)}
+                        aria-selected={active()}
+                        tabIndex={focusable() ? 0 : -1}
+                        onClick={() => props.onSelect(key())}
+                        onKeyDown={(event) => handleDayKeyDown(event, day)}
+                        onBlur={() => props.onDayPreview?.(null)}
+                        onFocus={() => {
+                          setFocusedKey(key());
+                          props.onDayPreview?.(key());
+                        }}
+                        onPointerEnter={() => props.onDayPreview?.(key())}
+                        onPointerLeave={() => props.onDayPreview?.(null)}
+                      >
+                        {dates.formatDayNumber(day, context())}
+                      </button>
+                    );
+                  }}
+                </For>
+              </div>
+            )}
           </For>
         </div>
       </Show>
@@ -408,8 +441,9 @@ function TimeInput(props: { time: string; onChange: (time: string) => void; labe
 }
 
 export function DatePicker(props: DatePickerProps): JSX.Element {
-  const [visibleMonth, setVisibleMonth] = createSignal(parseDateValue(props.value, props.dateConfig));
-  const valueLabel = () => displayDate(props.value, props.dateConfig);
+  const value = () => resolveMaybeAccessor(props.value);
+  const [visibleMonth, setVisibleMonth] = createSignal(parseDateValue(value(), props.dateConfig));
+  const valueLabel = () => displayDate(value(), props.dateConfig);
 
   return (
     <PickerShell
@@ -417,7 +451,7 @@ export function DatePicker(props: DatePickerProps): JSX.Element {
       icon="ti ti-calendar"
       valueLabel={valueLabel}
       clearValue={null}
-      onOpen={() => setVisibleMonth(parseDateValue(props.value, props.dateConfig))}
+      onOpen={() => setVisibleMonth(parseDateValue(value(), props.dateConfig))}
       wide={Boolean(props.presets?.length)}
     >
       {(close) => (
@@ -425,17 +459,17 @@ export function DatePicker(props: DatePickerProps): JSX.Element {
           <PresetRail
             presets={props.presets}
             onSelect={(value) => {
-              props.onValueChange?.(value);
+              commitFieldValue(props, value);
               close();
             }}
           />
           <DatePickerPanel
             visibleMonth={visibleMonth}
             setVisibleMonth={setVisibleMonth}
-            selected={() => props.value}
-            focusDate={() => props.value}
+            selected={value}
+            focusDate={value}
             onSelect={(value) => {
-              props.onValueChange?.(value);
+              commitFieldValue(props, value);
               close();
             }}
             dateConfig={props.dateConfig}
@@ -447,11 +481,12 @@ export function DatePicker(props: DatePickerProps): JSX.Element {
 }
 
 export function DateTimePicker(props: DateTimePickerProps): JSX.Element {
-  const parts = () => splitDateTime(props.value, props.dateConfig);
+  const value = () => resolveMaybeAccessor(props.value);
+  const parts = () => splitDateTime(value(), props.dateConfig);
   const [visibleMonth, setVisibleMonth] = createSignal(parseDateValue(parts().date, props.dateConfig));
   const [draftDate, setDraftDate] = createSignal(parts().date);
   const [draftTime, setDraftTime] = createSignal(parts().time || "09:00");
-  const valueLabel = () => formatDateTimeValue(props.value, props.dateConfig);
+  const valueLabel = () => formatDateTimeValue(value(), props.dateConfig);
 
   const syncDraft = () => {
     const next = parts();
@@ -476,7 +511,7 @@ export function DateTimePicker(props: DateTimePickerProps): JSX.Element {
             <PresetRail
               presets={props.presets}
               onSelect={(value) => {
-                props.onValueChange?.(value);
+                commitFieldValue(props, value);
                 close();
               }}
             />
@@ -499,7 +534,8 @@ export function DateTimePicker(props: DateTimePickerProps): JSX.Element {
               class="k2b-date-apply"
               disabled={!draftDate() || !isCompleteTime(draftTime())}
               onClick={() => {
-                props.onValueChange?.(toDateTimeValue(draftDate(), draftTime(), props.dateConfig));
+                const value = toDateTimeValue(draftDate(), draftTime(), props.dateConfig);
+                commitFieldValue(props, value);
                 close();
               }}
             >
@@ -514,9 +550,10 @@ export function DateTimePicker(props: DateTimePickerProps): JSX.Element {
 
 export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
   const withTime = () => props.withTime ?? false;
+  const value = () => resolveMaybeAccessor(props.value);
   const parts = () => ({
-    start: withTime() ? splitDateTime(props.value.start, props.dateConfig) : { date: props.value.start ?? "", time: "09:00" },
-    end: withTime() ? splitDateTime(props.value.end, props.dateConfig) : { date: props.value.end ?? "", time: "10:00" },
+    start: withTime() ? splitDateTime(value().start, props.dateConfig) : { date: value().start ?? "", time: "09:00" },
+    end: withTime() ? splitDateTime(value().end, props.dateConfig) : { date: value().end ?? "", time: "10:00" },
   });
   const [visibleMonth, setVisibleMonth] = createSignal(parseDateValue(parts().start.date || parts().end.date, props.dateConfig));
   const [draftRange, setDraftRange] = createSignal<DateRangeValue>({
@@ -538,10 +575,10 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
   };
 
   const valueLabel = () => {
-    if (!props.value.start && !props.value.end) return "";
+    if (!value().start && !value().end) return "";
     const format = withTime() ? formatDateTimeValue : displayDate;
-    return `${props.value.start ? format(props.value.start, props.dateConfig) : "Start"} to ${
-      props.value.end ? format(props.value.end, props.dateConfig) : "End"
+    return `${value().start ? format(value().start, props.dateConfig) : "Start"} to ${
+      value().end ? format(value().end, props.dateConfig) : "End"
     }`;
   };
 
@@ -549,9 +586,9 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
     const format = withTime() ? formatDateTimeValue : displayDate;
     return (
       <span class="k2b-date-range-value">
-        <span>{props.value.start ? format(props.value.start, props.dateConfig) : "Start"}</span>
+        <span>{value().start ? format(value().start, props.dateConfig) : "Start"}</span>
         <i class="ti ti-arrow-narrow-right" aria-hidden="true" />
-        <span>{props.value.end ? format(props.value.end, props.dateConfig) : "End"}</span>
+        <span>{value().end ? format(value().end, props.dateConfig) : "End"}</span>
       </span>
     );
   };
@@ -599,14 +636,15 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
   const commit = (close: () => void) => {
     const current = draftRange();
     if (!withTime()) {
-      props.onValueChange?.(current);
+      commitFieldValue(props, current);
       close();
       return;
     }
-    props.onValueChange?.({
+    const value = {
       start: current.start ? toDateTimeValue(current.start, startTime(), props.dateConfig) : null,
       end: current.end ? toDateTimeValue(current.end, endTime(), props.dateConfig) : null,
-    });
+    };
+    commitFieldValue(props, value);
     close();
   };
 
@@ -638,7 +676,7 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
                 <PresetRail
                   presets={props.presets}
                   onSelect={(value) => {
-                    props.onValueChange?.(value);
+                    commitFieldValue(props, value);
                     close();
                   }}
                 />
@@ -685,7 +723,14 @@ export function DateRangePicker(props: DateRangePickerProps): JSX.Element {
           </Show>
 
           <div class="k2b-date-actions">
-            <button type="button" class="k2b-date-apply" disabled={!draftRange().start || !draftRange().end} onClick={() => commit(close)}>
+            {/* Only a half-picked range is uncommittable; an empty draft must stay
+                applicable so a "clear" date preset can be committed. */}
+            <button
+              type="button"
+              class="k2b-date-apply"
+              disabled={Boolean(draftRange().start) !== Boolean(draftRange().end)}
+              onClick={() => commit(close)}
+            >
               Apply
             </button>
           </div>

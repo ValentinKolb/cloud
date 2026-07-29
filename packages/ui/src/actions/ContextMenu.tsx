@@ -13,13 +13,15 @@ export type ContextMenuItem = {
   onSelect?: () => void;
 };
 
-type ContextMenuContent =
+export type ContextMenuContent =
   | { elements: readonly DropdownItem[]; items?: readonly ContextMenuItem[] }
   | { elements?: readonly DropdownItem[]; items: readonly ContextMenuItem[] };
 
 export type ContextMenuProps = ContextMenuContent & {
   children: JSX.Element;
   class?: string | ((isOpen: boolean) => string);
+  /** Tab order of the context-menu host. Descendant-focused composite widgets use -1. */
+  tabIndex?: number;
   disabled?: boolean;
   onClose?: () => void;
   onOpen?: () => void;
@@ -33,7 +35,11 @@ const focusableItems = (menu: HTMLElement | undefined): HTMLElement[] =>
   menu
     ? Array.from(
         menu.querySelectorAll<HTMLElement>(
-          "[role='menuitem']:not([aria-disabled='true']), [role='menuitemcheckbox']:not([aria-disabled='true']), button:not([disabled]), a[href]",
+          [
+            "[role='menuitem']:not([aria-disabled='true'])",
+            "[role='menuitemcheckbox']:not([aria-disabled='true'])",
+            "[role='menuitemradio']:not([aria-disabled='true'])",
+          ].join(", "),
         ),
       ).filter((item, index, items) => items.indexOf(item) === index)
     : [];
@@ -41,9 +47,11 @@ const focusableItems = (menu: HTMLElement | undefined): HTMLElement[] =>
 /** Right-click menu with keyboard invocation, one-open-at-a-time behavior, and viewport clamping. */
 export function ContextMenu(props: ContextMenuProps): JSX.Element {
   const generatedId = `k2b-context-${createUniqueId()}`;
+  const menuId = `${generatedId}-menu`;
   const [position, setPosition] = createSignal<{ x: number; y: number }>();
   let host: HTMLDivElement | undefined;
   let menu: HTMLDivElement | undefined;
+  let listenersAttached = false;
 
   const isOpen = () => position() !== undefined;
   const hostClass = createMemo(() => (typeof props.class === "function" ? props.class(isOpen()) : props.class));
@@ -61,7 +69,33 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
           }),
     }));
 
+  const dismiss = (event: PointerEvent) => {
+    if (menu?.contains(event.target as Node)) return;
+    close();
+  };
+  const closeOnViewportChange = (event: Event) => {
+    const target = event.target;
+    if (target instanceof Node && menu?.contains(target)) return;
+    close();
+  };
+  const attachOpenListeners = () => {
+    if (listenersAttached) return;
+    listenersAttached = true;
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", keyDown);
+    window.addEventListener("resize", closeOnViewportChange);
+    window.addEventListener("scroll", closeOnViewportChange, true);
+  };
+  const detachOpenListeners = () => {
+    if (!listenersAttached) return;
+    listenersAttached = false;
+    document.removeEventListener("pointerdown", dismiss);
+    document.removeEventListener("keydown", keyDown);
+    window.removeEventListener("resize", closeOnViewportChange);
+    window.removeEventListener("scroll", closeOnViewportChange, true);
+  };
   const close = () => {
+    detachOpenListeners();
     if (!isOpen()) return;
     setPosition();
     if (closeActiveContextMenu === close) closeActiveContextMenu = undefined;
@@ -77,19 +111,17 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
     closeActiveContextMenu?.();
     const point = dropdownPosition(
       new DOMRect(x, y, 0, 0),
-      { width: 232, height: Math.min(elements().length * 38 + 12, 384) },
+      // Matches the fixed 13rem `.k2b-context-menu` surface (border-box).
+      { width: 208, height: Math.min(elements().length * 38 + 12, 384) },
       "bottom-right" satisfies DropdownPosition,
       { width: window.innerWidth, height: window.innerHeight },
       0,
     );
     setPosition({ x: point.left, y: point.top });
     closeActiveContextMenu = close;
+    attachOpenListeners();
     props.onOpen?.();
     queueMicrotask(() => {
-      for (const item of focusableItems(menu)) {
-        if (!item.hasAttribute("role")) item.setAttribute("role", "menuitem");
-        item.tabIndex = -1;
-      }
       focusItem(0);
     });
   };
@@ -113,31 +145,25 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
   };
 
   onMount(() => {
-    const dismiss = (event: PointerEvent) => {
-      if (!isOpen() || menu?.contains(event.target as Node)) return;
-      close();
-    };
-    document.addEventListener("pointerdown", dismiss);
-    document.addEventListener("keydown", keyDown);
-    window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
     onCleanup(() => {
+      detachOpenListeners();
       if (closeActiveContextMenu === close) closeActiveContextMenu = undefined;
-      document.removeEventListener("pointerdown", dismiss);
-      document.removeEventListener("keydown", keyDown);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
     });
   });
 
   return (
     <>
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the named group owns the context-menu relationship without pretending arbitrary children form one button. */}
       <div
         ref={host}
         id={props.id ?? generatedId}
         class={hostClass()}
         role="group"
-        tabIndex={props.disabled ? undefined : 0}
+        tabIndex={props.disabled ? undefined : (props.tabIndex ?? 0)}
+        aria-label={props.label ?? "Context menu"}
+        aria-haspopup="menu"
+        aria-expanded={isOpen()}
+        aria-controls={isOpen() ? menuId : undefined}
         aria-disabled={props.disabled ? "true" : undefined}
         onContextMenu={(event) => {
           if (props.disabled) return;
@@ -159,6 +185,7 @@ export function ContextMenu(props: ContextMenuProps): JSX.Element {
           <Portal>
             <div
               ref={menu}
+              id={menuId}
               class="k2b-ui k2b-context-menu"
               role="menu"
               aria-label={props.label ?? "Context menu"}

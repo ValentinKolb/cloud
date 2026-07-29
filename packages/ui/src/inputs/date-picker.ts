@@ -14,6 +14,25 @@ export const hasInstantOffset = (value: string): boolean => /[T\s].*([zZ]|[+-]\d
 
 export const dateKey = (date: Date | string, context?: DateContext): string => dates.formatDateKey(date, pickerContext(context));
 
+/**
+ * Short month names for the month panel. `dates.months()` only returns the long
+ * form ("September"), which overflows the three-column month grid, so the short
+ * form is derived here while staying locale aware.
+ */
+export const monthNames = (context?: DateContext): string[] => {
+  const merged = pickerContext(context);
+  const formatter = new Intl.DateTimeFormat(merged.locale, { month: "short", timeZone: "UTC" });
+  return Array.from({ length: 12 }, (_, index) => formatter.format(Date.UTC(2024, index, 15)));
+};
+
+/**
+ * Picks the roving-tabindex day for a rendered month grid. The preferred day is
+ * used when the grid actually contains it, otherwise the first day of the
+ * visible month keeps exactly one cell reachable by Tab.
+ */
+export const resolveFocusDay = (monthDayKeys: readonly string[], preferred: string | null | undefined): string | undefined =>
+  preferred && monthDayKeys.includes(preferred) ? preferred : monthDayKeys[0];
+
 export const yearMonth = (date: Date, context?: DateContext): { year: number; month: number } => {
   const [year = "1970", month = "1"] = dateKey(date, context).split("-");
   return { year: Number(year), month: Number(month) - 1 };

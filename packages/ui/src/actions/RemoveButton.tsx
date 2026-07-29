@@ -1,17 +1,12 @@
 import { type JSX, Show, splitProps } from "solid-js";
 import { Tooltip } from "../feedback/Tooltip";
 
-export type RemoveBtnProps = Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "children"> & {
+export type RemoveButtonProps = Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "children"> & {
   ariaLabel: string;
   loading?: boolean;
 };
 
-export type RemoveButtonProps = Omit<RemoveBtnProps, "ariaLabel"> & {
-  ariaLabel?: string;
-  label?: string;
-};
-
-export function RemoveBtn(props: RemoveBtnProps): JSX.Element {
+export function RemoveButton(props: RemoveButtonProps): JSX.Element {
   const [local, rest] = splitProps(props, ["ariaLabel", "class", "disabled", "loading"]);
   return (
     <Tooltip content={local.ariaLabel}>
@@ -39,9 +34,4 @@ export function RemoveBtn(props: RemoveBtnProps): JSX.Element {
   );
 }
 
-export function RemoveButton(props: RemoveButtonProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["ariaLabel", "label"]);
-  return <RemoveBtn {...rest} ariaLabel={local.ariaLabel ?? local.label ?? "Remove"} />;
-}
-
-export default RemoveBtn;
+export default RemoveButton;

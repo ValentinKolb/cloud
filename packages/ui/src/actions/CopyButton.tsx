@@ -1,11 +1,11 @@
 import { copyToClipboard } from "@k2b/stdlib/browser";
-import { createSignal, type JSX, onCleanup, Show, splitProps } from "solid-js";
+import { createSignal, type JSX, onCleanup, splitProps } from "solid-js";
 import { Tooltip } from "../feedback/Tooltip";
-import { Button, type ButtonProps, IconButton } from "./Button";
+import type { ButtonProps } from "./Button";
 
-type CopyValue = { text: string; value?: string } | { text?: string; value: string };
+export type CopyButtonValue = { text: string; value?: string } | { text?: string; value: string };
 
-export type CopyButtonProps = CopyValue &
+export type CopyButtonProps = CopyButtonValue &
   Omit<ButtonProps, "children" | "onClick"> & {
     label?: string;
     copiedLabel?: string;
@@ -15,8 +15,37 @@ export type CopyButtonProps = CopyValue &
     resetAfter?: number;
   };
 
+export async function copyText(
+  text: string,
+  onCopyError?: (error: unknown) => void,
+  copy: (text: string) => Promise<void> = copyToClipboard,
+): Promise<void> {
+  try {
+    await copy(text);
+  } catch (error) {
+    onCopyError?.(error);
+    throw error;
+  }
+}
+
 export function CopyButton(props: CopyButtonProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["copiedLabel", "iconOnly", "label", "onCopied", "onCopyError", "resetAfter", "text", "value"]);
+  const [local, rest] = splitProps(props, [
+    "class",
+    "copiedLabel",
+    "disabled",
+    "iconOnly",
+    "label",
+    "loading",
+    "loadingLabel",
+    "onCopied",
+    "onCopyError",
+    "resetAfter",
+    "size",
+    "text",
+    "type",
+    "value",
+    "variant",
+  ]);
   const [copied, setCopied] = createSignal(false);
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -25,10 +54,13 @@ export function CopyButton(props: CopyButtonProps): JSX.Element {
   });
 
   const copy = async () => {
+    // `copyText` reports through `onCopyError` and then rethrows so direct
+    // callers can await it. The click handler is not awaited by anyone, so it
+    // has to absorb the rejection here — otherwise a denied clipboard
+    // permission surfaces as an unhandled rejection despite `onCopyError`.
     try {
-      await copyToClipboard(local.text ?? local.value ?? "");
-    } catch (error) {
-      local.onCopyError?.(error);
+      await copyText(local.text ?? local.value ?? "", local.onCopyError);
+    } catch {
       return;
     }
     setCopied(true);
@@ -40,31 +72,37 @@ export function CopyButton(props: CopyButtonProps): JSX.Element {
   const visibleLabel = () => (copied() ? (local.copiedLabel ?? "Copied") : (local.label ?? "Copy"));
   const icon = () => (copied() ? "ti ti-check" : "ti ti-copy");
   const iconOnly = () => local.iconOnly ?? local.label === undefined;
+  const buttonLabel = () => (local.loading && local.loadingLabel ? local.loadingLabel : visibleLabel());
   const button = () => (
-    <Show
-      when={iconOnly()}
-      fallback={
-        <Button {...rest} onClick={copy}>
-          <i class={icon()} aria-hidden="true" />
-          {visibleLabel()}
-        </Button>
-      }
+    <button
+      {...rest}
+      type={local.type ?? "button"}
+      // Compose rather than replace: `k2b-button` carries every layout, size
+      // and variant rule, so a consumer class must not be able to strip it.
+      // (Cloud replaced the class here, which was safe only because its base
+      // was a Tailwind utility set the consumer was expected to swap out.)
+      class={`k2b-button k2b-copy-button ${local.class ?? ""}`}
+      data-size={local.size ?? "sm"}
+      data-variant={local.variant ?? "ghost"}
+      disabled={local.disabled || local.loading}
+      aria-busy={local.loading ? "true" : undefined}
+      aria-label={iconOnly() ? buttonLabel() : undefined}
+      onClick={copy}
     >
-      <IconButton {...rest} label={visibleLabel()} onClick={copy}>
-        <i class={icon()} aria-hidden="true" />
-      </IconButton>
-    </Show>
+      <i class={local.loading ? "ti ti-loader-2 k2b-spin" : icon()} aria-hidden="true" />
+      {!iconOnly() && <span>{buttonLabel()}</span>}
+    </button>
   );
 
-  return (
-    <Show when={iconOnly()} fallback={button()}>
-      <Tooltip content={visibleLabel()}>
-        {button()}
-        <span class="k2b-sr-only" aria-live="polite">
-          {copied() ? visibleLabel() : ""}
-        </span>
-      </Tooltip>
-    </Show>
+  return iconOnly() ? (
+    <Tooltip content={visibleLabel()}>
+      {button()}
+      <span class="k2b-sr-only" aria-live="polite">
+        {copied() ? visibleLabel() : ""}
+      </span>
+    </Tooltip>
+  ) : (
+    button()
   );
 }
 

@@ -1,82 +1,94 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import { createFieldMeta, Field, fieldDescribedBy } from "../internal/field";
-import {
-  type ChoiceOption,
-  type ChoiceOptionsLoader,
-  createChoiceLoader,
-  createChoicePopover,
-  filterChoiceOptions,
-  nextEnabledChoiceIndex,
-} from "./choice";
+import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
+import { type ChoiceOption, createChoiceLoader, createChoicePopover, filterChoiceOptions, nextEnabledChoiceIndex } from "./choice";
+import type { ValueFieldProps } from "./field-contract";
+import { commitFieldValue, resolveMaybeAccessor } from "./field-contract";
 
-export type MultiSelectOption<T extends string = string> = ChoiceOption<T>;
+export type MultiSelectOption =
+  | string
+  | { id: string; label?: string; description?: string; icon?: string; color?: string }
+  | ChoiceOption<string>;
+type NormalizedOption = ChoiceOption<string>;
+export type MultiSelectFetchDataFn = (query: string, signal: AbortSignal) => Promise<MultiSelectOption[]>;
 
-export type MultiSelectInputProps<T extends string = string> = {
-  options?: readonly MultiSelectOption<T>[];
-  loadOptions?: ChoiceOptionsLoader<T>;
-  values?: readonly T[];
-  selectedOptions?: readonly MultiSelectOption<T>[];
-  onValuesChange?: (values: T[]) => void;
-  label?: JSX.Element;
-  description?: JSX.Element;
-  error?: JSX.Element;
+export type MultiSelectInputProps = ValueFieldProps<string[]> & {
+  options?: MultiSelectOption[];
+  fetchData?: MultiSelectFetchDataFn;
+  selectedOptions?: () => MultiSelectOption[];
   placeholder?: string;
-  searchPlaceholder?: string;
-  emptyMessage?: string;
-  loadingMessage?: string;
+  icon?: string;
+  activeIcon?: string;
+  fetchDebounceMs?: number;
   debounceMs?: number;
+  loadOptions?: (query: string, signal: AbortSignal) => Promise<readonly ChoiceOption<string>[]>;
   searchable?: boolean;
   clearable?: boolean;
-  required?: boolean;
-  disabled?: boolean;
-  id?: string;
-  class?: string;
-  "aria-describedby"?: string;
+  name?: string;
 };
 
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
 const selectedColor = (color: string | undefined): JSX.CSSProperties | undefined => {
-  if (!color || !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(color.trim())) return undefined;
+  if (!color || !HEX_COLOR.test(color.trim())) return undefined;
   return { "--k2b-choice-color": color.trim() };
 };
 
-export function MultiSelectInput<T extends string = string>(props: MultiSelectInputProps<T>): JSX.Element {
+/** Cloud tints the option icon with the option color instead of adding a dot. */
+const iconColor = (color: string | undefined): JSX.CSSProperties | undefined =>
+  color && HEX_COLOR.test(color.trim()) ? { color: color.trim() } : undefined;
+
+const normalize = (option: MultiSelectOption): NormalizedOption =>
+  typeof option === "string"
+    ? { value: option, label: option }
+    : "value" in option
+      ? option
+      : { ...option, value: option.id, label: option.label || option.id };
+
+export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
   const meta = createFieldMeta(props.id);
   const listboxId = `${meta.controlId}-listbox`;
   const [query, setQuery] = createSignal("");
   const [focusedIndex, setFocusedIndex] = createSignal(-1);
-  const [cache, setCache] = createSignal<Record<string, MultiSelectOption<T>>>({});
+  const [cache, setCache] = createSignal<Record<string, NormalizedOption>>({});
   let searchRef: HTMLInputElement | undefined;
 
-  const values = () => props.values ?? [];
+  const values = () => resolveMaybeAccessor(props.value) ?? [];
+  const error = () => resolveMaybeAccessor(props.error);
   const asyncOptions = createChoiceLoader(
-    () => props.loadOptions,
-    () => props.debounceMs ?? 200,
+    () => props.fetchData ? async (query, signal) => (await props.fetchData!(query, signal)).map(normalize) : props.loadOptions,
+    () => props.fetchDebounceMs ?? props.debounceMs ?? 200,
   );
-  const sourceOptions = () => (props.loadOptions ? asyncOptions.options() : (props.options ?? []));
-  const searchable = () => props.searchable ?? true;
+  const isAsync = () => Boolean(props.fetchData || props.loadOptions);
+  const sourceOptions = () => (isAsync() ? asyncOptions.options() : (props.options ?? []).map(normalize));
+  // Cloud's multi-select always renders its search field, and filters a static
+  // option list client-side while a remote loader filters server-side.
+  const searchable = () => isAsync() || (props.searchable ?? true);
   const visibleOptions = createMemo(() =>
-    props.loadOptions ? sourceOptions() : searchable() ? filterChoiceOptions(sourceOptions(), query()) : sourceOptions(),
+    isAsync() ? sourceOptions() : filterChoiceOptions(sourceOptions(), searchable() ? query() : ""),
   );
   const optionByValue = createMemo(() => {
-    const options = new Map<T, MultiSelectOption<T>>();
-    for (const option of Object.values(cache()) as MultiSelectOption<T>[]) options.set(option.value, option);
-    for (const option of props.selectedOptions ?? []) options.set(option.value, option);
+    const options = new Map<string, NormalizedOption>();
+    for (const option of Object.values(cache())) options.set(option.value, option);
+    for (const option of (props.selectedOptions?.() ?? []).map(normalize)) options.set(option.value, option);
     for (const option of sourceOptions()) options.set(option.value, option);
     return options;
   });
   const selected = createMemo(() =>
-    values().map((value) => optionByValue().get(value) ?? ({ value, label: value } as MultiSelectOption<T>)),
+    values().map((value) => optionByValue().get(value) ?? ({ value, label: value } as NormalizedOption)),
   );
   const popover = createChoicePopover(() => Boolean(props.disabled));
   const focusedOption = () => visibleOptions()[focusedIndex()];
 
-  const emit = (next: readonly T[]) => props.onValuesChange?.([...new Set(next)]);
-  const isSelected = (value: T) => values().includes(value);
+  const emit = (next: readonly string[]) => {
+    const unique = [...new Set(next)];
+    commitFieldValue(props, unique);
+  };
+  const isSelected = (value: string) => values().includes(value);
   const focusFirst = () => setFocusedIndex(nextEnabledChoiceIndex(visibleOptions(), -1, 1));
   const open = () => {
     if (props.disabled) return;
     setQuery("");
-    if (props.loadOptions) asyncOptions.load("", true);
+    if (isAsync()) asyncOptions.load("", true);
     focusFirst();
     popover.show();
     if (searchable()) queueMicrotask(() => searchRef?.focus());
@@ -87,12 +99,12 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
     setFocusedIndex(-1);
     popover.hide(restoreFocus);
   };
-  const toggleOption = (option: MultiSelectOption<T>) => {
+  const toggleOption = (option: NormalizedOption) => {
     if (option.disabled) return;
     setCache({ ...cache(), [option.value]: option });
     emit(isSelected(option.value) ? values().filter((value) => value !== option.value) : [...values(), option.value]);
   };
-  const remove = (value: T) => emit(values().filter((item) => item !== value));
+  const remove = (value: string) => emit(values().filter((item) => item !== value));
   const move = (direction: 1 | -1) => {
     setFocusedIndex(nextEnabledChoiceIndex(visibleOptions(), focusedIndex(), direction));
   };
@@ -132,14 +144,14 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
 
   return (
     <Field
-      class={props.class}
       label={props.label}
       description={props.description}
-      error={props.error}
+      error={error()}
       meta={meta}
       required={props.required}
+      disabled={props.disabled}
     >
-      <div class="k2b-choice-control" data-invalid={props.error ? "true" : undefined}>
+      <div class="k2b-choice-control" data-invalid={error() ? "true" : undefined}>
         <div
           ref={popover.setTrigger}
           id={meta.controlId}
@@ -150,10 +162,8 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
           aria-expanded={popover.open()}
           aria-controls={listboxId}
           aria-activedescendant={focusedOption() ? `${listboxId}-${focusedIndex()}` : undefined}
-          aria-invalid={props.error ? "true" : undefined}
-          aria-required={props.required}
+          {...fieldControlAria(meta, props)}
           aria-disabled={props.disabled}
-          aria-describedby={fieldDescribedBy(meta, props.description, props.error, props["aria-describedby"])}
           data-disabled={props.disabled ? "true" : undefined}
           onClick={() => (popover.open() ? close() : open())}
           onKeyDown={handleKeyDown}
@@ -162,7 +172,7 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
             when={selected().length > 0}
             fallback={
               <span class="k2b-choice-trigger__value" data-placeholder="true">
-                {props.placeholder ?? "Select…"}
+                {props.placeholder ?? "Select..."}
               </span>
             }
           >
@@ -176,6 +186,7 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
                       type="button"
                       aria-label={`Remove ${option.label}`}
                       disabled={props.disabled}
+                      tabIndex={-1}
                       onClick={(event) => {
                         event.stopPropagation();
                         remove(option.value);
@@ -188,7 +199,10 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
               </For>
             </span>
           </Show>
-          <i class="ti ti-chevron-down k2b-multi-select-trigger__chevron" aria-hidden="true" />
+          <i
+            class={`${popover.open() ? (props.activeIcon ?? "ti ti-chevron-up") : (props.icon ?? "ti ti-chevron-down")} k2b-multi-select-trigger__chevron`}
+            aria-hidden="true"
+          />
         </div>
         <Show when={props.clearable && selected().length > 0 && !props.disabled}>
           <button
@@ -220,14 +234,14 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
                 ref={searchRef}
                 type="search"
                 value={query()}
-                placeholder={props.searchPlaceholder ?? "Search…"}
-                aria-label={props.searchPlaceholder ?? "Search options"}
+                placeholder="Search..."
+                aria-label="Search options"
                 aria-controls={listboxId}
                 aria-activedescendant={focusedOption() ? `${listboxId}-${focusedIndex()}` : undefined}
                 onInput={(event) => {
                   const next = event.currentTarget.value;
                   setQuery(next);
-                  if (props.loadOptions) asyncOptions.load(next);
+                  if (isAsync()) asyncOptions.load(next);
                   focusFirst();
                 }}
               />
@@ -245,13 +259,16 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
               )}
             </Show>
             <Show when={asyncOptions.loading() && visibleOptions().length === 0}>
-              <div class="k2b-choice-status">{props.loadingMessage ?? "Loading…"}</div>
+              <div class="k2b-choice-status">
+                <i class="ti ti-loader-2 k2b-spin" aria-hidden="true" />
+                <span>Loading...</span>
+              </div>
             </Show>
             <For
               each={asyncOptions.error() ? [] : visibleOptions()}
               fallback={
                 <Show when={!asyncOptions.loading() && !asyncOptions.error()}>
-                  <div class="k2b-choice-status">{props.emptyMessage ?? "No options available"}</div>
+                  <div class="k2b-choice-status">{isAsync() || query() ? "No results" : "No options available"}</div>
                 </Show>
               }
             >
@@ -270,7 +287,9 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
                   <span class="k2b-choice-option__checkbox" aria-hidden="true">
                     <i class="ti ti-check" />
                   </span>
-                  <Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
+                  <Show when={option.icon}>
+                    {(icon) => <i class={icon()} style={iconColor(option.color)} aria-hidden="true" />}
+                  </Show>
                   <span>
                     <strong>{option.label}</strong>
                     <Show when={option.description}>{(description) => <small>{description()}</small>}</Show>
@@ -280,7 +299,12 @@ export function MultiSelectInput<T extends string = string>(props: MultiSelectIn
             </For>
           </div>
         </div>
+        <Show when={props.name}>
+          {(name) => <input type="hidden" name={name()} value={values().join(",")} />}
+        </Show>
       </div>
     </Field>
   );
 }
+
+export default MultiSelectInput;

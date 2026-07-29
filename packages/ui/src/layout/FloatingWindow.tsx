@@ -1,4 +1,4 @@
-import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, createUniqueId, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal, render } from "solid-js/web";
 import { getK2bPortalRoot } from "../internal/portal";
 import {
@@ -22,45 +22,77 @@ export type FloatingWindowProps = {
   minHeight?: number;
   accent?: string;
   class?: string;
+  resolveScope?: () => HTMLElement | null | undefined;
 };
 export type OpenFloatingWindowOptions = Omit<FloatingWindowProps, "children" | "onClose">;
 export type FloatingWindowClose = () => void;
 
 const MOBILE_BREAKPOINT = 640;
-let nextLayer = 30;
-const activeLayers = new Set<number>();
-const allocateLayer = () => {
-  const layer = ++nextLayer;
-  activeLayers.add(layer);
-  return layer;
+const FLOATING_WINDOW_LAYER_BASE = 80;
+type LayerOwner = { setLayer: (layer: number) => void };
+const activeLayers: LayerOwner[] = [];
+const syncLayers = () => {
+  activeLayers.forEach((owner, index) => owner.setLayer(FLOATING_WINDOW_LAYER_BASE + index));
 };
-const releaseLayer = (layer: number) => activeLayers.delete(layer);
-const topLayer = () => Math.max(...activeLayers);
+const registerLayer = (owner: LayerOwner) => {
+  activeLayers.push(owner);
+  syncLayers();
+};
+const releaseLayer = (owner: LayerOwner) => {
+  const index = activeLayers.indexOf(owner);
+  if (index < 0) return;
+  activeLayers.splice(index, 1);
+  syncLayers();
+};
+const bringLayerToFront = (owner: LayerOwner) => {
+  const index = activeLayers.indexOf(owner);
+  if (index < 0 || index === activeLayers.length - 1) return;
+  activeLayers.splice(index, 1);
+  activeLayers.push(owner);
+  syncLayers();
+};
+const isTopLayer = (owner: LayerOwner) => activeLayers.at(-1) === owner;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), Math.max(min, max));
 
 export default function FloatingWindow(props: FloatingWindowProps): JSX.Element {
   const minWidth = () => props.minWidth ?? 360;
   const minHeight = () => props.minHeight ?? 320;
   const [mobile, setMobile] = createSignal(false);
-  const [layer, setLayer] = createSignal(allocateLayer());
+  const [layer, setLayer] = createSignal(FLOATING_WINDOW_LAYER_BASE);
+  const layerOwner: LayerOwner = { setLayer };
   const [rect, setRect] = createSignal<FloatingWindowRect>({
     x: FLOATING_WINDOW_VIEWPORT_GAP,
     y: FLOATING_WINDOW_VIEWPORT_GAP,
     width: props.initialWidth ?? 720,
     height: props.initialHeight ?? 640,
   });
-  const titleId = `k2b-floating-window-${Math.random().toString(36).slice(2)}`;
+  const titleId = `k2b-floating-window-${createUniqueId()}`;
   let frame: HTMLElement | undefined;
+  let stopPointerInteraction: (() => void) | undefined;
   const fit = (value: FloatingWindowRect) =>
     fitFloatingWindowRect(value, minWidth(), minHeight(), { width: window.innerWidth, height: window.innerHeight });
-  const front = () =>
-    setLayer((current) => {
-      if (current === topLayer()) return current;
-      releaseLayer(current);
-      return allocateLayer();
-    });
+  const front = () => bringLayerToFront(layerOwner);
+  const stopActivePointerInteraction = () => stopPointerInteraction?.();
+  const close = () => {
+    stopActivePointerInteraction();
+    props.onClose();
+  };
+  const trackPointerInteraction = (move: (event: PointerEvent) => void) => {
+    stopActivePointerInteraction();
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      if (stopPointerInteraction === stop) stopPointerInteraction = undefined;
+    };
+    stopPointerInteraction = stop;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+    window.addEventListener("pointercancel", stop, { once: true });
+  };
 
   onMount(() => {
+    registerLayer(layerOwner);
     const viewport = () => {
       const compact = window.innerWidth < MOBILE_BREAKPOINT;
       setMobile(compact);
@@ -71,16 +103,16 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
     );
     viewport();
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && layer() === topLayer()) {
-        event.preventDefault();
-        props.onClose();
-      }
+      if (event.defaultPrevented || event.key !== "Escape" || !isTopLayer(layerOwner)) return;
+      event.preventDefault();
+      close();
     };
     window.addEventListener("resize", viewport);
     window.addEventListener("keydown", escape);
     const focus = requestAnimationFrame(() => frame?.focus());
     onCleanup(() => {
-      releaseLayer(layer());
+      stopActivePointerInteraction();
+      releaseLayer(layerOwner);
       cancelAnimationFrame(focus);
       window.removeEventListener("resize", viewport);
       window.removeEventListener("keydown", escape);
@@ -96,14 +128,7 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
     front();
     const move = (next: PointerEvent) =>
       setRect(fit({ ...origin, x: origin.x + next.clientX - start.x, y: origin.y + next.clientY - start.y }));
-    const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-      window.removeEventListener("pointercancel", stop);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop, { once: true });
-    window.addEventListener("pointercancel", stop, { once: true });
+    trackPointerInteraction(move);
     event.preventDefault();
   };
   const resizeBy = (edge: ResizeEdge, deltaX: number, deltaY: number) => {
@@ -131,14 +156,7 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
       resizeBy(edge, next.clientX - previous.x, next.clientY - previous.y);
       previous = { x: next.clientX, y: next.clientY };
     };
-    const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-      window.removeEventListener("pointercancel", stop);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop, { once: true });
-    window.addEventListener("pointercancel", stop, { once: true });
+    trackPointerInteraction(move);
     event.preventDefault();
   };
   const arrows = (event: KeyboardEvent, action: (x: number, y: number) => void) => {
@@ -175,7 +193,13 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
       data-mobile={mobile() ? "true" : undefined}
       style={
         mobile()
-          ? { "--k2b-window-accent": props.accent, "z-index": layer() }
+          ? {
+              "--k2b-window-accent": props.accent,
+              inset: "0.5rem",
+              width: "auto",
+              height: "auto",
+              "z-index": layer(),
+            }
           : {
               "--k2b-window-accent": props.accent,
               left: `${rect().x}px`,
@@ -202,27 +226,43 @@ export default function FloatingWindow(props: FloatingWindowProps): JSX.Element 
         >
           <span id={titleId}>{props.title}</span>
         </button>
-        <button type="button" class="k2b-icon-button" aria-label="Close window" onClick={props.onClose}>
+        <button type="button" class="k2b-icon-button" aria-label="Close window" onClick={close}>
           <i class="ti ti-x" aria-hidden="true" />
         </button>
       </header>
       <div class="k2b-floating-window__body">{props.children}</div>
       <Show when={!mobile()}>
-        {handles.map(([edge, cursor]) => (
-          <button
-            type="button"
-            class="k2b-floating-window__resize"
-            data-edge={edge}
-            style={{ cursor }}
-            aria-label={`Resize window from ${edge}. Use arrow keys; hold Shift for larger steps.`}
-            onPointerDown={(event) => beginResize(edge, event)}
-            onKeyDown={(event) => arrows(event, (x, y) => resizeBy(edge, x, y))}
-          />
-        ))}
+        {handles.map(([edge, cursor]) =>
+          edge === "bottom-right" ? (
+            <button
+              type="button"
+              class="k2b-floating-window__resize"
+              data-edge={edge}
+              style={{ cursor }}
+              aria-label="Resize window. Use arrow keys; hold Shift for larger steps."
+              onPointerDown={(event) => beginResize(edge, event)}
+              onKeyDown={(event) => arrows(event, (x, y) => resizeBy(edge, x, y))}
+            />
+          ) : (
+            // Cloud exposes a single keyboard-resizable corner; the remaining
+            // edges stay pointer-only so the window adds one tab stop, not eight.
+            <div
+              class="k2b-floating-window__resize"
+              data-edge={edge}
+              style={{ cursor }}
+              aria-hidden="true"
+              onPointerDown={(event) => beginResize(edge, event)}
+            />
+          ),
+        )}
       </Show>
     </section>
   );
-  return <Portal mount={typeof document === "undefined" ? undefined : getK2bPortalRoot()}>{view}</Portal>;
+  return (
+    <Portal mount={typeof document === "undefined" ? undefined : getK2bPortalRoot(props.resolveScope?.())}>
+      {view}
+    </Portal>
+  );
 }
 
 export const openFloatingWindow = (
@@ -243,6 +283,13 @@ export const openFloatingWindow = (
     owner.remove();
     previousFocus?.focus();
   };
-  dispose = render(() => <FloatingWindow {...options} onClose={close}>{view(close)}</FloatingWindow>, owner);
+  dispose = render(
+    () => (
+      <FloatingWindow {...options} resolveScope={options.resolveScope ?? (() => owner)} onClose={close}>
+        {view(close)}
+      </FloatingWindow>
+    ),
+    owner,
+  );
   return close;
 };

@@ -1,50 +1,70 @@
-import { dates, type DateContext } from "@k2b/stdlib";
-import type { JSX } from "solid-js";
-import { DataTable, type DataTableColumn } from "./DataTable";
+import { dates } from "@k2b/stdlib";
+import { Show } from "solid-js";
+import DataTable, { type DataTableColumn } from "./DataTable";
+import Placeholder from "../surfaces/Placeholder";
 
-export type LogEntry = {
-  id: string | number;
-  timestamp: string | Date;
-  level: "debug" | "info" | "warn" | "error" | (string & {});
+export type LogTableEntry = {
+  id: number | string;
+  level: string;
+  source: string;
   message: string;
-  source?: string;
-  metadata?: unknown;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
 };
 
-export type LogEntriesTableProps = {
-  entries: readonly LogEntry[];
-  dateContext?: DateContext;
-  empty?: JSX.Element;
-  onSelect?: (entry: LogEntry) => void;
-  class?: string;
+type Props = {
+  entries: LogTableEntry[];
+  emptyMessage?: string;
 };
 
-const columns: readonly DataTableColumn<LogEntry>[] = [
-  { id: "level", header: "Level", value: "level" },
-  { id: "source", header: "Source", value: "source" },
-  { id: "message", header: "Message", value: "message" },
-  { id: "time", header: "Time", value: "timestamp", cellClass: "k2b-log-table__time" },
-];
+/**
+ * Cloud paints each level with a hardcoded Tailwind palette pair
+ * (`text-amber-500 dark:text-amber-400`, …). The package keeps the same
+ * per-level distinction but routes it through `data-level` so the semantic
+ * `--k2b-*` tokens stay the single theming contract in both schemes.
+ */
+const levelIcon: Record<string, { icon: string; level: string; label: string }> = {
+  debug: { icon: "ti ti-bug", level: "debug", label: "debug" },
+  info: { icon: "ti ti-info-circle", level: "info", label: "info" },
+  warn: { icon: "ti ti-alert-triangle", level: "warn", label: "warn" },
+  error: { icon: "ti ti-alert-circle", level: "error", label: "error" },
+};
 
-export function LogEntriesTable(props: LogEntriesTableProps): JSX.Element {
+export default function LogEntriesTable(props: Props) {
+  const columns = (): DataTableColumn<LogTableEntry>[] => [
+    { id: "level", header: "Level", value: (entry) => entry.level },
+    { id: "source", header: `Source (${props.entries.length})`, value: (entry) => entry.source },
+    { id: "message", header: "Message", value: (entry) => entry.message },
+    { id: "time", header: "Time", value: (entry) => entry.createdAt, cellClass: "k2b-log-table__time-cell" },
+  ];
+
   return (
-    <DataTable
-      rows={props.entries}
-      columns={columns}
-      getRowId={(entry) => String(entry.id)}
-      density="compact"
-      hoverRows
-      onRowClick={props.onSelect}
-      empty={props.empty ?? "No log entries"}
-      class={`k2b-log-table ${props.class ?? ""}`}
-      ariaLabel="Log entries"
-      renderCell={({ row, column, render }) => {
-        if (column.id === "level") return <span class="k2b-log-level" data-level={row.level}>{row.level}</span>;
-        if (column.id === "source") return <span class="k2b-log-table__source">{row.source ?? "—"}</span>;
-        if (column.id === "message") return <span title={row.message}>{row.message}</span>;
-        if (column.id === "time") return <time dateTime={new Date(row.timestamp).toISOString()}>{dates.formatDateTime(row.timestamp, props.dateContext)}</time>;
-        return render(undefined);
-      }}
-    />
+    <Show
+      when={props.entries.length > 0}
+      fallback={<Placeholder surface="paper">{props.emptyMessage ?? "No log entries found."}</Placeholder>}
+    >
+      <DataTable
+        rows={props.entries}
+        columns={columns()}
+        getRowId={(entry) => String(entry.id)}
+        hoverRows
+        class="k2b-log-table"
+        renderCell={({ row, col }) => {
+          if (col.id === "level") {
+            const level = levelIcon[row.level] ?? levelIcon.debug!;
+            return (
+              <span class="k2b-log-level" data-level={level.level}>
+                <i class={`k2b-log-level__icon ${level.icon}`} />
+                <span>{level.label}</span>
+              </span>
+            );
+          }
+          if (col.id === "source") return <span class="k2b-log-table__source">{row.source}</span>;
+          if (col.id === "message") return <span title={row.message}>{row.message}</span>;
+          if (col.id === "time") return <span class="k2b-log-table__time">{dates.formatDateTime(row.createdAt)}</span>;
+          return "";
+        }}
+      />
+    </Show>
   );
 }

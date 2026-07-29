@@ -18,6 +18,9 @@ export const APP_WORKSPACE_DETAIL_MAX = 640;
 export const APP_WORKSPACE_DRAWER_DEFAULT = 240;
 export const APP_WORKSPACE_DRAWER_MIN = 160;
 export const APP_WORKSPACE_DRAWER_MAX = 560;
+/** Space `appWorkspaceResizeLimits` always reserves for the main region. */
+export const APP_WORKSPACE_MAIN_MIN = 320;
+export const APP_WORKSPACE_MAIN_MIN_HEIGHT = 240;
 export const APP_WORKSPACE_PANE_DEFAULT = 320;
 export const APP_WORKSPACE_PANE_MIN = 240;
 export const APP_WORKSPACE_PANE_MAX = 640;
@@ -52,7 +55,7 @@ export const appWorkspaceResizeLimits = (options: {
         : options.kind === "pane"
           ? APP_WORKSPACE_PANE_MAX
           : APP_WORKSPACE_DRAWER_MAX);
-  const mainMinimum = options.kind === "drawer" ? 240 : 320;
+  const mainMinimum = options.kind === "drawer" ? APP_WORKSPACE_MAIN_MIN_HEIGHT : APP_WORKSPACE_MAIN_MIN;
   return { min, max: Math.max(min, Math.min(configuredMax, options.workspaceSize - options.reservedSize - mainMinimum)) };
 };
 
@@ -95,15 +98,21 @@ export const normalizeAppWorkspaceLayoutState = (value: unknown): AppWorkspaceLa
   if (candidate.version !== 1 && candidate.version !== 2) return null;
   const sidebarWidth = finiteSize(candidate.sidebarWidth, APP_WORKSPACE_SIDEBAR_MIN, APP_WORKSPACE_SIDEBAR_MAX);
   const sidebarCollapsed = typeof candidate.sidebarCollapsed === "boolean" ? candidate.sidebarCollapsed : undefined;
-  const paneWidths = normalizeSizes(candidate.paneWidths, APP_WORKSPACE_PANE_MIN, APP_WORKSPACE_PANE_MAX);
-  const detailWidths =
-    candidate.version === 1
-      ? (() => {
-          const width = finiteSize(candidate.detailWidth, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
-          return width === undefined ? undefined : { primary: width };
-        })()
-      : normalizeSizes(candidate.detailWidths, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
-  const drawerHeights = normalizeSizes(candidate.drawerHeights, APP_WORKSPACE_DRAWER_MIN, APP_WORKSPACE_DRAWER_MAX);
+  // Keyed panel maps only exist from version 2 on; a version-1 payload that
+  // carries them was not written by this component and is not trusted.
+  const legacy = candidate.version === 1;
+  const paneWidths = legacy
+    ? undefined
+    : normalizeSizes(candidate.paneWidths, APP_WORKSPACE_PANE_MIN, APP_WORKSPACE_PANE_MAX);
+  const detailWidths = legacy
+    ? (() => {
+        const width = finiteSize(candidate.detailWidth, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
+        return width === undefined ? undefined : { primary: width };
+      })()
+    : normalizeSizes(candidate.detailWidths, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
+  const drawerHeights = legacy
+    ? undefined
+    : normalizeSizes(candidate.drawerHeights, APP_WORKSPACE_DRAWER_MIN, APP_WORKSPACE_DRAWER_MAX);
   return sidebarWidth === undefined &&
     sidebarCollapsed === undefined &&
     !paneWidths &&

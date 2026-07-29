@@ -1,6 +1,6 @@
 import { getK2bPortalRoot } from "../internal/portal";
 
-export type ToastVariant = "default" | "success" | "error" | "info" | "warning" | "danger";
+export type ToastVariant = "default" | "success" | "error";
 
 export type ToastAction = {
   label: string;
@@ -11,10 +11,8 @@ export type ToastOptions = {
   variant?: ToastVariant;
   duration?: number;
   iconClass?: string;
-  icon?: string;
   title?: string;
   action?: ToastAction | null;
-  resolveScope?: () => HTMLElement | null | undefined;
 };
 
 export type ToastHandle = {
@@ -25,61 +23,77 @@ export type ToastHandle = {
 export interface ToastFn {
   (description: string, options?: ToastOptions): ToastHandle;
   success: (description: string, options?: Omit<ToastOptions, "variant">) => ToastHandle;
-  warning: (description: string, options?: Omit<ToastOptions, "variant">) => ToastHandle;
   error: (description: string, options?: Omit<ToastOptions, "variant">) => ToastHandle;
   dismissAll: () => void;
 }
 
-const DEFAULT_DURATION = 3000;
-const MAX_VISIBLE = 5;
-const REMOVE_DELAY = 200;
-const containers = new Map<HTMLElement, HTMLElement>();
+const DEFAULT_DURATION_MS = 3000;
+const MAX_VISIBLE_TOASTS = 5;
+const ANIMATION_MS = 200;
+export const K2B_TOAST_CONTAINER_ID = "k2b-ui-toast-container";
+const CONTAINER_ATTRIBUTE = "data-k2b-toast-container";
+
+type VariantStyle = {
+  tone: "info" | "success" | "danger";
+  iconClass: string;
+  defaultTitle: string;
+};
+
+const VARIANT_STYLES: Record<ToastVariant, VariantStyle> = {
+  default: {
+    tone: "info",
+    iconClass: "ti-info-circle",
+    defaultTitle: "Info",
+  },
+  success: {
+    tone: "success",
+    iconClass: "ti-check",
+    defaultTitle: "Success",
+  },
+  error: {
+    tone: "danger",
+    iconClass: "ti-x",
+    defaultTitle: "Error",
+  },
+};
+
 const liveToasts = new Set<ToastHandle>();
 
-type ToastTone = "info" | "success" | "warning" | "danger";
+const ensureContainer = (): HTMLElement | null => {
+  if (typeof document === "undefined") return null;
+  const root = getK2bPortalRoot();
+  let container = root.querySelector<HTMLElement>(`[${CONTAINER_ATTRIBUTE}]`);
+  if (container) return container;
 
-const variantTone = (variant: ToastVariant): ToastTone => {
-  if (variant === "default") return "info";
-  if (variant === "error") return "danger";
-  return variant;
-};
-
-const variantMeta: Record<ToastTone, { title: string; icon: string }> = {
-  info: { title: "Info", icon: "ti ti-info-circle" },
-  success: { title: "Success", icon: "ti ti-check" },
-  warning: { title: "Warning", icon: "ti ti-alert-triangle" },
-  danger: { title: "Error", icon: "ti ti-alert-circle" },
-};
-
-const createContainer = (root: HTMLElement): HTMLElement => {
-  const container = document.createElement("div");
-  container.className = "k2b-toast-container";
+  container = document.createElement("div");
+  container.id = K2B_TOAST_CONTAINER_ID;
+  container.setAttribute(CONTAINER_ATTRIBUTE, "");
   container.setAttribute("popover", "manual");
+  // Keep the source rail geometry inline: it must defeat UA popover defaults
+  // even when a consumer has not loaded the optional package stylesheet yet.
+  container.style.cssText =
+    "position:fixed;top:auto;left:auto;bottom:env(safe-area-inset-bottom,0px);right:env(safe-area-inset-right,0px);" +
+    "z-index:50;box-sizing:border-box;display:flex;flex-direction:column;gap:0.5rem;" +
+    "width:min(22rem,calc(100vw - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));" +
+    "height:auto;max-width:100vw;" +
+    "max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));" +
+    "margin:0;padding:1rem;border:0;background:transparent;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;" +
+    "pointer-events:none;";
   root.appendChild(container);
-  containers.set(root, container);
   return container;
 };
 
-const ensureContainer = (scope?: HTMLElement | null): { root: HTMLElement; container: HTMLElement } => {
-  const root = getK2bPortalRoot(scope);
-  const existing = containers.get(root);
-  return {
-    root,
-    container: existing?.isConnected ? existing : createContainer(root),
-  };
-};
-
-const promoteContainer = (root: HTMLElement, container: HTMLElement): HTMLElement => {
-  if (typeof container.showPopover !== "function") return container;
+const promoteToTopLayer = (container: HTMLElement): HTMLElement => {
+  if (typeof container.showPopover !== "function" || !container.isConnected) return container;
   let active = container;
   try {
-    if (container.matches(":popover-open") && document.querySelector("dialog:modal")) {
-      const replacement = container.cloneNode(false) as HTMLElement;
-      while (container.firstChild) replacement.appendChild(container.firstChild);
+    if (container.matches(":popover-open") || document.querySelector("dialog:modal")) {
+      const next = container.cloneNode(false) as HTMLElement;
+      while (container.firstChild) next.appendChild(container.firstChild);
+      const root = container.parentElement ?? getK2bPortalRoot();
       container.remove();
-      root.appendChild(replacement);
-      containers.set(root, replacement);
-      active = replacement;
+      root.appendChild(next);
+      active = next;
     }
     if (!active.matches(":popover-open")) active.showPopover();
   } catch {
@@ -88,184 +102,217 @@ const promoteContainer = (root: HTMLElement, container: HTMLElement): HTMLElemen
   return active;
 };
 
-const hideEmptyContainer = (root: HTMLElement) => {
-  const container = containers.get(root);
-  if (!container || container.childElementCount > 0) return;
-  try {
-    if (container.matches(":popover-open")) container.hidePopover();
-  } catch {
-    // The container may already be detached.
+/** Close every empty rail so an emptied container does not linger in the top
+ *  layer. Rails are resolved at call time on purpose: `promoteToTopLayer`
+ *  swaps the element for a fresh clone, so a container captured when the toast
+ *  was created can already be detached by the time the toast is dismissed. */
+const hideEmptyContainers = (): void => {
+  if (typeof document === "undefined") return;
+  for (const container of Array.from(document.querySelectorAll<HTMLElement>(`[${CONTAINER_ATTRIBUTE}]`))) {
+    if (container.childElementCount > 0 || typeof container.hidePopover !== "function") continue;
+    try {
+      if (container.matches(":popover-open")) container.hidePopover();
+    } catch {
+      // Already hidden or disconnected.
+    }
   }
 };
 
-const showToast = (description: string, options: ToastOptions = {}): ToastHandle => {
-  if (typeof document === "undefined") {
+const renderLead = (lead: HTMLElement, variant: ToastVariant, iconClassOverride?: string): HTMLElement => {
+  const style = VARIANT_STYLES[variant];
+  lead.replaceChildren();
+  lead.className = "k2b-toast__icon";
+  lead.dataset.tone = style.tone;
+  const icon = document.createElement("i");
+  icon.className = `ti ${iconClassOverride ?? style.iconClass}`;
+  icon.setAttribute("aria-hidden", "true");
+  lead.appendChild(icon);
+  return icon;
+};
+
+const showToast = (description: string, options?: ToastOptions): ToastHandle => {
+  const initialContainer = ensureContainer();
+  if (!initialContainer) {
     const noop = () => {};
     return { dismiss: noop, update: noop };
   }
 
-  const { root, container: initialContainer } = ensureContainer(options.resolveScope?.());
-  const container = promoteContainer(root, initialContainer);
-  let variant: ToastVariant = options.variant ?? "default";
-  let duration = options.duration ?? DEFAULT_DURATION;
-  let remaining = duration;
-  let startedAt = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   let dismissed = false;
-  let pointerPaused = false;
-  let focusPaused = false;
+  let dismissTimer: ReturnType<typeof setTimeout> | null = null;
+  let currentVariant: ToastVariant = options?.variant ?? "default";
+  let currentDuration = options?.duration ?? DEFAULT_DURATION_MS;
+  let remainingDuration = currentDuration;
+  let timerStartedAt = 0;
+  let pausedByPointer = false;
+  let pausedByFocus = false;
 
-  const card = document.createElement("section");
-  card.className = "k2b-toast";
-  card.dataset.tone = variantTone(variant);
-  card.dataset.k2bTone = "";
-  card.dataset.k2bToast = "";
+  const toastElement = document.createElement("div");
+  toastElement.className = "k2b-toast";
+  toastElement.dataset.tone = VARIANT_STYLES[currentVariant].tone;
+  toastElement.dataset.k2bToast = "";
 
-  const icon = document.createElement("span");
-  icon.className = "k2b-toast__icon";
-  icon.setAttribute("aria-hidden", "true");
-  const iconGlyph = document.createElement("i");
-  icon.appendChild(iconGlyph);
+  const leadElement = document.createElement("div");
+  let leadIconElement = renderLead(leadElement, currentVariant, options?.iconClass);
 
-  const content = document.createElement("div");
-  content.className = "k2b-toast__content";
-  content.setAttribute("role", variantTone(variant) === "danger" ? "alert" : "status");
-  content.setAttribute("aria-live", variantTone(variant) === "danger" ? "assertive" : "polite");
-  content.setAttribute("aria-atomic", "true");
-  const title = document.createElement("strong");
-  const body = document.createElement("span");
-  content.append(title, body);
+  const contentElement = document.createElement("div");
+  contentElement.className = "k2b-toast__content";
+  contentElement.setAttribute("role", "status");
+  contentElement.setAttribute("aria-live", "polite");
+  contentElement.setAttribute("aria-atomic", "true");
 
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "k2b-toast__close";
-  close.setAttribute("aria-label", "Dismiss notification");
+  const titleElement = document.createElement("div");
+  titleElement.className = "k2b-toast__title";
+  titleElement.textContent = options?.title ?? VARIANT_STYLES[currentVariant].defaultTitle;
+  const descriptionElement = document.createElement("div");
+  descriptionElement.className = "k2b-toast__description";
+  descriptionElement.textContent = description;
+  contentElement.append(titleElement, descriptionElement);
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "k2b-toast__close";
+  closeButton.setAttribute("aria-label", "Dismiss notification");
   const closeIcon = document.createElement("i");
   closeIcon.className = "ti ti-x";
   closeIcon.setAttribute("aria-hidden", "true");
-  close.appendChild(closeIcon);
-  card.append(icon, content, close);
+  closeButton.appendChild(closeIcon);
 
-  let action: HTMLAnchorElement | undefined;
-  const renderAction = (value: ToastAction | null | undefined) => {
-    action?.remove();
-    action = undefined;
-    if (!value) return;
-    action = document.createElement("a");
-    action.className = "k2b-toast__action";
-    action.href = value.href;
-    action.textContent = value.label;
-    action.addEventListener("click", (event) => {
+  toastElement.append(leadElement, contentElement, closeButton);
+
+  const clearDismissTimer = () => {
+    if (dismissTimer === null) return;
+    clearTimeout(dismissTimer);
+    dismissTimer = null;
+  };
+
+  const pauseDismissTimer = () => {
+    if (dismissTimer === null) return;
+    remainingDuration = Math.max(0, remainingDuration - (Date.now() - timerStartedAt));
+    clearDismissTimer();
+  };
+
+  const resumeDismissTimer = () => {
+    if (dismissed || currentDuration === 0 || remainingDuration <= 0 || pausedByPointer || pausedByFocus) return;
+    clearDismissTimer();
+    timerStartedAt = Date.now();
+    dismissTimer = setTimeout(() => dismiss(), remainingDuration);
+  };
+
+  const resetDismissTimer = (duration: number) => {
+    clearDismissTimer();
+    currentDuration = duration;
+    remainingDuration = duration;
+    resumeDismissTimer();
+  };
+
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    clearDismissTimer();
+    liveToasts.delete(handle);
+    toastElement.dataset.closing = "true";
+    setTimeout(() => {
+      toastElement.remove();
+      hideEmptyContainers();
+    }, ANIMATION_MS);
+  };
+
+  let actionElement: HTMLAnchorElement | null = null;
+  const renderAction = (action: ToastAction | null | undefined) => {
+    actionElement?.remove();
+    actionElement = null;
+    if (!action) return;
+    actionElement = document.createElement("a");
+    actionElement.className = "k2b-toast__action";
+    actionElement.href = action.href;
+    actionElement.textContent = action.label;
+    actionElement.addEventListener("click", (event) => {
       event.stopPropagation();
-      handle.dismiss();
+      dismiss();
     });
-    content.appendChild(action);
+    contentElement.appendChild(actionElement);
   };
+  renderAction(options?.action);
 
-  const render = (nextDescription: string, nextOptions: ToastOptions, resetTitle: boolean) => {
-    variant = nextOptions.variant ?? variant;
-    const tone = variantTone(variant);
-    card.dataset.tone = tone;
-    content.setAttribute("role", tone === "danger" ? "alert" : "status");
-    content.setAttribute("aria-live", tone === "danger" ? "assertive" : "polite");
-    iconGlyph.className = nextOptions.iconClass ?? nextOptions.icon ?? variantMeta[tone].icon;
-    body.textContent = nextDescription;
-    if (resetTitle || Object.hasOwn(nextOptions, "title")) {
-      title.textContent = nextOptions.title ?? variantMeta[tone].title;
+  const update = (nextDescription: string, nextOptions?: ToastOptions) => {
+    if (dismissed) return;
+    descriptionElement.textContent = nextDescription;
+
+    const variantChanged = nextOptions?.variant !== undefined && nextOptions.variant !== currentVariant;
+    if (variantChanged) {
+      currentVariant = nextOptions.variant!;
+      toastElement.dataset.tone = VARIANT_STYLES[currentVariant].tone;
+      leadIconElement = renderLead(leadElement, currentVariant, nextOptions.iconClass);
+    } else if (nextOptions?.iconClass !== undefined) {
+      for (const className of Array.from(leadIconElement.classList)) {
+        if (className.startsWith("ti-")) leadIconElement.classList.remove(className);
+      }
+      leadIconElement.classList.add(nextOptions.iconClass);
     }
-    if (Object.hasOwn(nextOptions, "action")) renderAction(nextOptions.action);
+
+    if (nextOptions && Object.prototype.hasOwnProperty.call(nextOptions, "title")) {
+      titleElement.textContent = nextOptions.title ?? "";
+    } else if (variantChanged) {
+      titleElement.textContent = VARIANT_STYLES[currentVariant].defaultTitle;
+    }
+    if (nextOptions && Object.prototype.hasOwnProperty.call(nextOptions, "action")) renderAction(nextOptions.action);
+    if (nextOptions && Object.prototype.hasOwnProperty.call(nextOptions, "duration")) {
+      currentDuration = nextOptions.duration ?? DEFAULT_DURATION_MS;
+    }
+    resetDismissTimer(currentDuration);
   };
 
-  const clearTimer = () => {
-    if (timer) clearTimeout(timer);
-    timer = undefined;
-  };
-  const pauseTimer = () => {
-    if (!timer) return;
-    remaining = Math.max(0, remaining - (Date.now() - startedAt));
-    clearTimer();
-  };
-  const resumeTimer = () => {
-    if (dismissed || duration === 0 || remaining <= 0 || pointerPaused || focusPaused) return;
-    startedAt = Date.now();
-    timer = setTimeout(() => handle.dismiss(), remaining);
-  };
-  const resetTimer = () => {
-    clearTimer();
-    remaining = duration;
-    resumeTimer();
-  };
-
-  const handle: ToastHandle = {
-    dismiss: () => {
-      if (dismissed) return;
-      dismissed = true;
-      clearTimer();
-      liveToasts.delete(handle);
-      card.dataset.closing = "true";
-      setTimeout(() => {
-        card.remove();
-        hideEmptyContainer(root);
-      }, REMOVE_DELAY);
-    },
-    update: (nextDescription, nextOptions = {}) => {
-      if (dismissed) return;
-      const variantChanged = nextOptions.variant !== undefined && nextOptions.variant !== variant;
-      if (Object.hasOwn(nextOptions, "duration")) duration = nextOptions.duration ?? DEFAULT_DURATION;
-      render(nextDescription, nextOptions, variantChanged);
-      resetTimer();
-    },
-  };
-
-  card.addEventListener("click", handle.dismiss);
-  close.addEventListener("click", (event) => {
+  toastElement.addEventListener("click", dismiss);
+  closeButton.addEventListener("click", (event) => {
     event.stopPropagation();
-    handle.dismiss();
+    dismiss();
   });
-  card.addEventListener("pointerenter", () => {
-    pointerPaused = true;
-    pauseTimer();
+  toastElement.addEventListener("pointerenter", () => {
+    pausedByPointer = true;
+    pauseDismissTimer();
   });
-  card.addEventListener("pointerleave", () => {
-    pointerPaused = false;
-    resumeTimer();
+  toastElement.addEventListener("pointerleave", () => {
+    pausedByPointer = false;
+    resumeDismissTimer();
   });
-  card.addEventListener("focusin", () => {
-    focusPaused = true;
-    pauseTimer();
+  toastElement.addEventListener("focusin", () => {
+    pausedByFocus = true;
+    pauseDismissTimer();
   });
-  card.addEventListener("focusout", (event) => {
-    if (card.contains(event.relatedTarget as Node | null)) return;
-    focusPaused = false;
-    resumeTimer();
+  toastElement.addEventListener("focusout", (event) => {
+    if (toastElement.contains(event.relatedTarget as Node | null)) return;
+    pausedByFocus = false;
+    resumeDismissTimer();
   });
 
-  render(description, options, true);
+  const handle: ToastHandle = { dismiss, update };
   liveToasts.add(handle);
-  if (liveToasts.size > MAX_VISIBLE) liveToasts.values().next().value?.dismiss();
-  container.appendChild(card);
+  if (liveToasts.size > MAX_VISIBLE_TOASTS) liveToasts.values().next().value?.dismiss();
+  promoteToTopLayer(initialContainer).appendChild(toastElement);
   requestAnimationFrame(() => {
-    card.dataset.open = "true";
+    if (!dismissed) toastElement.dataset.open = "true";
   });
-  resetTimer();
+  resetDismissTimer(currentDuration);
   return handle;
-};
-
-const toastFn = ((description: string, options?: ToastOptions) => showToast(description, options)) as ToastFn;
-toastFn.success = (description, options) => showToast(description, { ...options, variant: "success" });
-toastFn.warning = (description, options) => showToast(description, { ...options, variant: "warning" });
-toastFn.error = (description, options) => showToast(description, { ...options, variant: "error" });
-toastFn.dismissAll = () => {
-  for (const handle of [...liveToasts]) handle.dismiss();
 };
 
 export const isPointInsideToast = (x: number, y: number): boolean => {
   if (typeof document === "undefined") return false;
-  for (const element of Array.from(document.querySelectorAll<HTMLElement>("[data-k2b-toast]"))) {
-    const rect = element.getBoundingClientRect();
-    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return true;
+  const containers = Array.from(document.querySelectorAll<HTMLElement>(`[${CONTAINER_ATTRIBUTE}]`));
+  for (const container of containers) {
+    for (const child of Array.from(container.children)) {
+      const rect = child.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return true;
+    }
   }
   return false;
+};
+
+const toastFn = ((description: string, options?: ToastOptions) => showToast(description, options)) as ToastFn;
+toastFn.success = (description, options) => showToast(description, { ...options, variant: "success" });
+toastFn.error = (description, options) => showToast(description, { ...options, variant: "error" });
+toastFn.dismissAll = () => {
+  for (const handle of Array.from(liveToasts)) handle.dismiss();
 };
 
 export const toast: ToastFn = toastFn;

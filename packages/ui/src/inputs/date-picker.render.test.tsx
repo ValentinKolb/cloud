@@ -9,9 +9,11 @@ import {
   displayDate,
   filterTimeInput,
   formatDateOnlyRangeDuration,
+  monthNames,
   normalizeTimeInput,
   orderedRange,
   previewRange,
+  resolveFocusDay,
   splitDateTime,
   toDateTimeValue,
 } from "./date-picker";
@@ -59,12 +61,33 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(formatDateOnlyRangeDuration({ start: "2026-03-28", end: "2026-03-30" }, { timeZone: "Europe/Berlin" })).toBe("3 days");
   });
 
+  test("keeps the month panel on short, locale-aware names", () => {
+    const english = monthNames({ locale: "en" });
+
+    expect(english).toHaveLength(12);
+    expect(english[0]).toBe("Jan");
+    expect(english[8]).toBe("Sep");
+    expect(monthNames({ locale: "de" })[11]).toBe("Dez");
+    for (const name of english) expect(name.length).toBeLessThanOrEqual(4);
+  });
+
+  test("always keeps one tabbable day in the rendered month", () => {
+    const july = ["2026-07-01", "2026-07-02", "2026-07-03"];
+
+    expect(resolveFocusDay(july, "2026-07-02")).toBe("2026-07-02");
+    // Selection outside the visible month must not leave the grid untabbable.
+    expect(resolveFocusDay(july, "2026-01-14")).toBe("2026-07-01");
+    expect(resolveFocusDay(july, null)).toBe("2026-07-01");
+  });
+
   test("places the top-layer panel within the viewport and flips above", () => {
     const previousWindow = globalThis.window;
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: { innerWidth: 500, innerHeight: 400 },
-    });
+    // Keep the stub writable and configurable so later suites in the same
+    // process can still replace or delete `window`.
+    const stubWindow = (value: { innerWidth: number; innerHeight: number }) =>
+      Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value });
+
+    stubWindow({ innerWidth: 500, innerHeight: 400 });
     const style: Record<string, string> = {};
     const trigger = {
       getBoundingClientRect: () => ({ left: 430, right: 490, top: 330, bottom: 360, width: 60, height: 30 }),
@@ -79,7 +102,22 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(style.width).toBe("336px");
     expect(style.left).toBe("156px");
     expect(style.top).toBe("126px");
-    Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
+
+    // A full-width trigger must not stretch the panel past its designed width.
+    const wideTrigger = {
+      getBoundingClientRect: () => ({ left: 20, right: 480, top: 10, bottom: 40, width: 460, height: 30 }),
+    } as HTMLElement;
+    placeDatePopover(wideTrigger, popover, false);
+    expect(style.width).toBe("336px");
+
+    // A viewport narrower than the panel clamps the width and the left edge.
+    stubWindow({ innerWidth: 300, innerHeight: 800 });
+    placeDatePopover(wideTrigger, popover, false);
+    expect(style.width).toBe("284px");
+    expect(style.left).toBe("8px");
+
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: previousWindow });
   });
 
   test("renders a controlled date picker with presets and calendar semantics", () => {
@@ -101,6 +139,38 @@ describe("@k2b/ui complete date picker migration", () => {
     expect(html).toContain("Launch");
     expect(html).toContain("Clear date");
     expect(html).toContain("k2b-field__required");
+    // role="grid" needs rows, and exactly one day carries the roving tabindex.
+    expect(html).toContain('role="row"');
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(html).toContain('data-date-day="2026-07-27"');
+  });
+
+  test("keeps an empty range draft applicable so a clear preset can commit", () => {
+    const empty = renderToString(() =>
+      createComponent(DateRangePicker, {
+        label: "Window",
+        value: { start: null, end: null },
+      }),
+    );
+    const complete = renderToString(() =>
+      createComponent(DateRangePicker, {
+        label: "Window",
+        value: { start: "2026-07-27", end: "2026-07-29" },
+      }),
+    );
+
+    const half = renderToString(() =>
+      createComponent(DateRangePicker, {
+        label: "Window",
+        value: { start: "2026-07-27", end: null },
+      }),
+    );
+
+    expect(empty).toContain('class="k2b-date-apply"');
+    expect(empty).not.toContain('k2b-date-apply" disabled');
+    expect(complete).not.toContain('k2b-date-apply" disabled');
+    // A half-picked range still cannot be committed.
+    expect(half).toContain('k2b-date-apply" disabled');
   });
 
   test("renders timezone-aware date-time controls with a committed draft", () => {

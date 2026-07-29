@@ -4,13 +4,11 @@ import {
   applyPanesIntent,
   createPanesValue,
   normalizePanesValue,
-  PANES_VALUE_VERSION,
   resizePanesSplit,
   type PanesValue,
 } from "./panes-state";
 
 const splitValue = (): PanesValue => ({
-  version: PANES_VALUE_VERSION,
   root: {
     type: "split",
     id: "root",
@@ -160,7 +158,7 @@ describe("Panes state kernel", () => {
   test("inserts a moved leaf at an existing split gap before pruning its source", () => {
     const inserted = applyPanesIntent(splitValue(), {
       kind: "insert",
-      elementId: "three",
+      elementId: "one",
       splitId: "root",
       index: 0,
       direction: "horizontal",
@@ -168,10 +166,47 @@ describe("Panes state kernel", () => {
     expect(inserted.root.type).toBe("split");
     if (inserted.root.type !== "split") throw new Error("Expected split");
     expect(inserted.root.children).toMatchObject([
-      { id: "left", elementIds: ["one", "two"] },
-      { id: "leaf-three", elementIds: ["three"] },
+      { id: "left", elementIds: ["two"] },
+      { id: "leaf-one", elementIds: ["one"] },
+      { id: "right", elementIds: ["three"] },
     ]);
     expect(inserted.root.sizes.reduce((sum, size) => sum + size, 0)).toBeCloseTo(100);
+  });
+
+  /**
+   * Both of these gestures ask for the arrangement that already exists. Before
+   * the fix the insert path tore the leaf down and rebuilt it under a new node
+   * id with renormalized sizes, and the move path pushed the dragged tab to the
+   * end of its own strip — so a released drag silently reordered the tabs.
+   */
+  test("treats a drop onto a pane's own position as a no-op", () => {
+    const value = splitValue();
+
+    // "three" is the solo occupant of child index 1; gaps 0 and 1 are its own.
+    for (const index of [0, 1]) {
+      expect(
+        applyPanesIntent(value, { kind: "insert", elementId: "three", splitId: "root", index, direction: "horizontal" }),
+      ).toBe(value);
+    }
+
+    // No `beforeElementId` means the pointer was released over the pane body.
+    expect(applyPanesIntent(value, { kind: "move", elementId: "one", leafId: "left" })).toBe(value);
+    expect(applyPanesIntent(value, { kind: "move", elementId: "two", leafId: "left" })).toBe(value);
+
+    // A real reorder inside the same leaf still applies.
+    const reordered = applyPanesIntent(value, { kind: "move", elementId: "two", leafId: "left", beforeElementId: "one" });
+    expect(reordered).not.toBe(value);
+    expect(reordered.root.type === "split" && reordered.root.children[0]).toMatchObject({ elementIds: ["two", "one"] });
+  });
+
+  test("rejects a persisted layout stamped with a different schema version", () => {
+    const stored = { ...splitValue(), version: 2 };
+
+    expect(normalizePanesValue(stored, ["one", "two", "three"])).toEqual(
+      createPanesValue(["one", "two", "three"], "tabs"),
+    );
+    // An unversioned payload predates the field and is still trusted.
+    expect(normalizePanesValue({ root: splitValue().root }, ["one", "two", "three"]).root.type).toBe("split");
   });
 
   test("ignores intents whose target no longer exists", () => {

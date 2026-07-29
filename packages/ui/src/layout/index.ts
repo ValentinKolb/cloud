@@ -1,18 +1,17 @@
 export type {
   SettingsFieldProps,
-  SettingsModalProps,
   SettingsPanelFooterProps,
   SettingsSaveBarProps,
-  SettingsTab,
 } from "./Settings";
 export {
   readSettingsError,
   SettingsField,
-  SettingsModal,
   SettingsPanelFooter,
   SettingsSaveBar,
   sameSettingValue,
 } from "./Settings";
+export type { SettingsModalProps, SettingsModalTabProps, SettingsModalTabTone } from "./SettingsModal";
+export { default as SettingsModal } from "./SettingsModal";
 export type {
   AppOverviewEmptyStateProps,
   AppOverviewPanelProps,
@@ -55,6 +54,7 @@ export type {
   AppWorkspaceSidebarBodyProps,
   AppWorkspaceSidebarHeaderProps,
   AppWorkspaceSidebarIconActionProps,
+  AppWorkspaceSidebarIconActionTone,
   AppWorkspaceSidebarIconGridProps,
   AppWorkspaceSidebarItemActionProps,
   AppWorkspaceSidebarItemIconProps,
@@ -62,11 +62,15 @@ export type {
   AppWorkspaceSidebarItemMetaProps,
   AppWorkspaceSidebarItemProps,
   AppWorkspaceSidebarItemTone,
+  AppWorkspaceSidebarMobileItemsProps,
+  AppWorkspaceSidebarMobileProps,
   AppWorkspaceSidebarProps,
   AppWorkspaceSidebarSectionProps,
   AppWorkspaceSidebarVisibility,
 } from "./AppWorkspace";
 export { default as AppWorkspace } from "./AppWorkspace";
+export type { AppWorkspaceControllerOptions } from "./app-workspace-controller";
+export { installAppWorkspaceController } from "./app-workspace-controller";
 export type {
   AppWorkspaceLayoutState,
   AppWorkspaceResizeKind,
@@ -78,6 +82,8 @@ export {
   APP_WORKSPACE_DRAWER_DEFAULT,
   APP_WORKSPACE_DRAWER_MAX,
   APP_WORKSPACE_DRAWER_MIN,
+  APP_WORKSPACE_MAIN_MIN,
+  APP_WORKSPACE_MAIN_MIN_HEIGHT,
   APP_WORKSPACE_PANE_DEFAULT,
   APP_WORKSPACE_PANE_MAX,
   APP_WORKSPACE_PANE_MIN,

@@ -108,17 +108,15 @@ const PanelDialogHeader = (props: PanelDialogHeaderProps): JSX.Element => (
       <div class="k2b-panel-dialog__actions">{props.actions}</div>
     </Show>
     <Show when={props.close}>
-      {(close) => (
-        <button
-          type="button"
-          class="k2b-dialog__close"
-          aria-label={props.closeLabel ?? "close dialog"}
-          disabled={props.closeDisabled}
-          onClick={() => close()}
-        >
-          <i class="ti ti-x" aria-hidden="true" />
-        </button>
-      )}
+      <button
+        type="button"
+        class="k2b-dialog__close"
+        aria-label={props.closeLabel ?? "close dialog"}
+        disabled={props.closeDisabled}
+        onClick={props.close}
+      >
+        <i class="ti ti-x" aria-hidden="true" />
+      </button>
     </Show>
   </header>
 );

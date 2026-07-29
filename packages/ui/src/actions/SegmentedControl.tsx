@@ -7,9 +7,7 @@ export type SegmentOption<T extends string = string> = {
   disabled?: boolean;
 };
 
-export type SegmentedControlOption<T extends string = string> = SegmentOption<T>;
-
-type SegmentedControlChange<T extends string> =
+export type SegmentedControlChange<T extends string> =
   | { onChange: (value: T) => void; onValueChange?: (value: T) => void }
   | { onChange?: (value: T) => void; onValueChange: (value: T) => void };
 
@@ -57,6 +55,8 @@ export function SegmentedControl<T extends string = string>(props: SegmentedCont
     const selectedEnabled = props.options.some((option) => option.value === currentValue() && !props.disabled && !option.disabled);
     return !selectedEnabled && enabled()[0]?.index === index ? 0 : -1;
   };
+  const divider = (index: number, value: T) =>
+    index < props.options.length - 1 && currentValue() !== value && currentValue() !== props.options[index + 1]?.value;
 
   return (
     <div
@@ -78,9 +78,10 @@ export function SegmentedControl<T extends string = string>(props: SegmentedCont
             class="k2b-segmented-control__option"
             aria-checked={currentValue() === option.value}
             data-selected={currentValue() === option.value ? "true" : undefined}
+            data-divider={divider(index(), option.value) ? "true" : undefined}
             disabled={props.disabled || option.disabled}
             tabIndex={tabIndex(index(), option.value)}
-            onClick={() => select(index())}
+            onClick={() => emit(option.value)}
             onKeyDown={(event) => {
               if (event.key === "ArrowRight" || event.key === "ArrowDown") {
                 event.preventDefault();

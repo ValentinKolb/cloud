@@ -1,16 +1,12 @@
 import { createContext, type JSX, Show, useContext } from "solid-js";
 
-export type StatGridSize = "sm" | "md";
-export type StatGridSurface = "default" | "muted";
-
-export type StatGridAction = {
-  label: string;
-  href: string;
-};
+export type StatGridSize = "md" | "sm";
+export type StatGridSurface = "white" | "muted";
+export type StatGridAction = { label: string; href: string };
 
 export type StatGridProps = {
   children: JSX.Element;
-  title?: JSX.Element;
+  title?: string;
   action?: StatGridAction;
   columns?: number;
   size?: StatGridSize;
@@ -18,48 +14,41 @@ export type StatGridProps = {
   class?: string;
 };
 
-type StatGridContextValue = {
-  size: StatGridSize;
-  surface: StatGridSurface;
+const StatGridSizeContext = createContext<StatGridSize>("md");
+const StatGridSurfaceContext = createContext<StatGridSurface>("white");
+
+export const useStatGridSize = (): StatGridSize => useContext(StatGridSizeContext);
+export const useStatGridSurface = (): StatGridSurface => useContext(StatGridSurfaceContext);
+
+const columnValue = (columns?: number): number => {
+  if (columns && Number.isInteger(columns) && columns >= 1 && columns <= 6) return columns;
+  return 6;
 };
 
-const StatGridContext = createContext<StatGridContextValue>({
-  size: "md",
-  surface: "default",
-});
-
-export const useStatGrid = (): StatGridContextValue => useContext(StatGridContext);
-
 export function StatGrid(props: StatGridProps): JSX.Element {
-  const columns = () => Math.min(Math.max(Math.round(props.columns ?? 4), 1), 6);
-  const context = (): StatGridContextValue => ({
-    size: props.size ?? "md",
-    surface: props.surface ?? "default",
-  });
-
+  const surface = () => props.surface ?? "white";
   return (
-    <section
-      class={`k2b-stat-grid ${props.class ?? ""}`}
-      data-surface={context().surface}
-      data-columns={columns()}
-      style={{ "--k2b-stat-columns": String(columns()) }}
-    >
+    <div class={`k2b-stat-grid ${props.class ?? ""}`} data-columns={columnValue(props.columns)} data-surface={surface()}>
       <Show when={props.title}>
         <header class="k2b-stat-grid__header">
-          <h2>{props.title}</h2>
+          <span class="k2b-stat-grid__title">{props.title}</span>
           <Show when={props.action}>
             {(action) => (
-              <a href={action().href}>
-                {action().label}
+              <a href={action().href} class="k2b-stat-grid__action">
+                <span>{action().label}</span>
                 <i class="ti ti-arrow-up-right" aria-hidden="true" />
               </a>
             )}
           </Show>
         </header>
       </Show>
-      <StatGridContext.Provider value={context()}>
-        <div class="k2b-stat-grid__body">{props.children}</div>
-      </StatGridContext.Provider>
-    </section>
+      <StatGridSizeContext.Provider value={props.size ?? "md"}>
+        <StatGridSurfaceContext.Provider value={surface()}>
+          <div class="k2b-stat-grid__body">{props.children}</div>
+        </StatGridSurfaceContext.Provider>
+      </StatGridSizeContext.Provider>
+    </div>
   );
 }
+
+export default StatGrid;

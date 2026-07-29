@@ -1,54 +1,52 @@
-import { type JSX, Show } from "solid-js";
-import type { StatusTone } from "./StatusBadge";
+import { For, type JSX, Show } from "solid-js";
+
+export type NoticeTone = "info" | "warn" | "error";
 
 export type NoticeCardProps = {
+  tone?: NoticeTone;
   title: JSX.Element;
-  children?: JSX.Element;
   detail?: JSX.Element;
   icon?: string;
-  tone?: StatusTone;
-  action?: JSX.Element;
   class?: string;
 };
 
-export function NoticeCard(props: NoticeCardProps): JSX.Element {
-  const icon = () => {
-    if (props.icon) return props.icon;
-    if (props.tone === "danger") return "ti ti-alert-circle";
-    if (props.tone === "warning" || props.tone === "degraded") return "ti ti-alert-triangle";
-    return "ti ti-info-circle";
-  };
+const DEFAULT_ICONS: Record<NoticeTone, string> = {
+  info: "ti ti-info-circle",
+  warn: "ti ti-alert-triangle",
+  error: "ti ti-alert-circle",
+};
 
+function NoticeCardComponent(props: NoticeCardProps): JSX.Element {
+  const tone = () => props.tone ?? "warn";
   return (
-    <section
-      class={`k2b-notice-card ${props.class ?? ""}`}
-      data-tone={props.tone ?? "neutral"}
-      role={props.tone === "danger" ? "alert" : undefined}
-    >
-      <i class={`k2b-notice-card__icon ${icon()}`} aria-hidden="true" />
-      <div class="k2b-notice-card__content">
-        <h3>{props.title}</h3>
-        <Show when={props.detail ?? props.children}>
-          {(detail) => <div class="k2b-notice-card__description">{detail()}</div>}
-        </Show>
+    <article class={`k2b-notice-card ${props.class ?? ""}`} data-tone={tone()}>
+      <div class="k2b-notice-card__inner">
+        <i class={`${props.icon ?? DEFAULT_ICONS[tone()]} k2b-notice-card__icon`} aria-hidden="true" />
+        <div class="k2b-notice-card__content">
+          <p class="k2b-notice-card__title">{props.title}</p>
+          <Show when={props.detail}>{(detail) => <p class="k2b-notice-card__description">{detail()}</p>}</Show>
+        </div>
       </div>
-      <Show when={props.action}>
-        <div class="k2b-notice-card__action">{props.action}</div>
-      </Show>
-    </section>
+    </article>
   );
 }
 
-export type NoticeGridProps = {
-  children: JSX.Element;
-  minItemWidth?: string;
+export type NoticeGridProps<T> = {
+  items: readonly T[];
+  children: (item: T) => JSX.Element;
   class?: string;
 };
 
-export function NoticeGrid(props: NoticeGridProps): JSX.Element {
+function NoticeGrid<T>(props: NoticeGridProps<T>): JSX.Element {
+  const columns = () => (props.items.length <= 1 ? "one" : props.items.length === 2 ? "two" : "three");
   return (
-    <div class={`k2b-notice-grid ${props.class ?? ""}`} style={{ "--k2b-notice-min-width": props.minItemWidth ?? "16rem" }}>
-      {props.children}
-    </div>
+    <Show when={props.items.length > 0}>
+      <div class={`k2b-notice-grid ${props.class ?? ""}`} data-columns={columns()}>
+        <For each={props.items}>{(item) => props.children(item)}</For>
+      </div>
+    </Show>
   );
 }
+
+export const NoticeCard = Object.assign(NoticeCardComponent, { Grid: NoticeGrid });
+export default NoticeCard;

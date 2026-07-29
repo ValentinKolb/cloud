@@ -9,10 +9,8 @@ export type OpenDialogOptions = {
   panelClassName?: string;
   contentClassName?: string;
   initialFocus?: "first-input" | "none" | ((dialog: HTMLDialogElement) => HTMLElement | null);
-  cancelBehavior?: "resolve-undefined" | "close" | "ignore";
-  class?: string;
+  cancelBehavior?: "resolve-undefined" | "ignore";
   ariaLabel?: string;
-  resolveScope?: () => HTMLElement | null | undefined;
 };
 
 export type DialogRender<T> = (
@@ -26,7 +24,6 @@ export type DialogCore = {
   open: <T>(view: DialogRender<T>, options?: OpenDialogOptions) => Promise<T | undefined>;
   close: (result?: unknown) => void;
   isOpen: () => boolean;
-  getDialogElement: () => HTMLDialogElement | undefined;
 };
 
 type DialogStackEntry = {
@@ -36,24 +33,37 @@ type DialogStackEntry = {
   panelClassName: string;
   cancelBehavior: NonNullable<OpenDialogOptions["cancelBehavior"]>;
   initialFocus: NonNullable<OpenDialogOptions["initialFocus"]>;
+  opener?: HTMLElement;
   ariaLabel?: string;
 };
 
 type DialogState = {
   element?: HTMLDialogElement;
   stack: DialogStackEntry[];
-  root?: HTMLElement;
-  scrollLocked: boolean;
+  scrollLocked?: boolean;
   previousBodyOverflow?: string;
   previousHtmlOverflow?: string;
-  mouseDownOnDialog: boolean;
+  mouseDownOnDialog?: boolean;
+  connectionObserver?: MutationObserver;
 };
 
 const DEFAULT_PANEL_CLASS = "k2b-dialog";
 const DEFAULT_CONTENT_CLASS = "k2b-dialog__viewport";
 let nextDialogTitleId = 0;
 
-const applyAccessibleName = (dialog: HTMLDialogElement, entry: DialogStackEntry) => {
+const resolveInitialFocusTarget = (
+  entry: DialogStackEntry,
+  dialog: HTMLDialogElement,
+): HTMLElement | null => {
+  const { initialFocus } = entry;
+  if (initialFocus === "none") return null;
+  if (typeof initialFocus === "function") return initialFocus(dialog);
+  return entry.container.querySelector<HTMLElement>(
+    "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
+  );
+};
+
+const applyAccessibleName = (dialog: HTMLDialogElement, entry: DialogStackEntry): void => {
   dialog.removeAttribute("aria-label");
   dialog.removeAttribute("aria-labelledby");
   if (entry.ariaLabel) {
@@ -69,42 +79,25 @@ const applyAccessibleName = (dialog: HTMLDialogElement, entry: DialogStackEntry)
   dialog.setAttribute("aria-labelledby", heading.id);
 };
 
-const focusTarget = (
-  dialog: HTMLDialogElement,
-  initialFocus: NonNullable<OpenDialogOptions["initialFocus"]>,
-): HTMLElement | null => {
-  if (initialFocus === "none") return null;
-  if (typeof initialFocus === "function") return initialFocus(dialog);
-  return dialog.querySelector<HTMLElement>(
-    "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])",
-  );
-};
-
-const scheduleFocus = (dialog: HTMLDialogElement, initialFocus: NonNullable<OpenDialogOptions["initialFocus"]>) => {
-  const run = () => focusTarget(dialog, initialFocus)?.focus();
-  if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
-  else queueMicrotask(run);
+const schedule = (callback: () => void): void => {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(callback);
+  else queueMicrotask(callback);
 };
 
 export const createDialogCore = (): DialogCore => {
-  const state: DialogState = {
-    stack: [],
-    scrollLocked: false,
-    mouseDownOnDialog: false,
-  };
+  const state: DialogState = { stack: [] };
 
-  const ensureDialog = (scope?: HTMLElement | null): HTMLDialogElement => {
+  const ensureDialogElement = () => {
     if (typeof document === "undefined") throw new Error("@k2b/ui dialogs can only be opened in the browser");
-    const root = getK2bPortalRoot(scope);
-    if (state.element?.isConnected && state.root === root) return state.element;
-    if (state.stack.length > 0) return state.element!;
+    // Reuse the shared element whenever it is still in the document. Resolving
+    // the portal root first would create a second <dialog> when focus has moved
+    // into another `.k2b-ui` scope, orphaning the levels already on the stack.
+    if (state.element?.isConnected) return state.element;
 
-    state.element?.remove();
-    const dialog = document.createElement("dialog");
-    root.appendChild(dialog);
-    state.element = dialog;
-    state.root = root;
-    return dialog;
+    const element = document.createElement("dialog");
+    getK2bPortalRoot().appendChild(element);
+    state.element = element;
+    return element;
   };
 
   const lockPageScroll = () => {
@@ -120,9 +113,14 @@ export const createDialogCore = (): DialogCore => {
     if (typeof document === "undefined" || !state.scrollLocked) return;
     document.body.style.overflow = state.previousBodyOverflow ?? "";
     document.documentElement.style.overflow = state.previousHtmlOverflow ?? "";
+    state.scrollLocked = false;
     state.previousBodyOverflow = undefined;
     state.previousHtmlOverflow = undefined;
-    state.scrollLocked = false;
+  };
+
+  const stopConnectionObserver = () => {
+    state.connectionObserver?.disconnect();
+    state.connectionObserver = undefined;
   };
 
   const applyCancelBehavior = (
@@ -131,16 +129,22 @@ export const createDialogCore = (): DialogCore => {
     behavior: NonNullable<OpenDialogOptions["cancelBehavior"]>,
   ) => {
     dialog.oncancel = (event) => {
+      if (behavior === "ignore") {
+        event.preventDefault();
+        return;
+      }
       event.preventDefault();
-      if (behavior !== "ignore") close();
+      close();
     };
     dialog.onmousedown = (event) => {
       state.mouseDownOnDialog = event.target === dialog;
     };
     dialog.onclick = (event) => {
-      const realBackdropClick = state.mouseDownOnDialog;
+      const realBackdropClick = state.mouseDownOnDialog === true;
       state.mouseDownOnDialog = false;
-      if (event.target !== dialog || !realBackdropClick || behavior === "ignore") return;
+      if (event.target !== dialog) return;
+      if (!realBackdropClick) return;
+      if (behavior === "ignore") return;
       if (isPointInsideToast(event.clientX, event.clientY)) return;
       close();
     };
@@ -154,12 +158,15 @@ export const createDialogCore = (): DialogCore => {
 
     const dialog = state.element;
     const previous = state.stack[state.stack.length - 1];
-    if (dialog && previous) {
-      previous.container.hidden = false;
+    if (previous && dialog) {
+      previous.container.style.display = "";
       dialog.className = previous.panelClassName;
       applyAccessibleName(dialog, previous);
       applyCancelBehavior(dialog, () => popTop(undefined), previous.cancelBehavior);
-      scheduleFocus(dialog, previous.initialFocus);
+      schedule(() => {
+        const target = top.opener?.isConnected ? top.opener : resolveInitialFocusTarget(previous, dialog);
+        target?.focus();
+      });
     } else if (dialog) {
       dialog.oncancel = null;
       dialog.onmousedown = null;
@@ -168,27 +175,52 @@ export const createDialogCore = (): DialogCore => {
       dialog.removeAttribute("aria-labelledby");
       if (dialog.open && typeof dialog.close === "function") dialog.close();
       else dialog.removeAttribute("open");
+      dialog.remove();
+      state.element = undefined;
+      stopConnectionObserver();
       unlockPageScroll();
+      schedule(() => {
+        if (top.opener?.isConnected) top.opener.focus();
+      });
     }
 
     top.resolve?.(result);
   };
 
-  const open = <T>(view: DialogRender<T>, options: OpenDialogOptions = {}): Promise<T | undefined> => {
-    if (typeof document === "undefined") {
-      return Promise.reject(new Error("@k2b/ui dialogs can only be opened in the browser"));
+  const resetDisconnectedDialog = () => {
+    if (state.stack.length === 0 || state.element?.isConnected) return;
+    const entries = state.stack.splice(0);
+    const dialog = state.element;
+    state.element = undefined;
+    stopConnectionObserver();
+    dialog?.remove();
+    unlockPageScroll();
+    for (const entry of entries.reverse()) {
+      entry.dispose?.();
+      entry.container.remove();
+      entry.resolve?.(undefined);
     }
+  };
 
-    const dialog = ensureDialog(options.resolveScope?.());
-    const previous = state.stack[state.stack.length - 1];
-    if (previous) previous.container.hidden = true;
+  const observeConnection = () => {
+    if (state.connectionObserver || typeof MutationObserver === "undefined") return;
+    state.connectionObserver = new MutationObserver(resetDisconnectedDialog);
+    state.connectionObserver.observe(document.documentElement, { childList: true, subtree: true });
+  };
 
-    const panelClassName = options.panelClassName ?? `${DEFAULT_PANEL_CLASS} ${options.class ?? ""}`.trim();
+  const open = <T>(view: DialogRender<T>, options: OpenDialogOptions = {}): Promise<T | undefined> => {
+    const dialog = ensureDialogElement();
+    const previousTop = state.stack[state.stack.length - 1];
+    if (previousTop) previousTop.container.style.display = "none";
+    const activeElement = document.activeElement;
+
+    const panelClassName = options.panelClassName ?? DEFAULT_PANEL_CLASS;
     const cancelBehavior = options.cancelBehavior ?? "resolve-undefined";
     const initialFocus = options.initialFocus ?? "first-input";
+    dialog.className = panelClassName;
+
     const container = document.createElement("div");
     container.className = options.contentClassName ?? DEFAULT_CONTENT_CLASS;
-    dialog.className = panelClassName;
     dialog.appendChild(container);
 
     const entry: DialogStackEntry = {
@@ -196,27 +228,32 @@ export const createDialogCore = (): DialogCore => {
       panelClassName,
       cancelBehavior,
       initialFocus,
+      opener: activeElement instanceof HTMLElement ? activeElement : undefined,
       ariaLabel: options.ariaLabel,
     };
-    state.stack.push(entry);
 
-    return new Promise<T | undefined>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       entry.resolve = (value) => resolve(value as T | undefined);
-      const close: DialogClose<T> = (result) => {
-        if (state.stack[state.stack.length - 1] === entry) popTop(result);
+      const closeTyped: DialogClose<T> = (result) => {
+        if (state.stack[state.stack.length - 1] !== entry) return;
+        popTop(result);
       };
 
+      state.stack.push(entry);
       try {
-        entry.dispose = render(() => view(close, { dialog }), container);
+        entry.dispose = render(() => view(closeTyped, { dialog }), container);
         applyAccessibleName(dialog, entry);
-        applyCancelBehavior(dialog, () => close(undefined), cancelBehavior);
+        applyCancelBehavior(dialog, () => closeTyped(undefined), cancelBehavior);
 
         if (state.stack.length === 1) {
           if (typeof dialog.showModal === "function") dialog.showModal();
           else dialog.setAttribute("open", "");
           lockPageScroll();
+          observeConnection();
         }
-        scheduleFocus(dialog, initialFocus);
+        schedule(() => {
+          if (state.stack[state.stack.length - 1] === entry) resolveInitialFocusTarget(entry, dialog)?.focus();
+        });
       } catch (error) {
         entry.resolve = undefined;
         if (state.stack[state.stack.length - 1] === entry) popTop(undefined);
@@ -237,7 +274,6 @@ export const createDialogCore = (): DialogCore => {
     open,
     close,
     isOpen: () => state.stack.length > 0,
-    getDialogElement: () => state.element,
   };
 };
 

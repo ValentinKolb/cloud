@@ -9,11 +9,11 @@ export type DataPanelProps = {
   search?: JSX.Element;
   filters?: JSX.Element;
   children?: JSX.Element;
-  error?: JSX.Element;
+  error?: string | null;
   empty?: JSX.Element;
   isEmpty?: boolean;
   footer?: JSX.Element;
-  as?: "h1" | "h2" | "h3";
+  as?: "h1" | "h2";
   class?: string;
 };
 
@@ -31,16 +31,22 @@ export function DataPanel(props: DataPanelProps): JSX.Element {
           </div>
         </Show>
       </div>
-      <div class="k2b-data-panel__body">
-        <Show
-          when={!props.error}
-          fallback={<Placeholder state="error" variant="compact" title="Could not load this data" description={props.error} />}
-        >
-          <Show when={!props.isEmpty} fallback={<Placeholder variant="compact" description={props.empty ?? "Nothing to show."} />}>
-            {props.children}
-          </Show>
+      <Show
+        when={!props.error}
+        fallback={
+          <Placeholder
+            state="error"
+            variant="compact"
+            icon="ti ti-plug-connected-x"
+            title="Could not load this data"
+            description={props.error ?? undefined}
+          />
+        }
+      >
+        <Show when={!props.isEmpty} fallback={<Placeholder variant="compact" description={props.empty ?? "Nothing to show."} />}>
+          {props.children}
         </Show>
-      </div>
+      </Show>
       <Show when={props.footer}>
         <footer class="k2b-data-panel__footer">{props.footer}</footer>
       </Show>

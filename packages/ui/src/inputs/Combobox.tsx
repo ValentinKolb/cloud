@@ -1,98 +1,78 @@
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import { createFieldMeta, Field, fieldDescribedBy } from "../internal/field";
-import {
-  type ChoiceOption,
-  type ChoiceOptionsLoader,
-  createChoiceLoader,
-  createChoicePopover,
-  filterChoiceOptions,
-  nextEnabledChoiceIndex,
-} from "./choice";
+import { createSignal, For, type JSX, Show } from "solid-js";
+import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
+import { type ChoiceOption, createChoiceLoader, createChoicePopover, nextEnabledChoiceIndex } from "./choice";
+import type { FieldProps, MaybeAccessor } from "./field-contract";
+import { resolveMaybeAccessor } from "./field-contract";
 
-export type ComboboxOption<T extends string = string> = ChoiceOption<T>;
-
-export type ComboboxProps<T extends string = string> = {
-  options?: readonly ComboboxOption<T>[];
-  loadOptions?: ChoiceOptionsLoader<T>;
-  onSelect?: (option: ComboboxOption<T>) => void;
-  query?: string;
+export type ComboboxOption = { id: string; label: string; description?: string; icon?: string };
+export type ComboboxProps = FieldProps & {
+  query?: MaybeAccessor<string>;
   onQueryChange?: (query: string) => void;
-  label?: JSX.Element;
-  description?: JSX.Element;
-  error?: JSX.Element;
   placeholder?: string;
-  emptyMessage?: string;
-  loadingMessage?: string;
+  fetchData: (query: string, signal: AbortSignal) => Promise<ComboboxOption[]>;
+  onSelect: (option: ComboboxOption) => void;
   debounceMs?: number;
-  disabled?: boolean;
-  required?: boolean;
-  name?: string;
-  id?: string;
-  class?: string;
-  "aria-describedby"?: string;
 };
 
-export function Combobox<T extends string = string>(props: ComboboxProps<T>): JSX.Element {
+export function Combobox(props: ComboboxProps): JSX.Element {
   const meta = createFieldMeta(props.id);
   const listboxId = `${meta.controlId}-listbox`;
-  const [internalQuery, setInternalQuery] = createSignal("");
-  const [focusedIndex, setFocusedIndex] = createSignal(-1);
-  let inputRef: HTMLInputElement | undefined;
-
-  const query = () => props.query ?? internalQuery();
+  const [localQuery, setLocalQuery] = createSignal("");
+  const query = () => resolveMaybeAccessor(props.query) ?? localQuery();
   const setQuery = (value: string) => {
-    setInternalQuery(value);
+    setLocalQuery(value);
     props.onQueryChange?.(value);
   };
-  const asyncOptions = createChoiceLoader(
-    () => props.loadOptions,
-    () => props.debounceMs ?? 200,
+  const error = () => resolveMaybeAccessor(props.error);
+  const [focusedIndex, setFocusedIndex] = createSignal(-1);
+  let inputRef: HTMLInputElement | undefined;
+  let optionRefs: HTMLButtonElement[] = [];
+  const loader = createChoiceLoader(
+    () => async (value, signal) => (await props.fetchData(value, signal)).map((option) => ({ ...option, value: option.id })),
+    // Cloud debounces at 200ms and then pads the response with a 200ms minimum
+    // load time to stop the spinner flickering. The spinner here sits in the
+    // chevron slot and stale results stay visible, so there is nothing to pad —
+    // 150ms keeps typing responsive without hammering the loader.
+    () => props.debounceMs ?? 150,
   );
-  const visibleOptions = createMemo(() => (props.loadOptions ? asyncOptions.options() : filterChoiceOptions(props.options ?? [], query())));
   const popover = createChoicePopover(() => Boolean(props.disabled));
-  const focusedOption = () => visibleOptions()[focusedIndex()];
-
-  const focusFirst = () => setFocusedIndex(nextEnabledChoiceIndex(visibleOptions(), -1, 1));
-  const open = () => {
-    if (props.disabled) return;
+  const options = loader.options;
+  const focusedOption = () => options()[focusedIndex()];
+  const focus = (index: number) => {
+    setFocusedIndex(index);
+    optionRefs[index]?.scrollIntoView({ block: "nearest" });
+  };
+  /** `eager` loads the currently controlled query on open; typing supplies its
+   *  own query, so opening from `onInput` skips the duplicate request. */
+  const open = (eager = true) => {
+    if (props.disabled || popover.open()) return;
     popover.show();
-    if (props.loadOptions) asyncOptions.load(query(), true);
-    focusFirst();
+    if (eager) loader.load(query(), true);
+    focus(-1);
   };
   const close = () => {
-    asyncOptions.cancel();
-    setFocusedIndex(-1);
+    loader.cancel();
+    setQuery("");
+    focus(-1);
     popover.hide();
   };
-  const select = (option: ComboboxOption<T>) => {
-    if (option.disabled) return;
-    props.onSelect?.(option);
-    setQuery("");
+  const select = (option: ChoiceOption<string>) => {
+    props.onSelect({ id: option.value, label: option.label, description: option.description, icon: option.icon });
     close();
     inputRef?.focus();
   };
-  const move = (direction: 1 | -1) => {
-    setFocusedIndex(nextEnabledChoiceIndex(visibleOptions(), focusedIndex(), direction));
-  };
-  const handleKeyDown = (event: KeyboardEvent) => {
+  const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!popover.open()) open();
-      else move(event.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (event.key === "Enter" && popover.open()) {
-      const option = focusedOption();
-      if (option) {
-        event.preventDefault();
-        select(option);
-      }
-      return;
-    }
-    if (event.key === "Escape" && popover.open()) {
+      else focus(nextEnabledChoiceIndex(options(), focusedIndex(), event.key === "ArrowDown" ? 1 : -1));
+    } else if (event.key === "Enter" && popover.open() && options()[focusedIndex()]) {
       event.preventDefault();
-      close();
-    } else if (event.key === "Tab" && popover.open()) {
+      select(options()[focusedIndex()]!);
+    } else if ((event.key === "Escape" || event.key === "Tab") && popover.open()) {
+      // Escape is only ours while the list is open; otherwise it has to reach an
+      // enclosing dialog or drawer.
+      if (event.key === "Escape") event.preventDefault();
       close();
     }
   };
@@ -102,103 +82,70 @@ export function Combobox<T extends string = string>(props: ComboboxProps<T>): JS
       class={props.class}
       label={props.label}
       description={props.description}
-      error={props.error}
+      error={error()}
       meta={meta}
       required={props.required}
+      disabled={props.disabled}
     >
-      <div class="k2b-combobox" data-invalid={props.error ? "true" : undefined}>
-        <div class="k2b-combobox__input">
-          <i class="ti ti-search" aria-hidden="true" />
-          <input
-            ref={(element) => {
-              inputRef = element;
-              popover.setTrigger(element);
-            }}
-            id={meta.controlId}
-            type="search"
-            name={props.name}
-            value={query()}
-            placeholder={props.placeholder ?? "Search…"}
-            disabled={props.disabled}
-            required={props.required}
-            role="combobox"
-            aria-autocomplete="list"
-            aria-haspopup="listbox"
-            aria-expanded={popover.open()}
-            aria-controls={listboxId}
-            aria-activedescendant={focusedOption() ? `${listboxId}-${focusedIndex()}` : undefined}
-            aria-invalid={props.error ? "true" : undefined}
-            aria-describedby={fieldDescribedBy(meta, props.description, props.error, props["aria-describedby"])}
-            onFocus={open}
-            onClick={open}
-            onInput={(event) => {
-              const next = event.currentTarget.value;
-              setQuery(next);
-              if (!popover.open()) open();
-              if (props.loadOptions) asyncOptions.load(next);
-              focusFirst();
-            }}
-            onKeyDown={handleKeyDown}
-          />
-          <Show when={asyncOptions.loading()} fallback={<i class="ti ti-chevron-down" aria-hidden="true" />}>
-            <i class="ti ti-loader-2 k2b-spin" aria-hidden="true" />
-          </Show>
-        </div>
-
-        <div
-          ref={popover.setPopover}
-          popover="manual"
-          class="k2b-choice-popover"
-          role="group"
-          onKeyDown={handleKeyDown}
-          aria-label={typeof props.label === "string" ? props.label : "Suggestions"}
-        >
-          <div id={listboxId} class="k2b-choice-options" role="listbox">
-            <Show when={asyncOptions.error()}>
-              {(message) => (
-                <div class="k2b-choice-status" data-tone="danger">
-                  <span>{message()}</span>
-                  <button type="button" onClick={asyncOptions.retry}>
-                    Retry
-                  </button>
-                </div>
-              )}
-            </Show>
-            <Show when={asyncOptions.loading() && visibleOptions().length === 0}>
-              <div class="k2b-choice-status">{props.loadingMessage ?? "Loading…"}</div>
-            </Show>
-            <For
-              each={asyncOptions.error() ? [] : visibleOptions()}
-              fallback={
-                <Show when={!asyncOptions.loading() && !asyncOptions.error()}>
-                  <div class="k2b-choice-status">{props.emptyMessage ?? (query().trim() ? "No results found" : "Type to search…")}</div>
-                </Show>
-              }
+      <div class="k2b-combobox" data-invalid={error() ? "true" : undefined}>
+      <div ref={popover.setTrigger} class="k2b-combobox__input">
+        <i class="ti ti-search" aria-hidden="true" />
+        <input
+          ref={(element) => {
+            inputRef = element;
+          }}
+          id={meta.controlId}
+          type="text"
+          value={query()}
+          placeholder={props.placeholder ?? "Search..."}
+          disabled={props.disabled}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={popover.open()}
+          aria-controls={listboxId}
+          aria-activedescendant={focusedOption() ? `${listboxId}-${focusedIndex()}` : undefined}
+          {...fieldControlAria(meta, props)}
+          onFocus={() => open()}
+          onClick={() => open()}
+          onInput={(event) => {
+            setQuery(event.currentTarget.value);
+            open(false);
+            loader.load(event.currentTarget.value);
+            focus(-1);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        <Show when={loader.loading()} fallback={<i class="ti ti-chevron-down" aria-hidden="true" />}>
+          <i class="ti ti-loader-2 k2b-spin" aria-hidden="true" />
+        </Show>
+      </div>
+      <div ref={popover.setPopover} popover="manual" class="k2b-choice-popover" role="listbox" id={listboxId}>
+        <Show when={loader.error()}>
+          {(message) => <div class="k2b-choice-status" data-tone="danger"><span>{message()}</span><button type="button" onClick={loader.retry}>Retry</button></div>}
+        </Show>
+        <For each={loader.error() ? [] : options()} fallback={<div class="k2b-choice-status">{query().length >= 2 ? "No results found" : "Type to search..."}</div>}>
+          {(option, index) => (
+            <button
+              ref={(element) => (optionRefs[index()] = element)}
+              type="button"
+              id={`${listboxId}-${index()}`}
+              class="k2b-choice-option"
+              role="option"
+              aria-selected={index() === focusedIndex()}
+              data-focused={index() === focusedIndex() ? "true" : undefined}
+              onPointerMove={() => focus(index())}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => select(option)}
             >
-              {(option, index) => (
-                <button
-                  type="button"
-                  id={`${listboxId}-${index()}`}
-                  class="k2b-choice-option"
-                  role="option"
-                  aria-selected={index() === focusedIndex()}
-                  data-focused={index() === focusedIndex() ? "true" : undefined}
-                  disabled={option.disabled}
-                  onPointerMove={() => !option.disabled && setFocusedIndex(index())}
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => select(option)}
-                >
-                  <Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
-                  <span>
-                    <strong>{option.label}</strong>
-                    <Show when={option.description}>{(description) => <small>{description()}</small>}</Show>
-                  </span>
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
+              <Show when={option.icon}>{(icon) => <i class={`ti ${icon()}`} aria-hidden="true" />}</Show>
+              <span><strong>{option.label}</strong><Show when={option.description}>{(description) => <small>{description()}</small>}</Show></span>
+            </button>
+          )}
+        </For>
+      </div>
       </div>
     </Field>
   );
 }
+
+export default Combobox;

@@ -1,6 +1,6 @@
 import { dropzone } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import { createFieldMeta, Field, fieldDescribedBy } from "../internal/field";
+import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
 import {
   clampImageCropRect,
   getInitialImageCropRect,
@@ -12,19 +12,11 @@ import {
   resizeImageCropAroundCenter,
   rotateImageCropRight,
 } from "./image-crop";
+import type { FieldProps, ValueFieldProps } from "./field-contract";
+import { commitFieldValue } from "./field-contract";
+import { resolveMaybeAccessor } from "./field-contract";
 
-type FileFieldProps = {
-  label?: JSX.Element;
-  description?: JSX.Element;
-  error?: JSX.Element;
-  class?: string;
-  id?: string;
-  required?: boolean;
-  disabled?: boolean;
-  "aria-label"?: string;
-};
-
-export type FileDropzoneProps = FileFieldProps & {
+export type FileDropzoneProps = FieldProps & {
   accept?: string;
   multiple?: boolean;
   busy?: boolean;
@@ -38,6 +30,7 @@ export type FileDropzoneProps = FileFieldProps & {
 export function FileDropzone(props: FileDropzoneProps): JSX.Element {
   const meta = createFieldMeta(props.id);
   const disabled = () => Boolean(props.disabled || props.busy);
+  const error = () => resolveMaybeAccessor(props.error);
   let input: HTMLInputElement | undefined;
   const emit = (files: File[]) => {
     if (disabled() || files.length === 0) return;
@@ -51,37 +44,48 @@ export function FileDropzone(props: FileDropzoneProps): JSX.Element {
         ? "File type not accepted"
         : zone.isDragging()
           ? "Drop to upload"
-          : (props.title ?? "Drop files or choose files");
+          : (props.title ?? "Drop files or click to choose");
 
   return (
     <Field
       class={props.class}
       label={props.label}
       description={props.description}
-      error={props.error}
+      error={error()}
       meta={meta}
       required={props.required}
+      disabled={disabled()}
     >
       <button
         id={meta.controlId}
         type="button"
         class="k2b-dropzone"
         data-dragging={zone.isDragging() ? "true" : undefined}
-        data-invalid={zone.invalidDrag() || props.error ? "true" : undefined}
+        data-invalid={zone.invalidDrag() || error() ? "true" : undefined}
         disabled={disabled()}
-        aria-label={props["aria-label"]}
-        aria-describedby={fieldDescribedBy(meta, props.description, props.error)}
+        {...fieldControlAria(meta, props)}
         onClick={() => input?.click()}
         {...zone.handlers}
       >
-        <i class={props.busy ? "ti ti-loader-2 k2b-spin" : (props.icon ?? "ti ti-cloud-upload")} aria-hidden="true" />
-        <span>{title()}</span>
-        <Show when={zone.invalidDrag()} fallback={<Show when={props.subtitle}>{props.subtitle}</Show>}>
-          <small>Choose a file matching this field.</small>
-        </Show>
-        <Show when={props.hint}>
-          <small>{props.hint}</small>
-        </Show>
+        <span class="k2b-dropzone__icon" aria-hidden="true">
+          <i class={props.busy ? "ti ti-loader-2 k2b-spin" : (props.icon ?? "ti ti-cloud-upload")} />
+        </span>
+        <span class="k2b-dropzone__copy">
+          <strong>{title()}</strong>
+          <Show
+            when={zone.invalidDrag()}
+            fallback={
+              <Show when={props.subtitle}>
+                <span class="k2b-dropzone__subtitle">{props.subtitle}</span>
+              </Show>
+            }
+          >
+            <span class="k2b-dropzone__subtitle">Choose a file that matches this field.</span>
+          </Show>
+          <Show when={props.hint}>
+            <span class="k2b-dropzone__hint">{props.hint}</span>
+          </Show>
+        </span>
       </button>
       <input
         ref={input}
@@ -92,17 +96,18 @@ export function FileDropzone(props: FileDropzoneProps): JSX.Element {
         disabled={disabled()}
         tabIndex={-1}
         onChange={(event) => {
-          emit(Array.from(event.currentTarget.files ?? []));
+          const files = Array.from(event.currentTarget.files ?? []);
+          // Reset before emitting so re-picking the same file still fires change,
+          // even when onDrop throws.
           event.currentTarget.value = "";
+          emit(files);
         }}
       />
     </Field>
   );
 }
 
-export type ImageInputProps = FileFieldProps & {
-  value?: string | null;
-  onValueChange?: (value: string | null, file?: File) => void;
+export type ImageInputProps = ValueFieldProps<string | null> & {
   round?: boolean;
   variant?: "default" | "small";
   transform?: (file: File) => Promise<string>;
@@ -110,15 +115,10 @@ export type ImageInputProps = FileFieldProps & {
   fallbackMarker?: string;
 };
 
-const fileAsDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () =>
-      typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Image could not be read.")),
-    );
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("Image could not be read.")));
-    reader.readAsDataURL(file);
-  });
+const defaultImageTransform = async (file: File): Promise<string> => {
+  const { img } = await import("@k2b/stdlib/browser");
+  return img.presets.avatar(file);
+};
 
 export function ImageInput(props: ImageInputProps): JSX.Element {
   const meta = createFieldMeta(props.id);
@@ -126,15 +126,21 @@ export function ImageInput(props: ImageInputProps): JSX.Element {
   const [localError, setLocalError] = createSignal<string>();
   let input: HTMLInputElement | undefined;
   const disabled = () => Boolean(props.disabled || busy() || !props.onValueChange);
-  const value = () =>
-    props.value && !props.value.includes(props.fallbackMarker ?? "?fallback") ? props.value : null;
+  const error = () => resolveMaybeAccessor(props.error) ?? localError();
+  const value = () => {
+    const current = resolveMaybeAccessor(props.value);
+    return current && !current.includes(props.fallbackMarker ?? "?fallback") ? current : null;
+  };
+  // The compact variant hides the button text, so it carries the same edit glyph
+  // Cloud used there; the default variant keeps the labelled add glyph.
+  const changeIcon = () => (props.variant === "small" && value() ? "ti ti-edit" : "ti ti-photo-plus");
   const select = async (file: File | undefined) => {
     if (!file || disabled()) return;
     setBusy(true);
     setLocalError();
     try {
-      const transformed = await (props.transform ?? fileAsDataUrl)(file);
-      props.onValueChange?.(transformed, file);
+      const transformed = await (props.transform ?? defaultImageTransform)(file);
+      commitFieldValue(props, transformed);
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "Image could not be processed.");
     } finally {
@@ -148,28 +154,33 @@ export function ImageInput(props: ImageInputProps): JSX.Element {
       class={props.class}
       label={props.label}
       description={props.description}
-      error={props.error ?? localError()}
+      error={error()}
       meta={meta}
       required={props.required}
+      disabled={disabled()}
     >
       <div
         class="k2b-image-input"
         data-round={props.round ? "true" : undefined}
         data-variant={props.variant ?? "default"}
         role="group"
-        aria-describedby={fieldDescribedBy(meta, props.description, props.error ?? localError())}
+        aria-labelledby={props.label ? meta.labelId : undefined}
+        aria-label={!props.label ? props["aria-label"] : undefined}
+        aria-describedby={fieldControlAria(meta, { ...props, error })["aria-describedby"]}
       >
         <div class="k2b-image-input__preview">
-          <Show
-            when={value()}
-            fallback={<i class="ti ti-photo-off" aria-hidden="true" />}
-          >
-            {(source) => <img src={source()} alt={typeof props.label === "string" ? props.label : "Selected image"} />}
+          <Show when={value()} fallback={<i class="ti ti-photo-off" aria-hidden="true" />}>
+            {(source) => (
+              <img
+                src={source()}
+                alt={typeof props.label === "string" ? props.label : "Selected image"}
+              />
+            )}
           </Show>
         </div>
         <div class="k2b-image-input__actions">
           <button type="button" class="k2b-button" data-variant="secondary" disabled={disabled()} onClick={() => input?.click()}>
-            <i class={busy() ? "ti ti-loader-2 k2b-spin" : "ti ti-photo-plus"} aria-hidden="true" />
+            <i class={busy() ? "ti ti-loader-2 k2b-spin" : changeIcon()} aria-hidden="true" />
             {value() ? "Change" : "Add"}
           </button>
           <Show when={value()}>
@@ -178,7 +189,9 @@ export function ImageInput(props: ImageInputProps): JSX.Element {
               class="k2b-button"
               data-variant="ghost"
               disabled={disabled()}
-              onClick={() => props.onValueChange?.(null)}
+              onClick={() => {
+                commitFieldValue(props, null);
+              }}
             >
               <i class="ti ti-trash" aria-hidden="true" /> Remove
             </button>
@@ -192,6 +205,7 @@ export function ImageInput(props: ImageInputProps): JSX.Element {
           accept={props.accept ?? ".jpg,.jpeg,.png,.gif,.webp"}
           disabled={disabled()}
           required={props.required && !value()}
+          {...fieldControlAria(meta, { ...props, error })}
           onChange={(event) => void select(event.currentTarget.files?.[0])}
         />
       </div>
@@ -202,17 +216,17 @@ export function ImageInput(props: ImageInputProps): JSX.Element {
 type PreviewState = {
   url: string;
   objectUrl: boolean;
-  width: number;
-  height: number;
+  sourceWidth: number;
+  sourceHeight: number;
 };
 
 type DragHandle = "move" | "nw" | "ne" | "sw" | "se";
 type DragState = {
   handle: DragHandle;
   pointerId: number;
-  x: number;
-  y: number;
-  crop: ImageCropRect;
+  startX: number;
+  startY: number;
+  startCrop: ImageCropRect;
 };
 
 export type ImageCropperProps = {
@@ -224,161 +238,277 @@ export type ImageCropperProps = {
   class?: string;
 };
 
-const ready = (image: HTMLImageElement) =>
-  image.complete && image.naturalWidth > 0
-    ? Promise.resolve()
-    : new Promise<void>((resolve, reject) => {
-        image.addEventListener("load", () => resolve(), { once: true });
-        image.addEventListener("error", () => reject(new Error("Failed to load image.")), { once: true });
-      });
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-const loadPreview = async (source: ImageCropSource): Promise<PreviewState> => {
-  const objectUrl = source instanceof Blob;
-  const image =
+const imageElementReady = async (image: HTMLImageElement): Promise<void> => {
+  if (image.complete && image.naturalWidth > 0) return;
+  await new Promise<void>((resolve, reject) => {
+    image.addEventListener("load", () => resolve(), { once: true });
+    image.addEventListener("error", () => reject(new Error("Failed to load image.")), { once: true });
+  });
+};
+
+const loadPreviewState = async (source: ImageCropSource): Promise<PreviewState> => {
+  const sourceImage =
     source instanceof HTMLImageElement
       ? source
       : Object.assign(new Image(), {
-          crossOrigin: objectUrl ? undefined : "anonymous",
+          crossOrigin: source instanceof Blob ? undefined : "anonymous",
           src:
             source instanceof HTMLCanvasElement
               ? source.toDataURL("image/png")
-              : objectUrl
+              : source instanceof Blob
                 ? URL.createObjectURL(source)
                 : source,
         });
+
   try {
-    await ready(image);
+    await imageElementReady(sourceImage);
     return {
-      url: source instanceof HTMLImageElement ? source.currentSrc || source.src : image.src,
-      objectUrl,
-      width: image.naturalWidth || image.width,
-      height: image.naturalHeight || image.height,
+      url: source instanceof HTMLImageElement ? source.currentSrc || source.src : sourceImage.src,
+      objectUrl: source instanceof Blob,
+      sourceWidth: sourceImage.naturalWidth || sourceImage.width,
+      sourceHeight: sourceImage.naturalHeight || sourceImage.height,
     };
   } catch (error) {
-    if (objectUrl) URL.revokeObjectURL(image.src);
+    if (source instanceof Blob) URL.revokeObjectURL(sourceImage.src);
     throw error;
   }
 };
 
 export function ImageCropper(props: ImageCropperProps): JSX.Element {
-  const [preview, setPreview] = createSignal<PreviewState>();
-  const [crop, setCrop] = createSignal<ImageCropRect>();
+  let frame: HTMLDivElement | undefined;
+  let activePreview: PreviewState | null = null;
+  const aspect = () => props.aspect ?? "free";
+  const previewShape = () => props.previewShape ?? "rect";
+  const disabled = () => props.disabled ?? false;
+  const [preview, setPreview] = createSignal<PreviewState | null>(null);
+  const [crop, setCrop] = createSignal<ImageCropRect | null>(null);
   const [rotation, setRotation] = createSignal<ImageCropRotation>(0);
   const [loading, setLoading] = createSignal(true);
-  const [error, setError] = createSignal<string>();
-  const [drag, setDrag] = createSignal<DragState>();
-  let frame: HTMLDivElement | undefined;
-  let ownedUrl: string | undefined;
-  const aspect = () => props.aspect ?? "free";
-  const size = () => {
-    const current = preview();
-    if (!current) return undefined;
-    return rotation() === 90 || rotation() === 270
-      ? { width: current.height, height: current.width }
-      : { width: current.width, height: current.height };
+  const [error, setError] = createSignal<string | null>(null);
+  const [drag, setDrag] = createSignal<DragState | null>(null);
+
+  const previewSize = (): { width: number; height: number } | null => {
+    const currentPreview = preview();
+    if (!currentPreview) return null;
+    const swapsDimensions = rotation() === 90 || rotation() === 270;
+    return {
+      width: swapsDimensions ? currentPreview.sourceHeight : currentPreview.sourceWidth,
+      height: swapsDimensions ? currentPreview.sourceWidth : currentPreview.sourceHeight,
+    };
   };
-  const replace = (next?: PreviewState) => {
-    if (ownedUrl) URL.revokeObjectURL(ownedUrl);
-    ownedUrl = next?.objectUrl ? next.url : undefined;
+
+  const replacePreview = (next: PreviewState | null) => {
+    if (activePreview?.objectUrl) URL.revokeObjectURL(activePreview.url);
+    activePreview = next;
     setPreview(next);
   };
+
+  onCleanup(() => {
+    if (activePreview?.objectUrl) URL.revokeObjectURL(activePreview.url);
+  });
+
+  createEffect(() => {
+    props.source;
+    setRotation(0);
+    setCrop(null);
+  });
 
   createEffect(() => {
     const source = props.source;
     let disposed = false;
+    replacePreview(null);
     setLoading(true);
-    setError();
-    setCrop();
-    setRotation(0);
-    void loadPreview(source)
-      .then((next) => {
+    setError(null);
+
+    void (async () => {
+      try {
+        const nextPreview = await loadPreviewState(source);
         if (disposed) {
-          if (next.objectUrl) URL.revokeObjectURL(next.url);
-        } else replace(next);
-      })
-      .catch((reason) => !disposed && setError(reason instanceof Error ? reason.message : "Failed to load image."))
-      .finally(() => !disposed && setLoading(false));
+          if (nextPreview.objectUrl) URL.revokeObjectURL(nextPreview.url);
+          return;
+        }
+        replacePreview(nextPreview);
+      } catch (reason) {
+        if (disposed) return;
+        replacePreview(null);
+        setCrop(null);
+        setError(reason instanceof Error ? reason.message : "Failed to load image.");
+      } finally {
+        if (!disposed) setLoading(false);
+      }
+    })();
+
     onCleanup(() => {
       disposed = true;
     });
   });
 
   createEffect(() => {
-    const currentSize = size();
+    const currentSize = previewSize();
+    const currentAspect = aspect();
     if (!currentSize) return;
-    setCrop((current) => clampImageCropRect(current ?? getInitialImageCropRect(currentSize, aspect()), currentSize, aspect()));
+    setCrop((current) => clampImageCropRect(current ?? getInitialImageCropRect(currentSize, currentAspect), currentSize, currentAspect));
   });
-  createEffect(() => {
-    props.onChange?.(preview() && crop() ? { crop: crop()!, rotation: rotation() } : null);
-  });
-  onCleanup(() => replace());
 
-  const point = (event: PointerEvent) => {
-    const bounds = frame?.getBoundingClientRect();
-    return bounds
-      ? { x: (event.clientX - bounds.left) / Math.max(1, bounds.width), y: (event.clientY - bounds.top) / Math.max(1, bounds.height) }
-      : { x: 0, y: 0 };
+  createEffect(() => {
+    const currentCrop = crop();
+    const currentPreview = preview();
+    props.onChange?.(currentCrop && currentPreview ? { crop: currentCrop, rotation: rotation() } : null);
+  });
+
+  const readPointerPosition = (event: PointerEvent) => {
+    if (!frame) return { x: 0, y: 0 };
+    const rect = frame.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) / Math.max(1, rect.width),
+      y: (event.clientY - rect.top) / Math.max(1, rect.height),
+    };
   };
-  const move = (event: PointerEvent) => {
-    const active = drag();
-    const currentSize = size();
-    if (!active || !currentSize || event.pointerId !== active.pointerId) return;
-    const current = point(event);
-    const dx = current.x - active.x;
-    const dy = current.y - active.y;
-    const start = active.crop;
-    if (active.handle === "move") {
-      setCrop(clampImageCropRect({ ...start, x: start.x + dx, y: start.y + dy }, currentSize, aspect()));
+
+  const moveCrop = (event: PointerEvent) => {
+    const state = drag();
+    const currentSize = previewSize();
+    if (!state || !currentSize || state.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const point = readPointerPosition(event);
+    const dx = point.x - state.startX;
+    const dy = point.y - state.startY;
+    const start = state.startCrop;
+
+    if (state.handle === "move") {
+      setCrop(
+        clampImageCropRect(
+          {
+            ...start,
+            x: start.x + dx,
+            y: start.y + dy,
+          },
+          currentSize,
+          aspect(),
+        ),
+      );
       return;
     }
-    let { x, y, width, height } = start;
-    if (active.handle.includes("w")) {
-      x += dx;
-      width -= dx;
+
+    let x = start.x;
+    let y = start.y;
+    let width = start.width;
+    let height = start.height;
+    const min = 0.08;
+
+    if (state.handle.includes("w")) {
+      x = clamp(start.x + dx, 0, start.x + start.width - min);
+      width = start.width - (x - start.x);
     }
-    if (active.handle.includes("e")) width += dx;
-    if (active.handle.includes("n")) {
-      y += dy;
-      height -= dy;
+    if (state.handle.includes("e")) {
+      width = clamp(start.width + dx, min, 1 - start.x);
     }
-    if (active.handle.includes("s")) height += dy;
+    if (state.handle.includes("n")) {
+      y = clamp(start.y + dy, 0, start.y + start.height - min);
+      height = start.height - (y - start.y);
+    }
+    if (state.handle.includes("s")) {
+      height = clamp(start.height + dy, min, 1 - start.y);
+    }
+
     setCrop(clampImageCropRect({ x, y, width, height }, currentSize, aspect()));
   };
-  const stop = (event: PointerEvent) => {
-    if (drag()?.pointerId !== event.pointerId) return;
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", stop);
-    window.removeEventListener("pointercancel", stop);
-    setDrag();
+
+  const endDrag = (event: PointerEvent) => {
+    const state = drag();
+    if (!state || state.pointerId !== event.pointerId) return;
+    window.removeEventListener("pointermove", moveCrop);
+    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointercancel", endDrag);
+    setDrag(null);
   };
-  const start = (handle: DragHandle, event: PointerEvent) => {
-    const current = crop();
-    if (!current || props.disabled) return;
+
+  const startDrag = (handle: DragHandle, event: PointerEvent) => {
+    const currentCrop = crop();
+    if (!currentCrop || disabled()) return;
     event.preventDefault();
     event.stopPropagation();
-    const currentPoint = point(event);
-    setDrag({ handle, pointerId: event.pointerId, x: currentPoint.x, y: currentPoint.y, crop: current });
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-    window.addEventListener("pointercancel", stop);
+    (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+    const point = readPointerPosition(event);
+    setDrag({
+      handle,
+      pointerId: event.pointerId,
+      startX: point.x,
+      startY: point.y,
+      startCrop: currentCrop,
+    });
+    window.addEventListener("pointermove", moveCrop);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
   };
+
   onCleanup(() => {
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", stop);
-    window.removeEventListener("pointercancel", stop);
+    if (typeof window === "undefined") return;
+    window.removeEventListener("pointermove", moveCrop);
+    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointercancel", endDrag);
   });
 
   const zoom = () => {
-    const current = crop();
-    return current ? 1 / Math.max(current.width, current.height) : 1;
+    const currentCrop = crop();
+    if (!currentCrop) return 1;
+    return Math.round((1 / Math.max(currentCrop.width, currentCrop.height)) * 100) / 100;
   };
-  const setZoom = (next: number) => {
-    const current = crop();
-    const currentSize = size();
-    if (current && currentSize && !props.disabled) {
-      setCrop(resizeImageCropAroundCenter(current, currentSize, aspect(), next / zoom()));
-    }
+
+  const setZoom = (value: number) => {
+    const currentCrop = crop();
+    const currentSize = previewSize();
+    if (!currentCrop || !currentSize || disabled()) return;
+    const scale = value / Math.max(0.01, zoom());
+    setCrop(resizeImageCropAroundCenter(currentCrop, currentSize, aspect(), scale));
   };
+
+  const rotateRight = () => {
+    if (disabled()) return;
+    setRotation((current) => rotateImageCropRight(current));
+  };
+
+  const previewFrameStyle = (): JSX.CSSProperties => {
+    const currentSize = previewSize();
+    if (!currentSize) return {};
+    return {
+      "aspect-ratio": `${currentSize.width} / ${currentSize.height}`,
+      "max-width": `min(100%, calc(min(58vh, 24rem) * ${currentSize.width} / ${currentSize.height}))`,
+    };
+  };
+
+  const previewImageStyle = (): JSX.CSSProperties => {
+    const currentPreview = preview();
+    const currentSize = previewSize();
+    if (!currentPreview || !currentSize) return {};
+    const swapsDimensions = rotation() === 90 || rotation() === 270;
+    return {
+      left: "50%",
+      top: "50%",
+      width: swapsDimensions ? `${(currentPreview.sourceWidth / currentSize.width) * 100}%` : "100%",
+      height: swapsDimensions ? `${(currentPreview.sourceHeight / currentSize.height) * 100}%` : "100%",
+      "max-width": "none",
+      "object-fit": "fill",
+      transform: `translate(-50%, -50%) rotate(${rotation()}deg)`,
+    };
+  };
+
+  const cropStyle = (): JSX.CSSProperties => {
+    const currentCrop = crop();
+    if (!currentCrop) return {};
+    return {
+      left: `${currentCrop.x * 100}%`,
+      top: `${currentCrop.y * 100}%`,
+      width: `${currentCrop.width * 100}%`,
+      height: `${currentCrop.height * 100}%`,
+      "box-shadow": "0 0 0 9999px rgba(0,0,0,.42)",
+    };
+  };
+
+  const showResizeHandles = () => aspect() === "free" && previewShape() !== "circle";
+  const showZoomControls = () => aspect() !== "free";
 
   return (
     <div class={`k2b-image-cropper ${props.class ?? ""}`}>
@@ -386,24 +516,15 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
         <Show when={!loading()} fallback={<small>Preparing image…</small>}>
           <Show when={!error()} fallback={<small class="k2b-image-cropper__error">{error()}</small>}>
             <Show when={preview() && crop()}>
-              <div
-                ref={frame}
-                class="k2b-image-cropper__frame"
-                style={{ "aspect-ratio": `${size()!.width} / ${size()!.height}` }}
-              >
-                <img src={preview()!.url} alt="Crop preview" draggable={false} style={{ transform: `rotate(${rotation()}deg)` }} />
+              <div ref={frame} class="k2b-image-cropper__frame" style={previewFrameStyle()}>
+                <img src={preview()!.url} alt="Crop preview" draggable={false} style={previewImageStyle()} />
                 <div
                   class="k2b-image-cropper__selection"
-                  data-shape={props.previewShape ?? "rect"}
-                  style={{
-                    left: `${crop()!.x * 100}%`,
-                    top: `${crop()!.y * 100}%`,
-                    width: `${crop()!.width * 100}%`,
-                    height: `${crop()!.height * 100}%`,
-                  }}
-                  onPointerDown={(event) => start("move", event)}
+                  data-shape={previewShape()}
+                  style={cropStyle()}
+                  onPointerDown={(event) => startDrag("move", event)}
                 >
-                  <Show when={aspect() === "free" && props.previewShape !== "circle"}>
+                  <Show when={showResizeHandles()}>
                     <For each={["nw", "ne", "sw", "se"] as const}>
                       {(handle) => (
                         <button
@@ -411,8 +532,8 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
                           class="k2b-image-cropper__handle"
                           data-handle={handle}
                           aria-label={`Resize crop ${handle}`}
-                          disabled={props.disabled}
-                          onPointerDown={(event) => start(handle, event)}
+                          disabled={disabled()}
+                          onPointerDown={(event) => startDrag(handle, event)}
                         />
                       )}
                     </For>
@@ -421,9 +542,10 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
                 <button
                   type="button"
                   class="k2b-image-cropper__rotate"
+                  title="Rotate right"
                   aria-label="Rotate right"
-                  disabled={props.disabled}
-                  onClick={() => setRotation((current) => rotateImageCropRight(current))}
+                  disabled={disabled() || !crop() || Boolean(error())}
+                  onClick={rotateRight}
                 >
                   <i class="ti ti-rotate-clockwise" aria-hidden="true" />
                 </button>
@@ -432,16 +554,18 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
           </Show>
         </Show>
       </div>
-      <Show when={aspect() !== "free" && crop()}>
+      <Show when={showZoomControls()}>
         <label class="k2b-image-cropper__zoom">
-          <span>Zoom <output>{zoom().toFixed(2)}×</output></span>
+          <span>
+            Zoom <output>{zoom().toFixed(2)}×</output>
+          </span>
           <input
             type="range"
             min="1"
             max="5"
             step="0.05"
             value={zoom()}
-            disabled={props.disabled}
+            disabled={disabled() || !crop()}
             onInput={(event) => setZoom(event.currentTarget.valueAsNumber)}
           />
         </label>

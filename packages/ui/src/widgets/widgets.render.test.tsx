@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
@@ -11,69 +11,79 @@ const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { Widget, WidgetCard, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } = await import("../index");
+const { Widget } = await import("./Widget");
+const { WidgetCard } = await import("./WidgetCard");
+const { WidgetHero } = await import("./WidgetHero");
+const { WidgetList } = await import("./WidgetList");
+const { WidgetPills } = await import("./WidgetPills");
+const { WidgetStat } = await import("./WidgetStat");
+const { WidgetStatus } = await import("./WidgetStatus");
 
-describe("@k2b/ui complete widget composition", () => {
-  test("links only the widget header so body links remain valid", () => {
+const parityCss = readFileSync(resolve(import.meta.dir, "../styles/surfaces-widgets-parity.css"), "utf8");
+
+describe("@k2b/ui Cloud-faithful widget composition", () => {
+  test("keeps fixed widget sizes and links only the header", () => {
     const html = renderToString(() =>
       createComponent(Widget, {
         title: "Operations",
         meta: "last 24h",
         icon: "ti ti-activity",
         href: "/operations",
+        size: "compact",
         children: createComponent(WidgetList, {
           items: [{ label: "Failed jobs", href: "/jobs?state=failed" }],
         }),
       }),
     );
 
-    expect(html).toContain('<section class="k2b-widget');
+    expect(html).toStartWith('<div class="k2b-widget" data-size="compact">');
     expect(html).toContain('href="/operations" class="k2b-widget__header"');
     expect(html).toContain('href="/jobs?state=failed"');
-    expect(html.indexOf("</a><div class=\"k2b-widget__body\"")).toBeGreaterThan(-1);
+    expect(html.indexOf('</a><div class="k2b-widget__body">')).toBeGreaterThan(-1);
   });
 
-  test("renders a free-form widget card and centered hero", () => {
+  test("renders the prefixed WidgetCard icon and tone-based hero", () => {
     const card = renderToString(() =>
       createComponent(WidgetCard, {
         title: "Custom",
-        icon: "ti ti-layout",
-        description: "Bring any content",
+        icon: "layout",
         children: createComponent(WidgetHero, {
           title: "All clear",
           subtitle: "No pending work",
           icon: "ti ti-circle-check",
-          tone: "success",
+          tone: "emerald",
         }),
       }),
     );
 
     expect(card).toContain("k2b-widget-card");
-    expect(card).toContain("ti ti-layout");
+    expect(card).toContain('class="ti ti-layout"');
     expect(card).toContain("k2b-widget-hero");
-    expect(card).toContain('data-tone="success"');
+    expect(card).toContain('data-tone="emerald"');
   });
 
-  test("renders list aliases, empty state, links, and grow behavior", () => {
+  test("renders list subtext, empty state, tone, links, and grow behavior", () => {
     const list = renderToString(() =>
       createComponent(WidgetList, {
         grow: true,
-        items: [{ label: "Deploy", sub: "Production", meta: "now", icon: "ti ti-rocket", iconTone: "info" }],
+        items: [{ label: "Deploy", sub: "Production", meta: "now", icon: "ti ti-rocket", iconTone: "blue", href: "/deploy" }],
       }),
     );
-    const empty = renderToString(() => createComponent(WidgetList, { items: [], emptyMessage: "No deployments" }));
+    const empty = renderToString(() => createComponent(WidgetList, { items: [], emptyMessage: "No deployments", grow: true }));
 
     expect(list).toContain('data-grow="true"');
     expect(list).toContain("Production");
-    expect(list).toContain('data-tone="info"');
+    expect(list).toContain('data-tone="blue"');
+    expect(list).toContain('href="/deploy"');
     expect(empty).toContain("No deployments");
+    expect(empty).toContain('data-grow="true"');
   });
 
-  test("renders pill, stat, and status blocks as composable primitives", () => {
+  test("renders pills and stats with the shared five-tone vocabulary", () => {
     const pills = renderToString(() =>
       createComponent(WidgetPills, {
         grow: true,
-        pills: [{ label: "Errors", value: 3, tone: "danger", href: "/errors" }],
+        pills: [{ label: "Errors", value: 3, tone: "red", href: "/errors" }],
       }),
     );
     const stat = renderToString(() =>
@@ -81,19 +91,78 @@ describe("@k2b/ui complete widget composition", () => {
         label: "Requests",
         value: 42,
         sub: "last hour",
+        valueClass: "request-value",
         grow: true,
-        accent: { icon: "ti ti-trending-up", text: "+12%", tone: "success" },
+        accent: { icon: "ti ti-trending-up", text: "+12%", tone: "emerald" },
       }),
-    );
-    const status = renderToString(() =>
-      createComponent(WidgetStatus, { title: "Degraded", message: "One source unavailable", tone: "degraded", grow: true }),
     );
 
     expect(pills).toContain('href="/errors"');
+    expect(pills).toContain('data-tone="red"');
     expect(pills).toContain('data-grow="true"');
     expect(stat).toContain("last hour");
     expect(stat).toContain("+12%");
+    expect(stat).toContain("request-value");
+  });
+
+  test("renders the four WidgetStatus tones and their defaults", () => {
+    const status = renderToString(() =>
+      createComponent(WidgetStatus, { title: "Degraded", message: "One source unavailable", tone: "warn", grow: true }),
+    );
+    const custom = renderToString(() =>
+      createComponent(WidgetStatus, { title: "Queued", tone: "info", icon: "ti ti-clock" }),
+    );
+
+    expect(status).toContain('data-tone="warn"');
     expect(status).toContain("ti ti-alert-triangle");
     expect(status).toContain("One source unavailable");
+    expect(status).toContain('data-grow="true"');
+    expect(custom).toContain("ti ti-clock");
+  });
+
+  test("keeps the widget chrome Cloud actually paints", () => {
+    // `.widget-icon` / `.widget-surface` / `.widget-card` are unlayered in
+    // Cloud, so they beat the tinted utilities the TSX still carries.
+    expect(parityCss).toMatch(/\.k2b-widget__icon \{[^}]*background: var\(--k2b-surface-muted\)/);
+    expect(parityCss).toContain(".k2b-ui a.k2b-widget__header:hover { background: transparent; }");
+    expect(parityCss).toMatch(/\.k2b-widget-card \{[^}]*border-radius: var\(--k2b-radius-surface\)/);
+    // WidgetStatus is a full-bleed banner; `error` is the one untinted tone.
+    expect(parityCss).toContain('.k2b-widget-status[data-tone="error"] { color: #991b1b; background: transparent; }');
+    expect(parityCss).toMatch(/\.k2b-widget-status \{[^}]*border-radius: 0/);
+    expect(parityCss).toContain('.k2b-widget-status[data-tone="warn"] .k2b-widget-status__icon');
+    // Only `grow` blocks may claim the leftover height inside a fixed widget.
+    expect(parityCss).toMatch(/\.k2b-widget-stat \{[^}]*flex: 0 0 auto/);
+    expect(parityCss).toMatch(/\.k2b-widget-list \{[^}]*flex: 0 0 auto/);
+    expect(parityCss).toMatch(/\.k2b-widget-pills \{[^}]*margin-top: 0/);
+  });
+
+  test("emits no inline Tailwind utility classes", () => {
+    const rendered = [
+      renderToString(() =>
+        createComponent(Widget, {
+          title: "Ops",
+          icon: "ti ti-activity",
+          meta: "24h",
+          href: "/ops",
+          get children() {
+            return createComponent(WidgetHero, { title: "All clear", subtitle: "Nothing to do", icon: "ti ti-check", tone: "zinc" });
+          },
+        }),
+      ),
+      renderToString(() => createComponent(WidgetCard, { title: "C", icon: "layout", children: null })),
+      renderToString(() => createComponent(WidgetList, { items: [{ label: "L", sub: "s", meta: "m", icon: "ti ti-x", href: "/x" }] })),
+      renderToString(() => createComponent(WidgetList, { items: [] })),
+      renderToString(() => createComponent(WidgetPills, { pills: [{ label: "P", value: 1, tone: "red", href: "/p" }] })),
+      renderToString(() =>
+        createComponent(WidgetStat, { label: "L", value: 1, sub: "s", accent: { tone: "amber", icon: "ti ti-x", text: "+1" } }),
+      ),
+      renderToString(() => createComponent(WidgetStatus, { title: "T", message: "M", tone: "ok" })),
+    ].join("");
+
+    const foreign = [...rendered.matchAll(/class="([^"]*)"/g)]
+      .flatMap((attribute) => (attribute[1] ?? "").split(/\s+/).filter(Boolean))
+      .filter((token) => !/^(k2b-|ti$|ti-)/.test(token));
+
+    expect(foreign).toEqual([]);
   });
 });

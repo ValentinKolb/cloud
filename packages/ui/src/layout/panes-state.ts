@@ -24,7 +24,7 @@ export type PanesSplitNode = {
 export type PanesNode = PanesLeafNode | PanesSplitNode;
 
 export type PanesValue = {
-  version: typeof PANES_VALUE_VERSION;
+  version?: typeof PANES_VALUE_VERSION;
   root: PanesNode;
 };
 
@@ -42,7 +42,9 @@ type ElementLocation = {
 
 const MAX_DEPTH = 12;
 const MAX_NODES = 64;
-const MAX_ID_LENGTH = 160;
+/** Longest node or element id `normalizePanesValue` will keep. */
+export const PANES_MAX_ID_LENGTH = 160;
+const MAX_ID_LENGTH = PANES_MAX_ID_LENGTH;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
@@ -190,7 +192,13 @@ export const normalizePanesValue = (
 ): PanesValue => {
   const ids = uniqueStrings(elementIds);
   if (ids.length === 0) return createPanesValue([], presentation);
-  const candidate = isRecord(value) && isRecord(value.root) ? value.root : null;
+  // Version gate. `PANES_VALUE_VERSION` was stamped on every value this module
+  // produces but never checked on the way back in, so a payload written by a
+  // future layout schema would have been parsed as if it were this one.
+  // `undefined` is accepted: `PanesValue.version` is optional and values
+  // predate the field.
+  const versioned = isRecord(value) && value.version !== undefined && value.version !== PANES_VALUE_VERSION;
+  const candidate = !versioned && isRecord(value) && isRecord(value.root) ? value.root : null;
   const usedElements = new Set<string>();
   const usedNodes = new Set<string>();
   const root = normalizeNode(
@@ -442,14 +450,24 @@ export const applyPanesIntent = (
   if (intent.kind === "insert" && !findPanesSplit(value.root, intent.splitId)) return value;
   if (intent.kind === "move" && intent.beforeElementId === intent.elementId) return value;
   if (intent.kind === "move" && source.leaf.id === intent.leafId) {
-    const beforeIndex = intent.beforeElementId ? source.leaf.elementIds.indexOf(intent.beforeElementId) : source.leaf.elementIds.length;
-    if (
-      beforeIndex === source.elementIndex ||
-      beforeIndex === source.elementIndex + 1 ||
-      (!intent.beforeElementId && source.elementIndex === source.leaf.elementIds.length - 1)
-    ) {
-      return value;
-    }
+    // Releasing over your own pane body — no tab was hit, so there is no
+    // `beforeElementId` — is a no-op, not a "send this tab to the end".
+    if (!intent.beforeElementId) return value;
+    const beforeIndex = source.leaf.elementIds.indexOf(intent.beforeElementId);
+    if (beforeIndex === source.elementIndex || beforeIndex === source.elementIndex + 1) return value;
+  }
+  // Dropping a solo pane into the gap immediately before or after itself asks
+  // for the arrangement it already has. Without this the leaf is destroyed and
+  // rebuilt under a fresh node id, and the split's sizes are renormalized, so a
+  // gesture that should change nothing loses the pane's width.
+  if (
+    intent.kind === "insert" &&
+    source.parentSplitId === intent.splitId &&
+    source.leaf.elementIds.length === 1 &&
+    source.childIndex !== undefined &&
+    (source.childIndex === intent.index || source.childIndex === intent.index + 1)
+  ) {
+    return value;
   }
   if (intent.kind === "split") {
     const target = findPanesLeaf(value.root, intent.leafId);

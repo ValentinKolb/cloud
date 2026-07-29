@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, type JSX, Show } from "solid-js";
-import Dropdown, { type DropdownItem } from "./Dropdown";
+import Dropdown, { DropdownItem, type DropdownElement, type DropdownItem as DropdownItemDefinition } from "./Dropdown";
 
 export type FilterChipOption = {
   value: string;
@@ -14,7 +14,7 @@ export type FilterChipSection = {
   multiple?: boolean;
 };
 
-type FilterChipChange =
+export type FilterChipChange =
   | { onChange: (value: string[]) => void; onValueChange?: (value: string[]) => void }
   | { onChange?: (value: string[]) => void; onValueChange: (value: string[]) => void };
 
@@ -30,13 +30,78 @@ export type FilterChipProps = FilterChipChange & {
   class?: string;
 };
 
+type FilterOptionRowProps = {
+  option: FilterChipOption;
+  multiple: boolean;
+  selected: () => boolean;
+  onToggle: () => void;
+};
+
+function FilterOptionRow(props: FilterOptionRowProps): JSX.Element {
+  const content = (
+    <>
+      <Show when={props.multiple}>
+        <span class="k2b-filter-chip__checkbox" aria-hidden="true">
+          <Show when={props.selected()}>
+            <i class="ti ti-check" />
+          </Show>
+        </span>
+      </Show>
+      <Show when={!props.multiple ? props.option.icon : undefined}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
+      <Show when={props.option.color}>
+        {(color) => <span class="k2b-filter-chip__color" style={{ "--k2b-filter-color": color() }} aria-hidden="true" />}
+      </Show>
+      <span>{props.option.label}</span>
+      <Show when={!props.multiple && props.selected()}>
+        <i class="ti ti-check k2b-filter-chip__check" aria-hidden="true" />
+      </Show>
+    </>
+  );
+  const onClick: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent> = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    props.onToggle();
+  };
+
+  return (
+    <Show
+      when={props.multiple}
+      fallback={
+        <button
+          type="button"
+          role="menuitemradio"
+          aria-checked={props.selected()}
+          tabIndex={-1}
+          class="k2b-filter-chip__option"
+          data-selected={props.selected() ? "true" : undefined}
+          onClick={onClick}
+        >
+          {content}
+        </button>
+      }
+    >
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={props.selected()}
+        tabIndex={-1}
+        class="k2b-filter-chip__option"
+        data-selected={props.selected() ? "true" : undefined}
+        onClick={onClick}
+      >
+        {content}
+      </button>
+    </Show>
+  );
+}
+
 /** Section-aware controlled filter with immediate single- and multi-select commits. */
 export function FilterChip(props: FilterChipProps): JSX.Element {
   const [localValue, setLocalValue] = createSignal<string[]>([...props.value]);
 
   createEffect(() => setLocalValue([...props.value]));
 
-  const hasDefault = () => props.defaultValue !== undefined;
+  const hasDefault = () => (props.defaultValue?.length ?? 0) > 0;
   const selected = (value: string) => localValue().includes(value);
   const active = () => props.isActive ?? localValue().length > 0;
   const atDefault = () => {
@@ -62,64 +127,45 @@ export function FilterChip(props: FilterChipProps): JSX.Element {
     emit(selected(value) ? otherValues : [...otherValues, value]);
   };
   const reset = () => emit(props.defaultValue ? [...props.defaultValue] : []);
+  const showReset = () => (hasDefault() && !atDefault()) || (!hasDefault() && localValue().length > 0);
+  const resetItem: DropdownElement = {
+    element: () => (
+      <Show when={showReset()}>
+        <div class="k2b-dropdown__section" data-divided="true" role="group" aria-label="Filter actions">
+          <DropdownItem icon={hasDefault() ? "ti ti-refresh" : "ti ti-x"} variant="danger" onSelect={reset}>
+            {hasDefault() ? "Reset" : "Clear"}
+          </DropdownItem>
+        </div>
+      </Show>
+    ),
+  };
 
-  const elements = createMemo<DropdownItem[]>(() => {
-    const result: DropdownItem[] = props.options.map((section) => ({
-      sectionLabel: section.label,
-      items: section.options.map((option) => ({
-        element: (
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={selected(option.value)}
-            class="k2b-filter-chip__option"
-            data-selected={selected(option.value) ? "true" : undefined}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              toggle(option.value);
-            }}
-          >
-            <Show when={section.multiple}>
-              <span class="k2b-filter-chip__checkbox" aria-hidden="true">
-                <Show when={selected(option.value)}>
-                  <i class="ti ti-check" />
-                </Show>
-              </span>
-            </Show>
-            <Show when={!section.multiple ? option.icon : undefined}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
-            <Show when={option.color}>
-              {(color) => <span class="k2b-filter-chip__color" style={{ "--k2b-filter-color": color() }} aria-hidden="true" />}
-            </Show>
-            <span>{option.label}</span>
-            <Show when={!section.multiple && selected(option.value)}>
-              <i class="ti ti-check k2b-filter-chip__check" aria-hidden="true" />
-            </Show>
-          </button>
+  const elements = createMemo<DropdownItemDefinition[]>(() => {
+    const result: DropdownItemDefinition[] = [];
+    for (const section of props.options) {
+      const items = section.options.map((option) => ({
+        element: () => (
+          <FilterOptionRow
+            option={option}
+            multiple={Boolean(section.multiple)}
+            selected={() => selected(option.value)}
+            onToggle={() => toggle(option.value)}
+          />
         ),
-      })),
-    }));
-
-    if ((hasDefault() && !atDefault()) || (!hasDefault() && localValue().length > 0)) {
-      result.push({
-        items: [
-          {
-            icon: hasDefault() ? "ti ti-refresh" : "ti ti-x",
-            label: hasDefault() ? "Reset" : "Clear",
-            variant: "danger",
-            action: reset,
-          },
-        ],
-      });
+      }));
+      if (section.label) result.push({ sectionLabel: section.label, items });
+      else result.push(...items);
     }
+    result.push(resetItem);
     return result;
   });
 
   return (
     <Dropdown
       trigger={
-        <span
+        <div
           class={`k2b-filter-chip ${props.class ?? ""}`}
+          data-state={active() ? "active" : "idle"}
           data-active={active() ? "true" : undefined}
           data-icon-only={props.iconOnly ? "true" : undefined}
           role="button"
@@ -134,11 +180,11 @@ export function FilterChip(props: FilterChipProps): JSX.Element {
             </span>
             <i class="ti ti-chevron-down k2b-filter-chip__chevron" aria-hidden="true" />
           </Show>
-        </span>
+        </div>
       }
       elements={elements()}
       position={props.position ?? "bottom-left"}
-      width="k2b-dropdown__menu--filter"
+      width="13rem"
       label={props.label}
     />
   );

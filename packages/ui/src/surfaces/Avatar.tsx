@@ -23,7 +23,9 @@ const initialsFor = (name: string): string => {
 export function Avatar(props: AvatarProps): JSX.Element {
   const [failed, setFailed] = createSignal(false);
   const label = () => props.name.trim() || "Unknown user";
-  const fallback = () => props.fallback ?? initialsFor(label());
+  // Derive initials from the given name, not from the accessible-name fallback:
+  // an empty `name` must render "?" the way Cloud's avatar does, not "UU".
+  const fallback = () => props.fallback ?? initialsFor(props.name);
   const className = () => `k2b-avatar ${props.class ?? ""}`;
 
   createEffect(

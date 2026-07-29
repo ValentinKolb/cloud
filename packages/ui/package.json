@@ -10,15 +10,21 @@
   "homepage": "https://github.com/ValentinKolb/cloud",
   "bugs": "https://github.com/ValentinKolb/cloud/issues",
   "type": "module",
+  "types": "./dist/types/index.d.ts",
   "sideEffects": [
-    "./dist/*.css",
-    "./src/fonts/*.css"
+    "./dist/*.css"
   ],
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "browser": "./dist/index.browser.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
     "./styles.css": "./dist/styles.css",
     "./fonts/plex.css": "./dist/plex.css",
-    "./icons/tabler.css": "./dist/tabler.css"
+    "./icons/tabler.css": "./dist/tabler.css",
+    "./package.json": "./package.json"
   },
   "files": [
     "src",
@@ -27,24 +33,27 @@
     "MIGRATION.md",
     "migration-inventory.json",
     "!src/**/*.test.ts",
-    "!src/**/*.test.tsx"
+    "!src/**/*.test.tsx",
+    "!src/**/*.typecheck.ts",
+    "!src/styles/css-contract-test-helpers.ts"
   ],
   "scripts": {
     "build": "bun run scripts/build.ts",
+    "check:declarations": "bun run scripts/check-declarations.ts",
     "check:migration": "bun run scripts/check-migration-inventory.ts",
+    "check:packed-consumer": "\"$npm_execpath\" run build && \"$npm_execpath\" run scripts/check-packed-consumer.ts",
     "fixture:build": "bun run build && NODE_ENV=production bun run fixture/scripts/build.ts",
     "fixture:dev": "NODE_ENV=development bun --preload ./fixture/src/preload.ts ./fixture/src/server.ts",
     "fixture:typecheck": "tsc -p fixture/tsconfig.json --noEmit --pretty false",
-    "test": "bun run build && bun test src && bun run test:dom",
-    "test:dom": "bun test --conditions=browser --preload ./test/solid-dom-preload.ts ./test",
-    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false && bun run typecheck:dom",
+    "test": "\"$npm_execpath\" run build && \"$npm_execpath\" test src scripts && \"$npm_execpath\" run test:dom && \"$npm_execpath\" run scripts/check-packed-consumer.ts",
+    "test:dom": "\"$npm_execpath\" test --conditions=browser --preload ./test/solid-dom-preload.ts ./test",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false && bun run check:declarations && bun run typecheck:dom",
     "typecheck:dom": "tsc -p test/tsconfig.json --noEmit --pretty false",
     "prepack": "bun run build"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
-    "@fontsource/ibm-plex-sans-condensed": "^5.2.8",
     "@k2b/stdlib": "0.17.1",
     "@tabler/icons-webfont": "^3.44.0",
     "marked": "^17.0.1"

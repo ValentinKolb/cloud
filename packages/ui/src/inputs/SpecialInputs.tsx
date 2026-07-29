@@ -1,41 +1,41 @@
 import { fuzzy } from "@k2b/stdlib";
 import type { JSX } from "solid-js";
 import { Select, type SelectOption } from "./Select";
+import type { ValueFieldProps } from "./field-contract";
+import { resolveMaybeAccessor } from "./field-contract";
+import { DEFAULT_ICON_OPTIONS } from "./icon-options";
 
 export type IconOption = SelectOption & { keywords?: readonly string[] };
-export type IconInputProps = {
-  value?: string | null;
-  onValueChange?: (value: string | null) => void;
-  options: readonly IconOption[];
-  label?: JSX.Element;
-  description?: JSX.Element;
-  error?: JSX.Element;
+export type IconInputProps = ValueFieldProps<string | null> & {
+  options?: readonly IconOption[];
   placeholder?: string;
-  required?: boolean;
   clearable?: boolean;
-  disabled?: boolean;
   searchLimit?: number;
-  class?: string;
-  id?: string;
   name?: string;
 };
 
 export function IconInput(props: IconInputProps): JSX.Element {
+  const options = () => props.options ?? DEFAULT_ICON_OPTIONS;
   const loadOptions = async (query: string): Promise<readonly IconOption[]> => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
-      return [...props.options].sort((left, right) =>
+      return [...options()].sort((left, right) =>
         String(left.label).localeCompare(String(right.label), undefined, { sensitivity: "base" }),
       );
     }
     return fuzzy
-      .filter(normalized, props.options, {
-        key: (option) => `${String(option.label)} ${option.value} ${(option.keywords ?? []).join(" ")}`.toLowerCase(),
+      .filter(normalized, options(), {
+        // Cloud's key is `[label, ...keywords]`. Including `value` as well put
+        // the literal "ti ti-" in front of every entry, so short queries matched
+        // the whole catalogue and fuzzy scores were skewed. The bare glyph name
+        // is already the first keyword (see `icon()` in ./icon-options), so
+        // nothing is lost by dropping it.
+        key: (option) => `${String(option.label)} ${(option.keywords ?? []).join(" ")}`.toLowerCase(),
         limit: props.searchLimit ?? 50,
       })
       .map((match) => match.item);
   };
-  const selectedOption = () => props.options.find((option) => option.value === props.value);
+  const selectedOption = () => options().find((option) => option.value === resolveMaybeAccessor(props.value));
 
   return (
     <Select
@@ -45,17 +45,20 @@ export function IconInput(props: IconInputProps): JSX.Element {
       label={props.label}
       description={props.description}
       error={props.error}
+      aria-label={props["aria-label"]}
+      aria-describedby={props["aria-describedby"]}
       placeholder={props.placeholder ?? "Pick an icon…"}
       disabled={props.disabled}
       required={props.required}
       clearable={props.clearable ?? true}
-      value={props.value}
+      value={resolveMaybeAccessor(props.value)}
       selectedOption={selectedOption()}
       onValueChange={props.onValueChange}
+      onValueCommit={props.onValueCommit}
       loadOptions={loadOptions}
       debounceMs={0}
       searchPlaceholder="Search icons…"
-      icon="ti ti-icons"
+      icon={selectedOption()?.icon ?? "ti ti-icons"}
     />
   );
 }

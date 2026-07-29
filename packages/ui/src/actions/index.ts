@@ -1,9 +1,10 @@
 export type { ButtonProps, ButtonSize, ButtonVariant, IconButtonProps } from "./Button";
 export { Button, IconButton } from "./Button";
-export type { CopyButtonProps } from "./CopyButton";
+export type { CopyButtonProps, CopyButtonValue } from "./CopyButton";
 export { CopyButton } from "./CopyButton";
 export type {
   DropdownAction,
+  DropdownActionBase,
   DropdownElement,
   DropdownItemProps,
   DropdownPosition,
@@ -11,15 +12,16 @@ export type {
   DropdownSection,
 } from "./Dropdown";
 export { Dropdown, DropdownItem, dropdownPosition } from "./Dropdown";
-export type { FilterChipOption, FilterChipProps, FilterChipSection } from "./FilterChip";
+export type { FilterChipChange, FilterChipOption, FilterChipProps, FilterChipSection } from "./FilterChip";
 export { FilterChip } from "./FilterChip";
 export type {
+  ContextMenuContent,
   ContextMenuItem,
   ContextMenuProps,
 } from "./ContextMenu";
 export { ContextMenu } from "./ContextMenu";
-export type { RemoveBtnProps, RemoveButtonProps } from "./RemoveButton";
-export { RemoveBtn, RemoveButton } from "./RemoveButton";
+export type { RemoveButtonProps } from "./RemoveButton";
+export { RemoveButton } from "./RemoveButton";
 export type {
   SpotlightButtonProps,
   SpotlightButtonVariant,
@@ -35,7 +37,7 @@ export {
   SpotlightButton,
 } from "./SpotlightSearch";
 export type {
-  SegmentedControlOption,
+  SegmentedControlChange,
   SegmentedControlProps,
   SegmentOption,
 } from "./SegmentedControl";

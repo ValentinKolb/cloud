@@ -1,5 +1,6 @@
 import { Link, type LinkNavigateEvent, type NavigationScrollMode } from "@k2b/ssr/nav";
-import { children, createContext, createMemo, createUniqueId, type JSX, Show, useContext } from "solid-js";
+import { children, createContext, createMemo, createUniqueId, type JSX, onCleanup, onMount, Show, useContext } from "solid-js";
+import { installAppWorkspaceController } from "./app-workspace-controller";
 import {
   APP_WORKSPACE_DETAIL_DEFAULT,
   APP_WORKSPACE_DETAIL_MAX,
@@ -14,8 +15,9 @@ import {
   APP_WORKSPACE_SIDEBAR_DEFAULT,
   APP_WORKSPACE_SIDEBAR_MAX,
   APP_WORKSPACE_SIDEBAR_MIN,
+  type AppWorkspaceLayoutState,
   appWorkspacePanelVariable,
-  resolveAppWorkspaceSidebarWidth,
+  safeAppWorkspacePanelId,
 } from "./app-workspace-state";
 
 const ResizeContext = createContext(true);
@@ -71,83 +73,70 @@ const sidebarItemSlot = (value: unknown): value is SidebarItemSlot =>
 
 type ResizeHandleProps = {
   kind: "sidebar" | "pane" | "detail" | "drawer";
-  edge: "start" | "end" | "top";
-  target: () => HTMLElement | undefined;
-  variable: string;
+  edge: "start" | "end";
+  controls?: string;
+  panelId?: string;
   defaultSize: number;
   minSize: number;
   maxSize: number;
-  collapsible?: boolean;
   shadow?: boolean;
+  label?: string;
+  style?: JSX.CSSProperties;
 };
 
 function ResizeHandle(props: ResizeHandleProps): JSX.Element {
-  const resize = (event: PointerEvent) => {
-    const target = props.target();
-    const workspace = target?.closest<HTMLElement>("[data-k2b-app-workspace]");
-    if (!target || !workspace || event.button !== 0) return;
-    event.preventDefault();
-    const bounds = target.getBoundingClientRect();
-    const origin = props.kind === "drawer" ? bounds.height : bounds.width;
-    const start = props.kind === "drawer" ? event.clientY : event.clientX;
-    const direction = props.edge === "start" || props.edge === "top" ? -1 : 1;
-    const move = (next: PointerEvent) => {
-      const position = props.kind === "drawer" ? next.clientY : next.clientX;
-      const requested = origin + (position - start) * direction;
-      if (props.kind === "sidebar") {
-        const resolved = resolveAppWorkspaceSidebarWidth(requested, props.maxSize, Boolean(props.collapsible));
-        workspace.style.setProperty(props.variable, `${resolved.width}px`);
-        workspace.dataset.sidebarCollapsed = resolved.collapsed ? "true" : "false";
-      } else {
-        workspace.style.setProperty(props.variable, `${Math.round(Math.max(props.minSize, Math.min(props.maxSize, requested)))}px`);
-      }
-    };
-    const stop = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", stop);
-      document.body.style.removeProperty("cursor");
-      document.body.style.removeProperty("user-select");
-    };
-    document.body.style.setProperty("cursor", props.kind === "drawer" ? "row-resize" : "col-resize");
-    document.body.style.setProperty("user-select", "none");
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
-  };
-  const keyboard = (event: KeyboardEvent) => {
-    const target = props.target();
-    const workspace = target?.closest<HTMLElement>("[data-k2b-app-workspace]");
-    if (!target || !workspace || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const current = props.kind === "drawer" ? target.getBoundingClientRect().height : target.getBoundingClientRect().width;
-    const delta = event.shiftKey ? 32 : 8;
-    const horizontalDirection = props.edge === "start" ? -1 : 1;
-    const next =
-      event.key === "Home"
-        ? props.minSize
-        : event.key === "End"
-          ? props.maxSize
-          : props.kind === "drawer"
-            ? current + (event.key === "ArrowUp" ? delta : event.key === "ArrowDown" ? -delta : 0)
-            : current + (event.key === "ArrowRight" ? delta : event.key === "ArrowLeft" ? -delta : 0) * horizontalDirection;
-    workspace.style.setProperty(props.variable, `${Math.round(Math.max(props.minSize, Math.min(props.maxSize, next)))}px`);
-  };
   return (
-    <div
+    <button
+      type="button"
       class="k2b-app-workspace__resize"
-      data-kind={props.kind}
-      data-edge={props.edge}
-      data-shadow={props.shadow ? "true" : undefined}
       role="separator"
-      tabIndex={0}
+      aria-label={
+        props.label ??
+        (props.kind === "sidebar"
+          ? "Resize navigation"
+          : props.kind === "pane"
+            ? "Resize workspace pane"
+            : props.kind === "detail"
+              ? "Resize detail panel"
+              : "Resize bottom drawer")
+      }
+      aria-controls={props.controls}
       aria-orientation={props.kind === "drawer" ? "horizontal" : "vertical"}
-      aria-label={`Resize ${props.kind}`}
-      onPointerDown={resize}
-      onKeyDown={keyboard}
-    />
+      aria-valuemin={props.minSize}
+      aria-valuemax={props.maxSize}
+      aria-valuenow={props.defaultSize}
+      data-app-workspace-resize={props.kind}
+      data-workspace-panel-id={props.panelId}
+      data-workspace-resize-edge={props.edge}
+      data-workspace-resize-shadow={props.shadow ? "true" : undefined}
+      data-workspace-min-size={props.minSize}
+      data-workspace-max-size={props.maxSize}
+      style={props.style}
+    >
+      <span aria-hidden="true" />
+    </button>
   );
 }
 
-export type AppWorkspaceProps = { children: JSX.Element; class?: string; resizable?: boolean };
+export type AppWorkspaceProps = {
+  children: JSX.Element;
+  class?: string;
+  resizable?: boolean;
+  /**
+   * Restores a persisted layout when the workspace mounts. Persistence itself
+   * stays app-owned — the package reads and writes nothing on its own — but
+   * the resize handles work without it.
+   */
+  layoutState?: () => AppWorkspaceLayoutState | null | undefined;
+  /** Called with the full layout whenever a resize settles. Persist it here. */
+  onLayoutChange?: (state: AppWorkspaceLayoutState) => void;
+  /**
+   * Opt out of the built-in controller. Only needed when the application calls
+   * `installAppWorkspaceController` itself — installing twice would double up
+   * every listener.
+   */
+  controller?: false;
+};
 export type AppWorkspaceContentProps = { children: JSX.Element; class?: string };
 export type AppWorkspaceMainProps = {
   children: JSX.Element;
@@ -209,6 +198,11 @@ export type AppWorkspaceSidebarHeaderProps = {
   action?: JSX.Element;
   showDesktop?: boolean;
 };
+export type AppWorkspaceSidebarMobileProps = { children: JSX.Element };
+export type AppWorkspaceSidebarMobileItemsProps = {
+  children: JSX.Element;
+  scrollPreserveKey?: string | false;
+};
 export type AppWorkspaceSidebarVisibility = "always" | "expanded" | "collapsed";
 export type AppWorkspaceSidebarBodyProps = {
   children: JSX.Element;
@@ -218,6 +212,7 @@ export type AppWorkspaceSidebarBodyProps = {
 };
 export type AppWorkspaceSidebarSectionProps = AppWorkspaceSidebarBodyProps & { title?: string };
 export type AppWorkspaceSidebarItemTone = "default" | "success" | "danger";
+export type AppWorkspaceSidebarIconActionTone = "default" | "success" | "danger";
 export type AppWorkspaceSidebarItemProps = {
   children: JSX.Element;
   href?: string;
@@ -252,7 +247,7 @@ export type AppWorkspaceSidebarIconActionProps = {
   label: string;
   active?: boolean;
   disabled?: boolean;
-  tone?: AppWorkspaceSidebarItemTone;
+  tone?: AppWorkspaceSidebarIconActionTone;
   viewTransitionName?: string;
   onClick?: (event: MouseEvent) => void;
   sidebarMode?: AppWorkspaceSidebarVisibility;
@@ -271,6 +266,9 @@ export type AppWorkspaceSidebarItemActionProps = {
 
 const modeAttrs = (mode?: AppWorkspaceSidebarVisibility) =>
   mode && mode !== "always" ? { "data-sidebar-mode": mode } : {};
+/** Same rule as `modeAttrs`, for the un-prefixed `data` bag on sidebar items. */
+const modeData = (mode?: AppWorkspaceSidebarVisibility) =>
+  mode && mode !== "always" ? { "sidebar-mode": mode } : {};
 const scrollAttrs = (key?: string | false) => (key ? { "data-scroll-preserve": key } : {});
 const iconClass = (icon: string | undefined, fallback = "ti-circle") =>
   icon?.startsWith("ti ") ? icon : `ti ${icon || fallback}`;
@@ -306,7 +304,10 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
     });
     return result;
   });
-  const hasPanes = () => regions().some((region) => region.type === "pane");
+  // Presence of a MainPane slot — not of an *open* one — decides the split
+  // layout. Deriving it from `regions()` made a workspace whose panes are all
+  // closed fall back to `resolved()`, which renders the raw slot objects.
+  const hasPanes = () => values().some(mainPaneSlot);
 
   return (
     <main
@@ -317,34 +318,39 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
       <Show when={hasPanes()} fallback={resolved() as JSX.Element}>
         {regions().flatMap((region) => {
           const anchor = regions().find((candidate) => candidate.type === "primary") ?? regions()[0];
+          const activeMobilePane = props.mobilePane ?? (anchor?.type === "pane" ? anchor.slot.props.id : "main");
           if (region.type === "primary") {
             return (
               <div
                 class="k2b-app-workspace__main-primary"
                 data-workspace-main-region="main"
-                data-mobile-active={(props.mobilePane ?? "main") === "main" ? "true" : undefined}
+                data-workspace-mobile-active={activeMobilePane === "main" ? "true" : "false"}
               >
                 {region.children as JSX.Element}
               </div>
             );
           }
           const pane = region.slot;
-          const variable = appWorkspacePanelVariable("pane", pane.props.id);
-          let element: HTMLElement | undefined;
+          const panelId = safeAppWorkspacePanelId(pane.props.id) || "primary";
+          const variable = appWorkspacePanelVariable("pane", panelId);
           const isAnchor = region === anchor;
           const resizable = !isAnchor && (pane.props.resizable ?? rootResizable);
+          const defaultSize = pane.props.defaultSize ?? APP_WORKSPACE_PANE_DEFAULT;
+          const minSize = pane.props.minSize ?? APP_WORKSPACE_PANE_MIN;
+          const maxSize = Math.max(minSize, pane.props.maxSize ?? APP_WORKSPACE_PANE_MAX);
           const content = (
             <section
-              ref={element}
               id={pane.domId}
               class={`k2b-app-workspace__main-pane ${isAnchor ? "is-primary" : ""} ${pane.props.class ?? ""}`}
               aria-label={pane.props.label}
               data-workspace-main-region={pane.props.id}
-              data-mobile-active={(props.mobilePane ?? (anchor?.type === "pane" ? anchor.slot.props.id : "main")) === pane.props.id ? "true" : undefined}
+              data-workspace-mobile-active={activeMobilePane === pane.props.id ? "true" : "false"}
+              data-workspace-panel-id={panelId}
+              data-workspace-resizable={resizable ? "true" : "false"}
               style={
                 isAnchor
                   ? undefined
-                  : { "--k2b-workspace-panel-size": `var(${variable}, ${pane.props.defaultSize ?? APP_WORKSPACE_PANE_DEFAULT}px)` }
+                  : { "--k2b-workspace-panel-size": `var(${variable}, ${defaultSize}px)` }
               }
             >
               {pane.props.children}
@@ -356,12 +362,13 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
             <ResizeHandle
               kind="pane"
               edge={before ? "end" : "start"}
-              target={() => element}
-              variable={variable}
-              defaultSize={pane.props.defaultSize ?? APP_WORKSPACE_PANE_DEFAULT}
-              minSize={pane.props.minSize ?? APP_WORKSPACE_PANE_MIN}
-              maxSize={pane.props.maxSize ?? APP_WORKSPACE_PANE_MAX}
+              controls={pane.domId}
+              panelId={panelId}
+              defaultSize={defaultSize}
+              minSize={minSize}
+              maxSize={maxSize}
               shadow={pane.props.resizeShadow !== false}
+              label={`Resize ${pane.props.label}`}
             />
           );
           return before ? [content, handle] : [handle, content];
@@ -372,70 +379,93 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
 }
 
 function AppWorkspaceDetail(props: AppWorkspaceDetailProps): JSX.Element {
-  let detail: HTMLElement | undefined;
   const rootResizable = useContext(ResizeContext);
-  const id = () => props.id ?? "primary";
-  const variable = () => appWorkspacePanelVariable("detail", id());
-  const widths = { sm: 288, md: 384, lg: 512, xl: 640 };
+  const panelId = () => safeAppWorkspacePanelId(props.id ?? "primary") || "primary";
+  const generatedId = createUniqueId();
+  const domId = () => props.id ?? `k2b-workspace-detail-${generatedId}`;
+  const variable = () => appWorkspacePanelVariable("detail", panelId());
+  // Cloud's `detailDefaultWidth`. These feed `aria-valuenow` and the
+  // `var(…, Npx)` first-paint fallback, so they are behaviour, not taste.
+  const widths = { sm: 288, md: 384, lg: 480, xl: 544 };
+  const defaultWidth = () => widths[props.width ?? "md"] ?? APP_WORKSPACE_DETAIL_DEFAULT;
+  const minWidth = () => props.minWidth ?? APP_WORKSPACE_DETAIL_MIN;
+  const maxWidth = () => Math.max(minWidth(), props.maxWidth ?? APP_WORKSPACE_DETAIL_MAX);
+  const resizable = () => props.resizable ?? (props.widthClass ? false : rootResizable);
   return (
-    <Show when={props.open}>
-      <Show when={props.resizable ?? rootResizable}>
+    <>
+      <Show when={resizable()}>
         <ResizeHandle
           kind="detail"
           edge="start"
-          target={() => detail}
-          variable={variable()}
-          defaultSize={widths[props.width ?? "md"]}
-          minSize={props.minWidth ?? APP_WORKSPACE_DETAIL_MIN}
-          maxSize={props.maxWidth ?? APP_WORKSPACE_DETAIL_MAX}
+          controls={domId()}
+          panelId={panelId()}
+          defaultSize={defaultWidth()}
+          minSize={minWidth()}
+          maxSize={maxWidth()}
+          shadow
+          style={{ "--k2b-workspace-panel-size": `var(${variable()}, ${defaultWidth()}px)` }}
         />
       </Show>
       <aside
-        ref={detail}
+        id={domId()}
         class={`k2b-app-workspace__detail ${props.widthClass ?? ""} ${props.class ?? ""}`}
         data-width={props.width ?? "md"}
+        data-workspace-panel-id={panelId()}
+        data-workspace-resizable={resizable() ? "true" : "false"}
+        hidden={!props.open}
         style={{
-          "--k2b-workspace-panel-size": `var(${variable()}, ${widths[props.width ?? "md"] ?? APP_WORKSPACE_DETAIL_DEFAULT}px)`,
+          "--k2b-workspace-panel-size": `var(${variable()}, ${defaultWidth()}px)`,
           "view-transition-name": props.viewTransitionName,
         }}
       >
         {props.children}
       </aside>
-    </Show>
+    </>
   );
 }
 
 function AppWorkspaceBottomDrawer(props: AppWorkspaceBottomDrawerProps): JSX.Element {
-  let drawer: HTMLElement | undefined;
   const rootResizable = useContext(ResizeContext);
-  const id = () => props.id ?? "primary";
-  const variable = () => appWorkspacePanelVariable("drawer", id());
-  const heights = { sm: 160, md: 240, lg: 400 };
+  const panelId = () => safeAppWorkspacePanelId(props.id ?? "primary") || "primary";
+  const generatedId = createUniqueId();
+  const domId = () => props.id ?? `k2b-workspace-drawer-${generatedId}`;
+  const variable = () => appWorkspacePanelVariable("drawer", panelId());
+  // Cloud's `drawerDefaultHeight`.
+  const heights = { sm: 192, md: 240, lg: 320 };
+  const defaultHeight = () => heights[props.height ?? "md"] ?? APP_WORKSPACE_DRAWER_DEFAULT;
+  const minHeight = () => props.minHeight ?? APP_WORKSPACE_DRAWER_MIN;
+  const maxHeight = () => Math.max(minHeight(), props.maxHeight ?? APP_WORKSPACE_DRAWER_MAX);
+  const resizable = () => props.resizable ?? rootResizable;
   return (
-    <Show when={props.open}>
-      <Show when={props.resizable ?? rootResizable}>
+    <>
+      <Show when={resizable()}>
         <ResizeHandle
           kind="drawer"
-          edge="top"
-          target={() => drawer}
-          variable={variable()}
-          defaultSize={heights[props.height ?? "md"]}
-          minSize={props.minHeight ?? APP_WORKSPACE_DRAWER_MIN}
-          maxSize={props.maxHeight ?? APP_WORKSPACE_DRAWER_MAX}
+          edge="start"
+          controls={domId()}
+          panelId={panelId()}
+          defaultSize={defaultHeight()}
+          minSize={minHeight()}
+          maxSize={maxHeight()}
+          shadow
+          style={{ "--k2b-workspace-panel-size": `var(${variable()}, ${defaultHeight()}px)` }}
         />
       </Show>
       <aside
-        ref={drawer}
+        id={domId()}
         class={`k2b-app-workspace__drawer ${props.class ?? ""}`}
         data-height={props.height ?? "md"}
+        data-workspace-panel-id={panelId()}
+        data-workspace-resizable={resizable() ? "true" : "false"}
+        hidden={!props.open}
         style={{
-          "--k2b-workspace-panel-size": `var(${variable()}, ${heights[props.height ?? "md"] ?? APP_WORKSPACE_DRAWER_DEFAULT}px)`,
+          "--k2b-workspace-panel-size": `var(${variable()}, ${defaultHeight()}px)`,
           "view-transition-name": props.viewTransitionName,
         }}
       >
         {props.children}
       </aside>
-    </Show>
+    </>
   );
 }
 
@@ -462,9 +492,10 @@ const SidebarHeaderContent = (props: { header: SidebarHeaderSlot; mobile?: boole
 );
 
 function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
-  let sidebar: HTMLElement | undefined;
   const rootResizable = useContext(ResizeContext);
   const resizable = () => props.resizable ?? rootResizable;
+  const generatedId = createUniqueId();
+  const domId = `k2b-workspace-sidebar-${generatedId}`;
   const resolved = children(() => props.children);
   const slots = createMemo(() => flatten(resolved()).filter(sidebarChildSlot));
   const header = () => slots().find((slot): slot is SidebarHeaderSlot => slot.kind === SIDEBAR_HEADER);
@@ -472,22 +503,23 @@ function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
   const desktop = () => slots().find((slot) => slot.kind === SIDEBAR_DESKTOP);
   return (
     <>
+      <Show when={header() && mobile()}>
+        <nav class="k2b-app-workspace__sidebar-mobile">
+          <details>
+            <summary>
+              <SidebarHeaderContent header={header()!} mobile />
+              <i class="ti ti-chevron-down" aria-hidden="true" />
+            </summary>
+            <SidebarModeContext.Provider value="mobile">{mobile()!.children}</SidebarModeContext.Provider>
+          </details>
+        </nav>
+      </Show>
       <aside
-        ref={sidebar}
+        id={domId}
         class={`k2b-app-workspace__sidebar ${props.class ?? ""}`}
-        data-collapsible={props.collapsible ? "true" : undefined}
+        data-workspace-resizable={resizable() ? "true" : "false"}
+        data-workspace-collapsible={props.collapsible ? "true" : "false"}
       >
-        <Show when={header() && mobile()}>
-          <nav class="k2b-app-workspace__sidebar-mobile">
-            <details>
-              <summary>
-                <SidebarHeaderContent header={header()!} mobile />
-                <i class="ti ti-chevron-down" aria-hidden="true" />
-              </summary>
-              <SidebarModeContext.Provider value="mobile">{mobile()!.children}</SidebarModeContext.Provider>
-            </details>
-          </nav>
-        </Show>
         <div class="k2b-app-workspace__sidebar-desktop">
           <Show when={header() && header()!.showDesktop !== false}>
             <SidebarHeaderContent header={header()!} />
@@ -499,12 +531,10 @@ function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
         <ResizeHandle
           kind="sidebar"
           edge="end"
-          target={() => sidebar}
-          variable="--k2b-workspace-sidebar-width"
+          controls={domId}
           defaultSize={APP_WORKSPACE_SIDEBAR_DEFAULT}
           minSize={props.collapsible ? APP_WORKSPACE_SIDEBAR_COLLAPSED : APP_WORKSPACE_SIDEBAR_MIN}
           maxSize={APP_WORKSPACE_SIDEBAR_MAX}
-          collapsible={props.collapsible}
           shadow={props.resizeShadow !== false}
         />
       </Show>
@@ -512,11 +542,11 @@ function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
   );
 }
 
-const AppWorkspaceSidebarMobile = (props: { children: JSX.Element }): JSX.Element =>
+const AppWorkspaceSidebarMobile = (props: AppWorkspaceSidebarMobileProps): JSX.Element =>
   ({ kind: SIDEBAR_MOBILE, children: props.children }) as unknown as JSX.Element;
 const AppWorkspaceSidebarDesktop = (props: { children: JSX.Element }): JSX.Element =>
   ({ kind: SIDEBAR_DESKTOP, children: props.children }) as unknown as JSX.Element;
-const AppWorkspaceSidebarMobileItems = (props: { children: JSX.Element; scrollPreserveKey?: string | false }) => (
+const AppWorkspaceSidebarMobileItems = (props: AppWorkspaceSidebarMobileItemsProps) => (
   <div class="k2b-app-workspace__sidebar-mobile-items" {...scrollAttrs(props.scrollPreserveKey)}>{props.children}</div>
 );
 const AppWorkspaceSidebarBody = (props: AppWorkspaceSidebarBodyProps) => (
@@ -575,7 +605,7 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
     `k2b-app-workspace__sidebar-item ${hasAction() ? "has-action" : ""} ${props.active ? (props.activeClass ?? "is-active") : ""} ${props.class ?? ""}`;
   const data = () =>
     Object.fromEntries(
-      Object.entries({ ...props.data, ...(props.sidebarMode ? { "sidebar-mode": props.sidebarMode } : {}) })
+      Object.entries({ ...props.data, ...modeData(props.sidebarMode) })
         .filter(([, value]) => value !== undefined && value !== null)
         .map(([key, value]) => [`data-${key}`, String(value)]),
     );
@@ -586,8 +616,10 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
           {iconContent() ?? <i class={iconClass(icon())} />}
         </span>
       </Show>
+      {/* The inner text span is what the marquee translates; the controller
+          measures its `scrollWidth` against the clipping outer span. */}
       <span class="k2b-app-workspace__sidebar-item-label" data-marquee={labelSlot()?.marquee === false ? undefined : "true"}>
-        {label() as JSX.Element}
+        <span class="k2b-app-workspace__sidebar-item-label-text">{label() as JSX.Element}</span>
       </span>
       <Show when={meta()}>{(value) => <span class="k2b-app-workspace__sidebar-item-meta">{value()}</span>}</Show>
     </>
@@ -603,8 +635,15 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
       slot?.onSelect?.(event);
       props.onActionClick?.(event);
     };
+    // A row action that is a link must still navigate — only the row's own
+    // click handling is suppressed.
+    const follow = (event: MouseEvent) => {
+      event.stopPropagation();
+      slot?.onSelect?.(event);
+      props.onActionClick?.(event);
+    };
     return slot?.href ? (
-      <a href={slot.href} class="k2b-app-workspace__sidebar-item-action" aria-label={label} onClick={select}>
+      <a href={slot.href} class="k2b-app-workspace__sidebar-item-action" aria-label={label} onClick={follow}>
         {content}
       </a>
     ) : (
@@ -616,16 +655,18 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
   const common = {
     class: className(),
     title: props.title,
-    "aria-current": props.active ? ("page" as const) : undefined,
     "data-tone": props.tone,
     "data-mode": mode,
     style: { "view-transition-name": props.viewTransitionName },
     ...data(),
   };
+  // `aria-current="page"` is a link state; it never belongs on the button
+  // fallback or on the wrapper that only groups a link and its row action.
+  const current = () => (props.active ? ("page" as const) : undefined);
   if (hasAction()) {
     if (!props.href || props.disabled) {
       return (
-        <div {...common}>
+        <div {...common} data-disabled={props.disabled ? "true" : undefined}>
           <button type="button" class="k2b-app-workspace__sidebar-item-main" disabled={props.disabled} onClick={props.onClick}>
             {mainContent}
           </button>
@@ -636,7 +677,9 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
     if (props.navigation === "document") {
       return (
         <div {...common}>
-          <a href={props.href} class="k2b-app-workspace__sidebar-item-main" onClick={props.onClick}>{mainContent}</a>
+          <a href={props.href} class="k2b-app-workspace__sidebar-item-main" aria-current={current()} onClick={props.onClick}>
+            {mainContent}
+          </a>
           {action()}
         </div>
       );
@@ -646,6 +689,7 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
         <Link
           href={props.href}
           class="k2b-app-workspace__sidebar-item-main"
+          aria-current={current()}
           replace={props.replace}
           scroll={props.scroll}
           onNavigate={props.onNavigate}
@@ -661,12 +705,13 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
     return <button type="button" {...common} disabled={props.disabled} onClick={props.onClick}>{mainContent}</button>;
   }
   if (props.navigation === "document") {
-    return <a href={props.href} {...common} onClick={props.onClick}>{mainContent}</a>;
+    return <a href={props.href} {...common} aria-current={current()} onClick={props.onClick}>{mainContent}</a>;
   }
   return (
     <Link
       href={props.href}
       {...common}
+      aria-current={current()}
       replace={props.replace}
       scroll={props.scroll}
       onNavigate={props.onNavigate}
@@ -701,8 +746,8 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   BottomDrawer: (props: AppWorkspaceBottomDrawerProps) => JSX.Element;
   Sidebar: (props: AppWorkspaceSidebarProps) => JSX.Element;
   SidebarHeader: (props: AppWorkspaceSidebarHeaderProps) => JSX.Element;
-  SidebarMobile: (props: { children: JSX.Element }) => JSX.Element;
-  SidebarMobileItems: (props: { children: JSX.Element; scrollPreserveKey?: string | false }) => JSX.Element;
+  SidebarMobile: (props: AppWorkspaceSidebarMobileProps) => JSX.Element;
+  SidebarMobileItems: (props: AppWorkspaceSidebarMobileItemsProps) => JSX.Element;
   SidebarMobileBody: (props: AppWorkspaceSidebarBodyProps) => JSX.Element;
   SidebarDesktop: (props: { children: JSX.Element }) => JSX.Element;
   SidebarSection: (props: AppWorkspaceSidebarSectionProps) => JSX.Element;
@@ -717,17 +762,36 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   SidebarIconAction: (props: AppWorkspaceSidebarIconActionProps) => JSX.Element;
 };
 
-const AppWorkspace = ((props: AppWorkspaceProps) => (
-  <ResizeContext.Provider value={props.resizable !== false}>
-    <div
-      class={`k2b-app-workspace ${props.class ?? ""}`}
-      data-k2b-app-workspace
-      data-workspace-resizable={props.resizable === false ? "false" : "true"}
-    >
-      {props.children}
-    </div>
-  </ResizeContext.Provider>
-)) as AppWorkspaceComponent;
+const AppWorkspace = ((props: AppWorkspaceProps) => {
+  let root: HTMLDivElement | undefined;
+
+  // The resize handles are inert markup until the controller is attached, so
+  // the workspace attaches it itself and scopes it to this root. `onMount`
+  // never runs during SSR, and the disposer removes every listener.
+  onMount(() => {
+    if (props.controller === false || !root) return;
+    onCleanup(
+      installAppWorkspaceController({
+        root,
+        readState: () => props.layoutState?.(),
+        writeState: (state) => props.onLayoutChange?.(state),
+      }),
+    );
+  });
+
+  return (
+    <ResizeContext.Provider value={props.resizable !== false}>
+      <div
+        ref={root}
+        class={`k2b-app-workspace ${props.class ?? ""}`}
+        data-k2b-app-workspace
+        data-workspace-resizable={props.resizable === false ? "false" : "true"}
+      >
+        {props.children}
+      </div>
+    </ResizeContext.Provider>
+  );
+}) as AppWorkspaceComponent;
 
 AppWorkspace.Content = (props) => <div class={`k2b-app-workspace__content ${props.class ?? ""}`}>{props.children}</div>;
 AppWorkspace.Main = AppWorkspaceMain;

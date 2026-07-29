@@ -5,20 +5,8 @@ import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
-import {
-  abbreviations,
-  applyCompletion,
-  collectKnownLabels,
-  detectCompletion,
-  displayLabel,
-  renderWithOverlay,
-} from "./completion";
-import {
-  clampImageCropRect,
-  getInitialImageCropRect,
-  imageCropRectToPixels,
-  normalizeImageCropRotation,
-} from "./image-crop";
+import { abbreviations, applySuggestion, collectKnownLabels, detectQuery, displayLabel, renderWithOverlay } from "./completion";
+import { clampImageCropRect, getInitialImageCropRect, imageCropRectToPixels, normalizeImageCropRotation } from "./image-crop";
 
 const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-advanced-inputs-"));
 const { plugin } = createConfig({ dev: true, rootDir: root });
@@ -29,6 +17,7 @@ const {
   AutocompleteEditor,
   FileDropzone,
   IconInput,
+  ImageCropper,
   ImageInput,
   MarkdownEditor,
   NumberInput,
@@ -45,13 +34,35 @@ describe("@k2b/ui complete advanced input migrations", () => {
       dropdown: true,
       suggest: () => [{ text: "@alice", hint: "person" }],
     };
-    const context = detectCompletion("Hi @al", 6, [completion]);
+    const textarea = {
+      value: "Hi @al",
+      selectionStart: 6,
+      selectionEnd: 6,
+      setSelectionRange(start: number, end: number) {
+        this.selectionStart = start;
+        this.selectionEnd = end;
+      },
+    } as HTMLTextAreaElement;
+    const context = detectQuery(textarea, [completion]);
     expect(context?.query).toBe("al");
     expect(displayLabel({ text: "@alice" }, completion)).toBe("alice");
-    expect(applyCompletion("Hi @al", context!, { text: "@alice" })).toEqual({ value: "Hi @alice ", caret: 10 });
-    expect(renderWithOverlay("hello", (value) => value, { ghost: { at: 5, text: " world" } })).toContain(
-      "data-completion-anchor",
-    );
+    const originalDocument = globalThis.document;
+    try {
+      globalThis.document = {
+        execCommand: (_command: string, _showUi: boolean, value: string) => {
+          const start = textarea.selectionStart;
+          textarea.value = textarea.value.slice(0, start) + value + textarea.value.slice(textarea.selectionEnd);
+          textarea.selectionStart = start + value.length;
+          textarea.selectionEnd = textarea.selectionStart;
+          return true;
+        },
+      } as Document;
+      expect(applySuggestion(textarea, context!, { text: "@alice" })).toBe(true);
+      expect(textarea.value).toBe("Hi @alice ");
+    } finally {
+      globalThis.document = originalDocument;
+    }
+    expect(renderWithOverlay("hello", (value) => value, { ghost: { at: 5, text: " world" } })).toContain("data-completion-anchor");
     expect(collectKnownLabels([abbreviations({ brb: "be right back" })])).toEqual(new Set(["brb"]));
   });
 
@@ -73,12 +84,13 @@ describe("@k2b/ui complete advanced input migrations", () => {
       }),
     );
 
-    expect(autocomplete).toContain('role="textbox"');
-    expect(autocomplete).toContain('aria-multiline="false"');
+    expect(autocomplete).toContain('role="combobox"');
+    expect(autocomplete).toContain('aria-autocomplete="list"');
     expect(autocomplete).toContain("k2b-autocomplete");
     expect(markdown).toContain('role="toolbar"');
-    expect(markdown).toContain('aria-label="Bold"');
-    expect(markdown).toContain("1 lines · 2 words");
+    expect(markdown).toContain('aria-label="Bold (Ctrl/Cmd+B)"');
+    expect(markdown).toContain("1 line");
+    expect(markdown).toContain("2 words");
     expect(markdown).toContain("ti ti-device-floppy");
   });
 
@@ -86,7 +98,7 @@ describe("@k2b/ui complete advanced input migrations", () => {
     const text = renderToString(() =>
       createComponent(TextInput, {
         label: "Password",
-        value: "secret",
+        value: () => "secret",
         password: true,
         prefix: "ID",
         suffix: ".internal",
@@ -95,7 +107,7 @@ describe("@k2b/ui complete advanced input migrations", () => {
     const number = renderToString(() =>
       createComponent(NumberInput, {
         label: "Price",
-        value: 12.5,
+        value: () => 12.5,
         decimalPlaces: 2,
         prefix: "€",
         suffix: "gross",
@@ -124,27 +136,34 @@ describe("@k2b/ui complete advanced input migrations", () => {
     const image = renderToString(() =>
       createComponent(ImageInput, {
         label: "Avatar",
-        value: "data:image/png;base64,abc",
+        value: () => "data:image/png;base64,abc",
         variant: "small",
         round: true,
         onValueChange: () => {},
+      }),
+    );
+    const cropper = renderToString(() =>
+      createComponent(ImageCropper, {
+        source: "data:image/png;base64,abc",
       }),
     );
     const icon = renderToString(() =>
       createComponent(IconInput, {
         label: "Icon",
         value: "ti ti-home",
-        options: [{ value: "ti ti-home", label: "Home", icon: "ti ti-home", keywords: ["house"] }],
       }),
     );
 
     expect(dropzone).toContain("k2b-dropzone");
+    expect(dropzone).toContain("k2b-dropzone__copy");
     expect(dropzone).toContain('accept="image/*"');
     expect(dropzone).not.toContain(" multiple");
     expect(image).toContain('data-variant="small"');
     expect(image).toContain("Remove");
+    expect(cropper).toContain("k2b-image-cropper");
     expect(icon).toContain('role="combobox"');
     expect(icon).toContain("Home");
+    expect(icon).toContain("ti ti-home");
   });
 
   test("renders template editor, sandboxed preview and sample data", () => {
@@ -163,11 +182,39 @@ describe("@k2b/ui complete advanced input migrations", () => {
       }),
     );
 
-    expect(editor).toContain("Write HTML with Liquid values");
+    expect(editor).toContain("k2b-autocomplete");
     expect(preview).toContain("sandbox");
     expect(preview).toContain('title="Template preview"');
     expect(sample).toContain("{{ APP_NAME }}");
     expect(sample).toContain('value="Cloud"');
+  });
+
+  test("marks single-line and overlay editors so the stylesheet can size them", () => {
+    const single = renderToString(() =>
+      createComponent(AutocompleteEditor, {
+        label: "Search",
+        value: "",
+        singleLine: true,
+      }),
+    );
+    const multi = renderToString(() =>
+      createComponent(AutocompleteEditor, {
+        label: "Notes",
+        value: "",
+        lines: 5,
+        highlight: (text: string) => text,
+      }),
+    );
+
+    // Single-line editors are input-height, not one text line tall — folding
+    // them into `--k2b-editor-lines: 1` clipped the text against the padding.
+    expect(single).toContain('data-single-line="true"');
+    expect(single).not.toContain("--k2b-editor-lines:1");
+    expect(single).not.toContain('data-overlay="true"');
+    expect(single).toContain('rows="1"');
+    expect(multi).toContain('data-overlay="true"');
+    expect(multi).toContain("--k2b-editor-lines:5");
+    expect(multi).toContain('rows="5"');
   });
 
   test("normalizes crop geometry and rotations", () => {

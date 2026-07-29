@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
@@ -57,6 +57,62 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain('aria-label="Stop"');
     expect(html).toContain('aria-label="Steer response"');
     expect(html).toContain("15%");
+    expect(html).toContain('aria-label="Attach files"');
+    expect(html).toContain('aria-label="Remove brief.pdf"');
+    expect(html).toContain('role="option"');
+  });
+
+  test("exposes the open command list as a combobox popup owned by the textarea", () => {
+    const commands = [
+      { name: "clear", description: "Clear the conversation", action: () => undefined },
+    ];
+    const withCommands = renderToString(() =>
+      createComponent(ChatComposer, {
+        value: "/cl",
+        onValueChange: () => undefined,
+        onSend: () => undefined,
+        commands,
+      }),
+    );
+    const withoutCommands = renderToString(() =>
+      createComponent(ChatComposer, {
+        value: "hello",
+        onValueChange: () => undefined,
+        onSend: () => undefined,
+        commands,
+      }),
+    );
+
+    expect(withCommands).toContain('role="combobox"');
+    expect(withCommands).toContain('aria-autocomplete="list"');
+    expect(withCommands).toContain('aria-expanded="true"');
+    expect(withCommands).toMatch(/aria-controls="k2b-chat-commands-[^"]+"/);
+    expect(withCommands).toMatch(/aria-activedescendant="k2b-chat-commands-[^"]+-0"/);
+    expect(withCommands).toContain('tabindex="-1"');
+
+    expect(withoutCommands).not.toContain('role="listbox"');
+    expect(withoutCommands).not.toContain('role="combobox"');
+    expect(withoutCommands).not.toContain("aria-expanded");
+    expect(withoutCommands).not.toContain("aria-activedescendant");
+  });
+
+  test("labels the composer and disables submission without a draft or attachments", () => {
+    const html = renderToString(() =>
+      createComponent(ChatComposer, {
+        value: "",
+        onValueChange: () => undefined,
+        onSend: () => undefined,
+        label: "Support composer",
+        inputLabel: "Support message",
+        error: "Model unavailable",
+      }),
+    );
+
+    expect(html).toContain('aria-label="Support composer"');
+    expect(html).toContain('aria-label="Support message"');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Model unavailable");
+    expect(html).toMatch(/class="k2b-chat-composer__send"[^>]*disabled/);
   });
 
   test("renders semantic messages and expandable activity", () => {
@@ -126,5 +182,110 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain("Messages stay in this project.");
     expect(formatChatTokens(1_250)).toBe("1.3k");
     expect(formatChatTokens(2_500_000)).toBe("2.5M");
+  });
+
+  test("keeps the context trigger honest when no usage was reported", () => {
+    const withoutUsage = renderToString(() =>
+      createComponent(ChatContextUsage, { contextWindow: 128_000 }),
+    );
+    const withUsage = renderToString(() =>
+      createComponent(ChatContextUsage, {
+        usage: { input: 120_000, output: 4_000 },
+        contextWindow: 128_000,
+      }),
+    );
+
+    expect(withoutUsage).toContain("Context usage unavailable, 128,000 token context window");
+    expect(withoutUsage).toContain("<span>Context</span>");
+    expect(withoutUsage).not.toContain("<small>");
+    expect(withoutUsage).not.toContain('data-warning="true"');
+    expect(withUsage).toContain('data-warning="true"');
+    expect(withUsage).toContain("124,000 tokens used, 97% of the context window");
+  });
+
+  test("offers a keyboard reachable history control only while more history exists", () => {
+    const items = [
+      { kind: "message" as const, id: "one", role: "user" as const, content: "Hello" },
+    ];
+    const withHistory = renderToString(() =>
+      createComponent(ChatTimeline, {
+        items,
+        hasMore: true,
+        onLoadOlder: () => undefined,
+      }),
+    );
+    const loadingHistory = renderToString(() =>
+      createComponent(ChatTimeline, {
+        items,
+        hasMore: true,
+        loadingOlder: true,
+        onLoadOlder: () => undefined,
+      }),
+    );
+    const exhausted = renderToString(() =>
+      createComponent(ChatTimeline, { items, hasMore: false, onLoadOlder: () => undefined }),
+    );
+    const uncontrolled = renderToString(() => createComponent(ChatTimeline, { items }));
+
+    expect(withHistory).toContain("Load older messages");
+    expect(withHistory).toContain('class="k2b-chat-timeline__viewport"');
+    expect(withHistory).toContain('role="region"');
+    expect(withHistory).toContain('aria-label="Conversation messages"');
+    expect(withHistory).toContain('tabindex="0"');
+    expect(loadingHistory).toContain("Loading older messages");
+    expect(loadingHistory).not.toContain("Load older messages");
+    expect(exhausted).not.toContain("Load older messages");
+    expect(uncontrolled).not.toContain("Load older messages");
+    expect(uncontrolled).not.toContain("k2b-chat-timeline__history");
+  });
+
+  test("keeps history controls out of the conversation live region announcements", () => {
+    const html = renderToString(() =>
+      createComponent(ChatTimeline, {
+        items: [{ kind: "message" as const, id: "one", role: "user" as const, content: "Hi" }],
+        hasMore: true,
+        onLoadOlder: () => undefined,
+      }),
+    );
+
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('aria-live="off"');
+    expect(html.indexOf('aria-live="polite"')).toBeLessThan(html.indexOf('aria-live="off"'));
+  });
+
+  test("keeps the chat family free of application protocol vocabulary", async () => {
+    const sources = ["ChatComposer.tsx", "ChatPrimitives.tsx", "ChatTimeline.tsx", "chat-behavior.ts", "index.ts"];
+    const forbidden =
+      /\b(session|approval|permission|persistence|persisted|AiStoredMessage|AiActiveTurn|useNavigate)\b/i;
+
+    for (const file of sources) {
+      const source = await Bun.file(resolve(import.meta.dir, file)).text();
+      expect(source, file).not.toMatch(forbidden);
+      expect(source, file).not.toMatch(/from\s+"(?:@valentinkolb\/cloud|.*\/cloud\/)/);
+      for (const match of source.matchAll(/from\s+"(\.[^"]+)"/g)) {
+        expect(match[1], `${file} imports ${match[1]}`).not.toContain("../../");
+      }
+    }
+  });
+
+  test("does not retain the superseded experimental ai surface", async () => {
+    const manifest = await Bun.file(resolve(import.meta.dir, "../../package.json")).json();
+    const barrel = await Bun.file(resolve(import.meta.dir, "../index.ts")).text();
+    const aiRoot = resolve(import.meta.dir, "../ai");
+
+    expect(!existsSync(aiRoot) || readdirSync(aiRoot).length === 0).toBe(true);
+    expect(manifest.files).not.toContain("!src/ai/**");
+    expect(barrel).not.toContain('"./ai"');
+  });
+
+  test("focuses the composer as one AI-themed surface", () => {
+    const css = readFileSync(resolve(import.meta.dir, "../styles/index.css"), "utf8");
+
+    expect(css).toContain("--k2b-ai-accent:");
+    expect(css).toContain(".k2b-ui .k2b-chat-composer:focus-within");
+    expect(css).toContain("border-color: var(--k2b-ai-border);");
+    expect(css).toContain("box-shadow: none;");
+    expect(css).not.toContain("--k2b-ai-focus-ring");
+    expect(css).not.toContain(".k2b-ui .k2b-chat-composer textarea:focus-visible");
   });
 });

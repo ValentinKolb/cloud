@@ -1,57 +1,71 @@
 export type {
-  CodeDisplayProps,
-  MarkdownViewProps,
-  StructuredDataPreviewMode,
-  StructuredDataPreviewProps,
-} from "./ContentViews";
-export { CodeDisplay, MarkdownView, StructuredDataPreview } from "./ContentViews";
-export type { CalendarItem, CalendarProps, CalendarView } from "./Calendar";
-export { Calendar } from "./Calendar";
+  CalendarAttendee,
+  CalendarDayBadge,
+  CalendarEvent,
+  CalendarEventColor,
+  CalendarEventRenderContext,
+  CalendarEventTimeChange,
+  CalendarLabels,
+  CalendarProps,
+  CalendarRecurrence,
+  CalendarResource,
+  CalendarView,
+} from "./Calendar";
+export { default as Calendar } from "./Calendar";
+
 export type { ChartKind, ChartProps } from "./Chart";
-export { Chart } from "./Chart";
+export { default as Chart } from "./Chart";
 export type {
-  DataTableAlign,
-  DataTableColumn,
-  DataTableFooter,
-  DataTableProps,
-  DataTableSort,
-} from "./DataTable";
-export { DataTable, renderDataTableValue } from "./DataTable";
-export type {
-  DocCodeProps,
-  DocConcept,
-  DocNoteVariant,
-  DocRow,
-  DocsProps,
-} from "./Docs";
-export { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection, Docs } from "./Docs";
-export type {
-  FileBrowserProps,
-  FileItem,
-  FileTreeProps,
-  FileViewProps,
-  LightboxImage,
-  LightboxProps,
-  PdfPreviewProps,
-  PdfPreviewRequest,
-} from "./Files";
-export { FileBrowser, FileTree, FileView, Lightbox, PdfPreview } from "./Files";
-export type { LogEntriesTableProps, LogEntry } from "./LogEntriesTable";
-export { LogEntriesTable } from "./LogEntriesTable";
-export type { PaginationProps, RangeOption, RangePickerProps } from "./Navigation";
-export { Pagination, RangePicker } from "./Navigation";
-export type {
+  StateTimelineChartOptions,
   StateTimelineDomain,
   StateTimelineInterval,
-  StateTimelineOptions,
   StateTimelineRow,
   StateTimelineState,
 } from "./chart-state-timeline";
+
+export type { CodeDisplayLanguage, CodeDisplayProps } from "./CodeDisplay";
+export { default as CodeDisplay } from "./CodeDisplay";
+
+export type {
+  DataTableColumn,
+  DataTableFooter,
+  DataTableProps,
+  DataTableRenderCell,
+  DataTableRenderHeader,
+  DataTableSort,
+} from "./DataTable";
+export { default as DataTable } from "./DataTable";
+
+export type { DocCodeHighlighter, DocCodeProps, DocConcept, DocNoteVariant, DocRow } from "./Docs";
+export { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "./Docs";
+
+export { FileBrowserPanel, type FileBrowserPanelProps, type FileSource, openFileBrowser } from "./FileBrowser";
+export { default as FileTree, type FileTreeActions, type FileTreeEntry, type FileTreeProps } from "./FileTree";
 export {
-  normalizeStateTimelineViewport,
-  panStateTimelineViewport,
-  renderStateTimeline,
-  stateTimelineDomain,
-  stateTimelineHeight,
-  zoomStateTimelineViewport,
-} from "./chart-state-timeline";
+  canPreviewFile,
+  default as FileView,
+  type FileViewContent,
+  type FileViewFile,
+  type FileViewPreviewKind,
+  type FileViewProps,
+  type FileViewRenderer,
+  type FileViewRendererProps,
+  formatFileViewSize,
+  getFileViewPreviewKind,
+  registerFileViewRenderer,
+} from "./FileView";
+
+export type { LightboxImage } from "./Lightbox";
+export { default as Lightbox } from "./Lightbox";
+
+export type { LogTableEntry } from "./LogEntriesTable";
+export { default as LogEntriesTable } from "./LogEntriesTable";
+export { default as MarkdownView } from "./MarkdownView";
+
+export { Pagination, type PaginationProps } from "./Pagination";
+export type { PdfPreviewProps, PdfPreviewRequest } from "./PdfPreview";
+export { default as PdfPreview } from "./PdfPreview";
+export type { RangeOption, RangePickerProps } from "./RangePicker";
+export { default as RangePicker } from "./RangePicker";
+export type { StructuredDataPreviewMode, StructuredDataPreviewProps } from "./StructuredDataPreview";
+export { default as StructuredDataPreview } from "./StructuredDataPreview";

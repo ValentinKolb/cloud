@@ -18,7 +18,7 @@ const Heading = (props: Pick<PanelHeaderProps, "as" | "size" | "title">): JSX.El
 
 export function PanelHeader(props: PanelHeaderProps): JSX.Element {
   return (
-    <header class={`k2b-panel-header ${props.class ?? ""}`} data-size={props.size ?? "sm"}>
+    <div class={`k2b-panel-header ${props.class ?? ""}`} data-size={props.size ?? "sm"}>
       <div class="k2b-panel-header__copy">
         <Heading as={props.as} size={props.size} title={props.title} />
         <Show when={props.subtitle}>
@@ -28,6 +28,6 @@ export function PanelHeader(props: PanelHeaderProps): JSX.Element {
       <Show when={props.actions}>
         <div class="k2b-panel-header__actions">{props.actions}</div>
       </Show>
-    </header>
+    </div>
   );
 }

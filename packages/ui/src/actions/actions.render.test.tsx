@@ -18,11 +18,22 @@ const {
   Dropdown,
   dropdownPosition,
   FilterChip,
+  IconButton,
   isSpotlightShortcut,
-  RemoveBtn,
+  RemoveButton,
   SegmentedControl,
   SpotlightButton,
 } = await import("../index");
+const { copyText } = await import("./CopyButton");
+const actionsCss = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+const dropdownSource = await Bun.file(resolve(import.meta.dir, "Dropdown.tsx")).text();
+
+/** Body of the first CSS rule declared with exactly `selector`. */
+const rule = (selector: string): string => {
+  const index = actionsCss.indexOf(`${selector} {`);
+  expect(index, selector).toBeGreaterThan(-1);
+  return actionsCss.slice(index, actionsCss.indexOf("}", index));
+};
 
 describe("@k2b/ui complete action migrations", () => {
   test("renders sections, links, actions, and free dropdown elements", () => {
@@ -45,6 +56,8 @@ describe("@k2b/ui complete action migrations", () => {
     expect(html).toContain('role="menu"');
     expect(html).toContain("Project actions");
     expect(html).toContain("Links");
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Links"');
     expect(html).toContain('href="/docs"');
     expect(html).toContain("Custom");
   });
@@ -84,20 +97,88 @@ describe("@k2b/ui complete action migrations", () => {
     );
 
     expect(html).toContain('data-active="true"');
+    expect(html).toContain('role="menuitemradio"');
     expect(html).toContain('role="menuitemcheckbox"');
     expect(html).toContain('aria-checked="true"');
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).toContain('aria-label="Filter actions"');
     expect(html).toContain("Reset");
   });
 
-  test("renders accessor-based segmented controls with icons and disabled options", () => {
+  test("treats an empty filter default as clear mode and keeps the selected count", () => {
+    const html = renderToString(() =>
+      createComponent(FilterChip, {
+        label: "State",
+        icon: "ti ti-filter",
+        value: ["open"],
+        onChange: () => {},
+        defaultValue: [],
+        options: [{ options: [{ value: "open", label: "Open" }] }],
+      }),
+    );
+
+    expect(html).toContain("State (1)");
+    expect(html).toContain("Clear");
+    expect(html).not.toContain("Reset");
+  });
+
+  test("applies the dropdown width as a real CSS length, not a class name", () => {
+    const sized = renderToString(() =>
+      createComponent(Dropdown, { trigger: "Open", width: "10rem", elements: [{ label: "Rename", action: () => {} }] }),
+    );
+    const unsized = renderToString(() => createComponent(Dropdown, { trigger: "Open", elements: [{ label: "Rename", action: () => {} }] }));
+
+    // The package ships no utility classes, so a class-name passthrough would be
+    // dead API for every standalone consumer.
+    expect(sized).toContain("--k2b-dropdown-width:10rem");
+    expect(sized).not.toContain('class="k2b-dropdown__menu 10rem');
+    expect(unsized).not.toContain("--k2b-dropdown-width");
+    // The default stays in CSS, and nothing may clamp a narrower request.
+    expect(actionsCss).toContain("width: var(--k2b-dropdown-width, 12rem)");
+    expect(rule(".k2b-ui .k2b-dropdown__menu")).not.toContain("min-width:");
+  });
+
+  test("keeps viewport listeners scoped to an open dropdown", () => {
+    expect(dropdownSource).toContain("const attachViewportListeners");
+    expect(dropdownSource).toContain("const detachViewportListeners");
+    expect(dropdownSource).not.toMatch(/onMount\(\(\) => \{[\s\S]*?window\.addEventListener\("scroll", reposition, true\)/);
+  });
+
+  test("keeps unlabelled filter sections flat so only the reset action is separated", () => {
+    const html = renderToString(() =>
+      createComponent(FilterChip, {
+        label: "State",
+        icon: "ti ti-filter",
+        value: ["open"],
+        onChange: () => {},
+        options: [
+          {
+            options: [
+              { value: "open", label: "Open" },
+              { value: "closed", label: "Closed" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    // Cloud spreads unlabelled option groups as flat items; only the trailing
+    // clear/reset group is wrapped in a spaced section.
+    expect(html.match(/k2b-dropdown__section/g)?.length).toBe(1);
+    expect(html).toContain('data-divided="true"');
+    expect(html).toContain("Clear");
+  });
+
+  test("renders accessor-based segmented controls with source dividers and full-width layout", () => {
     const html = renderToString(() =>
       createComponent(SegmentedControl, {
         ariaLabel: "Layout",
-        value: () => "table",
+        value: () => "list",
         onChange: () => {},
         options: [
           { value: "table", label: "Table", icon: "ti ti-table" },
           { value: "cards", label: "Cards", disabled: true },
+          { value: "list", label: "List" },
         ],
       }),
     );
@@ -107,11 +188,100 @@ describe("@k2b/ui complete action migrations", () => {
     expect(html).toContain('aria-checked="true"');
     expect(html).toContain("ti ti-table");
     expect(html).toContain("disabled");
+    expect(html).toContain('data-divider="true"');
+    // Layout and dividers belong to the stylesheet: Cloud sizes the segments with
+    // `flex-1` and draws the divider as an inset pseudo element, so no inline
+    // style may leak geometry into the markup.
+    expect(html).not.toContain("style=");
+  });
+
+  test("keeps CopyButton neutral and propagates clipboard failures after reporting them", async () => {
+    const html = renderToString(() => createComponent(CopyButton, { text: "value", label: "Copy value" }));
+    const failure = new Error("clipboard unavailable");
+    let reported: unknown;
+
+    expect(html).toContain('data-variant="ghost"');
+    expect(html).toContain("Copy value");
+    expect(html).not.toContain('data-variant="primary"');
+
+    await expect(
+      copyText(
+        "value",
+        (error) => {
+          reported = error;
+        },
+        async () => {
+          throw failure;
+        },
+      ),
+    ).rejects.toBe(failure);
+    expect(reported).toBe(failure);
+  });
+
+  test("CopyButton composes a consumer class onto its styled base", () => {
+    // Cloud replaced the base class outright (`props.class ?? "btn-simple …"`),
+    // which was safe there because the base was a swappable Tailwind utility
+    // set. The package emits no utilities, so `k2b-button` is the *only* source
+    // of layout, size and variant styling — dropping it leaves a bare native
+    // button that still advertises `data-size`/`data-variant`.
+    const styled = renderToString(() => createComponent(CopyButton, { text: "value", label: "Copy value", class: "my-toolbar-button" }));
+
+    expect(styled).toContain("k2b-button");
+    expect(styled).toContain("k2b-copy-button");
+    expect(styled).toContain("my-toolbar-button");
+
+    // Same composition shape as Button/IconButton, base first.
+    const plain = renderToString(() => createComponent(CopyButton, { text: "value", label: "Copy value" }));
+    expect(plain).toMatch(/class="k2b-button k2b-copy-button\s*"/);
+  });
+
+  test("CopyButton renders icon-only when no label is given and honours iconOnly", () => {
+    // `iconOnly` defaults to "no label was supplied", matching Cloud, and an
+    // icon-only trigger has to carry the accessible name on the button itself.
+    const implicit = renderToString(() => createComponent(CopyButton, { text: "value" }));
+    expect(implicit).toContain('aria-label="Copy"');
+    expect(implicit).toContain("k2b-sr-only");
+    expect(implicit).toContain("ti ti-copy");
+
+    // A label alone switches to the labelled form: visible text, no aria-label.
+    const labelled = renderToString(() => createComponent(CopyButton, { text: "value", label: "Copy value" }));
+    expect(labelled).not.toContain("aria-label=");
+    expect(labelled).toContain("Copy value");
+
+    // …unless the caller forces icon-only, which keeps the label as the name.
+    const forced = renderToString(() => createComponent(CopyButton, { text: "value", label: "Copy value", iconOnly: true }));
+    expect(forced).toContain('aria-label="Copy value"');
+    expect(forced).not.toContain("<span>Copy value</span>");
+  });
+
+  test("CopyButton reflects loading and disabled state on the button element", () => {
+    const loading = renderToString(() =>
+      createComponent(CopyButton, { text: "value", label: "Copy value", loading: true, loadingLabel: "Copying…" }),
+    );
+
+    expect(loading).toContain('aria-busy="true"');
+    expect(loading).toContain("disabled");
+    expect(loading).toContain("ti ti-loader-2");
+    expect(loading).toContain("Copying…");
+
+    const disabled = renderToString(() => createComponent(CopyButton, { text: "value", label: "Copy value", disabled: true }));
+    expect(disabled).toContain("disabled");
+    expect(disabled).not.toContain('aria-busy="true"');
+  });
+
+  test("CopyButton accepts `value` as an alias for `text` and never leaks it as an attribute", () => {
+    // Both halves of the CopyValue union have to reach the clipboard, and
+    // neither may survive into the DOM as a `<button value=…>` attribute.
+    const byValue = renderToString(() => createComponent(CopyButton, { value: "secret", label: "Copy" }));
+
+    expect(byValue).not.toContain('value="secret"');
+    expect(byValue).not.toContain("text=");
+    expect(byValue).toContain('type="button"');
   });
 
   test("renders copy, remove, context, and every spotlight trigger contract", () => {
     const copy = renderToString(() => createComponent(CopyButton, { text: "value" }));
-    const remove = renderToString(() => createComponent(RemoveBtn, { ariaLabel: "Remove member", loading: true }));
+    const remove = renderToString(() => createComponent(RemoveButton, { ariaLabel: "Remove member", loading: true }));
     const context = renderToString(() =>
       createComponent(ContextMenu, {
         items: [{ id: "remove", label: "Remove", danger: true }],
@@ -131,14 +301,90 @@ describe("@k2b/ui complete action migrations", () => {
     expect(remove).toContain('aria-label="Remove member"');
     expect(remove).toContain('aria-busy="true"');
     expect(context).toContain('role="group"');
+    expect(context).toContain('aria-haspopup="menu"');
+    expect(context).toContain('aria-expanded="false"');
     expect(context).toContain("Target");
     expect(spotlight).toContain('data-variant="sidebar"');
     expect(spotlight).toContain("Ctrl K");
+  });
+
+  test("requires an explicit accessible label for the remove button", () => {
+    const remove = renderToString(() => createComponent(RemoveButton, { ariaLabel: "Remove attachment" }));
+
+    expect(remove).toContain('aria-label="Remove attachment"');
   });
 
   test("recognizes the cross-platform spotlight shortcut", () => {
     expect(isSpotlightShortcut({ metaKey: true, ctrlKey: false, shiftKey: true, key: "K" } as KeyboardEvent)).toBe(true);
     expect(isSpotlightShortcut({ metaKey: false, ctrlKey: true, shiftKey: true, key: "k" } as KeyboardEvent)).toBe(true);
     expect(isSpotlightShortcut({ metaKey: true, ctrlKey: false, shiftKey: false, key: "k" } as KeyboardEvent)).toBe(false);
+  });
+
+  test("keeps an icon button quiet by default, like Cloud's icon-btn utility", () => {
+    const implicit = renderToString(() => createComponent(IconButton, { label: "Settings", children: "S" }));
+    const explicit = renderToString(() => createComponent(IconButton, { label: "Save", variant: "primary", children: "S" }));
+
+    expect(implicit).toContain('data-variant="ghost"');
+    expect(implicit).toContain('aria-label="Settings"');
+    expect(implicit).toContain('title="Settings"');
+    expect(explicit).toContain('data-variant="primary"');
+  });
+
+  test("gives every spotlight trigger variant a styled surface", () => {
+    for (const variant of ["default", "compact", "chip", "sidebar", "sidebar-mobile", "icon"] as const) {
+      const html = renderToString(() => createComponent(SpotlightButton, { variant, onClick: () => {} }));
+      expect(html).toContain(`data-variant="${variant}"`);
+      expect(actionsCss).toContain(`.k2b-ui .k2b-spotlight-button[data-variant="${variant}"]`);
+    }
+  });
+});
+
+describe("@k2b/ui action geometry parity", () => {
+  test("segments keep Cloud's control-sized, flex-1 geometry with an inset divider", () => {
+    const control = rule(".k2b-ui .k2b-segmented-control");
+    const option = rule(".k2b-ui .k2b-segmented-control__option");
+
+    expect(control).toContain("w-full");
+    expect(control).toContain("items-stretch");
+    expect(control).toContain("padding: 0.125rem");
+    expect(option).toContain("flex-1");
+    expect(option).toContain("min-height: 2rem");
+    expect(option).toContain("padding: 0.25rem 0.5rem");
+    expect(option).not.toContain("font-weight");
+    expect(actionsCss).toContain('.k2b-ui .k2b-segmented-control__option[data-divider="true"]::after');
+    expect(actionsCss).toContain(".k2b-ui .k2b-segmented-control__option:not(:disabled):hover");
+  });
+
+  test("menu items and section spacing follow Cloud's menu-item and menu-section metrics", () => {
+    const item = rule(".k2b-ui .k2b-dropdown__item");
+    const section = rule('.k2b-ui .k2b-dropdown__section[data-divided="true"]');
+
+    expect(item).toContain("gap: 0.625rem");
+    expect(item).toContain("padding: 0.4375rem 0.75rem");
+    expect(item).toContain("font-size: 0.8125rem");
+    // Cloud separates sections with spacing, never a rule line.
+    expect(section).not.toContain("border-top");
+    expect(section).toContain("margin-top: 0.25rem");
+  });
+
+  test("the filter trigger keeps the control radius and field fill of btn-input", () => {
+    const chip = rule(".k2b-ui .k2b-filter-chip");
+
+    expect(chip).toContain("border-radius: var(--k2b-radius-control)");
+    expect(chip).not.toContain("999px");
+    expect(chip).toContain("padding: 0.375rem 0.75rem");
+    expect(chip).toContain("background: var(--k2b-surface-muted)");
+    expect(actionsCss).toContain(".k2b-ui .k2b-filter-chip:hover");
+  });
+
+  test("buttons carry Cloud's transition, press, and disabled treatment", () => {
+    const button = rule(".k2b-ui .k2b-button");
+    const disabled = rule(".k2b-ui .k2b-button:disabled");
+
+    expect(button).toContain("transition:");
+    expect(button).toContain("user-select: none");
+    expect(button).toContain("font-weight: 500");
+    expect(actionsCss).toContain(".k2b-ui .k2b-button:not(:disabled):active");
+    expect(disabled).toContain("opacity: 0.4");
   });
 });

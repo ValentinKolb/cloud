@@ -1,16 +1,13 @@
 import { createEffect, createSignal, type JSX, Show, splitProps } from "solid-js";
-import { createFieldMeta, Field, fieldDescribedBy } from "../internal/field";
+import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
+import type { ValueFieldProps } from "./field-contract";
+import { resolveMaybeAccessor } from "./field-contract";
 
 export type NumberInputProps = Omit<
   JSX.InputHTMLAttributes<HTMLInputElement>,
-  "max" | "min" | "onChange" | "onInput" | "prefix" | "step" | "type" | "value"
-> & {
-  value?: number | null;
-  onValueChange?: (value: number | null) => void;
-  onChange?: (value: number | null) => void;
-  label?: JSX.Element;
-  description?: JSX.Element;
-  error?: JSX.Element;
+  "max" | "min" | "onChange" | "onInput" | "prefix" | "step" | "type" | "value" | keyof ValueFieldProps<number | null>
+> &
+  ValueFieldProps<number | null> & {
   max?: number;
   min?: number;
   step?: number;
@@ -32,6 +29,7 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
     "activeIcon",
     "allowNegative",
     "aria-describedby",
+    "aria-label",
     "class",
     "clearLabel",
     "clearable",
@@ -44,8 +42,8 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
     "label",
     "max",
     "min",
-    "onChange",
     "onClear",
+    "onValueCommit",
     "onValueChange",
     "prefix",
     "required",
@@ -56,7 +54,9 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
   ]);
   const meta = createFieldMeta(local.id);
   const [focused, setFocused] = createSignal(false);
-  const [raw, setRaw] = createSignal(local.value == null ? "" : String(local.value));
+  const value = () => resolveMaybeAccessor(local.value);
+  const error = () => resolveMaybeAccessor(local.error);
+  const [raw, setRaw] = createSignal(value() == null ? "" : String(value()));
   const places = () => Math.max(0, local.decimalPlaces ?? 0);
   const min = () => local.min ?? -Infinity;
   const max = () => local.max ?? Infinity;
@@ -91,25 +91,23 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
     const snapped = step() > 0 ? Math.round((clamped - anchor) / step()) * step() + anchor : clamped;
     return places() === 0 ? Math.round(snapped) : Number(snapped.toFixed(places()));
   };
-  const emit = (value: number | null, commit = false) => {
-    local.onValueChange?.(value);
-    if (commit) local.onChange?.(value);
-  };
+  const emit = (value: number | null) => local.onValueChange?.(value);
   const commit = (value: number | null) => {
     const next = normalize(value);
     setRaw(next === null ? "" : String(next));
-    emit(next, true);
+    emit(next);
+    local.onValueCommit?.(next);
   };
   const stepBy = (direction: number) => {
     if (rest.disabled || local.disableSteppers) return;
-    const seed = local.value ?? (Number.isFinite(min()) ? min() : 0);
+    const seed = value() ?? (Number.isFinite(min()) ? min() : 0);
     commit(seed + direction * step());
   };
 
   createEffect(() => {
     if (focused()) return;
-    const next = local.value == null ? "" : String(local.value);
-    if (parse(raw()) !== local.value) setRaw(next);
+    const next = value() == null ? "" : String(value());
+    if (parse(raw()) !== value()) setRaw(next);
   });
 
   return (
@@ -117,9 +115,10 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
       class={local.class}
       label={local.label}
       description={local.description}
-      error={local.error}
+      error={error()}
       meta={meta}
       required={local.required}
+      disabled={rest.disabled}
     >
       <div class="k2b-number-input" data-disabled={rest.disabled ? "true" : undefined}>
         <Show when={local.showSteppers ?? true}>
@@ -127,13 +126,13 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
             type="button"
             class="k2b-number-input__step"
             aria-label="Decrease value"
-            disabled={rest.disabled || local.disableSteppers || (local.value !== null && local.value !== undefined && local.value <= min())}
+            disabled={rest.disabled || local.disableSteppers || (value() !== null && value() !== undefined && value()! <= min())}
             onClick={() => stepBy(-1)}
           >
             <i class="ti ti-minus" aria-hidden="true" />
           </button>
         </Show>
-        <div class="k2b-input-shell" data-invalid={local.error ? "true" : undefined}>
+        <div class="k2b-input-shell" data-invalid={error() ? "true" : undefined}>
           <Show when={local.icon}>
             <span class="k2b-input-shell__icon k2b-text-input__icon" aria-hidden="true">
               <i class={local.icon} />
@@ -147,20 +146,22 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
             {...rest}
             id={meta.controlId}
             class="k2b-input k2b-number-input__control"
+            data-filled={raw() ? "true" : undefined}
             type="text"
             role="spinbutton"
             inputmode={places() === 0 ? "numeric" : "decimal"}
             value={raw()}
             required={local.required}
-            aria-invalid={local.error ? "true" : undefined}
-            aria-describedby={fieldDescribedBy(meta, local.description, local.error, local["aria-describedby"])}
+            {...fieldControlAria(meta, local)}
             aria-valuemin={Number.isFinite(min()) ? min() : undefined}
             aria-valuemax={Number.isFinite(max()) ? max() : undefined}
-            aria-valuenow={local.value ?? undefined}
+            aria-valuenow={value() ?? undefined}
             onFocus={() => setFocused(true)}
             onInput={(event) => {
               const next = filter(event.currentTarget.value);
-              event.currentTarget.value = next;
+              // Only write back when the filter actually dropped something —
+              // re-assigning an unchanged value moves the caret to the end.
+              if (event.currentTarget.value !== next) event.currentTarget.value = next;
               setRaw(next);
               emit(parse(next));
             }}
@@ -169,7 +170,7 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
               setFocused(false);
             }}
           />
-          <Show when={local.suffix && raw()}>
+          <Show when={local.suffix}>
             <span class="k2b-input-shell__affix">{local.suffix}</span>
           </Show>
           <Show when={local.clearable && raw() && !rest.disabled && !rest.readOnly}>
@@ -188,7 +189,7 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
             type="button"
             class="k2b-number-input__step"
             aria-label="Increase value"
-            disabled={rest.disabled || local.disableSteppers || (local.value !== null && local.value !== undefined && local.value >= max())}
+            disabled={rest.disabled || local.disableSteppers || (value() !== null && value() !== undefined && value()! >= max())}
             onClick={() => stepBy(1)}
           >
             <i class="ti ti-plus" aria-hidden="true" />
@@ -198,3 +199,5 @@ export function NumberInput(props: NumberInputProps): JSX.Element {
     </Field>
   );
 }
+
+export default NumberInput;

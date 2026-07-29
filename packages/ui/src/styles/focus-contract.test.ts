@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import {
+  cssDeclarations,
   focusSignalCount,
   isFocusSelector,
   readShippedCssRules,
@@ -9,6 +10,8 @@ import {
 
 const stylesDir = import.meta.dir;
 const rules = readShippedCssRules(stylesDir);
+const hasVisibleValue = (values: string[] | undefined) =>
+  values?.some((value) => !/^(?:none|0(?:px)?|transparent|initial|inherit|unset)(?:\s*!important)?$/i.test(value)) ?? false;
 
 describe("@k2b/ui focus and color contract", () => {
   test("uses a clear general focus color in light and dark themes", async () => {
@@ -41,6 +44,42 @@ describe("@k2b/ui focus and color contract", () => {
     expect(focused.length).toBeGreaterThan(0);
     expect(signaled.length).toBeGreaterThan(0);
     expect(divergent).toEqual([]);
+  });
+
+  test("backs every box-shadow-only focus signal with a selector-scoped forced-colors outline", () => {
+    const shadowOnly = rules.filter((rule) => {
+      if (!isFocusSelector(rule.selector) || rule.context.includes("@media (forced-colors: active)")) return false;
+      const declarations = cssDeclarations(rule.body);
+      const hasShadow = hasVisibleValue(declarations.get("box-shadow"));
+      const hasOutline =
+        hasVisibleValue(declarations.get("outline")) ||
+        hasVisibleValue(declarations.get("outline-color"));
+      const hasBorder = hasVisibleValue(declarations.get("border-color"));
+      return hasShadow && !hasOutline && !hasBorder;
+    });
+
+    const missing = shadowOnly
+      .filter(
+        (base) =>
+          !rules.some((fallback) => {
+            if (
+              fallback.file !== base.file ||
+              fallback.selector !== base.selector ||
+              !fallback.context.includes("@media (forced-colors: active)")
+            ) {
+              return false;
+            }
+            const declarations = cssDeclarations(fallback.body);
+            return (
+              hasVisibleValue(declarations.get("outline")) ||
+              hasVisibleValue(declarations.get("outline-color"))
+            );
+          }),
+      )
+      .map((rule) => `${rule.file}: ${rule.selector}`);
+
+    expect(shadowOnly.length).toBeGreaterThan(0);
+    expect(missing).toEqual([]);
   });
 
   test("recognizes literal and token-based focus signals after stripping comments", () => {

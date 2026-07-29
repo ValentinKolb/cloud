@@ -2,7 +2,7 @@ import { createContext, createEffect, createSignal, createUniqueId, For, type JS
 
 export type DropdownPosition = "bottom-right" | "bottom-left" | "top-right" | "top-left" | "right-start";
 
-type DropdownActionBase = {
+export type DropdownActionBase = {
   icon?: string;
   label: string;
   variant?: "danger";
@@ -37,6 +37,11 @@ export type DropdownProps = {
   elements?: readonly DropdownItem[];
   children?: JSX.Element;
   position?: DropdownPosition | (() => DropdownPosition);
+  /**
+   * Menu width as a CSS length, for example `"10rem"`. Defaults to `12rem`.
+   * This is not a class name: the package ships no utility classes, so a
+   * standalone consumer has nothing to pass one from.
+   */
   width?: string;
   className?: string;
   class?: string;
@@ -71,7 +76,13 @@ const MenuContext = createContext<MenuContextValue>();
 const actionableItems = (menu: HTMLElement | undefined): HTMLElement[] =>
   menu
     ? Array.from(
-        menu.querySelectorAll<HTMLElement>("[role='menuitem']:not([aria-disabled='true']), button:not([disabled]), a[href]"),
+        menu.querySelectorAll<HTMLElement>(
+          [
+            "[role='menuitem']:not([aria-disabled='true'])",
+            "[role='menuitemcheckbox']:not([aria-disabled='true'])",
+            "[role='menuitemradio']:not([aria-disabled='true'])",
+          ].join(", "),
+        ),
       ).filter((item, index, items) => items.indexOf(item) === index)
     : [];
 
@@ -106,9 +117,6 @@ export const dropdownPosition = (
 
 export function DropdownItem(props: DropdownItemProps): JSX.Element {
   const menu = useContext(MenuContext);
-  const onSelect = props.onSelect;
-  const href = props.href;
-  const external = props.external;
   const danger = () => props.danger || props.variant === "danger";
   const content = (
     <>
@@ -117,44 +125,47 @@ export function DropdownItem(props: DropdownItemProps): JSX.Element {
     </>
   );
 
-  if (href && !props.disabled) {
-    return (
-      <a
-        href={href}
-        target={external ? "_blank" : undefined}
-        rel={external ? "noopener noreferrer" : undefined}
-        role="menuitem"
-        tabIndex={-1}
-        class={`k2b-dropdown__item ${props.class ?? ""}`}
-        data-danger={danger() ? "true" : undefined}
-        onClick={() => {
-          onSelect?.();
-          menu?.close(false);
-        }}
-      >
-        {content}
-      </a>
-    );
-  }
-
   return (
-    <button
-      type="button"
-      role="menuitem"
-      tabIndex={-1}
-      class={`k2b-dropdown__item ${props.class ?? ""}`}
-      data-danger={danger() ? "true" : undefined}
-      disabled={props.disabled}
-      aria-disabled={props.disabled ? "true" : undefined}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onSelect?.();
-        menu?.close();
-      }}
+    <Show
+      when={!props.disabled ? props.href : undefined}
+      fallback={
+        <button
+          type="button"
+          role="menuitem"
+          tabIndex={-1}
+          class={`k2b-dropdown__item ${props.class ?? ""}`}
+          data-danger={danger() ? "true" : undefined}
+          disabled={props.disabled}
+          aria-disabled={props.disabled ? "true" : undefined}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            props.onSelect?.();
+            menu?.close();
+          }}
+        >
+          {content}
+        </button>
+      }
     >
-      {content}
-    </button>
+      {(href) => (
+        <a
+          href={href()}
+          target={props.external ? "_blank" : undefined}
+          rel={props.external ? "noopener noreferrer" : undefined}
+          role="menuitem"
+          tabIndex={-1}
+          class={`k2b-dropdown__item ${props.class ?? ""}`}
+          data-danger={danger() ? "true" : undefined}
+          onClick={() => {
+            props.onSelect?.();
+            menu?.close(false);
+          }}
+        >
+          {content}
+        </a>
+      )}
+    </Show>
   );
 }
 
@@ -180,7 +191,12 @@ export function DropdownItems(props: { items: readonly DropdownItem[]; close: (r
       <For each={props.items}>
         {(item, index) => (
           <Show when={"items" in item} fallback={renderItem(item as DropdownAction | DropdownElement)}>
-            <div class="k2b-dropdown__section" data-divided={index() > 0 ? "true" : undefined}>
+            <div
+              class="k2b-dropdown__section"
+              data-divided={index() > 0 ? "true" : undefined}
+              role="group"
+              aria-label={(item as DropdownSection).sectionLabel ?? "Actions"}
+            >
               <Show when={(item as DropdownSection).sectionLabel}>{(label) => <div class="k2b-dropdown__label">{label()}</div>}</Show>
               <For each={(item as DropdownSection).items}>{renderItem}</For>
             </div>
@@ -197,27 +213,50 @@ export function Dropdown(props: DropdownProps): JSX.Element {
   const menuId = `k2b-dropdown-${id}`;
   const [internalOpen, setInternalOpen] = createSignal(false);
   let triggerRef: HTMLSpanElement | undefined;
+  let triggerContentRef: HTMLSpanElement | undefined;
   let menuRef: HTMLDivElement | undefined;
   let mounted = false;
   let hoverCloseTimer: ReturnType<typeof setTimeout> | undefined;
+  let managedTrigger: HTMLElement | undefined;
+  let triggerAttributes: Map<string, string | null> | undefined;
+  let triggerWasDisabled = false;
+  let viewportListenersAttached = false;
 
   const isOpen = () => props.open ?? internalOpen();
   const triggerTarget = () =>
-    triggerRef?.querySelector<HTMLElement>("button, a[href], input, select, textarea, [role='button'], [tabindex]:not([tabindex='-1'])") ??
-    triggerRef;
+    triggerContentRef?.querySelector<HTMLElement>(
+      "button, a[href], input, select, textarea, [role='button'], [tabindex]:not([tabindex='-1'])",
+    ) ?? triggerContentRef;
   const position = (): DropdownPosition =>
     typeof props.position === "function" ? props.position() : (props.position ?? (props.align === "end" ? "bottom-left" : "bottom-right"));
 
+  const restoreAttribute = (target: HTMLElement, name: string, value: string | null): void => {
+    if (value === null) target.removeAttribute(name);
+    else target.setAttribute(name, value);
+  };
+
   const syncTrigger = (open: boolean) => {
-    const target = triggerTarget();
+    const target = managedTrigger ?? triggerTarget();
     if (!target) return;
-    if (target === triggerRef) {
+    const nativeButton = target.matches("button") ? (target as HTMLButtonElement) : undefined;
+    const originallyDisabled = triggerAttributes?.get("aria-disabled") === "true" || triggerWasDisabled;
+    const disabled = Boolean(props.disabled || originallyDisabled);
+
+    if (target === triggerContentRef) {
       target.setAttribute("role", "button");
-      target.tabIndex = props.disabled ? -1 : 0;
+      target.tabIndex = disabled ? -1 : 0;
+    } else if (disabled) {
+      target.tabIndex = -1;
+    } else if (target.getAttribute("role") === "button" && triggerAttributes?.get("tabindex") === null) {
+      target.tabIndex = 0;
+    } else if (triggerAttributes) {
+      restoreAttribute(target, "tabindex", triggerAttributes.get("tabindex") ?? null);
     }
+    if (nativeButton) nativeButton.disabled = triggerWasDisabled || Boolean(props.disabled);
     target.setAttribute("aria-haspopup", "menu");
     target.setAttribute("aria-expanded", String(open));
     target.setAttribute("aria-controls", menuId);
+    target.setAttribute("aria-disabled", String(disabled));
     if (props.label && !target.getAttribute("aria-label")) target.setAttribute("aria-label", props.label);
   };
 
@@ -231,18 +270,34 @@ export function Dropdown(props: DropdownProps): JSX.Element {
     menuRef.style.top = `${rect.top}px`;
   };
 
+  const reposition = () => {
+    if (isOpen()) place();
+  };
+  const attachViewportListeners = () => {
+    if (viewportListenersAttached) return;
+    viewportListenersAttached = true;
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+  };
+  const detachViewportListeners = () => {
+    if (!viewportListenersAttached) return;
+    viewportListenersAttached = false;
+    window.removeEventListener("resize", reposition);
+    window.removeEventListener("scroll", reposition, true);
+  };
+
   const close = (restoreFocus = true) => {
-    if (!menuRef?.matches(":popover-open")) return;
-    menuRef.hidePopover();
+    if (menuRef?.matches(":popover-open")) menuRef.hidePopover();
+    detachViewportListeners();
     if (restoreFocus) queueMicrotask(() => triggerTarget()?.focus());
   };
 
   const open = (focus: "first" | "last" | false = "first") => {
     if (props.disabled || !menuRef || menuRef.matches(":popover-open")) return;
     menuRef.showPopover();
+    attachViewportListeners();
     place();
     queueMicrotask(() => {
-      for (const item of actionableItems(menuRef)) item.tabIndex = -1;
       if (focus) focusMenuItem(menuRef, focus === "first" ? 0 : -1);
     });
   };
@@ -281,7 +336,10 @@ export function Dropdown(props: DropdownProps): JSX.Element {
       requestOpen(false);
       if (props.open !== undefined) triggerTarget()?.focus();
     } else if (event.key === "Tab") {
-      requestOpen(false);
+      const target = event.target;
+      if (target instanceof HTMLElement && target.matches("[role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio']")) {
+        requestOpen(false);
+      }
     }
   };
 
@@ -292,6 +350,15 @@ export function Dropdown(props: DropdownProps): JSX.Element {
     if (!controlled && menuRef.matches(":popover-open")) close(false);
   });
 
+  // `syncTrigger` writes the trigger's tabIndex from `props.disabled`, so it has to
+  // re-run when that prop flips; otherwise a disabled trigger stays tabbable.
+  createEffect(() => {
+    const disabled = props.disabled;
+    if (!mounted) return;
+    if (disabled) close(false);
+    syncTrigger(isOpen());
+  });
+
   onMount(() => {
     mounted = true;
     const target = triggerTarget();
@@ -299,6 +366,10 @@ export function Dropdown(props: DropdownProps): JSX.Element {
 
     const handleClick = (event: MouseEvent) => {
       event.stopPropagation();
+      if (props.disabled) {
+        event.preventDefault();
+        return;
+      }
       requestOpen(!isOpen());
     };
     const cancelHoverClose = () => {
@@ -313,15 +384,17 @@ export function Dropdown(props: DropdownProps): JSX.Element {
       cancelHoverClose();
       if (!isOpen()) requestOpen(true, false);
     };
-    const reposition = () => {
-      if (isOpen()) place();
-    };
-
+    managedTrigger = target;
+    triggerAttributes = new Map(
+      ["role", "tabindex", "aria-haspopup", "aria-expanded", "aria-controls", "aria-disabled", "aria-label"].map((name) => [
+        name,
+        target.getAttribute(name),
+      ]),
+    );
+    triggerWasDisabled = target.matches("button") ? (target as HTMLButtonElement).disabled : false;
     syncTrigger(false);
     target.addEventListener("click", handleClick);
     target.addEventListener("keydown", handleTriggerKeyDown);
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
     if (props.openOnHover) {
       triggerRef.addEventListener("pointerenter", openFromHover);
       triggerRef.addEventListener("pointerleave", scheduleHoverClose);
@@ -332,20 +405,23 @@ export function Dropdown(props: DropdownProps): JSX.Element {
 
     onCleanup(() => {
       cancelHoverClose();
+      detachViewportListeners();
       target.removeEventListener("click", handleClick);
       target.removeEventListener("keydown", handleTriggerKeyDown);
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
       triggerRef?.removeEventListener("pointerenter", openFromHover);
       triggerRef?.removeEventListener("pointerleave", scheduleHoverClose);
       menuRef?.removeEventListener("pointerenter", cancelHoverClose);
       menuRef?.removeEventListener("pointerleave", scheduleHoverClose);
+      for (const [name, value] of triggerAttributes ?? []) restoreAttribute(target, name, value);
+      if (target.matches("button")) (target as HTMLButtonElement).disabled = triggerWasDisabled;
     });
   });
 
   return (
     <span class={`k2b-dropdown ${props.class ?? ""}`} ref={triggerRef}>
-      <span class={`k2b-dropdown__trigger ${props.triggerClass ?? ""}`}>{props.trigger}</span>
+      <span class={`k2b-dropdown__trigger ${props.triggerClass ?? ""}`} ref={triggerContentRef}>
+        {props.trigger}
+      </span>
       <div
         ref={(element) => {
           menuRef = element;
@@ -353,6 +429,8 @@ export function Dropdown(props: DropdownProps): JSX.Element {
             const nextOpen = (event as ToggleEvent).newState === "open";
             const wasOpen = internalOpen();
             setInternalOpen(nextOpen);
+            if (nextOpen) attachViewportListeners();
+            else detachViewportListeners();
             syncTrigger(nextOpen);
             if (props.open === undefined || props.open !== nextOpen) props.onOpenChange?.(nextOpen);
             if (wasOpen && !nextOpen) props.onClose?.();
@@ -367,7 +445,8 @@ export function Dropdown(props: DropdownProps): JSX.Element {
         popover="auto"
         role="menu"
         aria-label={props.label ?? "Dropdown menu"}
-        class={`k2b-dropdown__menu ${props.width ?? ""} ${props.className ?? ""}`}
+        class={`k2b-dropdown__menu ${props.className ?? ""}`}
+        style={props.width ? { "--k2b-dropdown-width": props.width } : undefined}
         data-position={position()}
         onKeyDown={handleMenuKeyDown}
       >

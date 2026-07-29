@@ -41,10 +41,16 @@ export type IconButtonProps = Omit<ButtonProps, "children"> & {
 };
 
 export function IconButton(props: IconButtonProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["children", "class", "label"]);
+  const [local, rest] = splitProps(props, ["children", "class", "label", "variant"]);
 
   return (
-    <Button {...rest} class={`k2b-icon-button ${local.class ?? ""}`} aria-label={local.label} title={rest.title ?? local.label}>
+    <Button
+      {...rest}
+      variant={local.variant ?? "ghost"}
+      class={`k2b-icon-button ${local.class ?? ""}`}
+      aria-label={local.label}
+      title={rest.title ?? local.label}
+    >
       {local.children}
     </Button>
   );

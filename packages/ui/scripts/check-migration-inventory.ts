@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import * as ts from "typescript";
+import { barrelTargetError } from "./migration-inventory-contract";
 
 type GenericMigrationStatus = "implemented" | "planned";
 type AdditionalMigrationStatus = GenericMigrationStatus | "cloud-owned";
@@ -10,6 +11,8 @@ type GenericEntry = {
   target?: string;
   test?: string;
   covers?: string[];
+  exportMap?: Record<string, string>;
+  allowBarrelTarget?: true;
 };
 type AdditionalSource = {
   source: string;
@@ -67,9 +70,16 @@ for (const entry of Object.values(inventory.generic).flat()) {
   }
   if (entry.status !== "implemented") continue;
 
+  if (entry.allowBarrelTarget !== undefined && entry.allowBarrelTarget !== true) {
+    inventoryErrors.push(`${entry.source} allowBarrelTarget must be true when present`);
+  }
   const target = resolveContainedPath(packageRoot, entry.target, `${entry.source} target`);
   if (target && ![".ts", ".tsx"].includes(extname(target))) {
     inventoryErrors.push(`${entry.source} target must be a TypeScript module: ${entry.target}`);
+  }
+  const targetContractError = entry.target ? barrelTargetError(entry.target, entry.allowBarrelTarget) : undefined;
+  if (targetContractError) {
+    inventoryErrors.push(`${entry.source} ${targetContractError}`);
   }
   const test = resolveContainedPath(packageRoot, entry.test, `${entry.source} test`);
   if (test && !/\.test\.tsx?$/.test(test)) {
@@ -80,6 +90,24 @@ for (const entry of Object.values(inventory.generic).flat()) {
   }
   if (entry.covers?.some((name) => typeof name !== "string" || name.length === 0)) {
     inventoryErrors.push(`${entry.source} covers must contain only non-empty names`);
+  }
+  if (
+    entry.exportMap !== undefined &&
+    (typeof entry.exportMap !== "object" ||
+      entry.exportMap === null ||
+      Array.isArray(entry.exportMap) ||
+      Object.keys(entry.exportMap).length === 0)
+  ) {
+    inventoryErrors.push(`${entry.source} exportMap must be a non-empty object when present`);
+  }
+  if (
+    entry.exportMap &&
+    Object.entries(entry.exportMap).some(
+      ([sourceName, targetName]) =>
+        sourceName.length === 0 || typeof targetName !== "string" || targetName.length === 0,
+    )
+  ) {
+    inventoryErrors.push(`${entry.source} exportMap must contain only non-empty export names`);
   }
   if (target && test) {
     const testSource = readFileSync(test, "utf8");
@@ -170,7 +198,10 @@ const addDeclaredExports = (source: ts.SourceFile, names: Set<string>, symbols?:
 
     const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
     if (!modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
-    if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) names.add("default");
+    if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) {
+      names.add("default");
+      if (symbols) addKind(symbols, "default", "value");
+    }
 
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
@@ -338,15 +369,63 @@ for (const entry of Object.values(inventory.generic).flat()) {
   ].find(existsSync);
   const sourceSymbols = sourceFile ? exportedSymbols(sourceFile) : new Map<string, Set<ExportKind>>();
   const targetSymbols = exportedSymbols(target);
+  const staleMappings = Object.keys(entry.exportMap ?? {}).filter((name) => !sourceExports.has(name));
+  if (staleMappings.length > 0) {
+    migrationErrors.push(
+      `${entry.source} exportMap contains exports not exposed by the Cloud barrel: ${staleMappings.sort().join(", ")}`,
+    );
+  }
   const missingTargetExports = [...sourceExports].filter((name) => {
     const required = sourceSymbols.get(name) ?? new Set<ExportKind>(["value"]);
-    const actual = targetSymbols.get(name);
+    const actual = targetSymbols.get(entry.exportMap?.[name] ?? name);
     return !actual || [...required].some((kind) => !actual.has(kind));
   });
   if (missingTargetExports.length > 0) {
     migrationErrors.push(
       `${entry.source} target ${entry.target} is missing exports: ${missingTargetExports.sort().join(", ")}`,
     );
+  }
+}
+
+const packagePublicSymbols = exportedSymbols(join(packageRoot, "src/index.ts"));
+const forbiddenPublicExports = [
+  "CheckboxInput",
+  "CheckboxCardInput",
+  "MultiSelect",
+  "SelectInput",
+  "SwitchInput",
+  "RemoveBtn",
+  "RemoveBtnProps",
+  "SegmentedControlOption",
+];
+const requiredPublicExports: Array<[string, ExportKind]> = [
+  ["Button", "value"],
+  ["IconButton", "value"],
+  ["Checkbox", "value"],
+  ["CheckboxCard", "value"],
+  ["MultiSelectInput", "value"],
+  ["Select", "value"],
+  ["Switch", "value"],
+  ["RemoveButton", "value"],
+  ["DateContext", "type"],
+  ["DatePickerBaseProps", "type"],
+  ["MaybeAccessor", "type"],
+  ["SelectSourceOption", "type"],
+  ["ContextMenuContent", "type"],
+  ["CopyButtonValue", "type"],
+  ["DropdownActionBase", "type"],
+  ["PromptFieldBase", "type"],
+  ["FilterChipChange", "type"],
+  ["SegmentedControlChange", "type"],
+];
+for (const name of forbiddenPublicExports) {
+  if (packagePublicSymbols.has(name)) {
+    migrationErrors.push(`@k2b/ui must not expose the Cloud compatibility alias ${name}`);
+  }
+}
+for (const [name, kind] of requiredPublicExports) {
+  if (!packagePublicSymbols.get(name)?.has(kind)) {
+    migrationErrors.push(`@k2b/ui must expose ${kind} export ${name}`);
   }
 }
 

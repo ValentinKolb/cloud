@@ -1,11 +1,11 @@
 export type { AvatarProps, AvatarSize } from "./Avatar";
 export { Avatar } from "./Avatar";
-export type { LinkCardProps } from "./LinkCard";
+export type { LinkCardColor, LinkCardProps } from "./LinkCard";
 export { LinkCard } from "./LinkCard";
 export type { NotFoundStateAction, NotFoundStateProps } from "./NotFoundState";
 export { NotFoundState } from "./NotFoundState";
-export type { NoticeCardProps, NoticeGridProps } from "./NoticeCard";
-export { NoticeCard, NoticeGrid } from "./NoticeCard";
+export type { NoticeCardProps, NoticeGridProps, NoticeTone } from "./NoticeCard";
+export { NoticeCard } from "./NoticeCard";
 export type {
   PlaceholderAlign,
   PlaceholderProps,
@@ -16,7 +16,7 @@ export type {
 export { default as Placeholder } from "./Placeholder";
 export type { ProgressBarProps } from "./ProgressBar";
 export { ProgressBar } from "./ProgressBar";
-export type { StatCellAccent, StatCellProps } from "./StatCell";
+export type { StatCellAccent, StatCellProps, StatCellTone } from "./StatCell";
 export { StatCell } from "./StatCell";
 export type {
   StatGridAction,

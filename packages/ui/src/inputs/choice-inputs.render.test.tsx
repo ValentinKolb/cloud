@@ -5,15 +5,34 @@ import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
 import { createComponent, createRoot } from "solid-js";
 import { renderToString } from "solid-js/web";
-import { createChoiceLoader, filterChoiceOptions, nextEnabledChoiceIndex } from "./choice";
+import { createChoiceLoader, filterChoiceOptions, nextEnabledChoiceIndex, placeChoicePopover } from "./choice";
 
 const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-choice-inputs-tests-"));
 const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
-const { Checkbox, CheckboxCard, ColorInput, Combobox, MultiSelectInput, PinInput, Select, SelectChip, Slider, Switch, TagsInput } =
-  await import("../index");
+const { Checkbox } = await import("./Checkbox");
+const { CheckboxCard } = await import("./CheckboxCard");
+const { ColorInput, PinInput, Slider } = await import("./ChoiceInputs");
+const { Combobox } = await import("./Combobox");
+const { MultiSelectInput } = await import("./MultiSelectInput");
+const { Select } = await import("./Select");
+const { SelectChip } = await import("./SelectChip");
+const { NumberInput } = await import("./NumberInput");
+const { Switch } = await import("./Switch");
+const { TagsInput } = await import("./TagsInput");
+const { TextInput } = await import("./TextInput");
+
+const indexCss = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+/** Body of the first top-level rule whose selector line starts with `selector`. */
+const cssRule = (selector: string): string => {
+  const start = indexCss.indexOf(`\n${selector} {`);
+  if (start < 0) return "";
+  const open = indexCss.indexOf("{", start);
+  const close = indexCss.indexOf("}", open);
+  return indexCss.slice(open + 1, close);
+};
 
 const options = [
   { value: "platform", label: "Platform", description: "Runtime and infrastructure", icon: "ti ti-server" },
@@ -27,9 +46,9 @@ describe("@k2b/ui complete choice input migrations", () => {
       createComponent(Checkbox, {
         label: "Accept updates",
         description: "Monthly product notes",
-        error: "Required",
+        error: () => "Required",
         required: true,
-        checked: false,
+        value: () => false,
       }),
     );
     const card = renderToString(() =>
@@ -37,10 +56,10 @@ describe("@k2b/ui complete choice input migrations", () => {
         label: "Early access",
         description: "Preview components",
         icon: "ti ti-flask",
-        checked: true,
+        value: () => true,
       }),
     );
-    const toggle = renderToString(() => createComponent(Switch, { label: "Automation", checked: true }));
+    const toggle = renderToString(() => createComponent(Switch, { label: "Automation", value: () => true }));
 
     expect(checkbox).toContain('aria-invalid="true"');
     expect(checkbox).toContain('role="alert"');
@@ -55,9 +74,8 @@ describe("@k2b/ui complete choice input migrations", () => {
     const html = renderToString(() =>
       createComponent(Select, {
         label: "Team",
-        value: "platform",
-        options,
-        searchable: true,
+        value: () => "platform",
+        options: options.map((option) => ({ id: option.value, ...option })),
         clearable: true,
       }),
     );
@@ -76,22 +94,29 @@ describe("@k2b/ui complete choice input migrations", () => {
       createComponent(Combobox, {
         label: "Add member",
         placeholder: "Search people",
-        options,
+        fetchData: async () => options.map((option) => ({ id: option.value, ...option })),
+        onSelect: () => {},
       }),
     );
 
     expect(html).toContain('aria-autocomplete="list"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain("Search people");
-    expect(html).toContain("Design System");
+    // Assert the aria-controls relationship, not a literal id: field ids come
+    // from a module-global createUniqueId() counter, so pinning "k2b-field-00"
+    // breaks whenever a test is inserted before this one.
+    const controls = html.match(/aria-controls="([^"]+)"/)?.[1];
+    expect(controls).toMatch(/^k2b-field-\d+-listbox$/);
+    expect(html).toContain(`id="${controls}"`);
+    expect(html).toContain("Type to search...");
   });
 
   test("renders multi-select values and listbox state", () => {
     const html = renderToString(() =>
       createComponent(MultiSelectInput, {
         label: "Teams",
-        values: ["platform", "design"],
-        options,
+        value: () => ["platform", "design"],
+        options: options.map((option) => ({ id: option.value, ...option })),
         clearable: true,
       }),
     );
@@ -107,22 +132,25 @@ describe("@k2b/ui complete choice input migrations", () => {
     const html = renderToString(() =>
       createComponent(TagsInput, {
         label: "Tags",
-        name: "tags",
-        values: ["solid", "ssr"],
+        value: () => ["solid", "ssr"],
       }),
     );
 
-    expect(html).toContain("Remove solid");
-    expect(html).toContain('type="hidden"');
-    expect(html).toContain('name="tags"');
+    expect(html).toContain("solid");
+    expect(html).toContain('contentEditable="true"');
+    expect(html).toContain('role="textbox"');
     expect(html).toContain('role="status"');
+    expect(html).toContain("k2b-tags-input__icon-idle");
+    expect(html).toContain("ti ti-pencil k2b-tags-input__icon-active");
+    expect(html).toContain("k2b-tags-input__values");
   });
 
   test("renders select chips through the accessible dropdown contract", () => {
     const html = renderToString(() =>
       createComponent(SelectChip, {
-        label: "Density",
         value: "comfortable",
+        onValueChange: () => {},
+        "aria-label": "Density",
         options: [
           { value: "compact", label: "Compact" },
           { value: "comfortable", label: "Comfortable" },
@@ -132,9 +160,16 @@ describe("@k2b/ui complete choice input migrations", () => {
 
     expect(html).toContain("k2b-select-chip");
     expect(html).toContain('role="menu"');
-    expect(html).toContain('role="menuitem"');
+    expect(html).toContain('role="menuitemradio"');
+    expect(html).toContain('aria-checked="true"');
     expect(html).toContain("Comfortable");
     expect(html).toContain("Compact");
+    // Cloud opens this menu at `w-40`, and marks the current option with a
+    // trailing check rather than a leading icon.
+    expect(html).toContain("--k2b-dropdown-width:10rem");
+    expect(html).toContain("k2b-select-chip__option");
+    expect(html).toContain('<span>Comfortable</span><i class="ti ti-check k2b-select-chip__check"');
+    expect(html).not.toContain('<i class="ti ti-check" aria-hidden="true"></i><span>Comfortable');
   });
 
   test("renders navigable PIN digits instead of one opaque text field", () => {
@@ -142,7 +177,7 @@ describe("@k2b/ui complete choice input migrations", () => {
       createComponent(PinInput, {
         label: "Access code",
         description: "Six digits",
-        value: "123",
+        value: () => "123",
         length: 6,
         required: true,
         stretch: true,
@@ -150,21 +185,25 @@ describe("@k2b/ui complete choice input migrations", () => {
     );
 
     expect(html.match(/class="k2b-control k2b-pin-input__digit"/g)).toHaveLength(6);
-    expect(html).toContain('aria-label="Digit 1 of 6"');
-    expect(html).toContain('autocomplete="one-time-code"');
+    expect(html).toContain('aria-label="PIN digit 1 of 6"');
+    expect(html).toContain('autocomplete="off"');
     expect(html).toContain('data-stretch="true"');
+    const groupLabelId = html.match(/role="group"[^>]*aria-labelledby="([^"]+)"/)?.[1];
+    expect(groupLabelId).toBeTruthy();
+    expect(html).toContain(`id="${groupLabelId}"`);
   });
 
   test("renders slider value, center track, and reset-capable range semantics", () => {
     const html = renderToString(() =>
       createComponent(Slider, {
         label: "Balance",
-        value: -25,
+        value: () => -25,
+        onValueChange: () => {},
         min: -100,
         max: 100,
         center: true,
         defaultValue: 0,
-        valueLabel: (value) => `${value}%`,
+        formatValue: (value) => `${value}%`,
       }),
     );
 
@@ -175,13 +214,15 @@ describe("@k2b/ui complete choice input migrations", () => {
   });
 
   test("renders compact and transparent-capable color controls", () => {
-    const compact = renderToString(() => createComponent(ColorInput, { value: "#123456", compact: true }));
+    const compact = renderToString(() =>
+      createComponent(ColorInput, { "aria-label": "Choose color", value: () => "#123456", compact: true }),
+    );
     const full = renderToString(() =>
       createComponent(ColorInput, {
         label: "Surface",
-        value: "#123456",
+        value: () => "#123456",
         transparent: true,
-        isTransparent: true,
+        transparentValue: () => true,
       }),
     );
 
@@ -190,6 +231,97 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(full).toContain("transparent");
     expect(full).toContain('aria-pressed="true"');
     expect(full).toContain('data-transparent="true"');
+  });
+
+  test("describes a field above its control, like the Cloud input wrapper", () => {
+    const html = renderToString(() =>
+      createComponent(PinInput, {
+        label: "Access code",
+        description: "Six digits",
+        error: () => "Wrong code",
+        value: () => "1",
+      }),
+    );
+
+    const label = html.indexOf("k2b-field__label");
+    const description = html.indexOf("k2b-field__description");
+    const control = html.indexOf("k2b-pin-input");
+    const error = html.indexOf("k2b-field__error");
+
+    expect(label).toBeGreaterThan(-1);
+    expect(description).toBeGreaterThan(label);
+    expect(control).toBeGreaterThan(description);
+    expect(error).toBeGreaterThan(control);
+  });
+
+  test("keeps the checkbox card label in the content column with or without a glyph", () => {
+    const plain = renderToString(() => createComponent(CheckboxCard, { label: "Early access" }));
+    const withIcon = renderToString(() => createComponent(CheckboxCard, { label: "Early access", icon: "ti ti-flask" }));
+    const withColor = renderToString(() => createComponent(CheckboxCard, { label: "Early access", color: "#123456" }));
+
+    // Two grid items (control + content) against a two-column template: an icon
+    // must not claim a column of its own, or a card without one indents its label.
+    expect(cssRule(".k2b-ui .k2b-checkbox-card")).toContain("grid-template-columns: auto minmax(0, 1fr)");
+    for (const html of [plain, withIcon, withColor]) {
+      expect(html).toContain("k2b-checkbox-card__text");
+      expect(html.indexOf("k2b-checkbox-card__content")).toBeLessThan(html.indexOf("k2b-checkbox-card__text"));
+    }
+    expect(withIcon.indexOf("k2b-checkbox-card__label")).toBeLessThan(withIcon.indexOf("k2b-checkbox-card__icon"));
+    expect(withColor.indexOf("k2b-checkbox-card__label")).toBeLessThan(withColor.indexOf("k2b-checkbox-card__color"));
+    expect(plain).not.toContain("k2b-checkbox-card__icon");
+    expect(plain).not.toContain("k2b-checkbox-card__color");
+  });
+
+  test("marks filled pin digits and numeric values by value, not by placeholder", () => {
+    const pin = renderToString(() =>
+      createComponent(PinInput, { value: () => "12", length: 4, error: () => "Wrong code" }),
+    );
+    const filledNumber = renderToString(() => createComponent(NumberInput, { value: () => 42 }));
+    const emptyNumber = renderToString(() => createComponent(NumberInput, { value: () => null }));
+
+    expect(pin.match(/data-filled="true"/g)).toHaveLength(2);
+    expect(pin.match(/aria-invalid="true"/g)).toHaveLength(1);
+    expect(filledNumber).toContain('data-filled="true"');
+    expect(emptyNumber).not.toContain("data-filled");
+    // The right-aligned mono treatment must key off the value: `:placeholder-shown`
+    // never matches when the caller passes no placeholder.
+    expect(cssRule('.k2b-ui .k2b-number-input__control[data-filled="true"]')).toContain("text-align: right");
+  });
+
+  test("sizes a multiline text input from its lines prop", () => {
+    const two = renderToString(() => createComponent(TextInput, { label: "Notes", multiline: true, lines: 2 }));
+    const fallback = renderToString(() => createComponent(TextInput, { label: "Notes", multiline: true }));
+
+    expect(two).toContain("--k2b-editor-lines:2");
+    expect(two).toContain('rows="2"');
+    expect(fallback).toContain("--k2b-editor-lines:3");
+    expect(cssRule(".k2b-ui .k2b-text-input__textarea")).toContain("var(--k2b-editor-lines, 3)");
+  });
+
+  test("keeps checkbox, switch and colour geometry aligned with the Cloud controls", () => {
+    const check = cssRule(".k2b-ui .k2b-check__control");
+    const track = cssRule(".k2b-ui .k2b-switch__track");
+    const thumb = cssRule(".k2b-ui .k2b-switch__thumb");
+    const colorValue = cssRule(".k2b-ui .k2b-color-input__value");
+
+    expect(check).toContain("width: 1rem");
+    expect(check).toContain("border-radius: 0.25rem");
+    expect(track).toContain("width: 2.25rem");
+    expect(track).toContain("height: 1.25rem");
+    expect(thumb).toContain("width: 1rem");
+    expect(cssRule(".k2b-ui .k2b-switch > input:checked + .k2b-switch__track .k2b-switch__thumb")).toContain("translateX(1rem)");
+    // Colour fields share the 2.25rem box height of every other input shell.
+    expect(colorValue).toContain("min-height: 2.25rem");
+    expect(cssRule(".k2b-ui .k2b-color-input__transparent")).toContain("height: 2.25rem");
+  });
+
+  test("gives steppers, colour buttons and disabled sliders a visible state", () => {
+    expect(cssRule(".k2b-ui .k2b-number-input__step:focus-visible")).toContain("var(--k2b-focus-ring)");
+    expect(cssRule(".k2b-ui .k2b-slider input:disabled")).toContain("cursor: not-allowed");
+    const disabled = renderToString(() =>
+      createComponent(Slider, { label: "Volume", value: () => 10, onValueChange: () => {}, disabled: true }),
+    );
+    expect(disabled).toContain("disabled");
   });
 
   test("filters labels, descriptions, and values while skipping disabled keyboard targets", () => {
@@ -242,5 +374,130 @@ describe("@k2b/ui complete choice input migrations", () => {
         });
       });
     });
+  });
+
+  test("keeps colored options recognizable on the trigger and in the list", () => {
+    const html = renderToString(() =>
+      createComponent(Select, {
+        label: "Tag",
+        value: () => "priority",
+        options: [{ id: "priority", label: "Priority", color: "#2563eb" }],
+      }),
+    );
+
+    expect(html).toContain("Priority");
+    expect(html).toContain("k2b-choice-dot");
+    expect(html.match(/background-color:\s*#2563eb/g)).toHaveLength(2);
+  });
+
+  test("keeps the trigger chevron prop out of the leading decoration slot", () => {
+    const html = renderToString(() =>
+      createComponent(Select, { label: "Sort", icon: "ti ti-filter", options: [], placeholder: "Pick one" }),
+    );
+
+    expect(html.match(/ti ti-filter/g)).toHaveLength(1);
+    expect(html).toContain("Pick one");
+  });
+
+  test("reports empty static and searchable option lists with the matching copy", () => {
+    const plain = renderToString(() => createComponent(Select, { label: "Team", options: [] }));
+    const searchable = renderToString(() => createComponent(Select, { label: "Team", options: [], searchable: true }));
+
+    expect(plain).toContain("No options available");
+    expect(plain).not.toContain("k2b-choice-search");
+    expect(searchable).toContain("No results");
+    expect(searchable).toContain("k2b-choice-search");
+  });
+
+  test("labels unlabeled selects and submits their value through a named form entry", () => {
+    const html = renderToString(() =>
+      createComponent(Select, {
+        "aria-label": "Select an option",
+        name: "team",
+        value: () => "platform",
+        options: options.map((option) => ({ id: option.value, ...option })),
+      }),
+    );
+
+    expect(html).toContain('aria-label="Select an option"');
+    expect(html).toContain('type="hidden"');
+    expect(html).toContain('name="team"');
+    expect(html).toContain('value="platform"');
+  });
+
+  test("gives static multi-selects the Cloud search field, chevron props, and pill semantics", () => {
+    const html = renderToString(() =>
+      createComponent(MultiSelectInput, {
+        "aria-label": "Select options",
+        value: () => ["platform"],
+        options: options.map((option) => ({ id: option.value, ...option })),
+        icon: "ti ti-users",
+      }),
+    );
+
+    expect(html).toContain("k2b-choice-search");
+    expect(html).toContain('placeholder="Search..."');
+    expect(html).toContain("ti ti-users k2b-multi-select-trigger__chevron");
+    expect(html).toContain('aria-label="Select options"');
+    expect(html).toContain('tabindex="-1"');
+  });
+
+  test("renders the tags placeholder as muted helper text instead of a value", () => {
+    const empty = renderToString(() => createComponent(TagsInput, { label: "Tags", value: () => [] }));
+    const filled = renderToString(() => createComponent(TagsInput, { label: "Tags", value: () => ["  solid  "] }));
+
+    expect(empty).toContain("k2b-tags-input__placeholder");
+    expect(empty).toContain("Tags (e.g. Tag 1, Tag 2,...)");
+    expect(filled).not.toContain("k2b-tags-input__placeholder");
+    expect(filled).toContain('<span class="k2b-tag">solid</span>');
+  });
+
+  test("sizes choice popovers to their trigger and clamps them into the viewport", () => {
+    const originalWindow = globalThis.window;
+    Object.assign(globalThis, { window: { innerWidth: 1024, innerHeight: 300 } });
+    try {
+      const rect = (values: { left: number; top: number; bottom: number; width: number }) =>
+        ({ ...values, right: values.left + values.width, height: values.bottom - values.top }) as DOMRect;
+      const style: Record<string, string> = {};
+      const popover = {
+        style,
+        getBoundingClientRect: () => ({ height: 200, width: 160 }) as DOMRect,
+      } as unknown as HTMLElement;
+
+      placeChoicePopover(
+        { getBoundingClientRect: () => rect({ left: 900, top: 250, bottom: 280, width: 160 }) } as HTMLElement,
+        popover,
+      );
+
+      // Cloud sizes the panel to the control, with no minimum that would make a
+      // narrow trigger open a wider, misaligned dropdown.
+      expect(style.width).toBe("160px");
+      expect(style.left).toBe("856px");
+      expect(style.top).toBe("46px");
+
+      placeChoicePopover(
+        { getBoundingClientRect: () => rect({ left: 12, top: 10, bottom: 40, width: 96 }) } as HTMLElement,
+        popover,
+      );
+
+      expect(style.width).toBe("96px");
+      expect(style.left).toBe("12px");
+      expect(style.top).toBe("44px");
+    } finally {
+      if (originalWindow === undefined) delete (globalThis as { window?: unknown }).window;
+      else Object.assign(globalThis, { window: originalWindow });
+    }
+  });
+
+  test("keeps the tags editor aligned with the other controls while it scrolls its caret", async () => {
+    const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+    const sharedStart = css.indexOf(".k2b-ui .k2b-input-shell,");
+    const rule = css.slice(sharedStart, css.indexOf("}", sharedStart));
+    const editable = css.match(/\.k2b-ui \.k2b-tags-input > \[contenteditable\] \{([^}]*)\}/)?.[1] ?? "";
+
+    expect(rule).toMatch(/min-height:\s*2\.25rem/);
+    expect(rule).not.toMatch(/flex-wrap/);
+    expect(editable).toMatch(/overflow:\s*hidden/);
+    expect(editable).toMatch(/overflow-x:\s*auto/);
   });
 });

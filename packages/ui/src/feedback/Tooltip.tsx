@@ -1,5 +1,5 @@
 import { createUniqueId, type JSX, onCleanup, onMount, type ParentProps } from "solid-js";
-import { positionTooltip, type TooltipPlacement } from "./tooltip-position";
+import { positionTooltipSurface, type TooltipPlacement } from "./tooltip-position";
 
 export type TooltipProps = ParentProps<{
   content: JSX.Element;
@@ -10,6 +10,8 @@ export type TooltipProps = ParentProps<{
 }>;
 
 export function Tooltip(props: TooltipProps): JSX.Element {
+  // Unlike Cloud's browser-only crypto.randomUUID(), Solid's unique id stays
+  // stable across SSR and hydration in standalone @k2b/ssr consumers.
   const tooltipId = `k2b-tooltip-${createUniqueId()}`;
   let wrapper: HTMLSpanElement | undefined;
   let surface: HTMLSpanElement | undefined;
@@ -22,7 +24,13 @@ export function Tooltip(props: TooltipProps): JSX.Element {
     openTimer = undefined;
   };
 
-  const close = () => {
+  function dismissOnEscape(event: KeyboardEvent) {
+    if (event.key !== "Escape" || !surface?.matches(":popover-open")) return;
+    dismissedUntilLeave = true;
+    close();
+  }
+
+  function close() {
     clearTimer();
     if (surface?.matches(":popover-open")) {
       try {
@@ -31,13 +39,14 @@ export function Tooltip(props: TooltipProps): JSX.Element {
         // The surface may disconnect during cleanup.
       }
     }
+    document.removeEventListener("keydown", dismissOnEscape);
     window.removeEventListener("scroll", close, true);
     window.removeEventListener("resize", close);
-  };
+  }
 
   const open = () => {
     clearTimer();
-    if (props.disabled || dismissedUntilLeave || !surface || !target) return;
+    if (props.disabled || dismissedUntilLeave || !surface || !target || surface.matches(":popover-open")) return;
     openTimer = setTimeout(() => {
       openTimer = undefined;
       if (props.disabled || !surface?.isConnected || !target) return;
@@ -46,7 +55,8 @@ export function Tooltip(props: TooltipProps): JSX.Element {
       } catch {
         return;
       }
-      positionTooltip(surface, target, props.placement);
+      positionTooltipSurface(surface, target, props.placement);
+      document.addEventListener("keydown", dismissOnEscape);
       window.addEventListener("scroll", close, true);
       window.addEventListener("resize", close);
     }, props.delay ?? 250);
@@ -68,12 +78,6 @@ export function Tooltip(props: TooltipProps): JSX.Element {
         close();
       }
     };
-    const keyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        dismissedUntilLeave = true;
-        close();
-      }
-    };
     const leave = () => {
       dismissedUntilLeave = false;
       close();
@@ -88,7 +92,6 @@ export function Tooltip(props: TooltipProps): JSX.Element {
     wrapper.addEventListener("pointerdown", pointerDown);
     wrapper.addEventListener("focusin", open);
     wrapper.addEventListener("focusout", focusOut);
-    wrapper.addEventListener("keydown", keyDown);
 
     onCleanup(() => {
       close();
@@ -99,7 +102,6 @@ export function Tooltip(props: TooltipProps): JSX.Element {
       wrapper?.removeEventListener("pointerdown", pointerDown);
       wrapper?.removeEventListener("focusin", open);
       wrapper?.removeEventListener("focusout", focusOut);
-      wrapper?.removeEventListener("keydown", keyDown);
     });
   });
 

@@ -1,0 +1,597 @@
+/* Source-faithful editor styles. Import after legacy input styles. */
+
+.k2b-ui .k2b-completion-ghost {
+  color: var(--k2b-text-muted);
+}
+
+/* The "press Tab" arrow sits AFTER the caret, so it may deviate from the
+   locked overlay metrics without shifting glyph alignment. Tone matches the
+   ghost tail itself — it is a hint, not an action affordance. */
+.k2b-ui .k2b-completion-ghost__arrow {
+  margin-left: 0.4rem;
+  color: inherit;
+}
+
+.k2b-ui .k2b-completion-anchor {
+  display: inline-block !important;
+  width: 0;
+  height: 1em;
+  vertical-align: text-bottom;
+  pointer-events: none;
+}
+
+.k2b-ui .k2b-autocomplete {
+  position: relative;
+  min-width: 0;
+  height: calc(var(--k2b-editor-lines, 3) * 1.5rem);
+  overflow: hidden;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-control);
+  background: var(--k2b-surface);
+  box-shadow: inset 0 1px 2px rgb(9 9 11 / 0.05);
+  /* Cloud's `.ac-editor` carries `@apply transition-colors`. The port dropped it
+     but kept the reduced-motion guard below, so hover and focus border changes
+     snapped instantly. */
+  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.k2b-ui .k2b-autocomplete:hover {
+  border-color: var(--k2b-border-strong);
+  background: var(--k2b-surface);
+}
+
+/* The recessed well persists on focus — dropping the inset here made the
+   surface visibly "pop" outward the moment the caret entered it. The focus
+   signal is the border colour alone (one signal per rule). */
+.k2b-ui .k2b-autocomplete:focus-within {
+  border-color: var(--k2b-focus-ring);
+  outline: none;
+  background: var(--k2b-surface);
+  box-shadow: inset 0 1px 2px rgb(9 9 11 / 0.05);
+}
+
+.k2b-ui .k2b-autocomplete[data-single-line="true"] {
+  height: 2.5rem;
+}
+
+.k2b-ui .k2b-autocomplete[data-variant="paper"] {
+  border-color: var(--k2b-border);
+  border-radius: var(--k2b-radius-surface);
+  background: var(--k2b-surface);
+  box-shadow: var(--k2b-shadow-surface);
+}
+
+.k2b-ui .k2b-autocomplete[data-variant="paper"]:hover {
+  border-color: var(--k2b-border);
+  background: var(--k2b-surface);
+}
+
+.k2b-ui .k2b-autocomplete[data-variant="paper"]:focus-within {
+  border-color: var(--k2b-focus-ring);
+  background: var(--k2b-surface);
+  box-shadow: var(--k2b-shadow-surface);
+}
+
+.k2b-ui .k2b-autocomplete[data-fill="true"] {
+  height: 100%;
+  min-height: 0;
+}
+
+.k2b-ui .k2b-autocomplete[data-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.k2b-ui .k2b-autocomplete[data-invalid="true"] {
+  border-color: var(--k2b-danger-500);
+}
+
+.k2b-ui .k2b-autocomplete__surface {
+  position: relative;
+  height: 100%;
+}
+
+.k2b-ui .k2b-autocomplete__input,
+.k2b-ui .k2b-autocomplete__preview,
+.k2b-ui .k2b-autocomplete__placeholder,
+.k2b-ui .k2b-markdown-editor__input,
+.k2b-ui .k2b-markdown-editor__preview,
+.k2b-ui .k2b-markdown-editor__placeholder {
+  font-family: var(--k2b-font-mono) !important;
+  font-size: 0.875rem !important;
+  line-height: 1.55 !important;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  font-variant: normal !important;
+  font-variant-ligatures: none !important;
+  font-variant-numeric: tabular-nums !important;
+  font-stretch: normal !important;
+  font-kerning: none !important;
+  font-synthesis: none !important;
+  font-feature-settings:
+    "liga" 0,
+    "clig" 0,
+    "calt" 0 !important;
+  font-optical-sizing: none !important;
+  letter-spacing: 0 !important;
+  word-spacing: 0 !important;
+  text-align: left !important;
+  text-indent: 0 !important;
+  text-transform: none !important;
+  text-rendering: geometricPrecision !important;
+  white-space: pre-wrap !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  tab-size: 2 !important;
+}
+
+.k2b-ui .k2b-autocomplete__input,
+.k2b-ui .k2b-autocomplete__preview {
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  padding: 0.625rem 0.75rem !important;
+  margin: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  scrollbar-width: thin !important;
+  resize: none !important;
+}
+
+.k2b-ui .k2b-autocomplete__input {
+  z-index: 2 !important;
+  color: var(--k2b-text) !important;
+  caret-color: var(--k2b-text) !important;
+}
+
+.k2b-ui .k2b-autocomplete[data-overlay="true"] .k2b-autocomplete__input {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+/* Plain (non-overlay) mode has no mirror layer to keep gutters in sync
+   with, so the textarea scrolls like an ordinary one instead of always
+   reserving a scrollbar track. */
+.k2b-ui .k2b-autocomplete:not([data-overlay="true"]) .k2b-autocomplete__input {
+  overflow-y: auto !important;
+}
+
+/* Transparent selection text only makes sense when the glyphs live in the
+   preview layer. In plain mode the textarea paints its own text, so forcing
+   `color: transparent` would blank out whatever the user selects. */
+.k2b-ui .k2b-autocomplete[data-overlay="true"] .k2b-autocomplete__input::selection,
+.k2b-ui .k2b-markdown-editor__input::selection {
+  color: transparent;
+  background: color-mix(in srgb, var(--k2b-action) 35%, transparent);
+}
+
+.k2b-ui .k2b-autocomplete:not([data-overlay="true"]) .k2b-autocomplete__input::selection {
+  background: color-mix(in srgb, var(--k2b-action) 35%, transparent);
+}
+
+.k2b-ui .k2b-autocomplete__preview {
+  z-index: 1 !important;
+  color: var(--k2b-text);
+  pointer-events: none;
+  user-select: none;
+  scrollbar-color: transparent transparent !important;
+}
+
+.k2b-ui .k2b-autocomplete__preview *,
+.k2b-ui .k2b-autocomplete__preview *::before,
+.k2b-ui .k2b-autocomplete__preview *::after,
+.k2b-ui .k2b-markdown-editor__preview *,
+.k2b-ui .k2b-markdown-editor__preview *::before,
+.k2b-ui .k2b-markdown-editor__preview *::after {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+  font-stretch: inherit !important;
+  letter-spacing: inherit !important;
+  word-spacing: inherit !important;
+  font-weight: inherit !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  text-indent: 0 !important;
+  vertical-align: baseline !important;
+  display: inline !important;
+}
+
+.k2b-ui .k2b-autocomplete__placeholder,
+.k2b-ui .k2b-markdown-editor__placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 0.625rem 0.75rem;
+  color: var(--k2b-text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+.k2b-ui .k2b-autocomplete__options {
+  position: fixed;
+  z-index: 1001;
+  inset: unset;
+  max-height: min(17rem, calc(100dvh - 1rem));
+  overflow: hidden;
+  margin: 0;
+  padding: 0.25rem;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-surface);
+  color: var(--k2b-text);
+  background: var(--k2b-surface-elevated);
+  box-shadow: var(--k2b-shadow-float);
+}
+
+.k2b-ui .k2b-autocomplete__options::backdrop {
+  background: transparent;
+}
+
+.k2b-ui .k2b-autocomplete__listbox {
+  display: flex;
+  max-height: 15rem;
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow-y: auto;
+}
+
+.k2b-ui .k2b-autocomplete__option {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: var(--k2b-radius-control);
+  color: var(--k2b-text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.k2b-ui .k2b-autocomplete__option[aria-selected="true"] {
+  color: var(--k2b-action);
+  background: var(--k2b-selected);
+}
+
+.k2b-ui .k2b-autocomplete__option[data-loading="true"] {
+  opacity: 0.6;
+}
+
+.k2b-ui .k2b-autocomplete__option > span {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--k2b-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k2b-ui .k2b-autocomplete__option small {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.k2b-ui .k2b-autocomplete__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  color: var(--k2b-text-muted);
+  font-size: 0.875rem;
+}
+
+.k2b-ui .k2b-autocomplete__status[data-error="true"] {
+  color: var(--k2b-danger-text);
+}
+
+.k2b-ui .k2b-autocomplete__status button {
+  margin-left: auto;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-decoration: underline;
+}
+
+.k2b-ui .k2b-markdown-editor {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-control);
+  background: var(--k2b-surface);
+  box-shadow: inset 0 1px 2px rgb(9 9 11 / 0.05);
+  /* Cloud's `.md-editor` carries `@apply transition-colors`; same omission as
+     `.k2b-autocomplete` above. */
+  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.k2b-ui .k2b-markdown-editor:hover {
+  border-color: var(--k2b-border-strong);
+  background: var(--k2b-surface);
+}
+
+.k2b-ui .k2b-markdown-editor:focus-within {
+  border-color: var(--k2b-focus-ring);
+  outline: none;
+  background: var(--k2b-surface);
+  box-shadow: inset 0 1px 2px rgb(9 9 11 / 0.05);
+}
+
+.k2b-ui .k2b-markdown-editor[data-variant="paper"] {
+  border-color: var(--k2b-border);
+  border-radius: var(--k2b-radius-surface);
+  background: var(--k2b-surface);
+  box-shadow: var(--k2b-shadow-surface);
+}
+
+.k2b-ui .k2b-markdown-editor[data-variant="paper"]:hover {
+  border-color: var(--k2b-border);
+  background: var(--k2b-surface);
+}
+
+.k2b-ui .k2b-markdown-editor[data-variant="paper"]:focus-within {
+  border-color: var(--k2b-focus-ring);
+  background: var(--k2b-surface);
+  box-shadow: var(--k2b-shadow-surface);
+}
+
+.k2b-ui .k2b-markdown-editor[data-fill="true"] {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+}
+
+.k2b-ui .k2b-markdown-editor[data-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.k2b-ui .k2b-markdown-editor[data-invalid="true"] {
+  border-color: var(--k2b-danger-500);
+}
+
+.k2b-ui .k2b-markdown-editor__toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+  padding: 0.25rem 0.375rem;
+  border-bottom: 1px solid var(--k2b-border);
+}
+
+.k2b-ui .k2b-markdown-editor__tool {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.25rem;
+  color: var(--k2b-text-muted);
+  background: transparent;
+  /* Hover and aria-pressed both swap colour + background; easing them keeps
+     the active-format state from flickering as the caret moves through the
+     document. Disabled again in the reduced-motion block below. */
+  transition-property: color, background-color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.k2b-ui .k2b-markdown-editor__tool:hover:not(:disabled) {
+  color: var(--k2b-text);
+  background: var(--k2b-hover);
+}
+
+.k2b-ui .k2b-markdown-editor__tool[aria-pressed="true"] {
+  color: var(--k2b-action);
+  background: var(--k2b-selected);
+}
+
+.k2b-ui .k2b-markdown-editor__separator {
+  width: 1px;
+  height: 1rem;
+  margin: 0 0.25rem;
+  background: var(--k2b-border-strong);
+}
+
+.k2b-ui .k2b-markdown-editor__trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  margin-left: auto;
+}
+
+.k2b-ui .k2b-markdown-editor__surface {
+  position: relative;
+  height: calc(var(--k2b-editor-lines, 6) * 1.5rem);
+}
+
+.k2b-ui .k2b-markdown-editor[data-fill="true"] .k2b-markdown-editor__surface {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.k2b-ui .k2b-markdown-editor__input,
+.k2b-ui .k2b-markdown-editor__preview {
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  padding: 0.625rem 0.75rem !important;
+  margin: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  resize: none !important;
+  scrollbar-width: thin !important;
+}
+
+.k2b-ui .k2b-markdown-editor__input {
+  z-index: 2 !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  caret-color: var(--k2b-text) !important;
+  appearance: none !important;
+  touch-action: manipulation !important;
+}
+
+.k2b-ui .k2b-markdown-editor__preview {
+  z-index: 1 !important;
+  color: var(--k2b-text);
+  pointer-events: none;
+  user-select: none;
+  scrollbar-color: transparent transparent !important;
+}
+
+.k2b-ui .k2b-markdown-editor__preview::-webkit-scrollbar-thumb,
+.k2b-ui .k2b-markdown-editor__preview::-webkit-scrollbar-track,
+.k2b-ui .k2b-autocomplete__preview::-webkit-scrollbar-thumb,
+.k2b-ui .k2b-autocomplete__preview::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.k2b-ui .k2b-markdown-editor__preview .md-syntax,
+.k2b-ui .k2b-markdown-editor__preview .md-marker {
+  color: var(--k2b-text-muted);
+}
+
+.k2b-ui .k2b-markdown-editor__preview .md-h1,
+.k2b-ui .k2b-markdown-editor__preview .md-h2,
+.k2b-ui .k2b-markdown-editor__preview .md-h3,
+.k2b-ui .k2b-markdown-editor__preview .md-bold {
+  text-shadow: 0.5px 0 0 currentColor;
+}
+
+.k2b-ui .k2b-markdown-editor__preview .md-italic {
+  font-style: italic !important;
+}
+
+.k2b-ui .k2b-markdown-editor__preview .md-code,
+.k2b-ui .k2b-markdown-editor__preview .md-code-block {
+  background: var(--k2b-surface-muted);
+}
+
+.k2b-ui .k2b-markdown-editor__preview .md-link,
+.k2b-ui .k2b-markdown-editor__preview .md-completion-match {
+  color: var(--k2b-action);
+}
+
+.k2b-ui .k2b-markdown-editor__preview .md-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.k2b-ui .k2b-markdown-editor__preview .md-quote {
+  color: var(--k2b-text-secondary);
+  box-shadow: inset 3px 0 0 var(--k2b-border-strong);
+}
+
+.k2b-ui .k2b-markdown-editor__preview .md-hr {
+  color: var(--k2b-text-muted);
+}
+
+.k2b-ui .k2b-markdown-editor__stats {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  padding: 0.25rem 0.75rem;
+  color: var(--k2b-text-muted);
+  font-family: var(--k2b-font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.k2b-ui .k2b-markdown-editor__stats[data-empty="true"] {
+  visibility: hidden;
+}
+
+.k2b-ui .k2b-template-token[data-kind="control"] {
+  color: var(--k2b-success-600);
+}
+
+.k2b-ui .k2b-template-token[data-kind="end"],
+.k2b-ui .k2b-template-string {
+  color: var(--k2b-warning-500);
+}
+
+.k2b-ui .k2b-template-token[data-kind="raw"] {
+  color: var(--k2b-danger-text);
+}
+
+.k2b-ui .k2b-template-token[data-kind="value"],
+.k2b-ui .k2b-template-attribute {
+  color: var(--k2b-action);
+}
+
+.k2b-ui .k2b-template-tag {
+  color: var(--k2b-accent-600);
+}
+
+.k2b-ui .k2b-template-punctuation,
+.k2b-ui .k2b-template-comment {
+  color: var(--k2b-text-muted);
+}
+
+/* Preview + sample-data panes are paper surfaces that fill whatever pane
+   the host drops them into. */
+.k2b-ui .k2b-template-preview {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-surface);
+  background: var(--k2b-surface);
+  box-shadow: var(--k2b-shadow-surface);
+}
+
+.k2b-ui .k2b-template-preview iframe {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  background: #ffffff;
+}
+
+.k2b-ui .k2b-template-sample {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  gap: 0.75rem;
+  align-content: start;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-surface);
+  background: var(--k2b-surface);
+  box-shadow: var(--k2b-shadow-surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k2b-ui .k2b-autocomplete,
+  .k2b-ui .k2b-markdown-editor,
+  .k2b-ui .k2b-markdown-editor__tool {
+    transition: none;
+  }
+}

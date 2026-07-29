@@ -1,6 +1,7 @@
-import { charts } from "@k2b/stdlib";
+import { computeDomain, escapeXml, extendDomainToNice, mapRange, niceStep, svgRoot } from "@k2b/stdlib";
 
 export type StateTimelineDomain = readonly [number, number];
+
 export type StateTimelineInterval = {
   from: number;
   to: number;
@@ -9,35 +10,44 @@ export type StateTimelineInterval = {
   href?: string;
   tooltip?: string;
 };
+
 export type StateTimelineRow = {
   label: string;
   href?: string;
   tooltip?: string;
   intervals: StateTimelineInterval[];
 };
-export type StateTimelineState = { state: string; label?: string; color?: string };
-export type StateTimelineOptions = {
+
+export type StateTimelineState = {
+  state: string;
+  label?: string;
+  color?: string;
+};
+
+export type StateTimelineChartOptions = {
   rows: StateTimelineRow[];
   states?: StateTimelineState[];
   domain?: StateTimelineDomain;
   xAxis?: { format?: (value: number) => string; label?: string };
   legend?: boolean;
+  interactive?: boolean;
 };
 
+const ROW_HEIGHT = 24;
+const TOP = 38;
+const AXIS_HEIGHT = 28;
+const LEGEND_HEIGHT = 24;
 const MIN_VIEW_FRACTION = 1 / 64;
-const finiteDomain = (domain: StateTimelineDomain | undefined): StateTimelineDomain | null => {
-  if (!domain || !Number.isFinite(domain[0]) || !Number.isFinite(domain[1]) || domain[0] === domain[1]) return null;
+
+const finiteDomain = (domain: StateTimelineDomain): StateTimelineDomain | null => {
+  if (!Number.isFinite(domain[0]) || !Number.isFinite(domain[1]) || domain[0] === domain[1]) return null;
   return domain[0] < domain[1] ? domain : [domain[1], domain[0]];
 };
 
-export const stateTimelineDomain = (rows: readonly StateTimelineRow[], explicit?: StateTimelineDomain): StateTimelineDomain => {
-  const provided = finiteDomain(explicit);
-  if (provided) return provided;
-  const values = rows.flatMap((row) => row.intervals.flatMap((interval) => [interval.from, interval.to])).filter(Number.isFinite);
-  if (values.length === 0) return [0, 1];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  return min === max ? [min, min + 1] : [min, max];
+export const stateTimelineDomain = (rows: readonly StateTimelineRow[], domain?: StateTimelineDomain): StateTimelineDomain => {
+  const explicit = domain ? finiteDomain(domain) : null;
+  if (explicit) return explicit;
+  return computeDomain(rows.flatMap((row) => row.intervals.flatMap((interval) => [interval.from, interval.to])));
 };
 
 export const normalizeStateTimelineViewport = (
@@ -45,111 +55,157 @@ export const normalizeStateTimelineViewport = (
   fullDomain: StateTimelineDomain,
 ): StateTimelineDomain => {
   const full = finiteDomain(fullDomain) ?? [0, 1];
-  const current = finiteDomain(viewport);
-  if (!current) return full;
-  const span = Math.min(current[1] - current[0], full[1] - full[0]);
-  const start = Math.max(full[0], Math.min(current[0], full[1] - span));
-  return [start, start + span];
+  const candidate = viewport ? finiteDomain(viewport) : null;
+  if (!candidate) return full;
+  const span = Math.min(candidate[1] - candidate[0], full[1] - full[0]);
+  const from = Math.max(full[0], Math.min(candidate[0], full[1] - span));
+  return [from, from + span];
 };
 
 export const zoomStateTimelineViewport = (
   viewport: StateTimelineDomain,
   fullDomain: StateTimelineDomain,
-  direction: number,
+  delta: number,
   anchor = 0.5,
 ): StateTimelineDomain => {
   const current = normalizeStateTimelineViewport(viewport, fullDomain);
   const fullSpan = fullDomain[1] - fullDomain[0];
-  const span = Math.max(fullSpan * MIN_VIEW_FRACTION, Math.min(fullSpan, (current[1] - current[0]) * (direction > 0 ? 0.7 : 1 / 0.7)));
-  const ratio = Math.max(0, Math.min(1, anchor));
-  const point = current[0] + (current[1] - current[0]) * ratio;
-  return normalizeStateTimelineViewport([point - span * ratio, point + span * (1 - ratio)], fullDomain);
+  const minSpan = Math.max(1, fullSpan * MIN_VIEW_FRACTION);
+  const factor = delta > 0 ? 0.7 : 1 / 0.7;
+  const nextSpan = Math.max(minSpan, Math.min(fullSpan, (current[1] - current[0]) * factor));
+  const safeAnchor = Math.max(0, Math.min(1, anchor));
+  const anchorValue = current[0] + (current[1] - current[0]) * safeAnchor;
+  return normalizeStateTimelineViewport([anchorValue - nextSpan * safeAnchor, anchorValue + nextSpan * (1 - safeAnchor)], fullDomain);
 };
 
 export const panStateTimelineViewport = (
   viewport: StateTimelineDomain,
   fullDomain: StateTimelineDomain,
   pixelDelta: number,
-  width: number,
+  plotWidth: number,
 ): StateTimelineDomain => {
-  if (width <= 0) return normalizeStateTimelineViewport(viewport, fullDomain);
+  if (plotWidth <= 0) return normalizeStateTimelineViewport(viewport, fullDomain);
   const current = normalizeStateTimelineViewport(viewport, fullDomain);
-  const delta = (-pixelDelta / width) * (current[1] - current[0]);
-  return normalizeStateTimelineViewport([current[0] + delta, current[1] + delta], fullDomain);
+  const timeDelta = (-pixelDelta / plotWidth) * (current[1] - current[0]);
+  return normalizeStateTimelineViewport([current[0] + timeDelta, current[1] + timeDelta], fullDomain);
 };
 
-export const stateTimelineHeight = (rows: number, legend = true): number => Math.max(160, 66 + rows * 24 + (legend ? 24 : 0));
+export const stateTimelineHeight = (rows: number, legend = true): number =>
+  Math.max(160, TOP + rows * ROW_HEIGHT + AXIS_HEIGHT + (legend ? LEGEND_HEIGHT : 0));
 
-const safeHref = (value: string | undefined): string | null => {
-  if (!value) return null;
-  try {
-    const url = new URL(value, "https://ui.invalid");
-    return ["http:", "https:"].includes(url.protocol) ? value : null;
-  } catch {
-    return null;
-  }
+const fmt = (value: number): string => (Number.isInteger(value) ? String(value) : value.toFixed(2));
+
+const safeHref = (href: string | undefined): string | null => (href && href.startsWith("/") && !href.startsWith("//") ? href : null);
+
+const truncate = (value: string, maxChars: number): string =>
+  value.length <= maxChars ? value : `${value.slice(0, Math.max(1, maxChars - 1))}…`;
+
+const interactiveGroup = (body: string, href: string | undefined, tooltip: string | undefined, ariaLabel: string): string => {
+  const safe = safeHref(href);
+  const attrs = [`aria-label="${escapeXml(ariaLabel)}"`, tooltip ? `data-chart-tooltip="${escapeXml(tooltip)}"` : ""]
+    .filter(Boolean)
+    .join(" ");
+  const title = tooltip ? `<title>${escapeXml(tooltip)}</title>` : "";
+  return safe
+    ? `<a href="${escapeXml(safe)}" ${attrs}>${title}${body}</a>`
+    : `<g ${attrs}${tooltip ? ' tabindex="0" role="img"' : ""}>${title}${body}</g>`;
 };
-const escapeAttribute = (value: string) =>
-  value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-export const renderStateTimeline = (
-  options: StateTimelineOptions & { width: number; height: number; viewport?: StateTimelineDomain },
+export const renderStateTimelineSvg = (
+  opts: StateTimelineChartOptions & {
+    width: number;
+    height: number;
+    viewport?: StateTimelineDomain;
+    className?: string;
+  },
 ): string => {
-  const full = stateTimelineDomain(options.rows, options.domain);
-  const viewport = normalizeStateTimelineViewport(options.viewport, full);
-  const clippedRows = options.rows.map((row) => ({
-    label: row.label,
-    intervals: row.intervals
-      .filter((interval) => Number.isFinite(interval.from) && Number.isFinite(interval.to))
-      .filter((interval) => Math.max(interval.from, interval.to) >= viewport[0] && Math.min(interval.from, interval.to) <= viewport[1])
-      .map((interval) => ({
-        ...interval,
-        from: Math.max(viewport[0], Math.min(interval.from, interval.to)),
-        to: Math.min(viewport[1], Math.max(interval.from, interval.to)),
-      })),
-  }));
-  const rowsWithDomain = clippedRows.map((row, index) => ({
-    ...row,
-    intervals:
-      index === 0
-        ? [...row.intervals, { from: viewport[0], to: viewport[1], state: "__k2b_viewport__" }]
-        : row.intervals,
-  }));
-  let svg = charts.stateTimeline({
-    rows: rowsWithDomain,
-    states: options.states,
-    xAxis: options.xAxis,
-    legend: options.legend,
-    width: options.width,
-    height: options.height,
+  const { width, height, rows } = opts;
+  const fullDomain = stateTimelineDomain(rows, opts.domain);
+  const viewport = normalizeStateTimelineViewport(opts.viewport, fullDomain);
+  const showLegend = opts.legend !== false && (opts.states?.length ?? 0) > 0;
+  const legendHeight = showLegend ? LEGEND_HEIGHT : 0;
+  const labels = rows.map((row) => row.label);
+  const idealGutter = Math.max(72, ...labels.map((label) => label.length * 6.3 + 20));
+  const gutter = Math.min(240, width * 0.35, idealGutter);
+  const plotLeft = gutter;
+  const plotRight = Math.max(plotLeft + 1, width - 16);
+  const rowsBottom = Math.min(height - AXIS_HEIGHT - legendHeight, TOP + rows.length * ROW_HEIGHT);
+  const stateStyles = new Map((opts.states ?? []).map((state, index) => [state.state, { ...state, index }]));
+  const stateKeys = opts.states?.map((state) => state.state) ?? [...new Set(rows.flatMap((row) => row.intervals.map((i) => i.state)))];
+  const body: string[] = [];
+  const maxLabelChars = Math.max(4, Math.floor((gutter - 18) / 6.3));
+
+  rows.forEach((row, rowIndex) => {
+    const y = TOP + rowIndex * ROW_HEIGHT;
+    if (y + ROW_HEIGHT > rowsBottom + 1) return;
+    const label = truncate(row.label, maxLabelChars);
+    const labelBody = `<text class="stdlib-chart-state-label" x="${fmt(plotLeft - 8)}" y="${fmt(
+      y + ROW_HEIGHT / 2,
+    )}" text-anchor="end" dominant-baseline="middle">${escapeXml(label)}</text>`;
+    body.push(interactiveGroup(labelBody, row.href, row.tooltip ?? row.label, row.label));
+
+    for (const interval of row.intervals) {
+      if (!Number.isFinite(interval.from) || !Number.isFinite(interval.to)) continue;
+      const intervalFrom = Math.min(interval.from, interval.to);
+      const intervalTo = Math.max(interval.from, interval.to);
+      if (intervalTo < viewport[0] || intervalFrom > viewport[1]) continue;
+      const from = Math.max(viewport[0], intervalFrom);
+      const to = Math.min(viewport[1], intervalTo);
+      const x = mapRange(from, viewport, [plotLeft, plotRight]);
+      const x2 = mapRange(to, viewport, [plotLeft, plotRight]);
+      const style = stateStyles.get(interval.state);
+      const stateIndex = style?.index ?? Math.max(0, stateKeys.indexOf(interval.state));
+      const color = style?.color ? ` fill="${escapeXml(style.color)}"` : "";
+      const rect = `<rect class="stdlib-chart-state-region stdlib-chart-series-${stateIndex % 8}"${color} x="${fmt(
+        x,
+      )}" y="${fmt(y + 3)}" width="${fmt(Math.max(2, x2 - x))}" height="${ROW_HEIGHT - 6}" rx="3"/>`;
+      const stateLabel = style?.label ?? interval.state;
+      body.push(
+        interactiveGroup(
+          rect,
+          interval.href,
+          interval.tooltip ?? interval.label,
+          [row.label, interval.label, stateLabel].filter(Boolean).join(", "),
+        ),
+      );
+    }
   });
-  let rowIndex = 0;
-  svg = svg.replace(/<text class="stdlib-chart-state-label"([^>]*)>(.*?)<\/text>/g, (match) => {
-    const row = options.rows[rowIndex++];
-    if (!row) return match;
-    const href = safeHref(row.href);
-    const tooltip = escapeAttribute(row.tooltip ?? row.label);
-    const body = `<g data-chart-tooltip="${tooltip}" tabindex="0" role="img" aria-label="${tooltip}">${match}<title>${tooltip}</title></g>`;
-    return href ? `<a href="${escapeAttribute(href)}">${body}</a>` : body;
-  });
-  let intervalIndex = 0;
-  const intervals = options.rows.flatMap((row, rowIndex) => {
-    const visible = row.intervals
-      .filter((interval) => Math.max(interval.from, interval.to) >= viewport[0] && Math.min(interval.from, interval.to) <= viewport[1])
-      .map((interval) => ({ row, interval, sentinel: false }));
-    return rowIndex === 0
-      ? [...visible, { row, interval: { from: viewport[0], to: viewport[1], state: "__k2b_viewport__" }, sentinel: true }]
-      : visible;
-  });
-  svg = svg.replace(/<rect class="stdlib-chart-state-region[^"]*"([^>]*)\/>/g, (match) => {
-    const entry = intervals[intervalIndex++];
-    if (!entry) return match;
-    if (entry.sentinel) return "";
-    const label = entry.interval.tooltip ?? entry.interval.label ?? `${entry.row.label}, ${entry.interval.state}`;
-    const escaped = escapeAttribute(label);
-    const href = safeHref(entry.interval.href);
-    const body = `<g data-chart-tooltip="${escaped}" tabindex="0" role="img" aria-label="${escaped}">${match}<title>${escaped}</title></g>`;
-    return href ? `<a href="${escapeAttribute(href)}">${body}</a>` : body;
-  });
-  return svg;
+
+  const tickTarget = Math.max(2, Math.min(8, Math.floor((plotRight - plotLeft) / 110)));
+  const ticks = extendDomainToNice(viewport[0], viewport[1], niceStep(viewport[1] - viewport[0], tickTarget)).ticks;
+  const format = opts.xAxis?.format ?? ((value: number) => fmt(value));
+  for (const tick of ticks) {
+    if (tick < viewport[0] || tick > viewport[1]) continue;
+    const x = mapRange(tick, viewport, [plotLeft, plotRight]);
+    body.push(
+      `<line x1="${fmt(x)}" x2="${fmt(x)}" y1="${TOP}" y2="${fmt(rowsBottom)}" stroke="currentColor" opacity="0.08"/>`,
+      `<text class="stdlib-chart-heatmap-label" x="${fmt(x)}" y="${fmt(rowsBottom + 17)}" text-anchor="middle">${escapeXml(
+        format(tick),
+      )}</text>`,
+    );
+  }
+
+  if (opts.xAxis?.label) {
+    body.push(
+      `<text class="stdlib-chart-axis-label" x="${fmt((plotLeft + plotRight) / 2)}" y="${fmt(
+        rowsBottom + AXIS_HEIGHT - 2,
+      )}" text-anchor="middle">${escapeXml(opts.xAxis.label)}</text>`,
+    );
+  }
+
+  if (showLegend) {
+    let x = plotLeft;
+    const y = height - 9;
+    for (const [index, state] of (opts.states ?? []).entries()) {
+      const color = state.color ? ` fill="${escapeXml(state.color)}"` : "";
+      const label = state.label ?? state.state;
+      body.push(
+        `<rect class="stdlib-chart-series-${index % 8}"${color} x="${fmt(x)}" y="${y - 8}" width="8" height="8" rx="2"/>`,
+        `<text class="stdlib-chart-heatmap-label" x="${fmt(x + 12)}" y="${y}" text-anchor="start">${escapeXml(label)}</text>`,
+      );
+      x += 20 + label.length * 6.2;
+    }
+  }
+
+  return svgRoot({ width, height, className: opts.className }, body.join(""));
 };

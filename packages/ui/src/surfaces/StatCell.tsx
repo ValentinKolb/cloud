@@ -1,100 +1,90 @@
 import { type JSX, Show } from "solid-js";
 import Chart from "../content/Chart";
-import { type StatGridSize, useStatGrid } from "./StatGrid";
-import type { StatusTone } from "./StatusBadge";
+import { type StatGridSize, useStatGridSize, useStatGridSurface } from "./StatGrid";
+
+export type StatCellTone = "emerald" | "amber" | "red" | "blue" | "zinc";
 
 export type StatCellAccent = {
-  tone?: StatusTone;
-  icon?: string;
+  tone: StatCellTone;
+  icon: string;
   text?: string;
   href?: string;
 };
 
 export type StatCellProps = {
-  label: JSX.Element;
-  value: JSX.Element;
-  sub?: JSX.Element;
-  tone?: StatusTone;
+  label: string;
+  value: string | number | JSX.Element;
+  sub?: string;
+  valueClass?: string;
   accent?: StatCellAccent;
   href?: string;
   title?: string;
   trend?: number[];
   size?: StatGridSize;
-  class?: string;
 };
 
-const StatCellBody = (props: StatCellProps & { linked: boolean }): JSX.Element => {
-  const grid = useStatGrid();
-  const size = () => props.size ?? grid.size;
-  const accent = (
-    <Show when={props.accent}>
-      {(value) => {
-        const content = (
-          <>
-            <Show when={value().icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
-            <Show when={value().text}>{(text) => <span>{text()}</span>}</Show>
-          </>
-        );
-        return (
-          <Show
-            when={!props.linked && value().text ? value().href || undefined : undefined}
-            fallback={
-              <span class="k2b-stat-cell__accent" data-k2b-tone data-tone={value().tone ?? "neutral"}>
-                {content}
-              </span>
-            }
-          >
-            {(href) => (
-              <a href={href()} class="k2b-stat-cell__accent" data-k2b-tone data-tone={value().tone ?? "neutral"}>
-                {content}
-              </a>
-            )}
-          </Show>
-        );
-      }}
-    </Show>
-  );
-
+function Body(props: StatCellProps & { cellIsLink: boolean }): JSX.Element {
+  const gridSize = useStatGridSize();
+  const size = () => props.size ?? gridSize;
+  const accent = () => props.accent;
   return (
     <>
-      <span class="k2b-stat-cell__label">{props.label}</span>
-      <span class="k2b-stat-cell__value" data-size={size()} data-k2b-tone data-tone={props.tone ?? "neutral"} title={props.title}>
-        {props.value}
-      </span>
+      <span class="k2b-stat-cell__label" data-size={size()}>{props.label}</span>
+      <span class={`k2b-stat-cell__value ${props.valueClass ?? ""}`} data-size={size()} title={props.title}>{props.value}</span>
       <Show when={props.trend && props.trend.length > 1}>
-        <Chart kind="sparkline" class="k2b-stat-cell__trend" style={{ height: "2rem" }} data={props.trend ?? []} showLast showMinMax />
+        <Chart kind="sparkline" class="k2b-stat-cell__trend" style={{ height: "32px" }} data={props.trend ?? []} showLast showMinMax />
       </Show>
-      <Show when={props.sub || props.accent}>
-        <span class="k2b-stat-cell__support">
-          <Show when={props.sub}>
-            <span class="k2b-stat-cell__sub">{props.sub}</span>
+      <Show when={props.sub || accent()}>
+        <div class="k2b-stat-cell__support">
+          <Show when={props.sub}>{(sub) => <span class="k2b-stat-cell__sub">{sub()}</span>}</Show>
+          <Show when={accent()}>
+            {(value) => (
+              <Show
+                when={value().text}
+                fallback={<i class={`${value().icon} k2b-stat-cell__accent-icon`} data-tone={value().tone} aria-hidden="true" />}
+              >
+                {(text) => (
+                  <Show
+                    when={value().href && !props.cellIsLink ? value().href : undefined}
+                    fallback={
+                      <span class="k2b-stat-cell__accent" data-tone={value().tone}>
+                        <i class={value().icon} aria-hidden="true" />{text()}
+                      </span>
+                    }
+                  >
+                    {(href) => (
+                      <a href={href()} class="k2b-stat-cell__accent" data-tone={value().tone}>
+                        <i class={value().icon} aria-hidden="true" />{text()}
+                      </a>
+                    )}
+                  </Show>
+                )}
+              </Show>
+            )}
           </Show>
-          {accent}
-        </span>
+        </div>
       </Show>
     </>
   );
-};
+}
 
 export function StatCell(props: StatCellProps): JSX.Element {
-  const grid = useStatGrid();
-  const className = () => `k2b-stat-cell ${props.class ?? ""}`;
-
+  const gridSize = useStatGridSize();
+  const size = () => props.size ?? gridSize;
+  const surface = useStatGridSurface();
   return (
     <Show
       when={props.href}
-      fallback={
-        <div class={className()} data-surface={grid.surface}>
-          <StatCellBody {...props} linked={false} />
-        </div>
-      }
+      fallback={<div class="k2b-stat-cell" data-size={size()} data-surface={surface}><Body {...props} cellIsLink={false} /></div>}
     >
       {(href) => (
-        <a href={href()} class={className()} data-surface={grid.surface}>
-          <StatCellBody {...props} linked />
-          <i class="ti ti-arrow-up-right k2b-stat-cell__link-icon" aria-hidden="true" />
+        <a href={href()} class="k2b-stat-cell k2b-stat-cell--link" data-size={size()} data-surface={surface}>
+          <i class="ti ti-external-link k2b-stat-cell__link-icon" aria-hidden="true" />
+          <Body {...props} cellIsLink />
         </a>
       )}
     </Show>
   );
 }
+
+export default StatCell;

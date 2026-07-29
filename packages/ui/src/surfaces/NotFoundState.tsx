@@ -8,27 +8,24 @@ export type NotFoundStateAction = {
 
 export type NotFoundStateProps = {
   code?: string;
-  title: JSX.Element;
-  description?: JSX.Element;
+  title: string;
+  description?: string;
   icon?: string;
   action?: NotFoundStateAction;
-  class?: string;
 };
 
 export function NotFoundState(props: NotFoundStateProps): JSX.Element {
   return (
-    <main class={`k2b-not-found ${props.class ?? ""}`}>
+    <div class="k2b-not-found">
       <Show
         when={props.code}
-        fallback={<Show when={props.icon}>{(icon) => <i class={`k2b-not-found__icon ${icon()}`} aria-hidden="true" />}</Show>}
+        fallback={<Show when={props.icon}>{(icon) => <i class={`${icon()} k2b-not-found__icon`} aria-hidden="true" />}</Show>}
       >
         {(code) => <div class="k2b-not-found__code">{code()}</div>}
       </Show>
       <div class="k2b-not-found__copy">
         <h1>{props.title}</h1>
-        <Show when={props.description}>
-          <p>{props.description}</p>
-        </Show>
+        <Show when={props.description}>{(description) => <p>{description()}</p>}</Show>
       </div>
       <Show when={props.action}>
         {(action) => (
@@ -38,7 +35,7 @@ export function NotFoundState(props: NotFoundStateProps): JSX.Element {
           </a>
         )}
       </Show>
-    </main>
+    </div>
   );
 }
 

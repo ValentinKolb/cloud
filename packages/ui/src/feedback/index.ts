@@ -3,16 +3,10 @@ export { createDialogCore, dialogCore } from "./dialog-core";
 export type {
   DialogOptions,
   FieldSchema,
-  InferFieldType,
-  InferFormValues,
-  PromptContent,
-  PromptField,
-  PromptFormOptions,
-  PromptFormValue,
+  PromptFieldBase,
   PromptSearchInput,
   PromptSearchItem,
   PromptSearchOptions,
-  PromptSearchResult,
 } from "./prompts";
 export { createFormState, DialogHeader, prompts } from "./prompts";
 export type { TooltipPlacement, TooltipProps } from "./Tooltip";

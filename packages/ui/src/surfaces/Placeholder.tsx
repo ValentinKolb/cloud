@@ -18,15 +18,12 @@ export type PlaceholderProps = {
   class?: string;
 };
 
-const defaultIcon = (state: PlaceholderState): string | undefined =>
-  state === "loading" ? "ti ti-loader-2" : state === "error" ? "ti ti-alert-circle" : undefined;
-
 export default function Placeholder(props: PlaceholderProps): JSX.Element {
   const align = () => props.align ?? "center";
   const state = () => props.state ?? "empty";
   const variant = () => props.variant ?? "compact";
   const description = () => props.description ?? props.children;
-  const icon = () => props.icon ?? defaultIcon(state());
+  const icon = () => props.icon ?? (state() === "loading" ? "ti ti-loader-2" : state() === "error" ? "ti ti-alert-circle" : undefined);
 
   return (
     <div
@@ -41,8 +38,8 @@ export default function Placeholder(props: PlaceholderProps): JSX.Element {
     >
       <Show when={icon()}>
         {(iconClass) => (
-          <span class="k2b-placeholder__icon" aria-hidden="true">
-            <i class={iconClass()} />
+          <span class="k2b-placeholder__icon">
+            <i class={iconClass()} aria-hidden="true" />
           </span>
         )}
       </Show>

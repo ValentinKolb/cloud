@@ -2,11 +2,12 @@
  * Package-wide guard for the two class-name contracts that the Cloud extraction
  * broke silently and repeatedly.
  *
- * 1. `styles/entry.css` only does `@reference "tailwindcss"` — it never imports
- *    Tailwind — so the built stylesheet contains no generic utilities. A Cloud
- *    utility left in a component's markup (`flex`, `gap-2`, `text-zinc-600`, …)
- *    therefore styles nothing for a standalone consumer. This is exactly how the
- *    whole `src/content` group shipped structurally unstyled.
+ * 1. `styles/entry.css` imports the package-owned source sheets. Those sources
+ *    may `@reference "tailwindcss"` for compile-time symbols, but never import
+ *    Tailwind's generated utilities, so the built stylesheet contains no generic
+ *    utilities. A Cloud utility left in component markup (`flex`, `gap-2`,
+ *    `text-zinc-600`, …) therefore styles nothing for a standalone consumer.
+ *    This is exactly how the whole `src/content` group shipped structurally unstyled.
  * 2. The package may only own `k2b-`-prefixed class names inside the `.k2b-ui`
  *    scope. An unprefixed name (`.input`, `.paper`, `.segmented-control`, …)
  *    silently restyles a consumer's own markup.
@@ -48,7 +49,7 @@ const isForeignContract = (token: string) =>
   token === "ti" || token.startsWith("ti-") || token.startsWith("cd-") || token.startsWith("md-") || token.startsWith("stdlib-");
 
 /** Deliberate marker classes composed onto an already-styled base. */
-const HOOK_CLASSES = new Set(["k2b-copy-button", "k2b-toast-container"]);
+const HOOK_CLASSES = new Set(["k2b-copy-button"]);
 
 /**
  * `is-*` / `has-*` state modifiers are the package's own convention and are
