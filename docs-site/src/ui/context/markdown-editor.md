@@ -1,6 +1,6 @@
 # MarkdownEditor
 
-`MarkdownEditor` is the standalone editor behind markdown-enabled Cloud inputs. It owns editing behavior and visual highlighting. The parent owns the document value, validation, persistence, and submission flow.
+`MarkdownEditor` is a standalone controlled editor for Markdown content. It owns editing behavior and visual highlighting. The parent owns the document value, validation, persistence, and submission flow.
 
 ## Use MarkdownEditor
 
@@ -14,22 +14,24 @@ Use `TextInput` with markdown mode when the editor belongs to a labeled form fie
 import {
   MarkdownEditor,
   type MarkdownEditorProps,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Value and events
 
-Pass a Solid accessor to `value`. `onInput` runs after every edit and is the normal controlled-state path.
-
-`onChange` runs when the underlying textarea commits its change, normally on blur. `onSubmit` runs only for <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd>. Bare Enter always inserts or continues a line.
+Pass the current string directly or through a Solid accessor.
+`onValueChange` runs after every edit and `onValueCommit` runs when the
+underlying textarea commits its change, normally on blur. `onSubmit` runs only
+for <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd>. Bare Enter always inserts
+or continues a line.
 
 ## Core properties
 
 | Property | Type | Default | Purpose |
 | --- | --- | --- | --- |
-| `value` | `() => string \| null \| undefined` | empty | Supplies the current document. |
-| `onInput` | `(value: string) => void` | none | Receives every edit. |
-| `onChange` | `(value: string) => void` | none | Receives committed textarea changes. |
+| `value` | `string \| null \| Accessor<string \| null>` | empty | Supplies the current document. |
+| `onValueChange` | `(value: string) => void` | none | Receives every edit. |
+| `onValueCommit` | `(value: string) => void` | none | Receives committed textarea changes. |
 | `onSubmit` | `() => void` | none | Handles Ctrl/Cmd+Enter. |
 | `placeholder` | `string` | none | Labels an empty editor visually. |
 | `disabled` | `boolean` | `false` | Disables editing and toolbar actions. |
@@ -37,17 +39,20 @@ Pass a Solid accessor to `value`. `onInput` runs after every edit and is the nor
 | `maxLength` | `number` | none | Applies the native textarea limit. |
 | `spellcheck` | `boolean` | `true` | Controls browser spellcheck. |
 | `noToolbar` | `boolean` | `false` | Hides the toolbar without disabling shortcuts. |
-| `showStats` | `boolean` | `true` | Shows line, word, and character counts. |
+| `showStats` | `boolean` | `true` | Shows line, word, and character counts. Suppressed entirely while `disabled`. |
 | `variant` | `"default" \| "paper"` | `"default"` | Matches the editor surface to its parent. |
 | `fill` | `boolean` | `false` | Fills the available parent height instead of using `lines`. |
 
-Native form and accessibility properties include `name`, `id`, `ariaLabel`, `ariaDescribedBy`, `ariaInvalid`, and `ariaRequired`.
+Native form and accessibility properties include `name`, `id`, `"aria-label"`,
+`"aria-describedby"`, `required`, plus the shared `label`, `description`, and
+`error` field state.
 
 ## Save controls
 
 Pass `onSave` to add a save action and enable <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>S</kbd>.
 
-`saveDisabled` and `saving` are reactive accessors. `toolbarTrailing` adds related controls beside the save action.
+`saveDisabled` and `saving` are direct booleans. `toolbarTrailing` adds related
+controls beside the save action.
 
 Persistence remains outside the component. Debounce or queue writes in the owning application.
 
@@ -57,19 +62,33 @@ Persistence remains outside the component. Debounce or queue writes in the ownin
 
 When both are present, abbreviations run first and the explicit completion definitions are appended.
 
-Completions do not expand inside inline code or fenced code blocks.
+Tab accepts the active suggestion. Dropdown completions add arrow-key
+navigation, Enter acceptance, Escape dismissal, and retryable loading and error
+states. A new query aborts stale asynchronous work. Completions do not expand
+inside inline code or fenced code blocks.
 
 ## Editing behavior
 
 The editor keeps a native textarea as the input surface. A synchronized presentation layer provides markdown highlighting without replacing browser selection, composition, or undo behavior.
 
-It includes formatting shortcuts, list continuation, smart URL paste, IME-safe input, and synchronized scrolling.
+The toolbar covers bold, italic, inline code, links, three heading levels,
+bulleted and numbered lists, and quotes. It includes matching keyboard
+shortcuts, list continuation and exit, smart URL paste, IME-safe input, active
+format detection, synchronized scrolling, and optional line, word, and
+character statistics.
 
 ## Accessibility
 
-Provide `ariaLabel` when no visible label points to the editor. Use `ariaDescribedBy` for help or error text and `ariaInvalid` for invalid state.
+Prefer `label`, `description`, and `error`. When surrounding UI already
+provides the field chrome, use `"aria-label"` and `"aria-describedby"` with
+their native hyphenated names.
 
-The toolbar uses one tab stop and arrow-key navigation. Formatting buttons expose their active state. The presentation layer is hidden from assistive technology.
+The toolbar uses one tab stop plus Left, Right, Home, and End navigation.
+Formatting buttons expose active state through `aria-pressed`. The textarea
+uses combobox semantics when completions are configured; an open dropdown is a
+linked listbox with an active descendant and selected options. Loading uses a
+status, failures use an alert, and the presentation layer is hidden from
+assistive technology.
 
 ## Runtime
 
@@ -81,9 +100,9 @@ The toolbar uses one tab stop and arrow-key navigation. Formatting buttons expos
 const [body, setBody] = createSignal("");
 
 <MarkdownEditor
-  ariaLabel="Note"
-  value={body}
-  onInput={setBody}
+  label="Note"
+  value={body()}
+  onValueChange={setBody}
   lines={10}
   placeholder="Write a note…"
 />;

@@ -1,76 +1,98 @@
-# Button utilities
+# Buttons and SpotlightButton
 
-Cloud button classes provide consistent action hierarchy, sizing, focus, disabled, and pressed states. The button element and its behavior remain application code.
+`Button` and `IconButton` provide one semantic action hierarchy with consistent focus, disabled, and loading behavior. They are package foundations for portable interfaces, not migrations of Cloud `Button` components.
 
-## Use button utilities
+`SpotlightButton` is the migrated launcher for a shared search prompt. It keeps one shortcut and accessible-name contract across navigation contexts.
 
-Use one semantic variant and its matching size:
+## Use Buttons
 
-- `btn-primary` for the main forward or write action;
-- `btn-secondary` for supporting actions;
-- `btn-simple` for quiet toolbar or progressive actions;
-- `btn-danger` for destructive actions;
-- `btn-success` or `btn-success-subtle` only when success is the action's meaning;
-- `btn-ai` only for controls that open, run, or configure AI.
+Use `Button` for visible action text. Use `IconButton` only when the icon is familiar and space is constrained.
+
+Choose `primary` for the main forward action, `secondary` for supporting actions, `ghost` for quiet toolbar actions, `danger` for destructive work, and `success` only when success is the action's meaning.
 
 ## Import
 
-Load the Cloud stylesheet once from the application entry:
-
-```ts
-import "@valentinkolb/cloud/styles/global.css";
+```tsx
+import { Button, IconButton } from "@k2b/ui";
 ```
 
-The classes are CSS utilities, not JavaScript exports.
+## Properties
 
-## Supported classes
+`size` accepts `sm`, `md`, or `lg`. `loading` disables the action, adds busy semantics, and can replace the visible label through `loadingLabel`.
 
-| Family | Classes | Purpose |
-| --- | --- | --- |
-| Action size | `btn-sm`, `btn-md` | Size an action button. |
-| Action tone | `btn-primary`, `btn-secondary`, `btn-simple`, `btn-danger`, `btn-success`, `btn-success-subtle`, `btn-ai` | Set action hierarchy or semantics. |
-| Input size | `btn-input-sm`, `btn-input-md` | Size an input-shaped button. |
-| Input control | `btn-input`, `btn-input-recessed` | Raised inline action or recessed picker trigger. |
-| Input state | `btn-input-active`, `btn-input-primary`, `btn-input-success`, `btn-input-ai` | Active or semantic input-shaped controls. |
-| Segment | `btn-segment`, `btn-segment-icon` | Compact toolbar segments. |
-| Icon | `icon-btn`, `icon-btn-ai` | Fixed-size icon-only actions. |
+`Button` defaults to `primary`. `IconButton` defaults to `ghost` so a bare icon reads as a quiet toolbar action; pass `variant` explicitly to raise it.
 
-`btn-base` and `focus-ui` are foundations used by the shared stylesheet. Application buttons should use the semantic classes above.
+All native button attributes pass through. The default `type` is `button`, so form submission is always explicit.
 
-Set `aria-pressed="true"` on a toggled `icon-btn` or `icon-btn-ai`.
+## Launch spotlight search
 
-## Composition
+```tsx
+import {
+  isSpotlightShortcut,
+  openSpotlightSearch,
+  SpotlightButton,
+  type SpotlightSearchResolver,
+} from "@k2b/ui";
+```
 
-Put search or flexible content before the action group. Keep the secondary action next to the primary action and allow the group to wrap below on narrow screens.
+`SpotlightButton` accepts `default`, `compact`, `chip`, `sidebar`, `sidebar-mobile`, and `icon` variants. Compact and icon variants retain the label as their accessible name. Chip and sidebar variants show the shortcut unless `shortcutLabel={false}`.
 
-Icons supplement action text. Use icon-only buttons only when the icon is familiar and space is constrained.
+`isSpotlightShortcut` recognizes Command+Shift+K and Control+Shift+K. `openSpotlightSearch` opens the portable search prompt with a zero-character minimum query by default. The caller supplies the resolver and handles the selected item.
 
 ## Accessibility
 
-Use a real `<button type="button">` or an anchor for navigation. Icon-only buttons need `aria-label`; a tooltip may explain the icon but does not replace the accessible name.
+Use action-oriented labels. `IconButton` requires `label`; it supplies both the accessible name and title.
 
-Keep `disabled` on the native button while work cannot run.
+Do not replace disabled state with styling. Loading actions remain native disabled buttons and expose `aria-busy`.
 
 ## Runtime
 
-The utilities render correctly in server HTML. Hydration is required only for the application event handler or toggled state.
+Buttons render complete server HTML. Loading and click behavior require hydration only when their state or handlers are client-owned.
+
+`SpotlightButton` also renders complete server HTML. Opening the prompt and handling the global shortcut require hydrated browser code.
 
 ## Example
 
 ```tsx
-<div class="flex items-center gap-2">
-  <button type="button" class="btn-secondary btn-sm">
-    Cancel
-  </button>
-  <button type="submit" class="btn-primary btn-sm">
+import {
+  Button,
+  IconButton,
+  openSpotlightSearch,
+  SpotlightButton,
+  type SpotlightSearchResolver,
+} from "@k2b/ui";
+
+const projects = [
+  { label: "Atlas", desc: "Customer portal", value: "atlas" },
+  { label: "Beacon", desc: "Operations dashboard", value: "beacon" },
+];
+
+const resolveProjects: SpotlightSearchResolver<string> = ({ query }) => {
+  const normalizedQuery = query.trim().toLowerCase();
+  return projects.filter((project) =>
+    `${project.label} ${project.desc}`.toLowerCase().includes(normalizedQuery),
+  );
+};
+
+const openProjectSearch = async () => {
+  await openSpotlightSearch<string>({
+    title: "Open project",
+    resolve: resolveProjects,
+  });
+};
+
+<>
+  <Button variant="primary" loading={saving()} loadingLabel="Saving">
     Save
-  </button>
-  <button
-    type="button"
-    class="icon-btn"
-    aria-label="More actions"
-  >
-    <i class="ti ti-dots" aria-hidden="true" />
-  </button>
-</div>
+  </Button>
+
+  <IconButton label="Project settings" variant="ghost">
+    <i class="ti ti-settings" aria-hidden="true" />
+  </IconButton>
+
+  <SpotlightButton
+    variant="chip"
+    onClick={openProjectSearch}
+  />
+</>
 ```

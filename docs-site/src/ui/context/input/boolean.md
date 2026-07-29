@@ -1,6 +1,7 @@
 # Boolean inputs
 
-Cloud provides `Switch`, `Checkbox`, and `CheckboxCard` for controlled boolean values. The parent owns the value, validation, and persistence.
+`@k2b/ui` provides `Switch`, `Checkbox`, and `CheckboxCard` for controlled
+boolean values. The parent owns the value, validation, and persistence.
 
 ## Use boolean inputs
 
@@ -15,18 +16,21 @@ import {
   Checkbox,
   CheckboxCard,
   Switch,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## State and variants
 
-All three components read a boolean accessor through `value` and emit the next boolean through `onChange`.
+All three components accept `value` directly or as a Solid accessor. Because a
+native boolean choice is atomic, each change reports the next value through
+both `onValueChange` and `onValueCommit`.
 
-`Switch` supports `label` and `disabled`. It does not render description, error, or required state.
+All three support the shared `label`, `description`, reactive `error`,
+`required`, and `disabled` field state.
 
-`Checkbox` adds `description`, reactive `error`, and `required`.
-
-`CheckboxCard` requires a text or JSX `label` and supports the same form state as `Checkbox`. Add either `icon` or a valid three- or six-digit hex `color` as supporting context. `variant="input"` uses the denser input surface; the default is `"card"`.
+`CheckboxCard` takes a text or JSX `label`. Add either `icon` or a valid three-
+or six-digit hex `color` as supporting context. `variant="input"` uses the
+denser input surface; the default is `"card"`.
 
 ## Accessibility
 
@@ -47,7 +51,7 @@ const [review, setReview] = createSignal(false);
 <Switch
   label="Notifications"
   value={notifications}
-  onChange={setNotifications}
+  onValueChange={setNotifications}
 />;
 
 <CheckboxCard
@@ -55,6 +59,6 @@ const [review, setReview] = createSignal(false);
   description="Require approval before publishing."
   icon="ti ti-eye-check"
   value={review}
-  onChange={setReview}
+  onValueChange={setReview}
 />;
 ```

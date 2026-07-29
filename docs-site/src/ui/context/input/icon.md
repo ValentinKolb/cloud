@@ -11,18 +11,25 @@ Pass `options` when the domain should expose only a curated subset.
 ## Import
 
 ```tsx
-import { IconInput } from "@valentinkolb/cloud/ui";
+import { DEFAULT_ICON_OPTIONS, IconInput } from "@k2b/ui";
 ```
+
+`IconInput` uses `DEFAULT_ICON_OPTIONS` when `options` is omitted. Pass a
+domain-specific list only when the application needs a narrower vocabulary.
 
 ## Value and search
 
 The controlled `value` is the complete Tabler class string, for example `"ti ti-currency-euro"`. Render it directly with `<i class={icon()}>`.
 
-`onChange` receives the next class string. Empty selection is allowed by default through `clearable`.
+`onValueChange` receives the next class string or `null`. Empty selection is
+allowed by default through `clearable`. Omit `options` for the shared default
+catalogue, or pass an explicit catalogue to limit the available icons.
 
 Search is local and matches labels and synonyms with fuzzy filtering. `searchLimit` defaults to `50` for non-empty searches. Opening the picker with an empty query shows the full catalogue alphabetically.
 
-Relevant properties are `label`, `description`, `placeholder`, `value`, `onChange`, `error`, `required`, `clearable`, `disabled`, `options`, and `searchLimit`.
+Relevant properties are `label`, `description`, `placeholder`, `value`,
+`onValueChange`, `error`, `required`, `clearable`, `disabled`, `options`, and
+`searchLimit`.
 
 ## Accessibility
 
@@ -37,11 +44,21 @@ The picker uses the interactive `Select` component and local fuzzy search, so it
 ## Example
 
 ```tsx
-const [icon, setIcon] = createSignal<string | undefined>(
+const [icon, setIcon] = createSignal<string | null>(
   "ti ti-star",
 );
 
-<IconInput label="Icon" value={icon} onChange={setIcon} />;
+const icons = [
+  { value: "ti ti-star", label: "Star", keywords: ["favorite"] },
+  { value: "ti ti-box", label: "Box", keywords: ["package"] },
+];
+
+<IconInput
+  label="Icon"
+  options={icons}
+  value={icon()}
+  onValueChange={setIcon}
+/>;
 
 <i class={icon()} aria-hidden="true" />;
 ```

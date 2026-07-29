@@ -16,18 +16,23 @@ import {
   type Completion,
   type SuggestContext,
   type Suggestion,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Value and submission
 
-Pass the current text as an accessor and update it with `onInput`. `onChange` receives committed textarea changes.
+Pass the current text directly or through a Solid accessor.
+`onValueChange` receives every edit and `onValueCommit` receives committed
+textarea changes.
 
 Multiline mode is the default. In this mode, <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd> calls `onSubmit`. With `singleLine`, bare Enter submits and newlines are disabled.
 
 ## Completions
 
-Each `Completion` has an optional trigger and a `suggest` function. The function receives the current query, surrounding text context, and an `AbortSignal`. It may return suggestions immediately or as a promise.
+Each `Completion` has an optional trigger and a `suggest` function. The
+function receives `(query, context, signal)` and may return suggestions
+immediately or as a promise. `context` contains the complete text, caret, and
+token start. Use the signal to cancel remote work.
 
 Set `dropdown: true` to show all matches. Without it, the active suggestion appears as a ghost preview. Tab accepts the active suggestion; dropdowns also support arrow keys and Enter.
 
@@ -37,9 +42,14 @@ Use `debounceMs` for remote lookups. A new query aborts the previous request. `a
 
 ## Accessibility
 
-Pass `ariaLabel` when no external label identifies the editor. Use `ariaDescribedBy`, `ariaInvalid`, and `ariaRequired` to connect surrounding field help and validation.
+Prefer `label`, `description`, `error`, and `required` for field semantics. If
+the surrounding UI supplies the label instead, pass `"aria-label"` and
+`"aria-describedby"` using their native hyphenated names.
 
-The editor exposes combobox, listbox, active-option, and expanded state semantics. Suggestion labels and hints must make sense without color alone.
+The textarea exposes combobox, listbox ownership, active-descendant, and
+expanded state semantics. The popup uses selected options, a loading status,
+and an alert with retry for failed asynchronous work. Suggestion labels and
+hints must make sense without color alone.
 
 ## Runtime
 
@@ -57,13 +67,18 @@ const mentions: Completion = {
   suggest: (query) =>
     users
       .filter((user) => user.startsWith(query.toLowerCase()))
-      .map((user) => ({ text: `@${user}`, hint: "user" })),
+      .map((user) => ({
+        text: `@${user}`,
+        label: user,
+        hint: "user",
+      })),
 };
 
 <AutocompleteEditor
-  ariaLabel="Message"
-  value={message}
-  onInput={setMessage}
+  label="Message"
+  description="Type @ to mention someone."
+  value={message()}
+  onValueChange={setMessage}
   lines={4}
   completions={[mentions]}
 />;

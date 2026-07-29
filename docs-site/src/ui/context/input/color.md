@@ -11,18 +11,22 @@ Use predefined buttons, swatches, or `Select` when the product supports a fixed 
 ## Import
 
 ```tsx
-import { ColorInput } from "@valentinkolb/cloud/ui";
+import { ColorInput } from "@k2b/ui";
 ```
 
 ## Value and display
 
-Pass the color as an accessor and update it through `onChange`. Without a value, the control displays `#3b82f6`.
+Pass the color directly or through a Solid accessor. `onValueChange` receives
+native picker input while `onValueCommit` receives the committed native change.
+Without a value, the control displays `#3b82f6`.
 
 With a label, the default full control shows the swatch and uppercase color value. Without a label, it defaults to a compact swatch. Set `compact` explicitly to override that choice.
 
 ## Transparent state
 
-On the full control, `transparent` enables a transparent toggle. The parent must also provide the current state through `isTransparent` and update it through `onTransparentChange`. Compact mode renders only the color swatch.
+On the full control, `transparent` enables a transparent toggle. The parent
+provides that state through the `isTransparent` accessor and updates it through
+`onTransparentChange`. Compact mode renders only the color swatch.
 
 Transparency is separate from the color value. Enabling it disables the native color picker but keeps the last color available for switching back.
 
@@ -45,9 +49,9 @@ const [transparent, setTransparent] = createSignal(false);
 <ColorInput
   label="Accent"
   value={color}
-  onChange={setColor}
+  onValueChange={setColor}
   transparent
-  isTransparent={transparent}
-  onTransparentChange={setTransparent}
+  transparentValue={transparent}
+  onTransparentValueChange={setTransparent}
 />;
 ```

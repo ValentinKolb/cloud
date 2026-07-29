@@ -55,6 +55,58 @@
   color: var(--c-ink);
 }
 
+.ui-catalog-groups,
+.ui-catalog-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.ui-catalog-groups {
+  gap: clamp(4rem, 8vw, 7rem);
+}
+
+.ui-catalog-group {
+  gap: 2.5rem;
+}
+
+.ui-catalog-group-heading {
+  max-width: 52rem;
+}
+
+.ui-catalog-group-heading p,
+.ui-catalog-group-heading h2,
+.ui-catalog-group-heading span {
+  margin: 0;
+}
+
+.ui-catalog-group-heading p {
+  color: var(--c-accent-ink);
+  font-family: var(--c-mono);
+  font-size: 0.74rem;
+}
+
+.ui-catalog-group-heading h2 {
+  margin-top: 0.55rem;
+  color: var(--c-ink);
+  font-family: var(--c-display);
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
+  font-weight: 560;
+  letter-spacing: -0.02em;
+}
+
+.ui-catalog-group-heading span {
+  display: block;
+  max-width: 62ch;
+  margin-top: 0.75rem;
+  color: var(--c-muted);
+  line-height: 1.65;
+}
+
+.ui-catalog-group[data-scope="cloud"] {
+  padding-top: clamp(2.5rem, 5vw, 4rem);
+  border-top: 1px solid var(--c-line-2);
+}
+
 .ui-catalog-directory {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -76,12 +128,12 @@
   margin-bottom: 1.25rem;
 }
 
-.ui-catalog-section h2,
+.ui-catalog-section h3,
 .ui-catalog-section p {
   margin: 0;
 }
 
-.ui-catalog-section h2 {
+.ui-catalog-section h3 {
   color: var(--c-ink);
   font-family: var(--c-display);
   font-size: 1.25rem;
@@ -195,8 +247,284 @@
   min-width: 0;
 }
 
-.ui-reference-playground .ui-demo-grid > .grid {
-  grid-template-columns: minmax(0, 1fr);
+.ui-demo-scope {
+  min-width: 0;
+  padding: clamp(0.75rem, 2vw, 1.25rem);
+  border-radius: 0.9rem;
+}
+
+/*
+ * ChatTimeline is `flex: 1; min-height: 0` and its viewport is `height: 100%`,
+ * so the package expects a bounded flex column from the host. The showcase
+ * supplies exactly that and nothing more — it does not hand the timeline an
+ * explicit row height, so a timeline that fails to claim the free space stays
+ * visible as a package defect.
+ */
+.ui-chat-demo {
+  display: flex;
+  height: min(36rem, 80vh);
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ui-widget-demo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.ui-demo-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.ui-demo-form-grid,
+.ui-demo-context-target,
+.ui-theme-demo__swatches,
+.ui-template-demo {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.ui-demo-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ui-demo-context-target,
+.ui-theme-demo {
+  padding: 1rem;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-control);
+  background: var(--k2b-surface-muted);
+}
+
+.ui-theme-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.ui-theme-demo__swatches {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ui-theme-demo__swatches > div {
+  display: flex;
+  min-height: 4rem;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  border-radius: var(--k2b-radius-control);
+  background: var(--k2b-surface);
+  box-shadow: inset 0 0 0 1px var(--k2b-border);
+}
+
+.ui-theme-demo__swatches > div span,
+.ui-theme-demo__swatches > div code {
+  display: block;
+  overflow: hidden;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-theme-demo__swatches > div code {
+  color: var(--k2b-text-muted);
+}
+
+.ui-theme-demo__swatches > div[data-token="action"] {
+  color: #fff;
+  background: var(--k2b-action);
+}
+
+.ui-theme-demo__swatches > div[data-token="action"] code {
+  color: inherit;
+}
+
+.ui-theme-demo__swatches > div[data-token="text"] {
+  color: var(--k2b-text);
+  background: var(--k2b-surface-muted);
+}
+
+.ui-theme-demo__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.ui-workspace-demo,
+.ui-panes-demo,
+.ui-settings-demo,
+.ui-template-demo {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-surface);
+  background: var(--k2b-surface);
+}
+
+.ui-workspace-demo {
+  height: min(34rem, 70vh);
+}
+
+.ui-panes-demo {
+  height: min(26rem, 62vh);
+}
+
+.ui-pane-body {
+  display: grid;
+  min-width: 0;
+  min-height: 100%;
+  place-items: center;
+  color: var(--k2b-text-muted);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--ui-pane-tone) 10%, var(--k2b-surface)), var(--k2b-surface));
+}
+
+.ui-pane-body[data-tone="blue"] { --ui-pane-tone: #3b82f6; }
+.ui-pane-body[data-tone="violet"] { --ui-pane-tone: #8b5cf6; }
+.ui-pane-body[data-tone="emerald"] { --ui-pane-tone: #10b981; }
+
+.ui-pane-body > span {
+  font-family: var(--k2b-font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  opacity: 0.68;
+}
+
+.ui-settings-demo {
+  min-height: 24rem;
+}
+
+.ui-demo-pane {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 1rem;
+  color: var(--k2b-text-muted);
+  background: var(--k2b-surface-muted);
+}
+
+/*
+ * Chart is `display: block` with no intrinsic height by design; the package
+ * documents `style={{ height }}` as the caller's job. The showcase therefore
+ * only stacks the examples and lets each <Chart> carry its own height, so a
+ * chart that fails to size itself stays visible as a package defect.
+ */
+.ui-chart-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.ui-crop-demo {
+  display: grid;
+  max-width: 34rem;
+  gap: 0.85rem;
+}
+
+.ui-pdf-demo {
+  min-height: 10rem;
+}
+
+.ui-template-demo {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  padding: 0.75rem;
+}
+
+.ui-showcase-frame {
+  position: relative;
+  min-width: 0;
+  padding: 1.25rem 0.75rem 0.75rem;
+  border: 1px dashed var(--k2b-border-strong);
+  border-radius: var(--k2b-radius-control);
+}
+
+.ui-showcase-frame > span:first-child {
+  position: absolute;
+  top: -0.5rem;
+  left: 0.65rem;
+  padding-inline: 0.35rem;
+  color: var(--k2b-text-muted);
+  background: var(--k2b-surface);
+  font-family: var(--k2b-font-mono);
+  font-size: 0.625rem;
+}
+
+.ui-template-demo > :last-child {
+  grid-column: 1 / -1;
+}
+
+.ui-data-panel-demo-body {
+  padding: 0.75rem;
+}
+
+/* Tooltip demo: pushes the second trigger to the far edge so the viewport
+ * clamping the component performs is actually observable. */
+.ui-tooltip-demo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/*
+ * Caller-owned dialog body for `prompts.dialog(..., { surface: "bare" })`.
+ * `surface: "bare"` means the package deliberately supplies no surface, so this
+ * has to be showcase-owned chrome — it is what an application would write.
+ */
+.ui-dialog-demo-surface {
+  padding: 1rem;
+  border-radius: var(--k2b-radius-surface);
+  color: var(--k2b-text);
+  background: var(--k2b-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 12px 32px rgb(0 0 0 / 0.18), inset 0 0 0 1px var(--k2b-border);
+}
+
+.ui-dialog-demo-surface > h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.ui-dialog-demo-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.75rem 0 0;
+  color: var(--k2b-text-secondary);
+  font-size: 0.85rem;
+}
+
+.ui-dialog-demo-body p {
+  margin: 0;
+}
+
+.ui-dialog-demo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/*
+ * Demonstrates StatCell's caller-supplied `valueClass` escape hatch. It only
+ * sets a colour on the value the application opted into; it does not restyle
+ * any component chrome.
+ */
+.ui-stat-attention {
+  color: #b45309;
+}
+
+.k2b-ui[data-theme="dark"] .ui-stat-attention,
+.k2b-ui.k2b-dark .ui-stat-attention,
+.dark .k2b-ui .ui-stat-attention {
+  color: #fbbf24;
 }
 
 .ui-reference-body {
@@ -279,12 +607,100 @@
   font-family: var(--c-mono);
 }
 
+.ui-documentation :where(li, p) {
+  min-width: 0;
+}
+
+.ui-documentation :not(pre) > code {
+  overflow-wrap: anywhere;
+}
+
 .ui-demo-grid {
   min-width: 0;
 }
 
-.ui-demo-grid > .grid,
-.ui-demo-grid > .grid > * {
+/*
+ * Showcase framing. It deliberately sits on the canvas tone rather than the
+ * package's own `--k2b-surface`, so a component that renders its own paper
+ * surface stays visually distinct from the card that frames it.
+ */
+.ui-demo-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
+  padding: clamp(0.9rem, 2vw, 1.25rem);
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-surface);
+  background: var(--k2b-surface-canvas);
+}
+
+.ui-demo-card__header,
+.ui-demo-card__preview {
+  min-width: 0;
+}
+
+.ui-demo-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ui-demo-card__header p {
+  margin: 0;
+  color: var(--k2b-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.ui-demo-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.ui-demo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.5rem;
+  border: 1px solid var(--k2b-border);
+  border-radius: 999px;
+  color: var(--k2b-text-secondary);
+  background: var(--k2b-surface-muted);
+  font-family: var(--k2b-font-mono);
+  font-size: 0.68rem;
+}
+
+.ui-demo-chip small {
+  color: var(--k2b-text-muted);
+}
+
+.ui-demo-card__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/*
+ * Showcase-owned demo scaffolding (DemoGrid). Portable catalog pages load only
+ * the package stylesheet, which ships no Tailwind utilities, so this layout has
+ * to be spelled out here rather than with `grid grid-cols-1 gap-3`.
+ */
+.ui-demo-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 80rem) {
+  .ui-demo-stack[data-columns="two"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.ui-demo-stack,
+.ui-demo-stack > * {
   min-width: 0;
   width: 100%;
   max-width: 100%;
@@ -341,4 +757,25 @@
     gap: 1.25rem;
   }
 
+  .ui-widget-demo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ui-demo-form-grid,
+  .ui-theme-demo__swatches,
+  .ui-template-demo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ui-template-demo > :last-child {
+    grid-column: auto;
+  }
+
+  .ui-workspace-demo {
+    height: 30rem;
+  }
+
+  .ui-panes-demo {
+    height: 24rem;
+  }
 }

@@ -1,81 +1,78 @@
-# Surface Utilities
+# Theme and styles
 
-Cloud surface utilities provide the shared border, radius, spacing, and elevation rules for small pieces of application UI. They are CSS classes, so the element and its semantics remain owned by the application.
+`@k2b/ui` ships precompiled component CSS without a global reset. Every selector is scoped below `.k2b-ui`, so the package can be embedded in an existing SSR application.
 
-## Use surface utilities
+## Use theme and styles
 
-Use a utility when the UI is structurally simple and no shared component owns the behavior.
-
-Prefer a component when the element needs state, accessibility behavior, or a stable composition contract. In particular, use `PanelDialog` or `prompts` instead of building a complex dialog from `dialog-panel`.
+Load the stylesheet once and wrap the part of the page that renders package components. Nested applications can override tokens on their own `.k2b-ui` scope without changing the surrounding page.
 
 ## Import
 
 ```ts
-import "@valentinkolb/cloud/ui/styles.css";
+import "@k2b/ui/styles.css";
 ```
 
-## Properties
+Optional IBM Plex and Tabler presets are separate assets:
 
-These classes provide only the CSS behavior listed below. They do not add component state or element semantics.
+```ts
+import "@k2b/ui/fonts/plex.css";
+import "@k2b/ui/icons/tabler.css";
+```
 
-### Surfaces and layout
+## Theme tokens
 
-| Class | Purpose |
-| --- | --- |
-| `paper` | Bordered application surface with the shared radius, background, and surface shadow. |
-| `thumbnail` | Rounded, clipped media or icon container. Size and background stay with the caller. |
-| `popup` | Floating surface with the shared border and floating shadow. Positioning stays with the caller. |
-| `dialog-panel` | Centered, viewport-bounded dialog surface for a native `<dialog>`. |
-| `app-cols` | Stacks children vertically, then switches to a horizontal layout at the large breakpoint. |
-| `app-rows` | Vertical flex layout with the shared row gap. |
+Override fonts through `--k2b-font-sans`, `--k2b-font-condensed`, and `--k2b-font-mono`.
 
-### Labels and detail rows
+Accent, neutral, success, warning, and danger stacks are CSS variables. Semantic aliases such as `--k2b-action`, `--k2b-surface`, `--k2b-text`, and `--k2b-border` derive from those stacks.
 
-| Class | Purpose |
-| --- | --- |
-| `text-label` | Standard form or metadata label text. |
-| `detail-row` | One compact line for an email address, phone number, URL, or simple fact. |
-| `detail-row-icon` | Fixed-width leading icon inside `detail-row`. |
-| `detail-row-label` | Truncated secondary label inside `detail-row`. |
-| `detail-facts` | Two-column definition-list layout for compact key/value facts. |
+Override a complete stack when its semantic aliases use several steps for hover, focus, selected, light, and dark states. Changing custom properties at runtime updates the scoped components immediately; the package does not maintain a separate theme store.
 
-`detail-facts` supplies the grid only. Use native `<dt>` and `<dd>` elements so the relationship between keys and values remains explicit.
+AI presentation has a separate semantic theme:
+`--k2b-ai-accent`, `--k2b-ai-accent-hover`, `--k2b-ai-border`,
+and `--k2b-ai-surface`. Override these roles when the assistant identity should
+differ from the general application accent.
 
-### Input-style buttons
-
-| Class | Purpose |
-| --- | --- |
-| `btn-input` | Base control with shared hover, focus, pressed, and disabled states. |
-| `btn-input-sm` | Small control height and padding. |
-| `btn-input-md` | Medium control height and padding. |
-| `btn-input-active` | Selected treatment for an active control. |
-
-Compose the base class with one size and, when applicable, the active modifier.
+Use `data-theme="dark"` or `k2b-dark` on the scope, or place it inside a host `.dark` element.
 
 ## Accessibility
 
-CSS utilities do not add roles, labels, keyboard handling, or focus order. Keep native elements: links for navigation, buttons for actions, definition lists for facts, and `<dialog>` for dialogs.
+Keep contrast between semantic text and surfaces when overriding color stacks. Focus, danger, success, and warning treatments must remain distinguishable without relying on hue alone.
 
-Color and icons may support meaning, but visible text must state it.
+Do not remove component focus treatments or reduced-motion behavior.
 
 ## Runtime
 
-These utilities need no JavaScript. They render in SSR output and respond to the document's light or dark theme through shared CSS variables and dark-mode rules.
+The styles need no JavaScript. Theme variables work in the initial server response and do not read Cloud state or browser storage. An application may still update those variables from an island when it offers an interactive theme picker.
 
 ## Example
 
 ```tsx
-<div class="paper app-rows p-4">
-  <p class="text-label">Contact</p>
+import { Button } from "@k2b/ui";
+import { createSignal, type JSX } from "solid-js";
 
-  <a class="detail-row" href="mailto:team@example.org">
-    <i class="ti ti-mail detail-row-icon" aria-hidden="true" />
-    <span class="detail-row-label">Work</span>
-    <span>team@example.org</span>
-  </a>
+const violetAccent = {
+  "--k2b-accent-50": "#f5f3ff",
+  "--k2b-accent-100": "#ede9fe",
+  "--k2b-accent-200": "#ddd6fe",
+  "--k2b-accent-300": "#c4b5fd",
+  "--k2b-accent-400": "#a78bfa",
+  "--k2b-accent-500": "#8b5cf6",
+  "--k2b-accent-600": "#7c3aed",
+  "--k2b-accent-700": "#6d28d9",
+  "--k2b-accent-800": "#5b21b6",
+  "--k2b-accent-900": "#4c1d95",
+  "--k2b-accent-950": "#2e1065",
+} as JSX.CSSProperties;
 
-  <button type="button" class="btn-input btn-input-md btn-input-active">
-    Selected
-  </button>
-</div>
+const [violet, setViolet] = createSignal(false);
+
+<main class="k2b-ui" style={violet() ? violetAccent : undefined}>
+  <Button
+    aria-pressed={violet()}
+    onClick={() => setViolet((value) => !value)}
+  >
+    Switch accent
+  </Button>
+  <Application />
+</main>
 ```

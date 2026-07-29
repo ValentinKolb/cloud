@@ -14,8 +14,14 @@ Use `StructuredDataPreview` for one small metadata object. Use `DataPanel` when 
 import {
   DataTable,
   type DataTableColumn,
+  type DataTableFooter,
+  type DataTableProps,
+  type DataTableRenderCell,
+  type DataTableRenderHeader,
   type DataTableSort,
-} from "@valentinkolb/cloud/ui";
+  Pagination,
+  type PaginationProps,
+} from "@k2b/ui";
 ```
 
 ## Rows and columns
@@ -25,6 +31,11 @@ Each column has a stable `id`, a `header`, and usually a `value` key or function
 Pass `getRowId` when selection or stable row identity matters. Use `selectedRowId` for a selected record, not the row index.
 
 The default cell renderer displays missing values as an em dash, dates with the current locale, and booleans as Yes or No.
+
+`DataTableRenderCell` receives `row`, `col`, the resolved `value`, and a
+`render` callback for the default presentation. `DataTableRenderHeader`
+receives the column and its default `render` callback. `DataTableFooter`
+provides per-column values and an optional footer-cell renderer.
 
 ## Sorting and filtering
 
@@ -51,6 +62,21 @@ Do not make an entire row interactive when it contains unrelated controls. Give 
 Rows, headers, sort links, selection, empty state, and footer render on the server. Row callbacks, column hover, and infinite loading require hydration.
 
 Prefer normal links for navigation. Use callbacks only when the interaction cannot be represented by a URL.
+
+## Pagination
+
+`Pagination` is the matching URL-owned page control. `PaginationProps`
+contains `currentPage`, `totalPages`, `baseUrl`, and optional `onNavigate`.
+The component appends each page number to `baseUrl` and renders native previous,
+next, and bounded page links.
+
+```tsx
+<Pagination
+  currentPage={4}
+  totalPages={12}
+  baseUrl="?page="
+/>
+```
 
 ## Example
 

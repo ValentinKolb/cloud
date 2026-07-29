@@ -1,0 +1,275 @@
+import type { AiPublicModelProfile } from "@valentinkolb/cloud/ai";
+import { AiComposer, AiContextIndicator, AiMessageList } from "@valentinkolb/cloud/ai/ui";
+import {
+  Widget,
+  WidgetHero,
+  WidgetList,
+  WidgetPills,
+  WidgetStat,
+  WidgetStatus,
+} from "@valentinkolb/cloud/ui";
+import { createSignal } from "solid-js";
+import { DemoCard } from "../DemoCard";
+import { DemoGrid, type DemoSection } from "./types";
+
+const cloudComposerModels: AiPublicModelProfile[] = [
+  {
+    id: "fast",
+    label: "vLLM Qwen 3.6",
+    provider: "vllm",
+    model: "qwen3.6",
+    capabilities: ["streaming", "tools"],
+    dataBoundary: "private",
+    contextWindow: 262000,
+  },
+  {
+    id: "vision",
+    label: "OpenRouter Vision",
+    provider: "openrouter",
+    model: "openai/gpt-4.1-mini",
+    capabilities: ["streaming", "tools", "vision"],
+    dataBoundary: "hosted",
+    contextWindow: 128000,
+  },
+];
+
+const AssistantDemo = () => {
+  const [selectedModelId, setSelectedModelId] = createSignal(cloudComposerModels[0]!.id);
+  return (
+    <>
+      <DemoCard
+        id="ai-message-list"
+        chip={[
+          { kind: "component", name: "AiMessageList", from: "@valentinkolb/cloud/ai/ui" },
+          { kind: "component", name: "AiContextIndicator", from: "@valentinkolb/cloud/ai/ui" },
+        ]}
+        description="Cloud message and usage adapters with an empty, backend-free session fixture."
+        code={`<AiMessageList
+  session={{
+    conversationId: () => null,
+    messages: () => [],
+    activeTurn: () => null,
+  }}
+  emptyTitle="Start a conversation"
+/>
+<AiContextIndicator
+  usage={{ input: 15_876, output: 32, total: 15_908 }}
+  loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
+  contextWindow={262_000}
+  modelLabel="vLLM Qwen 3.6"
+/>`}
+      >
+        <div class="flex min-h-48 flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+          <div class="flex justify-end">
+            <AiContextIndicator
+              usage={{ input: 15_876, output: 32, total: 15_908 }}
+              loopUsage={{ input: 69_944, output: 819, total: 70_763 }}
+              contextWindow={262_000}
+              modelLabel="vLLM Qwen 3.6"
+            />
+          </div>
+          <AiMessageList
+            session={{
+              conversationId: () => null,
+              messages: () => [],
+              activeTurn: () => null,
+            }}
+            emptyTitle="Start a conversation"
+          />
+        </div>
+      </DemoCard>
+
+      <DemoCard
+        id="ai-composer"
+        chip={{ kind: "component", name: "AiComposer", from: "@valentinkolb/cloud/ai/ui" }}
+        description="Exact public composer contract with local model selection and inert catalog actions."
+        code={`<AiComposer
+  models={{
+    profiles: () => models,
+    selectedId: selectedModelId,
+    onSelect: setSelectedModelId,
+  }}
+  state={{
+    disabled: () => false,
+    running: () => false,
+    attachments: () => [],
+    onAttachmentsChange: () => undefined,
+  }}
+  actions={{
+    send: (input) => sendMessage(input),
+    steer: (message) => steerMessage(message),
+    stop: () => stopTurn(),
+  }}
+/>`}
+      >
+        <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+          <AiComposer
+            models={{
+              profiles: () => cloudComposerModels,
+              selectedId: selectedModelId,
+              onSelect: setSelectedModelId,
+            }}
+            state={{
+              disabled: () => false,
+              running: () => false,
+              attachments: () => [],
+              onAttachmentsChange: () => undefined,
+              usage: () => ({ input: 15_876, output: 32, total: 15_908 }),
+              loopUsage: () => ({ input: 69_944, output: 819, total: 70_763 }),
+              contextWindow: () => 262_000,
+              contextModelLabel: () => "vLLM Qwen 3.6",
+            }}
+            actions={{
+              onNewConversation: () => undefined,
+              slashCommands: () => [
+                {
+                  name: "summarize",
+                  description: "Prepare a summary request",
+                  icon: "ti ti-list-details",
+                  action: ({ setDraft }) => setDraft("Summarize this:\n"),
+                },
+              ],
+              send: () => true,
+              steer: () => true,
+              stop: () => true,
+            }}
+          />
+        </div>
+      </DemoCard>
+    </>
+  );
+};
+
+const BackendRequiredNote = (props: { title: string; children: string }) => (
+  <div class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/35 dark:text-amber-100">
+    <p class="font-semibold">{props.title}</p>
+    <p class="mt-1 text-xs leading-relaxed">{props.children}</p>
+  </div>
+);
+
+const AiSkillsReference = () => (
+  <DemoCard
+    id="ai-skills-manager"
+    chip={{ kind: "component", name: "AiSkillsManagerBody", from: "@valentinkolb/cloud/ui" }}
+    description="Backend-required integration reference. The catalog does not replace the global fetch implementation."
+    code={`import {
+  AiSkillsManagerBody,
+  openAiSkillsManager,
+} from "@valentinkolb/cloud/ui";
+
+// Authenticated Cloud page with /api/ai/skills available:
+<AiSkillsManagerBody isAdmin={false} />;
+
+// User-facing dialog:
+await openAiSkillsManager();`}
+  >
+    <BackendRequiredNote title="Authenticated Cloud backend required">
+      AiSkillsManagerBody owns calls to the platform skills routes. This static reference deliberately renders no manager controls because the catalog has no authenticated skills API or injectable client seam.
+    </BackendRequiredNote>
+  </DemoCard>
+);
+
+const PermissionsReference = () => (
+  <DemoCard
+    id="permission-editor"
+    chip={[
+      { kind: "component", name: "PermissionEditor", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "EntitySearch", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "ResourceApiKeys", from: "@valentinkolb/cloud/ui" },
+    ]}
+    description="Backend-required access integration reference with no simulated grants, directory, or credentials."
+    code={`import {
+  EntitySearch,
+  PermissionEditor,
+  ResourceApiKeys,
+} from "@valentinkolb/cloud/ui";
+
+<PermissionEditor
+  initialEntries={entries}
+  grantAccess={(principal, permission) => access.grant(resourceId, principal, permission)}
+  updateAccess={(accessId, permission) => access.update(resourceId, accessId, permission)}
+  revokeAccess={(accessId) => access.revoke(resourceId, accessId)}
+/>;
+
+<EntitySearch includeUsers includeGroups onSelect={selectPrincipal} />;
+
+<ResourceApiKeys
+  initialKeys={keys}
+  createKey={(input) => access.createKey(resourceId, input)}
+  revokeKey={(credentialId) => access.revokeKey(resourceId, credentialId)}
+/>;`}
+  >
+    <BackendRequiredNote title="Real identity and persistence required">
+      PermissionEditor and EntitySearch depend on Cloud accounts routes, while every grant and API-key mutation must be authorized and persisted by the owning service. The catalog therefore shows the public contract without pretending that mutations succeed.
+    </BackendRequiredNote>
+  </DemoCard>
+);
+
+const DashboardWidgetsDemo = () => (
+  <DemoCard
+    id="dashboard-widget-composition"
+    chip={[
+      { kind: "component", name: "Widget", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "WidgetStat", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "WidgetList", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "WidgetPills", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "WidgetStatus", from: "@valentinkolb/cloud/ui" },
+      { kind: "component", name: "WidgetHero", from: "@valentinkolb/cloud/ui" },
+    ]}
+    description="Public Cloud widget primitives rendered from bounded fixture data; endpoint discovery remains a server concern."
+    code={`<Widget title="Service health" icon="ti ti-heartbeat" size="compact">
+  <WidgetStatus tone="ok" title="All systems operational" />
+  <WidgetPills pills={[{ label: "Healthy", value: 8, tone: "emerald" }]} />
+</Widget>`}
+  >
+    <div class="grid gap-4 lg:grid-cols-3">
+      <Widget title="Account requests" icon="ti ti-users" size="compact">
+        <WidgetStat value={7} label="Open" sub="Needs review" accent={{ tone: "amber", icon: "ti ti-clock" }} />
+        <WidgetPills
+          pills={[
+            { label: "New", value: 3, tone: "blue" },
+            { label: "Waiting", value: 4, tone: "amber" },
+          ]}
+        />
+      </Widget>
+      <Widget title="Recent notes" icon="ti ti-notebook" size="compact">
+        <WidgetList
+          grow
+          items={[
+            { icon: "ti ti-file-text", label: "Release plan", sub: "Platform", meta: "2m" },
+            { icon: "ti ti-file-text", label: "Incident review", sub: "Operations", meta: "1h" },
+          ]}
+        />
+      </Widget>
+      <Widget title="Service health" icon="ti ti-heartbeat" size="compact">
+        <WidgetStatus tone="ok" title="All systems operational" message="8 services report healthy." />
+        <WidgetHero title="No active incidents" icon="ti ti-circle-check" tone="emerald" />
+      </Widget>
+    </div>
+  </DemoCard>
+);
+
+const demos: DemoSection = {
+  "assistant-chat": () => (
+    <DemoGrid columns="one">
+      <AssistantDemo />
+    </DemoGrid>
+  ),
+  "ai-skills": () => (
+    <DemoGrid columns="one">
+      <AiSkillsReference />
+    </DemoGrid>
+  ),
+  permissions: () => (
+    <DemoGrid columns="one">
+      <PermissionsReference />
+    </DemoGrid>
+  ),
+  "dashboard-widgets": () => (
+    <DemoGrid columns="one">
+      <DashboardWidgetsDemo />
+    </DemoGrid>
+  ),
+};
+
+export default demos;

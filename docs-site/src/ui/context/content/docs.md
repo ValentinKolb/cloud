@@ -4,7 +4,7 @@ The `Doc*` components compose short in-product help, setup guides, and technical
 
 ## Use documentation components
 
-Use them when help is rendered inside a Cloud application and should match the shared product UI.
+Use them when help is rendered inside an application and should match the surrounding product UI.
 
 Use Fibel for the standalone developer documentation site. Use `MarkdownView` when the source is already Markdown and does not need a custom Solid composition.
 
@@ -20,7 +20,12 @@ import {
   DocPage,
   DocRows,
   DocSection,
-} from "@valentinkolb/cloud/ui";
+  type DocCodeHighlighter,
+  type DocCodeProps,
+  type DocConcept,
+  type DocNoteVariant,
+  type DocRow,
+} from "@k2b/ui";
 ```
 
 ## Composition
@@ -32,6 +37,14 @@ import {
 `DocNote` separates an `info`, `tip`, or `warning` from normal prose. Use it for a real constraint or decision, not visual variety.
 
 `DocInlineCode` marks literal paths, names, flags, and tokens.
+
+`DocConcept` and `DocRow` are the item contracts for their repeated
+components. Concept body copy uses `text`; rows use `text` and an optional
+icon. `DocNoteVariant` is `"info" | "tip" | "warning"`.
+
+`DocConceptGrid` and `DocRows` add the `ti` family class themselves, so their
+`icon` values are bare Tabler names such as `ti-shield-lock`. This differs from
+`Widget`, `StatCell`, and `NoticeCard`, which take the complete class.
 
 ## Code examples
 
@@ -66,12 +79,12 @@ These components do not load documents, build navigation, or sanitize arbitrary 
       items={[
         {
           title: "Route policy",
-          icon: "ti ti-shield-lock",
+          icon: "ti-shield-lock",
           text: "Rejects callers that cannot enter the endpoint.",
         },
         {
           title: "Resource check",
-          icon: "ti ti-key",
+          icon: "ti-key",
           text: "Protects the exact record read or changed by the service.",
         },
       ]}

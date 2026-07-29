@@ -14,7 +14,7 @@ Keep frequently changed or required controls visible instead. Use `Select` for o
 import {
   FilterChip,
   type FilterChipSection,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## State model
@@ -36,12 +36,14 @@ Changes are emitted immediately. This makes the component suitable for URL-backe
 | --- | --- | --- | --- |
 | `label` | `string` | required | Names the filter in the trigger and its accessible label. |
 | `icon` | `string` | required | Adds a Tabler icon to the trigger. |
-| `options` | `FilterChipSection[]` | required | Defines sections and their options. |
-| `value` | `string[]` | required | Contains all selected option values. |
-| `onChange` | `(value: string[]) => void` | required | Receives the complete next selection. |
+| `options` | `readonly FilterChipSection[]` | required | Defines sections and their options. |
+| `value` | `readonly string[]` | required | Contains all selected option values. |
+| `onChange` | `(value: string[]) => void` | one of the two | Receives the complete next selection. |
+| `onValueChange` | `(value: string[]) => void` | one of the two | Alias for `onChange`. Exactly one of the two is required; `onChange` wins when both are passed. |
+| `class` | `string` | none | Adds classes to the trigger. |
 | `isActive` | `boolean` | `value.length > 0` | Overrides the active trigger treatment. |
 | `position` | `"bottom-left" \| "bottom-right"` | `"bottom-left"` | Positions the dropdown relative to the trigger. |
-| `defaultValue` | `string[]` | none | Resets to a baseline instead of clearing all values. |
+| `defaultValue` | `readonly string[]` | none | A non-empty array resets to a baseline instead of clearing all values. |
 | `iconOnly` | `boolean` | `false` | Shows only the icon while retaining the label for assistive text. |
 
 ## Sections and options
@@ -49,7 +51,7 @@ Changes are emitted immediately. This makes the component suitable for URL-backe
 ```ts
 type FilterChipSection = {
   label?: string;
-  options: FilterChipOption[];
+  options: readonly FilterChipOption[];
   multiple?: boolean;
 };
 
@@ -65,9 +67,9 @@ Use section labels when the dropdown combines different filter dimensions. Icons
 
 ## Clear and reset
 
-Without `defaultValue`, an active filter shows its selected count and offers **Clear**.
+Without `defaultValue`, an active filter shows its selected count and offers **Clear**. An empty `defaultValue={[]}` has the same clear/count behavior.
 
-With `defaultValue`, the trigger hides the count and offers **Reset** whenever the current values differ from the baseline.
+With a non-empty `defaultValue`, the trigger hides the count and offers **Reset** whenever the current values differ from the baseline. At the baseline, no reset action is shown.
 
 ## Accessibility
 

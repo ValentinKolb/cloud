@@ -17,7 +17,7 @@ import {
   StatCell,
   StatGrid,
   type StatCellAccent,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Properties
@@ -34,7 +34,11 @@ import {
 | `surface` | `"white" \| "muted"` | `"white"` | Matches the cell backgrounds to a page or muted parent surface. |
 | `class` | `string` | none | Adds sizing or layout classes to the outer surface. |
 
-Pass `columns` when the cell count is known. Values outside one to six use the default responsive ladder.
+Pass `columns` when the cell count is known. Omitting it, or passing a value
+outside one to six, uses the six-column ladder: two columns initially, three
+from 40rem, and six from 48rem. Three cells move from one to three columns at
+40rem; four cells move from two to four at 48rem; five cells use two, then
+three, then five. One- and two-column grids remain fixed.
 
 ### StatCell
 
@@ -63,7 +67,14 @@ An accent has a `tone`, Tabler `icon`, optional `text`, and optional `href`. Tex
 
 ## Accessibility
 
-Every value needs a visible label. A linked cell needs enough combined text to describe its destination. Accent icons and sparklines supplement the text; they do not replace a status label or numeric value.
+Every value needs a visible label. A linked cell and linked accent pill are
+native, independently focusable links. A cell-level `href` suppresses an
+accent link to prevent invalid nested anchors. Keep their combined text useful
+at the destination.
+
+Accent icons and sparklines supplement the text; they do not replace a status
+label or numeric value. Truncated values can expose their complete wording
+through `title`.
 
 ## Runtime
 
@@ -72,16 +83,28 @@ Every value needs a visible label. A linked cell needs enough combined text to d
 ## Example
 
 ```tsx
-<StatGrid title="Requests" columns={3}>
+<StatGrid
+  title="Requests"
+  action={{ label: "View telemetry", href: "/admin/observability/telemetry" }}
+>
   <StatCell
     label="Server errors"
     value="4,913"
     sub="5xx · 24h"
-    href="/admin/observability/telemetry?range=24h&errors=1"
-    valueClass="text-red-500"
-    accent={{ tone: "red", icon: "ti ti-alert-circle" }}
+    valueClass="app-stat-critical"
+    accent={{
+      tone: "red",
+      icon: "ti ti-alert-circle",
+      text: "Inspect",
+      href: "/admin/observability/telemetry?range=24h&errors=1",
+    }}
   />
-  <StatCell label="Rate limited" value="6,071" sub="429 · 24h" />
+  <StatCell
+    label="Rate limited"
+    value="6,071"
+    sub="429 · 24h"
+    href="/admin/observability/telemetry?range=24h&status=429"
+  />
   <StatCell label="All requests" value="273,911" sub="24h" />
 </StatGrid>
 ```

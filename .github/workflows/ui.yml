@@ -74,3 +74,25 @@ jobs:
         env:
           CLOUD_DOCS_SITE_URL: http://localhost:3000
         run: bun run --cwd docs-site build
+
+      - name: Smoke-test built UI catalog
+        env:
+          CLOUD_DOCS_SITE_URL: http://localhost:3000
+          CLOUD_UI_CATALOG_URL: http://127.0.0.1:4187
+        run: |
+          bun run --cwd docs-site start > /tmp/cloud-ui-catalog.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4187/health > /dev/null; then
+              bun run --cwd docs-site check:ui-catalog:http
+              exit 0
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat /tmp/cloud-ui-catalog.log
+              exit 1
+            fi
+            sleep 1
+          done
+          cat /tmp/cloud-ui-catalog.log
+          exit 1

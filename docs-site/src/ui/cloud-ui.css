@@ -1,8 +1,4 @@
-@import "@valentinkolb/cloud/styles/global.css";
-@source "./**/*.tsx";
-@source "../components/**/*.tsx";
-@source "../../../packages/ui-lab/src/frontend/**/*.{ts,tsx}";
-/* The component stylesheet loads after Fibel's own Tailwind bundle. Include
-   Fibel's markup so this second build repeats every responsive shell utility
-   instead of overriding one with only its mobile counterpart. */
-@source "../../node_modules/@k2b/fibel/src/**/*.{ts,tsx}";
+/* Portable catalog pages load only the package-owned scoped stylesheet. */
+@import "@k2b/ui/styles.css";
+@import "@k2b/ui/fonts/plex.css";
+@import "@k2b/ui/icons/tabler.css";

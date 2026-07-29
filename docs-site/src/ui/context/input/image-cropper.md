@@ -15,7 +15,7 @@ import {
   createCroppedImageDataUrl,
   ImageCropper,
   type ImageCropState,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Source and crop state
@@ -24,7 +24,7 @@ import {
 
 `aspect` defaults to `"free"`. Pass `{ width, height }` for a fixed ratio. `previewShape="circle"` changes only the preview mask; exported pixels still use the rectangular crop.
 
-Free crops can be moved and resized. Fixed-aspect crops can be moved and zoomed. Rotation advances in 90-degree steps.
+Free crops can be moved and resized, except with `previewShape="circle"`, which has neither resize handles nor a zoom slider and can only be moved. Fixed-aspect crops can be moved and zoomed. Rotation advances in 90-degree steps.
 
 Use `createCroppedImageDataUrl` or `createCroppedImageCanvas` to apply the emitted state. Output options support exact dimensions, maximum dimensions, format, and quality.
 

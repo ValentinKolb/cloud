@@ -15,8 +15,9 @@ import {
   Lightbox,
   PdfPreview,
   type LightboxImage,
+  type PdfPreviewProps,
   type PdfPreviewRequest,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Images

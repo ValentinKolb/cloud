@@ -1,6 +1,7 @@
 # Select inputs
 
-`Select`, `MultiSelectInput`, and `SelectChip` cover three different selection tasks. The parent owns every selected value.
+`Select`, `MultiSelectInput`, and `SelectChip` cover three different selection
+tasks. The parent owns every selected value.
 
 ## Use select inputs
 
@@ -18,34 +19,57 @@ import {
   type MultiSelectOption,
   Select,
   SelectChip,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Select
 
-`Select` reads its selected ID from an accessor and emits the next ID through `onChange`. Clearing emits an empty string.
+Pass the selected value directly or through a Solid accessor. Selection and
+clearing are atomic actions, so both `onValueChange` and `onValueCommit`
+receive the complete next value. Clearing emits `null`.
 
-Static options may be strings or objects with `id`, `label`, `description`, and a Tabler icon class.
+Static options may be strings, `{ id, label?, description?, icon?, color? }`,
+or normalized `{ value, label, description?, icon?, color?, disabled? }` objects.
 
-`fetchData(query, signal)` enables remote search. It runs with an empty query when the dropdown opens, debounces later input, and aborts stale requests. Pass `selectedLabel` when the selected ID needs its display label before the first result arrives.
+`fetchData(query, signal)` accepts the convenient source shapes.
+`loadOptions(query, signal)` accepts normalized options. Both run with an empty
+query when the dropdown opens, debounce later input, and abort stale requests.
+Pass `selectedOption` when the current value needs display metadata before the
+first result arrives.
+
+Remote sources always show the search field. Set `searchable` to add it to a
+static option list, where it filters labels, descriptions, and values in the
+browser. In `Select`, an option `color` replaces the icon with a color dot on the
+trigger and in the list. `MultiSelectInput` tints the option icon and the
+selected pill with it instead.
 
 ## MultiSelectInput
 
-`MultiSelectInput` reads and emits an array of option IDs. Static options may also carry a color for selected pills.
+Pass the selected array directly or through a Solid accessor. Every selection
+change reports the complete next array through both `onValueChange` and
+`onValueCommit`. Static options may carry a color for selected pills.
 
 It supports the same static or remote option sources. For remote data, `selectedOptions` supplies labels and metadata for selected IDs that are not in the current result page.
 
+The dropdown always opens with a search field, which filters a static option
+list in the browser. Pass `searchable={false}` for a short fixed list.
+
 ## SelectChip
 
-`SelectChip` receives its current `value` directly rather than as an accessor. Its options use `{ value, label }`, and their values may be strings or numbers.
+`SelectChip` accepts its current `value` directly or through a Solid accessor.
+Each selection reports through both value callbacks. Its options use
+`{ value, label }`, and their values may be strings or numbers.
 
-Keep it for compact toolbars. It has no field label, description, error, disabled, or clear state.
+Keep it for compact toolbars. It supports the same field label, description,
+reactive error, required, and disabled state, but has no clear state.
 
 ## Accessibility
 
 Use visible labels on `Select` and `MultiSelectInput`. Their triggers expose combobox, listbox, expanded, selected, required, disabled, description, and error state.
 
-Option labels must remain clear without icons or colors. `SelectChip` should appear where the surrounding toolbar already names the setting.
+Option labels must remain clear without icons or colors. If the surrounding
+toolbar already names a `SelectChip`, use the native `"aria-label"` property
+instead of repeating a visible label.
 
 ## Runtime
 
@@ -54,7 +78,7 @@ Triggers and selected values render in server HTML. Dropdown positioning, keyboa
 ## Example
 
 ```tsx
-const [status, setStatus] = createSignal<string | undefined>();
+const [status, setStatus] = createSignal("open");
 
 <Select
   label="Status"
@@ -64,7 +88,7 @@ const [status, setStatus] = createSignal<string | undefined>();
     { id: "done", label: "Done", icon: "ti ti-check" },
   ]}
   value={status}
-  onChange={(value) => setStatus(value || undefined)}
+  onValueChange={setStatus}
   clearable
 />;
 ```

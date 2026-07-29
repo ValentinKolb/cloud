@@ -7,10 +7,11 @@ import { UiCatalogOverview, UiComponentShowcase } from "./UiCatalogPage";
 export const uiPages = [
   solidPage({
     html: fibelHtml,
+    collection: "ui",
     path: "/",
-    title: "Cloud UI",
+    title: "UI components",
     navTitle: "Overview",
-    description: "Live components and the contracts Cloud applications share.",
+    description: "Portable @k2b/ui components and the integrations that intentionally remain Cloud-specific.",
     section: "Start",
     order: 1,
     layout: "full",
@@ -26,6 +27,7 @@ export const uiPages = [
   ...uiCatalogEntries.map((entry) =>
     solidPage({
       html: fibelHtml,
+      collection: "ui",
       path: `/${entry.section}/${entry.page.slug}`,
       title: entry.page.title,
       description: entry.page.summary,
@@ -38,6 +40,7 @@ export const uiPages = [
           title={page.meta.title}
           description={page.meta.description}
           documentation={context.html}
+          packageName={entry.packageName}
           section={entry.section}
           slug={entry.page.slug}
         />

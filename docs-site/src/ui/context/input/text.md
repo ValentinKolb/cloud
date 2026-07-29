@@ -1,6 +1,7 @@
 # TextInput
 
-`TextInput` is the standard labeled text field for Cloud forms. The parent owns the value, validation, persistence, and form submission.
+`TextInput` is the standard labeled text field for portable application forms.
+The parent owns the value, validation, persistence, and form submission.
 
 ## Use TextInput
 
@@ -11,14 +12,17 @@ Use `MarkdownEditor` for a standalone document editor. Use `AutocompleteEditor` 
 ## Import
 
 ```tsx
-import { TextInput } from "@valentinkolb/cloud/ui";
+import { TextInput } from "@k2b/ui";
 ```
 
 ## Value and events
 
-Pass the current value as an accessor. `onInput` receives every edit. `onChange` receives the committed string, normally when the field loses focus.
+Pass `value` directly or as a Solid accessor. `onValueChange` receives every
+edit. `onValueCommit` receives the committed string, normally when the field
+loses focus.
 
-`clearable` adds a clear button to a single-line field. Without `onClear`, clearing emits an empty string through both `onInput` and `onChange`.
+`clearable` adds a clear button to a single-line field. Without `onClear`,
+clearing emits an empty string through both value callbacks.
 
 ## Input modes
 
@@ -33,13 +37,15 @@ In plain multiline mode, Enter calls `onSubmit` and Shift+Enter inserts a newlin
 
 ## Field state
 
-`label`, `description`, `required`, and the reactive `error` accessor form one field. `disabled` disables the input and its controls.
+`label`, `description`, `required`, and `error` form one field. `disabled`
+disables the input and its controls.
 
-Outside markdown mode, browser hints pass through via `autocomplete`, `spellcheck`, `autocapitalize`, and `maxLength`. `inputMode` applies to the single-line input.
+`spellcheck` and `maxLength` pass through in every mode, including markdown. `autocomplete` and `autocapitalize` reach the native input and textarea only, not the markdown editor. `inputMode` applies to the single-line input.
 
 ## Accessibility
 
-Prefer a visible `label`. When the surrounding layout cannot render one, pass `ariaLabel`; a placeholder is not a persistent label.
+Prefer a visible `label`. When the surrounding layout cannot render one, pass
+`"aria-label"`; a placeholder is not a persistent label.
 
 Descriptions and errors are connected to the input. The error message is announced as a live alert. Clear and password controls have accessible names.
 
@@ -58,7 +64,7 @@ const [query, setQuery] = createSignal("");
   description="Search by name or owner."
   icon="ti ti-search"
   value={query}
-  onInput={setQuery}
+  onValueChange={setQuery}
   clearable
 />;
 ```

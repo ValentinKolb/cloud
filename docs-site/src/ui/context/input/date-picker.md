@@ -21,8 +21,8 @@ import {
   DateTimePicker,
   type DateTimePickerProps,
   type DurationPreset,
-} from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+} from "@k2b/ui";
+import type { DateContext } from "@k2b/stdlib";
 ```
 
 ## Value formats
@@ -33,19 +33,23 @@ import type { DateContext } from "@valentinkolb/stdlib";
 
 `DateRangePicker` uses `{ start, end }`. Both values are date keys unless `withTime` is enabled, in which case they follow the `DateTimePicker` rules.
 
-Pass the value as an accessor and update it in `onChange`. Clearing emits `null` for a single picker or `{ start: null, end: null }` for a range.
+Pass the value directly or through a Solid accessor. Applying a selection or
+clearing reports the complete next value through both `onValueChange` and
+`onValueCommit`. Clearing emits `null` for a single picker or
+`{ start: null, end: null }` for a range.
 
 ## Presets and ranges
 
 `presets` contains caller-defined labels and complete values. The components do not provide a fixed preset list.
 
-For timed ranges, `datePresets` changes the selected date without closing the picker. `durationPresets` changes the end from the current start by a number of minutes.
+`datePresets` changes the selected date without closing the picker and applies to every `DateRangePicker`. `durationPresets` changes the end from the current start by a number of minutes and appears only with `withTime`.
 
 Use `dateConfig` to define the application time zone and first day of the week. Without a supplied week start, the calendar starts on Monday.
 
 ## Accessibility
 
-Provide a visible `label` or a specific placeholder. The trigger exposes dialog and expanded state, and descriptions and errors are connected to it.
+Provide a visible `label` or a specific placeholder. The trigger exposes dialog
+and expanded state, and direct JSX descriptions and errors are connected to it.
 
 Calendar navigation has named previous and next controls. Selected days and active duration presets expose pressed state. Time fields receive start and end labels in a range.
 
@@ -66,8 +70,8 @@ const [startsAt, setStartsAt] = createSignal<string | null>(null);
 <DateTimePicker
   label="Starts at"
   placeholder="Pick date and time"
-  value={startsAt}
-  onChange={setStartsAt}
+  value={startsAt()}
+  onValueChange={setStartsAt}
   dateConfig={dateConfig}
   clearable
 />;

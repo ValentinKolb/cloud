@@ -1,98 +1,37 @@
-# Cards and Identity
+# Cards and identity
 
-`LinkCard` is a navigation tile, `ProgressBar` reports determinate progress, and `Avatar` identifies a user with a cached image or stable initials.
+`LinkCard` is a single-destination navigation tile. `Avatar` renders an application-owned image URL or an initials fallback.
 
-Each component owns its visual treatment. The application owns the destination, progress value, or user data.
+## Use cards and identity
 
-## Use these components
-
-- Use `LinkCard` in app launchers and tool grids where every tile leads to a destination.
-- Use `ProgressBar` when progress can be expressed from 0 to 100.
-- Use `Avatar` wherever a compact user identity needs an image fallback.
-
-Do not use `LinkCard` for an action that does not navigate. Do not use `ProgressBar` for indeterminate work.
+Use `LinkCard` when the complete surface leads to one destination. Use `Avatar` beside a visible name when identity matters. Do not place unrelated interactive controls inside a link card.
 
 ## Import
 
 ```tsx
-import {
-  Avatar,
-  LinkCard,
-  ProgressBar,
-} from "@valentinkolb/cloud/ui";
+import { Avatar, LinkCard } from "@k2b/ui";
 ```
 
-## Properties
-
-### LinkCard
-
-| Property | Type | Purpose |
-| --- | --- | --- |
-| `href` | `string` | Navigation target for the complete card. |
-| `title` | `string` | Names the destination. |
-| `description` | `string` | Adds one short line of context. |
-| `icon` | `string` | Tabler icon class for the leading tile. |
-| `color` | `"blue" \| "emerald" \| "violet" \| "orange" \| "red" \| "amber" \| "zinc" \| "cyan" \| "rose"` | Tones the icon tile. |
-
-Descriptions are rendered on one truncated line. Keep them short and do not place required detail there.
-
-### ProgressBar
-
-| Property | Type | Default | Purpose |
-| --- | --- | --- | --- |
-| `value` | `number` | required | Sets progress; values are rounded and clamped to 0–100. |
-| `label` | `string` | `"Progress"` | Names the task for assistive technology. |
-| `size` | `"xs" \| "sm" \| "md"` | `"md"` | Sets the track height. |
-| `tone` | `"primary" \| "success" \| "danger"` | `"primary"` | Indicates ordinary, completed, or failed progress. |
-| `showValue` | `boolean` | `false` | Shows the clamped percentage beside the track. |
-| `class` | `string` | none | Adds classes to the outer row. |
-
-### Avatar
-
-| Property | Type | Default | Purpose |
-| --- | --- | --- | --- |
-| `username` | `string` | required | Supplies the accessible label and first two fallback characters. |
-| `userId` | `string \| null` | none | Identifies the account avatar endpoint. |
-| `avatarHash` | `string \| null` | none | Adds the avatar revision to the image URL. |
-| `size` | `"xs" \| "sm" \| "md" \| "lg" \| "xl"` | `"md"` | Selects a fixed avatar size. |
-| `class` | `string` | none | Adds classes to the image or fallback. |
-| `style` | `string` | none | Adds inline styles to the image or fallback. |
-
-An image is used only when both `userId` and `avatarHash` are present. Otherwise, `Avatar` renders the uppercased first two characters of the trimmed username, or `?` for an empty name.
+`LinkCard` accepts a title, description, icon, destination, and semantic color. `Avatar` accepts a name, optional image URL, fallback, size, and loading behavior.
 
 ## Accessibility
 
-`LinkCard` is one link; do not place buttons or links inside it. Its title and description should make the destination clear.
-
-Always pass a specific `ProgressBar` label. Tone supplements the numeric value and must not be the only status signal.
-
-`Avatar` supplies an image alternative or `role="img"` label from `username`. Put the visible user name next to the avatar when identity matters.
+The card remains one native link with a visible focus indicator. Avatar supplies an image alternative or fallback `role="img"` label.
 
 ## Runtime
 
-All three components render on the server and need no hydration. `Avatar` image loading is lazy. Links retain native navigation behavior.
+Both components render on the server. Link navigation works without hydration; avatar image-failure fallback activates after hydration.
 
 ## Example
 
 ```tsx
-<div class="app-rows">
-  <LinkCard
-    href="/app/files"
-    title="Files"
-    description="Browse shared storage"
-    icon="ti ti-folder"
-    color="blue"
-  />
+<LinkCard
+  href="/runtime"
+  title="Runtime"
+  description="Open runtime details"
+  icon="ti ti-server"
+  color="cyan"
+/>
 
-  <ProgressBar
-    value={72}
-    label="Upload progress"
-    showValue
-  />
-
-  <div class="flex items-center gap-2">
-    <Avatar username="Valentin Kolb" userId={user.id} avatarHash={user.avatarHash} size="sm" />
-    <span>{user.name}</span>
-  </div>
-</div>
+<Avatar name="Ada Lovelace" src={profileImageUrl} size="sm" />
 ```

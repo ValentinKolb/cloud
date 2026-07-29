@@ -11,16 +11,20 @@ Use a select component when values must come from a fixed catalogue.
 ## Import
 
 ```tsx
-import { TagsInput } from "@valentinkolb/cloud/ui";
+import { TagsInput } from "@k2b/ui";
 ```
 
 ## State and input
 
-Pass the current `string[]` as a Solid accessor through `value`. `onChange` receives the complete next array.
+Pass the current `string[]` directly or through a Solid accessor. Adding or
+removing tags reports the complete next array through both `onValueChange` and
+`onValueCommit`.
 
 The editor accepts comma-separated text. It commits on blur or Enter, trims and collapses whitespace, removes empty entries, and removes exact duplicates.
 
-Relevant properties are `label`, `description`, `placeholder`, `icon`, `activeIcon`, `value`, `onChange`, `error`, `required`, and `disabled`.
+Relevant properties are `label`, `description`, `placeholder`, `value`,
+`onValueChange`, `onValueCommit`, `maxTags`, reactive `error`, `required`, and
+`disabled`.
 
 ## Accessibility
 
@@ -41,6 +45,6 @@ const [tags, setTags] = createSignal(["backend", "ui"]);
   label="Labels"
   placeholder="Add tags separated by commas"
   value={tags}
-  onChange={setTags}
+  onValueChange={setTags}
 />;
 ```

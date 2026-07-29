@@ -1,119 +1,152 @@
-# Dashboard widgets
+# Widget composition
 
-Dashboard widgets let an application contribute a small server-owned view to the shared dashboard. The app owns the endpoint, data, permissions, and links. The dashboard owns layout and rendering.
+The widget family composes compact dashboard blocks from semantic presentation
+data. It does not fetch endpoints or depend on a dashboard registry.
 
-## Use dashboard widgets
+## Use Widget composition
 
-Add a widget when users need a compact cross-application summary or a direct route into a common task.
+Use `Widget` as the standard frame and add only the blocks the summary needs:
 
-Do not reproduce a complete application screen. Return a few useful blocks and link the widget or list rows to the owning application.
+- `WidgetStat` for one labeled value;
+- `WidgetList` for short linked or static rows;
+- `WidgetStatus` for health or state;
+- `WidgetPills` for compact labeled values;
+- `WidgetHero` for one centered all-clear or spotlight message.
+
+Use `WidgetCard` when portable content needs the older fixed card frame without
+a linked widget header. The host owns data loading, permissions, refresh
+behavior, navigation, and placement.
 
 ## Import
 
-```ts
-import type {
-  WidgetBlock,
-  WidgetResponse,
-} from "@valentinkolb/cloud/contracts";
+```tsx
+import {
+  Widget,
+  WidgetCard,
+  WidgetHero,
+  WidgetList,
+  WidgetPills,
+  WidgetStat,
+  WidgetStatus,
+} from "@k2b/ui";
 ```
 
-Applications register endpoints through `defineApp()`:
+## Properties
 
-```ts
-widgets: [
-  {
-    id: "recent",
-    path: "/api/notebooks/widget/recent",
-    presentation: {
-      defaultZone: "overview",
-      defaultSpan: "wide",
-    },
-  },
-],
-```
+### Frames
 
-`presentation` is only the initial recommendation. Explicit user layout choices take precedence.
+`Widget` requires `title` and `children`. Optional `icon`, `meta`, and `href`
+build its compact header. `size` is `"content"`, `"compact"`, or `"standard"`;
+the default standard frame is 25rem high, compact is 12rem, and content has no
+fixed height. When `href` is set, only the header becomes a link, so links
+inside the body remain valid.
 
-## Endpoint ownership
+`WidgetCard` requires `title`, a bare Tabler icon name such as
+`"layout-dashboard"`, and `children`. It adds the `ti ti-` prefix and uses the
+fixed portable card height.
 
-The dashboard forwards the user's session cookie when it fetches the registered path. The endpoint must authenticate the request and apply every role and resource permission needed by its query.
+### Content blocks
 
-Return:
+| Component | Required data | Optional data |
+| --- | --- | --- |
+| `WidgetHero` | `title` | `subtitle`, `icon`, `tone` |
+| `WidgetList` | `items` | `emptyMessage`, `grow` |
+| `WidgetPills` | `pills` | `grow` |
+| `WidgetStat` | `value`, `label` | `sub`, `valueClass`, `accent`, `grow` |
+| `WidgetStatus` | `tone`, `title` | `message`, `icon`, `grow` |
 
-- `200` with `WidgetResponse` to render content;
-- `204` when there is no relevant content and the widget should be skipped;
-- `403` when the widget exists but the user lacks the required access;
-- another error only for a real failure.
+The shared presentation tone for hero icons, list icons, pills, and stat
+accents is `"emerald"`, `"amber"`, `"red"`, `"blue"`, or `"zinc"`.
 
-One slow or failed endpoint must not block the dashboard. Keep widget queries bounded and fast.
+Each `WidgetList` item accepts `label`, optional `sub`, `meta`, `icon`,
+`iconTone`, and `href`. Each pill accepts `label`, `value`, optional `tone`,
+and `href`. A stat accent accepts `tone`, `icon`, and optional `text`.
 
-## Response blocks
+`WidgetStatus` uses the separate state vocabulary `"ok"`, `"warn"`,
+`"error"`, and `"info"`, with a default icon for every tone.
 
-`WidgetResponse` contains `title`, optional `icon`, `href`, and `meta`, plus an ordered `blocks` array.
+## Composition
 
-Available blocks are:
+Pass presentation values instead of an application response object. `grow`
+lets a stat, list, status, or pills block fill the remaining widget height.
 
-- `stat` for one labeled value with optional context and accent;
-- `list` for linked or static rows;
-- `status` for health or state;
-- `pills` for compact labeled values;
-- `placeholder` for unavailable content inside a rendered widget;
-- `hero` for one centered all-clear, empty, or spotlight message.
-
-`grow` lets stat, list, status, or pills blocks fill remaining widget height. Compose only the blocks the response needs.
+Use `href` only for meaningful destinations. Widget headers, list rows, and
+pills are native links and remain independently focusable. `WidgetCard` is a
+frame, not a link; place navigation in its content when needed.
 
 ## Accessibility
 
-Every stat needs a visible label and enough context to interpret its value. Status blocks include visible text; tone and icons are supplementary.
+Every stat needs a visible label and enough context to interpret its value.
+Status blocks include visible text; tone and icons are supplementary.
 
-Widget and row links need labels that make sense at their destination. Do not encode a result only in color, icon, or block order.
+Long titles and list labels truncate visually but remain complete in the DOM.
+Use wording that still identifies the destination when read as a link.
+Visible focus treatments cover header, row, and pill links. The packaged
+stylesheet removes decorative link transitions when reduced motion is
+requested.
 
 ## Runtime
 
-The dashboard fetches widget endpoints during its server render with a bounded timeout, then renders the response through the shared widget components.
-
-Widget response blocks are JSON. Application endpoints must not return Solid elements or presentation-specific HTML.
+Widgets render complete server HTML and make no network requests. Native links
+work without hydration. Client-side navigation enhancement remains the host's
+responsibility.
 
 ## Example
 
-```ts
-import type { WidgetResponse } from "@valentinkolb/cloud/contracts";
-import {
-  type AuthContext,
-  auth,
-  getUserBackedActor,
-} from "@valentinkolb/cloud/server";
-import { Hono } from "hono";
+```tsx
+<Widget
+  title="Workspace"
+  meta="last 24h"
+  icon="ti ti-layout-dashboard"
+  href="/workspace"
+>
+  <WidgetStat
+    value={12}
+    label="Open tasks"
+    sub="3 due today"
+    accent={{ tone: "amber", icon: "ti ti-clock", text: "Today" }}
+  />
+  <WidgetList
+    grow
+    items={[
+      {
+        label: "Review release notes",
+        sub: "Platform",
+        meta: "today",
+        icon: "ti ti-notes",
+        iconTone: "blue",
+        href: "/tasks/12",
+      },
+    ]}
+  />
+  <WidgetStatus tone="ok" title="All services operational" />
+  <WidgetPills
+    pills={[
+      { label: "Teams", value: 4, href: "/teams" },
+      { label: "Projects", value: 9, tone: "blue" },
+    ]}
+  />
+</Widget>
 
-const app = new Hono<AuthContext>()
-  .use(auth.requireRole("*"))
-  .get("/recent", async (c) => {
-    const user = getUserBackedActor(c);
-    if (!user) return c.body(null, 204);
+<Widget title="Release" size="compact" icon="ti ti-rocket">
+  <WidgetHero
+    title="Ready to ship"
+    subtitle="All required checks passed"
+    icon="ti ti-circle-check"
+    tone="emerald"
+  />
+</Widget>
 
-    const notes = await notebooksService.note.recentForUser({
-      userId: user.id,
-      limit: 5,
-    });
-    if (notes.length === 0) return c.body(null, 204);
+<WidgetCard title="Portable card" icon="layout-dashboard">
+  <WidgetHero
+    title="Bring any content"
+    subtitle="WidgetCard supplies only the frame."
+    icon="ti ti-components"
+    tone="blue"
+  />
+</WidgetCard>
 
-    const body: WidgetResponse = {
-      title: "Recent notes",
-      icon: "ti ti-notebook",
-      href: "/app/notebooks",
-      blocks: [
-        {
-          kind: "list",
-          grow: true,
-          items: notes.map((note) => ({
-            label: note.title,
-            sub: note.notebookName,
-            href: `/app/notebooks/${note.notebookId}/notes/${note.id}`,
-          })),
-        },
-      ],
-    };
-
-    return c.json(body);
-  });
+<WidgetStatus tone="warn" title="Delayed" />
+<WidgetStatus tone="error" title="Unavailable" />
+<WidgetStatus tone="info" title="Maintenance scheduled" />
 ```

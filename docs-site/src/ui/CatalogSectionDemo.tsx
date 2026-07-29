@@ -17,7 +17,6 @@ export function CatalogSectionDemo(props: { demos: DemoSection; slug: string }) 
     <div class="ui-demo-grid">
       {render({
         markdownHtml: markdownExample,
-        dockWorkspaceInitialState: null,
       })}
     </div>
   );

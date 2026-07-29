@@ -67,6 +67,12 @@ These components are interactive and require hydration.
 
 `PermissionEditor` and `EntitySearch` query Cloud identity in the browser. API-key creation and revocation call the application callbacks. Server-side authorization must run again in every callback target.
 
+There is no catalog-safe substitute for those dependencies. A documentation
+page without the real accounts route and resource mutation service must show a
+static integration reference, not a `PermissionEditor` whose callbacks return
+fabricated successes. The same rule applies to API-key creation: never display
+a fixture token as if the backend created a credential.
+
 ## Example
 
 ```tsx

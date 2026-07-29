@@ -14,7 +14,7 @@ Use `ImageInput` for one image with an immediate transformed preview.
 import {
   FileDropzone,
   type FileDropzoneProps,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Files and upload state
@@ -23,13 +23,16 @@ import {
 
 `accept` is passed to both the hidden file input and the drop handler. Validate size, content, and permissions again before upload.
 
-The parent reports progress through `busy`. While busy, the dropzone is disabled and shows its loading state. `error` accepts either a string or an accessor. `title`, `subtitle`, `hint`, and `icon` describe the upload task.
+The parent reports progress through `busy`. While busy, the dropzone is
+disabled and shows its loading state. `error` accepts visible JSX. `title`,
+`subtitle`, `hint`, and `icon` describe the upload task.
 
 The component does not retain selected files. Store them or start the upload in `onDrop`.
 
 ## Accessibility
 
-The drop surface is a button, so it works with keyboard activation. Provide `label`, `ariaLabel`, or a clear `title` that names the expected file.
+The drop surface is a button, so it works with keyboard activation. Provide
+`label`, `aria-label`, or a clear `title` that names the expected file.
 
 Do not communicate file restrictions only through an icon or invalid-drag color. State them in `subtitle` or `hint`.
 
@@ -45,8 +48,8 @@ File selection and drag events require hydrated Solid client code. Server-render
   accept="application/pdf"
   multiple={false}
   subtitle="PDF, up to 10 MB"
-  busy={upload.loading}
-  error={upload.error}
+  busy={upload.loading()}
+  error={upload.error()}
   onDrop={(files) => upload(files[0]!)}
 />;
 ```

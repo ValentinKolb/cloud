@@ -52,6 +52,12 @@ The manager requires hydration, an authenticated Cloud session, and the platform
 
 Do not render it on an anonymous page or point it at an app-local skills endpoint.
 
+The manager has no injectable client seam. A component catalog or test without
+the authenticated `/api/ai/skills` routes must present a static integration
+reference instead of rendering working controls. Never replace or patch the
+global browser fetch function to simulate this component: that changes
+networking for the entire page and can intercept unrelated requests.
+
 ## Example
 
 ```tsx

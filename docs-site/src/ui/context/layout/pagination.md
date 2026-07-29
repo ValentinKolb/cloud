@@ -11,7 +11,7 @@ Use an infinite-load control only when the product does not need stable page URL
 ## Import
 
 ```tsx
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { Pagination } from "@k2b/ui";
 ```
 
 ## Build page URLs

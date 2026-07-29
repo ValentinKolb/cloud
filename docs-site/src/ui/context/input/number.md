@@ -1,6 +1,7 @@
 # NumberInput
 
-`NumberInput` is a controlled numeric field with an explicit empty state. The parent owns the number and decides when to persist it.
+`NumberInput` is an accessor-controlled numeric field with an explicit empty
+state. The parent owns the number and decides when to persist it.
 
 ## Use NumberInput
 
@@ -11,16 +12,20 @@ Use `TextInput` when the value is an identifier that only looks numeric, such as
 ## Import
 
 ```tsx
-import { NumberInput } from "@valentinkolb/cloud/ui";
+import { NumberInput } from "@k2b/ui";
 ```
 
 ## Value and events
 
-The value accessor returns `number | null | undefined`. Both `null` and `undefined` render as empty; callbacks emit `null` when the field is cleared.
+Pass `value` directly or as an accessor returning `number | null`. `null` and
+an omitted value render as empty; callbacks emit `null` when the field is
+cleared.
 
-`onInput` receives the parsed value while the user types. `onChange` receives the committed value after blur, a stepper click, or the default clear action.
+`onValueChange` receives the parsed value while the user types.
+`onValueCommit` receives the normalized value after blur, a stepper click, or
+the default clear action.
 
-The component keeps the raw text while focused, so intermediate input such as `12.` is not lost.
+The component keeps the raw text while focused, so intermediate input is not lost. A trailing decimal separator survives only when `decimalPlaces` is greater than `0`; at the default `0` a typed `12.` is normalized to `12`.
 
 ## Numeric rules
 
@@ -52,7 +57,7 @@ const [price, setPrice] = createSignal<number | null>(12.5);
 <NumberInput
   label="Price"
   value={price}
-  onChange={setPrice}
+  onValueChange={setPrice}
   min={0}
   step={0.01}
   decimalPlaces={2}

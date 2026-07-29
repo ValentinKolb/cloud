@@ -1,56 +1,46 @@
-# Info Blocks
+# Notices
 
-Info-block utilities present a short, non-blocking message inside the current page. The application owns the message, heading structure, and any action.
+`NoticeCard` keeps an important finding visible between an ephemeral toast and a full empty or error state. `NoticeCard.Grid` arranges several findings without nested card chrome.
 
-## Use info blocks
+## Use notices
 
-Use an info block when a message must remain visible near the content it affects.
+Use `info` for context, `warn` for reviewable risk, and `error` for a real failure. Keep the title specific and the detail actionable.
 
-Use a toast for transient feedback. Use a prompt when the user must acknowledge or decide before work continues. Use `NoticeCard` for an operational finding that belongs in a diagnostic summary.
+Use a toast for short confirmation. Use `Placeholder` when the finding replaces an entire content region.
 
 ## Import
 
-```ts
-import "@valentinkolb/cloud/ui/styles.css";
+```tsx
+import { NoticeCard } from "@k2b/ui";
 ```
 
-## Properties
+## Composition
 
-Info-block classes select the semantic treatment. Content and native element attributes stay with the application.
+`NoticeCard` accepts `title`, optional `detail`, `tone`, `icon`, and `class`.
+`NoticeCard.Grid` receives an `items` array and a child renderer. It selects
+one, two, or three responsive columns from the item count.
 
-### Variants
-
-| Class | Meaning |
-| --- | --- |
-| `info-block-note` | Neutral supporting note. |
-| `info-block-info` | Informational context. |
-| `info-block-success` | Completed or successful outcome. |
-| `info-block-warning` | A condition that needs attention before continuing. |
-| `info-block-danger` | A destructive or high-risk condition. |
-| `info-block-error` | Alias of the danger treatment for an error message. |
-
-All variants share the same spacing, radius, and readable text treatment. The variant changes the semantic accent and outline.
-
-## Content
-
-Keep one main point in each block. Put the consequence before an action when the reader needs it to decide.
-
-An icon may be included with a Tabler class. The utility tones descendant `.ti` icons to match the variant. Do not use an icon or color instead of explicit wording.
+The component owns presentation only. Put retry, dismissal, and navigation controls beside the notice when they are needed.
 
 ## Accessibility
 
-Info blocks add no live-region role because they are intended for persistent page content. If a block appears in response to an asynchronous failure, the owning component must choose an appropriate `role="alert"` or move focus according to the interaction.
+Notice cards add no live-region role. If a new error notice must be announced immediately, the owning application must provide the appropriate alert semantics. All tones keep visible text, so the result never depends on color or icon.
 
-Use a heading only when the message needs more than one paragraph. Keep links and buttons as native elements.
+Action labels must say what happens next, such as **Retry** or **Open settings**.
 
 ## Runtime
 
-Info blocks are CSS-only and render completely on the server. They follow the shared light and dark themes without JavaScript.
+Notice content renders on the server. Actions require hydration only when implemented as client callbacks.
 
 ## Example
 
 ```tsx
-<div class="info-block-warning">
-  Publishing sends this update to every subscriber.
-</div>
+const notices = [
+  { tone: "warn", title: "Review needed", detail: "Two records have no owner." },
+  { tone: "error", title: "Source unavailable", detail: "Retrying in the background." },
+] as const;
+
+<NoticeCard.Grid items={notices}>
+  {(notice) => <NoticeCard {...notice} />}
+</NoticeCard.Grid>
 ```

@@ -12,10 +12,11 @@ Use `prompts` when work must pause for acknowledgement or a decision. Keep failu
 
 ```ts
 import {
+  isPointInsideToast,
   toast,
   type ToastHandle,
   type ToastOptions,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Show a toast
@@ -60,13 +61,32 @@ upload.update("Upload complete", {
 upload.dismiss();
 ```
 
-`update` always replaces the description. Only option keys that are present replace existing options. Updating resets the auto-dismiss timer.
+`update` always replaces the description. Only option keys that are present replace existing options. Changing `variant` also changes the default title and icon unless that update supplies overrides. Updating resets the auto-dismiss timer.
 
 Use `toast.dismissAll()` when navigation or a major context change would make existing messages stale.
+
+## Hit-testing the toast rail
+
+Toasts render in the top layer above every application surface, so an
+outside-click handler will see clicks that landed on a toast as clicks outside
+its own surface. `isPointInsideToast(x, y)` answers whether viewport
+coordinates fall inside a live toast, so those clicks can be ignored:
+
+```ts
+element.addEventListener("pointerdown", (event) => {
+  if (isPointInsideToast(event.clientX, event.clientY)) return;
+  closeOverlay();
+});
+```
+
+The package's own dialogs already use it; it is exported for applications that
+build their own light-dismiss surfaces. It returns `false` on the server.
 
 ## Actions
 
 Toast actions are links. Use them to open a destination related to the completed operation.
+
+Pass `action.href`; toast actions do not accept an `onClick` callback.
 
 Do not place a destructive action in a toast. Ask for confirmation before the operation.
 

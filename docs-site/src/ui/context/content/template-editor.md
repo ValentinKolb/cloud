@@ -16,35 +16,46 @@ import {
   TemplateEditor,
   TemplatePreview,
   TemplateSampleData,
+  type TemplateEditorLayoutValue,
+  type TemplateEditorProps,
+  type TemplatePreviewProps,
+  type TemplateSampleDataProps,
   type TemplateVariable,
-} from "@valentinkolb/cloud/ui";
-
-import {
-  renderLiquidTemplate,
-  validateLiquidTemplate,
-} from "@valentinkolb/cloud/shared";
+  type TemplateVariableKind,
+} from "@k2b/ui";
 ```
 
 ## State and variables
 
-`TemplateEditor` is controlled through a `value` accessor and `onInput`. `variables` supplies completion names and optional kinds:
+`TemplateEditor` is controlled through a direct `value` and
+`onValueChange`. `variables` supplies completion names and optional kinds:
 
 ```ts
 type TemplateVariable = {
   name: string;
   kind?: "string" | "email" | "url" | "number" | "boolean" | "array" | "object";
+  description?: string;
 };
 ```
 
 Variables complete inside Liquid values and conditions. Array variables also complete as loops. HTML tag completions start with `<`.
 
+`description` is rendered as the field description in `TemplateSampleData`.
+
 `TemplateSampleData` edits string samples for the declared variables. The parent owns those values and passes the resulting rendered document to `TemplatePreview`.
 
 ## Rendering and composition
 
-The editor does not render or save templates. Validate and render with the shared Liquid helpers. They use strict variables and filters, escape interpolated output by default, allow a bounded tag set, and enforce input and output limits.
+The editor does not render or save templates. The consuming application
+chooses a renderer, escaping policy, allowed tags and filters, and input or
+output limits.
 
 `TemplatePreview` displays the caller's HTML in a sandboxed iframe. Keep preview rendering separate from the final delivery path and do not expose internal renderer errors to end users.
+
+The catalog uses a small token interpolation across its declared sample keys.
+It is an illustrative preview, not a Liquid renderer: it does not implement
+conditions, loops, filters, escaping, validation, or delivery behavior.
+Production rendering remains the application's responsibility.
 
 Use `fill` inside a stable pane or workspace. Use `lines` for a content-sized form.
 
@@ -58,7 +69,8 @@ The preview iframe has the accessible name **Template preview**. Keep source edi
 
 Editing, completion, sample values, pane resizing, and reactive preview updates require hydration.
 
-`renderLiquidTemplate()` is synchronous and can produce a local preview. PDF generation and final delivery remain server operations.
+The host may produce a local preview when its renderer is browser-safe. PDF
+generation and final delivery normally remain server operations.
 
 ## Example
 
@@ -77,14 +89,14 @@ const [sample, setSample] = createSignal({
 });
 
 const preview = createMemo(() =>
-  renderLiquidTemplate(template(), sample()),
+  renderTemplate(template(), sample()),
 );
 
 <TemplateEditor
-  value={template}
-  onInput={setTemplate}
+  value={template()}
+  onValueChange={setTemplate}
   variables={variables}
 />
 
-<TemplatePreview html={preview} />
+<TemplatePreview html={preview()} />
 ```

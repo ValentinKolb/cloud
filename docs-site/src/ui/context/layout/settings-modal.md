@@ -1,84 +1,124 @@
 # SettingsModal
 
-`SettingsModal` is the tabbed shell for resource settings. It owns the category rail, active panel, keyboard tab behavior, and scrolling frame.
-
-The application owns loading, form state, validation, persistence, and close decisions.
+`SettingsModal` is a portable tabbed settings surface. It owns category
+navigation, keyboard behavior, and the active panel. The application owns
+loading, form state, validation, persistence, and the surrounding dialog or
+page.
 
 ## Use SettingsModal
 
-Use it when one resource has several settings categories.
-
-Use `PanelDialog` for one complex editor with grouped fields. Use `prompts.form` for a small prompt with only a few fields.
+Use it when one resource has several settings categories. Use `PanelDialog`
+for one complex editor and `prompts.form` for a small prompt.
 
 ## Import
 
 ```tsx
 import {
-  prompts,
+  readSettingsError,
+  sameSettingValue,
   SettingsField,
   SettingsModal,
   SettingsPanelFooter,
   SettingsSaveBar,
-} from "@valentinkolb/cloud/ui";
+  TextInput,
+} from "@k2b/ui";
 ```
 
-## Open the settings surface
+## Compose controlled tabs
 
-Open `SettingsModal` in a bare prompt dialog. Wrap it in `dialog-fixed-frame` so tabs with different content heights do not resize the dialog.
+Compose categories with `SettingsModal.Tab`. Each tab needs a stable `id`,
+title, and children. `activeTab` and `onTabChange` make selection controlled;
+use `defaultTab` for local selection. An optional `onClose` adds a close action
+without deciding how the surrounding surface is opened.
 
-Open the shell before loading remote data. Fetch one typed settings context inside it and keep loading and error fallbacks in the same fixed frame.
+`subtitle` and `icon` remain accepted on `SettingsModal` for source
+compatibility, but category titles, descriptions, and icons provide the visible
+context.
 
-`title` is the accessible name of the settings region. It is not a visible banner. The compatibility properties `subtitle` and `icon` are deprecated.
+## Compose form state
 
-The active tab can be uncontrolled with `defaultTab` or controlled with `activeTab` and `onTabChange`.
+`SettingsField` groups a label, required description, reactive error accessor,
+optional reactive dirty accessor, and a control.
 
-## Form helpers
+`SettingsSaveBar` uses reactive `changeCount` and `loading` accessors. It
+appears only while the count is greater than zero and disables its actions
+while loading.
 
-`SettingsField` displays one field label, description, error, and explicit unsaved state. The input remains responsible for its own label and accessibility properties.
+`SettingsPanelFooter` provides the same status and actions for a surrounding
+panel footer. It remains visible with `No unsaved changes`, disables both
+actions until a change exists, and accepts `saveClass="btn-primary"` or
+`saveClass="btn-ai"`.
 
-Use `SettingsSaveBar` for a page form. Use `SettingsPanelFooter` inside `PanelDialog.Footer`.
-
-Both save helpers receive reactive `changeCount` and `loading` accessors. The application implements discard and save.
+`sameSettingValue` performs the JSON-based, order-sensitive comparison used by
+settings forms. `readSettingsError(response, fallback)` reads the shared
+`message` and per-field `errors` response shape. These helpers do not perform a
+request or select a persistence backend.
 
 ## Accessibility
 
-The category rail is a tab list. Arrow keys move between tabs. Home and End move to the first and last tab.
+The category rail is a tab list. Arrow keys move between tabs; Home and End
+move to the first and last tab. Every tab needs a stable `id` and concise
+title. Use `tone="danger"` only for destructive settings.
 
-Each tab needs a unique `id` and a concise title. Use `tone="danger"` only for destructive settings.
+Errors render as alerts, and the dirty state includes an explicit `Unsaved`
+label rather than relying on color.
 
 ## Runtime
 
-The first active panel renders on the server. Tab selection, close controls, and form helpers require hydrated Solid code.
-
-Do not add settings data to the workspace SSR payload only to open a dialog later.
+The active panel renders on the server. Tab selection, close controls, form
+callbacks, and saving require hydrated Solid code.
 
 ## Example
 
 ```tsx
-await prompts.dialog<void>(
-  (close) => (
-    <div class="dialog-fixed-frame flex min-h-0 flex-col overflow-hidden">
-      <SettingsModal title="Notebook settings" onClose={close}>
-        <SettingsModal.Tab
-          id="general"
-          title="General"
-          description="Name and metadata"
-          icon="ti ti-settings"
-        >
-          <GeneralSettings />
-        </SettingsModal.Tab>
-        <SettingsModal.Tab
-          id="danger"
-          title="Danger"
-          description="Delete this notebook"
-          icon="ti ti-alert-triangle"
-          tone="danger"
-        >
-          <DeleteNotebook />
-        </SettingsModal.Tab>
-      </SettingsModal>
-    </div>
-  ),
-  { surface: "bare", header: false, size: "large" },
-);
+const [active, setActive] = createSignal("general");
+const [endpoint, setEndpoint] = createSignal("https://example.test");
+const [initialEndpoint, setInitialEndpoint] = createSignal(endpoint());
+const [loading, setLoading] = createSignal(false);
+const changed = () => !sameSettingValue(endpoint(), initialEndpoint());
+
+<SettingsModal
+  title="Application settings"
+  activeTab={active()}
+  onTabChange={setActive}
+>
+  <SettingsModal.Tab
+    id="general"
+    title="General"
+    icon="ti ti-settings"
+  >
+    <SettingsField
+      label="Endpoint"
+      description="Public service URL"
+      error={() => errors().endpoint}
+      changed={changed}
+    >
+      <TextInput
+        value={endpoint()}
+        onValueChange={setEndpoint}
+      />
+    </SettingsField>
+  </SettingsModal.Tab>
+
+  <SettingsModal.Tab
+    id="danger"
+    title="Danger"
+    icon="ti ti-alert-triangle"
+    tone="danger"
+  >
+    <p>Destructive settings</p>
+  </SettingsModal.Tab>
+</SettingsModal>
+
+<SettingsSaveBar
+  changeCount={() => (changed() ? 1 : 0)}
+  loading={loading}
+  onDiscard={() => setEndpoint(initialEndpoint())}
+  onSave={async () => {
+    setLoading(true);
+    await saveEndpoint(endpoint());
+    setInitialEndpoint(endpoint());
+    setLoading(false);
+  }}
+/>;
 ```

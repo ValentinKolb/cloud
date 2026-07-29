@@ -14,7 +14,6 @@
   "include": [
     "examples/**/*.ts",
     "fibel.config.ts",
-    "ui.fibel.config.ts",
     "plugins/**/*.ts",
     "scripts/**/*.ts",
     "src/**/*.ts",

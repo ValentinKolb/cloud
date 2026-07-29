@@ -1,36 +1,40 @@
-# Cloud UI
+# UI components
 
-Cloud UI documents the shared components used by Cloud applications.
+The portable component collection lives in the independent `@k2b/ui` npm package. It is opinionated around SolidJS, `@k2b/ssr`, Tabler icons, and scoped precompiled styles, but it does not depend on Cloud. Any Solid SSR project can install and use it.
 
-Choose a component by task. Each page shows the running component, its public import, and the contract between the component and its parent.
+```tsx
+import "@k2b/ui/styles.css";
+import { Button, Placeholder } from "@k2b/ui";
 
-## Use Core UI
+export function EmptyProject() {
+  return (
+    <main class="k2b-ui">
+      <Placeholder title="No project selected" />
+      <Button>Select project</Button>
+    </main>
+  );
+}
+```
 
-- Import components from the public `@valentinkolb/cloud/ui` package.
-- Treat the repository examples as examples, not application defaults.
-- Check the exported prop types before adding a wrapper or changing component behavior.
+The `.k2b-ui` scope prevents the package from resetting its host page. Fonts and the semantic color stacks are CSS variables, so applications can bring their own typography and theme without replacing component code. IBM Plex and Tabler are available as optional package assets.
 
-## Sections
+## Portable components
 
-- **Inputs** — fields, editors, pickers, uploads, and filters.
-- **Actions** — buttons, menus, and focused action controls.
-- **Layout** — application shells, panes, dialogs, settings, and navigation.
-- **Surfaces** — cards, stats, operational panels, and calendars.
-- **Feedback** — messages, statuses, toasts, tooltips, and prompts.
-- **Content** — tables, charts, files, media, code, and rich content.
-- **Widgets** — endpoint-driven dashboard blocks.
+The AI, Inputs, Actions, Layout, Surfaces, Feedback, Content, and Widgets sections document `@k2b/ui`. Every page renders the package component, shows its public import, and explains the contract the consuming application owns.
 
-## Component pages
+The package owns presentation and interaction primitives. The application continues to own domain data, URLs, persistence, authorization, uploads, AI protocols, and service calls.
 
-Each page contains:
+The catalog is grouped by **the task a consumer is trying to complete**, not by the package's source folders. That keeps related tools together at the point of use: filters live with inputs, pagination with layout, calendars with surfaces, status vocabulary with feedback, and template editing with content. Source barrels remain an implementation detail and do not define the navigation.
 
-1. the public import;
-2. live examples from the repository;
-3. rules for choosing and composing the component;
-4. copyable TSX for the rendered state.
+## Cloud components
 
-The same component context is available through search, raw `.md` routes, `llms.txt`, and the optional Fibel assistant.
+Exactly four catalog pages remain in `@valentinkolb/cloud` because their behavior depends on authenticated Cloud APIs or platform concepts:
 
-## Scope
+- **Cloud assistant chat** — Cloud Assistant messages, tools, sessions, and attachments;
+- **AI skills manager** — skill discovery and management backed by Cloud AI APIs;
+- **Permissions and API keys** — identity, principal search, resource permissions, and scoped credentials;
+- **Cloud dashboard widgets** — Cloud endpoint adapters feeding portable widget presentation.
 
-This catalog covers the public Core UI package. AI chat components live in their own package and will receive a separate catalog. Deprecated Core components remain visible for migration work but are not recommended for new screens.
+These live in their own **Cloud components** section. A Cloud import on one of those pages is intentional; it is not a compatibility shim for `@k2b/ui`.
+
+Deprecated wrappers such as `DateTimeInput` and `DockWorkspace` are not promoted in this collection.

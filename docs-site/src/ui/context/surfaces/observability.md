@@ -26,7 +26,7 @@ import {
   PanelHeader,
   RangePicker,
   StatusBadge,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Properties
@@ -78,11 +78,19 @@ Search remains a slot because client islands must stay in the consuming applicat
 
 Use `variant="dot"` in dense tables and `variant="text"` when the surrounding layout already provides a boundary. Keep the visible `label` specific: `Offline`, `Failed`, and `Rejected` can all use the `error` tone.
 
+Long labels truncate visually without losing their text in the DOM. Add
+`title` when the complete wording must also be available on hover. The
+`running` icon or dot animates only when reduced motion is not requested.
+
 ### NoticeCard
 
-`NoticeCard` keeps one diagnostic finding visible. `tone` accepts `info`, `warn`, or `error`; the default is `warn`. `title` names the finding and `detail` provides the evidence.
+`NoticeCard` keeps one diagnostic finding visible. `tone` accepts `info`,
+`warn`, or `error`; the default is `warn`. `title` names the finding and
+`detail` provides the evidence.
 
-`NoticeCard.Grid` renders a responsive grid from `items` and renders nothing for an empty array.
+`NoticeCard.Grid` receives an `items` array and a render function. It renders
+nothing for an empty array. One item stays in one column; two items become two
+columns at 48rem; three or more use two columns at 48rem and three at 80rem.
 
 ```tsx
 <NoticeCard.Grid items={findings}>
@@ -93,6 +101,10 @@ Use `variant="dot"` in dense tables and `variant="text"` when the surrounding la
       detail={finding.detail}
     />
   )}
+</NoticeCard.Grid>
+
+<NoticeCard.Grid items={[]}>
+  {() => <NoticeCard title="Not rendered" />}
 </NoticeCard.Grid>
 ```
 
@@ -122,6 +134,29 @@ All five components render on the server. `RangePicker` works without hydration.
 ## Example
 
 ```tsx
+<NoticeCard.Grid items={findings}>
+  {(finding) => (
+    <NoticeCard
+      tone={finding.tone}
+      title={finding.title}
+      detail={finding.detail}
+    />
+  )}
+</NoticeCard.Grid>
+
+<div class="app-badge-row">
+  <StatusBadge tone="ok" label="Online" />
+  <StatusBadge tone="warn" label="Overdue" />
+  <StatusBadge tone="error" label="Failed" />
+  <StatusBadge
+    tone="degraded"
+    label="Diagnostics unavailable"
+    title="Postgres diagnostics unavailable"
+  />
+  <StatusBadge tone="running" label="Refreshing" variant="dot" />
+  <StatusBadge tone="neutral" label="Disabled" variant="text" />
+</div>
+
 <DataPanel
   title="Routes"
   subtitle={`${rows.length} of ${total} routes`}

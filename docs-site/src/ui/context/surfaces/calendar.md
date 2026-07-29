@@ -1,140 +1,135 @@
 # Calendar
 
-`Calendar` renders controlled day, week, month, year, and mobile-month schedule views from one event array. The application owns the selected view and date, canonical URLs, event persistence, and editor flows.
+`Calendar` renders portable day, week, month, year, and compact mobile-month
+views. The application owns the selected date and view, canonical URLs, event
+data, permissions, and editor flows.
 
 ## Use Calendar
 
-Use it for schedules where events need consistent all-day, timed, overlapping, month, and year representations.
-
-Keep the view and date in the URL when the calendar is a primary application surface. Use the interaction callbacks to update application state, then persist changes through the application's mutation layer.
+Use it for schedules that need timezone-aware placement, all-day and timed
+events, or direct manipulation. Keep date and view state in the URL when the
+calendar is a primary application surface.
 
 ## Import
 
 ```tsx
 import {
   Calendar,
+  type CalendarAttendee,
+  type CalendarDayBadge,
   type CalendarEvent,
+  type CalendarEventColor,
+  type CalendarEventRenderContext,
   type CalendarEventTimeChange,
+  type CalendarLabels,
+  type CalendarProps,
+  type CalendarRecurrence,
+  type CalendarResource,
   type CalendarView,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
-## Properties
+## Events
 
-### View and date
+Every `CalendarEvent` has an `id`, `title`, and `start`. `end` and `allDay`
+control placement. `color` accepts the shared semantic palette; `colorHex`
+supports an application-defined calendar color.
 
-| Property | Type | Default | Purpose |
-| --- | --- | --- | --- |
-| `date` | `Date \| string` | required | Anchors the visible day, week, month, or year. |
-| `view` | `CalendarView` | `"month"` | Selects `day`, `week`, `month`, `year`, or `mobile-month`. |
-| `views` | `CalendarView[]` | component defaults | Limits the view selector. |
-| `selectedDate` | `Date \| string` | `date` | Selects the agenda day in `mobile-month`. |
-| `labels` | `CalendarLabels` | English defaults | Overrides toolbar and empty-state labels. |
-| `dateConfig` | `DateContext` | none | Supplies locale, timezone, and calendar math configuration. |
-| `timeZone` | `string` | `dateConfig.timeZone` | Overrides the rendering timezone. |
-| `firstDayOfWeek` | `0 \| 1` | configured value or Monday | Starts weeks on Sunday or Monday. |
-| `withWeekNumbers` | `boolean` | `false` | Adds week numbers to month and schedule views. |
+Optional event detail includes `meta`, `description`, `location`,
+`calendarName`, attendees, resources, and recurrence metadata. `display:
+"background"` renders a non-interactive time range. `href` or
+`getEventHref` makes an event a canonical link.
 
-### Events
+`renderEvent` receives the normalized `CalendarEventRenderContext`, including
+the effective start, end, duration, time label, and compact or fill state.
+Custom output must retain useful visible event text.
 
-Every event requires `id`, `title`, and `start`. `end` defaults to one hour after the start.
+## Views and navigation
 
-```ts
-type CalendarEvent = {
-  id: string;
-  title: string;
-  start: Date | string;
-  end?: Date | string;
-  allDay?: boolean;
-  color?: "blue" | "emerald" | "amber" | "red" | "violet" | "cyan" | "zinc";
-  colorHex?: string;
-  href?: string;
-  display?: "event" | "background";
-  meta?: string;
-  description?: string;
-  location?: string;
-  calendarName?: string;
-  attendees?: CalendarAttendee[];
-  resources?: CalendarResource[];
-  recurrence?: CalendarRecurrence;
-};
-```
+`view` accepts:
 
-`getEventHref` can derive a destination when it is not stored on the event. `renderEvent` replaces the event body while Calendar retains the surrounding event semantics and layout.
+- `day` for one timed column;
+- `week` for seven timed columns;
+- `month` for the standard month grid;
+- `year` for a compact twelve-month overview;
+- `mobile-month` for a bounded month picker with the selected day's agenda.
 
-The event type can also carry attendees, resources, recurrence metadata, and a calendar name for custom rendering and application callbacks. The default renderer does not expand recurrence rules. Pass the occurrences that the current view must display.
+Limit the switcher with `views`. `getDateHref`, `getViewHref`, and
+`getEventHref` keep navigation functional in the server response.
+`onNavigate` progressively enhances those links after hydration.
 
-### Schedule layout
+Use `onDateChange`, `onViewChange`, and `onEventClick` only when client state
+is appropriate. `navigationPending` exposes loading state without replacing
+the canonical links.
 
-| Property | Purpose |
-| --- | --- |
-| `startHour`, `endHour` | Mark the working-hours range; defaults are 8 and 18. |
-| `visibleStartHour`, `visibleEndHour` | Bound the visible time grid; defaults are 0 and 23. |
-| `hideAllDay` | Removes the all-day row. |
-| `allDayMaxHeightRem` | Caps the independently scrollable all-day row; default is 7rem. |
-| `dayBadges` | Adds `{ icon?, label }` metadata by date key. |
-| `selectedEventId` | Applies the selected treatment to one event. |
-| `toolbarActions`, `toolbarContent` | Insert application-owned controls or content around the built-in toolbar. |
+## Date and layout policy
 
-## Navigation
+`dateConfig` passes the `@k2b/stdlib` date context. `timeZone` and
+`firstDayOfWeek` are convenience overrides. `withWeekNumbers` adds week
+labels.
 
-Use `getViewHref` and `getDateHref` to produce canonical links. Calendar uses those links in SSR output.
+Day and week views accept `startHour`, `endHour`, `visibleStartHour`, and
+`visibleEndHour`. `hideAllDay` and `allDayMaxHeightRem` control the all-day
+lane. `selectedDate`, `selectedEventId`, and `dayBadges` add host-owned
+selection and compact status context.
 
-`onNavigate` can progressively enhance navigation after the application has loaded the target state. `onNavigateHref` is the non-view-transition alternative. `onPrefetch` can preload a canonical target. Set `navigationPending` while navigation is in progress.
+## Interaction
 
-`onViewChange` and `onDateChange` report controlled state changes. They do not persist the URL or data.
+The following callbacks enable matching hydrated interactions:
 
-## Event interactions
+- `onEventDrop` moves an event;
+- `onEventResize` changes a timed event duration;
+- `onEventDoubleClick` opens an event-specific action;
+- `onSlotClick` and `onSlotDoubleClick` select empty time.
 
-| Callback | Purpose |
-| --- | --- |
-| `onEventClick` | Selects or opens an event. |
-| `onEventDoubleClick` | Opens an event editor. |
-| `onSlotClick`, `onSlotDoubleClick` | Select or create from a time slot. |
-| `onEventDrop` | Reports a moved event with its next start, end, and all-day state. |
-| `onEventResize` | Reports a resized event with its next time range. |
+The callbacks receive `CalendarEventTimeChange` values. The host validates
+permissions and persists changes; the component never writes schedule data.
 
-Drag, resize, and slot callbacks report intent only. Update the controlled event array and persist the change in application code.
+`toolbarActions` and `toolbarContent` add bounded application controls without
+replacing the calendar navigation.
 
 ## Accessibility
 
-Supply real links for views, dates, and events whenever navigation exists. Event controls include the event title and time range in their accessible label. The view selector uses a keyboard-navigable radio group.
-
-Keep event titles useful without color. Use `labels` when the surrounding product language is not English. Do not put essential information only in a hover surface.
+Canonical links remain available before hydration. Date cells, navigation,
+events, and interaction handles have text or accessible labels. Color is
+supplementary to event title, time, and metadata.
 
 ## Runtime
 
-Calendar renders its initial view and canonical links on the server. Hydration enables controlled view changes, the live current-time marker, event selection, drag, resize, and slot interactions.
+All views, labels, dates, and links render on the server. Drag, resize,
+pointer-slot selection, prefetch, and callback navigation require hydration.
 
 ## Example
 
 ```tsx
-const [view, setView] = createSignal<CalendarView>("week");
-const [date, setDate] = createSignal(new Date(2026, 4, 27));
-const [events, setEvents] = createSignal<CalendarEvent[]>(initialEvents);
-
-const updateTime = (
-  event: CalendarEvent,
-  next: CalendarEventTimeChange,
-) => {
-  setEvents((current) =>
-    current.map((item) =>
-      item.id === event.id ? { ...item, ...next } : item
-    )
-  );
-};
+const events: CalendarEvent[] = [
+  {
+    id: "review",
+    title: "Design review",
+    start: "2026-07-15T09:00:00Z",
+    end: "2026-07-15T10:00:00Z",
+    color: "emerald",
+    location: "Studio",
+  },
+  {
+    id: "release",
+    title: "Release",
+    start: "2026-07-18T00:00:00Z",
+    allDay: true,
+    color: "blue",
+  },
+];
 
 <Calendar
-  view={view()}
-  date={date()}
-  events={events()}
-  startHour={8}
-  endHour={18}
-  getViewHref={(nextView) => buildCalendarUrl({ view: nextView, date: date() })}
-  getDateHref={(nextDate, currentView) => buildCalendarUrl({ view: currentView, date: nextDate })}
-  onViewChange={setView}
-  onDateChange={setDate}
-  onEventDrop={updateTime}
-  onEventResize={updateTime}
+  date="2026-07-15T12:00:00Z"
+  events={events}
+  view="month"
+  views={["day", "week", "month", "year"]}
+  timeZone="UTC"
+  withWeekNumbers
+  getDateHref={(date, view) =>
+    `?view=${view}&date=${date.toISOString()}`
+  }
+  getViewHref={(view) => `?view=${view}`}
 />;
 ```

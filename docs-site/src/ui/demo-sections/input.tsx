@@ -1,160 +1,711 @@
 import {
-  AutocompleteEditorAsync,
-  AutocompleteEditorFormula,
-  AutocompleteEditorMentions,
-  AutocompleteEditorSingleLine,
-  CheckboxCardDemo,
-  CheckboxDemo,
-  ColorInputDemo,
-  ComboboxDemo,
-  DateInputDemo,
-  DatePickerDemo,
-  DatePickerPlainDemo,
-  DateRangePickerDemo,
-  DateRangePickerWithTimeDemo,
-  DateTimeInputDemo,
-  DateTimePickerDemo,
-  FileDropzoneAcceptDemo,
-  FileDropzoneDemo,
-  IconInputDemo,
-  ImageCropperDemo,
-  ImageInputDemo,
-  MarkdownEditorStandalone,
-  MultiSelectInputDemo,
-  NumberInputBasic,
-  NumberInputCurrency,
-  NumberInputPercent,
-  PinInputDemo,
-  SelectBasic,
-  SelectChipDemo,
-  SelectFetchData,
-  SliderDemo,
-  SwitchDemo,
-  TagsInputDemo,
-  TextInputAi,
-  TextInputBasic,
-  TextInputClearable,
-  TextInputError,
-  TextInputMarkdown,
-  TextInputMarkdownCompletions,
-  TextInputPassword,
-  TextInputWithIcon,
-} from "../../../../packages/ui-lab/src/frontend/lab/inputs";
-import { FilterChipDemo } from "../../../../packages/ui-lab/src/frontend/lab/navigation";
+  AutocompleteEditor,
+  Checkbox,
+  CheckboxCard,
+  ColorInput,
+  Combobox,
+  type Completion,
+  DatePicker,
+  DateRangePicker,
+  type DateRangeValue,
+  DateTimePicker,
+  FileDropzone,
+  IconInput,
+  ImageCropper,
+  type ImageCropState,
+  ImageInput,
+  MarkdownEditor,
+  MultiSelectInput,
+  NumberInput,
+  PinInput,
+  plainTextHighlight,
+  Select,
+  SelectChip,
+  Slider,
+  Switch,
+  TagsInput,
+  TextInput,
+} from "@k2b/ui";
+import { createSignal } from "solid-js";
+import { DemoCard } from "../DemoCard";
+import { FilterDemo } from "./actions";
 import { DemoGrid, type DemoSection } from "./types";
+
+const options = [
+  {
+    value: "platform",
+    label: "Platform",
+    description: "Runtime and infrastructure",
+    icon: "ti ti-server",
+    color: "#0891b2",
+  },
+  {
+    value: "design",
+    label: "Design system",
+    description: "Product UI",
+    icon: "ti ti-palette",
+    color: "#8b5cf6",
+  },
+  {
+    value: "docs",
+    label: "Documentation",
+    description: "Guides and references",
+    icon: "ti ti-book",
+    color: "#10b981",
+  },
+  {
+    value: "archive",
+    label: "Archive",
+    description: "Unavailable in this workspace",
+    icon: "ti ti-archive",
+    disabled: true,
+  },
+];
+
+const people = [
+  {
+    id: "design",
+    label: "Design team",
+    description: "Product UI",
+    hint: "team",
+  },
+  {
+    id: "platform",
+    label: "Platform team",
+    description: "Runtime and infrastructure",
+    hint: "team",
+  },
+  {
+    id: "docs",
+    label: "Documentation",
+    description: "Guides and references",
+    hint: "group",
+  },
+];
+
+type CropAspectPreset = "square" | "wide" | "free";
+
+const cropDemoSource = `data:image/svg+xml,${encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
+    <defs>
+      <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+        <rect width="80" height="80" fill="#f8fafc"/>
+        <path d="M80 0H0V80" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+        <path d="M0 80L80 0" stroke="#e2e8f0" stroke-width="2"/>
+      </pattern>
+    </defs>
+    <rect width="800" height="500" fill="url(#grid)"/>
+    <path d="M0 500L800 0" stroke="#0f172a" stroke-width="12" opacity=".18"/>
+    <path d="M400 0V500M0 250H800" stroke="#64748b" stroke-width="4" stroke-dasharray="14 12"/>
+    <rect x="52" y="52" width="190" height="112" rx="16" fill="#0891b2"/>
+    <rect x="558" y="330" width="190" height="118" rx="16" fill="#7c3aed"/>
+    <rect x="586" y="62" width="112" height="112" rx="16" fill="#f59e0b"/>
+    <text x="147" y="120" text-anchor="middle" fill="white" font-family="sans-serif" font-size="28" font-weight="700">TOP LEFT</text>
+    <text x="653" y="400" text-anchor="middle" fill="white" font-family="sans-serif" font-size="28" font-weight="700">BOTTOM</text>
+    <text x="642" y="130" text-anchor="middle" fill="#422006" font-family="sans-serif" font-size="24" font-weight="700">90°</text>
+  </svg>
+`)}`;
+
+const mentionCompletion: Completion = {
+  trigger: "@",
+  dropdown: true,
+  suggest: (query) =>
+    people
+      .filter((person) => person.id.startsWith(query.toLowerCase()))
+      .map((person) => ({
+        text: `@${person.id}`,
+        label: person.label,
+        hint: person.hint,
+      })),
+};
+
+const emojiCompletion: Completion = {
+  trigger: ":",
+  suggest: (query) =>
+    [
+      { text: ":sparkles", label: "sparkles", hint: "✨" },
+      { text: ":rocket", label: "rocket", hint: "🚀" },
+    ].filter((suggestion) => suggestion.text.slice(1).startsWith(query.toLowerCase())),
+};
+
+const TextDemo = () => {
+  const [project, setProject] = createSignal("Portable value");
+  const [token, setToken] = createSignal("secret");
+  const [notes, setNotes] = createSignal("One focused multiline field.");
+  const [prompt, setPrompt] = createSignal("Summarize this release");
+  return (
+    <DemoCard
+      id="text"
+      chip={{ kind: "component", name: "TextInput", from: "@k2b/ui" }}
+      description="Accessor-controlled text, password, multiline, and AI-marked fields with shared labels, help, errors, and native input hints."
+      code={`<TextInput label="Project" value={project} onValueChange={setProject} clearable />`}
+    >
+      <div class="ui-demo-form-grid">
+        <TextInput label="Project" value={project} onValueChange={setProject} clearable icon="ti ti-folder" />
+        <TextInput
+          label="Token"
+          value={token}
+          onValueChange={setToken}
+          password
+          autocomplete="current-password"
+          description="The package owns the reveal control."
+        />
+        <TextInput label="Notes" value={notes} onValueChange={setNotes} multiline lines={3} icon="ti ti-notes" />
+        <TextInput label="AI prompt" value={prompt} onValueChange={setPrompt} variant="ai" />
+      </div>
+    </DemoCard>
+  );
+};
+
+const AutocompleteDemo = () => {
+  const [value, setValue] = createSignal("Hello @de");
+  return (
+    <DemoCard
+      id="autocomplete"
+      chip={{
+        kind: "component",
+        name: "AutocompleteEditor",
+        from: "@k2b/ui",
+      }}
+      description="A controlled textarea with width-neutral highlighting, ghost suggestions, accessible dropdown navigation, synchronous or abortable asynchronous completion, and native composition behavior."
+      code={`<AutocompleteEditor label="Message" value={value()} onValueChange={setValue} highlight={plainTextHighlight} completions={completions} />`}
+    >
+      <AutocompleteEditor
+        label="Message"
+        description="Type @de for a dropdown or :sp for a ghost suggestion. Tab accepts the active completion."
+        value={value()}
+        onValueChange={setValue}
+        highlight={plainTextHighlight}
+        completions={[mentionCompletion, emojiCompletion]}
+        lines={5}
+      />
+    </DemoCard>
+  );
+};
+
+const MarkdownDemo = () => {
+  const [value, setValue] = createSignal("# Release note\n\nAsk @de for review.\n\n- Portable\n- Accessible");
+  const [saved, setSaved] = createSignal(false);
+  return (
+    <DemoCard
+      id="markdown-editor"
+      chip={{
+        kind: "component",
+        name: "MarkdownEditor",
+        from: "@k2b/ui",
+      }}
+      description="Native textarea editing with a roving formatting toolbar, active format state, list continuation, smart URL paste, Markdown highlighting, statistics, save shortcuts, abbreviations, and accessible completions."
+      code={`<MarkdownEditor label="Release note" value={value()} onValueChange={setValue} completions={[mentions]} onSave={save} />`}
+    >
+      <MarkdownEditor
+        label="Release note"
+        description="Use the toolbar or keyboard shortcuts. Type @de for suggestions."
+        value={value()}
+        onValueChange={(next) => {
+          setValue(next);
+          setSaved(false);
+        }}
+        lines={8}
+        abbreviations={{ afaik: "as far as I know" }}
+        completions={[mentionCompletion]}
+        onSave={() => setSaved(true)}
+        toolbarTrailing={
+          <span role="status" aria-live="polite">
+            {saved() ? "Saved" : "Unsaved"}
+          </span>
+        }
+      />
+    </DemoCard>
+  );
+};
+
+const NumberDemo = () => {
+  const [budget, setBudget] = createSignal<number | null>(42.5);
+  const [capacity, setCapacity] = createSignal<number | null>(64);
+  const [count, setCount] = createSignal<number | null>(12);
+  return (
+    <DemoCard
+      id="number"
+      chip={{ kind: "component", name: "NumberInput", from: "@k2b/ui" }}
+      description="Accessor-controlled numeric input with raw focused text, committed bounds, precision, steppers, units, and an explicit empty state."
+      code={`<NumberInput label="Budget" value={value} onValueChange={setValue} prefix="€" decimalPlaces={2} />`}
+    >
+      <div class="ui-demo-form-grid">
+        <NumberInput
+          label="Budget"
+          value={budget}
+          onValueChange={setBudget}
+          prefix="€"
+          suffix="gross"
+          decimalPlaces={2}
+          min={0}
+          step={0.5}
+          clearable
+        />
+        <NumberInput
+          label="Capacity"
+          value={capacity}
+          onValueChange={setCapacity}
+          suffix="%"
+          min={0}
+          max={100}
+          step={5}
+        />
+        <NumberInput
+          label="Workers"
+          value={count}
+          onValueChange={setCount}
+          min={1}
+          max={64}
+          step={1}
+        />
+      </div>
+    </DemoCard>
+  );
+};
+
+const DateDemo = () => {
+  const [date, setDate] = createSignal<string | null>("2026-07-28");
+  const [dateTime, setDateTime] = createSignal<string | null>("2026-07-28T09:30");
+  const [range, setRange] = createSignal<DateRangeValue>({
+    start: "2026-07-28",
+    end: "2026-07-31",
+  });
+  const [dateTimeRange, setDateTimeRange] = createSignal<DateRangeValue>({
+    start: "2026-07-28T09:00",
+    end: "2026-07-28T10:00",
+  });
+  return (
+    <DemoCard
+      id="date-picker"
+      chip={[
+        { kind: "component", name: "DatePicker", from: "@k2b/ui" },
+        { kind: "component", name: "DateTimePicker", from: "@k2b/ui" },
+        { kind: "component", name: "DateRangePicker", from: "@k2b/ui" },
+      ]}
+      description="Date, date-time, and range pickers share one controlled, timezone-aware calendar interaction with clear and preset support."
+      code={`<DatePicker label="Release" value={date()} onValueChange={setDate} />`}
+    >
+      <div class="ui-demo-form-grid">
+        <DatePicker label="Release date" value={date()} onValueChange={setDate} clearable />
+        <DateTimePicker
+          label="Starts at"
+          value={dateTime()}
+          onValueChange={setDateTime}
+          dateConfig={{ timeZone: "Europe/Berlin", weekStartsOn: 1 }}
+        />
+        <DateRangePicker
+          label="Window"
+          value={range()}
+          onValueChange={setRange}
+          presets={[
+            {
+              label: "Release week",
+              value: { start: "2026-07-28", end: "2026-07-31" },
+            },
+            {
+              label: "This month",
+              value: { start: "2026-07-01", end: "2026-07-31" },
+            },
+            {
+              label: "Next 30 days",
+              value: { start: "2026-07-28", end: "2026-08-26" },
+            },
+          ]}
+        />
+        <DateRangePicker
+          label="Meeting window"
+          value={dateTimeRange()}
+          onValueChange={setDateTimeRange}
+          withTime
+          dateConfig={{ timeZone: "Europe/Berlin", weekStartsOn: 1 }}
+          datePresets={[
+            { label: "Today", value: "2026-07-28" },
+            { label: "Tomorrow", value: "2026-07-29" },
+            { label: "Next Monday", value: "2026-08-03" },
+          ]}
+          durationPresets={[
+            { label: "30 min", minutes: 30 },
+            { label: "1 hour", minutes: 60 },
+            { label: "2 hours", minutes: 120 },
+            { label: "Half day", minutes: 240 },
+          ]}
+        />
+      </div>
+    </DemoCard>
+  );
+};
+
+const SelectDemo = () => {
+  const [value, setValue] = createSignal("platform");
+  const [many, setMany] = createSignal(["platform"]);
+  const [chip, setChip] = createSignal("week");
+  return (
+    <DemoCard
+      id="select"
+      chip={[
+        { kind: "component", name: "Select", from: "@k2b/ui" },
+        { kind: "component", name: "MultiSelectInput", from: "@k2b/ui" },
+        { kind: "component", name: "SelectChip", from: "@k2b/ui" },
+      ]}
+      description="Select filters its static options only when searchable is set; MultiSelectInput renders its search field by default. An option color replaces the icon with a dot in Select, and tints the icon and selected pill in MultiSelectInput. SelectChip is the compact form: a 10rem menu with a trailing check marker."
+      code={`<Select label="Team" value={team} options={options} onValueChange={setTeam} searchable clearable />
+
+{/* MultiSelectInput always renders its search field */}
+<MultiSelectInput label="Teams" value={teams} onValueChange={setTeams} options={options} clearable />
+
+<SelectChip aria-label="Range" value={range()} onValueChange={setRange} icon="ti ti-calendar" options={rangeOptions} />`}
+    >
+      <div class="ui-demo-form-grid">
+        <Select
+          label="Team"
+          description="Type in the search field to filter the four static options."
+          value={value}
+          onValueChange={setValue}
+          options={options}
+          searchable
+          clearable
+        />
+        <MultiSelectInput label="Teams" value={many} onValueChange={setMany} options={options} clearable />
+        <Select label="Team (no search)" value={value} onValueChange={setValue} options={options} />
+        <SelectChip
+          aria-label="Range"
+          value={chip()}
+          onValueChange={setChip}
+          icon="ti ti-calendar"
+          options={[
+            { value: "day", label: "Day" },
+            { value: "week", label: "Week" },
+            { value: "month", label: "Month" },
+          ]}
+        />
+      </div>
+    </DemoCard>
+  );
+};
+
+const ComboboxDemo = () => (
+  <DemoCard
+    id="combobox"
+    chip={{ kind: "component", name: "Combobox", from: "@k2b/ui" }}
+    description="An asynchronous consume-and-clear search for commands or entities, with abortable loading, retry state, keyboard navigation, and focus restoration."
+    code={`<Combobox label="Team" placeholder="Add team" fetchData={searchTeams} onSelect={addTeam} />`}
+  >
+    <Combobox
+      label="Team"
+      placeholder="Search teams to add…"
+      fetchData={async (query) =>
+        people
+          .filter((person) => person.label.toLowerCase().includes(query.toLowerCase()))
+          .map((person) => ({
+            id: person.id,
+            label: person.label,
+            description: person.description,
+          }))
+      }
+      onSelect={() => {}}
+    />
+  </DemoCard>
+);
+
+const SmallChoicesDemo = (props: { kind: "color" | "tags" | "pin" | "icon" | "slider" }) => {
+  const [color, setColor] = createSignal("#06b6d4");
+  const [transparent, setTransparent] = createSignal(false);
+  const [tags, setTags] = createSignal(["solid", "ssr"]);
+  const [pin, setPin] = createSignal("2607");
+  const [icon, setIcon] = createSignal<string | null>("ti ti-cube");
+  const [slider, setSlider] = createSignal(64);
+  const component = () => {
+    if (props.kind === "color") {
+      return (
+        <ColorInput
+          label="Accent"
+          value={color}
+          onValueChange={setColor}
+          transparent
+          transparentValue={transparent}
+          onTransparentValueChange={setTransparent}
+        />
+      );
+    }
+    if (props.kind === "tags") {
+      return (
+        <TagsInput
+          label="Tags"
+          description="Focus the field to edit the comma-separated text. Enter or blur commits: entries are trimmed, deduplicated, and capped at maxTags."
+          value={tags}
+          onValueChange={setTags}
+          maxTags={5}
+        />
+      );
+    }
+    if (props.kind === "pin") {
+      return <PinInput label="Verification code" value={pin} onValueChange={setPin} length={6} stretch />;
+    }
+    if (props.kind === "icon") {
+      return (
+        <IconInput
+          label="Icon"
+          value={icon()}
+          onValueChange={setIcon}
+        />
+      );
+    }
+    return (
+      <Slider
+        label="Capacity"
+        value={slider}
+        onValueChange={setSlider}
+        min={0}
+        max={100}
+        formatValue={(value) => `${value}%`}
+        defaultValue={50}
+      />
+    );
+  };
+  const names = {
+    color: "ColorInput",
+    tags: "TagsInput",
+    pin: "PinInput",
+    icon: "IconInput",
+    slider: "Slider",
+  };
+  const snippets = {
+    color: `<ColorInput
+  value={color}
+  onValueChange={setColor}
+  transparent
+  transparentValue={transparent}
+  onTransparentValueChange={setTransparent}
+/>`,
+    tags: `<TagsInput aria-label="Tags" value={tags} onValueChange={setTags} maxTags={5} />`,
+    pin: `<PinInput aria-label="Verification code" value={pin} onValueChange={setPin} length={6} stretch />`,
+    icon: `<IconInput value={icon()} onValueChange={setIcon} />`,
+    slider: `<Slider
+  value={capacity}
+  onValueChange={setCapacity}
+  min={0}
+  max={100}
+  defaultValue={50}
+  formatValue={(value) => \`\${value}%\`}
+/>`,
+  };
+  const descriptions = {
+    color: "A native color well plus an optional transparent toggle the parent owns as a separate boolean.",
+    tags: "One contenteditable field holding a comma-separated list. Committing trims each entry, drops duplicates, applies maxTags, and announces the diff to assistive technology. There is no per-tag remove control — tags are removed by editing the text.",
+    pin: "Grouped one-time-code entry with per-cell arrow-key navigation, backspace stepping, and paste distribution across the cells.",
+    icon: "Searchable icon selection over the package's DEFAULT_ICON_OPTIONS, controlled through a nullable value.",
+    slider: "A native range input with a filled track, a formatted value output, and a double-click reset to defaultValue.",
+  };
+  return (
+    <DemoCard
+      id={props.kind}
+      chip={{
+        kind: "component",
+        name: names[props.kind],
+        from: "@k2b/ui",
+      }}
+      description={descriptions[props.kind]}
+      code={snippets[props.kind]}
+    >
+      {component()}
+    </DemoCard>
+  );
+};
+
+const FileDemo = (props: { image?: boolean }) => {
+  const [image, setImage] = createSignal<string | null>(null);
+  const [lastFile, setLastFile] = createSignal("");
+  return (
+    <DemoCard
+      id={props.image ? "image" : "file-dropzone"}
+      chip={{
+        kind: "component",
+        name: props.image ? "ImageInput" : "FileDropzone",
+        from: "@k2b/ui",
+      }}
+      description="The package owns file selection and accessible interaction state; validation, upload, persistence, and transformed image ownership stay with the application."
+      code={
+        props.image
+          ? `<ImageInput label="Avatar" value={image} onValueChange={setImage} round />`
+          : `<FileDropzone label="Attachment" accept="image/*" multiple={false} onDrop={upload} />`
+      }
+    >
+      {props.image ? (
+        <ImageInput
+          label="Avatar"
+          description="Square WebP preview with replace and remove actions."
+          value={image}
+          onValueChange={setImage}
+          round
+        />
+      ) : (
+        <FileDropzone
+          label="Attachment"
+          accept="image/*"
+          multiple={false}
+          subtitle="PNG, JPG, or WebP"
+          hint={lastFile() ? `Selected ${lastFile()}` : "One image"}
+          onDrop={(files) => {
+            setLastFile(files[0]?.name ?? "");
+          }}
+        />
+      )}
+    </DemoCard>
+  );
+};
+
+const CropDemo = () => {
+  const [, setCrop] = createSignal<ImageCropState | null>(null);
+  const [aspect, setAspect] = createSignal<CropAspectPreset>("square");
+  const cropAspect = () =>
+    aspect() === "square" ? { width: 1, height: 1 } : aspect() === "wide" ? { width: 16, height: 9 } : "free";
+  return (
+    <DemoCard
+      id="image-cropper"
+      chip={{ kind: "component", name: "ImageCropper", from: "@k2b/ui" }}
+      description="Interactive crop, resize, zoom, and rotation over an application-owned image source; the application receives normalized crop state for export."
+      code={`const cropAspect = () => preset() === "square"
+  ? { width: 1, height: 1 }
+  : preset() === "wide"
+    ? { width: 16, height: 9 }
+    : "free";
+
+<Select label="Aspect" value={preset} onValueChange={setPreset} options={aspectOptions} />
+<ImageCropper source={imageUrl} aspect={cropAspect()} previewShape="rect" onChange={setCrop} />`}
+    >
+      <div class="ui-crop-demo">
+        <Select
+          label="Aspect ratio"
+          value={aspect}
+          onValueChange={(id) => {
+            setAspect((id as CropAspectPreset | null) ?? "square");
+            setCrop(null);
+          }}
+          options={[
+            { id: "square", label: "Square", icon: "ti ti-crop-1-1" },
+            { id: "wide", label: "16:9", icon: "ti ti-aspect-ratio" },
+            { id: "free", label: "Free", icon: "ti ti-crop" },
+          ]}
+        />
+        <ImageCropper
+          source={cropDemoSource}
+          aspect={cropAspect()}
+          previewShape="rect"
+          onChange={setCrop}
+        />
+      </div>
+    </DemoCard>
+  );
+};
+
+const BooleanDemo = () => {
+  const [enabled, setEnabled] = createSignal(true);
+  const [checked, setChecked] = createSignal(false);
+  return (
+    <DemoCard
+      id="boolean"
+      chip={[
+        { kind: "component", name: "Switch", from: "@k2b/ui" },
+        { kind: "component", name: "Checkbox", from: "@k2b/ui" },
+        { kind: "component", name: "CheckboxCard", from: "@k2b/ui" },
+      ]}
+      description="Native checkbox semantics wrapped in three accessor-controlled presentations for immediate settings, form choices, and descriptive cards."
+      code={`<Switch label="Automation" value={enabled} onValueChange={setEnabled} />`}
+    >
+      <div class="ui-demo-form-grid">
+        <Switch label="Automation" value={enabled} onValueChange={setEnabled} />
+        <Checkbox label="Send a summary" description="Notify everyone when the run finishes." value={checked} onValueChange={setChecked} />
+        <CheckboxCard label="Early access" description="Preview new components." icon="ti ti-flask" value={checked} onValueChange={setChecked} />
+      </div>
+    </DemoCard>
+  );
+};
 
 const demos: DemoSection = {
   text: () => (
-    <DemoGrid>
-      <TextInputBasic />
-      <TextInputWithIcon />
-      <TextInputAi />
-      <TextInputClearable />
-      <TextInputError />
-      <TextInputPassword />
-      <TextInputMarkdown />
-      <TextInputMarkdownCompletions />
+    <DemoGrid columns="one">
+      <TextDemo />
     </DemoGrid>
   ),
   "markdown-editor": () => (
     <DemoGrid columns="one">
-      <MarkdownEditorStandalone />
+      <MarkdownDemo />
     </DemoGrid>
   ),
   autocomplete: () => (
     <DemoGrid columns="one">
-      <AutocompleteEditorMentions />
-      <AutocompleteEditorFormula />
-      <AutocompleteEditorAsync />
-      <AutocompleteEditorSingleLine />
+      <AutocompleteDemo />
     </DemoGrid>
   ),
   number: () => (
-    <DemoGrid>
-      <NumberInputBasic />
-      <NumberInputPercent />
-      <NumberInputCurrency />
+    <DemoGrid columns="one">
+      <NumberDemo />
     </DemoGrid>
   ),
   "date-picker": () => (
-    <DemoGrid>
-      <DatePickerDemo />
-      <DatePickerPlainDemo />
-      <DateTimePickerDemo />
-      <DateRangePickerDemo />
-      <DateRangePickerWithTimeDemo />
-    </DemoGrid>
-  ),
-  "date-time": () => (
-    <DemoGrid>
-      <DateTimeInputDemo />
-      <DateInputDemo />
+    <DemoGrid columns="one">
+      <DateDemo />
     </DemoGrid>
   ),
   select: () => (
-    <DemoGrid>
-      <SelectBasic />
-      <SelectFetchData />
-      <SelectChipDemo />
-      <MultiSelectInputDemo />
+    <DemoGrid columns="one">
+      <SelectDemo />
     </DemoGrid>
   ),
   combobox: () => (
-    <DemoGrid>
+    <DemoGrid columns="one">
       <ComboboxDemo />
     </DemoGrid>
   ),
   color: () => (
-    <DemoGrid>
-      <ColorInputDemo />
+    <DemoGrid columns="one">
+      <SmallChoicesDemo kind="color" />
     </DemoGrid>
   ),
   tags: () => (
-    <DemoGrid>
-      <TagsInputDemo />
+    <DemoGrid columns="one">
+      <SmallChoicesDemo kind="tags" />
     </DemoGrid>
   ),
   pin: () => (
-    <DemoGrid>
-      <PinInputDemo />
+    <DemoGrid columns="one">
+      <SmallChoicesDemo kind="pin" />
     </DemoGrid>
   ),
   image: () => (
-    <DemoGrid>
-      <ImageInputDemo />
+    <DemoGrid columns="one">
+      <FileDemo image />
     </DemoGrid>
   ),
   "image-cropper": () => (
     <DemoGrid columns="one">
-      <ImageCropperDemo />
+      <CropDemo />
     </DemoGrid>
   ),
   "file-dropzone": () => (
-    <DemoGrid>
-      <FileDropzoneDemo />
-      <FileDropzoneAcceptDemo />
+    <DemoGrid columns="one">
+      <FileDemo />
     </DemoGrid>
   ),
   icon: () => (
-    <DemoGrid>
-      <IconInputDemo />
+    <DemoGrid columns="one">
+      <SmallChoicesDemo kind="icon" />
     </DemoGrid>
   ),
   slider: () => (
-    <DemoGrid>
-      <SliderDemo />
+    <DemoGrid columns="one">
+      <SmallChoicesDemo kind="slider" />
     </DemoGrid>
   ),
   filters: () => (
-    <DemoGrid>
-      <FilterChipDemo />
+    <DemoGrid columns="one">
+      <FilterDemo />
     </DemoGrid>
   ),
   boolean: () => (
-    <DemoGrid>
-      <SwitchDemo />
-      <CheckboxDemo />
-      <CheckboxCardDemo />
+    <DemoGrid columns="one">
+      <BooleanDemo />
     </DemoGrid>
   ),
 };

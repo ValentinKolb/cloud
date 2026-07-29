@@ -13,8 +13,9 @@ Use `DataTable` for a record set. Use `CodeDisplay` when raw JSON is the primary
 ```tsx
 import {
   StructuredDataPreview,
+  type StructuredDataPreviewMode,
   type StructuredDataPreviewProps,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Data and modes

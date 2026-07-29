@@ -12,9 +12,12 @@ Use a dialog when the user must finish or dismiss the task before continuing. Us
 
 ```tsx
 import {
+  fitFloatingWindowRect,
+  FloatingWindow,
   openFloatingWindow,
   type FloatingWindowClose,
-} from "@valentinkolb/cloud/ui";
+  type FloatingWindowRect,
+} from "@k2b/ui";
 ```
 
 ## Open and close
@@ -27,13 +30,24 @@ Options include `title`, `icon`, `accent`, initial width and height, minimum wid
 
 The helper restores focus to the previously focused element when the window closes.
 
+Use `FloatingWindow` directly when reactive JSX already owns whether the
+window is mounted. Pass `resolveScope={() => owner}` when the portal must stay
+inside a specific `.k2b-ui` application shell. `openFloatingWindow` creates
+its own styled owner and supplies that scope unless an explicit resolver is
+provided.
+
 ## Window behavior
 
 Desktop windows can be moved and resized. Geometry is clamped to the viewport. Clicking a window brings it in front of other floating windows.
 
-Below 640 pixels, the window becomes an inset mobile surface and disables movement and resizing.
+Below 640 pixels, the window becomes an inset surface with a `0.5rem` viewport
+gap and disables movement and resizing.
 
 The component does not persist its position. Add product-owned persistence only when restoring utility geometry is a real requirement.
+
+`fitFloatingWindowRect(rect, minWidth, minHeight, viewport)` is the pure
+geometry helper used by the component. It returns a clamped
+`FloatingWindowRect`; it does not read the browser or store the result.
 
 ## Accessibility
 
@@ -45,7 +59,8 @@ Escape closes only the top floating window.
 
 ## Runtime
 
-Floating windows are browser-only. `openFloatingWindow` throws when `document` is unavailable.
+The geometry helper is SSR-safe. Portal mounting and window interaction are
+browser-only. `openFloatingWindow` throws when `document` is unavailable.
 
 Open them from an island or another hydrated client component. Do not call the helper during SSR.
 
@@ -64,4 +79,22 @@ const close = openFloatingWindow(
     initialHeight: 640,
   },
 );
+```
+
+For reactive ownership:
+
+```tsx
+let appShell: HTMLDivElement | undefined;
+
+<div ref={appShell}>
+  <Show when={open()}>
+    <FloatingWindow
+      title="Preview"
+      resolveScope={() => appShell}
+      onClose={() => setOpen(false)}
+    >
+      <Preview />
+    </FloatingWindow>
+  </Show>
+</div>;
 ```

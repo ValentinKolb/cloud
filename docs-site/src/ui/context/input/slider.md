@@ -11,14 +11,18 @@ Use `NumberInput` when exact values are the primary task.
 ## Import
 
 ```tsx
-import { Slider } from "@valentinkolb/cloud/ui";
+import { Slider } from "@k2b/ui";
 ```
 
 ## Range and display
 
-`value` is a required numeric accessor. `onChange` receives each value as the range input moves.
+Pass the required number directly or through a Solid accessor.
+`onValueChange` receives each value while the range input moves;
+`onValueCommit` receives the native committed change. Double-click reset
+reports through both callbacks.
 
-`min`, `max`, and `step` default to `0`, `100`, and `1`. `showValue` defaults to `true`; `formatValue` controls its text.
+`min`, `max`, and `step` default to `0`, `100`, and `1`. `showValue` defaults
+to `true`; `formatValue` controls its text.
 
 With `center`, the filled track starts at the range midpoint. Double-click resets to `defaultValue`, or to the midpoint for a centered slider and `min` otherwise.
 
@@ -40,7 +44,7 @@ const [volume, setVolume] = createSignal(64);
 <Slider
   label="Volume"
   value={volume}
-  onChange={setVolume}
+  onValueChange={setVolume}
   min={0}
   max={100}
   formatValue={(value) => `${value}%`}

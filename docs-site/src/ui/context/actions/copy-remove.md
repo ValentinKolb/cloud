@@ -1,12 +1,12 @@
-# CopyButton and RemoveBtn
+# CopyButton and remove buttons
 
-`CopyButton` copies known text with short success feedback. `RemoveBtn` provides a compact remove action. The parent owns removal confirmation and the mutation.
+`CopyButton` copies known text with short success feedback. `RemoveBtn` and its `RemoveButton` convenience alias provide a compact remove action. The parent owns removal confirmation and the mutation.
 
 ## Use copy and remove actions
 
 Use `CopyButton` for identifiers, commands, links, or tokens already present in the UI.
 
-Use `RemoveBtn` for a compact row or token action. Use a labeled danger button when removal is the page's primary destructive action.
+Use `RemoveBtn` or `RemoveButton` for a compact row or token action. Use a labeled danger button when removal is the page's primary destructive action.
 
 ## Import
 
@@ -14,22 +14,25 @@ Use `RemoveBtn` for a compact row or token action. Use a labeled danger button w
 import {
   CopyButton,
   RemoveBtn,
-} from "@valentinkolb/cloud/ui";
+  RemoveButton,
+} from "@k2b/ui";
 ```
 
 ## CopyButton
 
-Pass the exact clipboard value through `text`. With `label`, the component shows text and changes it to “Copied” for about two seconds. Without `label`, it renders an icon button with a tooltip and live announcement.
+Pass the exact clipboard value through `text`. With `label`, the component shows text and changes it to “Copied” for about two seconds. Without `label`, it renders an icon button with a tooltip and live announcement. The default action is neutral rather than primary.
 
 `class` replaces the default button classes when the surrounding surface needs a different action hierarchy.
 
-The component has no clipboard error callback. Use the lower-level clipboard helper when the surface needs custom failure recovery.
+`onCopied` runs after a successful write. `onCopyError` reports the browser error, but the clipboard promise remains rejected to preserve the source behavior. Use the callback for visible recovery and keep the application's normal rejected-promise reporting in place. `resetAfter` changes the feedback duration.
 
 ## RemoveBtn
 
 `ariaLabel` is required and should name the affected item. `onClick` runs immediately; the component does not ask for confirmation or perform a mutation.
 
 `loading` replaces the icon with a spinner and disables the button. `disabled` prevents the action without showing progress.
+
+`RemoveButton` accepts `label` as a convenience alias for `ariaLabel`; use `RemoveBtn` when the stricter required-label contract is preferable.
 
 ## Accessibility
 
@@ -44,11 +47,18 @@ Both components require hydrated client code. `CopyButton` uses the browser clip
 ## Example
 
 ```tsx
-<CopyButton text={inviteUrl} label="Copy invite link" />
+<CopyButton
+  text={inviteUrl}
+  label="Copy invite link"
+  onCopied={() => setStatus("Invite link copied")}
+  onCopyError={() => setStatus("Clipboard access failed")}
+/>
 
 <RemoveBtn
   ariaLabel="Remove API key"
   loading={remove.loading()}
   onClick={() => removeApiKey(key.id)}
 />;
+
+<RemoveButton label="Remove attachment" onClick={removeAttachment} />;
 ```

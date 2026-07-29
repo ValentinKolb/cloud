@@ -11,12 +11,14 @@ Use `TextInput` when the value may contain letters or its length is not fixed.
 ## Import
 
 ```tsx
-import { PinInput } from "@valentinkolb/cloud/ui";
+import { PinInput } from "@k2b/ui";
 ```
 
 ## State and behavior
 
-Pass the current code through `value` and store the complete string from `onChange`.
+Pass the current code directly or through a Solid accessor.
+`onValueChange` receives every partial code. `onValueCommit` runs once the
+configured number of digits is complete.
 
 `length` defaults to `6`. Input is restricted to digits. Typing advances focus, Backspace can move to and clear the previous field, arrow keys move between fields, and pasted digits fill the remaining fields.
 
@@ -41,7 +43,7 @@ const [code, setCode] = createSignal("");
   label="One-time code"
   length={6}
   value={code}
-  onChange={setCode}
+  onValueChange={setCode}
   required
 />;
 ```

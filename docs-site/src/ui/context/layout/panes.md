@@ -12,11 +12,13 @@ Use `AppWorkspace.MainPane` for a fixed list-and-reader layout. It provides shar
 
 ```tsx
 import {
+  activatePanesElement,
   createPanesValue,
   normalizePanesValue,
+  PANES_VALUE_VERSION,
   Panes,
   type PanesValue,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Own the layout
@@ -26,6 +28,20 @@ Create the initial value with `createPanesValue(ids, presentation)`. The present
 Pass the current `PanesValue` to `value` and replace it from `onChange`. Keep every `Panes.Element.id` stable.
 
 Call `normalizePanesValue` when the available element ids change. It removes unavailable ids, keeps valid layout state, and adds new elements.
+
+Current values emitted by the helpers include
+`version: PANES_VALUE_VERSION`. For source compatibility, `PanesValue` also
+accepts an existing unversioned `{ root }` value. Normalize it before
+persistence or when the available element ids change; the normalized result is
+versioned.
+
+The tree uses `PanesLeafNode` and `PanesSplitNode`. A leaf stores element ids,
+the active id, and its presentation. A split stores direction, normalized
+percentage sizes, and children. Treat these types as serializable state, not as
+DOM geometry.
+
+`activatePanesElement(value, elementId)` returns a new value with that element
+active. It returns the original value when the id is unavailable.
 
 `allowResize`, `allowMove`, `allowReorder`, `allowHorizontalSplit`, and `allowVerticalSplit` default to `true`. Disable only the interactions the product does not support.
 
@@ -74,4 +90,23 @@ const [layout, setLayout] = createSignal<PanesValue>(
     <SchemaBrowser />
   </Panes.Element>
 </Panes>;
+```
+
+An existing unversioned value remains a valid input:
+
+```tsx
+const legacyLayout: PanesValue = {
+  root: {
+    type: "leaf",
+    id: "root",
+    elementIds: ["result", "query"],
+    activeElementId: "result",
+    presentation: "tabs",
+  },
+};
+
+const currentLayout = normalizePanesValue(
+  legacyLayout,
+  ["result", "query", "schema"],
+);
 ```

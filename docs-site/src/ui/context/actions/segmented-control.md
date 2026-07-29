@@ -4,7 +4,7 @@
 
 ## Use SegmentedControl
 
-Use it for a compact view or mode switch where every option can remain visible.
+Use it for a view or mode switch where every option can remain visible. The control fills its available width and gives every option equal space.
 
 Use `Select` when the list is long, labels need more space, or the control represents an ordinary form field.
 
@@ -14,22 +14,24 @@ Use `Select` when the list is long, labels need more space, or the control repre
 import {
   SegmentedControl,
   type SegmentOption,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 ```
 
 ## Options and state
 
 `SegmentedControl` is generic over a string union. `options` contain `value`, `label`, and an optional Tabler `icon`. The controlled `value` accessor must match one option, and `onChange` receives the selected value.
 
-Use `disabled` for the whole group. `ariaLabel` names the group and defaults to `"Options"`.
+Use `disabled` for the whole group. The additive per-option `disabled` property skips an unavailable option during keyboard navigation. `ariaLabel` names the group and defaults to `"Options"`.
 
 Keep the option set short. Each option should describe the same dimension, such as List, Board, or Calendar.
+
+Dividers appear only between adjacent inactive options. Selecting an option removes the dividers next to that option so its active surface remains visually continuous.
 
 ## Accessibility
 
 The component renders a horizontal radio group. Only the selected option is in the tab order.
 
-Arrow keys move and select with wrapping. Home and End select the first and last options. Icons do not replace option labels.
+Arrow keys move and select with wrapping. Home and End select the first and last enabled options. Focus follows the new selection. Icons do not replace option labels.
 
 ## Runtime
 
