@@ -184,6 +184,7 @@ export default ssr<AuthContext>(async (c) => {
             entries={entries}
             showTestEmailAction={tab.id === "mail"}
             showTestPdfAction={tab.id === "pdf-rendering"}
+            showTestFreeIpaAction={tab.id === "freeipa"}
             showLegacySettings={tab.id === "general"}
             aiEnrichmentOverview={aiEnrichmentOverview}
             aiCredentialProfileIds={aiCredentialProfileIds}

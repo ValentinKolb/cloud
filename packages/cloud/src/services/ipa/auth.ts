@@ -1,6 +1,12 @@
 import type { MutationResult } from "../../contracts/shared";
 import { freeipa } from "../../server/services";
 import { getFreeIpaTls } from "../../server/services/freeipa/tls";
+import {
+  FreeIpaTransportError,
+  isFreeIpaUpstreamStatus,
+  readFreeIpaErrorBody,
+  withFreeIpaResponse,
+} from "../../server/services/freeipa/transport";
 import { getFreeIpaConfig } from "../freeipa-config";
 import { logger } from "../logging";
 
@@ -91,6 +97,7 @@ const mapPasswordChangeFailure = (params: {
 // ==========================
 
 export type LoginResult = { status: "success"; session: string } | { status: "password_expired" } | { status: "failed" };
+export type IpaPasswordChangeResult = MutationResult<void> | { ok: false; error: string; status: 503 };
 export const login = async (username: string, password: string): Promise<LoginResult> => {
   const config = await getEnabledConfig();
   if (!config.ok) return { status: "failed" };
@@ -121,42 +128,55 @@ export const changeExpiredPassword = async (params: {
   username: string;
   currentPassword: string;
   newPassword: string;
-}): Promise<MutationResult<void>> => {
+}): Promise<IpaPasswordChangeResult> => {
   const { username, currentPassword, newPassword } = params;
   const config = await getEnabledConfig();
   if (!config.ok) return config;
 
   const tls = await getFreeIpaTls();
-  const res = await fetch(`${freeipa.client.baseUrl(config.data.url)}/ipa/session/change_password`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Referer: `${freeipa.client.baseUrl(config.data.url)}/ipa`,
-      Accept: "text/plain",
-    },
-    body: new URLSearchParams({
-      user: username,
-      old_password: currentPassword,
-      new_password: newPassword,
-    }),
-    ...(tls ? { tls } : {}),
-  });
+  try {
+    return await withFreeIpaResponse(
+      `${freeipa.client.baseUrl(config.data.url)}/ipa/session/change_password`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Referer: `${freeipa.client.baseUrl(config.data.url)}/ipa`,
+          Accept: "text/plain",
+        },
+        body: new URLSearchParams({
+          user: username,
+          old_password: currentPassword,
+          new_password: newPassword,
+        }),
+        tls,
+      },
+      async (res): Promise<IpaPasswordChangeResult> => {
+        // FreeIPA returns X-IPA-Pwchange-Result header
+        const pwchangeResult = res.headers.get("X-IPA-Pwchange-Result");
+        if (!res.ok || pwchangeResult !== "ok") {
+          const policyError = res.headers.get("X-IPA-Pwchange-Policy-Error");
+          const body = (await readFreeIpaErrorBody(res)).text;
+          if (isFreeIpaUpstreamStatus(res.status)) {
+            return { ok: false, error: `FreeIPA returned HTTP ${res.status}`, status: 503 };
+          }
+          const failure = mapPasswordChangeFailure({ status: res.status, pwchangeResult, policyError, body });
+          log.warn("FreeIPA password change failed", {
+            status: res.status,
+            pwchangeResult,
+            mappedStatus: failure.status,
+          });
+          return failure;
+        }
 
-  // FreeIPA returns X-IPA-Pwchange-Result header
-  const pwchangeResult = res.headers.get("X-IPA-Pwchange-Result");
-  if (pwchangeResult !== "ok") {
-    const policyError = res.headers.get("X-IPA-Pwchange-Policy-Error");
-    const body = await res.text();
-    const failure = mapPasswordChangeFailure({ status: res.status, pwchangeResult, policyError, body });
-    log.warn("FreeIPA password change failed", {
-      status: res.status,
-      pwchangeResult,
-      mappedStatus: failure.status,
-    });
-    return failure;
+        await res.body?.cancel().catch(() => undefined);
+        return { ok: true, data: undefined };
+      },
+    );
+  } catch (error) {
+    if (error instanceof FreeIpaTransportError) return { ok: false, error: error.message, status: 503 };
+    throw error;
   }
-
-  return { ok: true, data: undefined };
 };
 
 export const __ipaAuthTest = {

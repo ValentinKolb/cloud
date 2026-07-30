@@ -92,7 +92,21 @@ export const login = async (params: { username: string; password: string }): Pro
     return failInvalidCredentials({ identifier: params.username, password: params.password });
   }
 
-  const loginResult = await providers.ipa.auth.login(uid, params.password);
+  const loginResult = await providers.ipa.auth.login(uid, params.password).catch((error) => {
+    log.error("FreeIPA login transport failed", {
+      uid,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+  if (!loginResult) {
+    return {
+      ok: false,
+      status: 503,
+      reason: "sync_unavailable",
+      message: "Could not reach FreeIPA. Please try again.",
+    };
+  }
   if (loginResult.status === "password_expired") {
     return { ok: false, status: 401, reason: "password_expired", message: "Password expired", uid };
   }
@@ -103,7 +117,16 @@ export const login = async (params: { username: string; password: string }): Pro
   // Must reach a "synced" outcome before granting a session. Stale mirror rows
   // (expired remotely, dropped from sync scope, or fetch failures) must never
   // grant a fresh local session on the back of successful FreeIPA credentials.
-  const syncOutcome = await providers.ipa.sync.user(uid);
+  const syncOutcome = await providers.ipa.sync.user(uid).catch((error) => {
+    log.error("FreeIPA login verification failed", {
+      uid,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      status: "fetch_failed" as const,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
   switch (syncOutcome.status) {
     case "synced":
       break;

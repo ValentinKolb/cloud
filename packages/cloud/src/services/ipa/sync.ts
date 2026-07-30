@@ -9,7 +9,8 @@ import { session } from "../session";
 import * as settings from "../settings";
 import { buildEffectiveIpaGroupsByUid } from "./effective-groups";
 import { calculateIpaProfileFromEffectiveProjection, getEffectiveUserGroups } from "./profile";
-import { selectStaleLocalIpaRows } from "./sync-planning";
+import { createIpaRuntimeCheckpoint, type IpaSyncRuntime } from "./runtime";
+import { assessIpaDestructionGuard, formatIpaDestructionGuardFailure, readCompleteIpaList, selectStaleLocalIpaRows } from "./sync-planning";
 
 type DbRow = Record<string, unknown>;
 type LocalIpaRow = DbRow & { uid: string; mail: string | null };
@@ -108,8 +109,6 @@ type SyncGroup = {
   managerGroups: string[];
 };
 
-type IpaCallResponse = Awaited<ReturnType<typeof freeipa.client.call>>;
-
 // ==========================
 // Transform helpers
 // ==========================
@@ -174,19 +173,6 @@ const isExpired = (u: SyncUser): boolean => {
  * Reads one IPA list response and throws for transport/protocol failures.
  * Sync must fail hard on invalid payloads to avoid destructive partial updates.
  */
-const readIpaList = (config: { response: IpaCallResponse; entity: string }): Record<string, unknown>[] => {
-  if (config.response.error) {
-    throw new Error(`IPA ${config.entity} fetch failed: ${config.response.error.message}`);
-  }
-
-  const records = config.response.result?.result;
-  if (!Array.isArray(records)) {
-    throw new Error(`IPA ${config.entity} fetch returned invalid list payload`);
-  }
-
-  return records as Record<string, unknown>[];
-};
-
 // ==========================
 // Sync
 // ==========================
@@ -194,8 +180,14 @@ const readIpaList = (config: { response: IpaCallResponse; entity: string }): Rec
 /**
  * Runs a full IPA-to-local sync pass for users, groups, and memberships.
  */
-export const syncFromIpa = async (): Promise<void> => {
+export const syncFromIpa = async (runtime: IpaSyncRuntime = {}): Promise<void> => {
   const startedAt = Date.now();
+  let leaseHeartbeats = 0;
+  const runCheckpoint = createIpaRuntimeCheckpoint(runtime, {
+    onHeartbeat: () => {
+      leaseHeartbeats += 1;
+    },
+  });
   const config = await getFreeIpaConfig();
   if (!config.enabled) {
     log.info("Sync skipped", { reason: "freeipa_disabled" });
@@ -209,10 +201,20 @@ export const syncFromIpa = async (): Promise<void> => {
     url: config.url,
     serviceUser: config.serviceUser,
     servicePassword: config.servicePassword,
+    signal: runtime.signal,
   });
+  await runCheckpoint(true);
 
+  const snapshotFetchStartedAt = Date.now();
   const [usersRes, groupsRes] = await Promise.all([
-    freeipa.client.call({ url: config.url, ipaSession, method: "user_find", args: [], options: { sizelimit: 0, all: true } }),
+    freeipa.client.call({
+      url: config.url,
+      ipaSession,
+      method: "user_find",
+      args: [],
+      options: { sizelimit: 0, all: true },
+      signal: runtime.signal,
+    }),
     freeipa.client.call({
       url: config.url,
       ipaSession,
@@ -223,12 +225,15 @@ export const syncFromIpa = async (): Promise<void> => {
         no_members: false,
         all: true,
       },
+      signal: runtime.signal,
     }),
   ]);
+  const snapshotFetchDurationMs = Date.now() - snapshotFetchStartedAt;
+  await runCheckpoint(true);
 
-  const allRawUsers = readIpaList({ response: usersRes, entity: "users" });
+  const allRawUsers = readCompleteIpaList({ response: usersRes, entity: "users" });
   const allUsers = allRawUsers.map(transformSyncUser);
-  const allRawGroups = readIpaList({ response: groupsRes, entity: "groups" });
+  const allRawGroups = readCompleteIpaList({ response: groupsRes, entity: "groups" });
   const effectiveGroupsByUid = buildEffectiveIpaGroupsByUid(allRawGroups.map((raw) => transformSyncGroup(raw)));
   const users = allUsers.filter((user) => {
     const effectiveGroups = effectiveGroupsByUid.get(user.uid) ?? [];
@@ -242,7 +247,6 @@ export const syncFromIpa = async (): Promise<void> => {
   // stale/transition branch so their local mirror is either demoted or deleted per policy,
   // and their sessions are revoked. Treating expired users as in-scope would leave a stale
   // unexpired local row plus live sessions.
-  const remoteGroupCns = new Set(allRawGroups.map((raw) => freeipa.util.str(raw.cn)).filter(Boolean));
   const groupCns = new Set(groups.map((g) => g.cn));
   const matchMode = parseIpaMatchMode(await settings.get<string | null>("freeipa.user_match_mode"));
   const transitionPolicy = parseIpaAccountTransitionPolicy(await settings.get<string | null>("freeipa.account_transition_policy"));
@@ -256,29 +260,36 @@ export const syncFromIpa = async (): Promise<void> => {
   let updatedUsersByUid = 0;
   let deletedGroups = 0;
 
-  const [localCountsRow] = await sql<DbRow[]>`
-    SELECT
-      (SELECT COUNT(*)::int FROM auth.users WHERE provider = 'ipa') AS ipa_users,
-      (SELECT COUNT(*)::int FROM auth.groups WHERE provider = 'ipa') AS groups
-  `;
-
-  const localIpaUsers = Number(localCountsRow?.ipa_users ?? 0);
-  const localGroups = Number(localCountsRow?.groups ?? 0);
-
-  if (activeUsers.length === 0 && localIpaUsers > 0) {
-    throw new Error(`Refusing IPA sync: remote active users list is empty while local has ${localIpaUsers} IPA users`);
-  }
-  if (remoteGroupCns.size === 0 && localGroups > 0) {
-    throw new Error(`Refusing IPA sync: remote groups list is empty while local has ${localGroups} groups`);
-  }
-
   const localIpaRows = await sql<DbRow[]>`
     SELECT id, uid, mail, display_name, profile
     FROM auth.users
     WHERE provider = 'ipa'
     ORDER BY uid
   `;
-  const currentProfileByUid = new Map(localIpaRows.map((row) => [row.uid as string, row.profile as "user" | "guest"]));
+  const localIpaGroupRows = await sql<DbRow[]>`
+    SELECT name
+    FROM auth.groups
+    WHERE provider = 'ipa'
+    ORDER BY name
+  `;
+  const localIpaUsers = localIpaRows.length;
+  const localGroups = localIpaGroupRows.length;
+  const currentRowByUid = new Map(localIpaRows.map((row) => [row.uid as string, row]));
+  const currentRowsByMail = new Map<string, DbRow[]>();
+  for (const row of localIpaRows) {
+    const mail = row.mail as string | null;
+    if (!mail) continue;
+    const matches = currentRowsByMail.get(mail);
+    if (matches) matches.push(row);
+    else currentRowsByMail.set(mail, [row]);
+  }
+  const currentRowForRemoteUser = (user: SyncUser): DbRow | undefined => {
+    const byUid = currentRowByUid.get(user.uid);
+    if (byUid) return byUid;
+    if (!user.mail) return undefined;
+    const byMail = currentRowsByMail.get(user.mail) ?? [];
+    return byMail.length === 1 ? byMail[0] : undefined;
+  };
   let profileDriftCount = 0;
   const profileDriftSamples: string[] = [];
   let profilesPromoted = 0;
@@ -292,7 +303,7 @@ export const syncFromIpa = async (): Promise<void> => {
       if (profileDriftSamples.length < 10) profileDriftSamples.push(user.uid);
     }
 
-    const previousProfile = currentProfileByUid.get(user.uid);
+    const previousProfile = currentRowForRemoteUser(user)?.profile as "user" | "guest" | undefined;
     if (previousProfile === "guest" && graphProfile === "user") profilesPromoted += 1;
     if (previousProfile === "user" && graphProfile === "guest") profilesDemoted += 1;
   }
@@ -306,15 +317,27 @@ export const syncFromIpa = async (): Promise<void> => {
     localRows: localIpaIdentityRows,
     activeRemoteUsers: activeUsers.map((user) => ({ uid: user.uid, mail: user.mail })),
   });
-  const staleLimit = Math.max(10, Math.ceil(Math.max(localIpaUsers, 1) * 0.2));
-  if (staleLocalUsers.length > staleLimit) {
-    throw new Error(`Refusing IPA sync: ${staleLocalUsers.length} local IPA users disappeared from sync scope (limit ${staleLimit})`);
+  const affectedUserIds = new Set(staleLocalUsers.map((row) => row.id as string));
+  for (const user of activeUsers) {
+    const previousRow = currentRowForRemoteUser(user);
+    const previousProfile = previousRow?.profile as "user" | "guest" | undefined;
+    const nextProfile = calculateIpaProfileFromGroupNames(effectiveGroupsByUid.get(user.uid) ?? [], config.groupsBaseIpaRealm);
+    if (previousRow && previousProfile === "user" && nextProfile === "guest") {
+      affectedUserIds.add(previousRow.id as string);
+    }
   }
-  if (profilesDemoted > staleLimit) {
-    throw new Error(`Refusing IPA sync: ${profilesDemoted} IPA users would be downgraded from user to guest (limit ${staleLimit})`);
-  }
+  const deletedGroupNames = localIpaGroupRows.map((row) => row.name as string).filter((name) => !groupCns.has(name));
+  const guard = assessIpaDestructionGuard({
+    affectedUserIds,
+    localUsers: localIpaUsers,
+    deletedGroupNames,
+    localGroups,
+    limits: config.syncGuard,
+  });
+  log.info("IPA sync destructive plan assessed", guard);
+  if (guard.violations.length > 0) throw new Error(formatIpaDestructionGuardFailure(guard));
   if (profilesDemoted > 0) {
-    log.warn("IPA sync will downgrade user profiles", { profilesDemoted, limit: staleLimit });
+    log.warn("IPA sync will downgrade user profiles", { profilesDemoted });
   }
   if (profileDriftCount > 0) {
     log.warn("IPA user memberOf drift detected; using group graph projection", {
@@ -323,12 +346,25 @@ export const syncFromIpa = async (): Promise<void> => {
     });
   }
 
-  const staleDemotedUsers: Array<{ id: string; uid: string }> = [];
+  // Revoke before the local transition so a crash after the transaction
+  // cannot leave a session valid for a user that no longer appears in the next
+  // IPA sync plan. A failed transaction may require a relogin, which is the
+  // safe side of this cross-store boundary.
+  for (const staleUser of staleLocalUsers) {
+    await runCheckpoint();
+    await session.revokeAllForUser(staleUser.id as string);
+  }
+
+  let scopeTransitions = 0;
   let effectiveGroupsRebuilt = 0;
+  await runCheckpoint(true);
+  const transactionStartedAt = Date.now();
   await sql.begin(async (tx) => {
     // 1. Upsert active IPA users
     //    Match order: mail (existing IPA user, handles UID renames) → mail (guest promotion) → uid (new or unchanged)
-    for (const u of activeUsers) {
+    for (let userIndex = 0; userIndex < activeUsers.length; userIndex += 1) {
+      await runCheckpoint();
+      const u = activeUsers[userIndex]!;
       const effectiveGroups = effectiveGroupsByUid.get(u.uid) ?? [];
       const profile = calculateIpaProfileFromGroupNames(effectiveGroups, config.groupsBaseIpaRealm);
       const provider = "ipa";
@@ -417,7 +453,9 @@ export const syncFromIpa = async (): Promise<void> => {
       else updatedUsersByUid += 1;
     }
 
-    for (const stale of staleLocalUsers) {
+    for (let staleIndex = 0; staleIndex < staleLocalUsers.length; staleIndex += 1) {
+      await runCheckpoint();
+      const stale = staleLocalUsers[staleIndex]!;
       const userId = stale.id as string;
       const uid = stale.uid as string;
       const previousProfile = (stale.profile as "user" | "guest" | null) ?? "guest";
@@ -437,7 +475,7 @@ export const syncFromIpa = async (): Promise<void> => {
           },
         });
         await tx`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
-        staleDemotedUsers.push({ id: userId, uid });
+        scopeTransitions += 1;
         continue;
       }
 
@@ -462,11 +500,13 @@ export const syncFromIpa = async (): Promise<void> => {
           reason: "missing_from_ipa_sync_scope",
         },
       });
-      staleDemotedUsers.push({ id: userId, uid });
+      scopeTransitions += 1;
     }
 
     // 2. Upsert groups + delete stale
-    for (const g of groups) {
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+      await runCheckpoint();
+      const g = groups[groupIndex]!;
       await tx`
         INSERT INTO auth.groups (id, cn, name, provider, description, gid_number, synced_at)
         VALUES (gen_random_uuid(), ${g.cn}, ${g.cn}, 'ipa', ${g.description}, ${g.gidnumber}, now())
@@ -486,7 +526,12 @@ export const syncFromIpa = async (): Promise<void> => {
       `;
       deletedGroups = deleted.length;
     } else {
-      log.warn("Skipping stale group deletion because resolved group list is empty");
+      const deleted = await tx<DbRow[]>`
+        DELETE FROM auth.groups
+        WHERE provider = 'ipa'
+        RETURNING name
+      `;
+      deletedGroups = deleted.length;
     }
 
     const groupRows = await tx<DbRow[]>`SELECT id, name FROM auth.groups WHERE provider = 'ipa'`;
@@ -522,6 +567,7 @@ export const syncFromIpa = async (): Promise<void> => {
       }
     }
     if (effectiveGroupRows.length > 0) {
+      await runCheckpoint();
       await tx`INSERT INTO auth.ipa_user_effective_groups ${sql(effectiveGroupRows, "user_id", "group_name")} ON CONFLICT DO NOTHING`;
     }
     effectiveGroupsRebuilt = effectiveGroupRows.length;
@@ -544,6 +590,7 @@ export const syncFromIpa = async (): Promise<void> => {
       }
     }
     if (userGroupRows.length > 0) {
+      await runCheckpoint();
       await tx`INSERT INTO auth.user_groups_v2 ${sql(userGroupRows, "user_id", "group_id")} ON CONFLICT DO NOTHING`;
     }
 
@@ -568,6 +615,7 @@ export const syncFromIpa = async (): Promise<void> => {
       }
     }
     if (groupGroupRows.length > 0) {
+      await runCheckpoint();
       await tx`INSERT INTO auth.group_groups_v2 ${sql(groupGroupRows, "parent_group_id", "child_group_id")} ON CONFLICT DO NOTHING`;
     }
     if (managerUserRows.length > 0) {
@@ -577,13 +625,13 @@ export const syncFromIpa = async (): Promise<void> => {
       await tx`INSERT INTO auth.group_manager_groups_v2 ${sql(managerGroupRows, "group_id", "manager_group_id")} ON CONFLICT DO NOTHING`;
     }
   });
-
-  for (const staleUser of staleDemotedUsers) {
-    await session.revokeAllForUser(staleUser.id);
-  }
+  const transactionDurationMs = Date.now() - transactionStartedAt;
 
   log.info("Sync complete", {
     durationMs: Date.now() - startedAt,
+    snapshotFetchDurationMs,
+    transactionDurationMs,
+    leaseHeartbeats,
     remoteUsersFetched: allRawUsers.length,
     remoteUsersInScope: users.length,
     remoteExpiredUsers: expiredUsers,
@@ -592,8 +640,8 @@ export const syncFromIpa = async (): Promise<void> => {
     migratedLocalUsers,
     skippedLocalMailConflicts,
     skippedLocalUidConflicts,
-    staleUsersDemoted: staleDemotedUsers.length,
-    scopeTransitions: staleDemotedUsers.length,
+    staleUsersDemoted: scopeTransitions,
+    scopeTransitions,
     profileDriftCount,
     profilesPromoted,
     profilesDemoted,
@@ -605,6 +653,11 @@ export const syncFromIpa = async (): Promise<void> => {
     deletedGroups,
     localIpaUsersBefore: localIpaUsers,
     localGroupsBefore: localGroups,
+    destructiveUserChanges: guard.userChanges,
+    destructiveUserChangePercent: guard.userChangePercent,
+    destructiveGroupDeletions: guard.groupDeletions,
+    destructiveGroupDeletionPercent: guard.groupDeletionPercent,
+    destructionGuardLimits: guard.limits,
   });
 };
 
@@ -638,6 +691,7 @@ const reconcileOutOfScopeUser = async (params: {
 }): Promise<void> => {
   const transitionPolicy = parseIpaAccountTransitionPolicy(await settings.get<string | null>("freeipa.account_transition_policy"));
 
+  await session.revokeAllForUser(params.userId);
   await sql.begin(async (tx) => {
     if (transitionPolicy === "delete") {
       await writeDeletedAccountAudit({
@@ -679,8 +733,6 @@ const reconcileOutOfScopeUser = async (params: {
       },
     });
   });
-
-  await session.revokeAllForUser(params.userId);
 };
 
 /**

@@ -1,5 +1,16 @@
+import { X509Certificate } from "node:crypto";
 import { setFreeIpaTlsResolver } from "../server/services/freeipa/tls";
 import { coreSettings } from "./settings/api";
+
+const MAX_CA_CERT_BYTES = 256 * 1024;
+const PEM_CERTIFICATE_PATTERN = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g;
+
+export type FreeIpaSyncGuard = {
+  maxUserChanges: number;
+  maxUserChangePercent: number;
+  maxGroupDeletions: number;
+  maxGroupDeletionPercent: number;
+};
 
 export type FreeIpaConfig = {
   enabled: boolean;
@@ -15,9 +26,46 @@ export type FreeIpaConfig = {
   groupsExcluded: string[];
   caCert: string;
   allowInsecure: boolean;
+  syncGuard: FreeIpaSyncGuard;
 };
 
 const normalizeString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+const normalizeNonNegativeNumber = (value: unknown, fallback: number): number => {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+const normalizeNonNegativeInteger = (value: unknown, fallback: number): number => Math.floor(normalizeNonNegativeNumber(value, fallback));
+const normalizePercentage = (value: unknown, fallback: number): number => Math.min(100, normalizeNonNegativeNumber(value, fallback));
+
+export const validateFreeIpaCaCert = (value: unknown): { ok: true; value: string } | { ok: false; error: string } => {
+  if (typeof value !== "string") return { ok: false, error: "CA certificate must be PEM text" };
+  const normalized = value.trim();
+  if (!normalized) return { ok: true, value: "" };
+  if (new TextEncoder().encode(normalized).byteLength > MAX_CA_CERT_BYTES) {
+    return { ok: false, error: "CA certificate bundle must not exceed 256 KiB" };
+  }
+
+  const certificates = normalized.match(PEM_CERTIFICATE_PATTERN) ?? [];
+  const remainder = normalized.replace(PEM_CERTIFICATE_PATTERN, "").trim();
+  if (certificates.length === 0 || remainder.length > 0) {
+    return { ok: false, error: "Enter one or more complete PEM certificates" };
+  }
+
+  try {
+    for (const certificate of certificates) new X509Certificate(certificate);
+  } catch {
+    return { ok: false, error: "CA certificate contains invalid PEM data" };
+  }
+  return { ok: true, value: normalized };
+};
+
+export const resolveFreeIpaTlsOptions = (caCert: string, allowInsecure: boolean): Bun.TLSOptions => {
+  const certificate = validateFreeIpaCaCert(caCert);
+  if (!certificate.ok) throw new Error(`Invalid freeipa.ca_cert: ${certificate.error}`);
+  if (certificate.value) return { ca: certificate.value, rejectUnauthorized: true };
+  if (allowInsecure) return { rejectUnauthorized: false };
+  return { rejectUnauthorized: true };
+};
 
 /**
  * `fallback` is only for groups that have a genuine FreeIPA-wide default.
@@ -51,6 +99,10 @@ export const getFreeIpaConfig = async (): Promise<FreeIpaConfig> => {
     rawExcluded,
     rawCaCert,
     rawAllowInsecure,
+    rawMaxUserChanges,
+    rawMaxUserChangePercent,
+    rawMaxGroupDeletions,
+    rawMaxGroupDeletionPercent,
   ] = await Promise.all([
     coreSettings.get<string>("freeipa.url"),
     coreSettings.get<string>("freeipa.service_user"),
@@ -62,12 +114,18 @@ export const getFreeIpaConfig = async (): Promise<FreeIpaConfig> => {
     coreSettings.get<string[]>("freeipa.groups.excluded"),
     coreSettings.get<string>("freeipa.ca_cert"),
     coreSettings.get<boolean>("freeipa.allow_insecure"),
+    coreSettings.get<number>("freeipa.sync_guard.max_user_changes"),
+    coreSettings.get<number>("freeipa.sync_guard.max_user_change_percent"),
+    coreSettings.get<number>("freeipa.sync_guard.max_group_deletions"),
+    coreSettings.get<number>("freeipa.sync_guard.max_group_deletion_percent"),
   ]);
 
   const url = normalizeString(rawUrl);
   const serviceUser = normalizeString(rawServiceUser);
   const servicePassword = normalizeString(rawServicePassword);
   const enabled = Boolean(rawEnabled);
+  const caCert = normalizeString(rawCaCert);
+  const caValidation = validateFreeIpaCaCert(caCert);
 
   // "admins" and the excluded list are real FreeIPA defaults; the scope groups
   // are not, so they stay empty and make the config incomplete.
@@ -82,6 +140,7 @@ export const getFreeIpaConfig = async (): Promise<FreeIpaConfig> => {
     ...(servicePassword ? [] : ["freeipa.service_password"]),
     ...(groupsBaseSync.length > 0 ? [] : ["freeipa.groups.base_sync"]),
     ...(groupsBaseIpaRealm.length > 0 ? [] : ["freeipa.groups.base_ipa_realm"]),
+    ...(caValidation.ok ? [] : ["freeipa.ca_cert"]),
   ];
 
   return {
@@ -95,8 +154,14 @@ export const getFreeIpaConfig = async (): Promise<FreeIpaConfig> => {
     groupsBaseSync,
     groupsBaseIpaRealm,
     groupsExcluded,
-    caCert: normalizeString(rawCaCert),
+    caCert,
     allowInsecure: Boolean(rawAllowInsecure),
+    syncGuard: {
+      maxUserChanges: normalizeNonNegativeInteger(rawMaxUserChanges, 10),
+      maxUserChangePercent: normalizePercentage(rawMaxUserChangePercent, 20),
+      maxGroupDeletions: normalizeNonNegativeInteger(rawMaxGroupDeletions, 5),
+      maxGroupDeletionPercent: normalizePercentage(rawMaxGroupDeletionPercent, 20),
+    },
   };
 };
 
@@ -106,11 +171,9 @@ export const getFreeIpaConfig = async (): Promise<FreeIpaConfig> => {
 // without taking a hard dependency on settings (would create a layering cycle).
 //
 // Resolution order: ca_cert (proper, signed by your private CA) wins over
-// allow_insecure (lab/dev kill switch). When neither is set we return
-// undefined so Bun uses its default system trust store.
+// allow_insecure (lab/dev kill switch). Verification is explicit in every
+// secure mode so NODE_TLS_REJECT_UNAUTHORIZED cannot weaken this policy.
 setFreeIpaTlsResolver(async () => {
   const config = await getFreeIpaConfig();
-  if (config.caCert) return { ca: config.caCert };
-  if (config.allowInsecure) return { rejectUnauthorized: false };
-  return undefined;
+  return resolveFreeIpaTlsOptions(config.caCert, config.allowInsecure);
 });

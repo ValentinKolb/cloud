@@ -22,7 +22,7 @@ import {
   VerifyTokenSchema,
 } from "./auth/schemas";
 
-const jsonError = (c: Context, message: string, status: 400 | 401 | 500) => c.json({ message }, status);
+const jsonError = (c: Context, message: string, status: 400 | 401 | 500 | 503) => c.json({ message }, status);
 
 /** Authentication routes: login, logout. */
 export const createAuthRoutes = (notificationSender: AuthNotificationSender) =>
@@ -37,6 +37,7 @@ export const createAuthRoutes = (notificationSender: AuthNotificationSender) =>
         responses: {
           200: jsonResponse(AuthResponseSchema, "Login successful"),
           401: jsonResponse(ErrorResponseSchema, "Invalid username or password"),
+          503: jsonResponse(ErrorResponseSchema, "FreeIPA unavailable"),
         },
       }),
       v("json", LoginSchema),
@@ -135,6 +136,7 @@ export const createAuthRoutes = (notificationSender: AuthNotificationSender) =>
         responses: {
           200: jsonResponse(AuthResponseSchema, "Password changed and logged in"),
           400: jsonResponse(ErrorResponseSchema, "Failed to change password"),
+          503: jsonResponse(ErrorResponseSchema, "FreeIPA unavailable"),
         },
       }),
       v("json", ChangeExpiredPasswordSchema),
@@ -151,7 +153,7 @@ export const createAuthRoutes = (notificationSender: AuthNotificationSender) =>
         });
         if (!changeResult.ok) {
           if (changeResult.reason === "change_failed") {
-            const status = changeResult.status >= 500 ? 500 : 400;
+            const status = changeResult.status === 503 ? 503 : changeResult.status >= 500 ? 500 : 400;
             return jsonError(c, changeResult.message, status);
           }
           if (changeResult.reason === "password_expired") {

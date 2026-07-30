@@ -5,7 +5,7 @@ section: Operations
 order: 1170
 description: Connect a Cloud deployment to FreeIPA identity infrastructure.
 tags: [freeipa, identity, directory]
-updated: 2026-07-27
+updated: 2026-07-30
 ---
 
 # FreeIPA setup
@@ -35,8 +35,22 @@ Cloud enables the bootstrap automatically only when all three values exist.
 
 Use `freeipa.ca_cert` for a private certificate authority.
 
+Paste one or more complete PEM certificates. Cloud validates the PEM bundle
+before saving it, uses it as the trust chain, and still verifies the FreeIPA
+host name. Certificate verification is explicit and is not weakened by
+`NODE_TLS_REJECT_UNAUTHORIZED`.
+
 `freeipa.allow_insecure` disables TLS verification. Use it only for local
 development. A configured CA certificate takes precedence.
+
+After saving, choose **Test connection** on the FreeIPA settings page. The test
+uses only saved settings and verifies TLS, a fresh service-account login, and
+FreeIPA `ping`. Save or discard pending changes before testing.
+
+FreeIPA requests time out after 30 seconds. Cloud reports certificate,
+connectivity, timeout, upstream, authentication, and invalid-response failures
+separately without logging credentials, session cookies, or certificate
+contents.
 
 ## Grant service-account permissions
 
@@ -73,6 +87,83 @@ service account is the downstream technical identity.
 
 Excluded groups remain available while Cloud evaluates sync scope. Cloud does
 not mirror those groups or their membership and hierarchy edges.
+
+## Configure destructive-change guards
+
+Cloud validates the complete user and group snapshot before changing local
+state. A truncated response, invalid payload, or incomplete snapshot stops the
+run without destructive changes.
+
+The sync policy has two independent limits for users and two for groups:
+
+| Setting | Default |
+| --- | ---: |
+| `freeipa.sync_guard.max_user_changes` | 10 |
+| `freeipa.sync_guard.max_user_change_percent` | 20 |
+| `freeipa.sync_guard.max_group_deletions` | 5 |
+| `freeipa.sync_guard.max_group_deletion_percent` | 20 |
+
+User changes are the deduplicated union of accounts leaving sync scope and
+full users being demoted to guests. Group changes count mirrored IPA groups
+that would be deleted. Percentages use the local IPA user or group count before
+the run.
+
+A plan is rejected when either its absolute or percentage limit is exceeded.
+Equality is allowed. Zero means no destructive changes; it never means
+unlimited.
+
+For an intentional large reconciliation:
+
+1. inspect the proposed counts and percentages in `auth:ipa:sync` logs;
+2. verify the FreeIPA group graph and scope settings;
+3. raise both the absolute and percentage limit for the affected entity;
+4. allow one successful sync;
+5. restore the normal limits.
+
+Do not raise only one limit: the other continues to protect the directory.
+
+## Failure and recovery behavior
+
+The scheduled sync has at-least-once delivery. Cloud holds a distributed
+single-run lock, refreshes both lock and job lease during long phases, and
+passes cancellation into FreeIPA requests. Loss of ownership aborts the run;
+an in-progress local mirror transaction rolls back.
+
+Expired user-backed actors are rejected from request authentication even while
+FreeIPA is unavailable. Session revocation happens before retryable remote
+account cleanup. A repeated FreeIPA delete that reports an already-missing
+account is treated as success.
+
+The primary sync intentionally remains a complete snapshot transaction.
+`user_find` and `group_find` do not expose a stable durable cursor suitable for
+a direct pump. Consider a staged pump only after measurements show sustained
+lease or transaction pressure and only with a persisted complete snapshot,
+stable item keys, idempotent apply, and atomic finalization.
+
+The current decision is to defer pump migration. Re-evaluate it when the
+seven-day p95 transaction duration reaches 60 seconds or the p95 complete sync
+duration reaches 90 seconds (75 percent of the 120-second lease). A staged
+snapshot design would use a persisted run id plus entity/external id as the
+idempotency key, a stable staged-row cursor, and an atomic publish step; no
+partially applied run may become visible. A per-account lifecycle pump would
+use `(account_expires, user_id)` as its Postgres cursor and
+`user_id:account_expires` as its idempotency key. Its sink must preserve the
+existing request-time expiry check, audit uniqueness, and retry-safe
+already-missing delete behavior. Test either design with crashes before and
+after sink acceptance, cursor checkpoint, and final publication.
+
+When a run fails:
+
+1. classify the log as configuration, TLS, network/timeout, upstream,
+   snapshot-integrity, or guard failure;
+2. fix the underlying cause rather than disabling verification;
+3. use **Test connection** for transport and service-account checks;
+4. restore safe guard values after an intentional override;
+5. let the next scheduled retry reconcile the idempotent mirror.
+
+Successful sync logs include fetched and in-scope counts, transaction duration,
+user and group change counts, percentages, active guard limits, profile drift,
+and rebuilt membership counts.
 
 ## Verify the integration
 

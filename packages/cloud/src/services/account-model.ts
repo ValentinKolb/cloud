@@ -7,6 +7,7 @@ export {
   getDefaultAccountExpiry,
   type IpaAccountTransitionPolicy,
   type IpaMatchMode,
+  isAccountExpired,
   isGuestProfile,
   isIpaProvider,
   isLocalProvider,

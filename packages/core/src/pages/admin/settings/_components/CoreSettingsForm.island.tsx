@@ -86,6 +86,7 @@ type Props = {
   entries: SettingFieldDef[];
   showTestEmailAction?: boolean;
   showTestPdfAction?: boolean;
+  showTestFreeIpaAction?: boolean;
   showLegacySettings?: boolean;
   aiEnrichmentOverview?: AiEnrichmentOverview | null;
   /** Profile ids with a stored provider key. The keys themselves stay server-side. */
@@ -365,6 +366,22 @@ export default function CoreSettingsForm(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
+  const testFreeIpa = mutations.create<void, void>({
+    mutation: async () => {
+      const response = await coreClient.admin.core.settings["test-freeipa"].$post();
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message =
+          body && typeof body === "object" && "message" in body && typeof body.message === "string"
+            ? body.message
+            : `Failed to test FreeIPA (HTTP ${response.status})`;
+        throw new Error(message);
+      }
+    },
+    onSuccess: () => toast.success("FreeIPA is reachable and the service account is valid."),
+    onError: (e) => prompts.error(e.message),
+  });
+
   const headerActions = () => (
     <>
       <Show when={props.showTestEmailAction}>
@@ -389,6 +406,19 @@ export default function CoreSettingsForm(props: Props) {
           </button>
         </Tooltip>
       </Show>
+
+      <Show when={props.showTestFreeIpaAction}>
+        <Tooltip content={hasChanges() ? "Save pending changes before testing FreeIPA" : "Test TLS, service account login, and ping"}>
+          <button
+            type="button"
+            class="btn-secondary btn-sm justify-center"
+            onClick={() => testFreeIpa.mutate()}
+            disabled={hasChanges() || testFreeIpa.loading()}
+          >
+            <i class={testFreeIpa.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} /> Test connection
+          </button>
+        </Tooltip>
+      </Show>
     </>
   );
 
@@ -406,10 +436,10 @@ export default function CoreSettingsForm(props: Props) {
           title={props.title}
           subtitle={props.subtitle}
           icon={props.icon}
-          actions={props.showTestEmailAction || props.showTestPdfAction ? headerActions() : undefined}
+          actions={props.showTestEmailAction || props.showTestPdfAction || props.showTestFreeIpaAction ? headerActions() : undefined}
         />
         <PanelDialog.Body>
-          <Show when={props.showTestEmailAction || props.showTestPdfAction}>
+          <Show when={props.showTestEmailAction || props.showTestPdfAction || props.showTestFreeIpaAction}>
             <p class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-200">
               Test actions use the saved settings. Save or discard pending changes before running a test.
             </p>
@@ -557,7 +587,12 @@ const sectionIdForEntry = (entry: SettingFieldDef): string => {
 
   if (entry.key.startsWith("freeipa.groups.")) return "freeipa.groups";
   if (entry.key === "freeipa.service_user" || entry.key === "freeipa.service_password") return "freeipa.service";
-  if (entry.key === "freeipa.user_match_mode" || entry.key === "freeipa.account_transition_policy" || entry.key === "freeipa.sync_cron") {
+  if (
+    entry.key === "freeipa.user_match_mode" ||
+    entry.key === "freeipa.account_transition_policy" ||
+    entry.key === "freeipa.sync_cron" ||
+    entry.key.startsWith("freeipa.sync_guard.")
+  ) {
     return "freeipa.sync";
   }
   if (entry.key.startsWith("freeipa.")) return "freeipa.connection";

@@ -8,6 +8,7 @@ import { audit } from "../audit";
 import { getFreeIpaConfig } from "../freeipa-config";
 import { buildEffectiveIpaGroupsByUid } from "../ipa/effective-groups";
 import { getIpaUrl } from "../ipa/guard";
+import { createIpaRuntimeCheckpoint, type IpaSyncRuntime } from "../ipa/runtime";
 import { getServiceIpaSession } from "../ipa/service-account";
 import { logger } from "../logging";
 import { parsePgJsonRecord } from "../postgres";
@@ -67,6 +68,9 @@ const readIpaList = (config: {
   }
   const records = config.response.result?.result;
   if (!Array.isArray(records)) {
+    return fail(err.internal(`Could not verify FreeIPA ${config.entity} before extension.`));
+  }
+  if (config.response.result?.truncated !== false) {
     return fail(err.internal(`Could not verify FreeIPA ${config.entity} before extension.`));
   }
   return ok(records as Record<string, unknown>[]);
@@ -213,8 +217,19 @@ const markReminderError = async (id: string, error: string): Promise<void> => {
   `;
 };
 
-const deleteFromFreeIpa = async (ipaSession: string, uid: string): Promise<{ ok: true } | { ok: false; error: string }> => {
-  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
+const deleteFromFreeIpa = async (
+  ipaSession: string,
+  uid: string,
+  signal?: AbortSignal,
+): Promise<{ ok: true } | { ok: false; error: string }> => {
+  const response = await freeipa.client.call({
+    url: await getIpaUrl(),
+    ipaSession,
+    method: "user_del",
+    args: [uid],
+    options: {},
+    signal,
+  });
   if (!response.error) return { ok: true };
 
   const message = (response.error.message ?? "").toLowerCase();
@@ -293,7 +308,8 @@ const listReminderCandidates = async (thresholdDays: number): Promise<ReminderCa
 };
 
 export const accountLifecycle = {
-  demoteExpiredIpaUsers: async (): Promise<LifecycleSummary> => {
+  demoteExpiredIpaUsers: async (runtime: IpaSyncRuntime = {}): Promise<LifecycleSummary> => {
+    const checkpoint = createIpaRuntimeCheckpoint(runtime);
     const freeIpaConfig = await getFreeIpaConfig();
     if (!freeIpaConfig.enabled) {
       log.info("Expired IPA demotion skipped", { reason: "freeipa_disabled" });
@@ -313,11 +329,21 @@ export const accountLifecycle = {
     `;
 
     const transitionPolicy = parseIpaAccountTransitionPolicy(await getSetting<string | null>("freeipa.account_transition_policy"));
+    // Access enforcement must not depend on FreeIPA availability. Revoke local
+    // sessions before opening the retryable remote-cleanup phase; request-time
+    // expiry checks also reject bearer credentials that cannot be revoked here.
+    for (let index = 0; index < rows.length; index += 1) {
+      await checkpoint(index === 0);
+      const row = rows[index]!;
+      await session.revokeAllForUser(row.id as string);
+    }
     const ipaSession = await freeipa.session.getServiceSession({
       url: freeIpaConfig.url,
       serviceUser: freeIpaConfig.serviceUser,
       servicePassword: freeIpaConfig.servicePassword,
+      signal: runtime.signal,
     });
+    await checkpoint(true);
     const summary: LifecycleSummary = {
       scanned: rows.length,
       changed: 0,
@@ -325,11 +351,14 @@ export const accountLifecycle = {
       failed: 0,
     };
 
-    for (const row of rows) {
+    for (let index = 0; index < rows.length; index += 1) {
+      await checkpoint();
+      const row = rows[index]!;
       const userId = row.id as string;
       const uid = row.uid as string;
       const previousProfile = (row.profile as User["profile"] | null) ?? "guest";
-      const ipaDelete = await deleteFromFreeIpa(ipaSession, uid);
+      const ipaDelete = await deleteFromFreeIpa(ipaSession, uid, runtime.signal);
+      await checkpoint();
       if (!ipaDelete.ok) {
         summary.failed += 1;
         log.error("Failed to delete expired IPA account", { uid, userId, error: ipaDelete.error });
@@ -379,7 +408,6 @@ export const accountLifecycle = {
             });
           });
         }
-        await session.revokeAllForUser(userId);
         summary.changed += 1;
       } catch (error) {
         summary.failed += 1;

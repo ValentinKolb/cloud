@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { calculateIpaProfileFromGroupNames, deriveIpaAdminFromGroupNames, parseIpaAccountTransitionPolicy } from "./model";
+import {
+  calculateIpaProfileFromGroupNames,
+  deriveIpaAdminFromGroupNames,
+  isAccountExpired,
+  parseIpaAccountTransitionPolicy,
+} from "./model";
 
 describe("IPA account model helpers", () => {
   test("classifies full IPA users from effective base realm groups", () => {
@@ -22,5 +27,13 @@ describe("IPA account model helpers", () => {
     expect(parseIpaAccountTransitionPolicy("demote_to_local_guest")).toBe("demote_to_local_guest");
     expect(parseIpaAccountTransitionPolicy("unexpected")).toBe("demote_to_local_guest");
     expect(parseIpaAccountTransitionPolicy(null)).toBe("demote_to_local_guest");
+  });
+
+  test("treats expired and malformed account expiry as fail-closed", () => {
+    const now = Date.parse("2026-07-29T12:00:00.000Z");
+    expect(isAccountExpired(null, now)).toBe(false);
+    expect(isAccountExpired("2026-07-29T12:00:00.001Z", now)).toBe(false);
+    expect(isAccountExpired("2026-07-29T12:00:00.000Z", now)).toBe(true);
+    expect(isAccountExpired("not-a-date", now)).toBe(true);
   });
 });

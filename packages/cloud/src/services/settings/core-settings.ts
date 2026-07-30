@@ -331,6 +331,36 @@ export const CORE_SETTINGS = {
     default: "*/5 * * * *",
     description: "Five-field cron schedule for the FreeIPA sync job in app.timezone.",
   },
+  "freeipa.sync_guard.max_user_changes": {
+    kind: "number",
+    label: "Max User Changes",
+    default: 10,
+    min: 0,
+    description: "Maximum users one sync may remove from scope or demote. Zero blocks every destructive user change.",
+  },
+  "freeipa.sync_guard.max_user_change_percent": {
+    kind: "number",
+    label: "Max User Change Percent",
+    default: 20,
+    min: 0,
+    max: 100,
+    description: "Maximum percentage of existing IPA users one sync may remove from scope or demote.",
+  },
+  "freeipa.sync_guard.max_group_deletions": {
+    kind: "number",
+    label: "Max Group Deletions",
+    default: 5,
+    min: 0,
+    description: "Maximum mirrored IPA groups one sync may delete. Zero blocks every group deletion.",
+  },
+  "freeipa.sync_guard.max_group_deletion_percent": {
+    kind: "number",
+    label: "Max Group Deletion Percent",
+    default: 20,
+    min: 0,
+    max: 100,
+    description: "Maximum percentage of existing IPA groups one sync may delete.",
+  },
 
   // ── User ────────────────────────────────────────────────────────────────
   "user.allow_self_registration": {

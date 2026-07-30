@@ -1,4 +1,4 @@
-import { job, scheduler } from "@k2b/sync";
+import { job, mutex, scheduler } from "@k2b/sync";
 import { logger, logging, trace } from "../logging";
 import { providers } from "../providers";
 import { get as getSetting } from "../settings";
@@ -16,6 +16,8 @@ const localUserBackfillLog = logger("auth:local-user:backfill");
 const guestBackfillLog = logger("auth:guest:backfill");
 const logCleanupLog = logger("logging");
 const DEFAULT_IPA_SYNC_CRON = "*/5 * * * *";
+const IPA_SYNC_LEASE_MS = 120_000;
+const ipaSyncMutex = mutex({ id: "auth:ipa:sync", defaultTtl: IPA_SYNC_LEASE_MS, retryCount: 0 });
 let notificationSender: AccountLifecycleNotificationSender | null = null;
 
 type JobSummary = {
@@ -91,7 +93,7 @@ const retryOnError =
 
 const ipaSyncJob = job<void, JobSummary>({
   id: "auth:ipa:sync",
-  defaults: { leaseMs: 120_000 },
+  defaults: { leaseMs: IPA_SYNC_LEASE_MS },
   trace: trace.fromSyncJob<void, JobSummary>({
     name: "FreeIPA account sync",
     source: "auth:ipa:sync",
@@ -100,23 +102,42 @@ const ipaSyncJob = job<void, JobSummary>({
   }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
-    try {
-      await providers.ipa.sync.run();
-    } catch (error) {
-      ipaSyncLog.error("Sync step failed", { step: "sync", error: error instanceof Error ? error.message : String(error) });
-      throw error;
+    const lock = await ipaSyncMutex.acquire("global");
+    if (!lock) {
+      ipaSyncLog.info("Sync skipped", { reason: "already_running" });
+      return abortedSummary();
     }
-    await ctx.heartbeat();
+    const heartbeat = async () => {
+      await ctx.heartbeat();
+      if (!(await ipaSyncMutex.extend(lock, IPA_SYNC_LEASE_MS))) {
+        throw new Error("Lost FreeIPA synchronization lock");
+      }
+    };
     try {
-      const summary = await accountLifecycle.demoteExpiredIpaUsers();
-      ipaSyncLog.info("Expired IPA demotion complete", toDemotionLog(summary));
-      return summary;
-    } catch (error) {
-      ipaSyncLog.error("Expired IPA demotion step failed", {
-        step: "demote-expired",
-        error: error instanceof Error ? error.message : String(error),
+      try {
+        await providers.ipa.sync.run({ signal: ctx.signal, heartbeat });
+      } catch (error) {
+        ipaSyncLog.error("Sync step failed", { step: "sync", error: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
+      await heartbeat();
+      try {
+        const summary = await accountLifecycle.demoteExpiredIpaUsers({ signal: ctx.signal, heartbeat });
+        ipaSyncLog.info("Expired IPA demotion complete", toDemotionLog(summary));
+        return summary;
+      } catch (error) {
+        ipaSyncLog.error("Expired IPA demotion step failed", {
+          step: "demote-expired",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    } finally {
+      await ipaSyncMutex.release(lock).catch((error) => {
+        ipaSyncLog.error("Failed to release synchronization lock", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
-      throw error;
     }
   },
   after: retryOnError({ maxAttempts: 3, baseMs: 1000 }),

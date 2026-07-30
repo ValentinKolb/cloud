@@ -13,6 +13,8 @@ import { pruneAiCredentials, setAiCredential, splitAiProfileCredentials } from "
 import { enrichDirtyAiConversations } from "../ai/enrich";
 import { type AuthContext, auth, v } from "../server";
 import { settingsDeleteLegacyKeys, settingsListLegacyKeys } from "../services";
+import { validateFreeIpaCaCert } from "../services/freeipa-config";
+import { testFreeIpaConnection } from "../services/ipa/connection";
 import { sendEmail } from "../services/notifications/email";
 import { GotenbergRenderError, testGotenberg } from "../services/pdf";
 import * as settings from "../services/settings";
@@ -36,6 +38,7 @@ type FieldErrors = Record<string, string>;
 const isKnownSetting = (key: string): boolean => SETTINGS_MAP.has(key);
 
 const AI_PROFILES_KEY = "ai.model_profiles_json";
+const INTEGER_FREEIPA_SETTINGS = new Set(["freeipa.sync_guard.max_user_changes", "freeipa.sync_guard.max_group_deletions"]);
 
 /**
  * Move provider keys out of the model-profiles value before it is stored.
@@ -101,6 +104,11 @@ const app = new Hono<AuthContext>()
       return c.json({ message: "Failed to test Gotenberg PDF rendering" }, 500);
     }
   })
+  .post("/test-freeipa", auth.requireRole("admin"), async (c) => {
+    const result = await testFreeIpaConnection();
+    if (result.ok) return c.json({ ok: true });
+    return c.json({ message: result.error, kind: result.kind }, result.status);
+  })
   .put("/", auth.requireRole("admin"), v("json", BulkSaveSchema), async (c) => {
     const { updates, resets } = c.req.valid("json");
     const updateKeys = Object.keys(updates);
@@ -144,6 +152,13 @@ const app = new Hono<AuthContext>()
       if (!def) continue;
       const validated = validateSettingValue(def, value);
       if (!validated.ok) invalid[key] = validated.error;
+      if (key === "freeipa.ca_cert") {
+        const certificate = validateFreeIpaCaCert(value);
+        if (!certificate.ok) invalid[key] = certificate.error;
+      }
+      if (INTEGER_FREEIPA_SETTINGS.has(key) && (typeof value !== "number" || !Number.isInteger(value))) {
+        invalid[key] = "Value must be a whole number";
+      }
     }
     if (Object.keys(invalid).length > 0) {
       return c.json({ message: "Invalid values", errors: invalid }, 400);

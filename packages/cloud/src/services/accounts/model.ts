@@ -9,6 +9,12 @@ export const isIpaProvider = (provider: UserProvider): boolean => provider === "
 export const isLocalProvider = (provider: UserProvider): boolean => provider === "local";
 export const canPersistStoredAdmin = (provider: UserProvider, profile: UserProfile): boolean => provider === "local" && profile === "user";
 
+export const isAccountExpired = (accountExpires: string | null, now = Date.now()): boolean => {
+  if (accountExpires === null) return false;
+  const expiresAt = Date.parse(accountExpires);
+  return !Number.isFinite(expiresAt) || expiresAt <= now;
+};
+
 export const parseIpaMatchMode = (value: string | null | undefined): IpaMatchMode => (value === "migrate" ? "migrate" : "ignore");
 
 export const parseIpaAccountTransitionPolicy = (value: string | null | undefined): IpaAccountTransitionPolicy => {

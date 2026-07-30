@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /**
  * TLS resolver slot for FreeIPA transport (`client.ts`, `session.ts`).
  *
@@ -7,8 +9,9 @@
  * `setFreeIpaTlsResolver()` and the transport calls `getFreeIpaTls()` per fetch.
  *
  * Resolver is async — it reads through the Redis cache-aside settings layer.
- * Returns Bun fetch `tls` options or `undefined` for system trust.
- * Resolution order is the resolver's concern (typically: ca_cert > allow_insecure > undefined).
+ * Returns Bun fetch `tls` options. Without a registered settings resolver,
+ * system trust remains explicitly verified.
+ * Resolution order is the resolver's concern (typically: ca_cert > allow_insecure > system trust).
  */
 // `BunFetchRequestInitTLS` is declared as a global (see bun-types/globals.d.ts)
 // and not exported from the "bun" module. Use `Bun.TLSOptions` — fetch's `tls`
@@ -22,8 +25,8 @@ export const setFreeIpaTlsResolver = (fn: (() => Promise<FreeIpaTls | undefined>
   resolver = fn;
 };
 
-export const getFreeIpaTls = async (): Promise<FreeIpaTls | undefined> => {
-  return (await resolver?.()) ?? undefined;
+export const getFreeIpaTls = async (): Promise<FreeIpaTls> => {
+  return (await resolver?.()) ?? { rejectUnauthorized: true };
 };
 
 /**
@@ -33,13 +36,8 @@ export const getFreeIpaTls = async (): Promise<FreeIpaTls | undefined> => {
  */
 export const getFreeIpaTlsFingerprint = async (): Promise<string> => {
   const tls = await getFreeIpaTls();
-  if (!tls) return "sys";
   if (tls.ca && typeof tls.ca === "string" && tls.ca.length > 0) {
-    // Cheap non-cryptographic hash; collision risk is irrelevant here (only
-    // used to detect "did the cert change").
-    let h = 0;
-    for (let i = 0; i < tls.ca.length; i++) h = ((h << 5) - h + tls.ca.charCodeAt(i)) | 0;
-    return `ca:${(h >>> 0).toString(16)}`;
+    return `ca:${createHash("sha256").update(tls.ca).digest("hex")}`;
   }
   if (tls.rejectUnauthorized === false) return "insec";
   return "sys";

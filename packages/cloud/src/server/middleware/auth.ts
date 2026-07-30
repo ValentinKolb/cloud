@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { MessageResponse, Role, RoleOrSpecial, User, UserProfile, UserProvider } from "../../contracts/shared";
+import { isAccountExpired } from "../../services/account-model";
 import { accounts } from "../../services/accounts";
 import { oauthTokens } from "../../services/oauth-tokens";
 import { serviceAccountCredentials } from "../../services/service-account-credentials";
@@ -86,7 +87,11 @@ const loadAuthenticatedActor = async (
 }> => {
   const token = session.getToken(c);
   const data = token ? await session.getData(token) : null;
-  const user = data ? await accounts.users.get({ id: data.userId }) : null;
+  let user = data ? await accounts.users.get({ id: data.userId }) : null;
+  if (user && isAccountExpired(user.accountExpires)) {
+    await session.revokeAllForUser(user.id);
+    user = null;
+  }
 
   if (user && token) {
     c.set("actor", { kind: "user", user });
@@ -101,6 +106,9 @@ const loadAuthenticatedActor = async (
   if (bearer && serviceAccountCredentials.isApiToken(bearer)) {
     const authResult = await serviceAccountCredentials.authenticateApiToken(bearer);
     if (!authResult) return { token: null, user: null, actor: null };
+    if (authResult.delegatedUser && isAccountExpired(authResult.delegatedUser.accountExpires)) {
+      return { token: null, user: null, actor: null };
+    }
 
     const actor: RequestActor = {
       kind: "service_account",
@@ -125,6 +133,7 @@ const loadAuthenticatedActor = async (
     if (!authResult) return { token: null, user: null, actor: null };
 
     if (authResult.kind === "user") {
+      if (isAccountExpired(authResult.user.accountExpires)) return { token: null, user: null, actor: null };
       const actor: RequestActor = { kind: "user", user: authResult.user };
       c.set("actor", actor);
       c.set("accessSubject", { type: "user", userId: authResult.user.id });
@@ -132,6 +141,9 @@ const loadAuthenticatedActor = async (
       return { token: null, user: authResult.user, actor };
     }
 
+    if (authResult.delegatedUser && isAccountExpired(authResult.delegatedUser.accountExpires)) {
+      return { token: null, user: null, actor: null };
+    }
     const actor: RequestActor = {
       kind: "service_account",
       serviceAccount: authResult.serviceAccount,
