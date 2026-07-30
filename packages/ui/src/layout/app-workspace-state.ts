@@ -59,6 +59,39 @@ export const appWorkspaceResizeLimits = (options: {
   return { min, max: Math.max(min, Math.min(configuredMax, options.workspaceSize - options.reservedSize - mainMinimum)) };
 };
 
+/**
+ * Fits preferred auxiliary pane widths into a shared budget without giving
+ * DOM order priority. Minimums are reserved first; remaining space is shared
+ * in proportion to how much each pane still needs to reach its preference.
+ */
+export const fitAppWorkspacePaneSizes = (
+  panes: ReadonlyArray<{ desired: number; min: number }>,
+  availableSize: number,
+): number[] => {
+  const sizes = panes.map((pane) => pane.min);
+  const minimumTotal = sizes.reduce((total, size) => total + size, 0);
+  const desiredTotal = panes.reduce((total, pane) => total + pane.desired, 0);
+  const budget = Math.max(0, Math.floor(availableSize));
+  if (desiredTotal <= budget) return panes.map((pane) => pane.desired);
+  if (budget <= minimumTotal) return sizes;
+
+  const extraBudget = budget - minimumTotal;
+  const desiredExtra = desiredTotal - minimumTotal;
+  const fractions = panes.map((pane, index) => {
+    const raw = ((pane.desired - pane.min) * extraBudget) / desiredExtra;
+    const extra = Math.floor(raw);
+    sizes[index]! += extra;
+    return { fraction: raw - extra, index };
+  });
+  let remainder = extraBudget - sizes.reduce((total, size, index) => total + size - panes[index]!.min, 0);
+  fractions.sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+  for (const { index } of fractions) {
+    if (remainder-- <= 0) break;
+    sizes[index]! += 1;
+  }
+  return sizes;
+};
+
 export const shouldCollapseAppWorkspaceSidebar = (width: number, collapsible: boolean): boolean =>
   collapsible && width < APP_WORKSPACE_SIDEBAR_COLLAPSE_THRESHOLD;
 

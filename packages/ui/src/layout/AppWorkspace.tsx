@@ -109,6 +109,7 @@ function ResizeHandle(props: ResizeHandleProps): JSX.Element {
       data-workspace-panel-id={props.panelId}
       data-workspace-resize-edge={props.edge}
       data-workspace-resize-shadow={props.shadow ? "true" : undefined}
+      data-workspace-default-size={props.defaultSize}
       data-workspace-min-size={props.minSize}
       data-workspace-max-size={props.maxSize}
       style={props.style}
@@ -653,21 +654,21 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
       </button>
     );
   };
-  const common = {
+  const common = () => ({
     class: className(),
     title: props.title,
     "data-tone": props.tone,
     "data-mode": mode,
     style: { "view-transition-name": props.viewTransitionName },
     ...data(),
-  };
+  });
   // `aria-current="page"` is a link state; it never belongs on the button
   // fallback or on the wrapper that only groups a link and its row action.
   const current = () => (props.active ? ("page" as const) : undefined);
   if (hasAction()) {
     if (!props.href || props.disabled) {
       return (
-        <div {...common} data-disabled={props.disabled ? "true" : undefined}>
+        <div {...common()} data-disabled={props.disabled ? "true" : undefined}>
           <button type="button" class="k2b-app-workspace__sidebar-item-main" disabled={props.disabled} onClick={props.onClick}>
             {mainContent}
           </button>
@@ -677,7 +678,7 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
     }
     if (props.navigation === "document") {
       return (
-        <div {...common}>
+        <div {...common()}>
           <a href={props.href} class="k2b-app-workspace__sidebar-item-main" aria-current={current()} onClick={props.onClick}>
             {mainContent}
           </a>
@@ -686,7 +687,7 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
       );
     }
     return (
-      <div {...common}>
+      <div {...common()}>
         <Link
           href={props.href}
           class="k2b-app-workspace__sidebar-item-main"
@@ -703,15 +704,15 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
     );
   }
   if (!props.href || props.disabled) {
-    return <button type="button" {...common} disabled={props.disabled} onClick={props.onClick}>{mainContent}</button>;
+    return <button type="button" {...common()} disabled={props.disabled} onClick={props.onClick}>{mainContent}</button>;
   }
   if (props.navigation === "document") {
-    return <a href={props.href} {...common} aria-current={current()} onClick={props.onClick}>{mainContent}</a>;
+    return <a href={props.href} {...common()} aria-current={current()} onClick={props.onClick}>{mainContent}</a>;
   }
   return (
     <Link
       href={props.href}
-      {...common}
+      {...common()}
       aria-current={current()}
       replace={props.replace}
       scroll={props.scroll}
@@ -732,11 +733,16 @@ const AppWorkspaceSidebarIconGrid = (props: AppWorkspaceSidebarIconGridProps) =>
 
 const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps) => {
   const content = <i class={iconClass(props.icon)} aria-hidden="true" />;
-  const className = `k2b-app-workspace__sidebar-icon-action ${props.active ? "is-active" : ""}`;
-  const attrs = { class: className, title: props.label, "aria-label": props.label, "data-tone": props.tone, ...modeAttrs(props.sidebarMode) };
-  if (!props.href || props.disabled) return <button type="button" {...attrs} disabled={props.disabled} onClick={props.onClick}>{content}</button>;
-  if (props.navigation === "document") return <a href={props.href} {...attrs} onClick={props.onClick}>{content}</a>;
-  return <Link href={props.href} {...attrs} replace={props.replace} scroll={props.scroll} onNavigate={props.onNavigate} onClick={props.onClick}>{content}</Link>;
+  const attrs = () => ({
+    class: `k2b-app-workspace__sidebar-icon-action ${props.active ? "is-active" : ""}`,
+    title: props.label,
+    "aria-label": props.label,
+    "data-tone": props.tone,
+    ...modeAttrs(props.sidebarMode),
+  });
+  if (!props.href || props.disabled) return <button type="button" {...attrs()} disabled={props.disabled} onClick={props.onClick}>{content}</button>;
+  if (props.navigation === "document") return <a href={props.href} {...attrs()} onClick={props.onClick}>{content}</a>;
+  return <Link href={props.href} {...attrs()} replace={props.replace} scroll={props.scroll} onNavigate={props.onNavigate} onClick={props.onClick}>{content}</Link>;
 };
 
 type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {

@@ -3,6 +3,7 @@ import {
   APP_WORKSPACE_DETAIL_MIN,
   APP_WORKSPACE_DRAWER_MAX,
   APP_WORKSPACE_DRAWER_MIN,
+  APP_WORKSPACE_MAIN_MIN,
   APP_WORKSPACE_PANE_MAX,
   APP_WORKSPACE_PANE_MIN,
   APP_WORKSPACE_SIDEBAR_COLLAPSED,
@@ -12,6 +13,7 @@ import {
   type AppWorkspaceResizeKind,
   appWorkspacePanelVariable,
   appWorkspaceResizeLimits,
+  fitAppWorkspacePaneSizes,
   normalizeAppWorkspaceLayoutState,
   resolveAppWorkspaceSidebarWidth,
   safeAppWorkspacePanelId,
@@ -37,6 +39,14 @@ type ActiveResize = {
 
 const HANDLE_SELECTOR = "[data-app-workspace-resize]";
 const ROOT_SELECTOR = "[data-k2b-app-workspace]";
+const LAYOUT_REGION_SELECTOR = [
+  ROOT_SELECTOR,
+  ".k2b-app-workspace__sidebar",
+  ".k2b-app-workspace__main-pane",
+  ".k2b-app-workspace__detail",
+  ".k2b-app-workspace__drawer",
+  HANDLE_SELECTOR,
+].join(",");
 const LABEL_SELECTOR = ".k2b-app-workspace__sidebar-item-label[data-marquee='true']";
 const LABEL_TEXT_SELECTOR = ".k2b-app-workspace__sidebar-item-label-text";
 const ITEM_SELECTOR = ".k2b-app-workspace__sidebar-item";
@@ -54,6 +64,7 @@ const workspaceResizable = (root: HTMLElement) => root.dataset.workspaceResizabl
 const rootElements = (root: HTMLElement, selector: string) =>
   Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((element) => element.closest(ROOT_SELECTOR) === root);
 const sidebarElement = (root: HTMLElement) => rootElements(root, ".k2b-app-workspace__sidebar")[0] ?? null;
+const mainElement = (root: HTMLElement) => rootElements(root, ".k2b-app-workspace__main")[0] ?? null;
 const sidebarCollapsible = (root: HTMLElement) => sidebarElement(root)?.dataset.workspaceCollapsible === "true";
 const isVisible = (element: HTMLElement | null): element is HTMLElement =>
   Boolean(element && !element.hidden && getComputedStyle(element).display !== "none");
@@ -74,7 +85,7 @@ const panelId = (handle: HTMLElement) =>
   safeAppWorkspacePanelId(handle.dataset.workspacePanelId ?? "primary") || "primary";
 const numberData = (
   handle: HTMLElement,
-  key: "workspaceMinSize" | "workspaceMaxSize",
+  key: "workspaceDefaultSize" | "workspaceMinSize" | "workspaceMaxSize",
   fallback: number,
 ) => {
   const value = Number(handle.dataset[key]);
@@ -83,10 +94,13 @@ const numberData = (
 
 const sizeLimits = (root: HTMLElement, handle: HTMLElement, kind: AppWorkspaceResizeKind) => {
   const controlled = controlledPanel(root, handle);
-  const main = handle.closest<HTMLElement>(".k2b-app-workspace__main");
+  const main = kind === "pane" ? handle.closest<HTMLElement>(".k2b-app-workspace__main") : mainElement(root);
   const panes = main
     ? Array.from(main.querySelectorAll<HTMLElement>(".k2b-app-workspace__main-pane")).filter(
-        (pane) => pane.closest(".k2b-app-workspace__main") === main && isVisible(pane),
+        (pane) =>
+          pane.closest(".k2b-app-workspace__main") === main &&
+          !pane.classList.contains("is-primary") &&
+          isVisible(pane),
       )
     : [];
   const details = rootElements(root, ".k2b-app-workspace__detail").filter(isVisible);
@@ -182,6 +196,59 @@ const applySize = (
   return size;
 };
 
+type PaneFit = {
+  desired: number;
+  handle: HTMLElement;
+  min: number;
+};
+
+/**
+ * Fits all auxiliary main panes as one group. One main region remains the
+ * flexible anchor; the others keep their preferred sizes while space permits
+ * and give up the same share of their optional space when the container,
+ * navigation or detail panels reduce the available width.
+ */
+const reconcilePanes = (root: HTMLElement, layoutState: AppWorkspaceLayoutState) => {
+  const main = mainElement(root);
+  if (!main || !isVisible(main)) return;
+  const handles = rootElements(root, HANDLE_SELECTOR).filter(
+    (handle) => resizeKind(handle) === "pane" && controlsResizableRegion(root, handle, "pane"),
+  );
+  if (!handles.length) return;
+
+  const controlled = new Set(handles.map((handle) => controlledPanel(root, handle)).filter(Boolean));
+  const fixedWidth = Array.from(main.querySelectorAll<HTMLElement>(".k2b-app-workspace__main-pane"))
+    .filter(
+      (pane) =>
+        pane.closest(".k2b-app-workspace__main") === main &&
+        !pane.classList.contains("is-primary") &&
+        isVisible(pane) &&
+        !controlled.has(pane),
+    )
+    .reduce((total, pane) => total + elementSize(pane, "pane"), 0);
+  const fits: PaneFit[] = handles.flatMap((handle) => {
+    const panel = controlledPanel(root, handle);
+    if (!isVisible(panel)) return [];
+    const min = numberData(handle, "workspaceMinSize", APP_WORKSPACE_PANE_MIN);
+    const max = Math.max(min, numberData(handle, "workspaceMaxSize", APP_WORKSPACE_PANE_MAX));
+    const preferred =
+      layoutState.paneWidths?.[panelId(handle)] ??
+      numberData(handle, "workspaceDefaultSize", elementSize(panel, "pane"));
+    const desired = clamp(preferred, min, max);
+    return [{ desired, handle, min }];
+  });
+  if (!fits.length) return;
+
+  const sizes = fitAppWorkspacePaneSizes(
+    fits,
+    main.getBoundingClientRect().width - fixedWidth - APP_WORKSPACE_MAIN_MIN,
+  );
+  fits.forEach((fit, index) => {
+    root.style.setProperty(appWorkspacePanelVariable("pane", panelId(fit.handle)), `${sizes[index]}px`);
+  });
+  fits.forEach((fit, index) => updateHandleValue(root, fit.handle, "pane", sizes[index]!));
+};
+
 /**
  * Marquee support for a truncated sidebar label.
  *
@@ -225,6 +292,7 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
     applySize(active.root, active.handle, active.kind, active.startSize + (client - active.startClient) * active.direction, {
       snapSidebar: active.kind !== "sidebar",
     });
+    if (active.kind === "sidebar" || active.kind === "detail") reconcilePanes(active.root, layoutState);
   };
   const stopResize = (event?: Event) => {
     if (!active || (event instanceof PointerEvent && event.pointerId !== active.pointerId)) return;
@@ -239,6 +307,7 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
       currentSize(finished.root, finished.handle, finished.kind),
     );
     persistSize(finished.handle, finished.kind, size);
+    if (finished.kind === "sidebar" || finished.kind === "detail") reconcilePanes(finished.root, layoutState);
     if (finished.handle.hasPointerCapture?.(finished.pointerId)) finished.handle.releasePointerCapture(finished.pointerId);
     document.body.style.userSelect = finished.previousUserSelect;
     window.removeEventListener("pointermove", onPointerMove);
@@ -307,15 +376,20 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
     if (requested === null) return;
     event.preventDefault();
     persistSize(handle, kind, applySize(root, handle, kind, requested));
+    if (kind === "sidebar" || kind === "detail") reconcilePanes(root, layoutState);
   };
 
-  const roots = () => {
+  const allRoots = () => {
     const nested = Array.from(eventRoot.querySelectorAll<HTMLElement>(ROOT_SELECTOR));
-    const all = eventRoot instanceof HTMLElement && eventRoot.matches(ROOT_SELECTOR) ? [eventRoot, ...nested] : nested;
+    return eventRoot instanceof HTMLElement && eventRoot.matches(ROOT_SELECTOR) ? [eventRoot, ...nested] : nested;
+  };
+  const roots = () => {
     // A hidden or zero-width workspace measures 0, which drives every limit
     // down to its minimum — reconciling one would overwrite its variables and
     // `aria-valuenow` with that minimum for good.
-    return all.filter((root) => getComputedStyle(root).display !== "none" && root.getBoundingClientRect().width > 0);
+    return allRoots().filter(
+      (root) => getComputedStyle(root).display !== "none" && root.getBoundingClientRect().width > 0,
+    );
   };
   const reconcile = () => {
     roots().forEach((root) => {
@@ -323,7 +397,11 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
       // resizing; without this the same workspace still had persisted sizes
       // forced onto it on load and on every window resize.
       if (!workspaceResizable(root)) return;
-      rootElements(root, HANDLE_SELECTOR).forEach((handle) => {
+      const handles = rootElements(root, HANDLE_SELECTOR);
+      // Chrome establishes the space available to the work area. Auxiliary
+      // panes are then fitted together into what remains, so DOM order cannot
+      // give the last pane an accidental sizing priority.
+      handles.filter((handle) => resizeKind(handle) !== "pane").forEach((handle) => {
         const kind = resizeKind(handle);
         if (!kind || !controlsResizableRegion(root, handle, kind)) return;
         const persisted =
@@ -331,14 +409,13 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
             ? layoutState.sidebarCollapsed && sidebarCollapsible(root)
               ? APP_WORKSPACE_SIDEBAR_COLLAPSED
               : layoutState.sidebarWidth
-            : kind === "pane"
-              ? layoutState.paneWidths?.[panelId(handle)]
-              : kind === "detail"
+            : kind === "detail"
                 ? layoutState.detailWidths?.[panelId(handle)]
                 : layoutState.drawerHeights?.[panelId(handle)];
         if (persisted !== undefined) applySize(root, handle, kind, persisted);
         else updateHandleValue(root, handle, kind, currentSize(root, handle, kind));
       });
+      reconcilePanes(root, layoutState);
     });
   };
   /**
@@ -375,27 +452,76 @@ export const installAppWorkspaceController = (options: AppWorkspaceControllerOpt
     });
   };
 
-  // `reconcile` reads layout for every handle twice, so running it inline on
-  // each `resize` event forced a reflow storm while a window was being dragged.
-  let resizeFrame: number | null = null;
-  const onResize = () => {
-    clearMeasuredLabels();
-    if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
-    resizeFrame = requestAnimationFrame(() => {
-      resizeFrame = null;
+  // Geometry can change without a window resize: a parent can resize the
+  // workspace, or a detail/pane can open. All sources share one frame so a
+  // transition performs at most one layout reconciliation.
+  let reconcileFrame: number | null = null;
+  const scheduleReconcile = (clearLabels = false) => {
+    if (clearLabels) clearMeasuredLabels();
+    if (reconcileFrame !== null) return;
+    reconcileFrame = requestAnimationFrame(() => {
+      reconcileFrame = null;
       reconcile();
     });
   };
+  const onResize = () => scheduleReconcile(true);
+
+  const observedRoots = new Set<HTMLElement>();
+  const resizeObserver =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
+          scheduleReconcile(true);
+        });
+  const syncObservedRoots = () => {
+    if (!resizeObserver) return;
+    const next = new Set(allRoots());
+    observedRoots.forEach((root) => {
+      if (!next.has(root)) {
+        resizeObserver.unobserve(root);
+        observedRoots.delete(root);
+      }
+    });
+    next.forEach((root) => {
+      if (observedRoots.has(root)) return;
+      observedRoots.add(root);
+      resizeObserver.observe(root);
+    });
+  };
+  const layoutNode = (node: Node) =>
+    node instanceof Element && (node.matches(LAYOUT_REGION_SELECTOR) || Boolean(node.querySelector(LAYOUT_REGION_SELECTOR)));
+  const mutationObserver =
+    typeof MutationObserver === "undefined"
+      ? null
+      : new MutationObserver((records) => {
+          const changed = records.some((record) =>
+            record.type === "attributes"
+              ? record.target instanceof Element && record.target.matches(LAYOUT_REGION_SELECTOR)
+              : [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)].some(layoutNode),
+          );
+          if (!changed) return;
+          syncObservedRoots();
+          scheduleReconcile();
+        });
 
   eventRoot.addEventListener("pointerdown", onPointerDown as EventListener);
   eventRoot.addEventListener("keydown", onKeyDown as EventListener);
   eventRoot.addEventListener("focusin", onFocusIn as EventListener);
   eventRoot.addEventListener("pointerover", onPointerOver as EventListener);
   window.addEventListener("resize", onResize);
-  const initialFrame = requestAnimationFrame(reconcile);
+  syncObservedRoots();
+  mutationObserver?.observe(eventRoot, {
+    attributes: true,
+    attributeFilter: ["hidden"],
+    childList: true,
+    subtree: true,
+  });
+  scheduleReconcile();
   return () => {
-    cancelAnimationFrame(initialFrame);
-    if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+    if (reconcileFrame !== null) cancelAnimationFrame(reconcileFrame);
+    mutationObserver?.disconnect();
+    resizeObserver?.disconnect();
+    observedRoots.clear();
     stopResize();
     eventRoot.removeEventListener("pointerdown", onPointerDown as EventListener);
     eventRoot.removeEventListener("keydown", onKeyDown as EventListener);

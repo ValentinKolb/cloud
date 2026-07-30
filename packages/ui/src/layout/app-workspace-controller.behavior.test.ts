@@ -9,6 +9,7 @@ type Rect = { height: number; width: number };
 let window: HappyWindow;
 let frames: Map<number, Frame>;
 let frameId = 0;
+let resizeObservers: TestResizeObserver[];
 const previousGlobals = new Map<PropertyKey, PropertyDescriptor | undefined>();
 const globalKeys = [
   "window",
@@ -19,25 +20,48 @@ const globalKeys = [
   "PointerEvent",
   "KeyboardEvent",
   "FocusEvent",
+  "MutationObserver",
+  "ResizeObserver",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
 ] as const;
 
+class TestResizeObserver {
+  constructor(private readonly callback: ResizeObserverCallback) {
+    resizeObservers.push(this);
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+
+  trigger() {
+    this.callback([], this as unknown as ResizeObserver);
+  }
+}
+
 const setRect = (element: Element, rect: Rect) => {
+  setDynamicRect(element, () => rect);
+};
+
+const setDynamicRect = (element: Element, readRect: () => Rect) => {
   Object.defineProperty(element, "getBoundingClientRect", {
     configurable: true,
-    value: () => ({
-      bottom: rect.height,
-      height: rect.height,
-      left: 0,
-      right: rect.width,
-      toJSON: () => ({}),
-      top: 0,
-      width: rect.width,
-      x: 0,
-      y: 0,
-    }),
+    value: () => {
+      const rect = readRect();
+      return {
+        bottom: rect.height,
+        height: rect.height,
+        left: 0,
+        right: rect.width,
+        toJSON: () => ({}),
+        top: 0,
+        width: rect.width,
+        x: 0,
+        y: 0,
+      };
+    },
   });
 };
 
@@ -83,6 +107,7 @@ beforeEach(() => {
   window = new HappyWindow({ url: "https://ui.test/" });
   frames = new Map();
   frameId = 0;
+  resizeObservers = [];
   for (const key of globalKeys) previousGlobals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
   Object.assign(globalThis, {
     window,
@@ -93,6 +118,8 @@ beforeEach(() => {
     PointerEvent: window.PointerEvent,
     KeyboardEvent: window.KeyboardEvent,
     FocusEvent: window.FocusEvent,
+    MutationObserver: window.MutationObserver,
+    ResizeObserver: TestResizeObserver,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (callback: Frame) => {
       const id = ++frameId;
@@ -218,6 +245,128 @@ describe("AppWorkspace resize controller behaviour", () => {
       dispose();
       root.remove();
     }
+  });
+
+  test("refits panes when detail visibility changes without overwriting their preferred width", async () => {
+    let rootWidth = 1300;
+    const { root } = workspace({ sidebarWidth: 208 });
+    setDynamicRect(root, () => ({ height: 700, width: rootWidth }));
+
+    const main = document.createElement("main");
+    main.className = "k2b-app-workspace__main";
+    const primary = document.createElement("section");
+    primary.className = "k2b-app-workspace__main-primary";
+    main.append(primary);
+
+    const pane = document.createElement("section");
+    pane.id = "main-two";
+    pane.className = "k2b-app-workspace__main-pane";
+    pane.dataset.workspaceResizable = "true";
+    const paneVariable = "--k2b-workspace-pane-main-2-width";
+    setDynamicRect(pane, () => ({
+      height: 700,
+      width: Number.parseFloat(root.style.getPropertyValue(paneVariable)) || 640,
+    }));
+    const paneHandle = document.createElement("button");
+    paneHandle.dataset.appWorkspaceResize = "pane";
+    paneHandle.dataset.workspacePanelId = "main-2";
+    paneHandle.dataset.workspaceDefaultSize = "640";
+    paneHandle.dataset.workspaceMinSize = "240";
+    paneHandle.dataset.workspaceMaxSize = "640";
+    paneHandle.setAttribute("aria-controls", pane.id);
+    main.append(paneHandle, pane);
+    root.append(main);
+
+    const detail = document.createElement("aside");
+    detail.id = "record";
+    detail.className = "k2b-app-workspace__detail";
+    detail.dataset.workspaceResizable = "true";
+    detail.hidden = true;
+    setRect(detail, { height: 700, width: 288 });
+    const detailHandle = document.createElement("button");
+    detailHandle.dataset.appWorkspaceResize = "detail";
+    detailHandle.dataset.workspacePanelId = "record";
+    detailHandle.dataset.workspaceDefaultSize = "288";
+    detailHandle.dataset.workspaceMinSize = "288";
+    detailHandle.dataset.workspaceMaxSize = "640";
+    detailHandle.setAttribute("aria-controls", detail.id);
+    root.append(detailHandle, detail);
+    setDynamicRect(main, () => ({
+      height: 700,
+      width: rootWidth - 208 - (detail.hidden ? 0 : 288),
+    }));
+
+    const written: unknown[] = [];
+    const dispose = installAppWorkspaceController({
+      root,
+      readState: () => ({ version: 2, paneWidths: { "main-2": 640 } }),
+      writeState: (state) => written.push(state),
+    });
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("640px");
+
+    detail.hidden = false;
+    await Promise.resolve();
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("484px");
+    expect(written).toEqual([]);
+
+    detail.hidden = true;
+    await Promise.resolve();
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("640px");
+
+    rootWidth = 1100;
+    resizeObservers.forEach((observer) => observer.trigger());
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("572px");
+
+    rootWidth = 1300;
+    resizeObservers.forEach((observer) => observer.trigger());
+    flushFrames();
+    expect(root.style.getPropertyValue(paneVariable)).toBe("640px");
+    dispose();
+  });
+
+  test("shrinks multiple auxiliary panes fairly around the flexible main anchor", () => {
+    const { root } = workspace({ sidebarWidth: 208, width: 1208 });
+    const main = document.createElement("main");
+    main.className = "k2b-app-workspace__main";
+    setRect(main, { height: 700, width: 1000 });
+    const primary = document.createElement("section");
+    primary.className = "k2b-app-workspace__main-primary";
+    main.append(primary);
+
+    for (const id of ["two", "three"]) {
+      const pane = document.createElement("section");
+      pane.id = `main-${id}`;
+      pane.className = "k2b-app-workspace__main-pane";
+      pane.dataset.workspaceResizable = "true";
+      const variable = `--k2b-workspace-pane-${id}-width`;
+      setDynamicRect(pane, () => ({
+        height: 700,
+        width: Number.parseFloat(root.style.getPropertyValue(variable)) || 500,
+      }));
+      const handle = document.createElement("button");
+      handle.dataset.appWorkspaceResize = "pane";
+      handle.dataset.workspacePanelId = id;
+      handle.dataset.workspaceDefaultSize = "500";
+      handle.dataset.workspaceMinSize = "240";
+      handle.dataset.workspaceMaxSize = "640";
+      handle.setAttribute("aria-controls", pane.id);
+      main.append(handle, pane);
+    }
+    root.append(main);
+
+    const dispose = installAppWorkspaceController({
+      root,
+      readState: () => ({ version: 2, paneWidths: { two: 500, three: 500 } }),
+    });
+    flushFrames();
+
+    expect(root.style.getPropertyValue("--k2b-workspace-pane-two-width")).toBe("340px");
+    expect(root.style.getPropertyValue("--k2b-workspace-pane-three-width")).toBe("340px");
+    dispose();
   });
 
   test("measures marquee labels lazily and clears cached geometry on resize", () => {

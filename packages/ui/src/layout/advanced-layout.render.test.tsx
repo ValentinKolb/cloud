@@ -10,6 +10,7 @@ import {
   APP_WORKSPACE_MAIN_MIN_HEIGHT,
   appWorkspaceLayoutStyle,
   appWorkspaceResizeLimits,
+  fitAppWorkspacePaneSizes,
   normalizeAppWorkspaceLayoutState,
   parseAppWorkspaceLayoutState,
   resolveAppWorkspaceSidebarWidth,
@@ -243,6 +244,17 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       min: 160,
       max: 160,
     });
+    expect(
+      fitAppWorkspacePaneSizes(
+        [
+          { desired: 500, min: 240 },
+          { desired: 500, min: 240 },
+        ],
+        680,
+      ),
+    ).toEqual([340, 340]);
+    expect(fitAppWorkspacePaneSizes([{ desired: 500, min: 240 }], 600)).toEqual([500]);
+    expect(fitAppWorkspacePaneSizes([{ desired: 500, min: 240 }], 120)).toEqual([240]);
   });
 
   test("renders a detail resize handle only for resizable details", () => {
