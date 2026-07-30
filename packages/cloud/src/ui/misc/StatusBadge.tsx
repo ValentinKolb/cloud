@@ -76,25 +76,30 @@ export default function StatusBadge(props: StatusBadgeProps) {
     <Show
       when={props.variant !== "dot"}
       fallback={
-        <span class={`inline-flex items-center gap-1.5 text-[10px] text-secondary ${props.class ?? ""}`} title={props.title}>
+        <span
+          class={`inline-flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10px] text-secondary ${
+            props.class ?? ""
+          }`}
+          title={props.title}
+        >
           <span
             class={`inline-block size-1.5 shrink-0 rounded-full ${tone().dot} ${
               props.tone === "running" ? "motion-safe:animate-pulse" : ""
             }`}
             aria-hidden="true"
           />
-          {props.label}
+          <span class="min-w-0 truncate">{props.label}</span>
         </span>
       }
     >
       <span
-        class={`inline-flex w-fit items-center gap-1 text-[10px] font-medium ${
+        class={`inline-flex min-w-0 w-fit max-w-full items-center gap-1 overflow-hidden whitespace-nowrap text-[10px] font-medium ${
           props.variant === "text" ? tone().text : `rounded px-1.5 py-0.5 ${tone().chip}`
         } ${props.class ?? ""}`}
         title={props.title}
       >
-        <Show when={icon()}>{(glyph) => <i class={`${glyph()} text-[11px] ${runningAnimation()}`} aria-hidden="true" />}</Show>
-        {props.label}
+        <Show when={icon()}>{(glyph) => <i class={`${glyph()} shrink-0 text-[11px] ${runningAnimation()}`} aria-hidden="true" />}</Show>
+        <span class="min-w-0 truncate">{props.label}</span>
       </span>
     </Show>
   );

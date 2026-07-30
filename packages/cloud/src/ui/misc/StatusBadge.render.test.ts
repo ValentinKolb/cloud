@@ -20,6 +20,9 @@ test("running badges animate without overriding reduced-motion preferences", () 
 
   expect(chip).toContain("ti-loader-2");
   expect(chip).toContain("motion-safe:animate-spin");
+  expect(chip).toContain("whitespace-nowrap");
+  expect(chip).toContain("truncate");
   expect(dot).toContain("motion-safe:animate-pulse");
+  expect(dot).toContain("whitespace-nowrap");
   expect(failed).not.toContain("animate-");
 });
