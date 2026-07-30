@@ -3,12 +3,43 @@ import type { ListResponse } from "imapflow";
 import {
   assertProviderKeywordsSupported,
   assertUidValidity,
+  disposeImapClient,
   normalizeImapQuotaEvidence,
   parseEnvelopeHeaders,
   parseReferences,
   renameImapFolder,
   selectUidBatch,
 } from "./imap-smtp";
+
+describe("IMAP client disposal", () => {
+  test("does not close a connection ImapFlow already marked unusable", async () => {
+    let closed = 0;
+    await disposeImapClient({
+      usable: false,
+      logout: async () => {
+        throw new Error("logout must not run");
+      },
+      close: () => {
+        closed += 1;
+      },
+    });
+    expect(closed).toBe(0);
+  });
+
+  test("closes a still-usable connection when logout fails", async () => {
+    let closed = 0;
+    await disposeImapClient({
+      usable: true,
+      logout: async () => {
+        throw new Error("logout failed");
+      },
+      close: () => {
+        closed += 1;
+      },
+    });
+    expect(closed).toBe(1);
+  });
+});
 
 describe("IMAP provider keywords", () => {
   test("accepts arbitrary keywords when the provider advertises wildcard support", () => {

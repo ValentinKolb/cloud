@@ -102,6 +102,20 @@ const createImapClient = (config: ProviderConnectionInput, endpoint: ResolvedEnd
     },
   });
 
+type DisposableImapClient = Pick<ImapFlow, "close" | "logout" | "usable">;
+
+export const disposeImapClient = async (client: DisposableImapClient): Promise<void> => {
+  // ImapFlow has already closed the socket when `usable` is false. Calling
+  // close() again rejects its drained request queue and can surface as an
+  // unhandled NoConnection rejection.
+  if (!client.usable) return;
+  try {
+    await client.logout();
+  } catch {
+    if (client.usable) client.close();
+  }
+};
+
 const withImapClient = async <T>(
   config: ProviderConnectionInput,
   fn: (client: ImapFlowWithNamespaces) => Promise<T>,
@@ -125,15 +139,7 @@ const withImapClient = async <T>(
     return result;
   } finally {
     signal?.removeEventListener("abort", abort);
-    if (client.usable) {
-      try {
-        await client.logout();
-      } catch {
-        client.close();
-      }
-    } else {
-      client.close();
-    }
+    await disposeImapClient(client);
   }
 };
 
