@@ -6,7 +6,35 @@ import {
   type ResolveMailParticipantsResponse,
   ResolveMailParticipantsResponseSchema,
 } from "@valentinkolb/cloud-app-contacts/integration";
-import type { z } from "zod";
+import {
+  type CalendarInvitationImportInput,
+  CalendarInvitationImportInputSchema,
+  type CalendarInvitationImportResult,
+  CalendarInvitationImportResultSchema,
+  type CalendarInvitationPreview,
+  type CalendarInvitationPreviewInput,
+  CalendarInvitationPreviewInputSchema,
+  CalendarInvitationPreviewSchema,
+  type CalendarInvitationResponse,
+  type CalendarInvitationResponseCommitInput,
+  CalendarInvitationResponseCommitInputSchema,
+  type CalendarInvitationResponseInput,
+  CalendarInvitationResponseInputSchema,
+  CalendarInvitationResponseSchema,
+  type CalendarInvitationResponseState,
+  CalendarInvitationResponseStateSchema,
+  SPACES_MAIL_DEFAULT_PATH,
+  SPACES_MAIL_DESTINATIONS_PATH,
+  SPACES_MAIL_IMPORT_PATH,
+  SPACES_MAIL_PREVIEW_PATH,
+  SPACES_MAIL_RESPONSE_COMMIT_PATH,
+  SPACES_MAIL_RESPONSE_PATH,
+  type SpacesMailDefaultInput,
+  SpacesMailDefaultInputSchema,
+  type SpacesMailDestinationContext,
+  SpacesMailDestinationContextSchema,
+} from "@valentinkolb/cloud-app-spaces/integration";
+import { z } from "zod";
 
 const MAX_RESPONSE_BYTES = 1_000_000;
 const REQUEST_TIMEOUT_MS = 3_000;
@@ -18,21 +46,33 @@ export type AppIntegrationRequest = {
   signal?: AbortSignal;
 };
 
-type AppIntegrationResult<T> = { ok: true; data: T } | { ok: false; code: "unavailable" };
+type AppIntegrationResult<T> = { ok: true; data: T } | { ok: false; code: "unavailable" | "rejected"; message: string; status: number };
 
-const fetchContactsIntegration = async <T>(params: {
+const integrationErrorSchema = z.object({ message: z.string().min(1).max(2_000) }).passthrough();
+
+const unavailable = (message = "The connected app is temporarily unavailable"): AppIntegrationResult<never> => ({
+  ok: false,
+  code: "unavailable",
+  message,
+  status: 503,
+});
+
+const fetchAppIntegration = async <T>(params: {
+  appId: string;
+  path: string;
   request: AppIntegrationRequest;
   responseSchema: z.ZodType<T>;
-  body: unknown;
+  body?: unknown;
+  method?: "GET" | "POST" | "PUT";
 }): Promise<AppIntegrationResult<T>> => {
   try {
-    const app = (await listApps()).find((entry) => entry.id === "contacts");
-    if (!app) return { ok: false, code: "unavailable" };
-    const url = new URL(`${app.baseUrl.replace(/\/$/, "")}${CONTACTS_MAIL_RESOLVE_PATH}`);
+    const app = (await listApps()).find((entry) => entry.id === params.appId);
+    if (!app) return unavailable();
+    const url = new URL(`${app.baseUrl.replace(/\/$/, "")}${params.path}`);
     const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
     const signal = params.request.signal ? AbortSignal.any([params.request.signal, timeout]) : timeout;
     const response = await fetch(url, {
-      method: "POST",
+      method: params.method ?? "POST",
       signal,
       headers: {
         Accept: "application/json",
@@ -41,23 +81,88 @@ const fetchContactsIntegration = async <T>(params: {
         ...(params.request.authorization ? { Authorization: params.request.authorization } : {}),
         ...(params.request.requestId ? { "X-Request-Id": params.request.requestId } : {}),
       },
-      body: JSON.stringify(params.body),
+      ...(params.body === undefined ? {} : { body: JSON.stringify(params.body) }),
     });
-    if (!response.ok) return { ok: false, code: "unavailable" };
     const text = await response.text();
-    if (text.length > MAX_RESPONSE_BYTES) return { ok: false, code: "unavailable" };
+    if (text.length > MAX_RESPONSE_BYTES) return unavailable("The connected app returned too much data");
+    if (!response.ok) {
+      const parsed = text ? integrationErrorSchema.safeParse(JSON.parse(text)) : null;
+      return {
+        ok: false,
+        code: "rejected",
+        message: parsed?.success ? parsed.data.message : "The connected app rejected the request",
+        status: response.status,
+      };
+    }
     const parsed = params.responseSchema.safeParse(JSON.parse(text));
-    return parsed.success ? { ok: true, data: parsed.data } : { ok: false, code: "unavailable" };
+    return parsed.success ? { ok: true, data: parsed.data } : unavailable("The connected app returned an invalid response");
   } catch {
-    return { ok: false, code: "unavailable" };
+    return unavailable();
   }
 };
 
 export const resolveContacts = (input: ResolveMailParticipantsInput, request: AppIntegrationRequest) => {
   const parsed = ResolveMailParticipantsInputSchema.parse(input);
-  return fetchContactsIntegration<ResolveMailParticipantsResponse>({
+  return fetchAppIntegration<ResolveMailParticipantsResponse>({
+    appId: "contacts",
+    path: CONTACTS_MAIL_RESOLVE_PATH,
     request,
     responseSchema: ResolveMailParticipantsResponseSchema,
     body: parsed,
   });
 };
+
+export const listCalendarDestinations = (mailboxId: string, request: AppIntegrationRequest) =>
+  fetchAppIntegration<SpacesMailDestinationContext>({
+    appId: "spaces",
+    path: `${SPACES_MAIL_DESTINATIONS_PATH}?mailboxId=${encodeURIComponent(mailboxId)}`,
+    method: "GET",
+    request,
+    responseSchema: SpacesMailDestinationContextSchema,
+  });
+
+export const setCalendarDefault = (input: SpacesMailDefaultInput, request: AppIntegrationRequest) =>
+  fetchAppIntegration<SpacesMailDestinationContext>({
+    appId: "spaces",
+    path: SPACES_MAIL_DEFAULT_PATH,
+    method: "PUT",
+    request,
+    responseSchema: SpacesMailDestinationContextSchema,
+    body: SpacesMailDefaultInputSchema.parse(input),
+  });
+
+export const previewCalendarInvitation = (input: CalendarInvitationPreviewInput, request: AppIntegrationRequest) =>
+  fetchAppIntegration<CalendarInvitationPreview>({
+    appId: "spaces",
+    path: SPACES_MAIL_PREVIEW_PATH,
+    request,
+    responseSchema: CalendarInvitationPreviewSchema,
+    body: CalendarInvitationPreviewInputSchema.parse(input),
+  });
+
+export const importCalendarInvitation = (input: CalendarInvitationImportInput, request: AppIntegrationRequest) =>
+  fetchAppIntegration<CalendarInvitationImportResult>({
+    appId: "spaces",
+    path: SPACES_MAIL_IMPORT_PATH,
+    request,
+    responseSchema: CalendarInvitationImportResultSchema,
+    body: CalendarInvitationImportInputSchema.parse(input),
+  });
+
+export const buildCalendarInvitationResponse = (input: CalendarInvitationResponseInput, request: AppIntegrationRequest) =>
+  fetchAppIntegration<CalendarInvitationResponse>({
+    appId: "spaces",
+    path: SPACES_MAIL_RESPONSE_PATH,
+    request,
+    responseSchema: CalendarInvitationResponseSchema,
+    body: CalendarInvitationResponseInputSchema.parse(input),
+  });
+
+export const commitCalendarInvitationResponse = (input: CalendarInvitationResponseCommitInput, request: AppIntegrationRequest) =>
+  fetchAppIntegration<CalendarInvitationResponseState>({
+    appId: "spaces",
+    path: SPACES_MAIL_RESPONSE_COMMIT_PATH,
+    request,
+    responseSchema: CalendarInvitationResponseStateSchema,
+    body: CalendarInvitationResponseCommitInputSchema.parse(input),
+  });

@@ -23,6 +23,7 @@ import type {
   SpaceDetail,
   SpaceItem,
 } from "./contracts";
+import type { EventInvitationContext, EventInvitationDraft, MailEventSource } from "./integration";
 
 const SPACE_DEFAULT_KEY = "spaces.space";
 
@@ -470,6 +471,87 @@ export default defineCliCommands({
           if (item.description) ctx.print(item.description);
           ctx.print(`column: ${space.columns.find((column) => column.id === item.columnId)?.name ?? item.columnId}`);
           ctx.print(`status: ${item.completedAt ? "completed" : "active"}`);
+        }
+      },
+    }),
+    command("invitation context", {
+      summary: "Show Mail senders and recipients for a Space event",
+      args: optionalSpaceArgs,
+      flags: spaceFlag,
+      run: async ({ ctx, args }) => {
+        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "event"));
+        const value = await readApi<EventInvitationContext>(ctx, `/${space.id}/items/${item.id}/invitation-context`);
+        if (printStructured(ctx, value)) return;
+        printJsonOrTable(
+          ctx,
+          value.mailboxes,
+          value.mailboxes.map((mailbox) => ({ name: mailbox.name, from: mailbox.from.address, id: mailbox.id })),
+          [
+            { key: "name", label: "MAILBOX" },
+            { key: "from", label: "FROM" },
+            { key: "id", label: "ID" },
+          ],
+        );
+        if (value.attendees.length > 0) ctx.print(`Attendees: ${value.attendees.map((attendee) => attendee.address).join(", ")}`);
+        if (value.lastDelivery) {
+          ctx.print(
+            `Latest delivery: ${value.lastDelivery.state} ${value.lastDelivery.method} sequence ${value.lastDelivery.sequence}${
+              value.lastDelivery.errorMessage ? ` · ${value.lastDelivery.errorMessage}` : ""
+            }`,
+          );
+        }
+      },
+    }),
+    command("invitation draft", {
+      summary: "Create an editable Mail invitation or cancellation draft",
+      args: optionalSpaceArgs,
+      flags: {
+        ...spaceFlag,
+        mailbox: flag.string({ required: true, description: "Writable Mail mailbox id" }),
+        to: flag.stringList({ description: "Attendee email address. Repeatable." }),
+        cancel: flag.boolean({ description: "Create a cancellation instead of a request/update" }),
+        idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable retry key" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "event"));
+        if (flags.to.length === 0) throw new Error("Pass at least one --to attendee.");
+        const value = await readApi<EventInvitationDraft>(
+          ctx,
+          `/${space.id}/items/${item.id}/invitation-draft`,
+          jsonRequest("POST", {
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            mailboxId: flags.mailbox,
+            attendees: flags.to.map((address) => ({ name: null, address })),
+            method: flags.cancel ? "cancel" : "request",
+          }),
+        );
+        if (!printStructured(ctx, value)) ctx.print(`Created Mail draft ${value.draftId}: ${value.href}`);
+      },
+    }),
+    command("mail event-source", {
+      summary: "Inspect bounded Mail context for the Spaces event editor",
+      args: optionalSpaceArgs,
+      flags: spaceFlag,
+      run: async ({ ctx, args }) => {
+        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 2);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const value = await readApi<MailEventSource>(
+          ctx,
+          `/${space.id}/mail-event-source`,
+          jsonRequest("POST", {
+            mailboxId: requireArg(rest, 0, "mailbox id"),
+            messageId: requireArg(rest, 1, "message id"),
+          }),
+        );
+        if (!printStructured(ctx, value)) {
+          ctx.print(value.title);
+          ctx.print(`From: ${value.sender?.address ?? "unknown"}`);
+          ctx.print(`Received: ${value.receivedAt}`);
+          if (value.description) ctx.print(value.description);
         }
       },
     }),

@@ -1,9 +1,10 @@
+import { type DateContext, dates } from "@k2b/stdlib";
 import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { type DropdownItem, Placeholder, StatusBadge } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@k2b/stdlib";
 import { createMemo, createSignal, Show } from "solid-js";
 import type { DraftDerivationKind, DraftIntent, SenderIdentity } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
+import MailCalendarInvitation from "./MailCalendarInvitation";
 import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
 import MailMessageDeliveryControl from "./MailMessageDeliveryControl";
@@ -144,6 +145,12 @@ export default function MailMessageCard(props: {
     ];
   };
   const messageMenuActions = (): DropdownItem[] => [...responseActions(), ...displayActions()];
+  const hasCalendarInvitation = () =>
+    props.message.attachments.some(
+      (attachment) =>
+        attachment.contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/calendar" ||
+        attachment.filename?.toLowerCase().endsWith(".ics"),
+    );
 
   return (
     <article
@@ -266,6 +273,15 @@ export default function MailMessageCard(props: {
               <Placeholder state="loading" title="Body is still synchronizing" />
             )}
           </div>
+          <Show when={hasCalendarInvitation()}>
+            <MailCalendarInvitation
+              mailboxId={props.context.mailboxId}
+              messageId={props.message.id}
+              requestUrl={props.context.requestUrl}
+              canWrite={props.context.canWrite}
+              dateConfig={props.context.dateConfig}
+            />
+          </Show>
           <Show when={props.message.attachments.length > 0}>
             <MailMessageAttachments
               mailboxId={props.context.mailboxId}

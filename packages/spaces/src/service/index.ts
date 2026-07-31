@@ -1,8 +1,9 @@
-import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { type PageParams, type Paginated, paginate } from "@k2b/stdlib";
+import type { AccessSubject } from "@valentinkolb/cloud/server";
 import type { AccessEntry, Space, SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
 import * as access from "./access";
 import * as apiKeys from "./api-keys";
+import * as calendarInvitations from "./calendar-invitations";
 import * as columns from "./columns";
 import * as comments from "./comments";
 import * as ical from "./ical";
@@ -34,6 +35,7 @@ const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => 
 };
 
 export const spacesService = {
+  calendarInvitations,
   space: {
     list: async (config: {
       subject: AccessSubject;
@@ -252,4 +254,4 @@ export const spacesService = {
 // Re-export types needed by widgets
 export type { ItemAcrossKind, ItemAcrossResult, TaskItem } from "./items";
 export type { SpaceAdminListItem } from "./spaces";
-export { access, columns, comments, ical, items, spaces, tags, wormholes };
+export { access, calendarInvitations, columns, comments, ical, items, spaces, tags, wormholes };

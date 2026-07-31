@@ -1,7 +1,7 @@
-import { markdown } from "@valentinkolb/cloud/shared";
-import { Dropdown, type DropdownItem, MarkdownView, prompts, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { markdown } from "@valentinkolb/cloud/shared";
+import { Dropdown, type DropdownItem, MarkdownView, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
@@ -14,6 +14,7 @@ import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "
 import type { SpaceItemDetail } from "../workspace/workspace-types";
 import { canTransferThroughWormhole, showWormholeTransferToast, transferThroughWormhole } from "../wormhole-transfer";
 import CommentsSection from "./CommentsSection";
+import EventInvitations from "./EventInvitations";
 
 type Props = {
   item: SpaceItem;
@@ -760,6 +761,10 @@ export default function ItemDetailPanel(props: Props) {
               </Show>
             </dl>
           </section>
+        </Show>
+
+        <Show when={isEvent() && canEditItem()}>
+          <EventInvitations spaceId={props.spaceId} itemId={props.item.id} />
         </Show>
 
         <Show when={props.item.description}>

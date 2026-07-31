@@ -18,6 +18,8 @@ Settings are grouped by intent:
 - **Writing** is available to writers and administrators. It contains personal writing preferences, templates, signature defaults, and the email-design editor. Mailbox-wide content and design require Admin access.
 - **Mailbox**, **Delivery**, **Folders**, **Access**, and **Danger zone** are available only to mailbox administrators.
 
+Under **Settings > Mailbox**, **Calendar invitations** can suggest one writable Space when collaborators import invitations. The mapping is stored and permission-checked by Spaces. It does not import mail automatically, and every invitation can target another writable Space. Clearing the selection is safe. If the Space is deleted or access is revoked, Mail treats the default as unset.
+
 Operational status and public attachment links are separate from configuration. Open them from **Mailbox tools** in the mailbox navigation.
 
 ## Monitor and pause transport {icon="route"}

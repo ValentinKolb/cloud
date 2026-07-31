@@ -3,6 +3,7 @@ import * as mailboxAccess from "./access";
 import * as attachmentLinks from "./attachment-links";
 import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
+import * as calendarInvitations from "./calendar-invitations";
 import * as collaboration from "./collaboration";
 import { commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
@@ -69,6 +70,7 @@ export {
   attachmentLinks,
   automaticReplyConfigurations,
   bindings,
+  calendarInvitations,
   cancelSendCommand,
   collaboration,
   commandRuntime,
@@ -118,6 +120,7 @@ export const mailService = {
   automaticReplyConfigurations,
   attachmentLinks,
   bindings,
+  calendarInvitations,
   commands,
   collaboration,
   composeSafety,

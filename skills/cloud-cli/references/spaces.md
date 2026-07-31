@@ -40,6 +40,27 @@ cld spaces overlap --space "Roadmap" --from 2026-07-20T10:00:00Z --to 2026-07-20
 
 `overlap` checks a proposed time range. Use `--exclude-item <id>` when checking a time change for an existing item.
 
+## Send event invitations through Mail
+
+Spaces generates iCalendar REQUEST, update, and CANCEL payloads from the canonical event. Mail only supplies an authorized verified sender and an editable delivery draft.
+
+```bash
+cld --json spaces invitation context "Roadmap" "Launch review"
+cld --json spaces invitation draft "Roadmap" "Launch review" \
+  --mailbox <mailbox-id> \
+  --to alex@example.org \
+  --to sam@example.org \
+  --idempotency-key 5d3a802d-d9e1-46e4-9779-4823c55c6c04
+cld --json spaces invitation draft "Roadmap" "Launch review" \
+  --mailbox <mailbox-id> \
+  --to alex@example.org \
+  --cancel \
+  --idempotency-key b534fe9e-60db-4b23-a35c-5844ab984ec4
+cld --json spaces mail event-source "Roadmap" <mailbox-id> <message-id>
+```
+
+`invitation context` includes the latest draft failure for operator diagnosis. Reuse the same idempotency key only when retrying the same request. Relevant event changes receive a newer sequence when you explicitly create the next update draft.
+
 ## Access
 
 ```bash
@@ -60,5 +81,5 @@ Run `cld spaces <command> --help` for flags and argument order.
 | Spaces | `list`, `use`, `current`, `get`, `create` |
 | Items | `items`, `item`, `add-item`, `update-item`, `done`, `reopen` |
 | Comments | `comments`, `comment` |
-| Calendar | `calendar`, `overlap` |
+| Calendar | `calendar`, `overlap`, `invitation context`, `invitation draft`, `mail event-source` |
 | Access | `access list`, `access grant`, `access set`, `access revoke`, `access search-principals` |

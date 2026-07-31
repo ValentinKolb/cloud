@@ -1,7 +1,18 @@
 import { Readable } from "node:stream";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { ErrorResponseSchema, GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
+import {
+  CalendarInvitationImportResultSchema,
+  CalendarInvitationPreviewSchema,
+  CalendarParticipationStatusSchema,
+  MailEventInvitationDraftInputSchema,
+  MailEventInvitationDraftSchema,
+  MailEventSourceInputSchema,
+  MailEventSourceSchema,
+  MailInvitationMailboxesSchema,
+  SpacesMailDestinationsSchema,
+} from "@valentinkolb/cloud-app-spaces/integration";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -35,6 +46,7 @@ import {
   draftContentInputSchema,
   draftEditableContentInputSchema,
   draftLeaseTokenSchema,
+  draftSchema,
   mailCommandInputSchema,
   mailConversationContextQuerySchema,
   mailConversationContextSchema,
@@ -65,6 +77,7 @@ import {
 import {
   attachmentLinks,
   bindings,
+  calendarInvitations,
   cancelSendCommand,
   collaboration,
   commands,
@@ -184,6 +197,15 @@ const updateMailboxSchema = z
     composeSafety: composeSafetyConfigSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+const calendarDestinationInputSchema = z.object({ spaceId: z.string().uuid().nullable() }).strict();
+const calendarDestinationsResponseSchema = z.object({
+  selectedSpaceId: z.string().uuid().nullable(),
+  items: SpacesMailDestinationsSchema,
+});
+const calendarImportInputSchema = z.object({ spaceId: z.string().uuid().optional() }).strict();
+const calendarResponseInputSchema = z
+  .object({ participationStatus: CalendarParticipationStatusSchema, idempotencyKey: z.string().uuid() })
+  .strict();
 const attachBindingSchema = z.object({ connectionId: z.string().uuid() });
 const verifyIdentitySchema = z.object({
   bindingId: z.string().uuid(),
@@ -352,6 +374,49 @@ const attachmentDownloadResponse = async (
 
 const mailOperationsApi = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
+  .post(
+    "/integrations/spaces/event-source",
+    describeRoute({
+      tags: ["Mail:Integrations"],
+      summary: "Read bounded event source context for Spaces",
+      description: "Returns authorized message metadata for the canonical Spaces event editor without placing message content in a URL.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MailEventSourceSchema, "Event source"),
+        403: jsonResponse(ErrorResponseSchema, "Mailbox read access required"),
+        404: jsonResponse(ErrorResponseSchema, "Message not found"),
+      },
+    }),
+    v("json", MailEventSourceInputSchema),
+    async (c) => respond(c, calendarInvitations.getEventSource({ context: requestContext(c), input: c.req.valid("json") })),
+  )
+  .get(
+    "/integrations/spaces/mailboxes",
+    describeRoute({
+      tags: ["Mail:Integrations"],
+      summary: "List mailboxes available for Spaces invitations",
+      description: "Returns writable mailboxes that have a verified sending identity.",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(MailInvitationMailboxesSchema, "Invitation mailboxes") },
+    }),
+    async (c) => respond(c, calendarInvitations.listInvitationMailboxes(requestContext(c))),
+  )
+  .post(
+    "/integrations/spaces/invitation-drafts",
+    describeRoute({
+      tags: ["Mail:Integrations"],
+      summary: "Create an event invitation draft for Spaces",
+      description: "Creates one idempotent, editable Mail draft with a bounded iCalendar attachment.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MailEventInvitationDraftSchema, "Invitation draft"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid invitation"),
+        403: jsonResponse(ErrorResponseSchema, "Mailbox write access required"),
+      },
+    }),
+    v("json", MailEventInvitationDraftInputSchema),
+    async (c) => respond(c, calendarInvitations.createInvitationDraft({ context: requestContext(c), input: c.req.valid("json") })),
+  )
   .get("/mailboxes/:mailboxId/provider-discovery", v("param", uuidParamSchema), v("query", providerDiscoveryQuerySchema), async (c) => {
     const mailboxId = c.req.valid("param").mailboxId;
     const allowed = await mailboxAccess.requireMailboxPermission(requestContext(c), mailboxId, "admin");
@@ -463,6 +528,119 @@ const mailOperationsApi = new Hono<AuthContext>()
   )
   .get("/mailboxes/:mailboxId/settings-context", v("param", uuidParamSchema), async (c) =>
     respond(c, settingsContext.loadMailboxSettingsContext(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .get(
+    "/mailboxes/:mailboxId/calendar-destinations",
+    describeRoute({
+      tags: ["Mail:Calendar"],
+      summary: "List writable Spaces calendar destinations",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(calendarDestinationsResponseSchema, "Mailbox calendar destinations") },
+    }),
+    v("param", uuidParamSchema),
+    async (c) => {
+      const mailboxId = c.req.valid("param").mailboxId;
+      const destinations = await calendarInvitations.listDestinations({
+        context: requestContext(c),
+        mailboxId,
+        request: integrationRequest(c),
+      });
+      if (!destinations.ok) return respond(c, destinations);
+      return respond(c, destinations);
+    },
+  )
+  .put(
+    "/mailboxes/:mailboxId/calendar-destination",
+    describeRoute({
+      tags: ["Mail:Calendar"],
+      summary: "Set the mailbox's default Space",
+      description: "Validates current write access before saving the optional default calendar destination.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(calendarDestinationsResponseSchema, "Updated calendar destination"),
+        400: jsonResponse(ErrorResponseSchema, "Destination is unavailable"),
+        403: jsonResponse(ErrorResponseSchema, "Mailbox admin required"),
+      },
+    }),
+    v("param", uuidParamSchema),
+    v("json", calendarDestinationInputSchema),
+    async (c) => {
+      const mailboxId = c.req.valid("param").mailboxId;
+      const input = c.req.valid("json");
+      const updated = await calendarInvitations.setDefaultDestination({
+        context: requestContext(c),
+        mailboxId,
+        spaceId: input.spaceId,
+        request: integrationRequest(c),
+      });
+      return respond(c, updated);
+    },
+  )
+  .get(
+    "/mailboxes/:mailboxId/messages/:messageId/calendar-invitation",
+    describeRoute({
+      tags: ["Mail:Calendar"],
+      summary: "Preview a message calendar invitation",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(CalendarInvitationPreviewSchema, "Calendar invitation"),
+        404: jsonResponse(ErrorResponseSchema, "No calendar invitation"),
+      },
+    }),
+    v("param", mailboxAndIdParamSchema("messageId")),
+    async (c) =>
+      respond(
+        c,
+        calendarInvitations.preview({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
+          request: integrationRequest(c),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/messages/:messageId/calendar-invitation/import",
+    describeRoute({
+      tags: ["Mail:Calendar"],
+      summary: "Add or update an invitation in Spaces",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(CalendarInvitationImportResultSchema, "Imported event") },
+    }),
+    v("param", mailboxAndIdParamSchema("messageId")),
+    v("json", calendarImportInputSchema),
+    async (c) =>
+      respond(
+        c,
+        calendarInvitations.importToSpace({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
+          ...c.req.valid("json"),
+          request: integrationRequest(c),
+        }),
+      ),
+  )
+  .post(
+    "/mailboxes/:mailboxId/messages/:messageId/calendar-invitation/respond",
+    describeRoute({
+      tags: ["Mail:Calendar"],
+      summary: "Create a calendar response draft",
+      description: "Creates a normal editable Mail draft with a standards-based iTIP REPLY attachment.",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(draftSchema, "Calendar response draft") },
+    }),
+    v("param", mailboxAndIdParamSchema("messageId")),
+    v("json", calendarResponseInputSchema),
+    async (c) =>
+      respond(
+        c,
+        calendarInvitations.createResponseDraft({
+          context: requestContext(c),
+          ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
+          participationStatus: c.req.valid("json").participationStatus,
+          idempotencyKey: c.req.valid("json").idempotencyKey,
+          request: integrationRequest(c),
+        }),
+      ),
   )
   .get("/mailboxes/:mailboxId/health", v("param", uuidParamSchema), async (c) =>
     respond(c, health.getMailboxOperationalHealth(requestContext(c), c.req.valid("param").mailboxId)),

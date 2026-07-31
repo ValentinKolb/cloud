@@ -1,3 +1,4 @@
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import {
   type AccessSubject,
   type AuthContext,
@@ -11,7 +12,6 @@ import {
   v,
 } from "@valentinkolb/cloud/server";
 import { coreSettings } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -66,8 +66,26 @@ import {
   SpaceItemDetailSchema,
   SpacesViewSnapshotSchema,
 } from "../frontend/[id]/_components/workspace/workspace-types";
+import {
+  CalendarInvitationImportInputSchema,
+  CalendarInvitationImportResultSchema,
+  CalendarInvitationPreviewInputSchema,
+  CalendarInvitationPreviewSchema,
+  CalendarInvitationResponseCommitInputSchema,
+  CalendarInvitationResponseInputSchema,
+  CalendarInvitationResponseSchema,
+  CalendarInvitationResponseStateSchema,
+  CreateEventInvitationDraftInputSchema,
+  EventInvitationContextSchema,
+  EventInvitationDraftSchema,
+  MailEventSourceInputSchema,
+  MailEventSourceSchema,
+  SpacesMailDefaultInputSchema,
+  SpacesMailDestinationContextSchema,
+} from "../integration";
 import { spacesService } from "../service";
 import { isSpaceResourceId, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
+import { getEventSource } from "../service/mail-integration";
 import wsRoutes from "../ws";
 
 // ==========================
@@ -206,6 +224,13 @@ const getScopedSpaceAccess = (c: Context<AuthContext>): Result<ScopedSpaceAccess
   });
 };
 
+const mailIntegrationRequest = (c: Context<AuthContext>) => ({
+  cookie: c.req.header("Cookie"),
+  authorization: c.req.header("Authorization"),
+  requestId: c.req.header("X-Request-Id") ?? null,
+  signal: c.req.raw.signal,
+});
+
 /**
  * Middleware to check space access with permission level.
  * Global roles never imply resource access; recovery operations use adminApp.
@@ -309,6 +334,175 @@ const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
   .get(
+    "/integrations/mail/calendar/destinations",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "List writable calendar destinations for Mail",
+      description: "Returns the minimal projection of Spaces where the current actor may create calendar events.",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(SpacesMailDestinationContextSchema, "Writable Spaces and current default") },
+    }),
+    v("query", z.object({ mailboxId: z.string().uuid() })),
+    async (c) => {
+      const access = getScopedSpaceAccess(c);
+      if (!access.ok) return respond(c, access);
+      const result = await spacesService.space.list({ ...access.data, requiredLevel: "write" });
+      const selectedSpaceId = await spacesService.calendarInvitations.getMailboxCalendarDefault({
+        mailboxId: c.req.valid("query").mailboxId,
+        subject: access.data.subject,
+      });
+      return respond(
+        c,
+        ok({
+          selectedSpaceId,
+          items: result.items.map((space) => ({ id: space.id, name: space.name, color: space.color })),
+        }),
+      );
+    },
+  )
+
+  .put(
+    "/integrations/mail/calendar/default",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "Set a mailbox's default calendar destination",
+      description: "Stores the cross-app mapping in Spaces after validating current write access.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpacesMailDestinationContextSchema, "Updated calendar default"),
+        403: jsonResponse(ErrorResponseSchema, "Write access required"),
+      },
+    }),
+    v("json", SpacesMailDefaultInputSchema),
+    async (c) => {
+      const access = getScopedSpaceAccess(c);
+      if (!access.ok) return respond(c, access);
+      const input = c.req.valid("json");
+      const updated = await spacesService.calendarInvitations.setMailboxCalendarDefault({
+        ...input,
+        subject: access.data.subject,
+      });
+      if (!updated.ok) return respond(c, updated);
+      const result = await spacesService.space.list({ ...access.data, requiredLevel: "write" });
+      return respond(
+        c,
+        ok({
+          selectedSpaceId: updated.data,
+          items: result.items.map((space) => ({ id: space.id, name: space.name, color: space.color })),
+        }),
+      );
+    },
+  )
+
+  .post(
+    "/integrations/mail/calendar/preview",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "Preview a Mail calendar invitation",
+      description: "Parses one bounded iCalendar attachment and resolves an existing event without exposing inaccessible Spaces.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(CalendarInvitationPreviewSchema, "Calendar invitation preview"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid calendar attachment"),
+      },
+    }),
+    v("json", CalendarInvitationPreviewInputSchema),
+    async (c) => {
+      const access = getScopedSpaceAccess(c);
+      if (!access.ok) return respond(c, access);
+      const result = await spacesService.calendarInvitations.previewCalendarInvitation(c.req.valid("json"));
+      if (!result.ok || !result.data.existing) return respond(c, result);
+      const permission = await spacesService.space.permission.get({
+        spaceId: result.data.existing.spaceId,
+        subject: access.data.subject,
+      });
+      return respond(c, ok({ ...result.data, existing: permission === "none" ? null : result.data.existing }));
+    },
+  )
+
+  .post(
+    "/integrations/mail/calendar/import",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "Create or update a Space event from Mail",
+      description: "Imports an invitation idempotently by mailbox and calendar UID. Newer sequence numbers update the same event.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(CalendarInvitationImportResultSchema, "Imported calendar event"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid calendar attachment or destination"),
+        403: jsonResponse(ErrorResponseSchema, "Write access required"),
+        409: jsonResponse(ErrorResponseSchema, "Event already belongs to another Space"),
+      },
+    }),
+    v("json", CalendarInvitationImportInputSchema),
+    async (c) => {
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
+      return respond(
+        c,
+        spacesService.calendarInvitations.importCalendarInvitation({
+          input: c.req.valid("json"),
+          user: user.data,
+          subject: c.get("accessSubject"),
+        }),
+      );
+    },
+  )
+
+  .post(
+    "/integrations/mail/calendar/respond",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "Build an iTIP response for Mail",
+      description: "Produces a bounded standards-based REPLY message. Mail remains responsible for user confirmation and delivery.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(CalendarInvitationResponseSchema, "Calendar response message"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid invitation"),
+      },
+    }),
+    v("json", CalendarInvitationResponseInputSchema),
+    async (c) => {
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
+      return respond(
+        c,
+        spacesService.calendarInvitations.prepareCalendarResponse({
+          input: c.req.valid("json"),
+          subject: c.get("accessSubject"),
+        }),
+      );
+    },
+  )
+
+  .post(
+    "/integrations/mail/calendar/respond/commit",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "Record a prepared calendar response",
+      description: "Records only that Mail created an editable response draft; it does not claim that the response was sent.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(CalendarInvitationResponseStateSchema, "Prepared response state"),
+        400: jsonResponse(ErrorResponseSchema, "Invitation has not been imported"),
+        403: jsonResponse(ErrorResponseSchema, "Write access required"),
+      },
+    }),
+    v("json", CalendarInvitationResponseCommitInputSchema),
+    async (c) => {
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
+      return respond(
+        c,
+        spacesService.calendarInvitations.commitCalendarResponse({
+          input: c.req.valid("json"),
+          subject: c.get("accessSubject"),
+        }),
+      );
+    },
+  )
+
+  .get(
     "/workspace/view",
     describeRoute({
       tags: ["Spaces"],
@@ -407,6 +601,103 @@ const app = new Hono<AuthContext>()
       if (result.kind === "accessDenied") return respond(c, fail(err.forbidden(result.message)));
       if (result.kind === "notFound") return respond(c, fail(err.notFound("Item")));
       return respond(c, ok(result.detail));
+    },
+  )
+
+  .get(
+    "/:id/items/:itemId/invitation-context",
+    describeRoute({
+      tags: ["Spaces:Invitations"],
+      summary: "Get event invitation context",
+      description: "Lists authorized Mail senders and the event's current invitation recipients.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(EventInvitationContextSchema, "Event invitation context"),
+        400: jsonResponse(ErrorResponseSchema, "Item is not an event"),
+        403: jsonResponse(ErrorResponseSchema, "Write access required"),
+        404: jsonResponse(ErrorResponseSchema, "Event not found"),
+      },
+    }),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
+      if (!z.uuid().safeParse(spaceId).success || !z.uuid().safeParse(itemId).success) {
+        return respond(c, fail(err.badInput("Invalid space or event identifier")));
+      }
+      const access = await checkSpaceAccess(c, spaceId, "write");
+      if (access.error) return access.error;
+      return respond(
+        c,
+        spacesService.calendarInvitations.getEventInvitationContext({
+          spaceId,
+          itemId,
+          subject: getSpaceAccessSubject(c).subject,
+          request: mailIntegrationRequest(c),
+        }),
+      );
+    },
+  )
+
+  .post(
+    "/:id/mail-event-source",
+    describeRoute({
+      tags: ["Spaces:Integrations"],
+      summary: "Load Mail context for the event editor",
+      description: "Resolves a bounded, permission-checked Mail source without exposing message content in the editor URL.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MailEventSourceSchema, "Event source"),
+        403: jsonResponse(ErrorResponseSchema, "Space write or mailbox read access required"),
+        404: jsonResponse(ErrorResponseSchema, "Source not found"),
+      },
+    }),
+    v("json", MailEventSourceInputSchema),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      if (!z.uuid().safeParse(spaceId).success) return respond(c, fail(err.badInput("Invalid space identifier")));
+      const access = await checkSpaceAccess(c, spaceId, "write");
+      if (access.error) return access.error;
+      const source = await getEventSource(c.req.valid("json"), mailIntegrationRequest(c));
+      if (source.ok) return respond(c, ok(source.data));
+      if (source.status === 403) return respond(c, fail(err.forbidden(source.message)));
+      if (source.status === 404) return respond(c, fail(err.notFound("Mail source message")));
+      return respond(c, fail(err.internal(source.message)));
+    },
+  )
+
+  .post(
+    "/:id/items/:itemId/invitation-draft",
+    describeRoute({
+      tags: ["Spaces:Invitations"],
+      summary: "Create an event invitation draft",
+      description: "Builds iTIP from the canonical Space event and asks Mail for one idempotent editable draft.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(EventInvitationDraftSchema, "Event invitation draft"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid invitation"),
+        403: jsonResponse(ErrorResponseSchema, "Write or Mail send access required"),
+        404: jsonResponse(ErrorResponseSchema, "Event not found"),
+      },
+    }),
+    v("json", CreateEventInvitationDraftInputSchema),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
+      if (!z.uuid().safeParse(spaceId).success || !z.uuid().safeParse(itemId).success) {
+        return respond(c, fail(err.badInput("Invalid space or event identifier")));
+      }
+      const access = await checkSpaceAccess(c, spaceId, "write");
+      if (access.error) return access.error;
+      return respond(
+        c,
+        spacesService.calendarInvitations.createEventInvitationDraft({
+          spaceId,
+          itemId,
+          subject: getSpaceAccessSubject(c).subject,
+          input: c.req.valid("json"),
+          request: mailIntegrationRequest(c),
+        }),
+      );
     },
   )
 

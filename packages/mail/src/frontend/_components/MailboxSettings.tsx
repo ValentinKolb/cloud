@@ -1,3 +1,4 @@
+import { mutation } from "@k2b/stdlib/solid";
 import {
   confirmDiscardIfDirty,
   NumberInput,
@@ -8,12 +9,12 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, Mailbox } from "../../contracts";
 import type { MailboxSettingsContext } from "../../settings-context";
 import { readApiError } from "./api-response";
+import MailCalendarSettings from "./MailCalendarSettings";
 import MailComposeSettings from "./MailComposeSettings";
 import { MailConnectionSettings } from "./MailConnectionSettings";
 import MailFolderSettings from "./MailFolderSettings";
@@ -396,6 +397,7 @@ export default function MailboxSettings(props: {
               allowNegative={false}
               suffix="recipients"
             />
+            <MailCalendarSettings mailboxId={props.context.mailbox.id} />
             <div class="flex justify-end pt-1">
               <button
                 type="button"

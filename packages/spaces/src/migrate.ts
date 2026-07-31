@@ -196,6 +196,62 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ spaces.items table");
 
   await sql`
+    CREATE TABLE IF NOT EXISTS spaces.calendar_invitation_sources (
+      item_id UUID PRIMARY KEY REFERENCES spaces.items(id) ON DELETE CASCADE,
+      mailbox_id UUID NOT NULL,
+      message_id UUID,
+      calendar_uid TEXT NOT NULL CHECK (char_length(calendar_uid) BETWEEN 1 AND 1024),
+      sequence INTEGER NOT NULL DEFAULT 0 CHECK (sequence >= 0),
+      method TEXT NOT NULL CHECK (method IN ('request', 'cancel', 'reply', 'publish', 'unknown')),
+      organizer JSONB,
+      attendees JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(attendees) = 'array'),
+      last_response JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (mailbox_id, calendar_uid)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_calendar_invitation_sources_message
+    ON spaces.calendar_invitation_sources(mailbox_id, message_id)
+  `.simple();
+  console.log("  ✓ spaces.calendar_invitation_sources table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS spaces.calendar_invitation_deliveries (
+      idempotency_key UUID PRIMARY KEY,
+      item_id UUID NOT NULL REFERENCES spaces.items(id) ON DELETE CASCADE,
+      mailbox_id UUID NOT NULL,
+      sequence INTEGER NOT NULL CHECK (sequence >= 0),
+      method TEXT NOT NULL CHECK (method IN ('request', 'cancel')),
+      state TEXT NOT NULL CHECK (state IN ('preparing', 'drafted', 'failed')),
+      draft_id UUID,
+      error_message TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_calendar_invitation_deliveries_item
+    ON spaces.calendar_invitation_deliveries(item_id, created_at DESC)
+  `.simple();
+  console.log("  ✓ spaces.calendar_invitation_deliveries table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS spaces.mailbox_calendar_defaults (
+      mailbox_id UUID PRIMARY KEY,
+      space_id UUID NOT NULL REFERENCES spaces.spaces(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_mailbox_calendar_defaults_space
+    ON spaces.mailbox_calendar_defaults(space_id)
+  `.simple();
+  console.log("  ✓ spaces.mailbox_calendar_defaults table");
+
+  await sql`
     CREATE TABLE IF NOT EXISTS spaces.item_assignees (
       item_id UUID NOT NULL REFERENCES spaces.items(id) ON DELETE CASCADE,
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,

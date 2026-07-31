@@ -322,6 +322,7 @@
         "@k2b/sync": "^5.8.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/cloud-app-contacts": "workspace:*",
+        "@valentinkolb/cloud-app-spaces": "workspace:*",
         "@zone-eu/mailsplit": "5.4.14",
         "fast-xml-parser": "^5.9.3",
         "hono": "^4.11.1",

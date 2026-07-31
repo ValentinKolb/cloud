@@ -3,6 +3,7 @@ import { rename, rm } from "node:fs/promises";
 import { basename } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { text } from "@k2b/stdlib";
 import {
   arg,
   type CloudCliContext,
@@ -16,7 +17,11 @@ import {
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
-import { text } from "@k2b/stdlib";
+import type {
+  CalendarInvitationImportResult,
+  CalendarInvitationPreview,
+  SpacesMailDestinationContext,
+} from "@valentinkolb/cloud-app-spaces/integration";
 import { z } from "zod";
 import {
   type AcquiredDraftLease,
@@ -2760,6 +2765,95 @@ export default defineCliCommands({
           ctx.print("");
           ctx.print(message.plainText ?? "[Body not hydrated]");
         }
+      },
+    }),
+    command("calendar destinations", {
+      summary: "List writable Spaces and the mailbox calendar default",
+      flags: mailboxFlag,
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<SpacesMailDestinationContext>(ctx, `/mailboxes/${mailbox.id}/calendar-destinations`);
+        if (printStructured(ctx, value)) return;
+        printTable(
+          ctx,
+          value.items,
+          value.items.map((space) => ({ ...space, default: space.id === value.selectedSpaceId ? "yes" : "" })),
+          [
+            { key: "name", label: "SPACE" },
+            { key: "default", label: "DEFAULT" },
+            { key: "id", label: "ID" },
+          ],
+        );
+      },
+    }),
+    command("calendar default", {
+      summary: "Set or clear the mailbox's default Spaces calendar",
+      flags: {
+        ...mailboxFlag,
+        space: flag.string({ description: "Writable Space id" }),
+        clear: flag.boolean({ description: "Clear the current default" }),
+      },
+      run: async ({ ctx, flags }) => {
+        if (flags.clear === Boolean(flags.space)) throw new Error("Pass exactly one of --space or --clear.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<SpacesMailDestinationContext>(
+          ctx,
+          `/mailboxes/${mailbox.id}/calendar-destination`,
+          jsonRequest("PUT", { spaceId: flags.clear ? null : flags.space }),
+        );
+        if (!printStructured(ctx, value))
+          ctx.print(value.selectedSpaceId ? `Calendar default set to ${value.selectedSpaceId}.` : "Calendar default cleared.");
+      },
+    }),
+    command("calendar preview", {
+      summary: "Preview an iCalendar attachment through Spaces",
+      args: { messageId: arg.required({ description: "Message content id" }) },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<CalendarInvitationPreview>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${args.messageId}/calendar-invitation`,
+        );
+        if (!printStructured(ctx, value)) {
+          ctx.print(`${value.invitation.title} · ${value.invitation.startsAt}`);
+          ctx.print(value.existing ? `Spaces event: ${value.existing.href}` : "Not imported.");
+        }
+      },
+    }),
+    command("calendar import", {
+      summary: "Import or update a message invitation in Spaces",
+      args: { messageId: arg.required({ description: "Message content id" }) },
+      flags: {
+        ...mailboxFlag,
+        space: flag.string({ description: "Destination Space id; defaults to the mailbox calendar setting" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const value = await readApi<CalendarInvitationImportResult>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${args.messageId}/calendar-invitation/import`,
+          jsonRequest("POST", flags.space ? { spaceId: flags.space } : {}),
+        );
+        if (!printStructured(ctx, value)) ctx.print(`${value.outcome}: ${value.href}`);
+      },
+    }),
+    command("calendar respond", {
+      summary: "Create an editable iTIP response draft",
+      args: { messageId: arg.required({ description: "Message content id" }) },
+      flags: {
+        ...mailboxFlag,
+        status: flag.enum(["accepted", "tentative", "declined"], { required: true, description: "Participation decision" }),
+        idempotencyKey: flag.string({ name: "idempotency-key", description: "Stable retry key" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const draft = await readApi<MailDraft>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${args.messageId}/calendar-invitation/respond`,
+          jsonRequest("POST", { participationStatus: flags.status, idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID() }),
+        );
+        if (!printStructured(ctx, draft)) ctx.print(`Created response draft ${draft.id}.`);
       },
     }),
     command("message edit-as-new", {

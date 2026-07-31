@@ -1,5 +1,5 @@
-import { Dropdown, type DropdownItem, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@k2b/stdlib/solid";
+import { Dropdown, type DropdownItem, prompts, toast } from "@valentinkolb/cloud/ui";
 import { createEffect, on, onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { DraftDerivationKind, MailRuleConditions, SenderIdentity, SenderMatchKind } from "../../contracts";
@@ -217,7 +217,42 @@ export default function MailSenderMessageActions(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const pending = () => messageKeywords.loading() || conversationKeyword.loading() || markSenderRead.loading();
+  const createEventInSpaces = mutation.create<void, SelectionContext>({
+    mutation: async (_context, { abortSignal }) => {
+      const response = await apiClient.mailboxes[":mailboxId"]["calendar-destinations"].$get(
+        { param: { mailboxId: props.mailboxId } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readApiError(response, "Could not load Spaces calendars"));
+      const destinations = await response.json();
+      if (destinations.items.length === 0) throw new Error("No writable Space is available for this event.");
+      const values = await prompts.form({
+        title: "Create event in Spaces",
+        icon: "ti ti-calendar-plus",
+        fields: {
+          spaceId: {
+            type: "select",
+            label: "Calendar Space",
+            description: "Dates, attendees, and event details stay in Spaces.",
+            options: destinations.items.map((space) => ({ id: space.id, label: space.name })),
+            default: destinations.selectedSpaceId ?? destinations.items[0]!.id,
+            required: true,
+          },
+        },
+        confirmText: "Open Spaces",
+      });
+      if (!values || abortSignal.aborted) return;
+      const target = new URL(`/app/spaces/${values.spaceId}`, window.location.origin);
+      target.searchParams.set("create", "event");
+      target.searchParams.set("mailbox", props.mailboxId);
+      target.searchParams.set("message", props.message.id);
+      window.location.assign(`${target.pathname}${target.search}`);
+    },
+    onError: (error) => prompts.error(error.message, { title: "Could not open Spaces" }),
+  });
+
+  const pending = () =>
+    messageKeywords.loading() || conversationKeyword.loading() || markSenderRead.loading() || createEventInSpaces.loading();
   const sender = () => props.message.from[0] ?? null;
   const findSenderHref = () => (sender() ? buildExactSenderSearchHref(new URL(props.requestUrl), sender()!.address) : null);
   const actionVisibility = () =>
@@ -240,6 +275,7 @@ export default function MailSenderMessageActions(props: {
         messageKeywords.abort();
         conversationKeyword.abort();
         markSenderRead.abort();
+        createEventInSpaces.abort();
       },
       { defer: true },
     ),
@@ -248,6 +284,7 @@ export default function MailSenderMessageActions(props: {
     messageKeywords.abort();
     conversationKeyword.abort();
     markSenderRead.abort();
+    createEventInSpaces.abort();
   });
 
   return (
@@ -321,16 +358,29 @@ export default function MailSenderMessageActions(props: {
               },
             ]
           : []),
-        ...(actionVisibility().providerKeywords
+        ...(props.canWrite || actionVisibility().providerKeywords
           ? [
               {
                 sectionLabel: "Message",
                 items: [
-                  {
-                    label: "Provider keywords",
-                    icon: "ti ti-tags",
-                    action: () => void messageKeywords.mutate({ selectionKey: props.selectionKey }),
-                  },
+                  ...(props.canWrite
+                    ? [
+                        {
+                          label: "Create event in Spaces",
+                          icon: "ti ti-calendar-plus",
+                          action: () => void createEventInSpaces.mutate({ selectionKey: props.selectionKey }),
+                        },
+                      ]
+                    : []),
+                  ...(actionVisibility().providerKeywords
+                    ? [
+                        {
+                          label: "Provider keywords",
+                          icon: "ti ti-tags",
+                          action: () => void messageKeywords.mutate({ selectionKey: props.selectionKey }),
+                        },
+                      ]
+                    : []),
                 ],
               },
             ]

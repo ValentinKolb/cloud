@@ -268,6 +268,34 @@ cld --json mail remote-content allow-domain example.com
 cld mail remote-content remove <rule-id> --yes
 ```
 
+## Work with Spaces calendar invitations
+
+Mail detects iCalendar attachments, while Spaces remains the owner of events and invitation state. Inspect writable destinations and the optional mailbox default without importing anything:
+
+```bash
+cld --json mail calendar destinations --mailbox <mailbox-id>
+cld mail calendar default --mailbox <mailbox-id> --space <space-id>
+cld mail calendar default --mailbox <mailbox-id> --clear
+```
+
+Preview and explicitly import one message invitation. `calendar import` updates the linked event only for a newer sequence and is safe to repeat:
+
+```bash
+cld --json mail calendar preview <message-id> --mailbox <mailbox-id>
+cld --json mail calendar import <message-id> --mailbox <mailbox-id> --space <space-id>
+```
+
+Prepare an editable response draft only after the invitation is linked in Spaces. Supply a stable retry key in unattended work so a retry cannot create a second draft:
+
+```bash
+cld --json mail calendar respond <message-id> \
+  --mailbox <mailbox-id> \
+  --status accepted \
+  --idempotency-key 57f87971-ef19-4e2f-ad25-4263fa94808a
+```
+
+The command creates a Mail draft; it does not claim that the organizer was notified. Review and send that draft through the normal compose or draft commands.
+
 ## Manage mailing lists
 
 List mailing lists detected from standard message headers, then inspect one canonical List-ID:
