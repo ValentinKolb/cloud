@@ -1,49 +1,61 @@
-import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
+import {
+  type CapabilityExecutionContext,
+  type CloudResourceView,
+  defineCapabilities,
+  type UniversalSearchInput,
+  UniversalSearchDataSchema,
+  UniversalSearchInputSchema,
+} from "@valentinkolb/cloud/contracts";
 import { weatherService } from "@valentinkolb/cloud/services";
+import { ok } from "@k2b/stdlib";
 
-const SEARCH_TAGS = ["weather", "forecast", "location", "temperature"] as const;
-const SEARCH_HELP = "Find saved weather locations.";
-// All four tags act as routing aliases for "include the weather app". The
-// underlying data set (saved locations) is the same regardless of which one
-// the user typed — there is no useful sub-facet to filter by.
-const SEARCH_TAG_HELP = [
-  { tag: "weather", help: "Show saved weather locations." },
-  { tag: "forecast", help: "Show saved weather locations (alias of #weather)." },
-  { tag: "location", help: "Show saved weather locations (alias of #weather)." },
-  { tag: "temperature", help: "Show saved weather locations (alias of #weather)." },
-] as const;
-const supportsWeatherApp = (roles: string[]) => roles.includes("user");
-
-export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = input.user;
-  if (!supportsWeatherApp(user.roles)) return [];
+const runSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
+  const user = context.user;
+  if (!user?.roles.includes("user")) return ok({ data: [] });
 
   const page = await weatherService.location.saved.list({
     userId: user.id,
     pagination: { page: 1, perPage: input.limit },
     filter: { query: input.query },
   });
-
-  return page.items.slice(0, input.limit).map((entry) => ({
-    id: `weather:${entry.id}`,
+  const data: CloudResourceView[] = page.items.slice(0, input.limit).map((entry) => ({
+    ref: { type: "weather.location", id: entry.id },
     title: entry.name,
-    href: `/app/weather/${entry.id}`,
     preview: entry.state ?? undefined,
     icon: "ti ti-temperature-celsius",
-    priority: 6 as const,
+    priority: 6,
     metadata: [
       { label: "Type", value: "Location" },
       { label: "Location", value: entry.name },
       ...(entry.state ? [{ label: "State", value: entry.state }] : []),
     ],
+    links: [{ rel: "open", href: `/app/weather/${entry.id}` }],
   }));
+  return ok({ data });
 };
 
-export const weatherCapabilities = {
-  search: {
-    tags: [...SEARCH_TAGS],
-    help: SEARCH_HELP,
-    tagHelp: [...SEARCH_TAG_HELP],
-    run: search,
+export const weatherCapabilities = defineCapabilities({
+  version: 1,
+  types: {
+    location: { title: "Saved location", description: "A saved weather location owned by the current user.", icon: "ti ti-map-pin" },
   },
-} as const;
+  queries: {
+    search: {
+      title: "Search weather locations",
+      description: "Find the current user's saved weather locations.",
+      input: UniversalSearchInputSchema,
+      data: UniversalSearchDataSchema,
+      universalSearch: {
+        tags: [
+          {
+            tag: "weather",
+            title: "Weather",
+            description: "Show saved weather locations.",
+            aliases: ["forecast", "location", "temperature"],
+          },
+        ],
+      },
+      run: runSearch,
+    },
+  },
+});

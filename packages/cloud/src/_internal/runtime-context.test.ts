@@ -1,4 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import { ok } from "@k2b/stdlib";
+import { z } from "zod";
+import { compileCapabilities } from "./capabilities";
+import { defineCapabilities, UniversalSearchDataSchema, UniversalSearchInputSchema } from "../contracts/capabilities";
 import type { AppRegistryEntry } from "../contracts/registry";
 import { buildRuntimeFromRegistry } from "./runtime-context";
 
@@ -16,7 +20,11 @@ describe("buildRuntimeFromRegistry", () => {
   it("preserves optional app appearance", () => {
     const appearance = {
       accent: "#14b8a6" as const,
-      background: { from: "#14b8a6" as const, to: "#3b82f6" as const, angle: 135 },
+      background: {
+        from: "#14b8a6" as const,
+        to: "#3b82f6" as const,
+        angle: 135,
+      },
     };
 
     expect(buildRuntimeFromRegistry([entry(appearance)]).apps[0]?.appearance).toEqual(appearance);
@@ -33,5 +41,53 @@ describe("buildRuntimeFromRegistry", () => {
     ];
 
     expect(buildRuntimeFromRegistry([app]).apps[0]?.adminNav).toEqual(app.adminNav);
+  });
+
+  it("projects Universal Search tags and aliases from the live capability manifest", () => {
+    const app = entry();
+    app.capabilities = {
+      endpoint: "http://app-example:3000/api/_internal/capabilities/v1",
+      manifest: compileCapabilities(
+        "example",
+        defineCapabilities({
+          version: 1,
+          queries: {
+            search: {
+              title: "Search examples",
+              description: "Find visible examples.",
+              input: UniversalSearchInputSchema,
+              data: UniversalSearchDataSchema,
+              universalSearch: {
+                tags: [
+                  {
+                    tag: "example",
+                    title: "Examples",
+                    description: "Show examples.",
+                    aliases: ["sample"],
+                  },
+                ],
+              },
+              run: async () => ok({ data: [] }),
+            },
+            get: {
+              title: "Get example",
+              description: "Read one example outside Universal Search.",
+              input: z.object({ id: z.string().describe("Stable example id.") }).strict(),
+              data: z.object({ id: z.string() }).strict(),
+              run: async ({ id }) => ok({ data: { id } }),
+            },
+          },
+        }),
+      ).manifest,
+    };
+
+    expect(buildRuntimeFromRegistry([app]).apps[0]).toMatchObject({
+      searchTags: ["example", "sample"],
+      searchHelp: "Find visible examples.",
+      searchTagHelp: [
+        { tag: "example", help: "Show examples." },
+        { tag: "sample", help: "Show examples. (alias of #example)" },
+      ],
+    });
   });
 });

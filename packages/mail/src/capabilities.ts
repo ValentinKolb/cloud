@@ -1,13 +1,25 @@
-import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
+import {
+  type CapabilityExecutionContext,
+  type CloudResourceView,
+  defineCapabilities,
+  type UniversalSearchInput,
+  UniversalSearchDataSchema,
+  UniversalSearchInputSchema,
+} from "@valentinkolb/cloud/contracts";
+import { ok } from "@k2b/stdlib";
 import { type MailRequestContext, mailboxes, search } from "./service";
 
-const runSearch = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  if (!input.user.roles.includes("user") || !input.query.trim()) return [];
-  // Carry the real actor through: rebuilding it as kind:"user" would drop the
-  // credential context and silently disable the scope cap.
-  const context: MailRequestContext = { actor: input.actor, accessSubject: input.accessSubject };
+const runSearch = async (input: UniversalSearchInput, capabilityContext: CapabilityExecutionContext) => {
+  const user = capabilityContext.user;
+  if (!user?.roles.includes("user") || !input.query.trim()) return ok({ data: [] });
+
+  const context: MailRequestContext = {
+    actor: capabilityContext.actor,
+    accessSubject: capabilityContext.accessSubject,
+  };
   const mailboxResult = await mailboxes.listMailboxes(context, 20);
-  if (!mailboxResult.ok) return [];
+  if (!mailboxResult.ok) return ok({ data: [] });
+
   const pages: Array<{
     mailbox: (typeof mailboxResult.data)[number];
     page: Awaited<ReturnType<typeof search.searchMessages>>;
@@ -30,35 +42,48 @@ const runSearch = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
       )),
     );
   }
-  return pages
+
+  const data: CloudResourceView[] = pages
     .flatMap(({ mailbox, page }) => (page.ok ? page.data.items.map((message, mailboxRank) => ({ mailbox, message, mailboxRank })) : []))
     .sort((left, right) => left.mailboxRank - right.mailboxRank || right.message.internalDate.localeCompare(left.message.internalDate))
     .slice(0, input.limit)
     .map(({ mailbox, message }) => ({
-      id: `mail:${message.id}`,
+      ref: { type: "mail.message", id: message.id },
       title: message.subject || "(no subject)",
-      href: message.conversationId
-        ? `/app/mail/${mailbox.id}?conversation=${message.conversationId}`
-        : `/app/mail/${mailbox.id}?message=${message.id}`,
       preview: message.snippet ?? message.from.map((address) => address.name || address.address).join(", "),
       icon: "ti ti-mail",
-      priority: 8 as const,
+      priority: 8,
       metadata: [
         { label: "Mailbox", value: mailbox.name },
         { label: "Date", value: message.internalDate },
       ],
+      links: [
+        {
+          rel: "open",
+          href: message.conversationId
+            ? `/app/mail/${mailbox.id}?conversation=${message.conversationId}`
+            : `/app/mail/${mailbox.id}?message=${message.id}`,
+        },
+      ],
     }));
+  return ok({ data });
 };
 
-export const mailCapabilities = {
-  search: {
-    tags: ["mail", "email", "message"],
-    help: "Search messages in mailboxes you can currently read.",
-    tagHelp: [
-      { tag: "mail", help: "Search mail messages." },
-      { tag: "email", help: "Search mail messages (alias of #mail)." },
-      { tag: "message", help: "Search mail messages (alias of #mail)." },
-    ],
-    run: runSearch,
+export const mailCapabilities = defineCapabilities({
+  version: 1,
+  types: {
+    message: { title: "Mail message", description: "One message in an accessible mailbox.", icon: "ti ti-mail" },
   },
-} as const;
+  queries: {
+    search: {
+      title: "Search mail",
+      description: "Search messages across mailboxes the current actor can read.",
+      input: UniversalSearchInputSchema,
+      data: UniversalSearchDataSchema,
+      universalSearch: {
+        tags: [{ tag: "mail", title: "Mail", description: "Search mail messages.", aliases: ["email", "message"] }],
+      },
+      run: runSearch,
+    },
+  },
+});

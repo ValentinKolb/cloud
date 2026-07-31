@@ -1,5 +1,6 @@
 export * from "./announcements";
 export * from "./app";
+export * from "./capabilities";
 export * from "./notification-live";
 export * from "./notification-types";
 export * from "./profile";

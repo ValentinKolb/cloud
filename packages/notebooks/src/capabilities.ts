@@ -1,38 +1,32 @@
-import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
+import {
+  type CapabilityExecutionContext,
+  type CloudResourceView,
+  defineCapabilities,
+  type UniversalSearchInput,
+  UniversalSearchDataSchema,
+  UniversalSearchInputSchema,
+} from "@valentinkolb/cloud/contracts";
+import { ok } from "@k2b/stdlib";
 import { notebooksService } from "./service";
-
-const SEARCH_TAGS = ["note", "notebook", "markdown"] as const;
-const SEARCH_HELP = "Find notebooks and notes by title or content.";
-const SEARCH_TAG_HELP = [
-  { tag: "note", help: "Show notes only." },
-  { tag: "notebook", help: "Show notebooks only." },
-  { tag: "markdown", help: "Show notes only (alias of #note)." },
-] as const;
 
 const snippet = (content: string | null) => {
   if (!content) return undefined;
   const compact = content.replace(/\s+/g, " ").trim();
-  if (compact.length === 0) return undefined;
-  return compact.slice(0, 120);
+  return compact.length === 0 ? undefined : compact.slice(0, 120);
 };
 
 const cleanSearchSnippet = (value: string | null): string | undefined =>
   value ? value.replaceAll("\uE000", "").replaceAll("\uE001", "").trim() || undefined : undefined;
 
-export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = input.user;
+const runSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
+  const user = context.user;
+  if (!user) return ok({ data: [] });
   const tags = new Set(input.tags);
-
-  // Kind-tags are OR-merged within this app (they pick result kinds, not facets).
-  // No tag → both kinds.
   const kindActive = tags.has("note") || tags.has("notebook") || tags.has("markdown");
   const includeNotebooks = !kindActive || tags.has("notebook");
   const includeNotes = !kindActive || tags.has("note") || tags.has("markdown");
+  if (!includeNotebooks && !includeNotes) return ok({ data: [] });
 
-  if (!includeNotebooks && !includeNotes) return [];
-
-  // Notebook list is needed only when we render notebook results. Note search
-  // goes through `searchAcross` which carries its own permission boundary.
   const [notebooksPage, noteHits] = await Promise.all([
     includeNotebooks
       ? notebooksService.notebook.list({
@@ -50,40 +44,52 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
       : Promise.resolve({ hits: [], total: 0 }),
   ]);
 
-  const notebookItems = notebooksPage.items.map((entry) => ({
-    id: `notebook:${entry.id}`,
+  const notebookItems: CloudResourceView[] = notebooksPage.items.map((entry) => ({
+    ref: { type: "notebooks.notebook", id: entry.id },
     title: entry.name,
-    href: `/app/notebooks/${entry.shortId}`,
     preview: entry.description ?? undefined,
     icon: entry.icon ?? "ti ti-notebook",
-    priority: 7 as const,
+    priority: 7,
     metadata: [
       { label: "Type", value: "Notebook" },
       { label: "Notebook", value: entry.name },
     ],
+    links: [{ rel: "open", href: `/app/notebooks/${entry.shortId}` }],
   }));
-
-  const noteItems: AppSearchResult[] = noteHits.hits.map(({ note, notebook, snippet: matchSnippet }) => ({
-    id: `note:${note.id}`,
+  const noteItems: CloudResourceView[] = noteHits.hits.map(({ note, notebook, snippet: matchSnippet }) => ({
+    ref: { type: "notebooks.note", id: note.id },
     title: note.title,
-    href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}`,
     preview: cleanSearchSnippet(matchSnippet) ?? snippet(note.contentMd),
     icon: "ti ti-file-text",
-    priority: 8 as const,
+    priority: 8,
     metadata: [
       { label: "Type", value: "Note" },
       { label: "Notebook", value: notebook.name },
     ],
+    links: [{ rel: "open", href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}` }],
   }));
-
-  return [...noteItems, ...notebookItems].slice(0, input.limit);
+  return ok({ data: [...noteItems, ...notebookItems].slice(0, input.limit) });
 };
 
-export const notebooksCapabilities = {
-  search: {
-    tags: [...SEARCH_TAGS],
-    help: SEARCH_HELP,
-    tagHelp: [...SEARCH_TAG_HELP],
-    run: search,
+export const notebooksCapabilities = defineCapabilities({
+  version: 1,
+  types: {
+    note: { title: "Note", description: "A Markdown note in an accessible notebook.", icon: "ti ti-file-text" },
+    notebook: { title: "Notebook", description: "A permission-scoped collection of notes.", icon: "ti ti-notebook" },
   },
-} as const;
+  queries: {
+    search: {
+      title: "Search notebooks",
+      description: "Find accessible notes by title or content and notebooks by name.",
+      input: UniversalSearchInputSchema,
+      data: UniversalSearchDataSchema,
+      universalSearch: {
+        tags: [
+          { tag: "note", title: "Notes", description: "Show notes only.", aliases: ["markdown"] },
+          { tag: "notebook", title: "Notebooks", description: "Show notebooks only." },
+        ],
+      },
+      run: runSearch,
+    },
+  },
+});

@@ -8,7 +8,7 @@ const HEARTBEAT_WRITE_TIMEOUT_MS = 10_000;
 const HEARTBEAT_RETRY_MS = 5_000;
 const HEARTBEAT_STALE_MARGIN_MS = 15_000;
 
-type HeartbeatRegistry = Pick<typeof appRegistry, "remove" | "upsert">;
+type HeartbeatRegistry = Pick<typeof appRegistry, "remove" | "upsert"> & Partial<Pick<typeof appRegistry, "touch">>;
 
 type HeartbeatOptions = {
   intervalMs?: number;
@@ -40,13 +40,24 @@ export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options:
   let staleReported = false;
   const key = `apps/${appId}`;
 
-  const refresh = async (): Promise<void> => {
-    // Upsert is intentionally unconditional. Unlike touch, it repairs a
-    // registry that was cleared or recreated while this app kept running.
-    await registry.upsert({ key, value: entry });
+  const noteSuccess = (): void => {
     if (!running) return;
     lastSuccessAt = Date.now();
     staleReported = false;
+  };
+
+  const register = async (): Promise<void> => {
+    await registry.upsert({ key, value: entry });
+    noteSuccess();
+  };
+
+  const refresh = async (): Promise<void> => {
+    // Normal heartbeats renew only the lease, so bounded capability manifests
+    // are not serialized and written every minute. A missing entry is repaired
+    // immediately, preserving restart-free registry recovery.
+    const touched = registry.touch ? await registry.touch({ key }) : { ok: false };
+    if (!touched.ok) await registry.upsert({ key, value: entry });
+    noteSuccess();
   };
 
   const refreshWithTimeout = async (): Promise<void> => {
@@ -118,7 +129,7 @@ export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options:
         return;
       }
       running = true;
-      const operation = refresh();
+      const operation = register();
       inFlight = operation;
       try {
         await operation;

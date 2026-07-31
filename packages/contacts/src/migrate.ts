@@ -265,4 +265,22 @@ export const migrate = async (): Promise<void> => {
     ON contacts.contact_favorites(book_id, contact_id)
   `.simple();
   console.log("  ✓ contacts.contact_favorites table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS contacts.capability_action_results (
+      actor_key TEXT NOT NULL,
+      action_id TEXT NOT NULL,
+      idempotency_key_hash TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      -- Keep replay records even when a user later deletes the created contact.
+      contact_id UUID NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (actor_key, action_id, idempotency_key_hash)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_capability_action_results_created
+    ON contacts.capability_action_results(created_at)
+  `.simple();
+  console.log("  ✓ contacts.capability_action_results table");
 };

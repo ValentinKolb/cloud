@@ -8,23 +8,16 @@
 import type { SsrConfig } from "@k2b/ssr";
 import { createConfig as createSsrConfig } from "@k2b/ssr";
 import { routes } from "@k2b/ssr/hono";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
 import { env } from "../config/env";
-import type {
-  AppAdminNavigationGroup,
-  AppAppearance,
-  AppCapabilities,
-  AppLifecycle,
-  AppMeta,
-  CloudContext,
-  WidgetEndpoint,
-} from "../contracts/app";
+import type { AppAdminNavigationGroup, AppAppearance, AppLifecycle, AppMeta, CloudContext, WidgetEndpoint } from "../contracts/app";
+import type { CapabilityDefinitions } from "../contracts/capabilities";
 import { type BoundNotificationMap, bindNotificationDefinitions, type NotificationDefinitionMap } from "../contracts/notification-types";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
-import { auth } from "../server/middleware/auth";
+import { type AuthContext, auth } from "../server/middleware/auth";
 import { routeTemplate } from "../server/middleware/route-template";
 import { logger } from "../services/logging";
 import { startNotificationDefinitionRegistration } from "../services/notifications/catalog";
@@ -33,6 +26,8 @@ import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
 import { registerSettings, toLegacySettingDefs } from "../services/settings/defaults";
 import { themeBootstrapScript } from "../shared/theme";
 import { createHeartbeat } from "./heartbeat";
+import { compileCapabilities, invokeCompiledCapability } from "./capabilities";
+import { readBoundedJson } from "./bounded-json";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 import { servePublicAsset } from "./static-assets";
 import { createStatusPreservingSsrHandler } from "./status-preserving-ssr";
@@ -164,8 +159,8 @@ export type StartOptions = {
    *
    *   app.start({ fetch: router.fetch });
    *
-   * The framework owns `/_ssr/*`, `/public/*`, and `/api/_internal/search`
-   * (the last only when `capabilities.search` is set) and registers them
+   * The framework owns `/_ssr/*`, `/public/*`, and the versioned internal
+   * capability endpoints when capabilities are declared, and registers them
    * before this fetch — they take precedence over any catch-all the app
    * might register.
    */
@@ -183,7 +178,7 @@ export type StartOptions = {
    */
   openapi?: Hono<any>;
   lifecycle?: AppLifecycle;
-  capabilities?: AppCapabilities;
+  capabilities?: CapabilityDefinitions;
   port?: number;
   skipSetup?: boolean;
 };
@@ -323,6 +318,7 @@ export const defineApp = <
     // derive the spec from. The mount block lower down uses the same
     // flag so the registry never points at a URL that 404s.
     const advertiseOpenapi = !!(opts.openapi && startOpts.openapi);
+    const compiledCapabilities = startOpts.capabilities ? compileCapabilities(meta.id, startOpts.capabilities) : undefined;
 
     // Registry entry
     const entry: AppRegistryEntry = {
@@ -348,12 +344,10 @@ export const defineApp = <
         label: group.label,
         links: group.links.map((link) => ({ ...link })),
       })),
-      search: startOpts.capabilities?.search
+      capabilities: compiledCapabilities
         ? {
-            tags: [...(startOpts.capabilities.search.tags ?? [])],
-            help: startOpts.capabilities.search.help ?? "",
-            tagHelp: [...(startOpts.capabilities.search.tagHelp ?? [])],
-            endpoint: `${baseUrl}/api/_internal/search`,
+            endpoint: `${baseUrl}/api/_internal/capabilities/v1`,
+            manifest: compiledCapabilities.manifest,
           }
         : undefined,
       legalLinks: meta.legalLinks ? meta.legalLinks.map((l) => ({ ...l })) : undefined,
@@ -389,7 +383,7 @@ export const defineApp = <
     // they take precedence over any catch-all in the user's fetch):
     //   /_ssr/*                 island chunks (SSR adapter)
     //   /public/*               serveStatic + terminal 404
-    //   /api/_internal/search   only when capabilities.search is declared
+    //   /api/_internal/capabilities/v1/* when capabilities are declared
     //   <opts.openapi>          OpenAPI JSON spec, when both opts.openapi
     //                            and startOpts.openapi are set
     const ssrMountPath = config.basePath ? `${config.basePath}/_ssr` : "/_ssr";
@@ -397,28 +391,73 @@ export const defineApp = <
     // Framework-owned mounts answer before the app's router ever runs, so the
     // app middleware cannot report their template. Without this, every hashed
     // island chunk would land in telemetry as its own route.
-    const server = new Hono().use("*", routeTemplate).route(ssrMountPath, routes(config)).all("/public/*", servePublicAsset(isDevelopment));
+    const server = new Hono<AuthContext>()
+      .use("*", routeTemplate)
+      .route(ssrMountPath, routes(config))
+      .all("/public/*", servePublicAsset(isDevelopment));
 
-    if (startOpts.capabilities?.search) {
-      const searchRun = startOpts.capabilities.search.run;
-      server.post("/api/_internal/search", auth.requireRole("authenticated"), async (c) => {
-        // User-backed only: a browser session or a user-delegated credential,
-        // both of which resolve to a real user whose permissions the provider
-        // applies. Resource-bound service accounts have no user and are out.
-        if (!c.get("user")) {
-          return c.json({ message: "Search providers require a user-backed actor", code: "FORBIDDEN" }, 403);
+    if (compiledCapabilities) {
+      const invoke = async (c: Context<AuthContext>, kind: "query" | "action") => {
+        const parsedBody = await readBoundedJson(c.req.raw, 256 * 1024);
+        if (!parsedBody.ok) {
+          const message = parsedBody.reason === "too_large" ? "Capability request is too large" : "Capability request body must be JSON";
+          return c.json({ code: "BAD_INPUT", message }, 400);
         }
-        const body = await c.req.json<{ query: string; tags: string[]; limit: number }>();
-        const results = await searchRun({
-          query: body.query,
-          tags: body.tags,
-          limit: body.limit,
-          user: c.get("user"),
-          actor: c.get("actor"),
-          accessSubject: c.get("accessSubject"),
+        if (
+          typeof parsedBody.data !== "object" ||
+          parsedBody.data === null ||
+          Array.isArray(parsedBody.data) ||
+          !Object.hasOwn(parsedBody.data, "input") ||
+          Object.keys(parsedBody.data).length !== 1
+        ) {
+          return c.json(
+            {
+              code: "BAD_INPUT",
+              message: "Capability request must contain only an input field",
+            },
+            400,
+          );
+        }
+        const body = parsedBody.data as { input: unknown };
+        const actor = c.get("actor");
+        const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
+        const idempotencyKey = c.req.header("idempotency-key")?.trim() || undefined;
+        if (idempotencyKey && idempotencyKey.length > 300) {
+          return c.json(
+            {
+              code: "BAD_INPUT",
+              message: "Idempotency-Key must be at most 300 characters",
+            },
+            400,
+          );
+        }
+        const result = await invokeCompiledCapability({
+          compiled: compiledCapabilities,
+          kind,
+          localId: c.req.param("capabilityId") ?? "",
+          input: body.input,
+          expectedSchemaHash: c.req.header("x-cloud-capability-schema-hash") ?? null,
+          context: {
+            actor,
+            accessSubject: c.get("accessSubject"),
+            user,
+            idempotencyKey,
+            signal: c.req.raw.signal,
+          },
         });
-        return c.json(results);
-      });
+        return result.ok
+          ? c.json(result.data)
+          : c.json(
+              {
+                code: result.error.code,
+                message: result.error.message,
+                details: result.error.details,
+              },
+              result.error.status,
+            );
+      };
+      server.post("/api/_internal/capabilities/v1/queries/:capabilityId", auth.requireRole("authenticated"), (c) => invoke(c, "query"));
+      server.post("/api/_internal/capabilities/v1/actions/:capabilityId", auth.requireRole("authenticated"), (c) => invoke(c, "action"));
     }
 
     // OpenAPI spec mount. Registered on the framework server (before the

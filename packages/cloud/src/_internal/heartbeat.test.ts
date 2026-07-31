@@ -32,6 +32,32 @@ const waitUntil = async (predicate: () => boolean, timeoutMs = 250): Promise<voi
 };
 
 describe("createHeartbeat", () => {
+  test("renews an existing lease with touch and repairs a missing registry entry", async () => {
+    let upserts = 0;
+    let touches = 0;
+    const registry = {
+      upsert: async () => {
+        upserts += 1;
+        return upsertResult();
+      },
+      touch: async () => {
+        touches += 1;
+        return { ok: touches > 1 };
+      },
+      remove: async () => true,
+    };
+
+    const heartbeat = createHeartbeat("test", entry, {
+      intervalMs: 1,
+      registry,
+    });
+    await heartbeat.start();
+    await waitUntil(() => touches >= 2);
+    await heartbeat.stop();
+
+    expect(upserts).toBe(2);
+  });
+
   test("registers immediately and refreshes without overlapping writes", async () => {
     let writes = 0;
     let concurrent = 0;
@@ -52,7 +78,10 @@ describe("createHeartbeat", () => {
       },
     };
 
-    const heartbeat = createHeartbeat("test", entry, { intervalMs: 1, registry });
+    const heartbeat = createHeartbeat("test", entry, {
+      intervalMs: 1,
+      registry,
+    });
     await heartbeat.start();
     await waitUntil(() => writes >= 3);
     await heartbeat.stop();
@@ -266,7 +295,10 @@ describe("createHeartbeat", () => {
       },
     };
 
-    const heartbeat = createHeartbeat("test", entry, { intervalMs: 10, registry });
+    const heartbeat = createHeartbeat("test", entry, {
+      intervalMs: 10,
+      registry,
+    });
     const starting = heartbeat.start();
     await waitUntil(() => operations.includes("upsert:start"));
     const stopping = heartbeat.stop();

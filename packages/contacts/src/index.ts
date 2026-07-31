@@ -2,6 +2,7 @@ import { type AuthContext, auth, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
 import apiRoutes from "./api";
+import { capabilityRetention } from "./capability-retention";
 import { contactsCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes, { adminPages as adminPageRoutes } from "./frontend";
@@ -27,6 +28,8 @@ const result = await app.start({
     setup: async () => {
       await migrate();
     },
+    start: capabilityRetention.start,
+    stop: capabilityRetention.stop,
   },
 });
 export default { ...result, websocket };

@@ -248,6 +248,47 @@ describe("cloud CLI OAuth session handling", () => {
     }
   });
 
+  test("forwards capability protocol headers alongside authentication", async () => {
+    const receivedHeaders: Array<{ authorization: string | null; idempotencyKey: string | null }> = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        receivedHeaders.push({
+          authorization: request.headers.get("authorization"),
+          idempotencyKey: request.headers.get("idempotency-key"),
+        });
+        return Response.json({ ok: true });
+      },
+    });
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      await writeConfig(configPath, {
+        currentProfile: "default",
+        profiles: { default: { server: `http://127.0.0.1:${server.port}`, token: "cld_test" } },
+      });
+
+      const result = await runCli(configPath, [
+        "--json",
+        "capabilities",
+        "action",
+        "contacts",
+        "create",
+        "--input",
+        '{"bookId":"book-1","label":"Ada"}',
+        "--idempotency-key",
+        "contact-ada",
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(receivedHeaders).toEqual([{ authorization: "Bearer cld_test", idempotencyKey: "contact-ada" }]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("login callback returns a plain-text completion message", async () => {
     const state: MockServerState = { refreshCalls: 0, authorizationCodeCalls: 0, revokeCalls: 0, meCalls: 0 };
     const server = startMockServer(state);

@@ -13,6 +13,10 @@ export const APP_REGISTRY_TTL_MS = 180_000;
 export const appRegistry = ephemeral<AppRegistryEntry>({
   id: "cloud-apps",
   ttlMs: APP_REGISTRY_TTL_MS,
+  // Capability manifests contain bounded JSON Schemas. Keep the registry
+  // contract explicit instead of inheriting ephemeral's presence-sized 4 KiB
+  // default; compileCapabilities caps the manifest itself at 256 KiB.
+  limits: { maxPayloadBytes: 512 * 1024 },
 });
 
 /**
@@ -33,6 +37,13 @@ export type AppRegistryDetail = AppRegistryEntry & {
 export const listApps = async (): Promise<AppRegistryEntry[]> => {
   const snap = await appRegistry.snapshot({ prefix: "apps/" });
   return snap.entries.map((e) => e.value);
+};
+
+/** Reads one live app without materializing the full registry. */
+export const getApp = async (appId: string): Promise<AppRegistryEntry | null> => {
+  const key = `apps/${appId}`;
+  const snap = await appRegistry.snapshot({ prefix: key });
+  return snap.entries.find((entry) => entry.key === key)?.value ?? null;
 };
 
 /**

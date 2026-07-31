@@ -10,8 +10,10 @@ import type { Role } from "../contracts/shared";
  * so all existing UI components work unchanged.
  */
 export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRuntime => ({
-  apps: entries.map(
-    (e): RuntimeAppMeta => ({
+  apps: entries.map((e): RuntimeAppMeta => {
+    const searchQuery = e.capabilities?.manifest.queries.find((query) => query.universalSearch);
+    const searchTags = searchQuery?.universalSearch?.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]);
+    return {
       id: e.id,
       name: e.name,
       icon: e.icon,
@@ -34,11 +36,14 @@ export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRunt
             requiresRoles: e.nav.requiresRoles as Role[] | undefined,
           }
         : undefined,
-      searchTags: e.search?.tags,
-      searchHelp: e.search?.help,
-      searchTagHelp: e.search?.tagHelp,
+      searchTags,
+      searchHelp: searchQuery?.description,
+      searchTagHelp: searchQuery?.universalSearch?.tags.flatMap((tag) => [
+        { tag: tag.tag, help: tag.description },
+        ...(tag.aliases ?? []).map((alias) => ({ tag: alias, help: `${tag.description} (alias of #${tag.tag})` })),
+      ]),
       legalLinks: e.legalLinks ? e.legalLinks.map((l) => ({ ...l })) : undefined,
       openapi: e.openapi,
-    }),
-  ),
+    };
+  }),
 });

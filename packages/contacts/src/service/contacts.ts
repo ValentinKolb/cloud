@@ -1158,6 +1158,98 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
 };
 
 /**
+ * Creates a contact exactly once for one actor/action/idempotency tuple.
+ * The claim and contact row commit in the same transaction, so a process crash
+ * cannot leave a successful effect without its replay record.
+ */
+export const createIdempotent = async (config: {
+  bookId: string;
+  data: CreateContactInput;
+  actorKey: string;
+  actionId: string;
+  idempotencyKeyHash: string;
+  requestHash: string;
+}): Promise<Result<{ contact: Contact; replayed: boolean }>> => {
+  if (isSystemBookId(config.bookId)) return fail(err.forbidden("System contacts are read-only"));
+  if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
+
+  const fields = buildCreateFields(config.data);
+  const prepared = await prepareContactCreate({ bookId: config.bookId, data: config.data });
+  if (!prepared.ok) return prepared;
+
+  const outcome = await sql.begin(async (tx): Promise<Result<{ contactId: string; replayed: boolean }>> => {
+    const [allocated] = await tx<{ id: string }[]>`SELECT gen_random_uuid() AS id`;
+    if (!allocated) return fail(err.internal("Failed to allocate contact id"));
+
+    const [inserted] = await tx<{ id: string }[]>`
+      INSERT INTO contacts.contacts (
+        id, book_id, label, first_name, last_name, company_name, department,
+        job_title, vat_id, birthday, source, salutation, pronouns,
+        preferred_language, parent_contact_id
+      ) VALUES (
+        ${allocated.id}::uuid, ${config.bookId}::uuid, ${fields.label},
+        ${fields.firstName}, ${fields.lastName}, ${fields.companyName},
+        ${fields.department}, ${fields.jobTitle}, ${fields.vatId},
+        ${fields.birthday}, ${fields.source}, ${fields.salutation},
+        ${fields.pronouns}, ${fields.preferredLanguage}, ${prepared.data.parentContactId}
+      )
+      RETURNING id
+    `;
+    if (!inserted) return fail(err.internal("Failed to create contact"));
+
+    const [claim] = await tx<{ contact_id: string }[]>`
+      INSERT INTO contacts.capability_action_results (
+        actor_key, action_id, idempotency_key_hash, request_hash, contact_id
+      ) VALUES (
+        ${config.actorKey}, ${config.actionId}, ${config.idempotencyKeyHash},
+        ${config.requestHash}, ${inserted.id}::uuid
+      )
+      ON CONFLICT (actor_key, action_id, idempotency_key_hash) DO NOTHING
+      RETURNING contact_id
+    `;
+    if (!claim) {
+      await tx`DELETE FROM contacts.contacts WHERE id = ${inserted.id}::uuid`;
+      const [existing] = await tx<{ request_hash: string; contact_id: string }[]>`
+        SELECT request_hash, contact_id
+        FROM contacts.capability_action_results
+        WHERE actor_key = ${config.actorKey}
+          AND action_id = ${config.actionId}
+          AND idempotency_key_hash = ${config.idempotencyKeyHash}
+      `;
+      if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
+      if (existing.request_hash !== config.requestHash) {
+        return fail({
+          code: "CONFLICT",
+          message: "Idempotency-Key was already used with different input",
+          status: 409,
+        });
+      }
+      return ok({ contactId: existing.contact_id, replayed: true });
+    }
+
+    await replaceContactCollections(
+      inserted.id,
+      {
+        emails: config.data.emails ?? [],
+        phones: config.data.phones ?? [],
+        addresses: config.data.addresses ?? [],
+        websites: config.data.websites ?? [],
+        bankAccounts: config.data.bankAccounts ?? [],
+      },
+      tx,
+    );
+    if (prepared.data.tagIds !== null) {
+      await tags.replaceAssignments({ contactId: inserted.id, tagIds: prepared.data.tagIds, db: tx });
+    }
+    return ok({ contactId: inserted.id, replayed: false });
+  });
+
+  if (!outcome.ok) return outcome;
+  const contact = await loadWrittenContact({ bookId: config.bookId, id: outcome.data.contactId, action: "created" });
+  return contact.ok ? ok({ contact: contact.data, replayed: outcome.data.replayed }) : contact;
+};
+
+/**
  * Updates one manual contact. Child arrays are fully replaced when provided.
  */
 export const update = async (config: { bookId: string; id: string; data: UpdateContactInput }): Promise<Result<Contact>> => {

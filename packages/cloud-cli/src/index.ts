@@ -16,6 +16,7 @@ import type {
 import accountCliModule from "@valentinkolb/cloud/cli/account";
 import adminCliModule from "@valentinkolb/cloud/cli/admin";
 import appsCliModule from "@valentinkolb/cloud/cli/apps";
+import capabilitiesCliModule from "@valentinkolb/cloud/cli/capabilities";
 import accountsCliModule from "@valentinkolb/cloud-app-accounts/cli";
 import apiDocsCliModule from "@valentinkolb/cloud-app-api-docs/cli";
 import assistantCliModule from "@valentinkolb/cloud-app-assistant/cli";
@@ -109,6 +110,7 @@ const modules: CloudCliModule[] = [
   adminCliModule,
   apiDocsCliModule,
   appsCliModule,
+  capabilitiesCliModule,
   assistantCliModule,
   contactsCliModule,
   gridsCliModule,
@@ -645,12 +647,12 @@ const createContext = (args: string[], flags: CloudCliFlags, options: ResolvedCl
       typeof pathOrUrl === "string" && pathOrUrl.startsWith("/")
         ? joinUrl(options.server, pathOrUrl)
         : (pathOrUrl as string | URL | Request);
+    const headers = new Headers(pathOrUrl instanceof Request ? pathOrUrl.headers : undefined);
+    new Headers(init.headers).forEach((value, name) => headers.set(name, value));
+    headers.set("authorization", `Bearer ${bearerToken}`);
     const response = await fetch(url, {
       ...init,
-      headers: {
-        ...authHeaders(),
-        ...(init.headers ?? {}),
-      },
+      headers,
     });
     if (response.status === 401 && retry && options.refresh) {
       bearerToken = await options.refresh();

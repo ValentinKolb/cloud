@@ -1,0 +1,110 @@
+import { describe, expect, test } from "bun:test";
+import type { MiddlewareHandler } from "hono";
+import { compileCapabilities } from "../_internal/capabilities";
+import { defineCapabilities, UniversalSearchDataSchema, UniversalSearchInputSchema } from "../contracts/capabilities";
+import type { AppRegistryEntry } from "../contracts/registry";
+import type { AuthContext } from "../server";
+import { ok } from "@k2b/stdlib";
+import { createSearchRoutes } from "./search";
+
+const capabilities = defineCapabilities({
+  version: 1,
+  types: {
+    item: { title: "Item", description: "A searchable test item." },
+  },
+  queries: {
+    search: {
+      title: "Search items",
+      description: "Find test items by text and facets.",
+      input: UniversalSearchInputSchema,
+      data: UniversalSearchDataSchema,
+      universalSearch: {
+        tags: [{ tag: "item", title: "Items", description: "Show test items.", aliases: ["thing"] }],
+      },
+      run: async () => ok({ data: [] }),
+    },
+  },
+});
+
+const manifest = compileCapabilities("demo", capabilities).manifest;
+const app: AppRegistryEntry = {
+  id: "demo",
+  name: "Demo",
+  icon: "ti ti-box",
+  description: "Demo app",
+  baseUrl: "http://demo:3000",
+  routes: [],
+  capabilities: {
+    endpoint: "http://demo:3000/api/_internal/capabilities/v1",
+    manifest,
+  },
+};
+
+const authenticate: MiddlewareHandler<AuthContext> = async (c, next) => {
+  const user = { id: "11111111-1111-4111-8111-111111111111", roles: ["user"] } as AuthContext["Variables"]["user"];
+  c.set("actor", { kind: "user", user });
+  c.set("accessSubject", { type: "user", userId: user.id });
+  c.set("user", user);
+  await next();
+};
+
+describe("global capability search", () => {
+  test("discovers tags and maps stable resource refs", async () => {
+    let input: unknown;
+    const routes = createSearchRoutes({
+      authenticate,
+      listApps: async () => [app],
+      fetch: async (_url, init) => {
+        input = JSON.parse(String(init?.body));
+        return Response.json({
+          data: [
+            {
+              ref: { type: "demo.item", id: "42" },
+              title: "Answer",
+              preview: "A result",
+              links: [{ rel: "open", href: "/app/demo/42" }],
+            },
+          ],
+        });
+      },
+    });
+
+    const response = await routes.request("/search?q=answer&tag=thing&provider_limit=2", {
+      headers: { cookie: "session=test" },
+    });
+    expect(response.status).toBe(200);
+    expect(input).toEqual({ input: { query: "answer", tags: ["thing"], limit: 6 } });
+    expect(await response.json()).toEqual({
+      query: "answer",
+      count: 1,
+      items: [
+        {
+          appId: "demo",
+          appName: "Demo",
+          appIcon: "ti ti-box",
+          id: "demo.item:42",
+          title: "Answer",
+          href: "/app/demo/42",
+          preview: "A result",
+        },
+      ],
+    });
+  });
+
+  test("reports unsupported facets without calling providers", async () => {
+    let calls = 0;
+    const routes = createSearchRoutes({
+      authenticate,
+      listApps: async () => [app],
+      fetch: async () => {
+        calls += 1;
+        return Response.json({ data: [] });
+      },
+    });
+
+    const response = await routes.request("/search?tag=missing");
+    expect(response.status).toBe(200);
+    expect(calls).toBe(0);
+    expect(await response.json()).toEqual({ query: "", count: 0, items: [], unsupportedTags: ["missing"] });
+  });
+});

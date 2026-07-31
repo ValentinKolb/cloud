@@ -1,4 +1,5 @@
 import type { AppAdminNavigationGroup, AppAppearance } from "./app";
+import type { CapabilityManifest } from "./capabilities";
 import type { DashboardWidgetPresentation } from "./widgets";
 
 /**
@@ -16,11 +17,9 @@ export type AppRegistryNav = {
   adminHref?: string;
 };
 
-export type AppRegistrySearch = {
-  tags: string[];
-  help: string;
-  tagHelp: Array<{ tag: string; help: string }>;
+export type AppRegistryCapabilities = {
   endpoint: string;
+  manifest: CapabilityManifest;
 };
 
 export type AppRegistryLegalLink = {
@@ -50,7 +49,7 @@ export type AppRegistryEntry = {
   routes: readonly string[];
   nav?: AppRegistryNav;
   adminNav?: AppAdminNavigationGroup[];
-  search?: AppRegistrySearch;
+  capabilities?: AppRegistryCapabilities;
   legalLinks?: AppRegistryLegalLink[];
   widgets?: AppRegistryWidget[];
   /** Setting keys declared by this app. Used by admin tooling to avoid treating live app-owned settings as legacy. */

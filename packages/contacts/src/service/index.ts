@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { type AccessSubject, type PermissionLevel, paginate, paginateItems } from "@valentinkolb/cloud/server";
-import type { PageParams, Paginated, Result } from "@k2b/stdlib";
+import { ok, type PageParams, type Paginated, type Result } from "@k2b/stdlib";
 import type { ContactServiceEventData } from "../live-events";
 import * as apiKeys from "./api-keys";
 import * as books from "./books";
@@ -155,6 +155,14 @@ export const contactsService = {
     tree: (config: { bookId: string; id: string }) => contacts.tree(config),
     create: (config: { bookId: string; data: CreateContactInput }) =>
       withEvent(contacts.create(config), (contact) => ({ type: "contact.created", bookId: config.bookId, contactId: contact.id })),
+    createIdempotent: async (config: Parameters<typeof contacts.createIdempotent>[0]) => {
+      const result = await contacts.createIdempotent(config);
+      if (!result.ok) return result;
+      if (!result.data.replayed) {
+        await publishContactEvent({ type: "contact.created", bookId: config.bookId, contactId: result.data.contact.id });
+      }
+      return ok(result.data.contact);
+    },
     update: (config: { bookId: string; id: string; data: UpdateContactInput }) =>
       withEvent(contacts.update(config), { type: "contact.updated", bookId: config.bookId, contactId: config.id }),
     move: (config: { sourceBookId: string; targetBookId: string; id: string }) =>

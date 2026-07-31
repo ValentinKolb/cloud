@@ -84,6 +84,7 @@ re-export them.
 | Resolve identity and protect access | `auth.md`, `route-access.md`, `authorization.md`, `credentials.md` |
 | Use platform services | `platform.md`, `settings.md`, `observability.md` |
 | Send notifications or add product help and CLI commands | `notifications.md`, `help.md`, `cli.md` |
+| Publish agent-friendly Types, Queries, and Actions | `capabilities.md` |
 | Run background work | `automation.md`, `schedules.md` |
 | Build durable workflows | `workflows.md`, `workflow-runtime.md` |
 | Build server-rendered interfaces | `frontend.md`, `browser.md`, `frontend-ui.md` |
