@@ -24,7 +24,12 @@ const initialItems = (): ChatTimelineItem[] => [
     description: "search_components · @k2b/ui",
     tone: "ai",
     icon: "ti ti-search",
-    trailing: <i class="ti ti-loader-2 k2b-spin" aria-label="Running" />,
+    trailing: (
+      <>
+        <i class="ti ti-loader-2 k2b-spin" aria-hidden="true" />
+        <span class="k2b-sr-only">Running</span>
+      </>
+    ),
   },
   {
     kind: "activity",

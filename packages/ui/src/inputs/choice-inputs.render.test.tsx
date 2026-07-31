@@ -116,7 +116,11 @@ describe("@k2b/ui complete choice input migrations", () => {
       createComponent(MultiSelectInput, {
         label: "Teams",
         value: () => ["platform", "design"],
-        options: options.map((option) => ({ id: option.value, ...option })),
+        options: options.map((option) => ({
+          id: option.value,
+          ...option,
+          color: option.value === "platform" ? "#0891b2" : undefined,
+        })),
         clearable: true,
       }),
     );
@@ -124,6 +128,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain('aria-multiselectable="true"');
     expect(html).toContain("k2b-choice-pill");
     expect(html).toContain("Remove Platform");
+    expect(html).toContain("--k2b-choice-background:#0891b21f");
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain("Clear selection");
   });

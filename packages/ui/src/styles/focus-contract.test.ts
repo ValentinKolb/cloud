@@ -178,4 +178,15 @@ describe("@k2b/ui focus and color contract", () => {
     expect(css).not.toContain(".k2b-ui .k2b-panes__tab::after");
     expect(css).not.toContain(".k2b-ui .k2b-panes__tab[data-active=\"true\"]::after");
   });
+
+  test("does not fade interactive calendar days below the muted text contrast", () => {
+    const selector = '.k2b-ui .k2b-date-grid button[data-outside="true"]';
+    const outsideDayCss = rules
+      .filter((rule) => rule.selector === selector)
+      .map((rule) => rule.body)
+      .join("\n");
+
+    expect(outsideDayCss).toMatch(/color:\s*var\(--k2b-text-muted\)/);
+    expect(outsideDayCss).not.toMatch(/opacity:/);
+  });
 });

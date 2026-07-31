@@ -46,6 +46,7 @@ try {
 
   const extractedPackage = join(unpackDir, "package");
   const forbiddenPackedFiles = [
+    "src/index.ts",
     "src/styles/css-contract-test-helpers.ts",
     "dist/types/styles/css-contract-test-helpers.d.ts",
   ];
@@ -72,8 +73,8 @@ try {
 
   const serverSmoke = `
     const resolved = import.meta.resolve("@k2b/ui");
-    if (!resolved.includes("/node_modules/@k2b/ui/dist/index.js")) {
-      throw new Error("public root did not resolve to packed dist/index.js: " + resolved);
+    if (!resolved.includes("/node_modules/@k2b/ui/dist/ssr/index.js")) {
+      throw new Error("public root did not resolve to packed dist/ssr/index.js: " + resolved);
     }
     const ui = await import("@k2b/ui");
     const required = ["Button", "Chart", "DatePicker", "Panes", "prompts"];
@@ -93,8 +94,8 @@ try {
 
   const browserSmoke = `
     const resolved = import.meta.resolve("@k2b/ui");
-    if (!resolved.includes("/node_modules/@k2b/ui/dist/index.browser.js")) {
-      throw new Error("browser root did not resolve to packed dist/index.browser.js: " + resolved);
+    if (!resolved.includes("/node_modules/@k2b/ui/dist/browser/index.js")) {
+      throw new Error("browser root did not resolve to packed dist/browser/index.js: " + resolved);
     }
   `;
   run([process.execPath, "--no-install", "--conditions=browser", "-e", browserSmoke], consumer);
@@ -124,8 +125,18 @@ try {
   if (browserOutput.includes("react/jsx-runtime")) {
     throw new Error("packed browser build still requires a React JSX transform");
   }
+  if (browserOutput.length > 100_000) {
+    throw new Error(`packed Button + DatePicker browser build is too large: ${browserOutput.length} bytes`);
+  }
+  for (const unusedFamily of ["normalizePanesValue", "FileBrowserPanel", "ChatComposer"]) {
+    if (browserOutput.includes(unusedFamily)) {
+      throw new Error(`packed browser build retained unused ${unusedFamily} code`);
+    }
+  }
 
-  console.log("Packed @k2b/ui imports and renders via SSR, and bundles via its browser condition");
+  console.log(
+    `Packed @k2b/ui imports and renders via SSR; browser tree-shaking produced ${browserOutput.length} bytes`,
+  );
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true });
 }

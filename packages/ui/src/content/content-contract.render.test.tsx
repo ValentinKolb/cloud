@@ -106,6 +106,9 @@ describe("@k2b/ui Cloud content contract", () => {
 
     expect(code).toContain("code-display");
     expect(code).toContain("k2b-content-code-display__body");
+    expect(code).toContain('role="region"');
+    expect(code).toContain('aria-label="ts code"');
+    expect(code).toContain('tabindex="0"');
     expect(code).toContain("cd-k");
     expect(code).toContain("Copy");
     expect(docs).toContain("<mark>SELECT 1</mark>");
@@ -135,6 +138,7 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html).toContain("ADA");
     expect(html).toContain("direction=desc");
     expect(html).toContain('data-scroll-preserve="people"');
+    expect(html).toContain('tabindex="0"');
     expect(html).toContain('data-selected="true"');
   });
 
@@ -171,6 +175,20 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(range).toContain('aria-current="true"');
     expect(logs).toContain("ti-alert-circle");
     expect(logs).toContain("worker");
+  });
+
+  test("keeps pagination work bounded for very large result sets", () => {
+    const html = renderToString(() =>
+      createComponent(Pagination, {
+        currentPage: 500_000_000,
+        totalPages: 1_000_000_000,
+        baseUrl: "/items?page=",
+      }),
+    );
+
+    expect(html.match(/<a /g)?.length).toBeLessThanOrEqual(6);
+    expect(html).toContain("500000000");
+    expect(html).toContain("1000000000");
   });
 
   test("keeps trusted Markdown, structured data and PDF interaction shells", () => {

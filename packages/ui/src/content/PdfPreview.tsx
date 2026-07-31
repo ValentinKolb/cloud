@@ -89,7 +89,7 @@ export default function PdfPreview(props: PdfPreviewProps) {
       <div class="k2b-content-pdf-preview__toolbar">
         <div class="k2b-content-pdf-preview__heading">
           <Show when={props.title}>
-            <h3 class="k2b-content-pdf-preview__title">{props.title}</h3>
+            <h2 class="k2b-content-pdf-preview__title">{props.title}</h2>
           </Show>
         </div>
         <div class="k2b-content-pdf-preview__actions">

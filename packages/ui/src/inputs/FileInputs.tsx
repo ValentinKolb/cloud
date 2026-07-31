@@ -91,6 +91,10 @@ export function FileDropzone(props: FileDropzoneProps): JSX.Element {
         ref={input}
         class="k2b-sr-only"
         type="file"
+        aria-label={
+          props["aria-label"] ??
+          (typeof props.label === "string" ? props.label : props.multiple === false ? "Choose file" : "Choose files")
+        }
         accept={props.accept}
         multiple={props.multiple ?? true}
         disabled={disabled()}

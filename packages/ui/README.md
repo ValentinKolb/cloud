@@ -34,6 +34,10 @@ JavaScript:
 }
 ```
 
+`--k2b-action` is the accessible foreground color for links and text actions.
+`--k2b-action-solid` is the background color for filled controls; override both
+with matching hover tokens when defining a custom theme.
+
 AI surfaces can use a distinct semantic treatment without changing the general
 application accent:
 
@@ -231,6 +235,10 @@ bun run check:migration    # migration-inventory.json against both UI surfaces
 bun run fixture:typecheck  # standalone consumer fixture
 bun run fixture:build      # standalone SSR build, no Cloud CSS or runtime
 ```
+
+The JavaScript build preserves per-component ESM modules for browser and SSR
+conditions. Bundlers can therefore tree-shake unused component families instead
+of retaining the complete package through the root export.
 
 Do not use bare `bun test` as the package verification command: several guards
 compare rendered markup with `dist/styles.css`. The fixture render guard rejects

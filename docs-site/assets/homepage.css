@@ -182,7 +182,12 @@
 }
 
 :where(.cloud-site, .fibel-app) .fibel-brand span {
-  display: none;
+  font-size: 0;
+}
+
+:where(.cloud-site, .fibel-app) .fibel-search-button .text-zinc-400,
+:where(.cloud-site, .fibel-app) .fibel-powered-by {
+  color: var(--c-muted) !important;
 }
 
 /* The UI catalog also loads Cloud's generated utility CSS. Keep the Fibel
@@ -951,7 +956,7 @@
 }
 
 .cloud-code .hl-comment {
-  color: var(--c-faint);
+  color: var(--c-muted);
 }
 
 .cloud-hero-code {

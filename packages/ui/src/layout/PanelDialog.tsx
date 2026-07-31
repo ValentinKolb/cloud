@@ -122,13 +122,13 @@ const PanelDialogHeader = (props: PanelDialogHeaderProps): JSX.Element => (
 );
 
 const PanelDialogBody = (props: PanelDialogBodyProps): JSX.Element => (
-  <main
+  <div
     class="k2b-panel-dialog__body"
     data-scroll-preserve={props.scrollPreserveKey}
     data-surface={usePanelDialogSurface()}
   >
     {props.children}
-  </main>
+  </div>
 );
 
 const PanelDialogFooter = (props: PanelDialogFooterProps): JSX.Element => (

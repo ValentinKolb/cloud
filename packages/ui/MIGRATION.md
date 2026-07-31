@@ -105,12 +105,35 @@ duplicate classifications.
    prompt dialogs, and file actions/edit/save were exercised directly. The
    source-level class contract remains the regression guard for standalone
    styling.
+   Re-certified on 2026-07-30 after the performance and accessibility pass:
+   all 57 Fibel catalog routes passed scoped Axe checks and horizontal-overflow
+   checks at desktop and 390 px widths in both light and dark themes (228 route
+   runs). Open Select, Combobox, date, menu, tooltip, icon, files, and prompt
+   overlays passed the same check; their keyboard open, navigation, dismissal,
+   and focus-restoration paths were exercised directly.
 4. Done: fix package boundaries and APIs found by that migration, including
    standalone Calendar styles, namespaced toast ownership, single-layer
    editor focus treatment, and isolated Cloud-only showcase CSS.
 5. Done for chat: migrate Assistant and both showcases in one hard cut, then
    remove the duplicate Cloud chat presentation components. The remaining
    Cloud UI families still wait for the package-wide big bang.
+
+## Production performance gate
+
+The package publishes condition-aware, per-component ESM modules under
+`dist/browser` and `dist/ssr`; the root barrel therefore remains convenient
+without forcing every component family into a consumer bundle. The isolated
+packed-consumer gate imports `Button` and `DatePicker` from the public root,
+rejects retained Panes, files, or chat code, and currently produces 31,045
+bytes before minification. It also verifies both SSR environments and the
+browser export condition from a physical npm archive.
+
+Large collection paths have explicit bounds: pagination builds a constant-size
+candidate set even for one billion pages, Calendar indexes year events once,
+and calendar overlap layout uses the lowest available lane instead of scanning
+all previous events. Runtime listeners, observers, timers, and object URLs are
+registered only for their active lifecycle and disposed on cleanup. Reduced
+motion disables package animation keyframes.
 
 ## Intentional divergences from Cloud
 

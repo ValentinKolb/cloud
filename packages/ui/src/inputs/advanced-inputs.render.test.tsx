@@ -84,7 +84,8 @@ describe("@k2b/ui complete advanced input migrations", () => {
       }),
     );
 
-    expect(autocomplete).toContain('role="combobox"');
+    expect(autocomplete).toContain('aria-haspopup="listbox"');
+    expect(autocomplete).not.toContain('role="combobox"');
     expect(autocomplete).toContain('aria-autocomplete="list"');
     expect(autocomplete).toContain("k2b-autocomplete");
     expect(markdown).toContain('role="toolbar"');

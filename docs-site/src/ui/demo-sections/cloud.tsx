@@ -208,7 +208,7 @@ const DashboardWidgetsDemo = () => (
   <WidgetPills pills={[{ label: "Healthy", value: 8, tone: "emerald" }]} />
 </Widget>`}
   >
-    <div class="grid gap-4 lg:grid-cols-3">
+    <div class="ui-cloud-widget-demo grid gap-4 lg:grid-cols-3">
       <Widget title="Account requests" icon="ti ti-users" size="compact">
         <WidgetStat value={7} label="Open" sub="Needs review" accent={{ tone: "amber", icon: "ti ti-clock" }} />
         <WidgetPills

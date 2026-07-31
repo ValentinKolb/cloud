@@ -337,7 +337,7 @@
 
 .ui-theme-demo__swatches > div[data-token="action"] {
   color: #fff;
-  background: var(--k2b-action);
+  background: var(--k2b-action-solid);
 }
 
 .ui-theme-demo__swatches > div[data-token="action"] code {
@@ -549,6 +549,17 @@
 .k2b-ui.k2b-dark .ui-stat-attention,
 .dark .k2b-ui .ui-stat-attention {
   color: #fbbf24;
+}
+
+/*
+ * Cloud's legacy `text-dimmed` utility assumes Cloud's application shell.
+ * Keep the backend-specific widget sample readable when it is embedded in the
+ * standalone package catalog's dark surface.
+ */
+.k2b-ui[data-theme="dark"] .ui-cloud-widget-demo .text-dimmed,
+.k2b-ui.k2b-dark .ui-cloud-widget-demo .text-dimmed,
+.dark .k2b-ui .ui-cloud-widget-demo .text-dimmed {
+  color: var(--k2b-text-muted) !important;
 }
 
 .ui-reference-body {

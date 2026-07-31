@@ -523,9 +523,8 @@ export function MarkdownEditor(props: MarkdownEditorProps): JSX.Element {
             spellcheck={props.spellcheck ?? true}
             maxLength={props.maxLength}
             {...fieldControlAria(meta, props)}
-            role="combobox"
+            aria-haspopup="listbox"
             aria-autocomplete="list"
-            aria-expanded={dropdownOpen()}
             aria-controls={dropdownOpen() ? listboxId : undefined}
             aria-activedescendant={dropdownOpen() && state() ? optionId(state()!.selectedIndex) : undefined}
           />

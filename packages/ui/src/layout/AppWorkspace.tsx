@@ -312,7 +312,7 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
   const hasPanes = createMemo(() => values().some(mainPaneSlot));
 
   return (
-    <main
+    <div
       class={`k2b-app-workspace__main ${hasPanes() ? "has-panes" : ""} ${props.class ?? ""}`}
       data-mobile-pane={props.mobilePane}
       aria-busy={props["aria-busy"]}
@@ -376,7 +376,7 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
           return before ? [content, handle] : [handle, content];
         })}
       </Show>
-    </main>
+    </div>
   );
 }
 

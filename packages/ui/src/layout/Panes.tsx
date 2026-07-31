@@ -657,50 +657,59 @@ function PanesLeaf(
                         label: elementTitle(element),
                       },
                       disabled: !props.canMove(),
-                      focusable: false,
+                      focusable: active(),
                       keyboard: true,
                       handleSelector: "[data-panes-drag-handle]",
                     }));
                   }}
+                  id={tabId(elementId(element))}
                   class="k2b-panes__tab"
-                  role="presentation"
+                  role="tab"
+                  aria-label={elementTitle(element)}
+                  aria-selected={active()}
+                  aria-controls={panelId(elementId(element))}
+                  aria-posinset={index() + 1}
+                  aria-setsize={elements().length}
+                  aria-keyshortcuts={elementClosable(element) ? "Delete Backspace" : undefined}
+                  tabIndex={active() ? 0 : -1}
+                  title={elementTitle(element)}
                   data-active={active() ? "true" : undefined}
                   data-dnd-active={
                     props.dnd.activeId() === `panes-element:${elementId(element)}` ? "true" : undefined
                   }
+                  onClick={(event) => {
+                    if ((event.target as Element).closest(".k2b-panes__close")) return;
+                    props.onActive(props.node().id, elementId(element));
+                  }}
+                  onKeyDown={(event) => onTabKeyDown(event, index(), element)}
                 >
                   <Show when={props.canMove()}>
-                    <button
-                      type="button"
+                    <span
                       data-panes-drag-handle
                       class="k2b-panes__drag"
-                      tabIndex={-1}
                       title="Move tab"
-                      aria-label={`Move ${elementTitle(element)}`}
+                      aria-hidden="true"
                     >
                       <i class="ti ti-grip-vertical" aria-hidden="true" />
-                    </button>
+                    </span>
                   </Show>
-                  <button
-                    id={tabId(elementId(element))}
-                    type="button"
-                    role="tab"
-                    class="k2b-panes__tab-button"
-                    aria-selected={active()}
-                    aria-controls={panelId(elementId(element))}
-                    aria-posinset={index() + 1}
-                    aria-setsize={elements().length}
-                    aria-keyshortcuts={elementClosable(element) ? "Delete Backspace" : undefined}
-                    tabIndex={active() ? 0 : -1}
-                    title={elementTitle(element)}
-                    onClick={() => props.onActive(props.node().id, elementId(element))}
-                    onKeyDown={(event) => onTabKeyDown(event, index(), element)}
-                  >
+                  <span class="k2b-panes__tab-button">
                     <i class={`${iconClass(element.props.icon)} k2b-panes__icon`} aria-hidden="true" />
                     <span>{elementTitle(element)}</span>
-                  </button>
+                  </span>
                   <Show when={elementClosable(element)}>
-                    <CloseButton element={element} tabIndex={-1} />
+                    <span
+                      class="k2b-panes__close"
+                      title={`Close ${elementTitle(element)}`}
+                      aria-hidden="true"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onPointerUp={(event) => {
+                        event.stopPropagation();
+                        element.props.onClose?.();
+                      }}
+                    >
+                      <i class="ti ti-x" aria-hidden="true" />
+                    </span>
                   </Show>
                 </div>
               );

@@ -124,7 +124,7 @@ const SettingsModal = ((props: SettingsModalProps): JSX.Element => {
           </For>
         </nav>
       </aside>
-      <main class="k2b-settings__content">
+      <div class="k2b-settings__content">
         <Show when={activeTab()}>
           {(tab) => (
             <section
@@ -145,7 +145,7 @@ const SettingsModal = ((props: SettingsModalProps): JSX.Element => {
             </section>
           )}
         </Show>
-      </main>
+      </div>
     </div>
   );
 }) as SettingsModalComponent;

@@ -17,7 +17,7 @@ const { MarkdownEditor } = await import("./MarkdownEditor");
 const { TextInput } = await import("../TextInput");
 
 describe("source-faithful editor SSR contracts", () => {
-  test("renders combobox ARIA and a visible overlay placeholder shim", () => {
+  test("renders autocomplete ARIA and a visible overlay placeholder shim", () => {
     const html = renderToString(() =>
       createComponent(AutocompleteEditor, {
         label: "Formula",
@@ -33,9 +33,10 @@ describe("source-faithful editor SSR contracts", () => {
         ],
       }),
     );
-    expect(html).toContain('role="combobox"');
+    expect(html).toContain('aria-haspopup="listbox"');
+    expect(html).not.toContain('role="combobox"');
     expect(html).toContain('aria-autocomplete="list"');
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("aria-expanded");
     expect(html).toContain("k2b-autocomplete__placeholder");
   });
 

@@ -133,7 +133,7 @@
   display: block;
   width: 35%;
   height: 100%;
-  background: var(--k2b-action);
+  background: var(--k2b-action-solid);
   content: "";
   animation: k2b-content-calendar-progress 900ms ease-in-out infinite;
 }
@@ -260,7 +260,7 @@
 
 .k2b-ui .k2b-calendar-month__day-number[data-today="true"] {
   color: #fff;
-  background: var(--k2b-action);
+  background: var(--k2b-action-solid);
 }
 
 .k2b-ui .k2b-calendar-month__badge,
@@ -456,7 +456,7 @@
   padding: 0.125rem 0.625rem;
   border-radius: 999px;
   color: #fff;
-  background: var(--k2b-action);
+  background: var(--k2b-action-solid);
 }
 
 .k2b-ui .k2b-calendar-time-grid__badge {
@@ -691,7 +691,7 @@
 
 .k2b-ui .k2b-calendar-year__day[data-today="true"] {
   color: #fff;
-  background: var(--k2b-action);
+  background: var(--k2b-action-solid);
 }
 
 .k2b-ui .k2b-calendar-year__indicator {
@@ -1014,7 +1014,6 @@
 
 .k2b-ui .k2b-content-doc-note__body {
   @apply mt-1;
-  opacity: 0.85;
 }
 
 /* Files */
@@ -1834,7 +1833,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .k2b-ui .k2b-calendar-header__progress::after {
-    animation-duration: 1800ms;
+    animation: none;
   }
 
   .k2b-ui .k2b-content-file-tree [role="treeitem"] {

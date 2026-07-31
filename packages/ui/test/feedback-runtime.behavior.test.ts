@@ -118,10 +118,8 @@ describe("@k2b/ui feedback runtime", () => {
     expect(dom.document.documentElement.style.overflow).toBe("hidden");
 
     dom.root.remove();
-    const resolved = await Promise.race([
-      result,
-      Bun.sleep(100).then(() => "timeout"),
-    ]);
+    await dom.window.happyDOM.waitUntilComplete();
+    const resolved = await result;
 
     expect(resolved).toBeUndefined();
     expect(cleanupCalls).toBe(1);

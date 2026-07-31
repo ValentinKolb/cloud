@@ -72,6 +72,9 @@ export function Select(props: SelectProps): JSX.Element {
     // blanks the trigger label of the current selection.
     return sourceOptions().find((option) => option.value === current) ?? cache()[current] ?? props.selectedOption ?? { value: current, label: props.selectedLabel?.() ?? current };
   });
+  const accessibleLabel = () =>
+    props["aria-label"] ??
+    (typeof props.label === "string" ? undefined : props.placeholder ?? "Select option");
   const popover = createChoicePopover(() => Boolean(props.disabled));
   const focusedOption = () => options()[focusedIndex()];
   const focus = (index: number) => {
@@ -145,7 +148,7 @@ export function Select(props: SelectProps): JSX.Element {
           aria-expanded={popover.open()}
           aria-controls={listboxId}
           aria-activedescendant={focusedOption() ? `${listboxId}-${focusedIndex()}` : undefined}
-          {...fieldControlAria(meta, props)}
+          {...fieldControlAria(meta, { ...props, "aria-label": accessibleLabel() })}
           disabled={props.disabled}
           onClick={() => (popover.open() ? close() : open())}
           onKeyDown={onKeyDown}

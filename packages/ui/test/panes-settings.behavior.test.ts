@@ -65,7 +65,7 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     expect(tabs()[0]?.getAttribute("aria-posinset")).toBe("1");
     expect(tabs()[1]?.getAttribute("aria-posinset")).toBe("2");
     expect(tabs()[0]?.getAttribute("aria-setsize")).toBe("2");
-    expect(tabs()[0]?.parentElement?.getAttribute("role")).toBe("presentation");
+    expect(tabs()[0]?.parentElement?.getAttribute("role")).toBe("tablist");
     expect(
       Array.from(
         dom.root.querySelectorAll<HTMLElement>(".k2b-panes__drag, .k2b-panes__close"),
@@ -77,8 +77,8 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     setTitle("Renamed source");
     setIcon("ti ti-file-text");
     expect(tabs()[0]?.textContent).toContain("Renamed source");
-    expect(tabs()[0]?.querySelector("i")?.className).toContain("ti-file-text");
-    expect(dom.root.querySelector(".k2b-panes__close")?.getAttribute("aria-label")).toBe(
+    expect(tabs()[0]?.querySelector(".k2b-panes__icon")?.className).toContain("ti-file-text");
+    expect(dom.root.querySelector(".k2b-panes__close")?.getAttribute("title")).toBe(
       "Close Renamed source",
     );
 

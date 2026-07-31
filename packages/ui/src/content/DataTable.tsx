@@ -268,6 +268,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
         ref={scrollRef}
         role="region"
         aria-label="Data table"
+        tabIndex={0}
         class={`k2b-table-wrap ${props.class ?? ""}`}
         data-density={props.density === "compact" ? "compact" : undefined}
         data-surface={props.class ? undefined : "paper"}

@@ -447,9 +447,8 @@ export function AutocompleteEditor(props: AutocompleteEditorProps): JSX.Element 
             maxLength={props.maxLength}
             rows={props.singleLine ? 1 : (props.lines ?? 3)}
             {...fieldControlAria(meta, props)}
-            role="combobox"
+            aria-haspopup="listbox"
             aria-autocomplete="list"
-            aria-expanded={dropdownOpen()}
             aria-controls={dropdownOpen() ? listboxId : undefined}
             aria-activedescendant={dropdownOpen() && state() ? optionId(state()!.selectedIndex) : undefined}
           />

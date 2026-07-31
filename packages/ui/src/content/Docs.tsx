@@ -41,7 +41,7 @@ export const DocSection = (props: { title: string; eyebrow?: string; children: J
   <section class="k2b-content-doc-section">
     <div>
       <Show when={props.eyebrow}>{(eyebrow) => <p class="k2b-content-doc-eyebrow">{eyebrow()}</p>}</Show>
-      <h3 class="k2b-content-doc-title">{props.title}</h3>
+      <h2 class="k2b-content-doc-title">{props.title}</h2>
     </div>
     {props.children}
   </section>
@@ -71,7 +71,12 @@ export const DocCode = (props: DocCodeProps) => {
           </Show>
         </div>
       </Show>
-      <div class="k2b-content-doc-code__body" data-header={hasHeader() ? "true" : undefined}>
+      <div
+        class="k2b-content-doc-code__body"
+        data-header={hasHeader() ? "true" : undefined}
+        tabIndex={0}
+        aria-label={props.title ? `${props.title} code` : "Code"}
+      >
         <div class="k2b-content-doc-code__lines">
           <For each={lines()}>
             {(line, index) => (

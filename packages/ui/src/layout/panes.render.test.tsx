@@ -80,7 +80,7 @@ describe("@k2b/ui Panes", () => {
     expect(html).toContain('role="tab"');
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain('role="tabpanel"');
-    expect(html).toContain('aria-label="Close Preview"');
+    expect(html).toContain('title="Close Preview"');
     expect(html).toContain("Source editor");
     expect(html).toContain("Sample content");
   });

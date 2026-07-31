@@ -45,7 +45,7 @@ export default function StructuredDataPreview(props: StructuredDataPreviewProps)
 
   return (
     <div class={["k2b-content-structured-data", props.class].filter(Boolean).join(" ")}>
-      <Show when={props.title}>{(title) => <h3 class="k2b-content-structured-data__title">{title()}</h3>}</Show>
+      <Show when={props.title}>{(title) => <h2 class="k2b-content-structured-data__title">{title()}</h2>}</Show>
 
       <Show
         when={!showRaw()}

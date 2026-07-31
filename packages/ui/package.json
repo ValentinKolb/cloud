@@ -17,9 +17,9 @@
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
-      "browser": "./dist/index.browser.js",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "browser": "./dist/browser/index.js",
+      "import": "./dist/ssr/index.js",
+      "default": "./dist/ssr/index.js"
     },
     "./styles.css": "./dist/styles.css",
     "./fonts/plex.css": "./dist/plex.css",
@@ -27,26 +27,21 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "src",
     "dist",
     "README.md",
     "MIGRATION.md",
-    "migration-inventory.json",
-    "!src/**/*.test.ts",
-    "!src/**/*.test.tsx",
-    "!src/**/*.typecheck.ts",
-    "!src/styles/css-contract-test-helpers.ts"
+    "migration-inventory.json"
   ],
   "scripts": {
-    "build": "\"$npm_execpath\" run scripts/build.ts",
+    "build": "bun run scripts/build.ts",
     "check:declarations": "bun run scripts/check-declarations.ts",
     "check:migration": "bun run scripts/check-migration-inventory.ts",
-    "check:packed-consumer": "\"$npm_execpath\" run build && \"$npm_execpath\" run scripts/check-packed-consumer.ts",
+    "check:packed-consumer": "bun run build && bun run scripts/check-packed-consumer.ts",
     "fixture:build": "bun run build && NODE_ENV=production bun run fixture/scripts/build.ts",
     "fixture:dev": "NODE_ENV=development bun --preload ./fixture/src/preload.ts ./fixture/src/server.ts",
     "fixture:typecheck": "tsc -p fixture/tsconfig.json --noEmit --pretty false",
-    "test": "\"$npm_execpath\" run build && \"$npm_execpath\" test src scripts && \"$npm_execpath\" run test:dom && \"$npm_execpath\" run scripts/check-packed-consumer.ts",
-    "test:dom": "\"$npm_execpath\" test --conditions=browser --preload ./test/solid-dom-preload.ts ./test",
+    "test": "bun run build && bun test src scripts && bun run test:dom && bun run scripts/check-packed-consumer.ts",
+    "test:dom": "bun test --isolate --conditions=browser --preload ./test/solid-dom-preload.ts ./test",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false && bun run check:declarations && bun run typecheck:dom",
     "typecheck:dom": "tsc -p test/tsconfig.json --noEmit --pretty false",
     "prepack": "bun run build"

@@ -28,9 +28,19 @@ export type MultiSelectInputProps = ValueFieldProps<string[]> & {
 
 const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
+const withAlpha = (color: string, alpha: string): string => {
+  const hex = color.slice(1);
+  const expanded = hex.length === 3 ? [...hex].map((digit) => `${digit}${digit}`).join("") : hex;
+  return `#${expanded}${alpha}`;
+};
+
 const selectedColor = (color: string | undefined): JSX.CSSProperties | undefined => {
   if (!color || !HEX_COLOR.test(color.trim())) return undefined;
-  return { "--k2b-choice-color": color.trim() };
+  const normalized = color.trim();
+  return {
+    "--k2b-choice-color": normalized,
+    "--k2b-choice-background": withAlpha(normalized, "1f"),
+  };
 };
 
 /** Cloud tints the option icon with the option color instead of adding a dot. */

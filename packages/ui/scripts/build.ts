@@ -1,54 +1,60 @@
 import { transformAsync } from "@babel/core";
 import tsPreset from "@babel/preset-typescript";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { basename, dirname, extname, relative, resolve } from "node:path";
 import solidPreset from "babel-preset-solid";
-import type { BunPlugin } from "bun";
 import tailwind from "bun-plugin-tailwind";
 
 const root = resolve(import.meta.dir, "..");
 const dist = resolve(root, "dist");
+const sourceRoot = resolve(root, "src");
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 
-const solidPlugin = (mode: "dom" | "ssr"): BunPlugin => ({
-  name: `k2b-ui-solid-${mode}`,
-  setup(build) {
-    build.onLoad({ filter: /\.tsx$/ }, async ({ path }) => {
-      const source = await Bun.file(path).text();
-      const result = await transformAsync(source, {
-        filename: path,
-        presets: [
-          [tsPreset, {}],
-          [solidPreset, { generate: mode, hydratable: mode === "dom" }],
-        ],
-      });
-      if (!result?.code) throw new Error(`@k2b/ui Solid ${mode} transform failed: ${path}`);
-      return { contents: result.code, loader: "js" };
-    });
-  },
-});
+const ignoredSource = (path: string): boolean =>
+  /\.(?:test|typecheck)\.[cm]?[jt]sx?$/.test(path) ||
+  path.endsWith("styles/css-contract-test-helpers.ts");
 
-for (const library of [
-  { mode: "ssr" as const, naming: "index.js", target: "bun" as const },
-  { mode: "dom" as const, naming: "index.browser.js", target: "browser" as const },
-]) {
-  const result = await Bun.build({
-    entrypoints: [resolve(root, "src/index.ts")],
-    outdir: dist,
-    naming: library.naming,
-    target: library.target,
-    format: "esm",
-    packages: "external",
-    sourcemap: "external",
-    plugins: [solidPlugin(library.mode)],
-  });
-  if (!result.success) {
-    for (const message of result.logs) console.error(message);
-    throw new Error(`@k2b/ui ${library.mode} JavaScript build failed`);
+const sourceFiles = async (directory: string): Promise<string[]> => {
+  const files: string[] = [];
+  const entries = await readdir(directory, { withFileTypes: true });
+  entries.sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await sourceFiles(path));
+    else if (/\.[cm]?[jt]sx?$/.test(entry.name) && !ignoredSource(path)) files.push(path);
   }
-}
+  return files;
+};
+
+const compileModules = async (mode: "dom" | "ssr", outputRoot: string): Promise<void> => {
+  for (const sourcePath of await sourceFiles(sourceRoot)) {
+    const source = await readFile(sourcePath, "utf8");
+    const sourceName = relative(sourceRoot, sourcePath);
+    const outputPath = resolve(outputRoot, sourceName.replace(/\.[cm]?[jt]sx?$/, ".js"));
+    const result = await transformAsync(source, {
+      filename: sourcePath,
+      sourceFileName: sourceName,
+      sourceMaps: true,
+      babelrc: false,
+      configFile: false,
+      presets: [
+        [tsPreset, { allowDeclareFields: true }],
+        [solidPreset, { generate: mode, hydratable: mode === "dom" }],
+      ],
+    });
+    if (!result?.code || !result.map) {
+      throw new Error(`@k2b/ui ${mode} transform failed: ${sourcePath}`);
+    }
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${result.code}\n//# sourceMappingURL=${basename(outputPath)}.map\n`);
+    await writeFile(`${outputPath}.map`, JSON.stringify(result.map));
+  }
+};
+
+await compileModules("ssr", resolve(dist, "ssr"));
+await compileModules("dom", resolve(dist, "browser"));
 
 const builds = [
   {
@@ -115,4 +121,4 @@ if (declarations.exitCode !== 0) {
   throw new Error("@k2b/ui declaration build failed");
 }
 
-console.log("Built @k2b/ui browser/SSR JavaScript, declarations, styles, and optional presets");
+console.log("Built modular @k2b/ui browser/SSR JavaScript, declarations, styles, and optional presets");

@@ -41,9 +41,9 @@ export const Pagination = (props: PaginationProps): null | JSX.Element => {
 
   const href = (page: number) => `${props.baseUrl}${page}`;
   const visiblePages = createMemo(() =>
-    Array.from({ length: props.totalPages }, (_, index) => index + 1).filter(
-      (page) => page === 1 || page === props.totalPages || Math.abs(page - props.currentPage) <= 1,
-    ),
+    [...new Set([1, props.currentPage - 1, props.currentPage, props.currentPage + 1, props.totalPages])]
+      .filter((page) => page >= 1 && page <= props.totalPages)
+      .sort((left, right) => left - right),
   );
 
   return (

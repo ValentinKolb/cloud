@@ -65,7 +65,7 @@ const [violet, setViolet] = createSignal(false);
     >
       <div class="k2b-ui ui-theme-demo" style={violet() ? violetTheme : undefined}>
         <div class="ui-theme-demo__swatches">
-          <div data-token="action"><span>Action</span><code>--k2b-action</code></div>
+          <div data-token="action"><span>Action solid</span><code>--k2b-action-solid</code></div>
           <div data-token="surface"><span>Surface</span><code>--k2b-surface</code></div>
           <div data-token="text"><span>Text</span><code>--k2b-text</code></div>
         </div>

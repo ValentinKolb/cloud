@@ -381,7 +381,13 @@ const TemplateDemo = () => {
       <div class="ui-template-demo">
         <section class="ui-showcase-frame">
           <span>TemplateEditor</span>
-          <TemplateEditor value={value()} onValueChange={setValue} variables={variables} lines={8} />
+          <TemplateEditor
+            aria-label="Template source"
+            value={value()}
+            onValueChange={setValue}
+            variables={variables}
+            lines={8}
+          />
         </section>
         <section class="ui-showcase-frame">
           <span>TemplatePreview</span>

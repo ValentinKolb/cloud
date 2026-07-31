@@ -30,7 +30,13 @@ export default function CodeDisplay(props: CodeDisplayProps) {
         </div>
       </Show>
 
-      <div class="k2b-content-code-display__body" data-header={hasHeader() ? "true" : undefined}>
+      <div
+        class="k2b-content-code-display__body"
+        data-header={hasHeader() ? "true" : undefined}
+        role="region"
+        aria-label={props.title ? `${props.title} code` : `${language()} code`}
+        tabIndex={0}
+      >
         <div class="k2b-content-code-display__lines">
           <For each={lines()}>
             {(line, index) => (
