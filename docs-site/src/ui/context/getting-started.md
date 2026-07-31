@@ -1,34 +1,26 @@
 # Getting started
 
-`@k2b/ui` is an opinionated SolidJS component package for `@k2b/ssr` projects. It does not require Cloud and can be installed from npm like any other package.
+`@k2b/ui` provides opinionated, production-ready Solid components for `@k2b/ssr` applications. The package includes accessible interaction patterns, scoped styles, and a configurable theme without tying your project to a specific product.
 
 ## Install
 
-Install the UI package together with its peer dependencies:
+Add the package to an existing Solid project:
 
 ```bash
-bun add @k2b/ui @k2b/ssr solid-js
+bun add @k2b/ui
 ```
 
-Inside the Cloud monorepo, workspace consumers use the local package instead:
-
-```json
-{
-  "dependencies": {
-    "@k2b/ui": "workspace:*"
-  }
-}
-```
+`solid-js` and `@k2b/ssr` are peer dependencies. Install them as well when the project does not already provide them.
 
 ## Load the styles
 
-Import the component stylesheet once in the application entry point or global stylesheet:
+Import the component stylesheet once from your application entry point:
 
 ```ts
 import "@k2b/ui/styles.css";
 ```
 
-The styles are scoped. Add `k2b-ui` to the application root or to the subtree that uses the components:
+The stylesheet only applies below `.k2b-ui`, so it does not reset the surrounding page. Add the class to the application root or to the subtree that renders UI components:
 
 ```tsx
 import { createSignal } from "solid-js";
@@ -46,33 +38,36 @@ export function ProfileForm() {
 }
 ```
 
-Portalled surfaces such as prompts, menus, and tooltips carry the scope themselves. The owning application still needs to render the normal component subtree inside `k2b-ui`.
+Portalled surfaces such as prompts, menus, and tooltips preserve the scope automatically.
 
 ## Fonts and icons
 
-The default font stack uses system fonts. IBM Plex and the bundled Tabler icon font are optional:
+The default theme uses system fonts. IBM Plex and the bundled Tabler icon font are optional:
 
 ```ts
 import "@k2b/ui/fonts/plex.css";
 import "@k2b/ui/icons/tabler.css";
 ```
 
-If the application already supplies Tabler icons or its own fonts, omit these imports.
+Omit either import when your application already provides its own font or Tabler icon assets.
 
 ## Theme the package
 
-Override tokens on the same scope. Components derive their semantic colors from the accent stack and keep light and dark surfaces separate:
+Override tokens on your scoped root. Components derive focus, selection, and action colors from the accent stack while retaining accessible light and dark surfaces:
 
 ```css
 .product-ui {
   --k2b-font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
   --k2b-accent-50: #f5f3ff;
   --k2b-accent-100: #ede9fe;
+  --k2b-accent-200: #ddd6fe;
   --k2b-accent-300: #c4b5fd;
   --k2b-accent-400: #a78bfa;
   --k2b-accent-500: #8b5cf6;
   --k2b-accent-600: #7c3aed;
   --k2b-accent-700: #6d28d9;
+  --k2b-accent-800: #5b21b6;
+  --k2b-accent-900: #4c1d95;
   --k2b-accent-950: #2e1065;
 }
 ```
@@ -81,11 +76,11 @@ Override tokens on the same scope. Components derive their semantic colors from 
 <main class="k2b-ui product-ui">...</main>
 ```
 
-Use semantic tokens such as `--k2b-action`, `--k2b-surface`, `--k2b-text`, and `--k2b-border` when a role needs a deliberate override. The complete token example lives under [Theme and styles](./surfaces/utilities).
+Most themes only need the font and accent stack. Override semantic tokens such as `--k2b-action`, `--k2b-surface`, `--k2b-text`, or `--k2b-border` when a specific role needs different treatment. See [Theme and styles](./surfaces/utilities) for the complete token reference.
 
 ## Solid and SSR
 
-Components are Solid components and can render during SSR. Import them normally from `@k2b/ui`; the package exposes SSR and browser builds through package conditions. Browser behavior attaches during hydration, so application state stays application-owned:
+Import components directly from `@k2b/ui`. Package conditions select the SSR build on the server and the interactive build in the browser. State remains controlled by your application and continues seamlessly during hydration:
 
 ```tsx
 import { createSignal } from "solid-js";
@@ -105,4 +100,4 @@ export function ProjectSections() {
 
 ## Package boundary
 
-Everything in the portable catalog comes from `@k2b/ui`. The separate Cloud section documents integrations that intentionally stay in `@valentinkolb/cloud` because they depend on authenticated Cloud APIs, permissions, sessions, or application contracts.
+Every component in the portable catalog comes from `@k2b/ui`. Product-specific integrations live in a separate section when they depend on authenticated APIs, permissions, sessions, or other host contracts.

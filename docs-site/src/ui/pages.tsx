@@ -31,7 +31,7 @@ export const uiPages = [
     path: "/getting-started",
     title: "Getting started",
     navTitle: "Getting started",
-    description: "Install, scope, theme, and render @k2b/ui in any Solid and @k2b/ssr project.",
+    description: "Install @k2b/ui, load its scoped styles, customize the theme, and use it with Solid SSR.",
     section: "Start",
     order: 2,
     layout: "full",

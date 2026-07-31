@@ -2,6 +2,7 @@ import { For, type Component } from "solid-js";
 import {
   uiCatalogEntries,
   uiCatalogSections,
+  portableUiComponentCount,
   type UiCatalogScope,
   type UiCatalogSectionId,
 } from "./catalog";
@@ -91,14 +92,14 @@ export function UiCatalogOverview(props: DocumentationProps & { locale: string }
       label: "@k2b/ui",
       title: "Portable components",
       description:
-        "An opinionated SolidJS package for any @k2b/ssr project. It ships scoped styles and configurable font and color tokens without depending on Cloud.",
+        "Production-ready Solid components with scoped styles, accessible behavior, and configurable design tokens.",
     },
     {
       scope: "cloud",
       label: "@valentinkolb/cloud",
       title: "Cloud components",
       description:
-        "Product integrations that stay with Cloud because they require its authenticated APIs, identity model, permissions, or application contracts.",
+        "Product integrations that require authenticated Cloud APIs, identity, permissions, or application contracts.",
     },
   ];
 
@@ -107,22 +108,22 @@ export function UiCatalogOverview(props: DocumentationProps & { locale: string }
       <header class="ui-overview-header">
         <div class="ui-page-heading">
           <p>@k2b/ui</p>
-          <h1>One UI package. Any Solid project.</h1>
+          <h1>A UI foundation for Solid SSR.</h1>
         </div>
         <div class="ui-overview-intro">
           <p>
-            The portable collection is published as its own package and works
-            outside Cloud. Cloud-only integrations are documented separately,
-            so the dependency boundary stays visible.
+            Build product interfaces from portable, accessible components.
+            Integrations that require Cloud APIs are documented separately, so
+            the package boundary remains clear.
           </p>
           <dl>
             <div>
-              <dt>pages</dt>
-              <dd>{String(uiCatalogEntries.length).padStart(2, "0")}</dd>
+              <dt>components</dt>
+              <dd>{String(portableUiComponentCount).padStart(2, "0")}</dd>
             </div>
             <div>
-              <dt>sections</dt>
-              <dd>{String(uiCatalogSections.length).padStart(2, "0")}</dd>
+              <dt>cloud integrations</dt>
+              <dd>{String(uiCatalogEntries.filter((entry) => entry.scope === "cloud").length).padStart(2, "0")}</dd>
             </div>
           </dl>
         </div>

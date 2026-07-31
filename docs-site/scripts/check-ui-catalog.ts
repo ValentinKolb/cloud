@@ -2,6 +2,7 @@ import ts from "typescript";
 import {
   documentedOnlyUiCatalogExports,
   hiddenUiCatalogExports,
+  portableUiComponentCount,
   uiCatalogEntries,
   uiCatalogSections,
 } from "../src/ui/catalog";
@@ -145,6 +146,7 @@ for (const { path, source } of portableDemoSources) {
 }
 
 const runtimeExports = sorted(Object.keys(await import("@k2b/ui")));
+const runtimeComponentExports = runtimeExports.filter((name) => /^[A-Z][a-z]/.test(name));
 const liveExports = sorted(liveRuntimeImports);
 const hiddenExports = sorted(Object.keys(hiddenUiCatalogExports));
 const documentedOnlyExports = sorted(Object.keys(documentedOnlyUiCatalogExports));
@@ -205,6 +207,12 @@ const overviewCloudFailures = exactSetFailures(
 );
 
 const failures = [
+  [
+    "Stale portable component count",
+    portableUiComponentCount === runtimeComponentExports.length
+      ? []
+      : [`expected ${runtimeComponentExports.length}, received ${portableUiComponentCount}`],
+  ],
   ["Duplicate catalog pages", duplicateValues(catalogIds)],
   ["Duplicate section metadata", duplicateValues(declaredSectionIds)],
   ["Catalog registry key-set mismatches", registryFailures],
