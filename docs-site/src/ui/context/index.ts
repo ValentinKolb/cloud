@@ -139,5 +139,6 @@ export const catalogContextFiles = Object.fromEntries(
 ) as { readonly [Id in CatalogContextId]: (typeof catalogContextSources)[Id]["file"] };
 
 export const standaloneUiContextFiles = {
+  "getting-started.md": "Portable package installation, style scoping, theming, and SSR setup guide.",
   "overview.md": "Catalog landing-page context rendered by the collection root.",
 } as const satisfies Record<string, string>;
