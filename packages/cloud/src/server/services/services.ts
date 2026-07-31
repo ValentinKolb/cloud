@@ -1,4 +1,4 @@
-import { err, fail, isServiceError, ok, okMany, paginate, password, svg, tryCatch, unwrap } from "@valentinkolb/stdlib";
+import { err, fail, isServiceError, ok, okMany, paginate, password, svg, tryCatch, unwrap } from "@k2b/stdlib";
 import * as access from "./access";
 import { freeipa } from "./freeipa";
 import { geo } from "./geo";

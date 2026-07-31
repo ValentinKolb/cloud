@@ -8,7 +8,7 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConfigurableFolderRole, Mailbox } from "../../contracts";

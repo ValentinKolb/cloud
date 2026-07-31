@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService, coreSettings } from "@valentinkolb/cloud/services";
 import { canManageAnyGroups } from "@valentinkolb/cloud/shared";
 import { getRuntimeContext, hasDedicatedRuntimeRoute, Layout } from "@valentinkolb/cloud/ssr";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { ssr } from "../../config";
 import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";

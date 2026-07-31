@@ -7,7 +7,7 @@
  * the same API to render its admin form (files, weather, etc.).
  */
 
-import { err, fail, ok, type PageParams, type Paginated } from "@valentinkolb/stdlib";
+import { err, fail, ok, type PageParams, type Paginated } from "@k2b/stdlib";
 import { paginateItems } from "../../server/services";
 import type { SettingEntry } from ".";
 import * as settingsPrimitives from ".";

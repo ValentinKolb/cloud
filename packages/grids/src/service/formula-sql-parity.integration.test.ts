@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { sql } from "bun";
 import { evaluate } from "../formula/evaluator";
 import { parseFormula } from "../formula/parser";

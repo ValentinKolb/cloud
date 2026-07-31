@@ -2,7 +2,7 @@ import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { ssr } from "../config";
 import type { PlatformMailboxOperationSummary } from "../contracts";
 import { mailHelp } from "../help";

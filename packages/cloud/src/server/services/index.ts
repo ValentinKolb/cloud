@@ -37,11 +37,11 @@ export { paginateItems } from "./pagination";
 export { services } from "./services";
 
 // Re-export from stdlib for backward compatibility
-// Prefer importing directly from @valentinkolb/stdlib
-import { password as _password, svg as _svg } from "@valentinkolb/stdlib";
+// Prefer importing directly from @k2b/stdlib
+import { password as _password, svg as _svg } from "@k2b/stdlib";
 
-export type { PageParams, Paginated, Result, ServiceError, ServiceErrorCode } from "@valentinkolb/stdlib";
-export { crypto, err, fail, isServiceError, ok, okMany, paginate, password, svg, tryCatch, unwrap } from "@valentinkolb/stdlib";
+export type { PageParams, Paginated, Result, ServiceError, ServiceErrorCode } from "@k2b/stdlib";
+export { crypto, err, fail, isServiceError, ok, okMany, paginate, password, svg, tryCatch, unwrap } from "@k2b/stdlib";
 
 // Compat aliases for old API names
 export const images = { generateFallback: _svg.generateAvatar, parseWebpDataUrl: _svg.parseWebpDataUrl };

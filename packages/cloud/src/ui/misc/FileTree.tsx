@@ -5,7 +5,7 @@
  * pure read-only browser. Context menus render through the platform
  * ContextMenu. Minimal look: text rows, bevel on selection, no hover motion.
  */
-import { fileIcons } from "@valentinkolb/stdlib";
+import { fileIcons } from "@k2b/stdlib";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import ContextMenu from "./ContextMenu";
 import { allFolderPaths, buildTree, type FileTreeEntry, flattenVisible, parentOf, type TreeNode } from "./file-tree";

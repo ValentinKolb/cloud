@@ -1,4 +1,4 @@
-import { crypto } from "@valentinkolb/stdlib";
+import { crypto } from "@k2b/stdlib";
 import type { WorkflowJsonValue } from "../contracts";
 
 const compareJsonKeys = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);

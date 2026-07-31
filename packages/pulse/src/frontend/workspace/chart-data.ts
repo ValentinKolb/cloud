@@ -1,5 +1,5 @@
 import type { DataTableColumn } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { MetricQueryPoint } from "../../contracts";
 import { compactDate, compactDateWithDelta, compactDay } from "./date-format";
 import { formatValue } from "./metric-format";

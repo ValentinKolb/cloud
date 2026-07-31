@@ -17,7 +17,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type {

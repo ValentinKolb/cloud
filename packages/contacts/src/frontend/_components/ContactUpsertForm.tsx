@@ -1,6 +1,6 @@
 import { PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { type Accessor, createSignal, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";

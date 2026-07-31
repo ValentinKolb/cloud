@@ -3,7 +3,7 @@
  * @module prompt-lib
  */
 
-import { mutation, timed } from "@valentinkolb/stdlib/solid";
+import { mutation, timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { dialogCore, type OpenDialogOptions } from "./dialog-core";

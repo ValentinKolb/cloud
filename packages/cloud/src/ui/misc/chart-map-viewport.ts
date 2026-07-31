@@ -1,4 +1,4 @@
-import type { MapViewport } from "@valentinkolb/stdlib";
+import type { MapViewport } from "@k2b/stdlib";
 
 export const DEFAULT_MAP_VIEWPORT: MapViewport = {
   latitude: 0,

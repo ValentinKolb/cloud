@@ -1,7 +1,7 @@
 import { createSignal, Show, onMount } from "solid-js";
 import { CheckboxInput, TextInput } from "@valentinkolb/cloud/ui";
-import { cookies } from "@valentinkolb/stdlib/browser";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { cookies } from "@k2b/stdlib/browser";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 export default function GuestLoginForm(props: { redirectTo?: string; token?: string; allowSelfRegistration: boolean }) {

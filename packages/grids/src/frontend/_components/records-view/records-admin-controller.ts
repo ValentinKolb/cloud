@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { prompts } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy } from "../../../contracts";

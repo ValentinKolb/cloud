@@ -108,12 +108,12 @@ import type {
   password as stdPassword,
   text as stdText,
   timing as stdTiming,
-} from "@valentinkolb/stdlib";
-import type { files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
-import type { qr as stdQr } from "@valentinkolb/stdlib/qr";
+} from "@k2b/stdlib";
+import type { files as stdFiles, images as stdImages } from "@k2b/stdlib/browser";
+import type { qr as stdQr } from "@k2b/stdlib/qr";
 
 /**
- * Curated `@valentinkolb/stdlib` namespaces re-exposed as `std` so
+ * Curated `@k2b/stdlib` namespaces re-exposed as `std` so
  * script authors can build small applications without importing
  * anything. Each entry is a thin pass-through — the runtime doesn't wrap
  * or rename functions, so the full stdlib API reference applies.

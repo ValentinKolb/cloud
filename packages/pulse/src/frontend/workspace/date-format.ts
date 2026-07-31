@@ -1,4 +1,4 @@
-import { dates, type DateContext } from "@valentinkolb/stdlib";
+import { dates, type DateContext } from "@k2b/stdlib";
 
 export type PulseDateContext = DateContext & { now?: string | Date };
 

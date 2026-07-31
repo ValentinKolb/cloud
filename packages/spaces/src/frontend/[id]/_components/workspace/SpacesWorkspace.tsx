@@ -1,5 +1,5 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import ItemDetailRoute from "../detail/ItemDetailRoute.island";
 import { defaultFilter, parseFilterFromUrl } from "../filter/types";
 import SpaceSidebar from "../sidebar/SpaceSidebar";

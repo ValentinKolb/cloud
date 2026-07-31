@@ -1,5 +1,5 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
-import { err } from "@valentinkolb/stdlib";
+import { err } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { GridsWorkflowEmailDelivery as WorkflowEmailDelivery } from "../workflows/contracts";
 import type { SqlClient } from "./audit";

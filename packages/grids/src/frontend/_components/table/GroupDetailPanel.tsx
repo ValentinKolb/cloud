@@ -1,6 +1,6 @@
 import { Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { mutation, timed } from "@valentinkolb/stdlib/solid";
+import { type DateContext, dates } from "@k2b/stdlib";
+import { mutation, timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { AggregationSpec, FilterTree, GroupBySpec, RecordQuery, TableQueryResult } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";

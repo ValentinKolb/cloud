@@ -1,5 +1,5 @@
 import { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "@valentinkolb/cloud/ui";
-import { highlight } from "@valentinkolb/stdlib";
+import { highlight } from "@k2b/stdlib";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";

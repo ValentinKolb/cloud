@@ -1,5 +1,5 @@
 import { prompts } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MessageRemoteContent, RemoteContentRule } from "../../service/remote-content";

@@ -16,7 +16,7 @@ import {
   type WorkflowAttentionResolution,
   workflowHealth,
 } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail, ok } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { z } from "zod";
 

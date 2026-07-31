@@ -1,4 +1,4 @@
-import { type Highlighter, highlight } from "@valentinkolb/stdlib";
+import { type Highlighter, highlight } from "@k2b/stdlib";
 import type { WorkflowCompletionItem, WorkflowFieldSchema, WorkflowLanguageManifest } from "../../workflows";
 import type { Completion, SuggestContext, Suggestion } from "../completion";
 

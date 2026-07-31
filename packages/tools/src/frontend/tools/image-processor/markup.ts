@@ -1,4 +1,4 @@
-import type { ImgData } from "@valentinkolb/stdlib/browser";
+import type { ImgData } from "@k2b/stdlib/browser";
 import type { CropRect, MarkupElement, MarkupPoint } from "./types";
 
 export const FULL_CROP_BOUNDS: CropRect = { x: 0, y: 0, w: 1, h: 1 };

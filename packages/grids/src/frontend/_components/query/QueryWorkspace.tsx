@@ -1,5 +1,5 @@
 import { Panes, type PanesValue, prompts, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
-import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations, timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";

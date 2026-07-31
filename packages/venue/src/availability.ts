@@ -1,4 +1,4 @@
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import type { DateOverride, OpeningRule, PublicOpening, ShiftAssignment, ShiftTemplate, Venue } from "./contracts";
 
 type PublicAvailabilityInput = {

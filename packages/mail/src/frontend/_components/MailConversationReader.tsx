@@ -1,8 +1,8 @@
 import { documentNavigate, Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { CheckboxCard, Dropdown, type DropdownItem, Placeholder, prompts, Select, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { type DateContext, dates } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {

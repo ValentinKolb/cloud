@@ -1,6 +1,6 @@
 import type { AiConversation, AiConversationPage, AiConversationStatusFilter } from "@valentinkolb/cloud/ai";
 import { dialogCore, PanelDialog, panelDialogFixedOptions, TextInput } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import AssistantAllChatsList from "./AssistantAllChatsList";

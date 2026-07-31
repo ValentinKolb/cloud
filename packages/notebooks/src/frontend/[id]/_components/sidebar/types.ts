@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { NavigatorQuery } from "../../../../lib/navigator-url";
 import type { NotebookSettings } from "../settings/NotebookSettingsStore";
 

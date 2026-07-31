@@ -11,7 +11,7 @@ import {
   updateAccess,
 } from "@valentinkolb/cloud/server";
 import { audit } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result, tryCatch, unwrap } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result, tryCatch, unwrap } from "@k2b/stdlib";
 import { sql } from "bun";
 import { auditActorFromRequest, capByCredentialScopes, isResourceBoundToMailbox, type MailRequestContext, userBackedActor } from "./auth";
 

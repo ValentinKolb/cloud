@@ -214,7 +214,7 @@ application contract. It is not a promise of instability.
 
 | Surface | Use instead |
 | --- | --- |
-| `@valentinkolb/cloud/shared` utility re-exports | `@valentinkolb/stdlib` |
+| `@valentinkolb/cloud/shared` utility re-exports | `@k2b/stdlib` |
 | `validator` | `v` |
 | Untyped `apiClient` | `api.create<TApi>()` |
 | Legacy notification send overloads | Typed notification definitions |
@@ -322,7 +322,7 @@ Use the [UI catalog](./components.md) to inspect the current UI contract.
 <a id="page-reference-deprecations-and-migrations-shared-utilities"></a>
 ### Shared utilities
 
-Import generic utilities directly from `@valentinkolb/stdlib`.
+Import generic utilities directly from `@k2b/stdlib`.
 
 `@valentinkolb/cloud/shared` continues to re-export `dates`, `calendar`,
 `encoding`, `fileIcons`, and `gradients` for older applications.

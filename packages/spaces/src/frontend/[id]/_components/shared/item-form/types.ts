@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { Recurrence, SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 
 export type Priority = "low" | "medium" | "high" | "urgent";

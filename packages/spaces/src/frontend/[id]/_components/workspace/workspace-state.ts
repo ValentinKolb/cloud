@@ -1,5 +1,5 @@
 import { logger, weatherService } from "@valentinkolb/cloud/services";
-import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
+import { dates as calendar, type DateContext } from "@k2b/stdlib";
 import type { CalendarItem, ItemListResult, SpaceDetail, SpaceItem, SpaceWormhole, User } from "@/contracts";
 import { spacesService } from "@/service";
 import { latestSpaceEventCursor } from "@/service/events";

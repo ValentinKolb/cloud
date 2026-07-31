@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createMemo } from "solid-js";
 import type { ItemGroupBy, SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import ItemRow from "./ItemRow";

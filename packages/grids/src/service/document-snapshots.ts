@@ -1,4 +1,4 @@
-import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, err, fail, ok, type Result } from "@k2b/stdlib";
 import { type SQL, sql } from "bun";
 import type { RecordSnapshot, RecordSnapshotSummary } from "../contracts";
 import { logAudit } from "./audit";

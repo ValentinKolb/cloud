@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
-import { dates } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { dates } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { ServiceAccountCredential } from "@valentinkolb/cloud/contracts";
 import { CopyButton, DateTimePicker, Placeholder, prompts, TextInput } from "@valentinkolb/cloud/ui";

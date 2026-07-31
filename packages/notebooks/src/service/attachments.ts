@@ -14,7 +14,7 @@
  */
 
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
-import { fileIcons } from "@valentinkolb/stdlib";
+import { fileIcons } from "@k2b/stdlib";
 import { sql } from "bun";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
 

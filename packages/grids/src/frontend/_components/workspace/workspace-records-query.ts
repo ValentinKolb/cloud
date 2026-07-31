@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { ComputedColumnSpec, GroupSortSpec, RecordDisplayConfig, RecordQuery } from "../../../contracts";
 import { parseGridsQueryDsl } from "../../../query-dsl/parser";
 import {

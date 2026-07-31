@@ -8,7 +8,7 @@
  * `insertIntoContent` writes directly to Y.Text — edit-mode only.
  * Other operations are HTTP-based and work in both modes.
  */
-import { files } from "@valentinkolb/stdlib/browser";
+import { files } from "@k2b/stdlib/browser";
 import { apiClient } from "@/api/client";
 import { assertActive, type KitAttachment, type KitAttachmentsAPI, type KitContext } from "./kit-types";
 

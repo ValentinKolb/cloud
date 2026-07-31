@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { FilterTree, GroupBySpec, GroupSortSpec } from "../contracts";
 import type { Expr } from "../formula/types";

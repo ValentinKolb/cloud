@@ -1,4 +1,4 @@
-import type { BarItem, Point, Series, SliceItem } from "@valentinkolb/stdlib";
+import type { BarItem, Point, Series, SliceItem } from "@k2b/stdlib";
 import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../service";
 
 /**

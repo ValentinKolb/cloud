@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { ColumnSpec, FormatSpec } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";
 import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-format";

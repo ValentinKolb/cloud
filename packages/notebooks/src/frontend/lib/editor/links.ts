@@ -2,7 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { RangeSet } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import { fileIcons } from "@valentinkolb/stdlib";
+import { fileIcons } from "@k2b/stdlib";
 import { navigateToNotebookNote } from "../soft-navigation";
 import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId, isSafeMarkdownUrl } from "./attachment-url";

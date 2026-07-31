@@ -1,5 +1,5 @@
 import { ColorInput, prompts, SelectInput, toast } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceWormhole, SpaceWormholeDestination } from "@/contracts";

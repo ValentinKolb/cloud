@@ -1,4 +1,4 @@
-import { ok } from "@valentinkolb/stdlib";
+import { ok } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -17,7 +17,7 @@ import { announcements } from "../services";
 
 const IdParamSchema = z.object({ id: z.uuid() });
 
-const withMessage = async <T>(operation: Promise<import("@valentinkolb/stdlib").Result<T>>, message: string) => {
+const withMessage = async <T>(operation: Promise<import("@k2b/stdlib").Result<T>>, message: string) => {
   const result = await operation;
   if (!result.ok) return result;
   return ok({ message });

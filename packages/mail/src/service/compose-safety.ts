@@ -1,5 +1,5 @@
 import { domainToASCII } from "node:url";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql, type SQL } from "bun";
 import {
   composeSafetyConfigSchema,

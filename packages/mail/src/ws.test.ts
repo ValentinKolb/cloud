@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { UserSchema } from "@valentinkolb/cloud/contracts";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail, ok } from "@k2b/stdlib";
 import type { MailCollaborationEvent } from "./live-events";
 import type { MailRequestContext } from "./service/auth";
 import { evaluateMailLiveAccess, type MailLiveAccessDependencies, parseMailLiveReplayEvent, resolveMailLiveCursor } from "./ws";

@@ -1,4 +1,4 @@
-import { err, fail, ok, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type PageParams, type Paginated, type Result } from "@k2b/stdlib";
 import { type GeoPlace, geoService } from "../../server";
 import * as settings from "../settings";
 

@@ -1,5 +1,5 @@
 import { dialogCore, PanelDialog, PdfPreview, panelDialogOptions, prompts, TagsInput, TextInput } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal } from "solid-js";
 import type { DocumentTemplateSummary } from "../../../contracts";
 import type { Table } from "../../../service";

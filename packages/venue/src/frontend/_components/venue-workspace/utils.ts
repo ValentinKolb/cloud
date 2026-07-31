@@ -1,5 +1,5 @@
 import type { DateRangeValue } from "@valentinkolb/cloud/ui";
-import { img } from "@valentinkolb/stdlib/browser";
+import { img } from "@k2b/stdlib/browser";
 import type { DateOverride, OpeningRule, ShiftTemplate, UpcomingSlot, Venue } from "../../../contracts";
 import { DAY_MS } from "./constants";
 import type { FeedbackBucket } from "./types";

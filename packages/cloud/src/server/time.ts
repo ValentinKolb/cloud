@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { normalizeTimeZone, TIMEZONE_COOKIE } from "../shared/time";
 
 export { TIMEZONE_COOKIE };

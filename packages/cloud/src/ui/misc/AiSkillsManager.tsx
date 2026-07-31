@@ -6,8 +6,8 @@
  *
  * Talks to the platform API at /api/ai/skills (see ai/skills-routes.ts).
  */
-import { createZip, downloadFileFromContent, extractZip } from "@valentinkolb/stdlib/browser";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { createZip, downloadFileFromContent, extractZip } from "@k2b/stdlib/browser";
+import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch as SolidSwitch } from "solid-js";
 import type { AiSkillsRoutes } from "../../ai/skills-routes";
 import type { AiSkill, AiSkillEvent, AiSkillFileStat, AiSkillUserView } from "../../ai/skills-store";

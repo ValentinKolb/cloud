@@ -1,5 +1,5 @@
 import { prompts, SegmentedControl, toast } from "@valentinkolb/cloud/ui";
-import { clipboard } from "@valentinkolb/stdlib/browser";
+import { clipboard } from "@k2b/stdlib/browser";
 import { createSignal } from "solid-js";
 
 export type PublicDashboardDisplayTheme = "light" | "dark";

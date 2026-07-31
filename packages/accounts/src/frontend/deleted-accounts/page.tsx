@@ -3,7 +3,7 @@ import { accountsAppService as accountsService } from "@valentinkolb/cloud/servi
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";

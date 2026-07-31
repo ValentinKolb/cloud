@@ -1,5 +1,5 @@
 import type { AccessSubject, AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { Context } from "hono";
 import type { Grant, ResolveTarget, ResourceType } from "../service";
 import { gridsService } from "../service";

@@ -1,5 +1,5 @@
 import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, SelectInput, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createMemo, createSignal, For, Index, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, FormFieldEntry } from "../../../service";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import type { SpaceItem } from "@/contracts";
 import { getEffectiveSchedule, groupItems } from "./item-list-groups";
 

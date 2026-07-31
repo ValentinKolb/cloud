@@ -1,5 +1,5 @@
 import { createSignal, createMemo } from "solid-js";
-import { encoding } from "@valentinkolb/stdlib";
+import { encoding } from "@k2b/stdlib";
 import { TextInput, SegmentedControl } from "@valentinkolb/cloud/ui";
 import { ToolCodeBlock } from "./ToolOutput";
 

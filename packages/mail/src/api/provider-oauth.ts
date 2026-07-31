@@ -1,5 +1,5 @@
 import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
-import { err, fail } from "@valentinkolb/stdlib";
+import { err, fail } from "@k2b/stdlib";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";

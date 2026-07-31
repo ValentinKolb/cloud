@@ -16,7 +16,7 @@ import {
   readCliInput,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
-import { text } from "@valentinkolb/stdlib";
+import { text } from "@k2b/stdlib";
 import { z } from "zod";
 import {
   type AcquiredDraftLease,

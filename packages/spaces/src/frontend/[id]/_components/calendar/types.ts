@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { CalendarItem, SpaceColumn, SpaceTag } from "@/contracts";
 import type { CalendarFilter } from "./filter";
 

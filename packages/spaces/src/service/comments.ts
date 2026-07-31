@@ -1,4 +1,4 @@
-import { type DateContext, type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
+import { type DateContext, type PageParams, type Paginated, paginate } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { MutationResult, SpaceComment } from "@/contracts";
 import { resolveRecurringOccurrence } from "./recurrence";

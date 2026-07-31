@@ -1,5 +1,5 @@
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { type ConversationTriageInput, conversationTriageInputSchema, type MailCommand } from "../contracts";
 import { requireMailboxPermission } from "./access";

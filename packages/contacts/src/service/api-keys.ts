@@ -1,6 +1,6 @@
 import type { PermissionLevel, User } from "@valentinkolb/cloud/contracts";
 import { serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID, type ContactBookApiKey, grantBookAccess, listContactBookApiKeys } from "./access";
 
 export const list = (config: { bookId: string }): Promise<ContactBookApiKey[]> => listContactBookApiKeys(config.bookId);

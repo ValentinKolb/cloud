@@ -32,7 +32,7 @@ type FormulaSqlCompileOptions = {
   fields: Field[];
   /** Trusted SQL alias for the records table. Defaults to `r`. */
   recordAlias?: string;
-  dateConfig?: import("@valentinkolb/stdlib").DateContext;
+  dateConfig?: import("@k2b/stdlib").DateContext;
   now?: Date;
   resolveField?: FormulaSqlFieldResolver;
   /** Pre-built SQL for lookup/rollup fields (by field id). */

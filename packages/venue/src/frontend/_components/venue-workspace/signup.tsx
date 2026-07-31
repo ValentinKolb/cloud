@@ -10,8 +10,8 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { cookies } from "@valentinkolb/stdlib/browser";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { cookies } from "@k2b/stdlib/browser";
+import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { UpcomingSlot, VenueDashboard } from "../../../contracts";

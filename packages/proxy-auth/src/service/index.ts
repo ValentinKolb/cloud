@@ -1,6 +1,6 @@
 import { sql } from "bun";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
-import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
+import { err, fail, ok, paginate, type PageParams, type Paginated } from "@k2b/stdlib";
 import type { ProxyAuthAllowedGroup, ProxyAuthClient, CreateProxyAuthClient, UpdateProxyAuthClient } from "@/contracts";
 
 type Db = typeof sql;

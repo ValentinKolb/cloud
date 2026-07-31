@@ -1,4 +1,4 @@
-import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
+import { dates as calendar, type DateContext } from "@k2b/stdlib";
 import { z } from "zod";
 import { AssignedToFilterSchema, ItemTypeSchema, PrioritySchema } from "@/contracts";
 

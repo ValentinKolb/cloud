@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { normalizeRefKey, parseQualifiedIdentifierRef } from "../ref-syntax";
 import { storageOf } from "../service/field-storage";
 import {

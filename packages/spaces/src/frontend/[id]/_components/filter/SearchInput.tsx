@@ -1,5 +1,5 @@
 import { TextInput } from "@valentinkolb/cloud/ui";
-import { timed as timing } from "@valentinkolb/stdlib/solid";
+import { timed as timing } from "@k2b/stdlib/solid";
 import { createEffect, createSignal } from "solid-js";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import { buildSearchUrl } from "./types";

@@ -8,7 +8,7 @@
  * registerFileViewRenderer.
  */
 
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { type Component, createMemo, createResource, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import MarkdownEditor from "../input/markdown/MarkdownEditor";

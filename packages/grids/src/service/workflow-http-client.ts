@@ -3,7 +3,7 @@ import { type ClientRequest, request as httpRequest, type IncomingMessage, type 
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { isUnsafeNetworkAddress, isUnsafeNetworkHostname, normalizeNetworkHostname } from "@valentinkolb/cloud/shared";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 64 * 1024;

@@ -4,7 +4,7 @@ import type { ScriptCompletionOption, ScriptTypeFile } from "./script-intelligen
 const SCRIPT_FILE = "/script.ts";
 const KIT_TYPES_FILE = "/kit.d.ts";
 const EXTERNAL_SHIMS_FILE = "/external-shims.d.ts";
-const STDLIB_ROOT = "/node_modules/@valentinkolb/stdlib/src";
+const STDLIB_ROOT = "/node_modules/@k2b/stdlib/src";
 
 type TsModule = typeof ts;
 
@@ -28,9 +28,9 @@ import type {
   password as stdPassword,
   text as stdText,
   timing as stdTiming,
-} from "@valentinkolb/stdlib";
-import type { qr as stdQr } from "@valentinkolb/stdlib/qr";
-import type { files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
+} from "@k2b/stdlib";
+import type { qr as stdQr } from "@k2b/stdlib/qr";
+import type { files as stdFiles, images as stdImages } from "@k2b/stdlib/browser";
 
 declare global {
 	type KitTableRow = Record<string, string>;
@@ -220,9 +220,9 @@ const resolveModuleName = (
   containingFile: string,
   files: Map<string, { text: string; version: number }>,
 ): string | null => {
-  if (moduleName === "@valentinkolb/stdlib") return `${STDLIB_ROOT}/index.ts`;
-  if (moduleName === "@valentinkolb/stdlib/qr") return `${STDLIB_ROOT}/qr.ts`;
-  if (moduleName === "@valentinkolb/stdlib/browser") return `${STDLIB_ROOT}/browser/index.ts`;
+  if (moduleName === "@k2b/stdlib") return `${STDLIB_ROOT}/index.ts`;
+  if (moduleName === "@k2b/stdlib/qr") return `${STDLIB_ROOT}/qr.ts`;
+  if (moduleName === "@k2b/stdlib/browser") return `${STDLIB_ROOT}/browser/index.ts`;
   if (moduleName === "lean-qr" || moduleName === "lean-qr/extras/svg") return EXTERNAL_SHIMS_FILE;
   if (!moduleName.startsWith(".")) return null;
 

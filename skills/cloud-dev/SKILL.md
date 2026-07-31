@@ -67,7 +67,7 @@ Do not rebuild functionality already owned by these packages:
 
 | Package | Responsibility |
 | --- | --- |
-| `@valentinkolb/stdlib` | Results, mutations, dates, browser helpers, encoding, and crypto |
+| `@k2b/stdlib` | Results, mutations, dates, browser helpers, encoding, and crypto |
 | `@k2b/sync` | Jobs, queues, schedulers, topics, rate limits, and mutexes |
 | `@k2b/ssr` | SolidJS islands SSR and navigation |
 

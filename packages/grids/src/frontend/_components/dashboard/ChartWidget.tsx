@@ -1,5 +1,5 @@
 import { Chart } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { Show } from "solid-js";
 import type { Field, Widget } from "../../../service";
 import DashboardWidgetState from "./DashboardWidgetState";

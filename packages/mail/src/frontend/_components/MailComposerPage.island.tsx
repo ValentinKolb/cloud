@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { MailDraft, MailDraftSeed, SenderIdentity } from "../../contracts";
 import MailComposer from "./MailComposer";
 

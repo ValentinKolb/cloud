@@ -1,4 +1,4 @@
-import { isServiceError, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
+import { isServiceError, ok, type Result, type ServiceError } from "@k2b/stdlib";
 import type { Context, TypedResponse } from "hono";
 import type { StatusCode } from "hono/utils/http-status";
 

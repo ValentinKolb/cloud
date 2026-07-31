@@ -1,6 +1,6 @@
 import { createSignal, createMemo, createEffect } from "solid-js";
 import { SegmentedControl, Slider } from "@valentinkolb/cloud/ui";
-import { timed } from "@valentinkolb/stdlib/solid";
+import { timed } from "@k2b/stdlib/solid";
 import { ToolCodeBlock } from "./ToolOutput";
 
 type Mode = "paragraphs" | "sentences" | "words";

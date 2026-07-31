@@ -1,5 +1,5 @@
 import type { Message, Usage } from "@k2b/nessi";
-import { fileIcons } from "@valentinkolb/stdlib";
+import { fileIcons } from "@k2b/stdlib";
 import { formatBytes as sharedFormatBytes } from "../../shared/format";
 import { type AiAttachmentRef, parseAiAttachmentMarkers } from "../attachments";
 import { assistantVisibleTextFromMessage } from "../timeline";

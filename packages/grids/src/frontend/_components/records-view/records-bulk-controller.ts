@@ -1,5 +1,5 @@
 import { prompts, toast } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { type Accessor, createEffect, createSignal } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { RecordQuery } from "../../../contracts";

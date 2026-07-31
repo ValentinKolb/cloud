@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { arg, type CloudCliContext, type CloudCliFlags, command, defineCliCommands, flag, printStructured } from "@valentinkolb/cloud/cli";
-import { encoding, password, crypto as stdCrypto } from "@valentinkolb/stdlib";
-import { qr } from "@valentinkolb/stdlib/qr";
+import { encoding, password, crypto as stdCrypto } from "@k2b/stdlib";
+import { qr } from "@k2b/stdlib/qr";
 
 type CorrectionLevel = "L" | "M" | "Q" | "H";
 

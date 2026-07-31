@@ -1,5 +1,5 @@
 import { toSVG } from "@bwip-js/generic";
-import { qr } from "@valentinkolb/stdlib/qr";
+import { qr } from "@k2b/stdlib/qr";
 import type { FormatSpec } from "./contracts";
 
 export type BarcodeFormat = Extract<FormatSpec, { kind: "barcode" }>;

@@ -1,5 +1,5 @@
 import { prompts, toast } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { onCleanup } from "solid-js";
 import { apiClient } from "../../api/client";
 import { readApiError } from "./api-response";

@@ -4,7 +4,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { notifications } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { ssr } from "../../config";
 import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";

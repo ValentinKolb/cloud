@@ -1,5 +1,5 @@
 import { Placeholder } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createSignal, onMount, Show } from "solid-js";
 import type { MailDraftSeed, SenderIdentity } from "../../contracts";
 import MailComposerPage from "./MailComposerPage.island";

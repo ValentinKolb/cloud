@@ -3,7 +3,7 @@ import { type BoundNotificationMap, type NotificationDeliveryPolicy, notificatio
 import { notifications, renderTemplate } from "@valentinkolb/cloud/services";
 import type { AccountsNotificationSender } from "@valentinkolb/cloud/services/accounts/notification-sender";
 import * as settings from "@valentinkolb/cloud/services/settings";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { z } from "zod";
 
 const requiredEmail: NotificationDeliveryPolicy = { required: ["email"] };

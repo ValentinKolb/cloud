@@ -1,7 +1,7 @@
 import { Lightbox, type LightboxImage, Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import { dates, fileIcons, text } from "@valentinkolb/stdlib";
-import { dnd, mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { dates, fileIcons, text } from "@k2b/stdlib";
+import { dnd, mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { apiClient } from "@/api/client";

@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import { TextInput } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 export default function AdminLoginForm(props: { redirectTo?: string }) {

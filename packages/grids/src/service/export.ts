@@ -1,5 +1,5 @@
 import { markdown as markdownRenderer } from "@valentinkolb/cloud/shared";
-import { type DateContext, dates, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, dates, err, fail, ok, type Result } from "@k2b/stdlib";
 import type { ExportFieldSpec, RecordQuery, SearchSpec } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";

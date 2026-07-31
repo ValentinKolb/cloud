@@ -1,5 +1,5 @@
 import { EMAIL_HTML_ALLOWED_ATTRIBUTES, EMAIL_HTML_ALLOWED_SCHEMES, EMAIL_HTML_TAGS, markdown } from "@valentinkolb/cloud/shared";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { convert } from "html-to-text";
 import juice from "juice";
 import postcss from "postcss";

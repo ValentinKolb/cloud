@@ -1,7 +1,7 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { parseDataUrl } from "@valentinkolb/cloud/shared";
 import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { documentTemplateStarterById } from "../document-template-starters";
 import { type GridTemplate, getTemplate, type TemplateDateExpression, type TemplateRef, templates } from "../templates";

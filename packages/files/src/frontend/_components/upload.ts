@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { chunks, type UploadState } from "@valentinkolb/filegate/utils";
 import { apiClient } from "@/api/client";
-import { files } from "@valentinkolb/stdlib/browser";
+import { files } from "@k2b/stdlib/browser";
 import type { FileBaseInfo } from "@/contracts";
 
 // =============================================================================

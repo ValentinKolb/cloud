@@ -1,5 +1,5 @@
 import type { PanesNode, PanesValue } from "@valentinkolb/cloud/ui";
-import { cookies } from "@valentinkolb/stdlib/browser";
+import { cookies } from "@k2b/stdlib/browser";
 import { createSignal } from "solid-js";
 import {
   MAIL_USER_PREFERENCES_COOKIE,

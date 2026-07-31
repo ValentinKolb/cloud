@@ -1,6 +1,6 @@
 import { api } from "@valentinkolb/cloud/browser";
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import type { InventoryApi } from "./frontend-server";
 
 export const inventoryClient = api.create<InventoryApi>({

@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { SenderIdentity } from "../contracts";
 import type { MailboxSettingsContext } from "../settings-context";
 import * as mailboxAccess from "./access";

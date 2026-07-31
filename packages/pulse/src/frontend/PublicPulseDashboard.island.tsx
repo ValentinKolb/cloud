@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import type { PulseDashboardSnapshot } from "../contracts";
 import { jsonFetch } from "./http";

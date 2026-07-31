@@ -10,7 +10,7 @@
  * before paging through individual requests.
  */
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
-import { ok } from "@valentinkolb/stdlib";
+import { ok } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { z } from "zod";
 import { TELEMETRY_RANGES, TELEMETRY_ROUTE_SORTS } from "./contracts";

@@ -4,7 +4,7 @@ import { notifications, renderTemplate } from "@valentinkolb/cloud/services";
 import type { AccountLifecycleNotificationSender } from "@valentinkolb/cloud/services/account-lifecycle/notification-sender";
 import type { AuthNotificationSender } from "@valentinkolb/cloud/services/auth-flows";
 import * as settings from "@valentinkolb/cloud/services/settings";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { z } from "zod";
 
 const requiredEmail: NotificationDeliveryPolicy = { required: ["email"] };

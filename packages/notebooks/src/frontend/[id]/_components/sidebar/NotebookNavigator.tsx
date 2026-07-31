@@ -1,5 +1,5 @@
 import { Dropdown, Placeholder, prompts, SelectChip } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates, searchParams } from "@valentinkolb/stdlib";
+import { type DateContext, dates, searchParams } from "@k2b/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { type NavigatorQuery, parseNavigatorQuery, withNavigatorQuery } from "../../../../lib/navigator-url";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";

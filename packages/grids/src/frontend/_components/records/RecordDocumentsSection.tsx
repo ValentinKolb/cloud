@@ -9,8 +9,8 @@ import {
   Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { fileIcons } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { fileIcons } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentRunSummary, DocumentTemplateSummary, RecordSnapshot, RecordSnapshotSummary } from "../../../contracts";

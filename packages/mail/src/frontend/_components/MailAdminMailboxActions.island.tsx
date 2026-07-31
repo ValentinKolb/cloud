@@ -1,7 +1,7 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { PermissionEditor, prompts, Tooltip } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { apiClient } from "../../api/client";
 
 type MailAdminMailboxActionsProps = {

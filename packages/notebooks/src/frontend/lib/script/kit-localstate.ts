@@ -1,6 +1,6 @@
 /**
  * `nb.localKV` — per-user, per-notebook key-value store backed
- * by the platform OPFS `kvStore` from `@valentinkolb/stdlib/browser`.
+ * by the platform OPFS `kvStore` from `@k2b/stdlib/browser`.
  *
  * Differences from `current.kv` (which uses a Y.Map):
  *  - NOT collaborative — only the user who set it sees the value.
@@ -16,7 +16,7 @@
  * so collisions across notebooks / other apps using the same kvStore
  * are impossible.
  */
-import { kvStore } from "@valentinkolb/stdlib/browser";
+import { kvStore } from "@k2b/stdlib/browser";
 import { assertActive, type KitContext, type KitKVSetter, type KitLocalStateAPI } from "./kit-types";
 
 const KEY_NAMESPACE = "notebooks:script-state";

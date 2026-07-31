@@ -1,5 +1,5 @@
 import type { HelpDocumentManifest, HelpDocumentPayload, HelpSearchPayload } from "@valentinkolb/cloud/shared";
-import { clipboard, hotkeys } from "@valentinkolb/stdlib/solid";
+import { clipboard, hotkeys } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { MarkdownView, prompts } from "../ui";
 import { appAccentStyle } from "./app-appearance";

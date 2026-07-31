@@ -18,7 +18,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { EmailTemplate, EmailTemplateDependencyMap } from "../../../contracts";

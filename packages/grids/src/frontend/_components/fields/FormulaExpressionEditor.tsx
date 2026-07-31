@@ -1,5 +1,5 @@
 import { AutocompleteEditor, DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import { timed } from "@valentinkolb/stdlib/solid";
+import { timed } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Field } from "../../../service";

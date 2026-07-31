@@ -1,6 +1,6 @@
 import { AppOverview, Pagination, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
-import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations, timed } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Base } from "../../../service";

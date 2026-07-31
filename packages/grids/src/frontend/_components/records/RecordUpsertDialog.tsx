@@ -1,5 +1,5 @@
 import { dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import type { Field, GridRecord } from "../../../service";
 import { initialFieldInputValue, isRecordInputField, sanitizeFieldValues } from "../fields/field-render";

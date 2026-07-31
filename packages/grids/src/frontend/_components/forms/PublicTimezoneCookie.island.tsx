@@ -1,5 +1,5 @@
 import { TIMEZONE_COOKIE } from "@valentinkolb/cloud/shared";
-import { cookies } from "@valentinkolb/stdlib/browser";
+import { cookies } from "@k2b/stdlib/browser";
 import { onMount } from "solid-js";
 
 export default function PublicTimezoneCookie() {

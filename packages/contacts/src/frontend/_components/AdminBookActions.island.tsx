@@ -1,7 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { Dropdown, PermissionEditor, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./api";
 

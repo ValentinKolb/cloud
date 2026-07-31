@@ -104,7 +104,7 @@ export const navigateWithParam = (key: string, value?: string) => {
 // =============================================================================
 
 import type { FileInfo } from "@/contracts";
-import { detailPanel, type DetailSelectPayload } from "@valentinkolb/stdlib/solid";
+import { detailPanel, type DetailSelectPayload } from "@k2b/stdlib/solid";
 
 /** Event name for file detail panel selection changes */
 export const DETAIL_FILE_SELECT_EVENT = "detail-file-select";

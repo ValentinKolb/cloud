@@ -8,7 +8,7 @@ import {
   SPOTLIGHT_SHORTCUT_TITLE,
   SpotlightButton,
 } from "@valentinkolb/cloud/ui";
-import { fuzzy } from "@valentinkolb/stdlib";
+import { fuzzy } from "@k2b/stdlib";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { docHref, findDocPage, type UiLabDocPage, uiLabDocs, uiLabSearchEntries } from "./registry";
 import UiLabLayoutHelp from "./UiLabLayoutHelp";

@@ -1,7 +1,7 @@
 import { prompts, toast } from "@valentinkolb/cloud/ui";
 import type { WorkflowJsonValue, WorkflowRunState } from "@valentinkolb/cloud/workflows";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { apiClient } from "../api-client";
 
 type AttentionStep = {

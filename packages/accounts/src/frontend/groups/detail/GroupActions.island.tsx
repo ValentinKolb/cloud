@@ -1,6 +1,6 @@
 import { CopyButton, Dropdown, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@/api/client";
 import { ErrorResponseSchema } from "@/contracts";
 

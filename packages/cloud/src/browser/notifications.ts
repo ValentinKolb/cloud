@@ -1,4 +1,4 @@
-import { notifications as nativeNotifications } from "@valentinkolb/stdlib/browser";
+import { notifications as nativeNotifications } from "@k2b/stdlib/browser";
 import { apiClient } from "../clients/core";
 import type { BrowserPushSubscription } from "../contracts";
 import { withNotificationTimeout } from "./notification-timeout";

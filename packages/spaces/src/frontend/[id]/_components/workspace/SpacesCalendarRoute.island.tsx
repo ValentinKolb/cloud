@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import type { CalendarItem, SpaceColumn, SpaceTag } from "@/contracts";
 import { subscribeToDetailSelection } from "../../../lib/detail";

@@ -1,4 +1,4 @@
-import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
+import { dates as calendar, type DateContext } from "@k2b/stdlib";
 import type { FilterTree, RecordDisplayConfig } from "../../../contracts";
 import type { Field } from "../../../service";
 import type { RecordsState } from "./query-url";

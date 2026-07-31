@@ -8,8 +8,8 @@ import {
   prompts,
   Tooltip,
 } from "@valentinkolb/cloud/ui";
-import { fileIcons, text } from "@valentinkolb/stdlib";
-import { showFileDialog } from "@valentinkolb/stdlib/browser";
+import { fileIcons, text } from "@k2b/stdlib";
+import { showFileDialog } from "@k2b/stdlib/browser";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, GridFile } from "../../../service";

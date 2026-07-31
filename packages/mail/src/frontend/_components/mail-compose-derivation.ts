@@ -1,4 +1,4 @@
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import type { DraftIntent, SenderIdentity } from "../../contracts";
 import { deriveReplyAddressObjects } from "../../reply-recipients";
 import type { MessageDetail } from "../../service/messages";

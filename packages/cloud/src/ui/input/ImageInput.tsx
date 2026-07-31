@@ -1,4 +1,4 @@
-import { img, showFileDialog } from "@valentinkolb/stdlib/browser";
+import { img, showFileDialog } from "@k2b/stdlib/browser";
 import { Show } from "solid-js";
 import { createInputA11y, InputWrapper } from "./util";
 

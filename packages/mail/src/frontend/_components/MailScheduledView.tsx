@@ -1,6 +1,6 @@
 import { Link, type LinkNavigateEvent, navigateTo } from "@k2b/ssr/nav";
 import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CancelScheduledSendInput, CancelScheduledSendResult, ScheduledSendPage } from "../../contracts";

@@ -4,7 +4,7 @@ import {
   type DndDroppableSnapshot,
   type DndPointer,
   dnd,
-} from "@valentinkolb/stdlib/solid";
+} from "@k2b/stdlib/solid";
 import { children, createMemo, For, type JSX, onCleanup, Show } from "solid-js";
 
 const ELEMENT_SLOT = Symbol("Panes.Element");

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { sql } from "bun";
 import { migrate as migrateAuth } from "../../core/src/migrate/core/auth";
 import { migrate as migrateGrids } from "../src/migrate";

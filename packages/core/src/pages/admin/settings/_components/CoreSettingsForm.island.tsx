@@ -39,8 +39,8 @@ import {
   Tooltip,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { img } from "@valentinkolb/stdlib/browser";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { img } from "@k2b/stdlib/browser";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { LegacySettingsSection } from "./LegacySettingsPanel.island";
 

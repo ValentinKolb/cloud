@@ -1,4 +1,4 @@
-import { detailPanel } from "@valentinkolb/stdlib/solid";
+import { detailPanel } from "@k2b/stdlib/solid";
 import { SPACES_DETAIL_STATE_EVENT, type SpacesDetailState } from "../[id]/_components/workspace/workspace-events";
 
 export const SPACE_DETAIL_PARAM = "item";

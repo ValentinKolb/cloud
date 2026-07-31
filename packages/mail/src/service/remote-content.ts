@@ -2,7 +2,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { audit } from "@valentinkolb/cloud/services";
 import { toPgUuidArray } from "@valentinkolb/cloud/services/postgres";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { RemoteContentRuleInput, RemoteContentRuleScope } from "../contracts";
 import { normalizeEmailAddress, normalizeEmailDomain } from "./address-normalization";

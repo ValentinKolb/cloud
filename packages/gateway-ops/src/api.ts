@@ -6,7 +6,7 @@ import {
   settingsListLegacyKeys,
   settingsService,
 } from "@valentinkolb/cloud/services";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail, ok } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { z } from "zod";
 import { buildGatewayHealth } from "./health";

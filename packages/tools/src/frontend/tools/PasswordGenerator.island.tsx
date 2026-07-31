@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, type JSX } from "solid-js";
-import { password as pwdGen } from "@valentinkolb/stdlib";
-import { clipboard } from "@valentinkolb/stdlib/browser";
+import { password as pwdGen } from "@k2b/stdlib";
+import { clipboard } from "@k2b/stdlib/browser";
 import { SegmentedControl, Slider, Switch } from "@valentinkolb/cloud/ui";
 
 type PasswordMode = "random" | "memorable" | "pin";

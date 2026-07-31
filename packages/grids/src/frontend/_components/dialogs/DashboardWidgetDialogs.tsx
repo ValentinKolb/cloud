@@ -11,7 +11,7 @@ import {
   Select,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import { gqlSourceRef } from "../../../query-dsl/source-format";

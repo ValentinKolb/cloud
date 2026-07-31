@@ -1,7 +1,7 @@
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
 import { prompts, TextInput } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { PasswordSetupFields } from "../auth/PasswordSetupFields";
 import { signOutCurrentSession } from "./account-session";

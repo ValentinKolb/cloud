@@ -7,7 +7,7 @@ import {
   pickedCompletion,
 } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
-import { fuzzy } from "@valentinkolb/stdlib";
+import { fuzzy } from "@k2b/stdlib";
 import { buildAttachmentCompletionSource } from "../../../../lib/editor/attachment-autocomplete";
 import { codeFenceCompletionSource } from "../../../../lib/editor/code-fence-snippets";
 import { infoBlockCompletionSource } from "../../../../lib/editor/info-block-snippets";

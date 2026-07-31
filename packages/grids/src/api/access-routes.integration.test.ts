@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect } from "bun:test";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail, ok } from "@k2b/stdlib";
 import { sql } from "bun";
 import { Hono } from "hono";
 import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integration-test-utils";

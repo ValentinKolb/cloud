@@ -1,6 +1,6 @@
 import type { WidgetListItem, WidgetResponse } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { notebooksService } from "../service";

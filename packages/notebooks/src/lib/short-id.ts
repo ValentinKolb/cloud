@@ -19,7 +19,7 @@
  * notes and attachments live in a single global scope (one short-id
  * column per table, no compound uniqueness).
  */
-import { crypto } from "@valentinkolb/stdlib";
+import { crypto } from "@k2b/stdlib";
 import { sql } from "bun";
 
 /** Length of the generated short-id — 6 base62 chars. */

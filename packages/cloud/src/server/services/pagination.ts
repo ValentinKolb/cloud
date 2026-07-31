@@ -1,4 +1,4 @@
-import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
+import { type PageParams, type Paginated, paginate } from "@k2b/stdlib";
 
 export const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
   if (!pagination) {

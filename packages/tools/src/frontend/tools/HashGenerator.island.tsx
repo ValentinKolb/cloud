@@ -1,5 +1,5 @@
 import { createSignal, createEffect } from "solid-js";
-import { crypto } from "@valentinkolb/stdlib";
+import { crypto } from "@k2b/stdlib";
 import { CopyButton, TextInput } from "@valentinkolb/cloud/ui";
 import { ToolCodeBlock } from "./ToolOutput";
 

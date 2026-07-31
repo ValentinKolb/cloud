@@ -6,7 +6,7 @@ import {
   type SpotlightButtonVariant,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
-import { fuzzy } from "@valentinkolb/stdlib";
+import { fuzzy } from "@k2b/stdlib";
 import { onCleanup, onMount } from "solid-js";
 import { categories, categoryOrder, tools, toolSearchText, type ToolDef } from "./tools/registry";
 

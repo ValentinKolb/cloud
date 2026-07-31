@@ -1,4 +1,4 @@
-import { text } from "@valentinkolb/stdlib";
+import { text } from "@k2b/stdlib";
 
 const trimFixed = (value: number, fractionDigits: number): string => {
   const fixed = value.toFixed(fractionDigits);

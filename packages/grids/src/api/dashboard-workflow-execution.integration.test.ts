@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, mock, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
-import { ok } from "@valentinkolb/stdlib";
+import { ok } from "@k2b/stdlib";
 import { sql } from "bun";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import type { Dashboard } from "../contracts";

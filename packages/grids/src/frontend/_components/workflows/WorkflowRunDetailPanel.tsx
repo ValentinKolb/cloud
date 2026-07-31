@@ -1,6 +1,6 @@
 import { dialogCore, Placeholder, panelDialogWorkspaceOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DocumentRunSummary, DocumentRunSummaryList } from "../../../contracts";

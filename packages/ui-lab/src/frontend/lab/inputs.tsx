@@ -30,8 +30,8 @@ import {
   TagsInput,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { showFileDialog } from "@valentinkolb/stdlib/browser";
+import { type DateContext, dates } from "@k2b/stdlib";
+import { showFileDialog } from "@k2b/stdlib/browser";
 import { createSignal, For, Show } from "solid-js";
 import DemoCard from "./DemoCard";
 

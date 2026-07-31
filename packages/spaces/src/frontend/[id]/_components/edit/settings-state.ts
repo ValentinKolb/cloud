@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { User } from "@/contracts";
 import { spacesService } from "@/service";
 import type { SpaceSettingsContext, SpaceUserSettings } from "@/settings-context";

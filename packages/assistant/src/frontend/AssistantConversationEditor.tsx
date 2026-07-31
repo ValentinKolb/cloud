@@ -1,6 +1,6 @@
 import type { AiConversation, AiEnrichmentRun, AiEnrichmentStatus } from "@valentinkolb/cloud/ai";
 import { CheckboxCard, DataTable, type DataTableColumn, IconInput, prompts, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 

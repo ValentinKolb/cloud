@@ -2,7 +2,7 @@ import { type PumpHandle, type PumpState, pump } from "@k2b/sync";
 import { audit, toPgTextArray, toPgUuidArray, trace } from "@valentinkolb/cloud/services";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, isServiceError, ok, type Result, unwrap } from "@valentinkolb/stdlib";
+import { err, fail, isServiceError, ok, type Result, unwrap } from "@k2b/stdlib";
 import { sql } from "bun";
 import { stringify } from "yaml";
 import {

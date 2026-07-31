@@ -19,8 +19,8 @@ import {
   Tooltip,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import { cookies } from "@valentinkolb/stdlib/browser";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { cookies } from "@k2b/stdlib/browser";
+import { mutation } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { FeedbackEntry, PublicSection, PublicSectionInput, ShiftAssignment, UpcomingSlot } from "../../contracts";

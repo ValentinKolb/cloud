@@ -1,7 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
-import { dates } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { dates } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { WebAuthnPasskey } from "@valentinkolb/cloud/contracts";
 import { Placeholder, prompts, TextInput } from "@valentinkolb/cloud/ui";

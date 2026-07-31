@@ -1,4 +1,4 @@
-import { mutation, timed } from "@valentinkolb/stdlib/solid";
+import { mutation, timed } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { createInputA11y, InputWrapper } from "./util";
 

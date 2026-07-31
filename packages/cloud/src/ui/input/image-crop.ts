@@ -136,7 +136,7 @@ export const imageCropRectToPixels = (rect: ImageCropRect, imageSize: ImageCropS
 };
 
 const createCroppedImageData = async (source: ImageCropSource, state: ImageCropState, output: ImageCropOutput = {}) => {
-  const { img } = await import("@valentinkolb/stdlib/browser");
+  const { img } = await import("@k2b/stdlib/browser");
   let data = await img.create(source);
   if (state.rotation !== 0) {
     data = await img.rotate(state.rotation)(data);

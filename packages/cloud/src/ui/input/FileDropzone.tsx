@@ -1,4 +1,4 @@
-import { dropzone } from "@valentinkolb/stdlib/solid";
+import { dropzone } from "@k2b/stdlib/solid";
 import { type Accessor, type JSX, Show } from "solid-js";
 import { createInputA11y, InputWrapper } from "./util";
 

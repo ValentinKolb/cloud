@@ -20,9 +20,9 @@ import {
   password as stdPassword,
   text as stdText,
   timing as stdTiming,
-} from "@valentinkolb/stdlib";
-import { clipboard as stdClipboard, files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
-import { qr as stdQr } from "@valentinkolb/stdlib/qr";
+} from "@k2b/stdlib";
+import { clipboard as stdClipboard, files as stdFiles, images as stdImages } from "@k2b/stdlib/browser";
+import { qr as stdQr } from "@k2b/stdlib/qr";
 import { createKitAttachmentsAPI } from "./kit-attachments";
 import { createKitLocalStateAPI } from "./kit-localstate";
 import { createKitCurrentNote } from "./kit-note";

@@ -12,7 +12,7 @@ import {
   updateAccess,
 } from "@valentinkolb/cloud/server";
 import { type ServiceAccountCredential, serviceAccountCredentials } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { publishSpaceEvent } from "./events";
 

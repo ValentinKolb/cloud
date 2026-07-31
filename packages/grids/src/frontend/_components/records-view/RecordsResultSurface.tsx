@@ -1,5 +1,5 @@
 import { Placeholder } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { type ComponentProps, Match, Switch } from "solid-js";
 import type { AggregationSpec, ColumnSpec, GroupBySpec, RecordDisplayConfig } from "../../../contracts";
 import type { Field, GridFilePreview, GridRecord } from "../../../service";

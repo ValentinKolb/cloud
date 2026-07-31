@@ -1,7 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { Placeholder, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentProfile } from "../../../contracts";

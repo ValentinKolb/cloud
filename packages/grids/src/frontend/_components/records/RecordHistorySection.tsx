@@ -1,5 +1,5 @@
 import { Avatar, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { For, Show } from "solid-js";
 import type { Field, RecordHistoryEntry } from "../../../service";
 

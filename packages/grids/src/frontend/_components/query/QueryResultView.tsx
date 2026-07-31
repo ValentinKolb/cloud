@@ -1,5 +1,5 @@
 import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewResponse } from "../../../contracts";

@@ -14,7 +14,7 @@
 import { createPagination, parsePagination } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
 import { trace } from "@valentinkolb/cloud/services";
-import { ok } from "@valentinkolb/stdlib";
+import { ok } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { z } from "zod";
 import { buildBackgroundJobRows, filterBackgroundJobRows, jobsObservabilityService } from "./service";

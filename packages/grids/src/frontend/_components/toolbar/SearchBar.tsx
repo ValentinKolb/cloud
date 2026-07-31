@@ -1,5 +1,5 @@
 import { MultiSelectInput, TextInput } from "@valentinkolb/cloud/ui";
-import { timed as timing } from "@valentinkolb/stdlib/solid";
+import { timed as timing } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, Show } from "solid-js";
 import type { Field } from "../../../service";
 

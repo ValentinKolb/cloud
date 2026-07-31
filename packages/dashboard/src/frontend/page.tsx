@@ -6,7 +6,7 @@ import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { logger } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Placeholder, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@valentinkolb/cloud/ui";
-import { gradients } from "@valentinkolb/stdlib";
+import { gradients } from "@k2b/stdlib";
 import type { JSX } from "solid-js";
 import { dashboardHelp } from "@/help";
 import { ssr } from "../config";

@@ -1,4 +1,4 @@
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 
 export const documentIconActionClass =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-secondary disabled:cursor-not-allowed disabled:opacity-50";

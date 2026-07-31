@@ -8,7 +8,7 @@ import {
   TextInput,
   Tooltip,
 } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
 import { fieldOption } from "../fields/field-type-meta";

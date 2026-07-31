@@ -20,7 +20,7 @@ import {
   TextInput,
   Tooltip,
 } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import type { SettingFieldDef } from "./CoreSettingsForm.island";
 

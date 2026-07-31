@@ -1,8 +1,8 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { MarkdownView } from "@valentinkolb/cloud/ui";
-import { timing } from "@valentinkolb/stdlib";
-import { qr } from "@valentinkolb/stdlib/qr";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { timing } from "@k2b/stdlib";
+import { qr } from "@k2b/stdlib/qr";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import { type PublicOpening, type PublicSection, type PublicStatus, PublicStatusSchema } from "../../../contracts";

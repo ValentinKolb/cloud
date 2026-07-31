@@ -1,4 +1,4 @@
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import Tooltip from "../misc/Tooltip";
 import { createInputA11y, InputWrapper } from "./util";

@@ -1,5 +1,5 @@
 import type { Message, Usage } from "@k2b/nessi";
-import { clipboard, mutation } from "@valentinkolb/stdlib/solid";
+import { clipboard, mutation } from "@k2b/stdlib/solid";
 import { createContext, For, type JSX, Show, useContext } from "solid-js";
 import { dialogCore, PanelDialog, panelDialogOptions, prompts, StatCell, StatGrid } from "../../ui";
 import type { AiTurnBlock } from "../protocol";

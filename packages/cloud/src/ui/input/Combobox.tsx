@@ -1,5 +1,5 @@
-import { withMinLoadTime } from "@valentinkolb/stdlib";
-import { mutation, timed } from "@valentinkolb/stdlib/solid";
+import { withMinLoadTime } from "@k2b/stdlib";
+import { mutation, timed } from "@k2b/stdlib/solid";
 import { createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 
 /**

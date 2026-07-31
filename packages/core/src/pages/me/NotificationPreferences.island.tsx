@@ -1,7 +1,7 @@
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserNotificationPreference, UserNotificationPreferencesResponse } from "@valentinkolb/cloud/contracts";
 import { Checkbox, Placeholder, toast } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { notificationChannelAvailability, notificationChannelMeta } from "./notification-ui";
 

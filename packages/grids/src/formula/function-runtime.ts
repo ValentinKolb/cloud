@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { isNullish, toNumber } from "./numeric";
 import type { formulaError, Literal } from "./types";
 

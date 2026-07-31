@@ -1,4 +1,4 @@
-import { cookies } from "@valentinkolb/stdlib/browser";
+import { cookies } from "@k2b/stdlib/browser";
 import { onMount } from "solid-js";
 import { TIMEZONE_COOKIE } from "../shared/time";
 

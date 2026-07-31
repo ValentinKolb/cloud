@@ -1,4 +1,4 @@
-import type { ImgData } from "@valentinkolb/stdlib/browser";
+import type { ImgData } from "@k2b/stdlib/browser";
 
 export type Adjustments = {
   brightness: number;

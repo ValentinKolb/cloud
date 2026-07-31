@@ -1,6 +1,6 @@
 import { type AccessSubject, buildAccessPrincipalTierConditions } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { type View, type ViewUiSettings, ViewUiSettingsSchema } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";

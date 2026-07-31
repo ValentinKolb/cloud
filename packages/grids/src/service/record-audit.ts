@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { AuditQuestion, RecordAuditContext, RecordMutationAudit, TableAuditPolicy } from "../contracts";
 import { RecordMutationAuditSchema, TableAuditPolicySchema } from "../contracts";
 import { type RecordAuditOperation, recordAuditRequirementFor } from "../record-audit-policy";

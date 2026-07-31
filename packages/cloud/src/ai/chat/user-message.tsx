@@ -1,4 +1,4 @@
-import { clipboard, mutation } from "@valentinkolb/stdlib/solid";
+import { clipboard, mutation } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { DialogHeader, Dropdown, type DropdownItem, dialogCore, TextInput } from "../../ui";
 import type { AiTurnBlock } from "../protocol";

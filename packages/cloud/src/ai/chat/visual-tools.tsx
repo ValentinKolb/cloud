@@ -1,4 +1,4 @@
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { isRecord, jsonPreview } from "./message-utils";
 

@@ -1,5 +1,5 @@
 import { coreSettings } from "@valentinkolb/cloud/services";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import { sql } from "bun";
 import icalGenerator, { ICalEventRepeatingFreq, type ICalRepeatingOptions, ICalWeekday } from "ical-generator";
 import type { Priority, Space } from "@/contracts";

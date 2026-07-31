@@ -1,7 +1,7 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { accounts, logger } from "@valentinkolb/cloud/services";
-import type { Result } from "@valentinkolb/stdlib";
+import type { Result } from "@k2b/stdlib";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";

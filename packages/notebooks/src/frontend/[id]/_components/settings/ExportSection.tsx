@@ -1,6 +1,6 @@
 import { CheckboxCard, LogEntriesTable, type LogTableEntry, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { Link } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { type Accessor, createEffect, createResource, createSignal, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";

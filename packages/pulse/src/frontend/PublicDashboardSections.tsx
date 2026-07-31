@@ -1,6 +1,6 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Chart, DataTable, type DataTableColumn, MarkdownView } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { For, type JSX, Show } from "solid-js";
 import type {
   MetricQueryPoint,

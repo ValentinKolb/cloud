@@ -1,6 +1,6 @@
 import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { listenPopState, navigate, navigateTo } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import type { DeletedMailbox, DeletedMailboxPage, Mailbox } from "../contracts";

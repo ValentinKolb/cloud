@@ -1,6 +1,6 @@
 import { Dropdown, Placeholder, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations, timed as timing } from "@k2b/stdlib/solid";
 import { createSignal, For, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { normalizeMacAddress } from "@/contracts";

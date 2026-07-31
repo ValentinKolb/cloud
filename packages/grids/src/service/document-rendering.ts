@@ -7,7 +7,7 @@ import {
   type TemplatePdfPreviewResult,
 } from "@valentinkolb/cloud/services";
 import { CLOUD_LOGO_SVG } from "@valentinkolb/cloud/shared";
-import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, err, fail, ok, type Result } from "@k2b/stdlib";
 import type { DocumentProfile, DocumentRun, DocumentTemplate, RecordSnapshot } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { rateLimit, v, jsonResponse, requiresAdmin, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { ok, type Result } from "@valentinkolb/stdlib";
+import { ok, type Result } from "@k2b/stdlib";
 import { faqService } from "../service";
 import {
   FaqEntrySchema,

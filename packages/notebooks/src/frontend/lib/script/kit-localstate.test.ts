@@ -3,9 +3,9 @@ import type { KitContext } from "./kit-types";
 
 const store = new Map<string, unknown>();
 const watchers = new Set<(event: { key: string }) => void>();
-const stdlibBrowser = await import("@valentinkolb/stdlib/browser");
+const stdlibBrowser = await import("@k2b/stdlib/browser");
 
-mock.module("@valentinkolb/stdlib/browser", () => ({
+mock.module("@k2b/stdlib/browser", () => ({
   ...stdlibBrowser,
   kvStore: {
     get: async <T>(key: string): Promise<T | undefined> => store.get(key) as T | undefined,

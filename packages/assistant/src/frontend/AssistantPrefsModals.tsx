@@ -1,6 +1,6 @@
 import type { AiUserPrefs } from "@valentinkolb/cloud/ai";
 import { prompts, SettingsModal, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 

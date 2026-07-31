@@ -7,7 +7,7 @@ import {
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Avatar, DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import type { JSX } from "solid-js/jsx-runtime";
 import type { BaseGroup } from "@/contracts";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";

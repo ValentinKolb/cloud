@@ -1,4 +1,4 @@
-import { hotkeys } from "@valentinkolb/stdlib/solid";
+import { hotkeys } from "@k2b/stdlib/solid";
 import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
 import { openLayoutHelpDialog } from "./LayoutHelp";
 

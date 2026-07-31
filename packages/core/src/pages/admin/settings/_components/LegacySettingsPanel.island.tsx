@@ -1,7 +1,7 @@
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
 import { DataTable, type DataTableColumn, PanelDialog, prompts, toast } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createResource, Show } from "solid-js";
 
 type LegacySetting = {

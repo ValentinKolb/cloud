@@ -1,5 +1,5 @@
 import { prompts, toast } from "@valentinkolb/cloud/ui";
-import { clipboard } from "@valentinkolb/stdlib/browser";
+import { clipboard } from "@k2b/stdlib/browser";
 import type { Accessor, Setter } from "solid-js";
 import type { PulseDashboard, PulseDashboardConfig, PulseDashboardControl, PulseDashboardDslCompileResult } from "../../contracts";
 import { jsonFetch } from "../http";

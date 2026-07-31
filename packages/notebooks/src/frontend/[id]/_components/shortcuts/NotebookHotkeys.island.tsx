@@ -1,5 +1,5 @@
 import { prompts, SPOTLIGHT_SHORTCUT } from "@valentinkolb/cloud/ui";
-import { hotkeys, mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { hotkeys, mutation as mutations } from "@k2b/stdlib/solid";
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import { onNotebookSearchRequest } from "../../../lib/hotkeys";

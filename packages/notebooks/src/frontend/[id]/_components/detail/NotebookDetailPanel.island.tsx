@@ -1,7 +1,7 @@
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
 import { AppWorkspace, Avatar, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { dates, fileIcons } from "@valentinkolb/stdlib";
-import { clipboard, files } from "@valentinkolb/stdlib/browser";
+import { dates, fileIcons } from "@k2b/stdlib";
+import { clipboard, files } from "@k2b/stdlib/browser";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { NamedBlockSummary } from "../../../../lib/named-blocks";

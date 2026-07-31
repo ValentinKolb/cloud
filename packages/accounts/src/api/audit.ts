@@ -3,7 +3,7 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { audit } from "@valentinkolb/cloud/services";
 import { v, jsonResponse, requiresAdmin, auth, respond, type AuthContext } from "@valentinkolb/cloud/server";
-import { ok } from "@valentinkolb/stdlib";
+import { ok } from "@k2b/stdlib";
 import { createPagination, parsePagination, PaginationQuerySchema, PaginationResponseSchema, ErrorResponseSchema } from "@/contracts";
 
 const AuditOutcomeSchema = z.enum(["allowed", "denied", "failed"]);

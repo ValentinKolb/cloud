@@ -1,4 +1,4 @@
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import type { AccessEntry, PermissionLevel, Principal } from "../../contracts/shared";
 import Combobox, { type ComboboxOption } from "../input/Combobox";

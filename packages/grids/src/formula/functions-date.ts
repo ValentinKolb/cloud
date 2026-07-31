@@ -1,5 +1,5 @@
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { type FormulaFunction, type FormulaRuntimeContext, formulaNumber } from "./function-runtime";
 import { formulaError } from "./types";
 

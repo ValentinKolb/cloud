@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { RecordDisplayConfig, RecordQuery } from "../../../contracts";
 import type { DslResolverDiagnostic } from "../../../query-dsl/resolver";
 import type { Field, GridRecord, Table, View } from "../../../service";

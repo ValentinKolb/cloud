@@ -1,4 +1,4 @@
-import { err, fail } from "@valentinkolb/stdlib";
+import { err, fail } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";

@@ -1,6 +1,6 @@
 import { Dropdown, prompts, SegmentedControl, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildDisplayUrl, type DisplaySettings } from "./params";

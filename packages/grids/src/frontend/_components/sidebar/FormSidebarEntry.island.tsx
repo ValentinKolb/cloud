@@ -1,6 +1,6 @@
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { apiClient } from "../../../api/client";
 import type { Field, Form } from "../../../service";
 import { openFormEditorDialog } from "../forms/FormsManager";

@@ -11,8 +11,8 @@ import {
   prompts,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import { img } from "@valentinkolb/stdlib/browser";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { img } from "@k2b/stdlib/browser";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";

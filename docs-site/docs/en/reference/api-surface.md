@@ -179,7 +179,7 @@ application contract. It is not a promise of instability.
 
 | Surface | Use instead |
 | --- | --- |
-| `@valentinkolb/cloud/shared` utility re-exports | `@valentinkolb/stdlib` |
+| `@valentinkolb/cloud/shared` utility re-exports | `@k2b/stdlib` |
 | `validator` | `v` |
 | Untyped `apiClient` | `api.create<TApi>()` |
 | Legacy notification send overloads | Typed notification definitions |

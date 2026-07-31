@@ -1,5 +1,5 @@
 import { isUniqueViolation } from "@valentinkolb/cloud/services";
-import { crypto, type DateContext, dates } from "@valentinkolb/stdlib";
+import { crypto, type DateContext, dates } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { SqlClient } from "./audit";
 import { fieldUniqueIndexName, nextGeneratedIdSequenceValue } from "./field-indexes";

@@ -5,7 +5,7 @@
  * These are personal defaults that can be overridden via query params.
  */
 
-import { cookies } from "@valentinkolb/stdlib/browser";
+import { cookies } from "@k2b/stdlib/browser";
 import type { Priority } from "@/contracts";
 import type { SpaceUserSettings, ViewType } from "@/settings-context";
 

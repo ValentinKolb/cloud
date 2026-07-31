@@ -16,7 +16,7 @@ import {
   updateAccess,
 } from "@valentinkolb/cloud/server";
 import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { z } from "zod";
 import { buildPublicAvailability } from "./availability";

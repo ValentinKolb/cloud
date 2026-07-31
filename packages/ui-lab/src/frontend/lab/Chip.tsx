@@ -1,5 +1,5 @@
 import { toast } from "@valentinkolb/cloud/ui";
-import { copyToClipboard } from "@valentinkolb/stdlib/browser";
+import { copyToClipboard } from "@k2b/stdlib/browser";
 
 /**
  * Provenance chip shown on every DemoCard — also doubles as the

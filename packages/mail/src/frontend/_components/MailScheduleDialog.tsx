@@ -1,5 +1,5 @@
 import { DateTimePicker, prompts } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import { createMemo, createSignal, Show } from "solid-js";
 
 const nextQuarterHour = (): string => {

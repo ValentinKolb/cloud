@@ -1,6 +1,6 @@
 import { type AccessSubject, buildAccessPrincipalCondition, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import {
   addBookAccess,

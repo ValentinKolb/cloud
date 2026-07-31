@@ -1,7 +1,7 @@
 import { createMemo, createSignal, type Accessor } from "solid-js";
 import { prompts, TextInput } from "@valentinkolb/cloud/ui";
-import { password } from "@valentinkolb/stdlib";
-import { clipboard } from "@valentinkolb/stdlib/solid";
+import { password } from "@k2b/stdlib";
+import { clipboard } from "@k2b/stdlib/solid";
 
 type PasswordSetupFieldsProps = {
   newPassword: Accessor<string>;

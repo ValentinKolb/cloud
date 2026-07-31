@@ -4,7 +4,7 @@
  * third-party management lives in the accounts admin app.
  */
 
-import { ok } from "@valentinkolb/stdlib";
+import { ok } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { describeRoute } from "hono-openapi";

@@ -1,5 +1,5 @@
 import { audit, isUniqueViolation, logger, toPgTextArray } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { ConnectorVerification, ProviderBinding, RemoteFolder, RemoteNamespace } from "../contracts";
 import { requireMailboxPermission } from "./access";

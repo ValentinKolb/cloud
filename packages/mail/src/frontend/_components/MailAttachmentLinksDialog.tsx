@@ -1,5 +1,5 @@
 import { dialogCore, PanelDialog, panelDialogFixedOptions } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import MailAttachmentLinksSettings from "./MailAttachmentLinksSettings";
 
 function MailAttachmentLinksDialog(props: { mailboxId: string; dateConfig: DateContext; close: () => void }) {

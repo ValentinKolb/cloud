@@ -2,7 +2,7 @@ import { coreClient } from "@valentinkolb/cloud/clients/core";
 import type { AnnouncementEntry, CreateAnnouncement, UpdateAnnouncement } from "@valentinkolb/cloud/contracts";
 import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 
 const errorMessage = async (response: Response, fallback: string): Promise<string> => {
   const body = await response.json().catch(() => null);

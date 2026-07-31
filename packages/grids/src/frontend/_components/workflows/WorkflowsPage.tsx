@@ -12,7 +12,7 @@ import {
   StatGrid,
 } from "@valentinkolb/cloud/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { Table } from "../../../service";

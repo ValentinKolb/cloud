@@ -1,4 +1,4 @@
-import { dates, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { dates, err, fail, ok, type Result } from "@k2b/stdlib";
 import { type ResponseScheduleDefinitionInput, responseScheduleDefinitionSchema } from "../contracts";
 import { validateResponseScheduleDefinition } from "../response-schedule-validation";
 

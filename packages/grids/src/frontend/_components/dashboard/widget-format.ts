@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import Decimal from "decimal.js";
 import type { WidgetValueFormat } from "../../../service";
 

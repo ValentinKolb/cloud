@@ -1,4 +1,4 @@
-import { fromBase64Strict } from "@valentinkolb/stdlib";
+import { fromBase64Strict } from "@k2b/stdlib";
 import { topic } from "@k2b/sync";
 import * as Y from "yjs";
 import { notebooksYjs } from "../lib/yjs";

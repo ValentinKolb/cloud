@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { type AccessSubject, type PermissionLevel, paginate, paginateItems } from "@valentinkolb/cloud/server";
-import type { PageParams, Paginated, Result } from "@valentinkolb/stdlib";
+import type { PageParams, Paginated, Result } from "@k2b/stdlib";
 import type { ContactServiceEventData } from "../live-events";
 import * as apiKeys from "./api-keys";
 import * as books from "./books";

@@ -1,4 +1,4 @@
-import { copyToClipboard } from "@valentinkolb/stdlib/browser";
+import { copyToClipboard } from "@k2b/stdlib/browser";
 import { createSignal } from "solid-js";
 import Tooltip from "./Tooltip";
 

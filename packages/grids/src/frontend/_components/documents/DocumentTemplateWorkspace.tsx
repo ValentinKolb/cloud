@@ -1,7 +1,7 @@
 import { prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import type { DateContext } from "@valentinkolb/stdlib";
-import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@k2b/stdlib";
+import { mutation as mutations, timed as timing } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type {

@@ -1,5 +1,5 @@
 import { type AccessSubject, buildAccessPrincipalCondition } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { resolveStoredContactLabel } from "../shared";
 import { emptyToNull, isUuid, type SqlExecutor, toDateOnly, toPgUuidArray } from "./shared";

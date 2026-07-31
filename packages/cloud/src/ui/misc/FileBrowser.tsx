@@ -5,8 +5,8 @@
  * UI (write → edit/save, remove → delete, rename → rename, upload → upload).
  * Fixed-height IDE-style layout: both panes scroll, the shell never jumps.
  */
-import { createZip, downloadFileFromContent } from "@valentinkolb/stdlib/browser";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { createZip, downloadFileFromContent } from "@k2b/stdlib/browser";
+import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createResource, createSignal, Show } from "solid-js";
 import { dialogCore } from "../dialog-core";
 import { prompts } from "../prompts";

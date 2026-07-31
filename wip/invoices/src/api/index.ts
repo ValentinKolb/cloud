@@ -1,6 +1,6 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { auth, type AuthContext, jsonResponse, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
-import { ok } from "@valentinkolb/stdlib";
+import { ok } from "@k2b/stdlib";
 import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";

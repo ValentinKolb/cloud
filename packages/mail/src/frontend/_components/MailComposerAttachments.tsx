@@ -1,4 +1,4 @@
-import { text } from "@valentinkolb/stdlib";
+import { text } from "@k2b/stdlib";
 import type { Accessor } from "solid-js";
 import { For, Show } from "solid-js";
 import type { MailDraft } from "../../contracts";

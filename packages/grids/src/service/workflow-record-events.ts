@@ -4,7 +4,7 @@ import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
-import type { Result } from "@valentinkolb/stdlib";
+import type { Result } from "@k2b/stdlib";
 import { type Lock, mutex, type QueueReceived } from "@k2b/sync";
 import { sql } from "bun";
 import type { FilterTree } from "../contracts";

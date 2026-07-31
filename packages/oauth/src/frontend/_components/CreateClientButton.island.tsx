@@ -1,4 +1,4 @@
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { dialogCore, panelDialogOptions, prompts, CopyButton } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { apiClient } from "@/api/client";

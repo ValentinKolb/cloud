@@ -1,4 +1,4 @@
-import { timed } from "@valentinkolb/stdlib/solid";
+import { timed } from "@k2b/stdlib/solid";
 import type { JSX } from "solid-js";
 import { createSignal, For, Show } from "solid-js";
 import TextInput from "../input/TextInput";

@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import { TextInput } from "@valentinkolb/cloud/ui";
-import { cookies } from "@valentinkolb/stdlib/browser";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { cookies } from "@k2b/stdlib/browser";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 export default function LoginForm(props: { redirectTo?: string; showBanner?: boolean; defaultUsername?: string; appName?: string }) {

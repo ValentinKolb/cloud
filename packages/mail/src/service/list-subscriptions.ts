@@ -5,7 +5,7 @@ import {
   type PublicNetworkAddress,
   resolvePublicNetworkAddresses,
 } from "@valentinkolb/cloud/services/network-security";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
 import {

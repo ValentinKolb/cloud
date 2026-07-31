@@ -53,7 +53,7 @@
 }
 
 /* Shared in-product documentation blocks. `DocCode` accepts a custom
-   highlighter, usually from @valentinkolb/stdlib highlight.compile. */
+   highlighter, usually from @k2b/stdlib highlight.compile. */
 .doc-code {
   background: #f6f8fa;
   border: 1px solid rgb(208 215 222 / 0.55);

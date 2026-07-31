@@ -1,7 +1,7 @@
 import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import type { DateContext } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form, GridRecord } from "../../../service";

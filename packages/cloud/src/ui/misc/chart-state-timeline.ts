@@ -1,4 +1,4 @@
-import { computeDomain, escapeXml, extendDomainToNice, mapRange, niceStep, svgRoot } from "@valentinkolb/stdlib";
+import { computeDomain, escapeXml, extendDomainToNice, mapRange, niceStep, svgRoot } from "@k2b/stdlib";
 
 export type StateTimelineDomain = readonly [number, number];
 

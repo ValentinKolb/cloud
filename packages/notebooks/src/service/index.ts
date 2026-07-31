@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
+import { type PageParams, type Paginated, paginate } from "@k2b/stdlib";
 import * as access from "./access";
 import * as apiKeys from "./api-keys";
 import * as attachments from "./attachments";

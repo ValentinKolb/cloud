@@ -9,7 +9,7 @@ import {
   type TemplateVariable,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";

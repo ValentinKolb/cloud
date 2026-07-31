@@ -1,5 +1,5 @@
 import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { For, Show } from "solid-js";
 import type { ViewStatsWidget } from "../../../service";
 import DashboardWidgetState from "./DashboardWidgetState";

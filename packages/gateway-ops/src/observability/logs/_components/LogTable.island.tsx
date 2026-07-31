@@ -1,5 +1,5 @@
 import { CopyButton, DataTable, type DataTableColumn, type LogTableEntry, Placeholder, prompts } from "@valentinkolb/cloud/ui";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { createSignal, Show } from "solid-js";
 import LogFilterBar from "./LogFilterBar.island";
 import type { LogFilterState } from "./types";

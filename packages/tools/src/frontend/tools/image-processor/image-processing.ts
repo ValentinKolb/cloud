@@ -1,4 +1,4 @@
-import { type ImgData, images as imageTools } from "@valentinkolb/stdlib/browser";
+import { type ImgData, images as imageTools } from "@k2b/stdlib/browser";
 import { PREVIEW_MAX } from "./constants";
 import { applyMarkupToImage } from "./markup";
 import type { ImageEntry } from "./types";

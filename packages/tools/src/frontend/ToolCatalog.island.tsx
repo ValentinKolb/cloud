@@ -1,5 +1,5 @@
 import { TextInput } from "@valentinkolb/cloud/ui";
-import { fuzzy } from "@valentinkolb/stdlib";
+import { fuzzy } from "@k2b/stdlib";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { taskGroupOrder, taskGroups, tools, toolSearchText, type ToolDef, type ToolTaskGroup } from "./tools/registry";
 

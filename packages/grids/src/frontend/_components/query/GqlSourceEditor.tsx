@@ -1,5 +1,5 @@
 import { AutocompleteEditor, type AutocompleteEditorProps } from "@valentinkolb/cloud/ui";
-import { highlight } from "@valentinkolb/stdlib";
+import { highlight } from "@k2b/stdlib";
 import { createMemo, splitProps } from "solid-js";
 import { aggregateKindPattern } from "../../../aggregate-catalog";
 import { apiClient } from "../../../api/client";

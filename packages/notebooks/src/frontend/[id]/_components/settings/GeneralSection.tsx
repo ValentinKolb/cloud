@@ -1,6 +1,6 @@
 import { IconInput, prompts, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildNoteTitleTemplateContext, renderNoteTitleTemplate } from "@/lib/note-title-template";

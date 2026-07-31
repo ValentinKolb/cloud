@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { AggregationSpec, GroupBySpec } from "../../../contracts";
 import type { Field } from "../../../service";
 import { formatFieldValueText } from "./field-value-format";

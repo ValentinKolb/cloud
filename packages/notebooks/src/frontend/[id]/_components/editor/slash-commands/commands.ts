@@ -1,5 +1,5 @@
 import { startCompletion } from "@codemirror/autocomplete";
-import { crypto as stdCrypto } from "@valentinkolb/stdlib";
+import { crypto as stdCrypto } from "@k2b/stdlib";
 import { navigateToNotebookNote } from "../../../../lib/soft-navigation";
 import { buildNoteUrl } from "../../../../params";
 import { openNoteSwitchPrompt } from "../../search/openNoteSearchPrompt";

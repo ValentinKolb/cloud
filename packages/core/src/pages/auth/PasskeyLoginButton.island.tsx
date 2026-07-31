@@ -1,7 +1,7 @@
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
-import { cookies } from "@valentinkolb/stdlib/browser";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { cookies } from "@k2b/stdlib/browser";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 
 export default function PasskeyLoginButton(props: { redirectTo?: string }) {
   const mutation = mutations.create({

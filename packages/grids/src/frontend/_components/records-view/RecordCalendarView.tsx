@@ -1,5 +1,5 @@
 import { Calendar, type CalendarEvent, Placeholder } from "@valentinkolb/cloud/ui";
-import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
+import { dates as calendar, type DateContext } from "@k2b/stdlib";
 import { createMemo, Show } from "solid-js";
 import type { RecordDisplayConfig } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";

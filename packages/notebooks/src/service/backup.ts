@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { type LogEntry, logger, get as settingsGet, settingsService, trace } from "@valentinkolb/cloud/services";
 import { parsePgJsonRecord } from "@valentinkolb/cloud/services/postgres";
 import { decryptValue, encryptValue } from "@valentinkolb/cloud/services/settings/crypto";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { exportNotebookZip, type NotebookExport } from "./export";

@@ -1,4 +1,4 @@
-import { fuzzy } from "@valentinkolb/stdlib";
+import { fuzzy } from "@k2b/stdlib";
 import { ICON_OPTIONS, type IconOption } from "../../shared/icons";
 import SelectInput from "./Select";
 
@@ -38,7 +38,7 @@ type IconInputProps = {
 
 /**
  * Searchable icon picker — wraps `SelectInput` in `fetchData` mode and
- * runs `fuzzy.filter` from `@valentinkolb/stdlib` over the catalogue
+ * runs `fuzzy.filter` from `@k2b/stdlib` over the catalogue
  * locally. No network: the icon list is bundled, the "fetcher" is a
  * synchronous filter wrapped in a Promise so it slots into
  * SelectInput's async loader contract.

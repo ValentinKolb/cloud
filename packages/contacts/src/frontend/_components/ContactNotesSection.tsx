@@ -1,7 +1,7 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Avatar, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { dates } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { dates } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactNote } from "../../service";

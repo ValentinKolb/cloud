@@ -1,5 +1,5 @@
 import { audit, logger } from "@valentinkolb/cloud/services";
-import { crypto as cryptoUtils, err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
+import { crypto as cryptoUtils, err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { ConversationReferencePreview, EnsureConversationReference, PutConversationReferenceConfiguration } from "../contracts";
 import { requireMailboxPermission } from "./access";

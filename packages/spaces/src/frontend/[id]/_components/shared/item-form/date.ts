@@ -1,5 +1,5 @@
 import type { DatePreset, DateRangeValue, DurationPreset } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 
 const pickerContext = (dateConfig?: DateContext): DateContext => ({ weekStartsOn: 1, ...dateConfig });
 

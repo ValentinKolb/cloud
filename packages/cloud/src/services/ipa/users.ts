@@ -1,4 +1,4 @@
-import { password } from "@valentinkolb/stdlib";
+import { password } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { MutationResult, UserProfile } from "../../contracts/shared";
 import { freeipa } from "../../server/services";
@@ -180,7 +180,7 @@ export const generateUniqueAbbreviation = async (length: number, maxAttempts = 1
 
 /**
  * Generate a secure random password that meets FreeIPA policy requirements.
- * Delegates to @valentinkolb/stdlib `password.random` which uses rejection
+ * Delegates to @k2b/stdlib `password.random` which uses rejection
  * sampling over `crypto.getRandomValues`. A length of 20 with all 4 classes
  * makes the probability of any one class being entirely absent astronomically
  * small (~4 × (3/4)^20 ≈ 0.4%) — acceptable for a temporary admin-generated

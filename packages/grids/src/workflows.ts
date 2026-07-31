@@ -20,7 +20,7 @@ import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { WorkflowActionContext, WorkflowActionResult, WorkflowJsonValue, WorkflowPlannedEffect } from "@valentinkolb/cloud/workflows";
 import { workflowAction } from "@valentinkolb/cloud/workflows";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { RecordMutationAudit, Table } from "./contracts";
 import { logAudit, type SqlClient } from "./service/audit";
 import { summarizeDocumentRun } from "./service/document-mappers";

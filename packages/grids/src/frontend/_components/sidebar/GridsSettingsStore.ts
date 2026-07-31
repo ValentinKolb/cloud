@@ -1,4 +1,4 @@
-import { cookies } from "@valentinkolb/stdlib/browser";
+import { cookies } from "@k2b/stdlib/browser";
 
 const COOKIE_NAME = "settings-app-grids";
 

@@ -1,5 +1,5 @@
 import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { errorMessage } from "../utils/api-helpers";

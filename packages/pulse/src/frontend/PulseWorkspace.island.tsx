@@ -1,5 +1,5 @@
 import { AppWorkspace, Panes, type PanesValue, toast } from "@valentinkolb/cloud/ui";
-import { clipboard } from "@valentinkolb/stdlib/browser";
+import { clipboard } from "@k2b/stdlib/browser";
 import { createSignal } from "solid-js";
 import type { MetricType, PulseDashboard, PulseDashboardConfig, PulseResourceSummary, PulseSource } from "../contracts";
 import { createBaseController } from "./workspace/base-controller";

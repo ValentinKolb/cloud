@@ -1,5 +1,5 @@
 import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@valentinkolb/cloud/ui";
-import { fuzzy } from "@valentinkolb/stdlib";
+import { fuzzy } from "@k2b/stdlib";
 import { createMemo, createSignal } from "solid-js";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import type { Field } from "../../../service";

@@ -1,4 +1,4 @@
-import { clipboard } from "@valentinkolb/stdlib/solid";
+import { clipboard } from "@k2b/stdlib/solid";
 import type { JSX } from "solid-js";
 
 export function MailTemplateToken(props: { value: string; muted?: boolean }) {

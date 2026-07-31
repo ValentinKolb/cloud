@@ -3,7 +3,7 @@ import { accountsAppService as accountsService, coreSettings } from "@valentinko
 import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Avatar, LinkCard, LogEntriesTable, ProgressBar, StatCell } from "@valentinkolb/cloud/ui";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { ssr } from "../config";
 import AccountsWorkspace from "./AccountsWorkspace";

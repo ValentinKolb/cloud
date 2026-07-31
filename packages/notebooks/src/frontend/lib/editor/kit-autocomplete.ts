@@ -78,7 +78,7 @@ const topLevelCompletions: KitCompletion[] = [
   ),
   ns("nb", "ti-notebook", "Notebook API", "List, search, fetch, create, update, and delete notes in the current notebook."),
   ns("ui", "ti-layout-grid", "UI builders", "Build script output: tables, charts, buttons, prompts, markdown, links, cards."),
-  ns("std", "ti-tool", "Stdlib helpers", "Curated @valentinkolb/stdlib namespaces: dates, text, fuzzy, charts, files, images, timing, ..."),
+  ns("std", "ti-tool", "Stdlib helpers", "Curated @k2b/stdlib namespaces: dates, text, fuzzy, charts, files, images, timing, ..."),
 ];
 
 // =============================================================================

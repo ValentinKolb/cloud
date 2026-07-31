@@ -1,5 +1,5 @@
 import type { AccessEntry, PermissionLevel } from "@valentinkolb/cloud/server";
-import type { PageParams } from "@valentinkolb/stdlib";
+import type { PageParams } from "@k2b/stdlib";
 import * as eInvoice from "./e-invoice";
 import * as exportLedger from "./exports";
 import * as invoices from "./invoices";

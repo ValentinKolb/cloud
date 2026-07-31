@@ -1,5 +1,5 @@
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { getTemplatePermission, getWorkspacePermission } from "./access";
 import type { InvoiceActor } from "./types";
 

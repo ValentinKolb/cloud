@@ -13,7 +13,7 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, For, Index, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import {

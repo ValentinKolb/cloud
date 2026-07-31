@@ -1,6 +1,6 @@
 import type { WidgetBlock, WidgetListItem, WidgetResponse, WidgetTone } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, getDateConfig } from "@valentinkolb/cloud/server";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { buildSpaceItemHref } from "../routes";

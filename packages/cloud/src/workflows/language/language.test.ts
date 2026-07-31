@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { crypto } from "@valentinkolb/stdlib";
+import { crypto } from "@k2b/stdlib";
 import type { WorkflowLanguageManifest } from "../contracts";
 import { bindWorkflow, canonicalWorkflowJson, compileWorkflow, hashWorkflowJson, parseWorkflowYaml } from "./index";
 

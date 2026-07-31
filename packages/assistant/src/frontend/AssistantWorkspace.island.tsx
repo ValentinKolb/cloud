@@ -28,7 +28,7 @@ import {
   readAiComposerFiles,
 } from "@valentinkolb/cloud/ai/ui";
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";

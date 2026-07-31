@@ -10,8 +10,8 @@ import {
   Switch,
   Tooltip,
 } from "@valentinkolb/cloud/ui";
-import { files as fileTools, images as imageTools } from "@valentinkolb/stdlib/browser";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { files as fileTools, images as imageTools } from "@k2b/stdlib/browser";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { DEFAULT_ADJ, PRESETS } from "./image-processor/constants";
 import { type CropHandle, createCropRect, moveCropRect, resizeCropRect, toPixelCropRect } from "./image-processor/crop-geometry";

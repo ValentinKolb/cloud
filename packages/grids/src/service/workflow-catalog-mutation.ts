@@ -1,6 +1,6 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import type { WorkflowBoundPlan } from "@valentinkolb/cloud/workflows";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { SqlClient } from "./audit";
 
 export const lockWorkflowCatalogMutation = async (baseId: string, client: SqlClient): Promise<void> => {

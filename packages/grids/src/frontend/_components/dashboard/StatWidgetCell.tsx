@@ -1,5 +1,5 @@
 import { StatCell } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type { StatWidget } from "../../../service";
 import type { WidgetData } from "./widget-data";
 import { formatWidgetValue } from "./widget-format";

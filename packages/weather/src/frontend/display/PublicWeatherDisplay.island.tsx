@@ -1,5 +1,5 @@
-import { timing } from "@valentinkolb/stdlib";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { timing } from "@k2b/stdlib";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import { type WeatherDataPayload, WeatherDataSchema } from "../../contracts";

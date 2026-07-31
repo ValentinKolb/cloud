@@ -1,4 +1,4 @@
-import { type DateContext, ok, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { evaluate, renderResult } from "../formula/evaluator";
 import { isFormulaError } from "../formula/functions";

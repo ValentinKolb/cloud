@@ -1,7 +1,7 @@
 import * as paths from "./paths";
 import * as permissions from "./permissions";
 import * as operations from "./operations";
-import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
+import { err, fail, ok, paginate, type PageParams, type Paginated } from "@k2b/stdlib";
 import type { FileBase, FileBaseInfo, User } from "@/contracts";
 
 const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {

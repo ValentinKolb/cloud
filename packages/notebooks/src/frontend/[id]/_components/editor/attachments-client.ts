@@ -6,7 +6,7 @@
  */
 
 import type { EditorView } from "@codemirror/view";
-import { images } from "@valentinkolb/stdlib/browser";
+import { images } from "@k2b/stdlib/browser";
 import { apiClient } from "../../../../api/client";
 
 // =============================================================================

@@ -1,5 +1,5 @@
 import type { AccessEntry, AccessSubject, PermissionLevel, Principal } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { logAudit, type SqlClient } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";

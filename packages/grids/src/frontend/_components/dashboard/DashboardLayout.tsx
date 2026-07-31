@@ -1,6 +1,6 @@
 import { Tooltip } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
-import { type DndBuildIntentContext, dnd } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@k2b/stdlib";
+import { type DndBuildIntentContext, dnd } from "@k2b/stdlib/solid";
 import { createMemo, For, onCleanup, Show } from "solid-js";
 import type { Dashboard, DashboardRow, Widget } from "../../../service";
 import ChartWidget from "./ChartWidget";

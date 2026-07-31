@@ -1,5 +1,5 @@
 import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
-import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
+import { dates as calendar, type DateContext } from "@k2b/stdlib";
 import type { JSX, ParentProps } from "solid-js";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import SegmentedControl from "../input/SegmentedControl";

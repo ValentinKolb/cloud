@@ -24,7 +24,7 @@
  */
 import { markdown } from "@valentinkolb/cloud/shared";
 import { toast as platformToast, prompts } from "@valentinkolb/cloud/ui";
-import { charts as stdCharts } from "@valentinkolb/stdlib";
+import { charts as stdCharts } from "@k2b/stdlib";
 import { renderPrettyTableHtml } from "../pretty-table";
 import type {
   KitButtonOptions,

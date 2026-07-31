@@ -3,7 +3,7 @@ import {
   renderLiquidTemplate,
   validateLiquidTemplate as validateSharedLiquidTemplate,
 } from "@valentinkolb/cloud/shared";
-import { type DateContext, dates, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, dates, err, fail, ok, type Result } from "@k2b/stdlib";
 import { type BarcodeFormat, BarcodeRenderError, barcodeDataUrl } from "../barcode-rendering";
 import type { DocumentTemplate } from "../contracts";
 

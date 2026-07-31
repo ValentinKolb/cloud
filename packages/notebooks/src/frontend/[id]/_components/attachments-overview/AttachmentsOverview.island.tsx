@@ -12,8 +12,8 @@
  * other notes stay broken by design (KISS — see dex task `vnzej6v5`).
  */
 import { Placeholder, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { fileIcons } from "@valentinkolb/stdlib";
-import { clipboard } from "@valentinkolb/stdlib/browser";
+import { fileIcons } from "@k2b/stdlib";
+import { clipboard } from "@k2b/stdlib/browser";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import {

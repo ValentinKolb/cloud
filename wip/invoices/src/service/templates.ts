@@ -1,6 +1,6 @@
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/server";
-import type { PageParams, Paginated } from "@valentinkolb/stdlib";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import type { PageParams, Paginated } from "@k2b/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import {
   grantTemplateAccess,

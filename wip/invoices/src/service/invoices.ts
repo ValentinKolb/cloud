@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { requireInvoiceUser, requireTemplatePermission } from "./authz";
 import { calculateLineTax, resolveTaxRule, summarizeTaxBreakdowns, type InvoiceLineTaxResult, type TaxCategory } from "./tax";

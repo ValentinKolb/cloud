@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { FormConfigSchema } from "../contracts";
 import { isRecordWritableFieldType } from "../field-types";
 import { listByTable as listFields, validateDefaultValue } from "./fields";

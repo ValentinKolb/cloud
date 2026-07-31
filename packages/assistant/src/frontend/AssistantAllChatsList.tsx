@@ -2,7 +2,7 @@ import { Link, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { formatDateTime as formatUpdatedAt } from "@valentinkolb/cloud/shared";
 import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";

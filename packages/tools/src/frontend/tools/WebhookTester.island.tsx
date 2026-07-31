@@ -13,7 +13,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { navigate } from "@k2b/ssr/nav";
-import { timed } from "@valentinkolb/stdlib/solid";
+import { timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 

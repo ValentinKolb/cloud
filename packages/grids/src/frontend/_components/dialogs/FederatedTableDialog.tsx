@@ -8,7 +8,7 @@ import {
   SelectInput,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations, timed } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FederatedDiagnostic, FederatedRevisionView, FederatedSourceCandidate, FederatedTableConfig, Field } from "../../../contracts";

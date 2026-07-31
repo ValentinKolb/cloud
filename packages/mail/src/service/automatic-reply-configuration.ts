@@ -1,5 +1,5 @@
 import { audit } from "@valentinkolb/cloud/services";
-import { err, fail, isServiceError, ok, type Result, unwrap } from "@valentinkolb/stdlib";
+import { err, fail, isServiceError, ok, type Result, unwrap } from "@k2b/stdlib";
 import { sql } from "bun";
 import { stringify } from "yaml";
 import {

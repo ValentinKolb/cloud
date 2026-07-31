@@ -56,7 +56,7 @@ import { syntaxTree } from "@codemirror/language";
 import { type EditorState, type Extension, Prec, type Range, RangeSet, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from "@codemirror/view";
 import { type EvalContext, evaluateFormula, formatValue, isFormula } from "@valentinkolb/cloud/shared";
-import { clipboard } from "@valentinkolb/stdlib/browser";
+import { clipboard } from "@k2b/stdlib/browser";
 import { isNamedBlockHandle } from "../../../lib/named-blocks";
 import { renderPrettyTableHtml } from "../pretty-table";
 import { refreshMarkdownDecorationsEffect, selectionIntersectsRange } from "./_lib/cursor-zone-field";

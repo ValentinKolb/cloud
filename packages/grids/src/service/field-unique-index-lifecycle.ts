@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { dropFieldUniqueIndex } from "./field-indexes";
 
 type DropUniqueIndex = typeof dropFieldUniqueIndex;

@@ -1,4 +1,4 @@
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import { createInputA11y, InputWrapper } from "./util";
 
 type DateTimeInputProps = {

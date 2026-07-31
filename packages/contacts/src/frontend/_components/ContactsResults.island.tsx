@@ -1,6 +1,6 @@
 import { FilterChip, type FilterChipSection, Pagination, TextInput } from "@valentinkolb/cloud/ui";
 import { documentNavigate, navigate } from "@k2b/ssr/nav";
-import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations, timed } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactPresenceFilter, ContactSort, ContactTag } from "../../service";

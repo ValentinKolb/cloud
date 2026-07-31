@@ -1,7 +1,7 @@
 import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { Dropdown, FilterChip, Placeholder, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
-import { timed } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@k2b/stdlib";
+import { timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { Mailbox } from "../../contracts";
 import {

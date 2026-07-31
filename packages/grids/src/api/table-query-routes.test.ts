@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail, ok } from "@k2b/stdlib";
 import { BoundedQueryTimeoutError } from "../service/bounded-query";
 import { createTableQueryRoutes } from "./table-query-routes";
 

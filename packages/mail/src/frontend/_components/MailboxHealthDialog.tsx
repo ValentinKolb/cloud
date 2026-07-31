@@ -1,6 +1,6 @@
 import { dialogCore, PanelDialog, Placeholder, panelDialogFixedOptions } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@k2b/stdlib";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { Mailbox, MailboxOperationalHealth, ProviderBinding, ProviderConnection } from "../../contracts";

@@ -1,4 +1,4 @@
-import { text } from "@valentinkolb/stdlib";
+import { text } from "@k2b/stdlib";
 import { sql } from "bun";
 import {
   parseProviderLimitSnapshot,

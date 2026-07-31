@@ -1,4 +1,4 @@
-import { fileIcons, highlight } from "@valentinkolb/stdlib";
+import { fileIcons, highlight } from "@k2b/stdlib";
 import { Show } from "solid-js";
 import { formatAiFileSize } from "../attachments";
 import type { AiTurnBlock } from "../protocol";

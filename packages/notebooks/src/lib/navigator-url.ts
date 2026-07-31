@@ -1,4 +1,4 @@
-import { searchParams } from "@valentinkolb/stdlib";
+import { searchParams } from "@k2b/stdlib";
 
 export type NavigatorQuery =
   | { view?: undefined; folder?: undefined; tag?: undefined }

@@ -1,7 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { PermissionEditor, prompts, type ResourceApiKey, ResourceApiKeys, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";

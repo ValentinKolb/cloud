@@ -1,6 +1,6 @@
 import type { MutationResult, PaginationParams } from "@valentinkolb/cloud/contracts";
 import { logger, get as settingsGet, toPgTextArray } from "@valentinkolb/cloud/services";
-import { type DateContext, dates, fromBase64Strict } from "@valentinkolb/stdlib";
+import { type DateContext, dates, fromBase64Strict } from "@k2b/stdlib";
 import { sql } from "bun";
 import * as Y from "yjs";
 import {

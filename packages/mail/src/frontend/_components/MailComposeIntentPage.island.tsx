@@ -1,5 +1,5 @@
 import { Placeholder, prompts, Select } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailDraftSeed, SenderIdentity } from "../../contracts";

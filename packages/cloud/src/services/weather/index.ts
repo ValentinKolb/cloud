@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { registerSettings, toLegacySettingDefs } from "../settings/defaults";
 import { getCurrentWeather, getWeatherData } from "./forecast";
 import { WEATHER_COUNTRY_CODE } from "./geo";

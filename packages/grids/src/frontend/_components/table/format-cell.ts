@@ -1,4 +1,4 @@
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import Decimal from "decimal.js";
 import type { FormatSpec } from "../../../contracts";
 

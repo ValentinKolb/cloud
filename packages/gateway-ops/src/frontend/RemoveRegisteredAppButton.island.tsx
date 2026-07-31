@@ -1,6 +1,6 @@
 import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { apiClient } from "@/api/client";
 
 const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {

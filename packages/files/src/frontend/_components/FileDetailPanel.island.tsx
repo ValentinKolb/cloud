@@ -1,5 +1,5 @@
 import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
-import { dates, fileIcons, text } from "@valentinkolb/stdlib";
+import { dates, fileIcons, text } from "@k2b/stdlib";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
 import { DETAIL_FILE_SELECT_EVENT, type DetailFileSelectPayload, fileApiUrl, setDetailFileInUrl } from "./context";

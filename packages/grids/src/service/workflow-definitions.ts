@@ -29,7 +29,7 @@ import {
   renameWorkflow as renameKernelWorkflow,
   setWorkflowEnabled,
 } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { bindGridsWorkflow } from "../workflows/binder";
 import type {

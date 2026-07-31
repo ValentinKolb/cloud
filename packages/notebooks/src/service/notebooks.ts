@@ -1,7 +1,7 @@
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { deleteAccess, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { sql } from "bun";
 import { buildNoteTitleTemplateContext, renderNoteTitleTemplate, validateNoteTitleTemplate } from "../lib/note-title-template";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";

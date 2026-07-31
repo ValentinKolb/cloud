@@ -1,6 +1,6 @@
 import { AppWorkspace, CheckboxCard, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Table, TableKind } from "../../../contracts";

@@ -1,8 +1,8 @@
 import type { DashboardWidgetSpan, DashboardWidgetZone } from "@valentinkolb/cloud/contracts";
 import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
 import { IconInput, Placeholder, prompts, SegmentedControl, SelectInput, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
-import { gradients } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { gradients } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
 import {

@@ -1,5 +1,5 @@
 import { DataTable, type DataTableColumn, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createEffect, For, type JSX, Show } from "solid-js";
 import type { AggregationSpec, ColumnSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";

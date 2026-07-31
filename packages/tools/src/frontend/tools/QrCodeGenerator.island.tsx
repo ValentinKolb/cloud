@@ -2,7 +2,7 @@ import { createMemo, createSignal, Match, Show, Switch } from "solid-js";
 // stdlib's qr module is no longer barrel-exported (v0.3.0+) because it
 // depends on the optional peer `lean-qr`. Use the subpath import; this
 // app declares lean-qr as a direct dep so it's installed in the container.
-import { qr } from "@valentinkolb/stdlib/qr";
+import { qr } from "@k2b/stdlib/qr";
 import { ColorInput, CopyButton, DateTimePicker, Select, Slider, SwitchInput, TextInput } from "@valentinkolb/cloud/ui";
 
 type Mode = "text" | "wifi" | "email" | "tel" | "vcard" | "event";

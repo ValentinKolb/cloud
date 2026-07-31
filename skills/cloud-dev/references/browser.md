@@ -41,7 +41,7 @@ available.
 ### Run a mutation
 
 ```tsx
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { toast } from "@valentinkolb/cloud/ui";
 
 const archive = mutation.create<void, { itemId: string }>({

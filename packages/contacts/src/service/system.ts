@@ -1,4 +1,4 @@
-import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
+import { type PageParams, type Paginated, paginate } from "@k2b/stdlib";
 import { sql } from "bun";
 import { emptyToNull, isUuid, toPgUuidArray } from "./shared";
 import type { Contact, ContactAddress, ContactBook, ContactEmail, ContactListFilter, ContactPhone, ContactWebsite } from "./types";

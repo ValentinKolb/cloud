@@ -1,5 +1,5 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { CreateDocumentTemplateInput, DocumentTemplate, UpdateDocumentTemplateInput } from "../contracts";
 import { logAudit } from "./audit";

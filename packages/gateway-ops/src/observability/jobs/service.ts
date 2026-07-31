@@ -1,5 +1,5 @@
 import { TRACE_STUCK_AFTER_MS, type TraceCategory, type TraceSourceGroup } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import {
   type SchedulerControl,
   type SchedulerControlInfo,

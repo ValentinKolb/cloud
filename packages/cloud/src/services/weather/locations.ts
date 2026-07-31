@@ -1,4 +1,4 @@
-import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { logger } from "../logging";
 

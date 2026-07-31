@@ -1,5 +1,5 @@
 import { isUniqueViolation } from "@valentinkolb/cloud/services";
-import { crypto, err } from "@valentinkolb/stdlib";
+import { crypto, err } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { SqlClient } from "./audit";
 

@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import type {
   AggregationSpec,
   DashboardWidgetSource,

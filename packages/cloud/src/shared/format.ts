@@ -7,7 +7,7 @@
  * formatters hardcoded `de-DE`, so the viewer's configured locale and timezone
  * were ignored outright.
  *
- * Everything here now delegates to `@valentinkolb/stdlib`, which owns the
+ * Everything here now delegates to `@k2b/stdlib`, which owns the
  * number, percent, duration, byte and date formatting. This module stays as
  * the Cloud-facing surface for two reasons: it keeps the import site stable
  * for the pages that already use it, and it adds the couple of conveniences
@@ -16,7 +16,7 @@
  *
  * Prefer `text.pprint*` directly in new code that has no null handling to do.
  */
-import { type DateContext, dates, text } from "@valentinkolb/stdlib";
+import { type DateContext, dates, text } from "@k2b/stdlib";
 
 /** Shown where a value is genuinely absent, as opposed to zero. */
 export const EMPTY_VALUE = "—";

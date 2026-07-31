@@ -1,4 +1,4 @@
-import { mutation } from "@valentinkolb/stdlib/solid";
+import { mutation } from "@k2b/stdlib/solid";
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";

@@ -1,4 +1,4 @@
-import { fuzzy } from "@valentinkolb/stdlib";
+import { fuzzy } from "@k2b/stdlib";
 import type {
   Aggregation,
   MetricType,

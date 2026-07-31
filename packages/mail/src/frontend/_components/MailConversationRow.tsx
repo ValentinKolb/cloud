@@ -1,5 +1,5 @@
 import { Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import { For, Show } from "solid-js";
 import { getMailAction, type MailActionId, spamActionForFolder } from "./mail-actions";
 import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";

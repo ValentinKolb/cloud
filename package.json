@@ -62,8 +62,14 @@
     "check:css": "bun run scripts/check-css-architecture.ts"
   },
   "dependencies": {
-    "@valentinkolb/stdlib": "0.16.0",
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@fontsource/ibm-plex-sans": "^5.2.8",
+    "@fontsource/ibm-plex-sans-condensed": "^5.2.8",
+    "@k2b/stdlib": "0.17.1",
+    "@tabler/icons-webfont": "^3.44.0",
     "bun-plugin-tailwind": "^0.1.2",
+    "seroval": "^1.6.0",
+    "solid-js": "^1.9.10",
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {

@@ -7,7 +7,7 @@ import {
   type ProgressValue,
   parseProgressValue,
 } from "@valentinkolb/cloud/shared";
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 
 export type PrettyTableAlign = "left" | "right" | "center" | null;
 

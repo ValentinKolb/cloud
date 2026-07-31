@@ -1,8 +1,8 @@
 // Cloud-specific shared utils (NOT in stdlib)
 
 // Re-export from stdlib for backward compatibility
-// Prefer importing directly from @valentinkolb/stdlib
-export { dates, dates as calendar, encoding, fileIcons, gradients } from "@valentinkolb/stdlib";
+// Prefer importing directly from @k2b/stdlib
+export { dates, dates as calendar, encoding, fileIcons, gradients } from "@k2b/stdlib";
 export * from "./account-display";
 export * from "./account-session";
 export type { AiPromptContextInput, AiToolPromptHint } from "./ai-platform-prompt";

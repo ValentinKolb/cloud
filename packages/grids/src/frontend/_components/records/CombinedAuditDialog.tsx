@@ -1,6 +1,6 @@
 import { DatePicker, dialogCore, PanelDialog, Placeholder, panelDialogOptions, Select } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { type DateContext, dates } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { CombinedAuditEntry, CombinedAuditPage, Field } from "../../../service";

@@ -1,5 +1,5 @@
-import type { MapViewport } from "@valentinkolb/stdlib";
-import { charts } from "@valentinkolb/stdlib";
+import type { MapViewport } from "@k2b/stdlib";
+import { charts } from "@k2b/stdlib";
 import type { JSX } from "solid-js";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { DEFAULT_MAP_VIEWPORT, normalizeMapViewport, panMapViewport, zoomMapViewport } from "./chart-map-viewport";

@@ -1,5 +1,5 @@
 import { type AuthContext, expectUserBackedActor, respond, v } from "@valentinkolb/cloud/server";
-import { ok } from "@valentinkolb/stdlib";
+import { ok } from "@k2b/stdlib";
 import { Hono } from "hono";
 import { z } from "zod";
 import { createMetricsToken, getMetricsSnapshot, listMetricsTokens, revokeMetricsToken } from "./service";

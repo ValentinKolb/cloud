@@ -1,4 +1,4 @@
-import { type DateContext, dates, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, dates, err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { getFieldType, getRecordWritableFieldType } from "../field-types";
 import type { Field } from "./types";

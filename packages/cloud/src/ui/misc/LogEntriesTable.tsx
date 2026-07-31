@@ -1,4 +1,4 @@
-import { dates } from "@valentinkolb/stdlib";
+import { dates } from "@k2b/stdlib";
 import { Show } from "solid-js";
 import DataTable, { type DataTableColumn } from "./DataTable";
 import Placeholder from "./Placeholder";

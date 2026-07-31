@@ -1,5 +1,5 @@
 import { prompts, SegmentedControl, Switch, toast } from "@valentinkolb/cloud/ui";
-import { clipboard } from "@valentinkolb/stdlib/browser";
+import { clipboard } from "@k2b/stdlib/browser";
 import { createSignal } from "solid-js";
 import { buildPublicVenueUrl, VENUE_PUBLIC_REFRESH_SECONDS, type VenuePublicDisplayHeight } from "../../public-runtime";
 

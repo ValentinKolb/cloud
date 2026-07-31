@@ -1,5 +1,5 @@
 import { Dropdown, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";

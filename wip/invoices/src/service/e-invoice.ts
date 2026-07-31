@@ -11,7 +11,7 @@ import {
   validateXsd,
   type FacturXInvoiceInput,
 } from "@stackforge-eu/factur-x";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { get, registerArtifact } from "./invoices";
 import { parseJsonRecord, type JsonRecord } from "./shared";
 import { resolveTaxRule } from "./tax";

@@ -1,4 +1,4 @@
-import type { DateContext } from "@valentinkolb/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { createSignal } from "solid-js";
 import type { SpaceColumn, SpaceTag, SpaceWormhole } from "@/contracts";
 import KanbanBoard from "../kanban/KanbanBoard";

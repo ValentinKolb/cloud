@@ -1,6 +1,6 @@
 import { dialogCore, PanelDialog, panelDialogOptions, prompts, TagsInput, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DocumentLink, DocumentLinkListResponse, DocumentRunSummary } from "../../../contracts";

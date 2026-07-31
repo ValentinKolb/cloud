@@ -1,12 +1,12 @@
 import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import {
   type DndBuildIntentContext,
   type DndDraggableSnapshot,
   type DndDroppableSnapshot,
   dnd,
   mutation as mutations,
-} from "@valentinkolb/stdlib/solid";
+} from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ItemFilter, ItemListResult, SpaceColumn, SpaceItem, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";

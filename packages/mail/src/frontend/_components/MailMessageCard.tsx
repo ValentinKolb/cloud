@@ -1,6 +1,6 @@
 import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { type DropdownItem, Placeholder, StatusBadge } from "@valentinkolb/cloud/ui";
-import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@k2b/stdlib";
 import { createMemo, createSignal, Show } from "solid-js";
 import type { DraftDerivationKind, DraftIntent, SenderIdentity } from "../../contracts";
 import type { MessageDetail } from "../../service/messages";
