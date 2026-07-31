@@ -19,7 +19,7 @@ import {
 
 ## State model
 
-`FilterChip` is controlled. Pass the selected option values through `value` and update the owning state in `onChange`.
+`FilterChip` is controlled. Pass the selected option values through `value` and update the owning state in `onValueChange`.
 
 Each section chooses its selection behavior:
 
@@ -38,8 +38,7 @@ Changes are emitted immediately. This makes the component suitable for URL-backe
 | `icon` | `string` | required | Adds a Tabler icon to the trigger. |
 | `options` | `readonly FilterChipSection[]` | required | Defines sections and their options. |
 | `value` | `readonly string[]` | required | Contains all selected option values. |
-| `onChange` | `(value: string[]) => void` | one of the two | Receives the complete next selection. |
-| `onValueChange` | `(value: string[]) => void` | one of the two | Alias for `onChange`. Exactly one of the two is required; `onChange` wins when both are passed. |
+| `onValueChange` | `(value: string[]) => void` | yes | Receives the complete next selection. |
 | `class` | `string` | none | Adds classes to the trigger. |
 | `isActive` | `boolean` | `value.length > 0` | Overrides the active trigger treatment. |
 | `position` | `"bottom-left" \| "bottom-right"` | `"bottom-left"` | Positions the dropdown relative to the trigger. |
@@ -107,6 +106,6 @@ const sections: FilterChipSection[] = [
   icon="ti ti-filter"
   options={sections}
   value={filters()}
-  onChange={setFilters}
+  onValueChange={setFilters}
 />;
 ```

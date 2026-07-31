@@ -7,13 +7,10 @@ export type SegmentOption<T extends string = string> = {
   disabled?: boolean;
 };
 
-export type SegmentedControlChange<T extends string> =
-  | { onChange: (value: T) => void; onValueChange?: (value: T) => void }
-  | { onChange?: (value: T) => void; onValueChange: (value: T) => void };
-
-export type SegmentedControlProps<T extends string = string> = SegmentedControlChange<T> & {
+export type SegmentedControlProps<T extends string = string> = {
   options: readonly SegmentOption<T>[];
   value: T | (() => T);
+  onValueChange: (value: T) => void;
   disabled?: boolean;
   ariaLabel?: string;
   label?: string;
@@ -31,10 +28,7 @@ export function SegmentedControl<T extends string = string>(props: SegmentedCont
   const selectedEnabled = createMemo(() =>
     props.options.some((option) => option.value === currentValue() && !props.disabled && !option.disabled),
   );
-  const emit = (value: T) => {
-    const onChange = props.onChange ?? props.onValueChange;
-    onChange?.(value);
-  };
+  const emit = (value: T) => props.onValueChange(value);
   const select = (index: number) => {
     const option = props.options[index];
     if (!option || props.disabled || option.disabled) return;

@@ -1,6 +1,7 @@
 import { type JSX, Show } from "solid-js";
+import type { IntentTone } from "../semantics";
 
-export type WidgetStatusTone = "ok" | "warn" | "error" | "info";
+export type WidgetStatusTone = Extract<IntentTone, "info" | "success" | "warning" | "danger">;
 
 export type WidgetStatusProps = {
   tone: WidgetStatusTone;
@@ -11,9 +12,9 @@ export type WidgetStatusProps = {
 };
 
 const DEFAULT_ICONS: Record<WidgetStatusTone, string> = {
-  ok: "ti ti-circle-check",
-  warn: "ti ti-alert-triangle",
-  error: "ti ti-alert-circle",
+  success: "ti ti-circle-check",
+  warning: "ti ti-alert-triangle",
+  danger: "ti ti-alert-circle",
   info: "ti ti-info-circle",
 };
 

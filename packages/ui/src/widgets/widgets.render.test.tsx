@@ -107,13 +107,13 @@ describe("@k2b/ui Cloud-faithful widget composition", () => {
 
   test("renders the four WidgetStatus tones and their defaults", () => {
     const status = renderToString(() =>
-      createComponent(WidgetStatus, { title: "Degraded", message: "One source unavailable", tone: "warn", grow: true }),
+      createComponent(WidgetStatus, { title: "Degraded", message: "One source unavailable", tone: "warning", grow: true }),
     );
     const custom = renderToString(() =>
       createComponent(WidgetStatus, { title: "Queued", tone: "info", icon: "ti ti-clock" }),
     );
 
-    expect(status).toContain('data-tone="warn"');
+    expect(status).toContain('data-tone="warning"');
     expect(status).toContain("ti ti-alert-triangle");
     expect(status).toContain("One source unavailable");
     expect(status).toContain('data-grow="true"');
@@ -121,15 +121,13 @@ describe("@k2b/ui Cloud-faithful widget composition", () => {
   });
 
   test("keeps the widget chrome Cloud actually paints", () => {
-    // `.widget-icon` / `.widget-surface` / `.widget-card` are unlayered in
-    // Cloud, so they beat the tinted utilities the TSX still carries.
-    expect(parityCss).toMatch(/\.k2b-widget__icon \{[^}]*background: var\(--k2b-surface-muted\)/);
+    expect(parityCss).toMatch(/\.k2b-widget__icon \{[^}]*background: transparent/);
     expect(parityCss).toContain(".k2b-ui a.k2b-widget__header:hover { background: transparent; }");
     expect(parityCss).toMatch(/\.k2b-widget-card \{[^}]*border-radius: var\(--k2b-radius-surface\)/);
     // WidgetStatus is a full-bleed banner; `error` is the one untinted tone.
-    expect(parityCss).toContain('.k2b-widget-status[data-tone="error"] { color: #991b1b; background: transparent; }');
+    expect(parityCss).toContain('.k2b-widget-status[data-tone="danger"] { color: #991b1b; background: transparent; }');
     expect(parityCss).toMatch(/\.k2b-widget-status \{[^}]*border-radius: 0/);
-    expect(parityCss).toContain('.k2b-widget-status[data-tone="warn"] .k2b-widget-status__icon');
+    expect(parityCss).toContain('.k2b-widget-status[data-tone="warning"] .k2b-widget-status__icon');
     // Only `grow` blocks may claim the leftover height inside a fixed widget.
     expect(parityCss).toMatch(/\.k2b-widget-stat \{[^}]*flex: 0 0 auto/);
     expect(parityCss).toMatch(/\.k2b-widget-list \{[^}]*flex: 0 0 auto/);
@@ -156,7 +154,7 @@ describe("@k2b/ui Cloud-faithful widget composition", () => {
       renderToString(() =>
         createComponent(WidgetStat, { label: "L", value: 1, sub: "s", accent: { tone: "amber", icon: "ti ti-x", text: "+1" } }),
       ),
-      renderToString(() => createComponent(WidgetStatus, { title: "T", message: "M", tone: "ok" })),
+      renderToString(() => createComponent(WidgetStatus, { title: "T", message: "M", tone: "success" })),
     ].join("");
 
     const foreign = [...rendered.matchAll(/class="([^"]*)"/g)]

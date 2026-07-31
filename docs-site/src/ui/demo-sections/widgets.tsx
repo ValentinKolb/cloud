@@ -31,7 +31,7 @@ const WidgetCompositionDemo = () => (
 <Widget title="Workspace" icon="ti ti-layout-dashboard" href="/workspace">
   <WidgetStat value={12} label="Open tasks" sub="3 due today" />
   <WidgetList items={[{ label: "Review release notes", sub: "Platform", href: "/tasks/12" }]} />
-  <WidgetStatus tone="ok" title="All services operational" />
+  <WidgetStatus tone="success" title="All services operational" />
   <WidgetPills pills={[{ label: "Teams", value: 4, href: "/teams" }]} />
 </Widget>
 
@@ -56,7 +56,7 @@ const WidgetCompositionDemo = () => (
             { label: "Prepare demo", sub: "Design systems", meta: "Fri", icon: "ti ti-presentation", iconTone: "zinc" },
           ]}
         />
-        <WidgetStatus tone="ok" title="All services operational" />
+        <WidgetStatus tone="success" title="All services operational" />
         <WidgetPills
           pills={[
             { label: "Teams", value: 4, href: "#widget-composition" },
@@ -71,9 +71,9 @@ const WidgetCompositionDemo = () => (
         <WidgetHero title="Bring any content" subtitle="WidgetCard supplies only the frame." icon="ti ti-components" tone="blue" />
       </WidgetCard>
       <Widget title="Status vocabulary" size="content" icon="ti ti-heart-rate-monitor">
-        <WidgetStatus tone="ok" title="Operational" />
-        <WidgetStatus tone="warn" title="Delayed" message="Samples are eight minutes old." />
-        <WidgetStatus tone="error" title="Unavailable" message="The source could not be reached." />
+        <WidgetStatus tone="success" title="Operational" />
+        <WidgetStatus tone="warning" title="Delayed" message="Samples are eight minutes old." />
+        <WidgetStatus tone="danger" title="Unavailable" message="The source could not be reached." />
         <WidgetStatus tone="info" title="Maintenance scheduled" />
       </Widget>
     </div>

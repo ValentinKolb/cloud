@@ -6,10 +6,11 @@ import {
   getInitialImageCropRect,
   type ImageCropAspect,
   type ImageCropRect,
+  type ImageCropResizeHandle,
   type ImageCropRotation,
   type ImageCropSource,
   type ImageCropState,
-  resizeImageCropAroundCenter,
+  resizeImageCropFromCorner,
   rotateImageCropRight,
 } from "./image-crop";
 import type { FieldProps, ValueFieldProps } from "./field-contract";
@@ -224,7 +225,7 @@ type PreviewState = {
   sourceHeight: number;
 };
 
-type DragHandle = "move" | "nw" | "ne" | "sw" | "se";
+type DragHandle = "move" | ImageCropResizeHandle;
 type DragState = {
   handle: DragHandle;
   pointerId: number;
@@ -238,7 +239,7 @@ export type ImageCropperProps = {
   aspect?: ImageCropAspect;
   previewShape?: "rect" | "circle";
   disabled?: boolean;
-  onChange?: (state: ImageCropState | null) => void;
+  onValueChange?: (state: ImageCropState | null) => void;
   class?: string;
 };
 
@@ -359,7 +360,7 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
   createEffect(() => {
     const currentCrop = crop();
     const currentPreview = preview();
-    props.onChange?.(currentCrop && currentPreview ? { crop: currentCrop, rotation: rotation() } : null);
+    props.onValueChange?.(currentCrop && currentPreview ? { crop: currentCrop, rotation: rotation() } : null);
   });
 
   const readPointerPosition = (event: PointerEvent) => {
@@ -396,28 +397,7 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
       return;
     }
 
-    let x = start.x;
-    let y = start.y;
-    let width = start.width;
-    let height = start.height;
-    const min = 0.08;
-
-    if (state.handle.includes("w")) {
-      x = clamp(start.x + dx, 0, start.x + start.width - min);
-      width = start.width - (x - start.x);
-    }
-    if (state.handle.includes("e")) {
-      width = clamp(start.width + dx, min, 1 - start.x);
-    }
-    if (state.handle.includes("n")) {
-      y = clamp(start.y + dy, 0, start.y + start.height - min);
-      height = start.height - (y - start.y);
-    }
-    if (state.handle.includes("s")) {
-      height = clamp(start.height + dy, min, 1 - start.y);
-    }
-
-    setCrop(clampImageCropRect({ x, y, width, height }, currentSize, aspect()));
+    setCrop(resizeImageCropFromCorner(start, currentSize, aspect(), state.handle, dx, dy));
   };
 
   const endDrag = (event: PointerEvent) => {
@@ -454,20 +434,6 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
     window.removeEventListener("pointerup", endDrag);
     window.removeEventListener("pointercancel", endDrag);
   });
-
-  const zoom = () => {
-    const currentCrop = crop();
-    if (!currentCrop) return 1;
-    return Math.round((1 / Math.max(currentCrop.width, currentCrop.height)) * 100) / 100;
-  };
-
-  const setZoom = (value: number) => {
-    const currentCrop = crop();
-    const currentSize = previewSize();
-    if (!currentCrop || !currentSize || disabled()) return;
-    const scale = value / Math.max(0.01, zoom());
-    setCrop(resizeImageCropAroundCenter(currentCrop, currentSize, aspect(), scale));
-  };
 
   const rotateRight = () => {
     if (disabled()) return;
@@ -511,8 +477,7 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
     };
   };
 
-  const showResizeHandles = () => aspect() === "free" && previewShape() !== "circle";
-  const showZoomControls = () => aspect() !== "free";
+  const showResizeHandles = () => previewShape() !== "circle";
 
   return (
     <div class={`k2b-image-cropper ${props.class ?? ""}`}>
@@ -558,22 +523,6 @@ export function ImageCropper(props: ImageCropperProps): JSX.Element {
           </Show>
         </Show>
       </div>
-      <Show when={showZoomControls()}>
-        <label class="k2b-image-cropper__zoom">
-          <span>
-            Zoom <output>{zoom().toFixed(2)}×</output>
-          </span>
-          <input
-            type="range"
-            min="1"
-            max="5"
-            step="0.05"
-            value={zoom()}
-            disabled={disabled() || !crop()}
-            onInput={(event) => setZoom(event.currentTarget.valueAsNumber)}
-          />
-        </label>
-      </Show>
     </div>
   );
 }

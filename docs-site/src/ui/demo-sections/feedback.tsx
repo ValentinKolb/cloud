@@ -19,8 +19,8 @@ const BlocksDemo = () => (
     <NoticeCard.Grid
       items={[
         { tone: "info" as const, title: "Import ready", detail: "12 rows validated." },
-        { tone: "warn" as const, title: "Review needed", detail: "2 rows have no owner." },
-        { tone: "error" as const, title: "Source unavailable", detail: "Retrying in the background." },
+        { tone: "warning" as const, title: "Review needed", detail: "2 rows have no owner." },
+        { tone: "danger" as const, title: "Source unavailable", detail: "Retrying in the background." },
       ]}
     >
       {(notice) => <NoticeCard {...notice} />}

@@ -133,7 +133,7 @@ export default function StandaloneUi() {
             <SegmentedControl
               ariaLabel="Density"
               value={density()}
-              onChange={setDensity}
+              onValueChange={setDensity}
               options={[
                 { value: "normal", label: "Comfortable" },
                 { value: "compact", label: "Compact" },
@@ -149,10 +149,10 @@ export default function StandaloneUi() {
               ]}
             />
             <StatusBadge tone="ok" label="Healthy" />
-            <StatusBadge tone="warn" label="Degraded" variant="dot" />
+            <StatusBadge tone="warning" label="Degraded" variant="dot" />
           </section>
 
-          <NoticeCard tone="warn" title="One replica is behind" detail="Replication lag is 42 seconds." />
+          <NoticeCard tone="warning" title="One replica is behind" detail="Replication lag is 42 seconds." />
 
           <DataTable
             rows={[
@@ -212,7 +212,7 @@ export default function StandaloneUi() {
           <ChatMessage role="assistant" content="Rendered by the generic chat family." timeLabel="09:20" />
 
           <Widget title="Platform health" icon="ti ti-heartbeat">
-            <WidgetStatus tone="ok" title="Operational" />
+            <WidgetStatus tone="success" title="Operational" />
             <WidgetPills pills={[{ label: "Checks", value: 48, tone: "emerald" }]} />
           </Widget>
         </div>

@@ -12,6 +12,7 @@ Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const { Avatar } = await import("./Avatar");
+const { DescriptionList } = await import("./DescriptionList");
 const { LinkCard } = await import("./LinkCard");
 const { NotFoundState } = await import("./NotFoundState");
 const { NoticeCard } = await import("./NoticeCard");
@@ -20,6 +21,7 @@ const { ProgressBar } = await import("./ProgressBar");
 const { StatCell } = await import("./StatCell");
 const { StatGrid } = await import("./StatGrid");
 const { StatusBadge } = await import("./StatusBadge");
+const { Tag } = await import("./Tag");
 
 const stylesDir = resolve(import.meta.dir, "../styles");
 const stylesheets = readdirSync(stylesDir).filter((file) => file.endsWith(".css"));
@@ -31,6 +33,30 @@ const ownedSelectorFiles = new Set(
 );
 
 describe("@k2b/ui Cloud-faithful surfaces", () => {
+  test("renders portable tags and semantic description lists", () => {
+    const tag = renderToString(() => createComponent(Tag, {
+      color: "#7c3aed",
+      icon: "ti ti-tag",
+      onRemove: () => {},
+      removeLabel: "Remove UI",
+      children: "UI",
+    }));
+    const list = renderToString(() => createComponent(DescriptionList, {
+      columns: 2,
+      items: [
+        { term: "Owner", description: "Platform team", action: "Open" },
+        { term: "Status", description: "Ready" },
+      ],
+    }));
+
+    expect(tag).toContain("--k2b-choice-color:#7c3aed");
+    expect(tag).toContain('aria-label="Remove UI"');
+    expect(list).toContain("<dl");
+    expect(list).toContain("<dt>Owner</dt>");
+    expect(list).toContain("<dd>Platform team</dd>");
+    expect(list).toContain('data-columns="2"');
+  });
+
   test("keeps Avatar portable while LinkCard exposes the Cloud color contract", () => {
     const avatar = renderToString(() => createComponent(Avatar, { name: "Ada Lovelace", src: "/ada.webp", size: "lg" }));
     const link = renderToString(() =>
@@ -80,7 +106,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
       createComponent(NoticeCard, {
         title: "Database unavailable",
         detail: "Retrying in the background.",
-        tone: "error",
+        tone: "danger",
       }),
     );
     const empty = renderToString(() =>
@@ -96,7 +122,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
       }),
     );
 
-    expect(notice).toContain('data-tone="error"');
+    expect(notice).toContain('data-tone="danger"');
     expect(notice).toContain("ti ti-alert-circle");
     expect(notice).toContain("Retrying in the background.");
     expect(empty).toBe("");
@@ -209,9 +235,10 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
       const rule = parityCss.match(new RegExp(`\\.k2b-ui \\${selector} \\{[^}]*\\}`))?.[0] ?? "";
       expect(rule).toContain("box-shadow: none");
     }
-    // Cloud's `.link-card-icon` / `.widget-icon` overrides paint a neutral tile.
+    // Link cards retain a neutral tile; dashboard widgets keep their header
+    // glyph directly on the surface to avoid nested chrome.
     expect(parityCss).toMatch(/\.k2b-link-card__icon \{[^}]*background: var\(--k2b-surface-muted\)/);
-    expect(parityCss).toMatch(/\.k2b-widget__icon \{[^}]*background: var\(--k2b-surface-muted\)/);
+    expect(parityCss).toMatch(/\.k2b-widget__icon \{[^}]*background: transparent/);
     // `.state-placeholder[data-variant="panel"]` is 13rem/1.5rem, not 14rem/2rem.
     expect(parityCss).toContain('.k2b-placeholder[data-variant="panel"] { min-height: 13rem;');
     // A muted StatGrid tints the frame, never the cells.
@@ -283,7 +310,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     const rendered = [
       renderToString(() => createComponent(LinkCard, { href: "/a", title: "A", description: "B", icon: "ti ti-x", color: "blue" })),
       renderToString(() => createComponent(NotFoundState, { code: "404", title: "Gone", action: { label: "Home", href: "/" } })),
-      renderToString(() => createComponent(NoticeCard, { title: "T", detail: "D", tone: "warn" })),
+      renderToString(() => createComponent(NoticeCard, { title: "T", detail: "D", tone: "warning" })),
       renderToString(() => createComponent(Placeholder, { title: "T", description: "D", state: "loading", surface: "paper" })),
       renderToString(() => createComponent(ProgressBar, { value: 50, showValue: true })),
       renderToString(() => createComponent(StatusBadge, { label: "L", tone: "ok" })),

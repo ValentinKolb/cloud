@@ -14,15 +14,12 @@ export type FilterChipSection = {
   multiple?: boolean;
 };
 
-export type FilterChipChange =
-  | { onChange: (value: string[]) => void; onValueChange?: (value: string[]) => void }
-  | { onChange?: (value: string[]) => void; onValueChange: (value: string[]) => void };
-
-export type FilterChipProps = FilterChipChange & {
+export type FilterChipProps = {
   label: string;
   icon: string;
   options: readonly FilterChipSection[];
   value: readonly string[];
+  onValueChange: (value: string[]) => void;
   isActive?: boolean;
   position?: "bottom-left" | "bottom-right";
   defaultValue?: readonly string[];
@@ -120,8 +117,7 @@ export function FilterChip(props: FilterChipProps): JSX.Element {
   };
   const emit = (value: string[]) => {
     setLocalValue(value);
-    const onChange = props.onChange ?? props.onValueChange;
-    onChange?.(value);
+    props.onValueChange(value);
   };
   const toggle = (value: string) => {
     const section = sectionByValue().get(value);

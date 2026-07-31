@@ -543,6 +543,10 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule('.k2b-panes__drop-zone[data-zone=left],.k2b-ui .k2b-panes__drop-zone[data-zone=right]')).toContain(
         "width:.5rem",
       );
+      const merge = rule(".k2b-panes__merge-preview");
+      expect(merge).toContain("width:.5rem");
+      expect(merge).toContain("border-radius:999px");
+      expect(merge).not.toContain("min-width:8rem");
 
       // Cloud has no width-based floors on split children.
       expect(css).not.toContain("min-width:16rem");

@@ -3,9 +3,11 @@ import {
   Button,
   Calendar,
   DataPanel,
+  DescriptionList,
+  IconButton,
   LinkCard,
-  NoticeCard,
   NotFoundState,
+  NoticeCard,
   PanelHeader,
   Placeholder,
   ProgressBar,
@@ -152,6 +154,40 @@ const CardsDemo = () => (
   </DemoCard>
 );
 
+const DetailsDemo = () => (
+  <DemoCard
+    id="details"
+    chip={{ kind: "component", name: "DescriptionList", from: "@k2b/ui" }}
+    description="Semantic key-value content with optional actions, compact density, and responsive columns. Terms and descriptions remain real dl/dt/dd elements."
+    code={`<DescriptionList
+  columns={2}
+  items={[
+    { term: "Owner", description: "Platform team" },
+    { term: "Region", description: "Europe West" },
+    { term: "Repository", description: "cloud", action: <IconButton label="Open repository" size="xs" variant="ghost"><i class="ti ti-external-link" aria-hidden="true" /></IconButton> },
+  ]}
+/>`}
+  >
+    <DescriptionList
+      columns={2}
+      items={[
+        { term: "Owner", description: "Platform team" },
+        { term: "Region", description: "Europe West" },
+        { term: "Created", description: "31 July 2026" },
+        {
+          term: "Repository",
+          description: "cloud",
+          action: (
+            <IconButton label="Open repository" size="xs" variant="ghost">
+              <i class="ti ti-external-link" aria-hidden="true" />
+            </IconButton>
+          ),
+        },
+      ]}
+    />
+  </DemoCard>
+);
+
 const ProgressDemo = () => (
   <DemoCard
     id="progress"
@@ -198,8 +234,8 @@ const StatsDemo = () => (
 
 const OperationalDemo = () => {
   const notices = [
-    { tone: "warn" as const, title: "Delayed source", detail: "The last sample arrived 8 minutes ago." },
-    { tone: "error" as const, title: "Database unavailable", detail: "Current diagnostics could not be loaded." },
+    { tone: "warning" as const, title: "Delayed source", detail: "The last sample arrived 8 minutes ago." },
+    { tone: "danger" as const, title: "Database unavailable", detail: "Current diagnostics could not be loaded." },
   ];
 
   return (
@@ -223,8 +259,8 @@ const OperationalDemo = () => {
 } from "@k2b/ui";
 
 const notices = [
-  { tone: "warn", title: "Delayed source", detail: "The last sample arrived 8 minutes ago." },
-  { tone: "error", title: "Database unavailable", detail: "Current diagnostics could not be loaded." },
+  { tone: "warning", title: "Delayed source", detail: "The last sample arrived 8 minutes ago." },
+  { tone: "danger", title: "Database unavailable", detail: "Current diagnostics could not be loaded." },
 ] as const;
 
 <div class="ui-demo-form-grid">
@@ -248,7 +284,7 @@ const notices = [
   <DataPanel title="Routes" subtitle="6 states">
     <div class="ui-demo-row ui-data-panel-demo-body">
       <StatusBadge label="Online" tone="ok" />
-      <StatusBadge label="Attention" tone="warn" />
+      <StatusBadge label="Attention" tone="warning" />
       <StatusBadge label="Failed" tone="error" />
       <StatusBadge label="Degraded" tone="degraded" />
       <StatusBadge
@@ -282,7 +318,7 @@ const notices = [
         <DataPanel title="Routes" subtitle="6 states">
           <div class="ui-demo-row ui-data-panel-demo-body">
             <StatusBadge label="Online" tone="ok" />
-            <StatusBadge label="Attention" tone="warn" />
+            <StatusBadge label="Attention" tone="warning" />
             <StatusBadge label="Failed" tone="error" />
             <StatusBadge label="Degraded" tone="degraded" />
             <StatusBadge
@@ -299,7 +335,7 @@ const notices = [
   );
 };
 
-const CalendarDemo = () => {
+export const CalendarDemo = () => {
   const [date, setDate] = createSignal(new Date("2026-07-15T12:00:00Z"));
   const [view, setView] = createSignal<"day" | "week" | "month" | "year">("month");
   const [selectedEventId, setSelectedEventId] = createSignal<string>();
@@ -347,10 +383,10 @@ const demos: DemoSection = {
   utilities: () => <DemoGrid columns="one"><ThemeDemo /></DemoGrid>,
   "empty-states": () => <DemoGrid columns="one"><EmptyDemo /></DemoGrid>,
   cards: () => <DemoGrid columns="one"><CardsDemo /></DemoGrid>,
+  details: () => <DemoGrid columns="one"><DetailsDemo /></DemoGrid>,
   progress: () => <DemoGrid columns="one"><ProgressDemo /></DemoGrid>,
   stats: () => <DemoGrid columns="one"><StatsDemo /></DemoGrid>,
   observability: () => <DemoGrid columns="one"><OperationalDemo /></DemoGrid>,
-  calendar: () => <DemoGrid columns="one"><CalendarDemo /></DemoGrid>,
 };
 
 export default demos;

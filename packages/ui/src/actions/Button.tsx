@@ -1,7 +1,7 @@
 import { type JSX, Show, splitProps } from "solid-js";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
-export type ButtonSize = "sm" | "md" | "lg";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger" | "success";
+export type ButtonSize = "xs" | "sm" | "md" | "lg";
 
 export type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
   loading?: boolean;
@@ -41,17 +41,18 @@ export type IconButtonProps = Omit<ButtonProps, "children"> & {
 };
 
 export function IconButton(props: IconButtonProps): JSX.Element {
-  const [local, rest] = splitProps(props, ["children", "class", "label", "variant"]);
+  const [local, rest] = splitProps(props, ["children", "class", "label", "loading", "loadingLabel", "variant"]);
 
   return (
     <Button
       {...rest}
+      loading={local.loading}
       variant={local.variant ?? "ghost"}
       class={`k2b-icon-button ${local.class ?? ""}`}
-      aria-label={local.label}
+      aria-label={local.loading ? (local.loadingLabel ?? local.label) : local.label}
       title={rest.title ?? local.label}
     >
-      {local.children}
+      <Show when={!local.loading}>{local.children}</Show>
     </Button>
   );
 }

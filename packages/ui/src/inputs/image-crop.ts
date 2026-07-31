@@ -12,6 +12,7 @@ export type ImageCropOutput = {
   quality?: number;
 };
 export type ImageCropSize = { width: number; height: number };
+export type ImageCropResizeHandle = "nw" | "ne" | "sw" | "se";
 
 const MIN_CROP_SIZE = 0.08;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -78,6 +79,55 @@ export const resizeImageCropAroundCenter = (
       ? clamp(rect.height / safeScale, MIN_CROP_SIZE, 1)
       : (width * (imageSize.width / Math.max(1, imageSize.height))) / aspectRatio(aspect);
   return clampImageCropRect({ x: centerX - width / 2, y: centerY - height / 2, width, height }, imageSize, aspect);
+};
+
+/** Resizes a crop from one corner while keeping the opposite corner anchored. */
+export const resizeImageCropFromCorner = (
+  rect: ImageCropRect,
+  imageSize: ImageCropSize,
+  aspect: ImageCropAspect,
+  handle: ImageCropResizeHandle,
+  dx: number,
+  dy: number,
+): ImageCropRect => {
+  const movesEast = handle.includes("e");
+  const movesSouth = handle.includes("s");
+  const anchorX = movesEast ? rect.x : rect.x + rect.width;
+  const anchorY = movesSouth ? rect.y : rect.y + rect.height;
+  const requestedWidth = rect.width + (movesEast ? dx : -dx);
+  const requestedHeight = rect.height + (movesSouth ? dy : -dy);
+
+  if (aspect === "free") {
+    const width = clamp(requestedWidth, MIN_CROP_SIZE, movesEast ? 1 - anchorX : anchorX);
+    const height = clamp(requestedHeight, MIN_CROP_SIZE, movesSouth ? 1 - anchorY : anchorY);
+    return {
+      x: movesEast ? anchorX : anchorX - width,
+      y: movesSouth ? anchorY : anchorY - height,
+      width,
+      height,
+    };
+  }
+
+  const source = imageSize.width > 0 && imageSize.height > 0 ? imageSize.width / imageSize.height : 1;
+  const target = aspectRatio(aspect);
+  const widthFromHeight = requestedHeight * target / source;
+  const requested =
+    Math.abs(requestedWidth - rect.width) >= Math.abs(widthFromHeight - rect.width)
+      ? requestedWidth
+      : widthFromHeight;
+  const horizontalLimit = movesEast ? 1 - anchorX : anchorX;
+  const verticalLimit = movesSouth ? 1 - anchorY : anchorY;
+  const maxWidth = Math.max(0, Math.min(horizontalLimit, verticalLimit * target / source));
+  const minimumWidth = Math.min(maxWidth, Math.max(MIN_CROP_SIZE, MIN_CROP_SIZE * target / source));
+  const width = clamp(requested, minimumWidth, maxWidth);
+  const height = width * source / target;
+
+  return {
+    x: movesEast ? anchorX : anchorX - width,
+    y: movesSouth ? anchorY : anchorY - height,
+    width,
+    height,
+  };
 };
 
 export const imageCropRectToPixels = (rect: ImageCropRect, imageSize: ImageCropSize) => {

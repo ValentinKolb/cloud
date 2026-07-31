@@ -85,7 +85,7 @@ Long labels truncate visually without losing their text in the DOM. Add
 ### NoticeCard
 
 `NoticeCard` keeps one diagnostic finding visible. `tone` accepts `info`,
-`warn`, or `error`; the default is `warn`. `title` names the finding and
+`warning`, or `danger`; the default is `warning`. `title` names the finding and
 `detail` provides the evidence.
 
 `NoticeCard.Grid` receives an `items` array and a render function. It renders
@@ -146,7 +146,7 @@ All five components render on the server. `RangePicker` works without hydration.
 
 <div class="app-badge-row">
   <StatusBadge tone="ok" label="Online" />
-  <StatusBadge tone="warn" label="Overdue" />
+  <StatusBadge tone="warning" label="Overdue" />
   <StatusBadge tone="error" label="Failed" />
   <StatusBadge
     tone="degraded"

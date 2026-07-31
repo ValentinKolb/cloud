@@ -133,12 +133,12 @@ const PanesDemo = () => {
   const [value, setValue] = createSignal(createPanesValue(["source", "preview", "data"]));
   return (
     <DemoCard id="panes" chip={{ kind: "component", name: "Panes", from: "@k2b/ui" }} description="A controlled, serializable tree of tabs and splits with resize, reorder, move, split, and close behavior." code={`const [layout, setLayout] = createSignal(createPanesValue(["source", "preview"]));
-<Panes.Root value={layout()} onChange={setLayout}>
+<Panes.Root value={layout()} onValueChange={setLayout}>
   <Panes.Element id="source" title="Source">…</Panes.Element>
   <Panes.Element id="preview" title="Preview">…</Panes.Element>
 </Panes.Root>`}>
       <div class="ui-panes-demo">
-        <Panes.Root value={value()} onChange={setValue} label="Editor panes">
+        <Panes.Root value={value()} onValueChange={setValue} label="Editor panes">
           <Panes.Element id="source" title="Source" icon="ti ti-code"><div class="ui-pane-body" data-tone="blue"><span>Source</span></div></Panes.Element>
           <Panes.Element id="preview" title="Preview" icon="ti ti-eye"><div class="ui-pane-body" data-tone="violet"><span>Preview</span></div></Panes.Element>
           <Panes.Element id="data" title="Data" icon="ti ti-database"><div class="ui-pane-body" data-tone="emerald"><span>Data</span></div></Panes.Element>
@@ -309,7 +309,7 @@ const FloatingDemo = () => {
   );
 };
 
-const PaginationDemo = () => (
+export const PaginationDemo = () => (
   <DemoCard id="pagination" chip={{ kind: "component", name: "Pagination", from: "@k2b/ui" }} description="Server-friendly URL pagination with compact page windows and native navigation semantics." code={`<Pagination currentPage={4} totalPages={12} baseUrl="?page=" />`}>
     <Pagination currentPage={4} totalPages={12} baseUrl="?page=" />
   </DemoCard>
@@ -322,7 +322,6 @@ const demos: DemoSection = {
   "settings-modal": () => <DemoGrid columns="one"><SettingsDemo /></DemoGrid>,
   "panel-dialog": () => <DemoGrid columns="one"><PanelDemo /></DemoGrid>,
   "floating-window": () => <DemoGrid columns="one"><FloatingDemo /></DemoGrid>,
-  pagination: () => <DemoGrid columns="one"><PaginationDemo /></DemoGrid>,
 };
 
 export default demos;

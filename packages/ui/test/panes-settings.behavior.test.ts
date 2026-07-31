@@ -52,7 +52,7 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
         get value() {
           return value();
         },
-        onChange: setValue,
+        onValueChange: setValue,
         get children() {
           return elements;
         },
@@ -130,7 +130,7 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
       () =>
         createComponent(Panes.Root, {
           value,
-          onChange: () => undefined,
+          onValueChange: () => undefined,
           get children() {
             return [
               createComponent(Panes.Element, {

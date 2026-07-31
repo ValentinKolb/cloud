@@ -94,6 +94,8 @@ export type { SwitchProps } from "./Switch";
 export { Switch } from "./Switch";
 export type { TagsInputProps } from "./TagsInput";
 export { TagsInput } from "./TagsInput";
+export type { TagEditorItem, TagEditorLabels, TagEditorProps, TagEditorValue } from "./TagEditor";
+export { TagEditor } from "./TagEditor";
 export type {
   TemplateEditorLayoutValue,
   TemplateEditorProps,

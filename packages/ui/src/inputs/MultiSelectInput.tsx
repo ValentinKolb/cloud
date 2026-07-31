@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import { colorTintStyle, normalizeHexColor } from "../internal/color";
 import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
 import { type ChoiceOption, createChoiceLoader, createChoicePopover, filterChoiceOptions, nextEnabledChoiceIndex } from "./choice";
 import type { ValueFieldProps } from "./field-contract";
@@ -24,28 +25,21 @@ export type MultiSelectInputProps = ValueFieldProps<string[]> & {
   searchable?: boolean;
   clearable?: boolean;
   name?: string;
-};
-
-const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
-
-const withAlpha = (color: string, alpha: string): string => {
-  const hex = color.slice(1);
-  const expanded = hex.length === 3 ? [...hex].map((digit) => `${digit}${digit}`).join("") : hex;
-  return `#${expanded}${alpha}`;
-};
-
-const selectedColor = (color: string | undefined): JSX.CSSProperties | undefined => {
-  if (!color || !HEX_COLOR.test(color.trim())) return undefined;
-  const normalized = color.trim();
-  return {
-    "--k2b-choice-color": normalized,
-    "--k2b-choice-background": withAlpha(normalized, "1f"),
-  };
+  renderOption?: (option: ChoiceOption<string>) => JSX.Element;
+  renderValue?: (option: ChoiceOption<string>) => JSX.Element;
+  searchPlaceholder?: string;
+  loadingLabel?: string;
+  noResultsLabel?: string;
+  emptyLabel?: string;
+  retryLabel?: string;
+  clearLabel?: string;
 };
 
 /** Cloud tints the option icon with the option color instead of adding a dot. */
-const iconColor = (color: string | undefined): JSX.CSSProperties | undefined =>
-  color && HEX_COLOR.test(color.trim()) ? { color: color.trim() } : undefined;
+const iconColor = (color: string | undefined): JSX.CSSProperties | undefined => {
+  const normalized = normalizeHexColor(color);
+  return normalized ? { color: normalized } : undefined;
+};
 
 const normalize = (option: MultiSelectOption): NormalizedOption =>
   typeof option === "string"
@@ -190,9 +184,18 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
             <span class="k2b-multi-select-trigger__values">
               <For each={selected()}>
                 {(option) => (
-                  <span class="k2b-choice-pill" style={selectedColor(option.color)}>
-                    <Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
-                    <span>{option.label}</span>
+                  <span class="k2b-choice-pill" style={colorTintStyle(option.color)}>
+                    <Show
+                      when={props.renderValue}
+                      fallback={
+                        <>
+                          <Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
+                          <span>{option.label}</span>
+                        </>
+                      }
+                    >
+                      {(render) => <span class="k2b-choice-pill__content">{render()(option)}</span>}
+                    </Show>
                     <button
                       type="button"
                       aria-label={`Remove ${option.label}`}
@@ -219,7 +222,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
           <button
             type="button"
             class="k2b-choice-control__clear"
-            aria-label="Clear selection"
+            aria-label={props.clearLabel ?? "Clear selection"}
             onClick={(event) => {
               event.stopPropagation();
               emit([]);
@@ -245,8 +248,8 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
                 ref={searchRef}
                 type="search"
                 value={query()}
-                placeholder="Search..."
-                aria-label="Search options"
+                placeholder={props.searchPlaceholder ?? "Search..."}
+                aria-label={props.searchPlaceholder ?? "Search options"}
                 aria-controls={listboxId}
                 aria-activedescendant={focusedOption() ? `${listboxId}-${focusedIndex()}` : undefined}
                 onInput={(event) => {
@@ -264,7 +267,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
                 <div class="k2b-choice-status" data-tone="danger">
                   <span>{message()}</span>
                   <button type="button" onClick={asyncOptions.retry}>
-                    Retry
+                    {props.retryLabel ?? "Retry"}
                   </button>
                 </div>
               )}
@@ -272,14 +275,14 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
             <Show when={asyncOptions.loading() && visibleOptions().length === 0}>
               <div class="k2b-choice-status">
                 <i class="ti ti-loader-2 k2b-spin" aria-hidden="true" />
-                <span>Loading...</span>
+                <span>{props.loadingLabel ?? "Loading..."}</span>
               </div>
             </Show>
             <For
               each={asyncOptions.error() ? [] : visibleOptions()}
               fallback={
                 <Show when={!asyncOptions.loading() && !asyncOptions.error()}>
-                  <div class="k2b-choice-status">{isAsync() || query() ? "No results" : "No options available"}</div>
+                  <div class="k2b-choice-status">{isAsync() || query() ? (props.noResultsLabel ?? "No results") : (props.emptyLabel ?? "No options available")}</div>
                 </Show>
               }
             >
@@ -298,12 +301,28 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
                   <span class="k2b-choice-option__checkbox" aria-hidden="true">
                     <i class="ti ti-check" />
                   </span>
-                  <Show when={option.icon}>
+                  <Show
+                    when={option.icon}
+                    fallback={
+                      <Show when={normalizeHexColor(option.color)}>
+                        {(color) => <span class="k2b-choice-dot" style={{ background: color() }} aria-hidden="true" />}
+                      </Show>
+                    }
+                  >
                     {(icon) => <i class={icon()} style={iconColor(option.color)} aria-hidden="true" />}
                   </Show>
-                  <span>
-                    <strong>{option.label}</strong>
-                    <Show when={option.description}>{(description) => <small>{description()}</small>}</Show>
+                  <span class="k2b-choice-option__content">
+                    <Show
+                      when={props.renderOption}
+                      fallback={
+                        <span>
+                          <strong>{option.label}</strong>
+                          <Show when={option.description}>{(description) => <small>{description()}</small>}</Show>
+                        </span>
+                      }
+                    >
+                      {(render) => render()(option)}
+                    </Show>
                   </span>
                 </button>
               )}

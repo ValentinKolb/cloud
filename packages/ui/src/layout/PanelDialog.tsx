@@ -46,8 +46,7 @@ export type PanelDialogTabOption<T extends string = string> = {
 export type PanelDialogTabsProps<T extends string = string> = {
   options: readonly PanelDialogTabOption<T>[];
   value: T | (() => T);
-  onChange?: (value: T) => void;
-  onValueChange?: (value: T) => void;
+  onValueChange: (value: T) => void;
   ariaLabel?: string;
   label?: string;
 };
@@ -163,10 +162,7 @@ const PanelDialogSection = (props: PanelDialogSectionProps): JSX.Element => (
 
 const PanelDialogTabs = <T extends string>(props: PanelDialogTabsProps<T>): JSX.Element => {
   const value = () => (typeof props.value === "function" ? props.value() : props.value);
-  const change = (next: T) => {
-    props.onChange?.(next);
-    props.onValueChange?.(next);
-  };
+  const change = (next: T) => props.onValueChange(next);
 
   return (
     <div

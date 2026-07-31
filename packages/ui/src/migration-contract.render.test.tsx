@@ -153,7 +153,7 @@ describe("@k2b/ui complete Cloud UI migrations", () => {
                 { value: "danger", label: "Danger zone", disabled: true },
               ],
               value: () => "general",
-              onChange: () => {},
+              onValueChange: () => {},
             }),
             createComponent(PanelDialog.Body, {
               scrollPreserveKey: "project-settings",

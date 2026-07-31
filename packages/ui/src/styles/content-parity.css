@@ -314,30 +314,87 @@
 
 .k2b-ui :is(.k2b-calendar-event, .k2b-calendar-dot, .k2b-calendar-year__indicator)[data-color="blue"] {
   --k2b-calendar-accent: #3b82f6;
+  --k2b-calendar-event-text: #1d4ed8;
+  --k2b-calendar-event-surface: #eff6ff;
 }
 
 .k2b-ui :is(.k2b-calendar-event, .k2b-calendar-dot, .k2b-calendar-year__indicator)[data-color="emerald"] {
   --k2b-calendar-accent: #10b981;
+  --k2b-calendar-event-text: #047857;
+  --k2b-calendar-event-surface: #ecfdf5;
 }
 
 .k2b-ui :is(.k2b-calendar-event, .k2b-calendar-dot, .k2b-calendar-year__indicator)[data-color="amber"] {
   --k2b-calendar-accent: #f59e0b;
+  --k2b-calendar-event-text: #92400e;
+  --k2b-calendar-event-surface: #fffbeb;
 }
 
 .k2b-ui :is(.k2b-calendar-event, .k2b-calendar-dot, .k2b-calendar-year__indicator)[data-color="red"] {
   --k2b-calendar-accent: #ef4444;
+  --k2b-calendar-event-text: #b91c1c;
+  --k2b-calendar-event-surface: #fef2f2;
 }
 
 .k2b-ui :is(.k2b-calendar-event, .k2b-calendar-dot, .k2b-calendar-year__indicator)[data-color="violet"] {
   --k2b-calendar-accent: #8b5cf6;
+  --k2b-calendar-event-text: #6d28d9;
+  --k2b-calendar-event-surface: #f5f3ff;
 }
 
 .k2b-ui :is(.k2b-calendar-event, .k2b-calendar-dot, .k2b-calendar-year__indicator)[data-color="cyan"] {
   --k2b-calendar-accent: #06b6d4;
+  --k2b-calendar-event-text: #0e7490;
+  --k2b-calendar-event-surface: #ecfeff;
 }
 
 .k2b-ui :is(.k2b-calendar-event, .k2b-calendar-dot, .k2b-calendar-year__indicator)[data-color="zinc"] {
   --k2b-calendar-accent: #a1a1aa;
+  --k2b-calendar-event-text: #52525b;
+  --k2b-calendar-event-surface: #f4f4f5;
+}
+
+.k2b-ui[data-theme="dark"] .k2b-calendar-event[data-color="blue"],
+.k2b-ui.k2b-dark .k2b-calendar-event[data-color="blue"],
+.dark .k2b-ui .k2b-calendar-event[data-color="blue"] {
+  --k2b-calendar-event-text: #bfdbfe;
+  --k2b-calendar-event-surface: #172554;
+}
+.k2b-ui[data-theme="dark"] .k2b-calendar-event[data-color="emerald"],
+.k2b-ui.k2b-dark .k2b-calendar-event[data-color="emerald"],
+.dark .k2b-ui .k2b-calendar-event[data-color="emerald"] {
+  --k2b-calendar-event-text: #a7f3d0;
+  --k2b-calendar-event-surface: #052e26;
+}
+.k2b-ui[data-theme="dark"] .k2b-calendar-event[data-color="amber"],
+.k2b-ui.k2b-dark .k2b-calendar-event[data-color="amber"],
+.dark .k2b-ui .k2b-calendar-event[data-color="amber"] {
+  --k2b-calendar-event-text: #fde68a;
+  --k2b-calendar-event-surface: #422006;
+}
+.k2b-ui[data-theme="dark"] .k2b-calendar-event[data-color="red"],
+.k2b-ui.k2b-dark .k2b-calendar-event[data-color="red"],
+.dark .k2b-ui .k2b-calendar-event[data-color="red"] {
+  --k2b-calendar-event-text: #fecaca;
+  --k2b-calendar-event-surface: #450a0a;
+}
+.k2b-ui[data-theme="dark"] .k2b-calendar-event[data-color="violet"],
+.k2b-ui.k2b-dark .k2b-calendar-event[data-color="violet"],
+.dark .k2b-ui .k2b-calendar-event[data-color="violet"] {
+  --k2b-calendar-event-text: #ddd6fe;
+  --k2b-calendar-event-surface: #2e1065;
+}
+.k2b-ui[data-theme="dark"] .k2b-calendar-event[data-color="cyan"],
+.k2b-ui.k2b-dark .k2b-calendar-event[data-color="cyan"],
+.dark .k2b-ui .k2b-calendar-event[data-color="cyan"] {
+  --k2b-calendar-event-text: #a5f3fc;
+  --k2b-calendar-event-surface: #083344;
+}
+.k2b-ui[data-theme="dark"] .k2b-calendar-event[data-color="zinc"],
+.k2b-ui.k2b-dark .k2b-calendar-event[data-color="zinc"],
+.dark .k2b-ui .k2b-calendar-event[data-color="zinc"] {
+  --k2b-calendar-event-text: #e4e4e7;
+  --k2b-calendar-event-surface: #27272a;
 }
 
 .k2b-ui .k2b-calendar-event {
@@ -348,8 +405,8 @@
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--k2b-calendar-accent, var(--k2b-text-muted)) 32%, var(--k2b-border));
   border-radius: var(--k2b-radius-control);
-  color: color-mix(in srgb, var(--k2b-calendar-accent, var(--k2b-text)) 42%, var(--k2b-text));
-  background: color-mix(in srgb, var(--k2b-calendar-accent, var(--k2b-text-muted)) 11%, var(--k2b-surface));
+  color: var(--k2b-calendar-event-text, var(--k2b-text));
+  background: var(--k2b-calendar-event-surface, var(--k2b-surface-muted));
   font: inherit;
   line-height: 1.15;
   text-align: left;

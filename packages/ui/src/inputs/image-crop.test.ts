@@ -5,6 +5,7 @@ import {
   imageCropRectToPixels,
   normalizeImageCropRotation,
   resizeImageCropAroundCenter,
+  resizeImageCropFromCorner,
   rotateImageCropRight,
 } from "./image-crop";
 
@@ -46,6 +47,31 @@ describe("image crop helpers", () => {
     );
 
     expect(crop).toEqual({ x: 0.35, y: 0.35, width: 0.3, height: 0.3 });
+  });
+
+  test("resizes fixed-aspect crops from a corner without moving the opposite corner", () => {
+    const start = { x: 0.2, y: 0.2, width: 0.4, height: 0.4 };
+    const crop = resizeImageCropFromCorner(start, { width: 1000, height: 1000 }, { width: 1, height: 1 }, "nw", -0.1, -0.04);
+
+    expect(crop.x + crop.width).toBeCloseTo(0.6, 10);
+    expect(crop.y + crop.height).toBeCloseTo(0.6, 10);
+    expect(crop.width).toBeCloseTo(crop.height, 10);
+    expect(crop.width).toBeCloseTo(0.5, 10);
+  });
+
+  test("keeps fixed-aspect corner resizing inside the image", () => {
+    const crop = resizeImageCropFromCorner(
+      { x: 0.2, y: 0.2, width: 0.4, height: 0.4 },
+      { width: 1600, height: 900 },
+      { width: 1, height: 1 },
+      "se",
+      2,
+      2,
+    );
+
+    expect(crop.x + crop.width).toBeLessThanOrEqual(1);
+    expect(crop.y + crop.height).toBeLessThanOrEqual(1);
+    expect((crop.width * 1600) / (crop.height * 900)).toBeCloseTo(1, 10);
   });
 
   test("converts normalized crops to pixels", () => {

@@ -1,5 +1,7 @@
 export type { AvatarProps, AvatarSize } from "./Avatar";
 export { Avatar } from "./Avatar";
+export type { DescriptionListItem, DescriptionListProps } from "./DescriptionList";
+export { DescriptionList } from "./DescriptionList";
 export type { LinkCardColor, LinkCardProps } from "./LinkCard";
 export { LinkCard } from "./LinkCard";
 export type { NotFoundStateAction, NotFoundStateProps } from "./NotFoundState";
@@ -14,7 +16,7 @@ export type {
   PlaceholderVariant,
 } from "./Placeholder";
 export { default as Placeholder } from "./Placeholder";
-export type { ProgressBarProps } from "./ProgressBar";
+export type { ProgressBarProps, ProgressBarTone } from "./ProgressBar";
 export { ProgressBar } from "./ProgressBar";
 export type { StatCellAccent, StatCellProps, StatCellTone } from "./StatCell";
 export { StatCell } from "./StatCell";
@@ -27,3 +29,5 @@ export type {
 export { StatGrid } from "./StatGrid";
 export type { StatusBadgeProps, StatusTone } from "./StatusBadge";
 export { StatusBadge } from "./StatusBadge";
+export type { TagProps } from "./Tag";
+export { Tag } from "./Tag";

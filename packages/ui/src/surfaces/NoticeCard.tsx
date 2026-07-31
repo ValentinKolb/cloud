@@ -1,6 +1,7 @@
 import { For, type JSX, Show } from "solid-js";
+import type { IntentTone } from "../semantics";
 
-export type NoticeTone = "info" | "warn" | "error";
+export type NoticeTone = Extract<IntentTone, "info" | "warning" | "danger">;
 
 export type NoticeCardProps = {
   tone?: NoticeTone;
@@ -12,12 +13,12 @@ export type NoticeCardProps = {
 
 const DEFAULT_ICONS: Record<NoticeTone, string> = {
   info: "ti ti-info-circle",
-  warn: "ti ti-alert-triangle",
-  error: "ti ti-alert-circle",
+  warning: "ti ti-alert-triangle",
+  danger: "ti ti-alert-circle",
 };
 
 function NoticeCardComponent(props: NoticeCardProps): JSX.Element {
-  const tone = () => props.tone ?? "warn";
+  const tone = () => props.tone ?? "warning";
   return (
     <article class={`k2b-notice-card ${props.class ?? ""}`} data-tone={tone()}>
       <div class="k2b-notice-card__inner">

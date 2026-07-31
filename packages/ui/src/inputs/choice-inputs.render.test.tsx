@@ -22,6 +22,7 @@ const { SelectChip } = await import("./SelectChip");
 const { NumberInput } = await import("./NumberInput");
 const { Switch } = await import("./Switch");
 const { TagsInput } = await import("./TagsInput");
+const { TagEditor } = await import("./TagEditor");
 const { TextInput } = await import("./TextInput");
 
 const indexCss = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
@@ -41,6 +42,21 @@ const options = [
 ] as const;
 
 describe("@k2b/ui complete choice input migrations", () => {
+  test("renders a controlled tag manager without persistence assumptions", () => {
+    const html = renderToString(() => createComponent(TagEditor, {
+      items: [{ id: "ui", name: "UI", color: "#06b6d4" }],
+      onCreate: () => {},
+      onUpdate: () => {},
+      onDelete: () => {},
+    }));
+
+    expect(html).toContain("k2b-tag-editor");
+    expect(html).toContain("UI");
+    expect(html).toContain("Edit UI");
+    expect(html).toContain("Delete UI");
+    expect(html).toContain("Add tag");
+  });
+
   test("renders checkbox, card, and switch semantics", () => {
     const checkbox = renderToString(() =>
       createComponent(Checkbox, {
@@ -131,6 +147,23 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain("--k2b-choice-background:#0891b21f");
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain("Clear selection");
+  });
+
+  test("lets applications render domain-specific multi-select labels", () => {
+    const html = renderToString(() =>
+      createComponent(MultiSelectInput, {
+        label: "Teams",
+        value: () => ["platform"],
+        options: [{ id: "platform", label: "Platform", color: "#0891b2" }],
+        renderValue: (option) => `Selected ${option.label}`,
+        renderOption: (option) => `Option ${option.label}`,
+      }),
+    );
+
+    expect(html).toContain("Selected Platform");
+    expect(html).toContain("Option Platform");
+    expect(html).toContain('class="k2b-choice-dot"');
+    expect(html).toContain('background:#0891b2');
   });
 
   test("renders tags as removable values and form entries", () => {

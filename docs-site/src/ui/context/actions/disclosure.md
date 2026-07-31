@@ -1,0 +1,38 @@
+# Disclosure
+
+`Disclosure` reveals optional detail without creating another peer view.
+
+## Use Disclosure
+
+Use it for advanced settings, explanations, or secondary controls that can stay collapsed. Use `Tabs` when content areas are peers.
+
+## Import
+
+```tsx
+import { Disclosure } from "@k2b/ui";
+```
+
+## Example
+
+```tsx
+const [advanced, setAdvanced] = createSignal(false);
+
+<Disclosure
+  summary="Advanced settings"
+  icon="ti ti-adjustments"
+  value={advanced}
+  onValueChange={setAdvanced}
+>
+  <AdvancedSettings />
+</Disclosure>
+```
+
+Pass `value` for controlled state or `defaultValue` for local initial state.
+
+## Accessibility
+
+The component preserves native `details` and `summary` semantics and occupies only its current content height.
+
+## Runtime
+
+Native uncontrolled disclosure works without JavaScript; controlled synchronization requires hydration.

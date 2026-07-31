@@ -14,10 +14,8 @@ import type {
   DateContext,
   DatePickerBaseProps,
   DropdownActionBase,
-  FilterChipChange,
   MaybeAccessor,
   PromptFieldBase,
-  SegmentedControlChange,
   SelectSourceOption,
 } from "@k2b/ui";
 
@@ -30,8 +28,6 @@ const contextMenu: ContextMenuContent = { items: [{ id: "open", label: "Open" }]
 const copyValue: CopyButtonValue = { text: "portable" };
 const dropdownAction: DropdownActionBase = { label: "Open" };
 const promptField: PromptFieldBase<string> = { label: "Name" };
-const filterChange: FilterChipChange = { onValueChange: () => {} };
-const segmentedChange: SegmentedControlChange<"one"> = { onValueChange: () => {} };
 
 void [
   components,
@@ -39,10 +35,8 @@ void [
   copyValue,
   dateProps,
   dropdownAction,
-  filterChange,
   maybe,
   promptField,
-  segmentedChange,
   selectOption,
 ];
 
@@ -59,6 +53,10 @@ import type { RemoveBtn } from "@k2b/ui";
 import type { RemoveBtnProps } from "@k2b/ui";
 // @ts-expect-error no compatibility alias
 import type { SegmentedControlOption } from "@k2b/ui";
+// @ts-expect-error obsolete callback wrapper; use onValueChange directly
+import type { FilterChipChange } from "@k2b/ui";
+// @ts-expect-error obsolete callback wrapper; use onValueChange directly
+import type { SegmentedControlChange } from "@k2b/ui";
 // @ts-expect-error no compatibility alias
 import type { SelectInput } from "@k2b/ui";
 // @ts-expect-error no compatibility alias

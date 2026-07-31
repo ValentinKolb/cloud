@@ -198,7 +198,7 @@ export function ChatContextUsage(props: ChatContextUsageProps): JSX.Element {
             <ProgressBar
               value={percent() ?? 0}
               size="xs"
-              tone={(percent() ?? 0) >= 85 ? "danger" : "primary"}
+              tone={(percent() ?? 0) >= 85 ? "danger" : "info"}
               label="Context window used"
             />
           </Show>

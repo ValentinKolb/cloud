@@ -204,7 +204,7 @@ describe("@k2b/ui action runtime behavior", () => {
           label: "State",
           icon: "ti ti-filter",
           value: [],
-          onChange: (value) => changes.push(value),
+          onValueChange: (value) => changes.push(value),
           options: [
             {
               label: "State",

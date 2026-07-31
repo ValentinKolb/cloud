@@ -83,6 +83,14 @@ adds a required accessible `label` while retaining the same button contract.
 Other package components compose these foundations instead of preserving
 Cloud-local button wrappers.
 
+`Tabs`, `Disclosure`, `Toolbar`, `Tag`, `TagEditor`, and `DescriptionList` are
+also additive portable primitives. They replace repeated application-local
+composition without importing Cloud persistence, routes, permissions, or
+domain models. `TagEditor` exposes async create/update/delete callbacks while
+the application retains authorization, confirmation, reconciliation, and
+toast ownership. `MultiSelectInput` adds `renderOption` and `renderValue` so
+the same assignment control can present application-owned tag metadata.
+
 Run `bun run check:migration` from `packages/ui` after changing either source
 surface. The check follows barrel exports and fails for missing, stale, or
 duplicate classifications.
@@ -152,6 +160,15 @@ Package-wide:
   description, error, and ARIA relationships instead of Cloud's
   `InputWrapper`. The old per-control callback and naming aliases are
   intentionally unsupported.
+- **Controlled callbacks.** Package-owned controlled components consistently
+  report state through `onValueChange`. The former FilterChip and
+  SegmentedControl callback-wrapper types, plus `onChange` aliases on Panes,
+  PanelDialog tabs, and ImageCropper, are intentionally absent rather than
+  retained as migration shims.
+- **Semantic tones.** Portable surfaces share `IntentTone` and `AccentColor`
+  instead of inventing component-local spellings such as `warn` or `primary`.
+  A component exports an `Extract` subset when only part of the vocabulary is
+  meaningful.
 - **Tokens.** `--k2b-*` is a remap of Cloud's `--ui-*`, not a copy. Class names
   the package does not own are limited to three families: `cd-*` from the
   package's own code highlighter, and `md-*` plus `stdlib-chart-*` emitted by

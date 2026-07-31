@@ -28,6 +28,8 @@ import {
 import { createMemo, createSignal, Show } from "solid-js";
 import { DemoCard } from "../DemoCard";
 import { DemoGrid, type DemoSection } from "./types";
+import { PaginationDemo } from "./layout";
+import { CalendarDemo } from "./surfaces";
 
 const ChartDemo = () => (
   <DemoCard
@@ -472,6 +474,8 @@ const demos: DemoSection = {
       <TableDemo />
     </DemoGrid>
   ),
+  calendar: () => <DemoGrid columns="one"><CalendarDemo /></DemoGrid>,
+  pagination: () => <DemoGrid columns="one"><PaginationDemo /></DemoGrid>,
   code: () => (
     <DemoGrid columns="one">
       <CodeDemo />

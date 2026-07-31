@@ -1,9 +1,12 @@
 import type { JSX } from "solid-js";
+import type { IntentTone } from "../semantics";
+
+export type ProgressBarTone = Extract<IntentTone, "info" | "success" | "danger">;
 
 export type ProgressBarProps = {
   value: number;
   size?: "xs" | "sm" | "md";
-  tone?: "primary" | "success" | "danger";
+  tone?: ProgressBarTone;
   showValue?: boolean;
   label?: string;
   class?: string;
@@ -14,7 +17,7 @@ const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 export function ProgressBar(props: ProgressBarProps): JSX.Element {
   const percent = () => clamp(props.value);
   return (
-    <div class={`k2b-progress ${props.class ?? ""}`} data-size={props.size ?? "md"} data-tone={props.tone ?? "primary"}>
+    <div class={`k2b-progress ${props.class ?? ""}`} data-size={props.size ?? "md"} data-tone={props.tone ?? "info"}>
       <div
         class="k2b-progress__track"
         role="progressbar"

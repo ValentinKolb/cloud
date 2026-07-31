@@ -45,7 +45,7 @@ type PanesElementSlot = {
 
 export type PanesRootProps = {
   value: PanesValue;
-  onChange: (value: PanesValue) => void;
+  onValueChange: (value: PanesValue) => void;
   children: JSX.Element;
   class?: string;
   label?: string;
@@ -262,7 +262,7 @@ const PanesRoot = (props: PanesRootProps) => {
       if (nextIntent.kind === "move" && !canReorder()) return;
       if (nextIntent.kind === "insert" && nextIntent.direction === "horizontal" && !canHorizontalSplit()) return;
       if (nextIntent.kind === "insert" && nextIntent.direction === "vertical" && !canVerticalSplit()) return;
-      props.onChange(applyPanesIntent(value(), nextIntent, presentation()));
+      props.onValueChange(applyPanesIntent(value(), nextIntent, presentation()));
     },
   });
 
@@ -272,11 +272,11 @@ const PanesRoot = (props: PanesRootProps) => {
     const leaf = findPanesLeaf(value().root, leafId);
     if (!leaf?.elementIds.includes(elementId)) return;
     const next = activatePanesElement(value(), elementId);
-    if (next !== value()) props.onChange(next);
+    if (next !== value()) props.onValueChange(next);
   };
 
   const resize = (splitId: string, index: number, delta: number, baseSizes: number[]) =>
-    props.onChange(resizePanesSplit(value(), splitId, index, delta, baseSizes));
+    props.onValueChange(resizePanesSplit(value(), splitId, index, delta, baseSizes));
 
   return (
     <div
@@ -356,6 +356,7 @@ function PanesNodeRenderer(props: RendererProps) {
 }
 
 function PanesSplit(props: Omit<RendererProps, "node"> & { node: () => PanesSplitNode }) {
+  const dndInstanceId = createUniqueId();
   let container: HTMLDivElement | undefined;
   let stopResize: (() => void) | undefined;
   const direction = () => props.node().direction;
@@ -461,7 +462,7 @@ function PanesSplit(props: Omit<RendererProps, "node"> & { node: () => PanesSpli
               <button
                 ref={(button) => {
                   props.dnd.droppable(button, () => ({
-                    id: `panes-split-gap:${props.node().id}:${index}`,
+                    id: `panes-split-gap:${dndInstanceId}:${props.node().id}:${index}`,
                     meta: {
                       kind: "split-gap",
                       splitId: props.node().id,
@@ -505,6 +506,9 @@ function PanesLeaf(
     node: () => PanesLeafNode;
   },
 ) {
+  const dndInstanceId = createUniqueId();
+  const draggableId = (id: string) => `panes-element:${dndInstanceId}:${id}`;
+  const tabDropId = (id: string) => `panes-tab:${dndInstanceId}:${props.node().id}:${id}`;
   const elements = createMemo(() => props.node().elementIds.flatMap((id) => props.elementById.get(id) ?? []));
   const activeId = createMemo(() =>
     props.node().elementIds.includes(props.node().activeElementId ?? "")
@@ -566,7 +570,7 @@ function PanesLeaf(
     <section
       ref={(element) => {
         props.dnd.droppable(element, () => ({
-          id: `panes-leaf:${props.node().id}`,
+          id: `panes-leaf:${dndInstanceId}:${props.node().id}`,
           meta: {
             kind: "leaf",
             leafId: props.node().id,
@@ -587,8 +591,18 @@ function PanesLeaf(
             {(element) => (
               <div
                 ref={(header) => {
+                  props.dnd.droppable(header, () => ({
+                    id: tabDropId(elementId(element())),
+                    meta: {
+                      kind: "tab",
+                      leafId: props.node().id,
+                      beforeElementId: elementId(element()),
+                      label: `before ${elementTitle(element())}`,
+                    },
+                    disabled: !props.canReorder(),
+                  }));
                   props.dnd.draggable(header, () => ({
-                    id: `panes-element:${elementId(element())}`,
+                    id: draggableId(elementId(element())),
                     meta: {
                       elementId: elementId(element()),
                       label: elementTitle(element()),
@@ -601,7 +615,7 @@ function PanesLeaf(
                 }}
                 class="k2b-panes__single-header"
                 data-dnd-active={
-                  props.dnd.activeId() === `panes-element:${elementId(element())}` ? "true" : undefined
+                  props.dnd.activeId() === draggableId(elementId(element())) ? "true" : undefined
                 }
               >
                 <Show when={props.canMove()}>
@@ -616,9 +630,11 @@ function PanesLeaf(
                     <i class="ti ti-grip-vertical" aria-hidden="true" />
                   </button>
                 </Show>
-                <i class={`${iconClass(element().props.icon)} k2b-panes__icon`} aria-hidden="true" />
-                <span title={elementTitle(element())}>
-                  {elementTitle(element())}
+                <span class="k2b-panes__tab-button k2b-panes__drag-preview" data-dnd-preview>
+                  <i class={`${iconClass(element().props.icon)} k2b-panes__icon`} aria-hidden="true" />
+                  <span title={elementTitle(element())}>
+                    {elementTitle(element())}
+                  </span>
                 </span>
                 <Show when={elementClosable(element())}>
                   <CloseButton element={element()} tabIndex={-1} />
@@ -641,7 +657,7 @@ function PanesLeaf(
                 <div
                   ref={(tab) => {
                     props.dnd.droppable(tab, () => ({
-                      id: `panes-tab:${props.node().id}:${elementId(element)}`,
+                      id: tabDropId(elementId(element)),
                       meta: {
                         kind: "tab",
                         leafId: props.node().id,
@@ -651,7 +667,7 @@ function PanesLeaf(
                       disabled: !props.canReorder(),
                     }));
                     props.dnd.draggable(tab, () => ({
-                      id: `panes-element:${elementId(element)}`,
+                      id: draggableId(elementId(element)),
                       meta: {
                         elementId: elementId(element),
                         label: elementTitle(element),
@@ -675,7 +691,7 @@ function PanesLeaf(
                   title={elementTitle(element)}
                   data-active={active() ? "true" : undefined}
                   data-dnd-active={
-                    props.dnd.activeId() === `panes-element:${elementId(element)}` ? "true" : undefined
+                    props.dnd.activeId() === draggableId(elementId(element)) ? "true" : undefined
                   }
                   onClick={(event) => {
                     if ((event.target as Element).closest(".k2b-panes__close")) return;
@@ -693,7 +709,7 @@ function PanesLeaf(
                       <i class="ti ti-grip-vertical" aria-hidden="true" />
                     </span>
                   </Show>
-                  <span class="k2b-panes__tab-button">
+                  <span class="k2b-panes__tab-button k2b-panes__drag-preview" data-dnd-preview>
                     <i class={`${iconClass(element.props.icon)} k2b-panes__icon`} aria-hidden="true" />
                     <span>{elementTitle(element)}</span>
                   </span>

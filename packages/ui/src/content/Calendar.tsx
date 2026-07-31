@@ -703,7 +703,7 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
           fallback={
             <SegmentedControl
               value={() => (props.view === "mobile-month" ? "month" : props.view)}
-              onChange={goView}
+              onValueChange={goView}
               ariaLabel="Calendar view"
               options={viewOptions()}
             />

@@ -36,8 +36,8 @@ Notice content renders on the server. Actions require hydration only when implem
 
 ```tsx
 const notices = [
-  { tone: "warn", title: "Review needed", detail: "Two records have no owner." },
-  { tone: "error", title: "Source unavailable", detail: "Retrying in the background." },
+  { tone: "warning", title: "Review needed", detail: "Two records have no owner." },
+  { tone: "danger", title: "Source unavailable", detail: "Retrying in the background." },
 ] as const;
 
 <NoticeCard.Grid items={notices}>

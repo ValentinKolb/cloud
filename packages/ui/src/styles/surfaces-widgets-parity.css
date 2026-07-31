@@ -9,8 +9,7 @@
  * *unlayered* overrides in `packages/cloud/src/styles/utilities-layout.css` and
  * `utilities-feedback.css`. Unlayered rules beat Tailwind's `@layer utilities`,
  * so the override always wins where the two disagree — e.g. `.link-card-icon`
- * and `.widget-icon` paint a neutral muted tile even though the TSX still
- * carries tinted `bg-*-100` classes, `.stat-cell` is always `--ui-surface`
+ * paints a neutral muted tile, `.stat-cell` is always `--ui-surface`
  * regardless of the grid's `surface` prop, and every `paper` surface has
  * `box-shadow: none` because `--ui-shadow-surface` is `none` in both themes.
  * This file reproduces what Cloud actually paints, not what its class list
@@ -20,7 +19,8 @@
  * the exact value, so a consumer retheme reaches them. The remaining literals
  * are Cloud tone ramps (emerald/amber/red/violet/orange/cyan/rose steps) that
  * have no token in this package; they are paired light/dark rather than
- * invented as new tokens.
+ * invented as new tokens. The portable widget header intentionally leaves its
+ * icon untiled so it reads as one quiet heading rather than nested chrome.
  *
  * Dark rules use all three forms the package supports (`[data-theme="dark"]`,
  * `.k2b-dark`, and the `.dark` ancestor), matching index.css.
@@ -180,14 +180,14 @@
   color: var(--k2b-text-secondary);
   background: var(--k2b-surface-muted);
 }
-.k2b-ui .k2b-notice-card[data-tone="warn"] { border-color: #fde68a; color: #78350f; background: #fffbeb; }
-.k2b-ui .k2b-notice-card[data-tone="error"] { border-color: #fecaca; color: #7f1d1d; background: #fef2f2; }
-.k2b-ui[data-theme="dark"] .k2b-notice-card[data-tone="warn"],
-.k2b-ui.k2b-dark .k2b-notice-card[data-tone="warn"],
-.dark .k2b-ui .k2b-notice-card[data-tone="warn"] { border-color: rgb(245 158 11 / 0.3); color: #fef3c7; background: rgb(69 26 3 / 0.25); }
-.k2b-ui[data-theme="dark"] .k2b-notice-card[data-tone="error"],
-.k2b-ui.k2b-dark .k2b-notice-card[data-tone="error"],
-.dark .k2b-ui .k2b-notice-card[data-tone="error"] { border-color: rgb(239 68 68 / 0.3); color: #fee2e2; background: rgb(69 10 10 / 0.25); }
+.k2b-ui .k2b-notice-card[data-tone="warning"] { border-color: #fde68a; color: #78350f; background: #fffbeb; }
+.k2b-ui .k2b-notice-card[data-tone="danger"] { border-color: #fecaca; color: #7f1d1d; background: #fef2f2; }
+.k2b-ui[data-theme="dark"] .k2b-notice-card[data-tone="warning"],
+.k2b-ui.k2b-dark .k2b-notice-card[data-tone="warning"],
+.dark .k2b-ui .k2b-notice-card[data-tone="warning"] { border-color: rgb(245 158 11 / 0.3); color: #fef3c7; background: rgb(69 26 3 / 0.25); }
+.k2b-ui[data-theme="dark"] .k2b-notice-card[data-tone="danger"],
+.k2b-ui.k2b-dark .k2b-notice-card[data-tone="danger"],
+.dark .k2b-ui .k2b-notice-card[data-tone="danger"] { border-color: rgb(239 68 68 / 0.3); color: #fee2e2; background: rgb(69 10 10 / 0.25); }
 .k2b-ui .k2b-notice-card__inner { display: flex; align-items: flex-start; gap: 0.5rem; }
 /* Glyph and detail inherit the tone colour rather than a neutral. */
 .k2b-ui .k2b-notice-card__icon { flex: 0 0 auto; margin-top: 0.125rem; color: inherit; font-size: 0.875rem; }
@@ -297,18 +297,18 @@
 /* `--k2b-success-text` / `--k2b-danger-text` / `--k2b-info-text` already carry
    Cloud's 700-light / 300-dark pair, so those tones need no dark rule. */
 .k2b-ui .k2b-status-badge[data-tone="ok"] { color: var(--k2b-success-text); }
-.k2b-ui .k2b-status-badge[data-tone="warn"],
+.k2b-ui .k2b-status-badge[data-tone="warning"],
 .k2b-ui .k2b-status-badge[data-tone="degraded"] { color: #92400e; }
 .k2b-ui .k2b-status-badge[data-tone="error"] { color: var(--k2b-danger-text); }
 .k2b-ui .k2b-status-badge[data-tone="running"] { color: var(--k2b-info-text); }
 .k2b-ui .k2b-status-badge[data-tone="neutral"] { color: var(--k2b-text-secondary); }
 .k2b-ui .k2b-status-badge[data-variant="text"][data-tone="neutral"] { color: var(--k2b-text-muted); }
 .k2b-ui .k2b-status-badge[data-variant="chip"]:not([data-tone="neutral"]) { background: color-mix(in srgb, currentColor 10%, transparent); }
-.k2b-ui[data-theme="dark"] .k2b-status-badge[data-tone="warn"],
+.k2b-ui[data-theme="dark"] .k2b-status-badge[data-tone="warning"],
 .k2b-ui[data-theme="dark"] .k2b-status-badge[data-tone="degraded"],
-.k2b-ui.k2b-dark .k2b-status-badge[data-tone="warn"],
+.k2b-ui.k2b-dark .k2b-status-badge[data-tone="warning"],
 .k2b-ui.k2b-dark .k2b-status-badge[data-tone="degraded"],
-.dark .k2b-ui .k2b-status-badge[data-tone="warn"],
+.dark .k2b-ui .k2b-status-badge[data-tone="warning"],
 .dark .k2b-ui .k2b-status-badge[data-tone="degraded"] { color: #fcd34d; }
 /* The dot variant keeps neutral wording — only the dot carries the tone, at
    the 400/500 shade rather than the chip's text shade. */
@@ -321,7 +321,7 @@
   font-weight: 400;
 }
 .k2b-ui .k2b-status-badge[data-tone="ok"] .k2b-status-badge__dot { background: var(--k2b-success-500); }
-.k2b-ui .k2b-status-badge[data-tone="warn"] .k2b-status-badge__dot { background: var(--k2b-warning-500); }
+.k2b-ui .k2b-status-badge[data-tone="warning"] .k2b-status-badge__dot { background: var(--k2b-warning-500); }
 .k2b-ui .k2b-status-badge[data-tone="degraded"] .k2b-status-badge__dot { background: var(--k2b-warning-500); }
 .k2b-ui .k2b-status-badge[data-tone="error"] .k2b-status-badge__dot { background: var(--k2b-danger-500); }
 .k2b-ui .k2b-status-badge[data-tone="running"] .k2b-status-badge__dot { background: var(--k2b-accent-500); }
@@ -616,16 +616,13 @@
 .k2b-ui a.k2b-widget__header:hover { background: transparent; }
 .k2b-ui a.k2b-widget__header:hover .k2b-widget__title { color: var(--k2b-text); }
 .k2b-ui a.k2b-widget__header:hover .k2b-widget__chevron { color: var(--k2b-text-secondary); }
-/* Cloud's `.widget-icon` overrides the blue tint with a neutral tile. */
 .k2b-ui .k2b-widget__icon {
-  display: grid;
-  width: 1.75rem;
-  height: 1.75rem;
+  display: inline-flex;
   flex: 0 0 auto;
-  place-items: center;
-  border-radius: 0.5rem;
+  align-items: center;
+  justify-content: center;
   color: var(--k2b-neutral-600);
-  background: var(--k2b-surface-muted);
+  background: transparent;
   font-size: 0.875rem;
 }
 .k2b-ui[data-theme="dark"] .k2b-widget__icon,
@@ -763,38 +760,38 @@
 /* ---------------------------------------------------------- WidgetStatus -- */
 .k2b-ui .k2b-widget-status { display: flex; min-width: 0; align-items: flex-start; gap: 0.75rem; padding: 0.75rem 1rem; border-radius: 0; }
 .k2b-ui .k2b-widget-status[data-grow="true"] { flex: 1; align-items: center; }
-.k2b-ui .k2b-widget-status[data-tone="ok"] { color: #065f46; background: #ecfdf5; }
-.k2b-ui .k2b-widget-status[data-tone="warn"] { color: #92400e; background: #fffbeb; }
-.k2b-ui .k2b-widget-status[data-tone="error"] { color: #991b1b; background: transparent; }
+.k2b-ui .k2b-widget-status[data-tone="success"] { color: #065f46; background: #ecfdf5; }
+.k2b-ui .k2b-widget-status[data-tone="warning"] { color: #92400e; background: #fffbeb; }
+.k2b-ui .k2b-widget-status[data-tone="danger"] { color: #991b1b; background: transparent; }
 .k2b-ui .k2b-widget-status[data-tone="info"] { color: #1e40af; background: var(--k2b-accent-50); }
-.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="ok"],
-.k2b-ui.k2b-dark .k2b-widget-status[data-tone="ok"],
-.dark .k2b-ui .k2b-widget-status[data-tone="ok"] { color: #a7f3d0; background: rgb(6 78 59 / 0.2); }
-.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="warn"],
-.k2b-ui.k2b-dark .k2b-widget-status[data-tone="warn"],
-.dark .k2b-ui .k2b-widget-status[data-tone="warn"] { color: #fde68a; background: rgb(120 53 15 / 0.2); }
-.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="error"],
-.k2b-ui.k2b-dark .k2b-widget-status[data-tone="error"],
-.dark .k2b-ui .k2b-widget-status[data-tone="error"] { color: #fecaca; background: transparent; }
+.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="success"],
+.k2b-ui.k2b-dark .k2b-widget-status[data-tone="success"],
+.dark .k2b-ui .k2b-widget-status[data-tone="success"] { color: #a7f3d0; background: rgb(6 78 59 / 0.2); }
+.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="warning"],
+.k2b-ui.k2b-dark .k2b-widget-status[data-tone="warning"],
+.dark .k2b-ui .k2b-widget-status[data-tone="warning"] { color: #fde68a; background: rgb(120 53 15 / 0.2); }
+.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="danger"],
+.k2b-ui.k2b-dark .k2b-widget-status[data-tone="danger"],
+.dark .k2b-ui .k2b-widget-status[data-tone="danger"] { color: #fecaca; background: transparent; }
 .k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="info"],
 .k2b-ui.k2b-dark .k2b-widget-status[data-tone="info"],
 .dark .k2b-ui .k2b-widget-status[data-tone="info"] { color: #bfdbfe; background: color-mix(in srgb, var(--k2b-accent-900) 20%, transparent); }
 .k2b-ui .k2b-widget-status__icon { flex: 0 0 auto; margin-top: 0.125rem; font-size: 1rem; }
 .k2b-ui .k2b-widget-status[data-grow="true"] .k2b-widget-status__icon { margin-top: 0; }
 /* The glyph runs a step brighter than the copy, as in Cloud. */
-.k2b-ui .k2b-widget-status[data-tone="ok"] .k2b-widget-status__icon { color: var(--k2b-success-600); }
-.k2b-ui .k2b-widget-status[data-tone="warn"] .k2b-widget-status__icon { color: #d97706; }
-.k2b-ui .k2b-widget-status[data-tone="error"] .k2b-widget-status__icon { color: var(--k2b-danger-600); }
+.k2b-ui .k2b-widget-status[data-tone="success"] .k2b-widget-status__icon { color: var(--k2b-success-600); }
+.k2b-ui .k2b-widget-status[data-tone="warning"] .k2b-widget-status__icon { color: #d97706; }
+.k2b-ui .k2b-widget-status[data-tone="danger"] .k2b-widget-status__icon { color: var(--k2b-danger-600); }
 .k2b-ui .k2b-widget-status[data-tone="info"] .k2b-widget-status__icon { color: var(--k2b-accent-600); }
-.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="ok"] .k2b-widget-status__icon,
-.k2b-ui.k2b-dark .k2b-widget-status[data-tone="ok"] .k2b-widget-status__icon,
-.dark .k2b-ui .k2b-widget-status[data-tone="ok"] .k2b-widget-status__icon { color: #34d399; }
-.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="warn"] .k2b-widget-status__icon,
-.k2b-ui.k2b-dark .k2b-widget-status[data-tone="warn"] .k2b-widget-status__icon,
-.dark .k2b-ui .k2b-widget-status[data-tone="warn"] .k2b-widget-status__icon { color: #fbbf24; }
-.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="error"] .k2b-widget-status__icon,
-.k2b-ui.k2b-dark .k2b-widget-status[data-tone="error"] .k2b-widget-status__icon,
-.dark .k2b-ui .k2b-widget-status[data-tone="error"] .k2b-widget-status__icon { color: #f87171; }
+.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="success"] .k2b-widget-status__icon,
+.k2b-ui.k2b-dark .k2b-widget-status[data-tone="success"] .k2b-widget-status__icon,
+.dark .k2b-ui .k2b-widget-status[data-tone="success"] .k2b-widget-status__icon { color: #34d399; }
+.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="warning"] .k2b-widget-status__icon,
+.k2b-ui.k2b-dark .k2b-widget-status[data-tone="warning"] .k2b-widget-status__icon,
+.dark .k2b-ui .k2b-widget-status[data-tone="warning"] .k2b-widget-status__icon { color: #fbbf24; }
+.k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="danger"] .k2b-widget-status__icon,
+.k2b-ui.k2b-dark .k2b-widget-status[data-tone="danger"] .k2b-widget-status__icon,
+.dark .k2b-ui .k2b-widget-status[data-tone="danger"] .k2b-widget-status__icon { color: #f87171; }
 .k2b-ui[data-theme="dark"] .k2b-widget-status[data-tone="info"] .k2b-widget-status__icon,
 .k2b-ui.k2b-dark .k2b-widget-status[data-tone="info"] .k2b-widget-status__icon,
 .dark .k2b-ui .k2b-widget-status[data-tone="info"] .k2b-widget-status__icon { color: var(--k2b-accent-400); }

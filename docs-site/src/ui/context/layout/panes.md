@@ -25,7 +25,7 @@ import {
 
 Create the initial value with `createPanesValue(ids, presentation)`. The presentation is `"tabs"` by default and can also be `"single"` or `"stack"`.
 
-Pass the current `PanesValue` to `value` and replace it from `onChange`. Keep every `Panes.Element.id` stable.
+Pass the current `PanesValue` to `value` and replace it from `onValueChange`. Keep every `Panes.Element.id` stable.
 
 Call `normalizePanesValue` when the available element ids change. It removes unavailable ids, keeps valid layout state, and adds new elements.
 
@@ -75,7 +75,7 @@ const [layout, setLayout] = createSignal<PanesValue>(
 
 <Panes
   value={layout()}
-  onChange={setLayout}
+  onValueChange={setLayout}
   allowResize
   allowMove
   allowReorder

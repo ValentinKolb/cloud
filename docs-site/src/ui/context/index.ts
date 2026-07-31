@@ -1,7 +1,12 @@
 import actionButtons from "./actions/buttons.md" with { type: "text" };
 import actionCopyRemove from "./actions/copy-remove.md" with { type: "text" };
 import actionMenus from "./actions/menus.md" with { type: "text" };
+import actionFilters from "./filter-chip.md" with { type: "text" };
 import actionSegmentedControl from "./actions/segmented-control.md" with { type: "text" };
+import actionTabs from "./actions/tabs.md" with { type: "text" };
+import actionDisclosure from "./actions/disclosure.md" with { type: "text" };
+import actionSpotlight from "./actions/spotlight.md" with { type: "text" };
+import actionToolbar from "./actions/toolbar.md" with { type: "text" };
 import aiChat from "./ai/chat.md" with { type: "text" };
 import aiContextUsage from "./ai/context-usage.md" with { type: "text" };
 import cloudAssistantChat from "./cloud/assistant-chat.md" with { type: "text" };
@@ -28,7 +33,6 @@ import inputColor from "./input/color.md" with { type: "text" };
 import inputCombobox from "./input/combobox.md" with { type: "text" };
 import inputDatePicker from "./input/date-picker.md" with { type: "text" };
 import inputFileDropzone from "./input/file-dropzone.md" with { type: "text" };
-import inputFilters from "./filter-chip.md" with { type: "text" };
 import inputIcon from "./input/icon.md" with { type: "text" };
 import inputImage from "./input/image.md" with { type: "text" };
 import inputImageCropper from "./input/image-cropper.md" with { type: "text" };
@@ -38,18 +42,20 @@ import inputPin from "./input/pin.md" with { type: "text" };
 import inputSelect from "./input/select.md" with { type: "text" };
 import inputSlider from "./input/slider.md" with { type: "text" };
 import inputTags from "./input/tags.md" with { type: "text" };
+import inputTagEditor from "./input/tag-editor.md" with { type: "text" };
 import inputText from "./input/text.md" with { type: "text" };
 import layoutFloatingWindow from "./layout/floating-window.md" with { type: "text" };
 import layoutOverview from "./layout/overview.md" with { type: "text" };
-import layoutPagination from "./layout/pagination.md" with { type: "text" };
 import layoutPanelDialog from "./layout/panel-dialog.md" with { type: "text" };
 import layoutPanes from "./layout/panes.md" with { type: "text" };
 import layoutPermissions from "./layout/permissions.md" with { type: "text" };
 import layoutSettingsModal from "./layout/settings-modal.md" with { type: "text" };
 import layoutWorkspace from "./layout/workspace.md" with { type: "text" };
-import surfaceCalendar from "./surfaces/calendar.md" with { type: "text" };
+import contentCalendar from "./surfaces/calendar.md" with { type: "text" };
+import contentPagination from "./layout/pagination.md" with { type: "text" };
 import surfaceCards from "./surfaces/cards.md" with { type: "text" };
 import surfaceEmptyStates from "./surfaces/empty-states.md" with { type: "text" };
+import surfaceDetails from "./surfaces/details.md" with { type: "text" };
 import surfaceObservability from "./surfaces/observability.md" with { type: "text" };
 import surfaceProgress from "./surfaces/progress.md" with { type: "text" };
 import surfaceStats from "./surfaces/stats.md" with { type: "text" };
@@ -68,32 +74,36 @@ const catalogContextSources = {
   "input/combobox": { file: "input/combobox.md", content: inputCombobox },
   "input/color": { file: "input/color.md", content: inputColor },
   "input/tags": { file: "input/tags.md", content: inputTags },
+  "input/tag-editor": { file: "input/tag-editor.md", content: inputTagEditor },
   "input/pin": { file: "input/pin.md", content: inputPin },
   "input/image": { file: "input/image.md", content: inputImage },
   "input/image-cropper": { file: "input/image-cropper.md", content: inputImageCropper },
   "input/file-dropzone": { file: "input/file-dropzone.md", content: inputFileDropzone },
   "input/icon": { file: "input/icon.md", content: inputIcon },
   "input/slider": { file: "input/slider.md", content: inputSlider },
-  "input/filters": { file: "filter-chip.md", content: inputFilters },
   "input/boolean": { file: "input/boolean.md", content: inputBoolean },
   "actions/buttons": { file: "actions/buttons.md", content: actionButtons },
   "actions/copy-remove": { file: "actions/copy-remove.md", content: actionCopyRemove },
   "actions/menus": { file: "actions/menus.md", content: actionMenus },
+  "actions/filters": { file: "filter-chip.md", content: actionFilters },
   "actions/segmented-control": { file: "actions/segmented-control.md", content: actionSegmentedControl },
+  "actions/tabs": { file: "actions/tabs.md", content: actionTabs },
+  "actions/disclosure": { file: "actions/disclosure.md", content: actionDisclosure },
+  "actions/toolbar": { file: "actions/toolbar.md", content: actionToolbar },
+  "actions/spotlight": { file: "actions/spotlight.md", content: actionSpotlight },
   "layout/workspace": { file: "layout/workspace.md", content: layoutWorkspace },
   "layout/panes": { file: "layout/panes.md", content: layoutPanes },
   "layout/overview": { file: "layout/overview.md", content: layoutOverview },
   "layout/settings-modal": { file: "layout/settings-modal.md", content: layoutSettingsModal },
   "layout/panel-dialog": { file: "layout/panel-dialog.md", content: layoutPanelDialog },
   "layout/floating-window": { file: "layout/floating-window.md", content: layoutFloatingWindow },
-  "layout/pagination": { file: "layout/pagination.md", content: layoutPagination },
   "surfaces/utilities": { file: "surfaces/utilities.md", content: surfaceUtilities },
   "surfaces/empty-states": { file: "surfaces/empty-states.md", content: surfaceEmptyStates },
+  "surfaces/details": { file: "surfaces/details.md", content: surfaceDetails },
   "surfaces/cards": { file: "surfaces/cards.md", content: surfaceCards },
   "surfaces/progress": { file: "surfaces/progress.md", content: surfaceProgress },
   "surfaces/stats": { file: "surfaces/stats.md", content: surfaceStats },
   "surfaces/observability": { file: "surfaces/observability.md", content: surfaceObservability },
-  "surfaces/calendar": { file: "surfaces/calendar.md", content: surfaceCalendar },
   "feedback/blocks": { file: "feedback/blocks.md", content: feedbackBlocks },
   "feedback/badges": { file: "feedback/badges.md", content: feedbackBadges },
   "feedback/toast": { file: "feedback/toast.md", content: feedbackToast },
@@ -101,6 +111,8 @@ const catalogContextSources = {
   "feedback/prompts": { file: "feedback/prompts.md", content: feedbackPrompts },
   "content/charts": { file: "content/charts.md", content: contentCharts },
   "content/tables": { file: "content/tables.md", content: contentTables },
+  "content/calendar": { file: "surfaces/calendar.md", content: contentCalendar },
+  "content/pagination": { file: "layout/pagination.md", content: contentPagination },
   "content/code": { file: "content/code.md", content: contentCode },
   "content/logs": { file: "content/logs.md", content: contentLogs },
   "content/structured-data": { file: "content/structured-data.md", content: contentStructuredData },

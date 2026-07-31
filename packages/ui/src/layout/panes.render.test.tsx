@@ -44,7 +44,7 @@ describe("@k2b/ui Panes", () => {
     const html = renderToString(() =>
       createComponent(Panes.Root, {
         value,
-        onChange: () => undefined,
+        onValueChange: () => undefined,
         label: "Template workspace",
         get children() {
           return [
@@ -99,7 +99,7 @@ describe("@k2b/ui Panes", () => {
               presentation: "tabs",
             },
           },
-          onChange: () => undefined,
+          onValueChange: () => undefined,
           keepMounted,
           get children() {
             return [
@@ -127,7 +127,7 @@ describe("@k2b/ui Panes", () => {
             presentation: "stack",
           },
         },
-        onChange: () => undefined,
+        onValueChange: () => undefined,
         get children() {
           return [
             createComponent(Panes.Element, { id: "one", title: "One", children: "First" }),

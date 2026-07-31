@@ -23,12 +23,14 @@ import {
   SelectChip,
   Slider,
   Switch,
+  Tag,
+  TagEditor,
+  type TagEditorItem,
   TagsInput,
   TextInput,
 } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { DemoCard } from "../DemoCard";
-import { FilterDemo } from "./actions";
 import { DemoGrid, type DemoSection } from "./types";
 
 const options = [
@@ -408,6 +410,71 @@ const ComboboxDemo = () => (
   </DemoCard>
 );
 
+const TagEditorDemo = () => {
+  const [items, setItems] = createSignal<TagEditorItem[]>([
+    { id: "platform", name: "Platform", color: "#0891b2" },
+    { id: "design", name: "Design", color: "#8b5cf6" },
+  ]);
+  const [selected, setSelected] = createSignal(["platform"]);
+  let nextId = 1;
+  return (
+    <DemoCard
+      id="tag-editor"
+      chip={[
+        { kind: "component", name: "Tag", from: "@k2b/ui" },
+        { kind: "component", name: "TagEditor", from: "@k2b/ui" },
+        { kind: "component", name: "MultiSelectInput", from: "@k2b/ui" },
+      ]}
+      description="Tag owns compact presentation; TagEditor owns accessible create/edit/delete interaction while the application owns persistence and confirmation. MultiSelectInput assigns existing tags and accepts custom option/value rendering."
+      code={`const [tags, setTags] = createSignal<TagEditorItem[]>(initialTags);
+
+<TagEditor
+  items={tags()}
+  onCreate={async (value) => setTags((items) => [...items, { id: crypto.randomUUID(), ...value }])}
+  onUpdate={async (tag, value) => setTags((items) => items.map((item) => item.id === tag.id ? { ...item, ...value } : item))}
+  onDelete={async (tag) => setTags((items) => items.filter((item) => item.id !== tag.id))}
+/>
+
+<MultiSelectInput
+  label="Assigned tags"
+  value={selected}
+  onValueChange={setSelected}
+  options={tags().map((tag) => ({ value: tag.id, label: tag.name, color: tag.color }))}
+  renderValue={(option) => <strong>{option.label}</strong>}
+/>`}
+    >
+      <div class="ui-demo-form-grid">
+        <div class="ui-demo-row">
+          <Tag color="#0891b2">Platform</Tag>
+          <Tag color="#8b5cf6" icon="ti ti-palette">Design</Tag>
+          <Tag size="sm">Neutral</Tag>
+        </div>
+        <TagEditor
+          items={items()}
+          onCreate={async (value) => { setItems((current) => [...current, { id: `tag-${nextId++}`, ...value }]); }}
+          onUpdate={async (tag, value) => { setItems((current) => current.map((item) => item.id === tag.id ? { ...item, ...value } : item)); }}
+          onDelete={async (tag) => {
+            setItems((current) => current.filter((item) => item.id !== tag.id));
+            setSelected((current) => current.filter((id) => id !== tag.id));
+          }}
+        />
+        <MultiSelectInput
+          label="Assigned tags"
+          value={selected}
+          onValueChange={setSelected}
+          options={items().map((tag) => ({ value: tag.id, label: tag.name, color: tag.color ?? undefined }))}
+          renderValue={(option) => <strong>{option.label}</strong>}
+          renderOption={(option) => <span class="ui-demo-choice-copy"><strong>{option.label}</strong><small>Reusable project tag</small></span>}
+          searchPlaceholder="Search tags..."
+          emptyLabel="No tags available"
+          noResultsLabel="No matching tags"
+          clearable
+        />
+      </div>
+    </DemoCard>
+  );
+};
+
 const SmallChoicesDemo = (props: { kind: "color" | "tags" | "pin" | "icon" | "slider" }) => {
   const [color, setColor] = createSignal("#06b6d4");
   const [transparent, setTransparent] = createSignal(false);
@@ -564,7 +631,7 @@ const CropDemo = () => {
     <DemoCard
       id="image-cropper"
       chip={{ kind: "component", name: "ImageCropper", from: "@k2b/ui" }}
-      description="Interactive crop, resize, zoom, and rotation over an application-owned image source; the application receives normalized crop state for export."
+      description="Interactive crop, direct corner resize, and rotation over an application-owned image source; fixed aspect ratios stay locked while resizing."
       code={`const cropAspect = () => preset() === "square"
   ? { width: 1, height: 1 }
   : preset() === "wide"
@@ -572,7 +639,7 @@ const CropDemo = () => {
     : "free";
 
 <Select label="Aspect" value={preset} onValueChange={setPreset} options={aspectOptions} />
-<ImageCropper source={imageUrl} aspect={cropAspect()} previewShape="rect" onChange={setCrop} />`}
+<ImageCropper source={imageUrl} aspect={cropAspect()} previewShape="rect" onValueChange={setCrop} />`}
     >
       <div class="ui-crop-demo">
         <Select
@@ -592,7 +659,7 @@ const CropDemo = () => {
           source={cropDemoSource}
           aspect={cropAspect()}
           previewShape="rect"
-          onChange={setCrop}
+          onValueChange={setCrop}
         />
       </div>
     </DemoCard>
@@ -668,6 +735,11 @@ const demos: DemoSection = {
       <SmallChoicesDemo kind="tags" />
     </DemoGrid>
   ),
+  "tag-editor": () => (
+    <DemoGrid columns="one">
+      <TagEditorDemo />
+    </DemoGrid>
+  ),
   pin: () => (
     <DemoGrid columns="one">
       <SmallChoicesDemo kind="pin" />
@@ -696,11 +768,6 @@ const demos: DemoSection = {
   slider: () => (
     <DemoGrid columns="one">
       <SmallChoicesDemo kind="slider" />
-    </DemoGrid>
-  ),
-  filters: () => (
-    <DemoGrid columns="one">
-      <FilterDemo />
     </DemoGrid>
   ),
   boolean: () => (

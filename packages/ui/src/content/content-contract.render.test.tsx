@@ -25,6 +25,7 @@ const { Pagination } = await import("./Pagination");
 const { default: PdfPreview } = await import("./PdfPreview");
 const { default: RangePicker } = await import("./RangePicker");
 const { default: StructuredDataPreview } = await import("./StructuredDataPreview");
+const contentCss = await Bun.file(resolve(import.meta.dir, "../styles/content-parity.css")).text();
 
 describe("@k2b/ui Cloud content contract", () => {
   test("keeps the complete calendar event and view contract on the server", () => {
@@ -57,6 +58,10 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html).toContain("Review");
     expect(html).toContain("Review, 09:00 to 10:00");
     expect(html).toContain("view=day");
+    expect(contentCss).toContain("--k2b-calendar-event-text: #047857");
+    expect(contentCss).toContain("--k2b-calendar-event-surface: #ecfdf5");
+    expect(contentCss).toContain("color: var(--k2b-calendar-event-text, var(--k2b-text))");
+    expect(contentCss).toContain("background: var(--k2b-calendar-event-surface, var(--k2b-surface-muted))");
   });
 
   test("indexes year-view events once instead of rescanning them for every day", () => {

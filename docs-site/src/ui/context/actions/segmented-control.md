@@ -19,7 +19,7 @@ import {
 
 ## Options and state
 
-`SegmentedControl` is generic over a string union. `options` contain `value`, `label`, and an optional Tabler `icon`. The controlled `value` accessor must match one option, and `onChange` receives the selected value.
+`SegmentedControl` is generic over a string union. `options` contain `value`, `label`, and an optional Tabler `icon`. The controlled `value` accessor must match one option, and `onValueChange` receives the selected value.
 
 Use `disabled` for the whole group. The additive per-option `disabled` property skips an unavailable option during keyboard navigation. `ariaLabel` names the group and defaults to `"Options"`.
 
@@ -55,6 +55,6 @@ const [view, setView] = createSignal<View>("board");
     },
   ]}
   value={view}
-  onChange={setView}
+  onValueChange={setView}
 />;
 ```

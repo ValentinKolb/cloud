@@ -32,6 +32,8 @@ AI presentation has a separate semantic theme:
 and `--k2b-ai-surface`. Override these roles when the assistant identity should
 differ from the general application accent.
 
+Component APIs use the shared `IntentTone` vocabulary (`neutral`, `info`, `success`, `warning`, `danger`) when they describe user-facing intent, and `AccentColor` (`zinc`, `blue`, `emerald`, `amber`, `red`) for data presentation. Operational states such as `running`, `degraded`, and `error` remain a separate status vocabulary.
+
 Use `data-theme="dark"` or `k2b-dark` on the scope, or place it inside a host `.dark` element.
 
 ## Accessibility

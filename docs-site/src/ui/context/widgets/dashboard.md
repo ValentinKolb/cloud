@@ -62,8 +62,8 @@ Each `WidgetList` item accepts `label`, optional `sub`, `meta`, `icon`,
 `iconTone`, and `href`. Each pill accepts `label`, `value`, optional `tone`,
 and `href`. A stat accent accepts `tone`, `icon`, and optional `text`.
 
-`WidgetStatus` uses the separate state vocabulary `"ok"`, `"warn"`,
-`"error"`, and `"info"`, with a default icon for every tone.
+`WidgetStatus` uses the shared semantic subset `"success"`, `"warning"`,
+`"danger"`, and `"info"`, with a default icon for every tone.
 
 ## Composition
 
@@ -119,7 +119,7 @@ responsibility.
       },
     ]}
   />
-  <WidgetStatus tone="ok" title="All services operational" />
+  <WidgetStatus tone="success" title="All services operational" />
   <WidgetPills
     pills={[
       { label: "Teams", value: 4, href: "/teams" },
@@ -146,7 +146,7 @@ responsibility.
   />
 </WidgetCard>
 
-<WidgetStatus tone="warn" title="Delayed" />
-<WidgetStatus tone="error" title="Unavailable" />
+<WidgetStatus tone="warning" title="Delayed" />
+<WidgetStatus tone="danger" title="Unavailable" />
 <WidgetStatus tone="info" title="Maintenance scheduled" />
 ```

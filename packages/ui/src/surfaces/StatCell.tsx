@@ -1,8 +1,9 @@
 import { type JSX, Show } from "solid-js";
 import Chart from "../content/Chart";
+import type { AccentColor } from "../semantics";
 import { type StatGridSize, useStatGridSize, useStatGridSurface } from "./StatGrid";
 
-export type StatCellTone = "emerald" | "amber" | "red" | "blue" | "zinc";
+export type StatCellTone = AccentColor;
 
 export type StatCellAccent = {
   tone: StatCellTone;

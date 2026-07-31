@@ -65,7 +65,7 @@ describe("@k2b/ui scaffold SSR", () => {
     const notice = renderToString(() =>
       createComponent(NoticeCard, {
         title: "Package boundary",
-        tone: "error",
+        tone: "danger",
         detail: "No Cloud dependency.",
       }),
     );
@@ -74,7 +74,7 @@ describe("@k2b/ui scaffold SSR", () => {
     expect(badge).toContain("Healthy");
     expect(progress).toContain('role="progressbar"');
     expect(progress).toContain('aria-valuenow="42"');
-    expect(notice).toContain('data-tone="error"');
+    expect(notice).toContain('data-tone="danger"');
     expect(notice).toContain("No Cloud dependency.");
   });
 
@@ -128,7 +128,7 @@ describe("@k2b/ui scaffold SSR", () => {
         title: "Health",
         get children() {
           return [
-            createComponent(WidgetStatus, { title: "Operational", tone: "ok" }),
+            createComponent(WidgetStatus, { title: "Operational", tone: "success" }),
             createComponent(WidgetStat, { label: "Checks", value: 42 }),
           ];
         },

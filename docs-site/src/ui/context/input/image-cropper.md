@@ -20,17 +20,17 @@ import {
 
 ## Source and crop state
 
-`source` accepts a `File`, `Blob`, image element, canvas element, or URL. `onChange` receives `{ crop, rotation }` after the image is ready, or `null` while no valid crop is available.
+`source` accepts a `File`, `Blob`, image element, canvas element, or URL. `onValueChange` receives `{ crop, rotation }` after the image is ready, or `null` while no valid crop is available.
 
 `aspect` defaults to `"free"`. Pass `{ width, height }` for a fixed ratio. `previewShape="circle"` changes only the preview mask; exported pixels still use the rectangular crop.
 
-Free crops can be moved and resized, except with `previewShape="circle"`, which has neither resize handles nor a zoom slider and can only be moved. Fixed-aspect crops can be moved and zoomed. Rotation advances in 90-degree steps.
+Rectangular crops can be moved and resized from their corners. A fixed `aspect` stays locked and keeps the opposite corner anchored during resize. A circular preview can be moved but has no corner handles. Rotation advances in 90-degree steps.
 
 Use `createCroppedImageDataUrl` or `createCroppedImageCanvas` to apply the emitted state. Output options support exact dimensions, maximum dimensions, format, and quality.
 
 ## Accessibility
 
-Rotation and zoom are keyboard operable. Moving and resizing the crop area is pointer-driven, so do not make precise cropping the only way to complete a keyboard-only flow.
+Rotation is keyboard operable. Moving and resizing the crop area is pointer-driven, so do not make precise cropping the only way to complete a keyboard-only flow.
 
 Give the generated preview a useful `alt` value in the owning UI.
 
@@ -47,7 +47,7 @@ const [crop, setCrop] = createSignal<ImageCropState | null>(null);
   source={file}
   aspect={{ width: 1, height: 1 }}
   previewShape="circle"
-  onChange={setCrop}
+  onValueChange={setCrop}
 />;
 
 const state = crop();

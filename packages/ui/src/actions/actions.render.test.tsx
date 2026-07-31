@@ -13,8 +13,10 @@ Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const {
+  Button,
   ContextMenu,
   CopyButton,
+  Disclosure,
   Dropdown,
   dropdownPosition,
   FilterChip,
@@ -23,6 +25,8 @@ const {
   RemoveButton,
   SegmentedControl,
   SpotlightButton,
+  Tabs,
+  Toolbar,
 } = await import("../index");
 const { copyText } = await import("./CopyButton");
 const actionsCss = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
@@ -36,6 +40,76 @@ const rule = (selector: string): string => {
 };
 
 describe("@k2b/ui complete action migrations", () => {
+  test("renders accessible tabs, disclosures, and toolbars", () => {
+    const tabs = renderToString(() => createComponent(Tabs, {
+      ariaLabel: "Project view",
+      value: "overview",
+      onValueChange: () => {},
+      options: [
+        { value: "overview", label: "Overview", icon: "ti ti-home", panel: "Overview panel" },
+        { value: "activity", label: "Activity", disabled: true, panel: "Activity panel" },
+      ],
+    }));
+    const disclosure = renderToString(() => createComponent(Disclosure, { summary: "Advanced", defaultValue: true, children: "Details" }));
+    const toolbar = renderToString(() => createComponent(Toolbar, {
+      label: "Document actions",
+      wrap: true,
+      get children() {
+        return [
+          createComponent(Toolbar.Group, { label: "Edit", children: "Actions" }),
+          createComponent(Toolbar.Separator, {}),
+          createComponent(Toolbar.Spacer, {}),
+        ];
+      },
+    }));
+
+    expect(tabs).toContain('role="tablist"');
+    expect(tabs).toContain('aria-selected="true"');
+    expect(tabs).toContain('role="tabpanel"');
+    expect(disclosure).toContain("<details");
+    expect(disclosure).toContain("open");
+    expect(toolbar).toContain('role="toolbar"');
+    expect(toolbar).toContain('aria-label="Document actions"');
+    expect(toolbar).toContain('role="separator"');
+    expect(rule(".k2b-ui .k2b-disclosure")).toContain("width: 100%");
+    expect(rule(".k2b-ui .k2b-disclosure")).toContain("align-self: stretch");
+    expect(rule(".k2b-ui .k2b-disclosure > summary")).toContain("user-select: none");
+    expect(actionsCss).not.toContain(".k2b-disclosure > summary:hover { background:");
+    expect(actionsCss).toContain(".k2b-disclosure > summary:hover .k2b-disclosure__chevron");
+  });
+
+  test("renders compositional tab items with their colocated panel", () => {
+    const tabs = renderToString(() =>
+      createComponent(Tabs, {
+        ariaLabel: "Project sections",
+        value: "overview",
+        onValueChange: () => {},
+        get children() {
+          return [
+            createComponent(Tabs.Item, { value: "overview", label: "Overview", children: "Summary" }),
+            createComponent(Tabs.Item, { value: "activity", label: "Activity", children: "Changes" }),
+          ];
+        },
+      }),
+    );
+
+    expect(tabs).toContain('role="tablist"');
+    expect(tabs).toContain('aria-selected="true"');
+    expect(tabs).toContain('role="tabpanel"');
+    expect(tabs).toContain("Summary");
+    expect(tabs).not.toContain("Changes");
+  });
+
+  test("renders compact subtle actions through the shared button contract", () => {
+    const button = renderToString(() => createComponent(Button, { size: "xs", variant: "subtle", children: "Status" }));
+
+    expect(button).toContain('data-size="xs"');
+    expect(button).toContain('data-variant="subtle"');
+    expect(button).toContain('type="button"');
+    expect(rule('.k2b-ui .k2b-button[data-size="xs"]')).toContain("min-height: 1.5rem");
+    expect(rule('.k2b-ui .k2b-button[data-variant="subtle"]')).toContain("background: var(--k2b-surface-muted)");
+  });
+
   test("renders sections, links, actions, and free dropdown elements", () => {
     const elements: PublicDropdownItem[] = [
       { label: "Rename", icon: "ti ti-pencil", action: () => {} },
@@ -77,7 +151,7 @@ describe("@k2b/ui complete action migrations", () => {
         label: "State",
         icon: "ti ti-filter",
         value: ["open", "urgent"],
-        onChange: () => {},
+        onValueChange: () => {},
         defaultValue: ["open"],
         options: [
           {
@@ -111,7 +185,7 @@ describe("@k2b/ui complete action migrations", () => {
         label: "State",
         icon: "ti ti-filter",
         value: ["open"],
-        onChange: () => {},
+        onValueChange: () => {},
         defaultValue: [],
         options: [{ options: [{ value: "open", label: "Open" }] }],
       }),
@@ -150,7 +224,7 @@ describe("@k2b/ui complete action migrations", () => {
         label: "State",
         icon: "ti ti-filter",
         value: ["open"],
-        onChange: () => {},
+        onValueChange: () => {},
         options: [
           {
             options: [
@@ -174,7 +248,7 @@ describe("@k2b/ui complete action migrations", () => {
       createComponent(SegmentedControl, {
         ariaLabel: "Layout",
         value: () => "list",
-        onChange: () => {},
+        onValueChange: () => {},
         options: [
           { value: "table", label: "Table", icon: "ti ti-table" },
           { value: "cards", label: "Cards", disabled: true },
@@ -328,6 +402,20 @@ describe("@k2b/ui complete action migrations", () => {
     expect(implicit).toContain('aria-label="Settings"');
     expect(implicit).toContain('title="Settings"');
     expect(explicit).toContain('data-variant="primary"');
+  });
+
+  test("keeps icon-button loading labels accessible without overflowing the square control", () => {
+    const html = renderToString(() => createComponent(IconButton, {
+      label: "Save",
+      loading: true,
+      loadingLabel: "Saving",
+      children: "save icon",
+    }));
+
+    expect(html).toContain('aria-label="Saving"');
+    expect(html).toContain("ti-loader-2");
+    expect(html).not.toContain(">Saving<");
+    expect(html).not.toContain("save icon");
   });
 
   test("gives every spotlight trigger variant a styled surface", () => {

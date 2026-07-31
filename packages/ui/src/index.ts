@@ -4,5 +4,6 @@ export * from "./content";
 export * from "./feedback";
 export * from "./inputs";
 export * from "./layout";
+export type { AccentColor, IntentTone } from "./semantics";
 export * from "./surfaces";
 export * from "./widgets";

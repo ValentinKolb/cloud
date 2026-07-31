@@ -45,7 +45,7 @@ Use `PanelDialog.Section` for meaningful field groups. Keep the primary save act
 
 Use `PanelDialog.Tabs` only for local views within the editor. Its `value` may
 be direct or an accessor; the application updates it through `onValueChange`
-or `onChange`.
+or `onValueChange`.
 
 ## Close ownership
 

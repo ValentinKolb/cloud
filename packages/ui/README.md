@@ -68,17 +68,19 @@ The public package surface only exposes components that have passed the
 standalone SSR, behavior, styling, and migration checks:
 
 - Actions: buttons, menus, context menus, filter/select chips, spotlight
-  search, copy, remove, and segmented controls
+  search, copy, remove, segmented controls, controlled tabs, native
+  disclosures, and semantic toolbars
 - Inputs: text, number, checkbox and switch controls; select, combobox,
-  multi-select, tags, icons, PIN, slider, color, and date/time pickers;
+  multi-select, freeform tags, managed tag editing, icons, PIN, slider, color,
+  and date/time pickers;
   dropzones, image selection/cropping, completion-aware plain text,
   Markdown, and template editors
 - Layout: `AppOverview`, `DataPanel`, `PanelHeader`, `PanelDialog`,
   `SettingsModal`, `AppWorkspace`, `Panes`, `FloatingWindow`, and generic
   settings-form helpers
 - Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
-  `ProgressBar`, `NoticeCard` (with `NoticeCard.Grid`), `Placeholder`,
-  `NotFoundState`
+  `ProgressBar`, `NoticeCard` (with `NoticeCard.Grid`), `Tag`,
+  `DescriptionList`, `Placeholder`, and `NotFoundState`
 - Feedback: the complete scoped prompt family, `Tooltip`, and scoped `toast`
 - AI: controlled `ChatComposer`, scrolling `ChatTimeline`, `ChatMessage`,
   `ChatActivity`, and compact `ChatContextUsage`
@@ -144,10 +146,16 @@ stores:
 
 ```tsx
 <Widget title="Platform health" icon="ti ti-heartbeat">
-  <WidgetStatus title="Operational" tone="ok" />
+  <WidgetStatus title="Operational" tone="success" />
   <WidgetPills pills={[{ label: "Checks", value: 48, tone: "emerald" }]} />
 </Widget>
 ```
+
+Portable presentation components use shared semantic vocabularies:
+`IntentTone` (`neutral`, `info`, `success`, `warning`, `danger`) and
+`AccentColor` (`zinc`, `blue`, `emerald`, `amber`, `red`). Specialized state
+components such as `StatusBadge` keep a smaller domain-specific vocabulary
+where the states carry meaning beyond color.
 
 ## Catalog groups
 
@@ -194,7 +202,7 @@ pane content, open and close behavior, routing, and persistence:
 const ids = ["result", "query"];
 const [layout, setLayout] = createSignal(createPanesValue(ids));
 
-<Panes.Root value={layout()} onChange={setLayout}>
+<Panes.Root value={layout()} onValueChange={setLayout}>
   <Panes.Element id="result" title="Result" icon="ti ti-table">
     <ResultView />
   </Panes.Element>

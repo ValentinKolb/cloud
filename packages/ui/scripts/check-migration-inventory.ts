@@ -397,6 +397,8 @@ const forbiddenPublicExports = [
   "RemoveBtn",
   "RemoveBtnProps",
   "SegmentedControlOption",
+  "FilterChipChange",
+  "SegmentedControlChange",
 ];
 const requiredPublicExports: Array<[string, ExportKind]> = [
   ["Button", "value"],
@@ -415,8 +417,6 @@ const requiredPublicExports: Array<[string, ExportKind]> = [
   ["CopyButtonValue", "type"],
   ["DropdownActionBase", "type"],
   ["PromptFieldBase", "type"],
-  ["FilterChipChange", "type"],
-  ["SegmentedControlChange", "type"],
 ];
 for (const name of forbiddenPublicExports) {
   if (packagePublicSymbols.has(name)) {

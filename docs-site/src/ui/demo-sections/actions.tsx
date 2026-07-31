@@ -2,6 +2,7 @@ import {
   Button,
   ContextMenu,
   CopyButton,
+  Disclosure,
   Dropdown,
   FilterChip,
   IconButton,
@@ -10,6 +11,8 @@ import {
   SegmentedControl,
   SpotlightButton,
   type SpotlightSearchResolver,
+  Tabs,
+  Toolbar,
 } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { DemoCard } from "../DemoCard";
@@ -22,9 +25,12 @@ const ButtonsDemo = () => (
       { kind: "component", name: "Button", from: "@k2b/ui" },
       { kind: "component", name: "IconButton", from: "@k2b/ui" },
     ]}
-    description="Package-native foundations for new portable interfaces; these are additive @k2b/ui components, not migrations of Cloud Button components. Button defaults to primary, IconButton defaults to ghost."
+    description="Package-native buttons share one variant and size contract. Button defaults to primary, IconButton defaults to ghost, and subtle xs actions suit dense contextual surfaces without masquerading as status badges."
     code={`<Button variant="primary">Save</Button>
 <Button variant="danger" size="sm">Delete</Button>
+<Button variant="subtle" size="xs">
+  <i class="ti ti-activity" aria-hidden="true" /> Status
+</Button>
 
 {/* IconButton defaults to variant="ghost" */}
 <IconButton label="Settings">
@@ -38,6 +44,9 @@ const ButtonsDemo = () => (
       <Button variant="primary">Save</Button>
       <Button variant="secondary">Preview</Button>
       <Button variant="ghost">Later</Button>
+      <Button variant="subtle" size="xs">
+        <i class="ti ti-activity" aria-hidden="true" /> Status
+      </Button>
       <Button variant="danger" size="sm">Delete</Button>
       <Button loading loadingLabel="Saving">Save</Button>
       <Button disabled>Disabled</Button>
@@ -170,6 +179,88 @@ const SegmentedDemo = () => {
   );
 };
 
+const TabsDemo = () => {
+  const [tab, setTab] = createSignal("overview");
+  return (
+    <DemoCard
+      id="tabs"
+      chip={{ kind: "component", name: "Tabs", from: "@k2b/ui" }}
+      description="Tabs provide roving keyboard navigation and keep each trigger beside its panel content. The options prop remains available for data-driven tabs."
+      code={`const [tab, setTab] = createSignal("overview");
+
+<Tabs ariaLabel="Project sections" value={tab} onValueChange={setTab}>
+  <Tabs.Item value="overview" label="Overview" icon="ti ti-layout-dashboard">
+    <Overview />
+  </Tabs.Item>
+  <Tabs.Item value="activity" label="Activity" icon="ti ti-activity">
+    <Activity />
+  </Tabs.Item>
+</Tabs>`}
+    >
+      <Tabs ariaLabel="Project sections" value={tab} onValueChange={setTab}>
+        <Tabs.Item value="overview" label="Overview" icon="ti ti-layout-dashboard">
+          <p>Project summary and current health.</p>
+        </Tabs.Item>
+        <Tabs.Item value="activity" label="Activity" icon="ti ti-activity">
+          <p>Recent changes across the project.</p>
+        </Tabs.Item>
+        <Tabs.Item value="archive" label="Archive" disabled>
+          <p>Archived records.</p>
+        </Tabs.Item>
+      </Tabs>
+    </DemoCard>
+  );
+};
+
+const DisclosureDemo = () => {
+  const [advanced, setAdvanced] = createSignal(false);
+  return (
+    <DemoCard
+      id="disclosure"
+      chip={{ kind: "component", name: "Disclosure", from: "@k2b/ui" }}
+      description="Disclosure reveals optional detail with native details semantics and occupies only the height of its current content."
+      code={`const [advanced, setAdvanced] = createSignal(false);
+
+<Disclosure summary="Advanced settings" value={advanced} onValueChange={setAdvanced}>
+  Extra controls
+</Disclosure>`}
+    >
+      <Disclosure summary="Advanced settings" icon="ti ti-adjustments" value={advanced} onValueChange={setAdvanced}>
+        These controls stay collapsed until they are needed.
+      </Disclosure>
+    </DemoCard>
+  );
+};
+
+const ToolbarDemo = () => (
+  <DemoCard
+    id="toolbar"
+    chip={{ kind: "component", name: "Toolbar", from: "@k2b/ui" }}
+    description="A semantic action row with named groups, separators, a flexible spacer, and optional wrapping. Buttons retain their own keyboard behavior."
+    code={`<Toolbar label="Document actions" wrap>
+  <Toolbar.Group label="History">
+    <IconButton label="Undo"><i class="ti ti-arrow-back-up" /></IconButton>
+    <IconButton label="Redo"><i class="ti ti-arrow-forward-up" /></IconButton>
+  </Toolbar.Group>
+  <Toolbar.Separator />
+  <Button size="xs" variant="subtle">Status</Button>
+  <Toolbar.Spacer />
+  <Button size="sm">Publish</Button>
+</Toolbar>`}
+  >
+    <Toolbar label="Document actions" wrap>
+      <Toolbar.Group label="History">
+        <IconButton size="xs" label="Undo"><i class="ti ti-arrow-back-up" aria-hidden="true" /></IconButton>
+        <IconButton size="xs" label="Redo"><i class="ti ti-arrow-forward-up" aria-hidden="true" /></IconButton>
+      </Toolbar.Group>
+      <Toolbar.Separator />
+      <Button size="xs" variant="subtle"><i class="ti ti-activity" aria-hidden="true" />Status</Button>
+      <Toolbar.Spacer />
+      <Button size="sm">Publish</Button>
+    </Toolbar>
+  </DemoCard>
+);
+
 export const FilterDemo = () => {
   const [clearValue, setClearValue] = createSignal<string[]>(["open", "ui"]);
   const [resetValue, setResetValue] = createSignal<string[]>(["done"]);
@@ -281,31 +372,54 @@ const openSearch = async () => {
   });
 };
 
-<div class="ui-demo-row">
-  <SpotlightButton variant="default" onClick={openSearch} />
-  <SpotlightButton variant="chip" onClick={openSearch} />
-  <SpotlightButton variant="sidebar" onClick={openSearch} />
-  <SpotlightButton variant="sidebar-mobile" onClick={openSearch} />
-  <SpotlightButton variant="compact" onClick={openSearch} />
-  <SpotlightButton variant="icon" onClick={openSearch} />
-</div>`}
+<SpotlightButton variant="default" onClick={openSearch} />
+<SpotlightButton variant="chip" onClick={openSearch} />
+<SpotlightButton variant="sidebar" onClick={openSearch} />
+<SpotlightButton variant="sidebar-mobile" onClick={openSearch} />
+<SpotlightButton variant="compact" onClick={openSearch} />
+<SpotlightButton variant="icon" onClick={openSearch} />`}
   >
-    <div class="ui-demo-row">
-      <SpotlightButton variant="default" onClick={openSearch} />
-      <SpotlightButton variant="chip" onClick={openSearch} />
-      <SpotlightButton variant="sidebar" onClick={openSearch} />
-      <SpotlightButton variant="sidebar-mobile" onClick={openSearch} />
-      <SpotlightButton variant="compact" onClick={openSearch} />
-      <SpotlightButton variant="icon" onClick={openSearch} />
+    <div class="ui-spotlight-demo">
+      <section>
+        <small>Page actions</small>
+        <div class="ui-demo-row">
+          <SpotlightButton variant="default" onClick={openSearch} />
+          <SpotlightButton variant="chip" onClick={openSearch} />
+        </div>
+      </section>
+      <section>
+        <small>Sidebar</small>
+        <div class="ui-spotlight-demo__sidebar">
+          <SpotlightButton variant="sidebar" onClick={openSearch} />
+        </div>
+      </section>
+      <section>
+        <small>Mobile navigation</small>
+        <div class="ui-spotlight-demo__mobile">
+          <SpotlightButton variant="sidebar-mobile" onClick={openSearch} />
+        </div>
+      </section>
+      <section>
+        <small>Toolbar</small>
+        <div class="ui-demo-row">
+          <SpotlightButton variant="compact" onClick={openSearch} />
+          <SpotlightButton variant="icon" onClick={openSearch} />
+        </div>
+      </section>
     </div>
   </DemoCard>
 );
 
 const demos: DemoSection = {
-  buttons: () => <DemoGrid columns="one"><ButtonsDemo /><SpotlightDemo /></DemoGrid>,
+  buttons: () => <DemoGrid columns="one"><ButtonsDemo /></DemoGrid>,
   "copy-remove": () => <DemoGrid columns="one"><CopyRemoveDemo /></DemoGrid>,
   menus: () => <DemoGrid columns="one"><MenusDemo /></DemoGrid>,
   "segmented-control": () => <DemoGrid columns="one"><SegmentedDemo /></DemoGrid>,
+  filters: () => <DemoGrid columns="one"><FilterDemo /></DemoGrid>,
+  tabs: () => <DemoGrid columns="one"><TabsDemo /></DemoGrid>,
+  disclosure: () => <DemoGrid columns="one"><DisclosureDemo /></DemoGrid>,
+  toolbar: () => <DemoGrid columns="one"><ToolbarDemo /></DemoGrid>,
+  spotlight: () => <DemoGrid columns="one"><SpotlightDemo /></DemoGrid>,
 };
 
 export default demos;
