@@ -8,11 +8,11 @@ import type { DashboardWidgetPresentation } from "../contracts/widgets";
  *
  * TTL is 3× the heartbeat interval (see `./heartbeat.ts`).
  */
-const REGISTRY_TTL_MS = 180_000;
+export const APP_REGISTRY_TTL_MS = 180_000;
 
 export const appRegistry = ephemeral<AppRegistryEntry>({
   id: "cloud-apps",
-  ttlMs: REGISTRY_TTL_MS,
+  ttlMs: APP_REGISTRY_TTL_MS,
 });
 
 /**

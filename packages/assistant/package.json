@@ -14,7 +14,7 @@
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
     "@k2b/ssr": "0.12.0",
-    "@k2b/sync": "^5.8.0",
+    "@k2b/sync": "5.9.0",
     "@k2b/ui": "workspace:*",
     "hono": "^4.11.1",
     "solid-js": "^1.9.10",

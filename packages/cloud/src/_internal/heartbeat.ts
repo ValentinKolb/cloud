@@ -1,59 +1,114 @@
 /** Keep an app discoverable even when the ephemeral registry is recreated. */
 
 import type { AppRegistryEntry } from "../contracts/registry";
-import { appRegistry } from "./registry";
+import { APP_REGISTRY_TTL_MS, appRegistry } from "./registry";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
+const HEARTBEAT_WRITE_TIMEOUT_MS = 10_000;
+const HEARTBEAT_RETRY_MS = 5_000;
+const HEARTBEAT_STALE_MARGIN_MS = 15_000;
 
 type HeartbeatRegistry = Pick<typeof appRegistry, "remove" | "upsert">;
 
 type HeartbeatOptions = {
   intervalMs?: number;
+  retryMs?: number;
+  staleAfterMs?: number;
+  writeTimeoutMs?: number;
   registry?: HeartbeatRegistry;
   onError?: (error: unknown) => void;
+  onStale?: (error: unknown) => void;
 };
 
 export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options: HeartbeatOptions = {}) => {
   const intervalMs = options.intervalMs ?? HEARTBEAT_INTERVAL_MS;
+  const retryMs = options.retryMs ?? Math.min(HEARTBEAT_RETRY_MS, intervalMs);
+  const staleAfterMs = options.staleAfterMs ?? APP_REGISTRY_TTL_MS - HEARTBEAT_STALE_MARGIN_MS;
+  const writeTimeoutMs = options.writeTimeoutMs ?? HEARTBEAT_WRITE_TIMEOUT_MS;
   const registry = options.registry ?? appRegistry;
   const onError = options.onError ?? ((error: unknown) => console.error(`[app:${appId}] Registry heartbeat failed`, error));
+  const onStale = options.onStale;
 
-  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-    throw new RangeError("Heartbeat interval must be a positive finite number");
+  if (![intervalMs, retryMs, staleAfterMs, writeTimeoutMs].every((value) => Number.isFinite(value) && value > 0)) {
+    throw new RangeError("Heartbeat timings must be positive finite numbers");
   }
 
   let timer: Timer | null = null;
   let inFlight: Promise<void> | null = null;
   let running = false;
+  let lastSuccessAt = 0;
+  let staleReported = false;
   const key = `apps/${appId}`;
 
   const refresh = async (): Promise<void> => {
     // Upsert is intentionally unconditional. Unlike touch, it repairs a
     // registry that was cleared or recreated while this app kept running.
     await registry.upsert({ key, value: entry });
+    if (!running) return;
+    lastSuccessAt = Date.now();
+    staleReported = false;
   };
 
-  const schedule = () => {
+  const refreshWithTimeout = async (): Promise<void> => {
+    let timer: Timer | null = null;
+    let timedOut = false;
+    const write = refresh();
+    void write
+      .then(async () => {
+        // A write that completed after its timeout must not resurrect a stopped app.
+        if (timedOut && !running) await registry.remove({ key }).catch(() => false);
+      })
+      .catch(() => undefined);
+    try {
+      await Promise.race([
+        write,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            reject(new Error(`Registry heartbeat timed out after ${writeTimeoutMs}ms`));
+          }, writeTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const reportError = (error: unknown): void => {
+    try {
+      onError(error);
+    } catch {
+      // Error reporting must never stop future registration attempts.
+    }
+    if (!staleReported && lastSuccessAt > 0 && Date.now() - lastSuccessAt >= staleAfterMs) {
+      staleReported = true;
+      try {
+        onStale?.(error);
+      } catch {
+        // A failed stale callback must not disable heartbeat recovery.
+      }
+    }
+  };
+
+  const schedule = (delayMs: number) => {
     if (!running || timer) return;
     timer = setTimeout(() => {
       timer = null;
       if (!running) return;
 
-      const operation = refresh();
+      let nextDelayMs = intervalMs;
+      const operation = refreshWithTimeout();
       inFlight = operation;
       void operation
         .catch((error) => {
-          try {
-            onError(error);
-          } catch {
-            // Error reporting must never stop future registration attempts.
-          }
+          nextDelayMs = retryMs;
+          reportError(error);
         })
         .finally(() => {
           if (inFlight === operation) inFlight = null;
-          schedule();
+          schedule(nextDelayMs);
         });
-    }, intervalMs);
+    }, delayMs);
   };
 
   return {
@@ -73,7 +128,7 @@ export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options:
       } finally {
         if (inFlight === operation) inFlight = null;
       }
-      schedule();
+      schedule(intervalMs);
     },
     stop: async () => {
       if (!running) return;

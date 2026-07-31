@@ -3,6 +3,7 @@ import { type QueueReceived, queue } from "@k2b/sync";
 import { z } from "zod";
 import type { RequestActor } from "../server";
 import { logger } from "../services/logging";
+import { superviseRuntimeTask } from "../services/runtime-lifecycle";
 import { type AiToolApprovalContext, rememberAiToolApproval } from "./approvals";
 import { AiTurnExecutor } from "./executor";
 import { aiConversationStore } from "./store";
@@ -339,23 +340,27 @@ export const startAiRuntime = (
   };
 
   for (let index = 0; index < concurrency; index += 1) {
-    const reader = aiTurnQueue.reader();
     const consumerId = `${AI_WORKER_ID}:${index}`;
-    void (async () => {
-      for await (const message of reader.stream({ wait: true, leaseMs: AI_TURN_LEASE_MS, consumerId, signal: controller.signal })) {
-        if (controller.signal.aborted) {
-          await message.nack({ delayMs: 1_000, reason: "worker_stopped" }).catch(() => undefined);
-          continue;
+    void superviseRuntimeTask({
+      name: `AI turn reader ${consumerId}`,
+      signal: controller.signal,
+      run: async (signal) => {
+        const reader = aiTurnQueue.reader();
+        for await (const message of reader.stream({ wait: true, leaseMs: AI_TURN_LEASE_MS, consumerId, signal })) {
+          if (signal.aborted) {
+            await message.nack({ delayMs: 1_000, reason: "worker_stopped" }).catch(() => undefined);
+            continue;
+          }
+          await processMessage(message, signal, dispatchTurnFinalized);
         }
-        await processMessage(message, controller.signal, dispatchTurnFinalized);
-      }
-    })().catch((error) => {
-      if (!controller.signal.aborted) {
-        log.error("AI turn worker stopped unexpectedly", {
+      },
+      onError: ({ error, failureCount, retryInMs }) =>
+        log.error("AI turn reader stopped; restarting", {
           consumerId,
           error: error instanceof Error ? error.message : "AI turn worker failed",
-        });
-      }
+          failureCount,
+          retryInMs,
+        }),
     });
   }
 

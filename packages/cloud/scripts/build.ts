@@ -25,10 +25,10 @@ import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { brotliCompress, constants as zlibConstants, gzip } from "node:zlib";
-import tailwind from "bun-plugin-tailwind";
-import { Glob, CryptoHasher } from "bun";
 import { promisify } from "node:util";
+import { brotliCompress, gzip, constants as zlibConstants } from "node:zlib";
+import { CryptoHasher, Glob } from "bun";
+import tailwind from "bun-plugin-tailwind";
 
 const appId = process.env.APP_ID;
 if (!appId) throw new Error("APP_ID env var required");
@@ -93,14 +93,28 @@ const configPath = resolve(appDir, "src/config");
 const { plugin } = await import(configPath);
 
 // 1. Server entry — also emits dist/_ssr/<island>.js via the SSR plugin.
-const server = await Bun.build({
-  entrypoints: [resolve(appDir, "src/index.ts")],
-  outdir: dist,
-  naming: "server.js",
-  target: "bun",
-  minify: true,
-  plugins: [plugin()],
-});
+// @peculiar/x509 uses tsyringe, whose decorators require this polyfill before
+// any app dependency is evaluated. A wrapper keeps that ordering identical for
+// every production app without requiring app-owned bootstrap imports.
+const serverEntry = resolve(dist, ".server-entry.ts");
+const reflectMetadata = Bun.resolveSync("reflect-metadata", frameworkDir);
+await writeFile(
+  serverEntry,
+  `import ${JSON.stringify(reflectMetadata)};\nexport { default } from ${JSON.stringify(resolve(appDir, "src/index.ts"))};\n`,
+);
+let server: Awaited<ReturnType<typeof Bun.build>>;
+try {
+  server = await Bun.build({
+    entrypoints: [serverEntry],
+    outdir: dist,
+    naming: "server.js",
+    target: "bun",
+    minify: true,
+    plugins: [plugin()],
+  });
+} finally {
+  await rm(serverEntry, { force: true });
+}
 if (!server.success) {
   for (const m of server.logs) console.error(m);
   throw new Error("Server bundle failed");

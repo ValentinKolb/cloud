@@ -35,29 +35,26 @@ describe("notification catalog registration", () => {
     ).rejects.toThrow("permission denied");
   });
 
-  test("stops retrying and escalates a permanent error after rollout waiting", async () => {
+  test("keeps retrying a different failure after rollout waiting", async () => {
     let attempts = 0;
-    let permanentError: unknown;
     const stop = await startNotificationDefinitionRegistration(
       "rollout-test",
       {},
       {
         retryMs: 1,
-        onPermanentError: (error) => {
-          permanentError = error;
-        },
         register: async () => {
           attempts += 1;
-          throw Object.assign(new Error(attempts === 1 ? "relation missing" : "permission denied"), {
-            code: attempts === 1 ? "42P01" : "42501",
-          });
+          if (attempts < 3) {
+            throw Object.assign(new Error(attempts === 1 ? "relation missing" : "permission denied"), {
+              code: attempts === 1 ? "42P01" : "42501",
+            });
+          }
         },
       },
     );
 
-    for (let index = 0; index < 50 && !permanentError; index += 1) await Bun.sleep(2);
+    for (let index = 0; index < 50 && attempts < 3; index += 1) await Bun.sleep(2);
     stop();
-    expect(attempts).toBe(2);
-    expect(permanentError).toEqual(expect.objectContaining({ message: "permission denied", code: "42501" }));
+    expect(attempts).toBe(3);
   });
 });

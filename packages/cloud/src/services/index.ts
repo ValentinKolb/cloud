@@ -7,8 +7,14 @@ export { authFlows } from "./auth-flows";
 export { toPgIntArray, toPgTextArray, toPgUuidArray, escapeLikePattern, isUniqueViolation } from "./postgres";
 
 export { logger, logging, TRACE_STUCK_AFTER_MS, trace } from "./logging";
-export { createRuntimeLifecycle, createRuntimeTaskTracker, stopRuntimeJobs, stopRuntimeResources } from "./runtime-lifecycle";
-export type { RuntimeTaskTracker } from "./runtime-lifecycle";
+export {
+  createRuntimeLifecycle,
+  createRuntimeTaskTracker,
+  stopRuntimeJobs,
+  stopRuntimeResources,
+  superviseRuntimeTask,
+} from "./runtime-lifecycle";
+export type { RuntimeTaskFailure, RuntimeTaskTracker } from "./runtime-lifecycle";
 export type {
   LogEntry,
   TraceAttributeValue,

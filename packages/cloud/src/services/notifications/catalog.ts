@@ -61,21 +61,12 @@ export const startNotificationDefinitionRegistration = async (
   appId: string,
   definitions: NotificationCatalog,
   options: {
-    onPermanentError?: (error: unknown) => void;
     register?: (appId: string, definitions: NotificationCatalog) => Promise<void>;
     retryMs?: number;
   } = {},
 ): Promise<() => void> => {
   const register = options.register ?? registerNotificationDefinitions;
   const retryMs = options.retryMs ?? RETRY_MS;
-  const onPermanentError =
-    options.onPermanentError ??
-    ((error: unknown) => {
-      const fatal = error instanceof Error ? error : new Error("Notification catalog registration failed permanently");
-      queueMicrotask(() => {
-        throw fatal;
-      });
-    });
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -94,16 +85,7 @@ export const startNotificationDefinitionRegistration = async (
       await register(appId, definitions);
       log.info("Notification definitions registered after schema became available", { appId });
     } catch (error) {
-      if (!isSchemaUnavailable(error)) {
-        stopped = true;
-        log.error("Notification definition registration failed permanently", {
-          appId,
-          error: error instanceof Error ? error.message : "Notification catalog registration failed",
-        });
-        onPermanentError(error);
-        return;
-      }
-      log.warn("Notification definition registration is waiting for Core schema", {
+      log.warn("Notification definition registration failed; retrying", {
         appId,
         error: error instanceof Error ? error.message : "Notification catalog registration failed",
       });

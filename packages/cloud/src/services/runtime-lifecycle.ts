@@ -1,5 +1,72 @@
 export type RuntimeTaskTracker = ReturnType<typeof createRuntimeTaskTracker>;
 
+export type RuntimeTaskFailure = {
+  error: unknown;
+  failureCount: number;
+  retryInMs: number;
+};
+
+type RuntimeTaskSupervisorOptions = {
+  signal: AbortSignal;
+  run(signal: AbortSignal): Promise<void>;
+  onError?(failure: RuntimeTaskFailure): void;
+  minRetryMs?: number;
+  maxRetryMs?: number;
+  resetAfterMs?: number;
+  jitter?: number;
+  name?: string;
+};
+
+const waitForRetry = (delayMs: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, delayMs);
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
+  });
+
+/** Restart a long-lived task after unexpected failure or completion. */
+export const superviseRuntimeTask = async (options: RuntimeTaskSupervisorOptions): Promise<void> => {
+  const minRetryMs = options.minRetryMs ?? 250;
+  const maxRetryMs = options.maxRetryMs ?? 5_000;
+  const resetAfterMs = options.resetAfterMs ?? 30_000;
+  const jitter = options.jitter ?? 0.2;
+  if (![minRetryMs, maxRetryMs, resetAfterMs].every((value) => Number.isFinite(value) && value > 0)) {
+    throw new RangeError("Runtime task retry timings must be positive finite numbers");
+  }
+  if (minRetryMs > maxRetryMs) throw new RangeError("Runtime task minimum retry delay cannot exceed its maximum");
+  if (!Number.isFinite(jitter) || jitter < 0 || jitter > 1) throw new RangeError("Runtime task retry jitter must be between 0 and 1");
+
+  let failureCount = 0;
+  while (!options.signal.aborted) {
+    const startedAt = Date.now();
+    let error: unknown;
+    try {
+      await options.run(options.signal);
+      if (options.signal.aborted) return;
+      error = new Error(`${options.name ?? "Runtime task"} stopped unexpectedly`);
+    } catch (caught) {
+      if (options.signal.aborted) return;
+      error = caught;
+    }
+
+    failureCount = Date.now() - startedAt >= resetAfterMs ? 1 : failureCount + 1;
+    const exponentialRetryMs = minRetryMs * 2 ** Math.min(failureCount - 1, 30);
+    const retryInMs = Math.min(maxRetryMs, Math.max(minRetryMs, Math.round(exponentialRetryMs * (1 + (Math.random() * 2 - 1) * jitter))));
+    try {
+      options.onError?.({ error, failureCount, retryInMs });
+    } catch {
+      // Reporting failures must not stop recovery.
+    }
+    await waitForRetry(retryInMs, options.signal);
+  }
+};
+
 export const createRuntimeTaskTracker = () => {
   const tasks = new Set<Promise<unknown>>();
   let accepting = false;

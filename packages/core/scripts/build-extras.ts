@@ -33,6 +33,6 @@ if (!css.success) {
 }
 
 await cp(resolve(root, "packages/cloud/public/logo.svg"), resolve(publicDir, "logo.svg"));
-await cp(resolve(root, "node_modules/katex/dist/katex.min.css"), resolve(publicDir, "katex.css"));
+await cp(Bun.resolveSync("katex/dist/katex.min.css", resolve(root, "packages/cloud")), resolve(publicDir, "katex.css"));
 await buildFontAssets(root, publicDir);
 await buildTablerIconAssets(root, publicDir);

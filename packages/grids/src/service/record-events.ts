@@ -41,7 +41,10 @@ const recordWorkQueues = Array.from({ length: RECORD_EVENT_WORK_PARTITIONS }, (_
     id: `records:${partition}`,
     prefix: WORK_QUEUE_PREFIX,
     tenantId: WORK_QUEUE_TENANT,
-    ordering: { mode: "ordering_key_partitioned", partitions: 1 },
+    // Each record hashes to one queue, and the reader holds a distributed
+    // partition mutex while processing. Queue-level key ordering was never
+    // implemented by Sync <= 5.8 and is rejected explicitly by 5.9.
+    ordering: { mode: "best_effort" },
     limits: {
       payloadBytes: 64_000,
       maxMessageAgeMs: TOPIC_RETENTION_MS,

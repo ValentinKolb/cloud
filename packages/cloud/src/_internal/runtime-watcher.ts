@@ -12,6 +12,7 @@
 
 import type { CloudRuntime } from "../contracts/app";
 import { logger } from "../services/logging";
+import { superviseRuntimeTask } from "../services/runtime-lifecycle";
 import { appRegistry, listApps } from "./registry";
 import { buildRuntimeFromRegistry } from "./runtime-context";
 
@@ -33,17 +34,24 @@ export const ensureRuntimeWatcher = (): Promise<void> => {
   initPromise = (async () => {
     await refresh();
     abort = new AbortController();
-    watcherTask = (async () => {
-      try {
+    const controller = abort;
+    watcherTask = superviseRuntimeTask({
+      name: "Runtime registry watcher",
+      signal: controller.signal,
+      run: async (signal) => {
         const snap = await appRegistry.snapshot({ prefix: "apps/" });
-        for await (const _ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal: abort!.signal })) {
+        await refresh();
+        for await (const _ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal })) {
           await refresh();
         }
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        log.error("Registry watcher failed", { error: err instanceof Error ? err.message : String(err) });
-      }
-    })();
+      },
+      onError: ({ error, failureCount, retryInMs }) =>
+        log.error("Registry watcher failed; restarting", {
+          error: error instanceof Error ? error.message : String(error),
+          failureCount,
+          retryInMs,
+        }),
+    });
   })();
   return initPromise;
 };

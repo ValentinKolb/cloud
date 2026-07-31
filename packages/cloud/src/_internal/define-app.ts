@@ -369,6 +369,13 @@ export const defineApp = <
           appId: meta.id,
           error: error instanceof Error ? error.message : String(error),
         }),
+      onStale: (error) => {
+        log.error("Registry heartbeat could not renew the app lease; restarting", {
+          appId: meta.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        process.exit(1);
+      },
     });
     await heartbeat.start();
     log.info(`Registered "${meta.id}"`, { baseUrl });

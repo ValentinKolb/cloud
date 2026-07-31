@@ -1,8 +1,13 @@
 import { appRegistry, buildRuntimeFromRegistry, listApps } from "@valentinkolb/cloud";
-import { logger } from "@valentinkolb/cloud/services";
+import {
+  buildGatewayRouteSnapshot,
+  logger,
+  publishGatewayRouteSnapshot,
+  removeGatewayRouteSnapshot,
+  superviseRuntimeTask,
+} from "@valentinkolb/cloud/services";
 import { gatewayRouter } from "./config";
-import { buildGatewayRouteSnapshot, publishGatewayRouteSnapshot, removeGatewayRouteSnapshot } from "@valentinkolb/cloud/services";
-import { buildAppRoutesDetailed, type AppRouteWarning } from "./routes";
+import { type AppRouteWarning, buildAppRoutesDetailed } from "./routes";
 import { getRouteTable, setRouteTable, stats } from "./stats";
 import { buildRouteTable } from "./trie";
 
@@ -13,6 +18,7 @@ let lastRouteHash = "";
 let lastWarningsHash = "";
 let lastRouteWarnings: AppRouteWarning[] = [];
 let watcherAbort: AbortController | null = null;
+let watcherTask: Promise<void> | null = null;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 const startedAt = Date.now();
 
@@ -63,21 +69,25 @@ export const refreshRoutes = async (): Promise<void> => {
   }
 };
 
-const startRegistryWatcher = async (): Promise<void> => {
-  watcherAbort?.abort();
+const startRegistryWatcher = (): void => {
+  if (watcherTask) return;
   watcherAbort = new AbortController();
   const signal = watcherAbort.signal;
-  try {
-    const snap = await appRegistry.snapshot({ prefix: "apps/" });
-    for await (const _ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal })) {
+  watcherTask = superviseRuntimeTask({
+    name: "Gateway registry watcher",
+    signal,
+    run: async () => {
+      const snap = await appRegistry.snapshot({ prefix: "apps/" });
       await refreshRoutes();
-    }
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") return;
-    log.error("Registry watcher failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+      for await (const _ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal })) await refreshRoutes();
+    },
+    onError: ({ error, failureCount, retryInMs }) =>
+      log.error("Registry watcher failed; restarting", {
+        error: error instanceof Error ? error.message : String(error),
+        failureCount,
+        retryInMs,
+      }),
+  });
 };
 
 export const gatewayRuntime = {
@@ -87,14 +97,16 @@ export const gatewayRuntime = {
 
   start: async (): Promise<void> => {
     refreshTimer = setInterval(refreshRoutes, 5_000);
-    void startRegistryWatcher();
+    startRegistryWatcher();
   },
 
   stop: async (): Promise<void> => {
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = null;
     watcherAbort?.abort();
+    await watcherTask;
     watcherAbort = null;
+    watcherTask = null;
     await removeGatewayRouteSnapshot(gatewayRouter.id);
   },
 };

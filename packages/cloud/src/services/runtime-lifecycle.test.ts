@@ -1,7 +1,102 @@
 import { describe, expect, test } from "bun:test";
-import { createRuntimeLifecycle, createRuntimeTaskTracker, stopRuntimeJobs, stopRuntimeResources } from "./runtime-lifecycle";
+import {
+  createRuntimeLifecycle,
+  createRuntimeTaskTracker,
+  stopRuntimeJobs,
+  stopRuntimeResources,
+  superviseRuntimeTask,
+} from "./runtime-lifecycle";
 
 describe("runtime lifecycle", () => {
+  test("restarts failed and unexpectedly completed tasks", async () => {
+    const controller = new AbortController();
+    const failures: Array<{ failureCount: number; retryInMs: number; message: string }> = [];
+    let attempts = 0;
+
+    await superviseRuntimeTask({
+      name: "test reader",
+      signal: controller.signal,
+      minRetryMs: 1,
+      maxRetryMs: 2,
+      resetAfterMs: 10,
+      jitter: 0,
+      run: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("reader failed");
+        if (attempts === 3) controller.abort();
+      },
+      onError: ({ error, failureCount, retryInMs }) =>
+        failures.push({ failureCount, retryInMs, message: error instanceof Error ? error.message : String(error) }),
+    });
+
+    expect(attempts).toBe(3);
+    expect(failures).toEqual([
+      { failureCount: 1, retryInMs: 1, message: "reader failed" },
+      { failureCount: 2, retryInMs: 2, message: "test reader stopped unexpectedly" },
+    ]);
+  });
+
+  test("aborts a pending retry and ignores reporting failures", async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    const supervised = superviseRuntimeTask({
+      signal: controller.signal,
+      minRetryMs: 1_000,
+      maxRetryMs: 1_000,
+      run: async () => {
+        attempts += 1;
+        throw new Error("reader failed");
+      },
+      onError: () => {
+        controller.abort();
+        throw new Error("logger failed");
+      },
+    });
+
+    await supervised;
+    expect(attempts).toBe(1);
+  });
+
+  test("resets the backoff after a stable run", async () => {
+    const controller = new AbortController();
+    const failureCounts: number[] = [];
+    let attempts = 0;
+
+    await superviseRuntimeTask({
+      signal: controller.signal,
+      minRetryMs: 1,
+      maxRetryMs: 4,
+      resetAfterMs: 2,
+      jitter: 0,
+      run: async () => {
+        attempts += 1;
+        if (attempts === 2) await Bun.sleep(3);
+        if (attempts === 3) controller.abort();
+        else throw new Error("reader failed");
+      },
+      onError: ({ failureCount }) => failureCounts.push(failureCount),
+    });
+
+    expect(failureCounts).toEqual([1, 1]);
+  });
+
+  test("treats abort-driven task completion as a clean shutdown", async () => {
+    const controller = new AbortController();
+    let failures = 0;
+    const supervised = superviseRuntimeTask({
+      signal: controller.signal,
+      run: (signal) => new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true })),
+      onError: () => {
+        failures += 1;
+      },
+    });
+
+    controller.abort();
+    await supervised;
+
+    expect(failures).toBe(0);
+  });
+
   test("drains every in-flight task", async () => {
     const tracker = createRuntimeTaskTracker();
     const completed: string[] = [];

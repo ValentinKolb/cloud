@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AppRegistryEntry } from "../contracts/registry";
+import { FreeIpaTransportError } from "../server/services/freeipa/transport";
+import { superviseRuntimeTask } from "../services/runtime-lifecycle";
 import { createHeartbeat } from "./heartbeat";
 
 const entry = {
@@ -87,6 +89,167 @@ describe("createHeartbeat", () => {
     expect(attempts).toBeGreaterThanOrEqual(3);
   });
 
+  test("times out a stuck refresh and continues with later slots", async () => {
+    let attempts = 0;
+    const errors: unknown[] = [];
+    const stuck = Promise.withResolvers<ReturnType<typeof upsertResult>>();
+    const registry = {
+      upsert: async () => {
+        attempts += 1;
+        if (attempts === 2) return stuck.promise;
+        return upsertResult();
+      },
+      remove: async () => true,
+    };
+
+    const heartbeat = createHeartbeat("test", entry, {
+      intervalMs: 1,
+      retryMs: 1,
+      writeTimeoutMs: 5,
+      registry,
+      onError: (error) => errors.push(error),
+    });
+    await heartbeat.start();
+    await waitUntil(() => attempts >= 3);
+    await heartbeat.stop();
+
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toContain("timed out");
+  });
+
+  test("reports lease risk once while retries continue", async () => {
+    let attempts = 0;
+    let unavailable = true;
+    const stale: unknown[] = [];
+    const registry = {
+      upsert: async () => {
+        attempts += 1;
+        if (attempts > 1 && unavailable) throw new Error("registry unavailable");
+        return upsertResult();
+      },
+      remove: async () => true,
+    };
+
+    const heartbeat = createHeartbeat("test", entry, {
+      intervalMs: 1,
+      retryMs: 1,
+      staleAfterMs: 8,
+      registry,
+      onError: () => undefined,
+      onStale: (error) => stale.push(error),
+    });
+    await heartbeat.start();
+    await waitUntil(() => stale.length === 1);
+    const attemptsAtStale = attempts;
+    await waitUntil(() => attempts > attemptsAtStale);
+    unavailable = false;
+    await waitUntil(() => attempts > attemptsAtStale + 1);
+    await heartbeat.stop();
+
+    expect(stale).toHaveLength(1);
+  });
+
+  test("does not report stale when writes recover before the deadline", async () => {
+    let attempts = 0;
+    const stale: unknown[] = [];
+    const registry = {
+      upsert: async () => {
+        attempts += 1;
+        if (attempts === 2 || attempts === 3) throw new Error("registry unavailable");
+        return upsertResult();
+      },
+      remove: async () => true,
+    };
+
+    const heartbeat = createHeartbeat("test", entry, {
+      intervalMs: 1,
+      retryMs: 1,
+      staleAfterMs: 12,
+      registry,
+      onError: () => undefined,
+      onStale: (error) => stale.push(error),
+    });
+    await heartbeat.start();
+    await waitUntil(() => attempts >= 4);
+    await Bun.sleep(15);
+    await heartbeat.stop();
+
+    expect(stale).toHaveLength(0);
+  });
+
+  test("does not report stale after shutdown", async () => {
+    let attempts = 0;
+    const stale: unknown[] = [];
+    const registry = {
+      upsert: async () => {
+        attempts += 1;
+        if (attempts > 1) throw new Error("registry unavailable");
+        return upsertResult();
+      },
+      remove: async () => true,
+    };
+
+    const heartbeat = createHeartbeat("test", entry, {
+      intervalMs: 1,
+      retryMs: 1,
+      staleAfterMs: 10,
+      registry,
+      onError: () => undefined,
+      onStale: (error) => stale.push(error),
+    });
+    await heartbeat.start();
+    await waitUntil(() => attempts >= 2);
+    await heartbeat.stop();
+    await Bun.sleep(12);
+
+    expect(stale).toHaveLength(0);
+  });
+
+  test("keeps renewing while an unrelated FreeIPA worker repeatedly fails", async () => {
+    const scaledRegistryTtlMs = 6;
+    let writes = 0;
+    let workerFailures = 0;
+    const stale: unknown[] = [];
+    const registry = {
+      upsert: async () => {
+        writes += 1;
+        return upsertResult();
+      },
+      remove: async () => true,
+    };
+    const heartbeat = createHeartbeat("test", entry, {
+      intervalMs: 1,
+      retryMs: 1,
+      staleAfterMs: scaledRegistryTtlMs - 1,
+      registry,
+      onStale: (error) => stale.push(error),
+    });
+    const controller = new AbortController();
+
+    await heartbeat.start();
+    const worker = superviseRuntimeTask({
+      signal: controller.signal,
+      minRetryMs: 1,
+      maxRetryMs: 2,
+      jitter: 0,
+      run: async () => {
+        throw new FreeIpaTransportError("invalid_response", "FreeIPA returned an invalid RPC response");
+      },
+      onError: () => {
+        workerFailures += 1;
+      },
+    });
+    const threeTtlsElapsedAt = Date.now() + scaledRegistryTtlMs * 3;
+    await waitUntil(() => Date.now() >= threeTtlsElapsedAt && workerFailures > 1 && writes > 3, 500);
+    controller.abort();
+    await worker;
+    await heartbeat.stop();
+
+    expect(workerFailures).toBeGreaterThan(1);
+    expect(writes).toBeGreaterThan(3);
+    expect(stale).toHaveLength(0);
+  });
+
   test("waits for initial registration before removing a stopped app", async () => {
     const registration = Promise.withResolvers<void>();
     const operations: string[] = [];
@@ -115,5 +278,8 @@ describe("createHeartbeat", () => {
 
   test("rejects invalid intervals", () => {
     expect(() => createHeartbeat("test", entry, { intervalMs: 0 })).toThrow(RangeError);
+    expect(() => createHeartbeat("test", entry, { retryMs: 0 })).toThrow(RangeError);
+    expect(() => createHeartbeat("test", entry, { staleAfterMs: 0 })).toThrow(RangeError);
+    expect(() => createHeartbeat("test", entry, { writeTimeoutMs: 0 })).toThrow(RangeError);
   });
 });

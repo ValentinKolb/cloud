@@ -1,5 +1,6 @@
 import { type QueueReceived, queue } from "@k2b/sync";
 import { logger, trace } from "../logging";
+import { superviseRuntimeTask } from "../runtime-lifecycle";
 import { processNotificationDelivery, recoverNotificationDeliveries } from "./dispatcher";
 
 type DeliveryMessage = { deliveryId: string };
@@ -72,12 +73,20 @@ export const startNotificationRuntime = async (input: { concurrency?: number; re
   const timer = setInterval(() => void recover(), recoveryIntervalMs);
   if (typeof timer === "object" && "unref" in timer) timer.unref();
 
-  const readers = Array.from({ length: concurrency }, () =>
-    (async () => {
-      for await (const message of deliveryQueue.stream({ signal: controller.signal })) await handleDelivery(message);
-    })().catch((error) => {
-      if (!controller.signal.aborted)
-        log.error("Delivery reader stopped", { error: error instanceof Error ? error.message : String(error) });
+  const readers = Array.from({ length: concurrency }, (_, index) =>
+    superviseRuntimeTask({
+      name: `Notification delivery reader ${index}`,
+      signal: controller.signal,
+      run: async (signal) => {
+        for await (const message of deliveryQueue.stream({ signal })) await handleDelivery(message);
+      },
+      onError: ({ error, failureCount, retryInMs }) =>
+        log.error("Delivery reader stopped; restarting", {
+          reader: index,
+          error: error instanceof Error ? error.message : String(error),
+          failureCount,
+          retryInMs,
+        }),
     }),
   );
 

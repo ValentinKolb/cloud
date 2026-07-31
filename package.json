@@ -32,6 +32,9 @@
     "packages/weather",
     "fixtures/ui-ssr"
   ],
+  "overrides": {
+    "@k2b/sync": "5.9.0"
+  },
   "scripts": {
     "infra": "docker compose -f compose.yml up -d",
     "infra:down": "docker compose -f compose.yml down",

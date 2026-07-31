@@ -38,6 +38,8 @@ COPY packages/ui/package.json            packages/ui/
 COPY packages/ui-lab/package.json        packages/ui-lab/
 COPY packages/venue/package.json         packages/venue/
 COPY packages/weather/package.json       packages/weather/
+COPY fixtures/ui-ssr/package.json        fixtures/ui-ssr/
+COPY docs-site/package.json              docs-site/
 
 # --production keeps CI/dev-only tools (Biome, TypeScript, @types, etc.) out
 # of production images. This avoids optional platform binaries in multi-arch
