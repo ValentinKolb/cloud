@@ -9,6 +9,7 @@ import { openMailRuleEditor, type RuleActionKind } from "./MailRuleSettings";
 import { isOutgoingMessage } from "./mail-conversation-history";
 import { resolveMailMessageActionVisibility } from "./mail-message-action-visibility";
 import { buildExactSenderSearchHref, senderDomainFromAddress } from "./mail-navigation";
+import { openMessageAsSpacesEvent } from "./mail-spaces-event";
 
 type SelectionContext = {
   selectionKey: string | null;
@@ -218,36 +219,8 @@ export default function MailSenderMessageActions(props: {
   });
 
   const createEventInSpaces = mutation.create<void, SelectionContext>({
-    mutation: async (_context, { abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"]["calendar-destinations"].$get(
-        { param: { mailboxId: props.mailboxId } },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not load Spaces calendars"));
-      const destinations = await response.json();
-      if (destinations.items.length === 0) throw new Error("No writable Space is available for this event.");
-      const values = await prompts.form({
-        title: "Create event in Spaces",
-        icon: "ti ti-calendar-plus",
-        fields: {
-          spaceId: {
-            type: "select",
-            label: "Calendar Space",
-            description: "Dates, attendees, and event details stay in Spaces.",
-            options: destinations.items.map((space) => ({ id: space.id, label: space.name })),
-            default: destinations.selectedSpaceId ?? destinations.items[0]!.id,
-            required: true,
-          },
-        },
-        confirmText: "Open Spaces",
-      });
-      if (!values || abortSignal.aborted) return;
-      const target = new URL(`/app/spaces/${values.spaceId}`, window.location.origin);
-      target.searchParams.set("create", "event");
-      target.searchParams.set("mailbox", props.mailboxId);
-      target.searchParams.set("message", props.message.id);
-      window.location.assign(`${target.pathname}${target.search}`);
-    },
+    mutation: async (_context, { abortSignal }) =>
+      openMessageAsSpacesEvent({ mailboxId: props.mailboxId, messageId: props.message.id, abortSignal }),
     onError: (error) => prompts.error(error.message, { title: "Could not open Spaces" }),
   });
 

@@ -1,6 +1,5 @@
-import { documentNavigate } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { PanelDialog, prompts, Select, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, prompts, Select, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { z } from "zod";
 import { apiClient } from "@/api/client";
@@ -59,24 +58,33 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
         return;
       }
       setValidationError(null);
-      const response = await apiClient[":id"].items[":itemId"]["invitation-draft"].$post(
-        {
-          param: { id: props.spaceId, itemId: props.itemId },
-          json: {
-            idempotencyKey,
-            mailboxId: mailboxId()!,
-            attendees: parsed.attendees,
-            method: props.method,
+      const mailTab = window.open("about:blank", "_blank");
+      if (!mailTab) throw new Error("Mail could not open a new tab. Allow pop-ups for Cloud and try again.");
+      mailTab.opener = null;
+      try {
+        const response = await apiClient[":id"].items[":itemId"]["invitation-draft"].$post(
+          {
+            param: { id: props.spaceId, itemId: props.itemId },
+            json: {
+              idempotencyKey,
+              mailboxId: mailboxId()!,
+              attendees: parsed.attendees,
+              method: props.method,
+            },
           },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readResponseError(response, "Could not create the invitation draft"));
-      const result = await response.json();
-      toast.success(props.method === "cancel" ? "Cancellation draft created" : "Invitation draft created");
-      props.close();
-      documentNavigate(result.href);
+          { init: { signal: abortSignal } },
+        );
+        if (!response.ok) throw new Error(await readResponseError(response, "Could not create the invitation draft"));
+        const result = await response.json();
+        mailTab.location.replace(new URL(result.href, window.location.origin).href);
+        toast.success(props.method === "cancel" ? "Cancellation email created" : "Invitation email created");
+        props.close();
+      } catch (error) {
+        mailTab.close();
+        throw error;
+      }
     },
+    onError: (error) => prompts.error(error.message, { title: "Could not create email" }),
   });
 
   onMount(() => load.mutate());
@@ -135,8 +143,8 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
           disabled={load.loading() || create.loading() || !context()}
           onClick={() => create.mutate()}
         >
-          <i class={create.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-edit"} aria-hidden="true" />
-          Create Mail draft
+          <i class={create.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-mail-plus"} aria-hidden="true" />
+          Create Mail
         </button>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -144,10 +152,8 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
 }
 
 const openDialog = (spaceId: string, itemId: string, method: "request" | "cancel") =>
-  prompts.dialog<void>((close) => <InvitationDialog spaceId={spaceId} itemId={itemId} method={method} close={() => close()} />, {
-    surface: "bare",
-    header: false,
-    size: "medium",
+  dialogCore.open<void>((close) => <InvitationDialog spaceId={spaceId} itemId={itemId} method={method} close={() => close()} />, {
+    ...panelDialogOptions,
     cancelBehavior: "ignore",
   });
 

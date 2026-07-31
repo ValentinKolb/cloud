@@ -111,7 +111,7 @@ export default function MailCalendarInvitation(props: {
   });
 
   return (
-    <div class="mt-3 min-h-24 rounded-[var(--ui-radius-surface)] border border-subtle bg-[var(--ui-surface-subtle)] p-3" aria-live="polite">
+    <div class="mt-3 min-h-24 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-3" aria-live="polite">
       <Show when={preview()} fallback={<p class="text-xs text-dimmed">{loading.error()?.message ?? "Reading calendar invitation…"}</p>}>
         {(value) => (
           <div class="flex flex-col gap-3">
