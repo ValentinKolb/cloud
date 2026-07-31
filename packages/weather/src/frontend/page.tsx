@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppOverview } from "@valentinkolb/cloud/ui";
+import { AppOverview } from "@k2b/ui";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { weatherHelp } from "@/help";
 import { ssr } from "../config";
@@ -18,7 +18,7 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather" }]}>
       <WeatherLayoutHelp documents={weatherHelp.manifest} />
-      <AppOverview title="Weather" subtitle="Track forecasts for your saved locations." icon="ti ti-temperature-celsius">
+      <AppOverview class="k2b-ui" title="Weather" subtitle="Track forecasts for your saved locations." icon="ti ti-temperature-celsius">
         <AppOverview.Main title="Locations" description="No saved locations yet.">
           <AppOverview.EmptyState
             title="No locations yet"

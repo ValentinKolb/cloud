@@ -8,7 +8,7 @@ import {
   sameSettingValue,
   TextInput,
   toast,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal } from "solid-js";
@@ -100,7 +100,7 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
             >
               <TextInput
                 value={() => draft()["weather.default_lat"]}
-                onChange={(v) => update("weather.default_lat", v)}
+                onValueChange={(v) => update("weather.default_lat", v)}
                 placeholder="e.g. 48.401082"
               />
             </SettingsField>
@@ -112,7 +112,7 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
             >
               <TextInput
                 value={() => draft()["weather.default_lon"]}
-                onChange={(v) => update("weather.default_lon", v)}
+                onValueChange={(v) => update("weather.default_lon", v)}
                 placeholder="e.g. 9.987608"
               />
             </SettingsField>
@@ -127,7 +127,7 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
             >
               <NumberInput
                 value={() => draft()["weather.cache_minutes"]}
-                onChange={(v) => {
+                onValueChange={(v) => {
                   if (v !== null) update("weather.cache_minutes", v);
                 }}
                 min={1}
@@ -145,7 +145,7 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
             >
               <TextInput
                 value={() => draft()["weather.geo_url"]}
-                onChange={(v) => update("weather.geo_url", v)}
+                onValueChange={(v) => update("weather.geo_url", v)}
                 type="url"
                 placeholder="e.g. https://geocoding.example.com/search"
               />

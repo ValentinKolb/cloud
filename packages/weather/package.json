@@ -12,6 +12,7 @@
     "@valentinkolb/cloud": "workspace:*",
     "@k2b/ssr": "0.12.0",
     "@k2b/stdlib": "0.17.1",
+    "@k2b/ui": "workspace:*",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",
     "solid-js": "^1.9.10",

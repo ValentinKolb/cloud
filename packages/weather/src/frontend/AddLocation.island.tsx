@@ -1,4 +1,4 @@
-import { AppWorkspace, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Button, prompts, toast } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { apiClient } from "@/api/client";
@@ -104,10 +104,17 @@ const AddLocationButton = (props: { variant?: "button" | "sidebar" | "overview" 
   }
 
   return (
-    <button type="button" onClick={() => addMutation.mutate({})} disabled={addMutation.loading()} class="btn-secondary btn-sm w-full">
-      <i class={addMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} aria-hidden="true" />
+    <Button
+      variant="secondary"
+      size="sm"
+      class="w-full"
+      onClick={() => addMutation.mutate({})}
+      loading={addMutation.loading()}
+      loadingLabel="Adding location"
+    >
+      <i class="ti ti-plus" aria-hidden="true" />
       Add location
-    </button>
+    </Button>
   );
 };
 

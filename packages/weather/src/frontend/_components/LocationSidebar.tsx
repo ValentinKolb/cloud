@@ -1,5 +1,5 @@
 import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@k2b/ui";
 import AddLocationButton from "../AddLocation.island";
 
 type Location = {

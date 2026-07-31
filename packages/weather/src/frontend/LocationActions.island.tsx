@@ -1,4 +1,4 @@
-import { Dropdown, prompts, SegmentedControl, toast, Tooltip } from "@valentinkolb/cloud/ui";
+import { Button, Dropdown, IconButton, prompts, SegmentedControl, toast, Tooltip } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
 import { createSignal } from "solid-js";
@@ -25,7 +25,7 @@ function DisplaySettingsForm(props: { onSubmit: (settings: DisplaySettings) => v
         <p class="text-sm font-medium">Zoom level</p>
         <SegmentedControl
           value={zoom}
-          onChange={setZoom}
+          onValueChange={setZoom}
           options={[
             { value: "1", label: "Small" },
             { value: "2", label: "Medium" },
@@ -38,7 +38,7 @@ function DisplaySettingsForm(props: { onSubmit: (settings: DisplaySettings) => v
         <p class="text-sm font-medium">Theme</p>
         <SegmentedControl
           value={theme}
-          onChange={setTheme}
+          onValueChange={setTheme}
           options={[
             { value: "light", label: "Light", icon: "ti ti-sun" },
             { value: "dark", label: "Dark", icon: "ti ti-moon" },
@@ -50,7 +50,7 @@ function DisplaySettingsForm(props: { onSubmit: (settings: DisplaySettings) => v
         <p class="text-sm font-medium">View</p>
         <SegmentedControl
           value={view}
-          onChange={setView}
+          onValueChange={setView}
           options={[
             { value: "simple", label: "Simple", icon: "ti ti-layout-bottombar" },
             { value: "detail", label: "Detailed", icon: "ti ti-layout-grid" },
@@ -58,10 +58,10 @@ function DisplaySettingsForm(props: { onSubmit: (settings: DisplaySettings) => v
         />
       </div>
 
-      <button type="submit" class="btn-secondary btn-md mt-4 self-end">
+      <Button type="submit" variant="secondary" class="mt-4 self-end">
         <i class="ti ti-external-link" aria-hidden="true" />
         Open display
-      </button>
+      </Button>
     </form>
   );
 }
@@ -110,20 +110,25 @@ export default function LocationActions(props: { id: string; lat: number; lon: n
 
   return (
     <div class="flex items-center gap-2" role="group" aria-label="Location actions">
-      <button type="button" onClick={openDisplay} class="btn-secondary btn-sm">
+      <Button type="button" variant="secondary" size="sm" onClick={openDisplay}>
         <i class="ti ti-device-tv" aria-hidden="true" />
         Display
-      </button>
+      </Button>
       <Dropdown
         trigger={
           <Tooltip content="Location options">
-            <button type="button" class="icon-btn h-8 w-8" aria-label="Location options" disabled={remove.loading()}>
-              <i class={remove.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-dots"} aria-hidden="true" />
-            </button>
+            <IconButton
+              label="Location options"
+              size="sm"
+              disabled={remove.loading()}
+              loading={remove.loading()}
+            >
+              <i class="ti ti-dots" aria-hidden="true" />
+            </IconButton>
           </Tooltip>
         }
         position="bottom-left"
-        width="w-48"
+        width="12rem"
         elements={[
           {
             items: [

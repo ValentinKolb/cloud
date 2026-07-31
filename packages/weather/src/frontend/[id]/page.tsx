@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Placeholder } from "@k2b/ui";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { weatherHelp } from "@/help";
 import { ssr } from "../../config";
@@ -155,7 +155,7 @@ export default ssr<AuthContext>(async (c) => {
   if (!activeLocation) {
     return () => (
       <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: "Not Found" }]}>
-        <AppWorkspace>
+        <AppWorkspace class="k2b-ui">
           <WeatherLayoutHelp documents={weatherHelp.manifest} />
           <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
           <AppWorkspace.Content>
@@ -198,7 +198,7 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: activeLocation.name }]}
     >
-      <AppWorkspace>
+      <AppWorkspace class="k2b-ui">
         <WeatherLayoutHelp documents={weatherHelp.manifest} />
         <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 
