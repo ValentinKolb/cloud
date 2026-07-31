@@ -212,6 +212,10 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`
+    ALTER TABLE spaces.calendar_invitation_sources
+    ALTER COLUMN message_id DROP NOT NULL
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_calendar_invitation_sources_message
     ON spaces.calendar_invitation_sources(mailbox_id, message_id)
   `.simple();
