@@ -60,11 +60,47 @@ The sidebar compound members cover these jobs:
   compose the persistent navigation;
 - `SidebarItem`, `SidebarItemIcon`, `SidebarItemLabel`, `SidebarItemMeta`, and
   `SidebarItemAction` compose a navigation row;
+- `NavTree` and `NavTree.Item` compose nested folder, mailbox, category, or tag
+  navigation with automatic indentation and keyboard interaction;
 - `SidebarIconGrid` and `SidebarIconAction` provide compact icon-only actions.
+
+### Nested navigation
+
+Use `NavTree` when navigation has parent and child rows. It provides one
+accessible tree contract, roving keyboard focus, disclosure behavior, and
+depth-based indentation. Set `indented={false}` only when hierarchy should be
+communicated without horizontal nesting.
+
+Expansion can be uncontrolled with `defaultExpandedIds`, or controlled with
+`expandedIds` and `onExpandedIdsChange`. Persistence remains application-owned:
+if an application stores expansion in a cookie or another store, pass the same
+initial ids during SSR to avoid a hydration layout shift.
+
+```tsx
+const [selected, setSelected] = createSignal("inbox");
+const [expanded, setExpanded] = createSignal<readonly string[]>(["mail"]);
+
+<AppWorkspace.NavTree
+  ariaLabel="Mailbox navigation"
+  selectedId={selected()}
+  expandedIds={expanded()}
+  onSelectedIdChange={setSelected}
+  onExpandedIdsChange={setExpanded}
+>
+  <AppWorkspace.NavTree.Item id="mail" label="Mail" icon="ti ti-mail">
+    <AppWorkspace.NavTree.Item id="inbox" label="Inbox" meta={4} />
+    <AppWorkspace.NavTree.Item id="archive" label="Archive" />
+  </AppWorkspace.NavTree.Item>
+</AppWorkspace.NavTree>
+```
 
 ## Accessibility
 
 `MainPane.label` names the region. Sidebar icon actions and item actions require a clear `label`.
+Every `NavTree` requires `ariaLabel`; each item requires a stable `id` and a
+human-readable `label`. Arrow keys move through visible rows, Right and Left
+expand, collapse, or move between parent and child, and Home and End jump to
+the first and last visible row.
 
 Resize handles are separators with orientation, limits, and the controlled
 region. Their pointer target is wider than the visible one-pixel guide. Do not

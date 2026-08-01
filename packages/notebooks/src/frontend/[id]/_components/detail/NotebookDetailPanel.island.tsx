@@ -506,7 +506,7 @@ export default function NotebookDetailPanel(props: Props) {
               <ul class="flex flex-col">
                 <For each={participants()}>
                   {(p) => (
-                    <li class="detail-row">
+                    <li class="detail-row items-center">
                       <Avatar
                         name={p.displayName}
                         fallback={(p.displayName.trim() || "?").slice(0, 2).toUpperCase()}

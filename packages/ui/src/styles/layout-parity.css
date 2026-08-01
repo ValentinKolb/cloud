@@ -478,6 +478,12 @@
   border-right: 1px solid var(--k2b-border);
 }
 
+.k2b-ui .k2b-app-workspace__main-pane[data-surface="navigation"] {
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: var(--k2b-surface-muted);
+}
+
 .k2b-ui .k2b-app-workspace__detail {
   gap: 0.75rem;
   padding: 0.75rem;
@@ -690,7 +696,11 @@
     flex: 0 0 24rem;
   }
 
-  .k2b-ui .k2b-app-workspace:has(> .k2b-app-workspace__sidebar) {
+  /* Solid islands render a custom-element wrapper around their root. The
+     wrapper is `display: contents`, but selectors still see it in the DOM.
+     Treat the direct and island-wrapped compound parts as the same workspace
+     structure so SSR and hydrated layouts use identical grid tracks. */
+  .k2b-ui .k2b-app-workspace:has(> .k2b-app-workspace__content, > :is(solid-island, solid-client) > .k2b-app-workspace__content) {
     grid-template-areas:
       "sidebar content"
       "sidebar drawer";
@@ -744,7 +754,8 @@
   }
 
   .k2b-ui .k2b-app-workspace__main > .k2b-app-workspace__resize[data-app-workspace-resize="pane"],
-  .k2b-ui .k2b-app-workspace__content > .k2b-app-workspace__resize[data-app-workspace-resize="detail"] {
+  .k2b-ui .k2b-app-workspace__content > .k2b-app-workspace__resize[data-app-workspace-resize="detail"],
+  .k2b-ui .k2b-app-workspace__content > :is(solid-island, solid-client) > .k2b-app-workspace__resize[data-app-workspace-resize="detail"] {
     position: relative;
     inset: auto;
     height: auto;
@@ -753,7 +764,13 @@
     transform: none;
   }
 
-  .k2b-ui .k2b-app-workspace:has(> .k2b-app-workspace__sidebar) > .k2b-app-workspace__resize[data-app-workspace-resize="drawer"] {
+  .k2b-ui
+    .k2b-app-workspace:has(> .k2b-app-workspace__sidebar, > :is(solid-island, solid-client) > .k2b-app-workspace__sidebar)
+    > .k2b-app-workspace__resize[data-app-workspace-resize="drawer"],
+  .k2b-ui
+    .k2b-app-workspace:has(> .k2b-app-workspace__sidebar, > :is(solid-island, solid-client) > .k2b-app-workspace__sidebar)
+    > :is(solid-island, solid-client)
+    > .k2b-app-workspace__resize[data-app-workspace-resize="drawer"] {
     left: var(--k2b-workspace-sidebar-width, 13rem);
   }
 
@@ -805,7 +822,12 @@
 }
 
 @media (max-width: 63.999rem) {
-  .k2b-ui .k2b-app-workspace__content:has(> .k2b-app-workspace__detail:not([hidden])) > .k2b-app-workspace__main {
+  .k2b-ui
+    .k2b-app-workspace__content:has(
+      > .k2b-app-workspace__detail:not([hidden]),
+      > :is(solid-island, solid-client) > .k2b-app-workspace__detail:not([hidden])
+    )
+    > .k2b-app-workspace__main {
     display: none;
   }
 

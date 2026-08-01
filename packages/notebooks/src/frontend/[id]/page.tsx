@@ -1,4 +1,4 @@
-import { AppWorkspace, Placeholder } from "@k2b/ui";
+import { AppWorkspace, type AppWorkspaceLayoutState, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { notebookHelp } from "@/help";
@@ -9,6 +9,7 @@ import NotebookGraph from "./_components/graph/NotebookGraph.island";
 import NotebookLayoutHelp from "./_components/help/NotebookLayoutHelp.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
 import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
+import NotebookNavigatorPane from "./_components/sidebar/NotebookNavigatorPane.island";
 import NotebookSidebar from "./_components/sidebar/NotebookSidebar.island";
 import WorkspaceEventBridge from "./_components/sidebar/WorkspaceEventBridge.island";
 import VersionHistory from "./_components/versions/VersionHistory.island";
@@ -73,6 +74,10 @@ export default ssr<AuthContext>(async (c) => {
     backlinks,
     dateConfig,
   } = data;
+  const initialWorkspaceLayout =
+    ctx.settings.sidebarMode === "navigator"
+      ? ({ version: 2, sidebarWidth: 208, paneWidths: { "notebook-notes": 336 } } satisfies AppWorkspaceLayoutState)
+      : null;
 
   return () => (
     <Layout
@@ -85,7 +90,7 @@ export default ssr<AuthContext>(async (c) => {
         ...(selectedNote ? [{ title: selectedNote.title }] : isSettingsMode ? [{ title: "Settings" }] : []),
       ]}
     >
-      <AppWorkspace class="flex-1 min-h-0">
+      <AppWorkspace class="flex-1 min-h-0" layoutState={() => initialWorkspaceLayout}>
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
         <NotebookLayoutHelp documents={notebookHelp.manifest} />
         {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} />}
@@ -94,6 +99,18 @@ export default ssr<AuthContext>(async (c) => {
 
         <AppWorkspace.Content>
           <AppWorkspace.Main>
+            {ctx.settings.sidebarMode === "navigator" && (
+              <AppWorkspace.MainPane
+                id="notebook-notes"
+                label="Note list"
+                surface="navigation"
+                defaultSize={336}
+                minSize={280}
+                maxSize={520}
+              >
+                <NotebookNavigatorPane ctx={ctx} />
+              </AppWorkspace.MainPane>
+            )}
             {isSettingsMode ? (
               <NotebookSettingsPanel
                 notebook={notebook}

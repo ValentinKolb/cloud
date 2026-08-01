@@ -44,21 +44,45 @@ describe("@k2b/ui complete advanced layout migrations", () => {
                     get children() {
                       return createComponent(AppWorkspace.SidebarBody, {
                         get children() {
-                          return createComponent(AppWorkspace.SidebarItem, {
-                            href: "/items",
-                            active: true,
-                            get children() {
-                              return [
-                                createComponent(AppWorkspace.SidebarItemIcon, { icon: "ti ti-list" }),
-                                createComponent(AppWorkspace.SidebarItemLabel, { children: "Items" }),
-                                createComponent(AppWorkspace.SidebarItemMeta, { children: "12" }),
-                                createComponent(AppWorkspace.SidebarItemAction, {
-                                  icon: "ti ti-dots",
-                                  label: "Row action",
-                                }),
-                              ];
-                            },
-                          });
+                          return [
+                            createComponent(AppWorkspace.SidebarItem, {
+                              href: "/items",
+                              active: true,
+                              depth: 2,
+                              get children() {
+                                return [
+                                  createComponent(AppWorkspace.SidebarItemIcon, { icon: "ti ti-list" }),
+                                  createComponent(AppWorkspace.SidebarItemLabel, { children: "Items" }),
+                                  createComponent(AppWorkspace.SidebarItemMeta, { children: "12" }),
+                                  createComponent(AppWorkspace.SidebarItemAction, {
+                                    icon: "ti ti-dots",
+                                    label: "Row action",
+                                  }),
+                                ];
+                              },
+                            }),
+                            createComponent(AppWorkspace.NavTree, {
+                              ariaLabel: "Inventory navigation",
+                              selectedId: "available",
+                              expandedIds: ["items"],
+                              get children() {
+                                return createComponent(AppWorkspace.NavTree.Item, {
+                                  id: "items",
+                                  label: "Items",
+                                  icon: "ti ti-box",
+                                  get children() {
+                                    return createComponent(AppWorkspace.NavTree.Item, {
+                                      id: "available",
+                                      label: "Available",
+                                      meta: "8",
+                                      href: "/items/available",
+                                      navigation: "document",
+                                    });
+                                  },
+                                });
+                              },
+                            }),
+                          ];
                         },
                       });
                     },
@@ -75,6 +99,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
                       return createComponent(AppWorkspace.MainPane, {
                         id: "list",
                         label: "Items",
+                        surface: "navigation",
                         children: "Main content",
                       });
                     },
@@ -100,11 +125,20 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(html).toContain('data-app-workspace-resize="detail"');
     expect(html).toContain('data-workspace-panel-id="item"');
     expect(html).toContain('data-workspace-resizable="true"');
+    expect(html).toContain("--k2b-sidebar-item-depth:2");
+    expect(html).toContain('data-surface="navigation"');
     expect(html).toContain("aria-controls=");
     expect(html).toContain('aria-label="Items"');
     expect(html).toContain('data-width="lg"');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain('aria-label="Row action"');
+    expect(html).toContain('role="tree"');
+    expect(html).toContain('aria-label="Inventory navigation"');
+    expect(html).toContain('role="treeitem"');
+    expect(html).toContain('aria-level="2"');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('data-k2b-nav-tree-parent-id="items"');
+    expect(html).toContain('class="k2b-app-workspace__sidebar-item-meta k2b-app-workspace__nav-tree-leaf-meta"');
   });
 
   test("normalizes and serializes bounded workspace state", () => {
@@ -116,7 +150,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     });
     expect(normalized).toEqual({
       version: 2,
-      sidebarWidth: 360,
+      sidebarWidth: 960,
       sidebarCollapsed: undefined,
       paneWidths: { unsafe_id: 240 },
       detailWidths: { primary: 420 },
@@ -221,6 +255,17 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(html).toContain("--k2b-workspace-sidebar-width:64px");
   });
 
+  test("renders a direct layoutState prop before hydration", () => {
+    const html = renderToString(() =>
+      createComponent(AppWorkspace, {
+        layoutState: () => ({ version: 2, sidebarWidth: 560 }),
+        children: "body",
+      }),
+    );
+
+    expect(html).toContain("--k2b-workspace-sidebar-width:560px");
+  });
+
   test("inherits a server-rendered sidebar width before controller hydration", () => {
     const css = readFileSync(resolve(import.meta.dir, "../styles/layout-parity.css"), "utf8");
     const rootRule = css.match(/\.k2b-ui \.k2b-app-workspace\s*\{([\s\S]*?)\}/)?.[1];
@@ -309,6 +354,37 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(renderDetail(undefined)).toContain('data-workspace-resizable="true"');
     expect(renderDetail(false)).not.toContain('data-app-workspace-resize="detail"');
     expect(renderDetail(false)).toContain('data-workspace-resizable="false"');
+  });
+
+  test("renders configured sidebar resize limits", () => {
+    const html = renderToString(() =>
+      createComponent(AppWorkspace, {
+        get children() {
+          return createComponent(AppWorkspace.Sidebar, {
+            defaultSize: 560,
+            minSize: 420,
+            maxSize: 880,
+            children: createComponent(AppWorkspace.SidebarDesktop, { children: "Navigator" }),
+          });
+        },
+      }),
+    );
+
+    expect(html).toContain('data-workspace-default-size="560"');
+    expect(html).toContain('data-workspace-min-size="420"');
+    expect(html).toContain('data-workspace-max-size="880"');
+  });
+
+  test("applies view transitions directly to sidebar icon actions", () => {
+    const html = renderToString(() =>
+      createComponent(AppWorkspace.SidebarIconAction, {
+        label: "Search notes",
+        icon: "ti ti-search",
+        viewTransitionName: "notebook-search",
+      }),
+    );
+
+    expect(html).toContain("view-transition-name:notebook-search");
   });
 
   test("keeps the split layout when every main pane is closed", () => {
@@ -460,6 +536,14 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(inlineResize).not.toContain("order:");
     });
 
+    test("keeps workspace geometry transparent across Solid island wrappers", () => {
+      expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__content/);
+      expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__sidebar/);
+      expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__detail:not\(\[hidden\]\)/);
+      expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__resize\[data-app-workspace-resize=detail\]/);
+      expect(css).toMatch(/>:is\(solid-island,solid-client\)>\.k2b-app-workspace__resize\[data-app-workspace-resize=drawer\]/);
+    });
+
     test("keeps the workspace surface hierarchy aligned with Cloud", () => {
       expect(rule(".k2b-app-workspace")).toContain("--k2b-workspace-resize-hit-size:1.25rem");
       expect(rule(".k2b-app-workspace")).toContain("background:var(--k2b-surface)");
@@ -468,6 +552,11 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-app-workspace__sidebar-desktop")).toContain("padding:.5rem");
       expect(rule(".k2b-app-workspace__sidebar-body")).toContain("padding:0");
       expect(rule(".k2b-app-workspace__sidebar-footer")).toContain("padding:0");
+      expect(rule(".k2b-app-workspace__sidebar-item")).toContain("--k2b-sidebar-item-depth");
+      expect(rule(".k2b-app-workspace__sidebar-heading strong")).toContain("font-size:1rem");
+      expect(rule(".k2b-app-workspace__sidebar-icon-action")).toContain("width:100%");
+      expect(rule(".k2b-app-workspace__main-pane[data-surface=navigation]")).toContain("background:var(--k2b-surface-muted)");
+      expect(rule(".k2b-app-workspace__main-pane[data-surface=navigation]")).toContain("padding:.5rem");
       expect(rule(".k2b-app-workspace__detail")).toContain("background:var(--k2b-surface-muted)");
       expect(rule(".k2b-app-workspace__detail")).toContain("padding:.75rem");
       expect(rule(".k2b-app-workspace__drawer")).toContain("background:var(--k2b-surface-muted)");

@@ -1,5 +1,17 @@
 import { Link, type LinkNavigateEvent, type NavigationScrollMode } from "@k2b/ssr/nav";
-import { children, createContext, createMemo, createUniqueId, type JSX, onCleanup, onMount, Show, useContext } from "solid-js";
+import {
+  children,
+  createContext,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+  useContext,
+} from "solid-js";
 import { installAppWorkspaceController } from "./app-workspace-controller";
 import {
   APP_WORKSPACE_DETAIL_DEFAULT,
@@ -33,6 +45,7 @@ const SIDEBAR_ITEM_ICON = Symbol("AppWorkspace.SidebarItemIcon");
 const SIDEBAR_ITEM_LABEL = Symbol("AppWorkspace.SidebarItemLabel");
 const SIDEBAR_ITEM_META = Symbol("AppWorkspace.SidebarItemMeta");
 const SIDEBAR_ITEM_ACTION = Symbol("AppWorkspace.SidebarItemAction");
+const NAV_TREE_ITEM = Symbol("AppWorkspace.NavTree.Item");
 
 type MainPaneSlot = {
   kind: typeof MAIN_PANE;
@@ -49,6 +62,7 @@ type SidebarItemSlot =
   | (AppWorkspaceSidebarItemLabelProps & { kind: typeof SIDEBAR_ITEM_LABEL })
   | (AppWorkspaceSidebarItemMetaProps & { kind: typeof SIDEBAR_ITEM_META })
   | (AppWorkspaceSidebarItemActionProps & { kind: typeof SIDEBAR_ITEM_ACTION });
+type NavTreeItemSlot = AppWorkspaceNavTreeItemProps & { kind: typeof NAV_TREE_ITEM };
 
 const flatten = (value: unknown): unknown[] => {
   if (Array.isArray(value)) return value.flatMap(flatten);
@@ -70,6 +84,8 @@ const sidebarItemSlot = (value: unknown): value is SidebarItemSlot =>
       "kind" in value &&
       [SIDEBAR_ITEM_ICON, SIDEBAR_ITEM_LABEL, SIDEBAR_ITEM_META, SIDEBAR_ITEM_ACTION].includes((value as SidebarItemSlot).kind),
   );
+const navTreeItemSlot = (value: unknown): value is NavTreeItemSlot =>
+  Boolean(value && typeof value === "object" && "kind" in value && (value as NavTreeItemSlot).kind === NAV_TREE_ITEM);
 
 type ResizeHandleProps = {
   kind: "sidebar" | "pane" | "detail" | "drawer";
@@ -152,6 +168,7 @@ export type AppWorkspaceMainProps = {
 export type AppWorkspaceMainPaneProps = {
   id: string;
   label: string;
+  surface?: "default" | "navigation";
   open?: boolean;
   resizable?: boolean;
   resizeShadow?: boolean;
@@ -192,6 +209,9 @@ export type AppWorkspaceSidebarProps = {
   resizable?: boolean;
   resizeShadow?: boolean;
   collapsible?: boolean;
+  defaultSize?: number;
+  minSize?: number;
+  maxSize?: number;
 };
 export type AppWorkspaceSidebarHeaderProps = {
   title: string;
@@ -235,6 +255,7 @@ export type AppWorkspaceSidebarItemProps = {
   title?: string;
   viewTransitionName?: string;
   class?: string;
+  depth?: number;
   actionIcon?: string;
   actionLabel?: string;
   onActionClick?: (event: MouseEvent) => void;
@@ -267,6 +288,38 @@ export type AppWorkspaceSidebarItemActionProps = {
   navigation?: "enhanced" | "document";
   onSelect?: (event: MouseEvent) => void;
   children?: JSX.Element;
+};
+export type AppWorkspaceNavTreeProps = {
+  children: JSX.Element;
+  ariaLabel: string;
+  selectedId?: string | null;
+  expandedIds?: readonly string[];
+  defaultExpandedIds?: readonly string[];
+  onSelectedIdChange?: (id: string) => void;
+  onExpandedIdsChange?: (ids: readonly string[]) => void;
+  indented?: boolean;
+  class?: string;
+};
+export type AppWorkspaceNavTreeItemProps = {
+  id: string;
+  label: JSX.Element;
+  children?: JSX.Element;
+  href?: string;
+  navigation?: "enhanced" | "document";
+  replace?: boolean;
+  scroll?: NavigationScrollMode;
+  onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
+  onSelect?: (event: MouseEvent) => void;
+  disabled?: boolean;
+  icon?: string;
+  meta?: JSX.Element;
+  tone?: AppWorkspaceSidebarItemTone;
+  title?: string;
+  viewTransitionName?: string;
+  class?: string;
+};
+type AppWorkspaceNavTreeComponent = ((props: AppWorkspaceNavTreeProps) => JSX.Element) & {
+  Item: (props: AppWorkspaceNavTreeItemProps) => JSX.Element;
 };
 
 const modeAttrs = (mode?: AppWorkspaceSidebarVisibility) => (mode && mode !== "always" ? { "data-sidebar-mode": mode } : {});
@@ -347,6 +400,7 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
               data-workspace-mobile-active={activeMobilePane === pane.props.id ? "true" : "false"}
               data-workspace-panel-id={panelId}
               data-workspace-resizable={resizable ? "true" : "false"}
+              data-surface={pane.props.surface === "navigation" ? "navigation" : undefined}
               style={isAnchor ? undefined : { "--k2b-workspace-panel-size": `var(${variable}, ${defaultSize}px)` }}
             >
               {pane.props.children}
@@ -492,6 +546,9 @@ const SidebarHeaderContent = (props: { header: SidebarHeaderSlot; mobile?: boole
 function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
   const rootResizable = useContext(ResizeContext);
   const resizable = () => props.resizable ?? rootResizable;
+  const defaultSize = () => props.defaultSize ?? APP_WORKSPACE_SIDEBAR_DEFAULT;
+  const minSize = () => props.minSize ?? (props.collapsible ? APP_WORKSPACE_SIDEBAR_COLLAPSED : APP_WORKSPACE_SIDEBAR_MIN);
+  const maxSize = () => props.maxSize ?? APP_WORKSPACE_SIDEBAR_MAX;
   const generatedId = createUniqueId();
   const domId = `k2b-workspace-sidebar-${generatedId}`;
   const resolved = children(() => props.children);
@@ -530,9 +587,9 @@ function AppWorkspaceSidebar(props: AppWorkspaceSidebarProps): JSX.Element {
           kind="sidebar"
           edge="end"
           controls={domId}
-          defaultSize={APP_WORKSPACE_SIDEBAR_DEFAULT}
-          minSize={props.collapsible ? APP_WORKSPACE_SIDEBAR_COLLAPSED : APP_WORKSPACE_SIDEBAR_MIN}
-          maxSize={APP_WORKSPACE_SIDEBAR_MAX}
+          defaultSize={defaultSize()}
+          minSize={minSize()}
+          maxSize={maxSize()}
           shadow={props.resizeShadow !== false}
         />
       </Show>
@@ -679,7 +736,10 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
     title: props.title,
     "data-tone": props.tone,
     "data-mode": mode,
-    style: { "view-transition-name": props.viewTransitionName },
+    style: {
+      "view-transition-name": props.viewTransitionName,
+      "--k2b-sidebar-item-depth": props.depth === undefined ? undefined : String(Math.max(0, props.depth)),
+    },
     ...data(),
   });
   // `aria-current="page"` is a link state; it never belongs on the button
@@ -752,6 +812,251 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
   );
 }
 
+const navTreeItems = (value: unknown): NavTreeItemSlot[] => flatten(value).filter(navTreeItemSlot);
+
+const AppWorkspaceNavTreeItem = (props: AppWorkspaceNavTreeItemProps): JSX.Element =>
+  ({ kind: NAV_TREE_ITEM, ...props }) as unknown as JSX.Element;
+
+const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
+  let root: HTMLDivElement | undefined;
+  const resolved = children(() => props.children);
+  const roots = createMemo(() => navTreeItems(resolved()));
+  const [uncontrolledExpandedIds, setUncontrolledExpandedIds] = createSignal<string[]>([...new Set(props.defaultExpandedIds ?? [])]);
+  const [focusedId, setFocusedId] = createSignal<string | null>(props.selectedId ?? null);
+  const expandedIds = createMemo(() => new Set(props.expandedIds ?? uncontrolledExpandedIds()));
+  const isExpanded = (id: string) => expandedIds().has(id);
+
+  const setExpanded = (id: string, expanded: boolean) => {
+    const next = new Set(expandedIds());
+    if (expanded) next.add(id);
+    else next.delete(id);
+    const value = [...next];
+    if (props.expandedIds === undefined) setUncontrolledExpandedIds(value);
+    props.onExpandedIdsChange?.(value);
+  };
+
+  const visibleIds = createMemo(() => {
+    const result: string[] = [];
+    const visit = (items: readonly NavTreeItemSlot[]) => {
+      for (const item of items) {
+        if (item.disabled) continue;
+        result.push(item.id);
+        const nested = navTreeItems(item.children);
+        if (nested.length > 0 && isExpanded(item.id)) visit(nested);
+      }
+    };
+    visit(roots());
+    return result;
+  });
+
+  const tabStopId = () => {
+    const visible = visibleIds();
+    const focused = focusedId();
+    if (focused && visible.includes(focused)) return focused;
+    if (props.selectedId && visible.includes(props.selectedId)) return props.selectedId;
+    return visible[0] ?? null;
+  };
+
+  const treeItemElements = () =>
+    Array.from(root?.querySelectorAll<HTMLElement>("[data-k2b-nav-tree-id]") ?? []).filter(
+      (element) => element.getAttribute("aria-disabled") !== "true",
+    );
+  const focusItem = (id: string | null) => {
+    if (!id) return;
+    const element = treeItemElements().find((candidate) => candidate.dataset.k2bNavTreeId === id);
+    element?.focus({ preventScroll: true });
+  };
+
+  const renderItems = (value: unknown, depth: number, parentId?: string): JSX.Element => (
+    <For each={navTreeItems(value)}>
+      {(item) => {
+        const nested = createMemo(() => navTreeItems(item.children));
+        const hasChildren = () => nested().length > 0;
+        const selected = () => props.selectedId === item.id;
+        let treeItem: HTMLDivElement | undefined;
+
+        const activate = (event: MouseEvent) => {
+          if (item.disabled) return;
+          treeItem?.focus({ preventScroll: true });
+          setFocusedId(item.id);
+          if (hasChildren() && !item.href && !item.onSelect && !props.onSelectedIdChange) {
+            setExpanded(item.id, !isExpanded(item.id));
+            return;
+          }
+          props.onSelectedIdChange?.(item.id);
+          item.onSelect?.(event);
+        };
+        const toggle = (event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!item.disabled && hasChildren()) setExpanded(item.id, !isExpanded(item.id));
+        };
+        const onRowClick = (event: MouseEvent) => {
+          if ((event.target as Element | null)?.closest("[data-k2b-nav-tree-toggle]")) {
+            toggle(event);
+            return;
+          }
+          activate(event);
+        };
+        const onKeyDown = (event: KeyboardEvent) => {
+          if (event.altKey || event.ctrlKey || event.metaKey) return;
+          const items = treeItemElements();
+          const index = items.indexOf(event.currentTarget as HTMLElement);
+          if (event.key === "ArrowDown" && index >= 0) {
+            event.preventDefault();
+            items[Math.min(items.length - 1, index + 1)]?.focus({ preventScroll: true });
+            return;
+          }
+          if (event.key === "ArrowUp" && index >= 0) {
+            event.preventDefault();
+            items[Math.max(0, index - 1)]?.focus({ preventScroll: true });
+            return;
+          }
+          if (event.key === "Home") {
+            event.preventDefault();
+            items[0]?.focus({ preventScroll: true });
+            return;
+          }
+          if (event.key === "End") {
+            event.preventDefault();
+            items.at(-1)?.focus({ preventScroll: true });
+            return;
+          }
+          if (event.key === "ArrowRight" && hasChildren()) {
+            event.preventDefault();
+            if (!isExpanded(item.id)) setExpanded(item.id, true);
+            else queueMicrotask(() => focusItem(nested()[0]?.id ?? null));
+            return;
+          }
+          if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            if (hasChildren() && isExpanded(item.id)) setExpanded(item.id, false);
+            else focusItem(parentId ?? null);
+            return;
+          }
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            (treeItem?.firstElementChild as HTMLElement | null)?.click();
+          }
+        };
+        const rowContent = (
+          <>
+            <Show when={item.icon}>
+              <span class="k2b-app-workspace__sidebar-item-icon" aria-hidden="true">
+                <i class={iconClass(item.icon)} />
+              </span>
+            </Show>
+            <span class="k2b-app-workspace__sidebar-item-label">
+              <span class="k2b-app-workspace__sidebar-item-label-text">{item.label}</span>
+            </span>
+            <Show when={item.meta !== undefined}>
+              <span
+                class={`k2b-app-workspace__sidebar-item-meta ${hasChildren() ? "" : "k2b-app-workspace__nav-tree-leaf-meta"}`}
+              >
+                {item.meta}
+              </span>
+            </Show>
+            <Show when={hasChildren()}>
+              <span class="k2b-app-workspace__nav-tree-toggle" data-k2b-nav-tree-toggle aria-hidden="true">
+                <i class={`ti ${isExpanded(item.id) ? "ti-chevron-down" : "ti-chevron-right"}`} />
+              </span>
+            </Show>
+          </>
+        );
+        const rowClass = () =>
+          `k2b-app-workspace__sidebar-item k2b-app-workspace__nav-tree-row ${selected() ? "is-active" : ""} ${item.class ?? ""}`;
+        const rowStyle = () => ({
+          "view-transition-name": item.viewTransitionName,
+          "--k2b-sidebar-item-depth": String(props.indented === false ? 0 : Math.max(0, depth)),
+        });
+        const row = () => {
+          if (!item.href || item.disabled) {
+            return (
+              <button
+                type="button"
+                class={rowClass()}
+                title={item.title}
+                data-tone={item.tone}
+                style={rowStyle()}
+                tabIndex={-1}
+                disabled={item.disabled}
+                onClick={onRowClick}
+              >
+                {rowContent}
+              </button>
+            );
+          }
+          if (item.navigation === "document") {
+            return (
+              <a
+                href={item.href}
+                class={rowClass()}
+                title={item.title}
+                data-tone={item.tone}
+                style={rowStyle()}
+                tabIndex={-1}
+                aria-current={selected() ? "page" : undefined}
+                onClick={onRowClick}
+              >
+                {rowContent}
+              </a>
+            );
+          }
+          return (
+            <Link
+              href={item.href}
+              class={rowClass()}
+              title={item.title}
+              data-tone={item.tone}
+              style={rowStyle()}
+              tabIndex={-1}
+              aria-current={selected() ? "page" : undefined}
+              replace={item.replace}
+              scroll={item.scroll}
+              onNavigate={item.onNavigate}
+              onClick={onRowClick}
+            >
+              {rowContent}
+            </Link>
+          );
+        };
+
+        return (
+          <div
+            ref={treeItem}
+            class="k2b-app-workspace__nav-tree-node"
+            role="treeitem"
+            aria-level={depth + 1}
+            aria-selected={selected()}
+            aria-expanded={hasChildren() ? isExpanded(item.id) : undefined}
+            aria-disabled={item.disabled ? "true" : undefined}
+            tabIndex={item.disabled ? -1 : tabStopId() === item.id ? 0 : -1}
+            data-k2b-nav-tree-id={item.id}
+            data-k2b-nav-tree-parent-id={parentId}
+            onFocus={() => setFocusedId(item.id)}
+            onKeyDown={onKeyDown}
+          >
+            {row()}
+            <Show when={hasChildren() && isExpanded(item.id)}>
+              <div class="k2b-app-workspace__nav-tree-group" role="group">
+                {renderItems(nested(), depth + 1, item.id)}
+              </div>
+            </Show>
+          </div>
+        );
+      }}
+    </For>
+  );
+
+  return (
+    <div ref={root} class={`k2b-app-workspace__nav-tree ${props.class ?? ""}`} role="tree" aria-label={props.ariaLabel}>
+      {renderItems(roots(), 0)}
+    </div>
+  );
+}) as AppWorkspaceNavTreeComponent;
+
+AppWorkspaceNavTree.Item = AppWorkspaceNavTreeItem;
+
 const AppWorkspaceSidebarIconGrid = (props: AppWorkspaceSidebarIconGridProps) => (
   <section class={`k2b-app-workspace__sidebar-icon-grid-wrap ${props.class ?? ""}`} {...modeAttrs(props.sidebarMode)}>
     <Show when={props.title}>{(title) => <h2>{title()}</h2>}</Show>
@@ -768,6 +1073,7 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
     title: props.label,
     "aria-label": props.label,
     "data-tone": props.tone,
+    style: { "view-transition-name": props.viewTransitionName },
     ...modeAttrs(props.sidebarMode),
   });
   if (!props.href || props.disabled)
@@ -817,6 +1123,7 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   SidebarItemLabel: (props: AppWorkspaceSidebarItemLabelProps) => JSX.Element;
   SidebarItemMeta: (props: AppWorkspaceSidebarItemMetaProps) => JSX.Element;
   SidebarItemAction: (props: AppWorkspaceSidebarItemActionProps) => JSX.Element;
+  NavTree: AppWorkspaceNavTreeComponent;
   SidebarIconGrid: (props: AppWorkspaceSidebarIconGridProps) => JSX.Element;
   SidebarIconAction: (props: AppWorkspaceSidebarIconActionProps) => JSX.Element;
 };
@@ -824,6 +1131,7 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
 const AppWorkspace = ((props: AppWorkspaceProps) => {
   let root: HTMLDivElement | undefined;
   const serverLayoutState = useContext(LayoutStateContext);
+  const initialLayoutState = () => props.layoutState?.() ?? serverLayoutState;
 
   // The resize handles are inert markup until the controller is attached, so
   // the workspace attaches it itself and scopes it to this root. `onMount`
@@ -847,9 +1155,11 @@ const AppWorkspace = ((props: AppWorkspaceProps) => {
         ref={root}
         class={`k2b-app-workspace ${props.class ?? ""}`}
         data-k2b-app-workspace
-        data-sidebar-collapsed={serverLayoutState?.sidebarCollapsed === undefined ? undefined : String(serverLayoutState.sidebarCollapsed)}
+        data-sidebar-collapsed={
+          initialLayoutState()?.sidebarCollapsed === undefined ? undefined : String(initialLayoutState()?.sidebarCollapsed)
+        }
         data-workspace-resizable={props.resizable === false ? "false" : "true"}
-        style={appWorkspaceLayoutStyle(serverLayoutState)}
+        style={appWorkspaceLayoutStyle(initialLayoutState())}
       >
         {props.children}
       </div>
@@ -879,6 +1189,7 @@ AppWorkspace.SidebarItemIcon = AppWorkspaceSidebarItemIcon;
 AppWorkspace.SidebarItemLabel = AppWorkspaceSidebarItemLabel;
 AppWorkspace.SidebarItemMeta = AppWorkspaceSidebarItemMeta;
 AppWorkspace.SidebarItemAction = AppWorkspaceSidebarItemAction;
+AppWorkspace.NavTree = AppWorkspaceNavTree;
 AppWorkspace.SidebarIconGrid = AppWorkspaceSidebarIconGrid;
 AppWorkspace.SidebarIconAction = AppWorkspaceSidebarIconAction;
 

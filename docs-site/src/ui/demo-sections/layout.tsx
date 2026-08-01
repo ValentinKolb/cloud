@@ -20,7 +20,8 @@ import { DemoCard } from "../DemoCard";
 import { DemoGrid, type DemoSection } from "./types";
 
 const WorkspaceDemo = () => {
-  const [activeView, setActiveView] = createSignal<"items" | "activity">("items");
+  const [activeView, setActiveView] = createSignal("available");
+  const [expandedNavigation, setExpandedNavigation] = createSignal<readonly string[]>(["items", "tags"]);
   const [paneOpen, setPaneOpen] = createSignal(false);
   const [detailOpen, setDetailOpen] = createSignal(true);
   const [drawerOpen, setDrawerOpen] = createSignal(true);
@@ -36,20 +37,32 @@ const WorkspaceDemo = () => {
         <AppWorkspace.SidebarHeader title="Inventory" subtitle="12 items" icon="ti ti-box" />
         <AppWorkspace.SidebarDesktop>
           <AppWorkspace.SidebarBody>
-            <AppWorkspace.SidebarItem active={activeView() === "items"} onClick={() => setActiveView("items")}>
-              <AppWorkspace.SidebarItemIcon icon="ti ti-list" />
-              <AppWorkspace.SidebarItemLabel>Items</AppWorkspace.SidebarItemLabel>
-              <AppWorkspace.SidebarItemMeta>12</AppWorkspace.SidebarItemMeta>
-            </AppWorkspace.SidebarItem>
-            <AppWorkspace.SidebarItem active={activeView() === "activity"} onClick={() => setActiveView("activity")}>
-              <AppWorkspace.SidebarItemIcon icon="ti ti-history" />
-              <AppWorkspace.SidebarItemLabel>Activity</AppWorkspace.SidebarItemLabel>
-            </AppWorkspace.SidebarItem>
+            <AppWorkspace.NavTree
+              ariaLabel="Inventory navigation"
+              selectedId={activeView()}
+              expandedIds={expandedNavigation()}
+              onSelectedIdChange={setActiveView}
+              onExpandedIdsChange={setExpandedNavigation}
+            >
+              <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-box" meta={12}>
+                <AppWorkspace.NavTree.Item id="available" label="Available" icon="ti ti-circle-check" meta={8} />
+                <AppWorkspace.NavTree.Item id="maintenance" label="Maintenance" icon="ti ti-tool" meta={4} />
+              </AppWorkspace.NavTree.Item>
+              <AppWorkspace.NavTree.Item id="activity" label="Activity" icon="ti ti-history" />
+              <AppWorkspace.NavTree.Item id="tags" label="Tags" icon="ti ti-tags">
+                <AppWorkspace.NavTree.Item id="ready" label="Ready" icon="ti ti-tag" meta={8} />
+                <AppWorkspace.NavTree.Item id="repair" label="Repair" icon="ti ti-tag" meta={4} />
+              </AppWorkspace.NavTree.Item>
+            </AppWorkspace.NavTree>
           </AppWorkspace.SidebarBody>
         </AppWorkspace.SidebarDesktop>
         <AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarMobileItems>
-            <AppWorkspace.SidebarItem active={activeView() === "items"} icon="ti ti-list" onClick={() => setActiveView("items")}>
+            <AppWorkspace.SidebarItem
+              active={activeView() === "available"}
+              icon="ti ti-list"
+              onClick={() => setActiveView("available")}
+            >
               Items
             </AppWorkspace.SidebarItem>
             <AppWorkspace.SidebarItem
@@ -66,7 +79,7 @@ const WorkspaceDemo = () => {
         <AppWorkspace.Main mobilePane="main">
           <div class="ui-demo-pane">
             <div class="ui-workspace-demo__body">
-              <strong>{activeView() === "items" ? "Inventory items" : "Recent activity"}</strong>
+              <strong>{activeView() === "activity" ? "Recent activity" : `Inventory · ${activeView()}`}</strong>
               <span>Main 1</span>
               <div class="ui-workspace-demo__actions">
                 <Button size="sm" variant="secondary" onClick={() => setSidebarCollapsed(!collapsed)}>
@@ -104,12 +117,28 @@ const WorkspaceDemo = () => {
       chip={{ kind: "component", name: "AppWorkspace", from: "@k2b/ui" }}
       description="A portable application frame with responsive navigation, peer panes, contextual detail, a bottom drawer, and pointer and keyboard resizing."
       code={`const [layout, setLayout] = createSignal<AppWorkspaceLayoutState>({ version: 2, sidebarWidth: 208 });
+const [active, setActive] = createSignal("available");
+const [expanded, setExpanded] = createSignal(["items"]);
 const [paneOpen, setPaneOpen] = createSignal(false);
 const [detailOpen, setDetailOpen] = createSignal(true);
 const [drawerOpen, setDrawerOpen] = createSignal(true);
 
 <AppWorkspace layoutState={layout} onLayoutChange={setLayout}>
-  <AppWorkspace.Sidebar collapsible>…</AppWorkspace.Sidebar>
+  <AppWorkspace.Sidebar collapsible>
+    <AppWorkspace.NavTree
+      ariaLabel="Inventory navigation"
+      selectedId={active()}
+      expandedIds={expanded()}
+      onSelectedIdChange={setActive}
+      onExpandedIdsChange={setExpanded}
+    >
+      <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-box">
+        <AppWorkspace.NavTree.Item id="available" label="Available" meta={8} />
+        <AppWorkspace.NavTree.Item id="maintenance" label="Maintenance" meta={4} />
+      </AppWorkspace.NavTree.Item>
+      <AppWorkspace.NavTree.Item id="activity" label="Activity" icon="ti ti-history" />
+    </AppWorkspace.NavTree>
+  </AppWorkspace.Sidebar>
   <AppWorkspace.Content>
     <AppWorkspace.Main>
       <AppWorkspace.MainPane id="main-2" label="Main 2" open={paneOpen()}>…</AppWorkspace.MainPane>

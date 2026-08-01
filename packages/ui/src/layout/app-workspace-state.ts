@@ -12,6 +12,8 @@ export const APP_WORKSPACE_SIDEBAR_COLLAPSED = 64;
 export const APP_WORKSPACE_SIDEBAR_COLLAPSE_THRESHOLD = 128;
 export const APP_WORKSPACE_SIDEBAR_MIN = 176;
 export const APP_WORKSPACE_SIDEBAR_MAX = 360;
+/** Absolute persistence envelope for sidebars with an app-defined wider max. */
+const APP_WORKSPACE_SIDEBAR_STATE_MAX = 960;
 export const APP_WORKSPACE_DETAIL_DEFAULT = 384;
 export const APP_WORKSPACE_DETAIL_MIN = 288;
 export const APP_WORKSPACE_DETAIL_MAX = 640;
@@ -64,10 +66,7 @@ export const appWorkspaceResizeLimits = (options: {
  * DOM order priority. Minimums are reserved first; remaining space is shared
  * in proportion to how much each pane still needs to reach its preference.
  */
-export const fitAppWorkspacePaneSizes = (
-  panes: ReadonlyArray<{ desired: number; min: number }>,
-  availableSize: number,
-): number[] => {
+export const fitAppWorkspacePaneSizes = (panes: ReadonlyArray<{ desired: number; min: number }>, availableSize: number): number[] => {
   const sizes = panes.map((pane) => pane.min);
   const minimumTotal = sizes.reduce((total, size) => total + size, 0);
   const desiredTotal = panes.reduce((total, pane) => total + pane.desired, 0);
@@ -107,8 +106,7 @@ export const resolveAppWorkspaceSidebarWidth = (
 const finiteSize = (value: unknown, min: number, max: number) =>
   typeof value === "number" && Number.isFinite(value) ? Math.round(Math.min(max, Math.max(min, value))) : undefined;
 
-export const safeAppWorkspacePanelId = (panelId: string): string =>
-  panelId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+export const safeAppWorkspacePanelId = (panelId: string): string => panelId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
 
 const normalizeSizes = (value: unknown, min: number, max: number) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -129,28 +127,20 @@ export const normalizeAppWorkspaceLayoutState = (value: unknown): AppWorkspaceLa
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
   if (candidate.version !== 1 && candidate.version !== 2) return null;
-  const sidebarWidth = finiteSize(candidate.sidebarWidth, APP_WORKSPACE_SIDEBAR_MIN, APP_WORKSPACE_SIDEBAR_MAX);
+  const sidebarWidth = finiteSize(candidate.sidebarWidth, APP_WORKSPACE_SIDEBAR_MIN, APP_WORKSPACE_SIDEBAR_STATE_MAX);
   const sidebarCollapsed = typeof candidate.sidebarCollapsed === "boolean" ? candidate.sidebarCollapsed : undefined;
   // Keyed panel maps only exist from version 2 on; a version-1 payload that
   // carries them was not written by this component and is not trusted.
   const legacy = candidate.version === 1;
-  const paneWidths = legacy
-    ? undefined
-    : normalizeSizes(candidate.paneWidths, APP_WORKSPACE_PANE_MIN, APP_WORKSPACE_PANE_MAX);
+  const paneWidths = legacy ? undefined : normalizeSizes(candidate.paneWidths, APP_WORKSPACE_PANE_MIN, APP_WORKSPACE_PANE_MAX);
   const detailWidths = legacy
     ? (() => {
         const width = finiteSize(candidate.detailWidth, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
         return width === undefined ? undefined : { primary: width };
       })()
     : normalizeSizes(candidate.detailWidths, APP_WORKSPACE_DETAIL_MIN, APP_WORKSPACE_DETAIL_MAX);
-  const drawerHeights = legacy
-    ? undefined
-    : normalizeSizes(candidate.drawerHeights, APP_WORKSPACE_DRAWER_MIN, APP_WORKSPACE_DRAWER_MAX);
-  return sidebarWidth === undefined &&
-    sidebarCollapsed === undefined &&
-    !paneWidths &&
-    !detailWidths &&
-    !drawerHeights
+  const drawerHeights = legacy ? undefined : normalizeSizes(candidate.drawerHeights, APP_WORKSPACE_DRAWER_MIN, APP_WORKSPACE_DRAWER_MAX);
+  return sidebarWidth === undefined && sidebarCollapsed === undefined && !paneWidths && !detailWidths && !drawerHeights
     ? null
     : { version: 2, sidebarWidth, sidebarCollapsed, paneWidths, detailWidths, drawerHeights };
 };

@@ -26,6 +26,7 @@ type Props = {
   notebookId: string;
   tagCount: number;
   variant: Variant;
+  viewTransitionName?: string;
 };
 
 const fetchTags = async (notebookId: string): Promise<TagSummary[]> => {
@@ -114,6 +115,7 @@ export default function TagsButton(props: Props) {
         label={`${props.tagCount} tag${props.tagCount === 1 ? "" : "s"}`}
         icon="ti ti-hash"
         onClick={() => void openTagsModal(props.notebookId)}
+        viewTransitionName={props.viewTransitionName}
       />
     );
   }

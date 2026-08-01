@@ -7,6 +7,7 @@ import { buildNoteUrl } from "../../../params";
 type Props = {
   notebookId: string;
   variant?: "compact" | "chip" | "sidebar" | "icon";
+  viewTransitionName?: string;
 };
 
 type CreateNoteResult = {
@@ -48,6 +49,7 @@ const CreateNoteButton = (props: Props) => {
         tone="success"
         onClick={handleCreate}
         disabled={mutation.loading()}
+        viewTransitionName={props.viewTransitionName}
       />
     );
   }

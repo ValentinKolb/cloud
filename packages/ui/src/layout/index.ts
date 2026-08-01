@@ -50,6 +50,8 @@ export type {
   AppWorkspaceDetailWidth,
   AppWorkspaceMainPaneProps,
   AppWorkspaceMainProps,
+  AppWorkspaceNavTreeItemProps,
+  AppWorkspaceNavTreeProps,
   AppWorkspaceProps,
   AppWorkspaceSidebarBodyProps,
   AppWorkspaceSidebarHeaderProps,

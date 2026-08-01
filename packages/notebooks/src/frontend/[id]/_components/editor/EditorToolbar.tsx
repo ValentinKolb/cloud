@@ -133,7 +133,7 @@ export default function EditorToolbar(props: Props) {
   const Btn = (p: { icon: string; title: string; onClick: () => void }) => (
     <Tooltip content={p.title}>
       <IconButton label={p.title} size="xs" onClick={p.onClick} class="text-dimmed">
-        <i class={`ti ${p.icon}`} />
+        <i class={`ti ${p.icon} text-sm`} />
       </IconButton>
     </Tooltip>
   );
@@ -153,7 +153,7 @@ export default function EditorToolbar(props: Props) {
           trigger={
             <Tooltip content="Insert content">
               <IconButton label="Insert content" size="xs" class="text-dimmed">
-                <i class="ti ti-layout-grid-add" />
+                <i class="ti ti-layout-grid-add text-sm" />
                 <i class="ti ti-chevron-down text-[10px]" />
               </IconButton>
             </Tooltip>

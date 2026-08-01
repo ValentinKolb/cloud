@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, prompts } from "@k2b/ui";
+import { AppWorkspace, prompts } from "@k2b/ui";
 import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@/api/client";
@@ -10,7 +10,6 @@ type Props = {
   notebook: Notebook;
   tree: NoteTreeNode[];
   permission: string;
-  variant: "desktop" | "mobile";
   viewTransitionName?: string;
   dateConfig: DateContext;
 };
@@ -64,31 +63,14 @@ export default function NotebookSettingsButton(props: Props) {
     });
   };
 
-  if (props.variant === "mobile") {
-    return (
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => void open()}
-        class="w-full justify-start"
-        style={props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined}
-      >
-        <i class="ti ti-settings" />
-        Settings
-      </Button>
-    );
-  }
-
   return (
-    <button
-      type="button"
+    <AppWorkspace.SidebarItem
+      icon="ti ti-settings"
       onClick={() => void open()}
-      class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
       title="Settings"
-      aria-label={`Settings for ${props.notebook.name}`}
-      style={props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined}
+      viewTransitionName={props.viewTransitionName}
     >
-      <i class="ti ti-settings text-xs" />
-    </button>
+      Settings
+    </AppWorkspace.SidebarItem>
   );
 }
