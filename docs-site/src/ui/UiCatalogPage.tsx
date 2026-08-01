@@ -108,13 +108,14 @@ export function UiCatalogOverview(props: DocumentationProps & { locale: string }
       <header class="ui-overview-header">
         <div class="ui-page-heading">
           <p>@k2b/ui</p>
-          <h1>A UI foundation for Solid SSR.</h1>
+          <h1>Production-ready components for SolidJS.</h1>
         </div>
         <div class="ui-overview-intro">
           <p>
-            Build product interfaces from portable, accessible components.
-            Integrations that require Cloud APIs are documented separately, so
-            the package boundary remains clear.
+            @k2b/ui is a standalone component library with accessible interactions,
+            scoped styles, configurable design tokens, and separate browser and
+            server builds. Use it inside Cloud or in another Solid application.
+            Cloud-specific integrations are documented separately.
           </p>
           <dl>
             <div>

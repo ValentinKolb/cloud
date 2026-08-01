@@ -1,6 +1,6 @@
 # UI components
 
-`@k2b/ui` is an opinionated component foundation for SolidJS and `@k2b/ssr`. It combines accessible interaction patterns, scoped precompiled styles, and configurable design tokens in a package that can be used across products.
+`@k2b/ui` is a standalone, production-ready component library for SolidJS. It combines accessible interaction patterns, scoped precompiled styles, configurable design tokens, and separate browser and server builds. Use it inside Cloud or in another Solid application. Cloud-specific integrations are documented separately.
 
 ```tsx
 import "@k2b/ui/styles.css";

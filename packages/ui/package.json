@@ -1,7 +1,7 @@
 {
   "name": "@k2b/ui",
   "version": "0.1.0",
-  "description": "Opinionated SolidJS components for @k2b/ssr applications.",
+  "description": "Production-ready components for SolidJS applications.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ValentinKolb/cloud.git",

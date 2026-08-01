@@ -1,8 +1,9 @@
 # @k2b/ui
 
-Opinionated SolidJS components for `@k2b/ssr` applications. The package uses
-semantic CSS variables, Tabler icon class names, and precompiled component
-styles without a global reset.
+`@k2b/ui` is a standalone, production-ready component library for SolidJS. It
+uses accessible interaction patterns, scoped precompiled styles, configurable
+design tokens, and separate browser and server builds. Use it inside Cloud or
+in another Solid application.
 
 ```ts
 import "@k2b/ui/styles.css";

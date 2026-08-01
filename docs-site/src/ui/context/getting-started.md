@@ -1,6 +1,6 @@
 # Getting started
 
-`@k2b/ui` provides opinionated, production-ready Solid components for `@k2b/ssr` applications. The package includes accessible interaction patterns, scoped styles, and a configurable theme without tying your project to a specific product.
+`@k2b/ui` is a standalone, production-ready component library for SolidJS. It includes accessible interaction patterns, scoped styles, configurable design tokens, and separate browser and server builds. Use it inside Cloud or in another Solid application.
 
 ## Install
 
