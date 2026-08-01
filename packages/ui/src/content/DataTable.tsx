@@ -82,6 +82,7 @@ export type DataTableProps<T> = {
   cellContentClass?: string;
   fillHeight?: boolean;
   class?: string;
+  /** Additional classes for the table element. Core table geometry is always retained. */
   tableClass?: string;
   scrollPreserveKey?: string | false;
 };
@@ -171,7 +172,7 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
   const shouldRenderLoadMoreSentinel = () => !!props.onLoadMore;
   const labelledBy = () => props.ariaLabelledBy ?? (panel?.hasHeading() ? panel.headingId : undefined);
   const cellContentClass = () => props.cellContentClass ?? "k2b-data-table__cell-text";
-  const tableClass = () => props.tableClass ?? "k2b-data-table";
+  const tableClass = () => `k2b-data-table ${props.tableClass ?? ""}`.trim();
   const columnHighlighted = (index: number) =>
     props.highlightColumns !== false && shouldHoverRows() && hoveredColumn() === index ? "true" : undefined;
   const setHoveredColumnIfEnabled = (index: number) => {

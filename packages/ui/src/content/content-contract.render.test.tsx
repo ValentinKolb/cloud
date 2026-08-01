@@ -292,6 +292,18 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html).toContain("k2b-data-table__cell-text");
   });
 
+  test("keeps the DataTable base geometry when callers add table classes", () => {
+    const html = renderToString(() =>
+      DataTable({
+        rows: [{ id: "one" }],
+        columns: [{ id: "id", header: "ID", value: "id" }],
+        tableClass: "min-w-[72rem] text-sm",
+      }),
+    );
+
+    expect(html).toContain('class="k2b-data-table min-w-[72rem] text-sm"');
+  });
+
   test("keeps observability presentation hooks off Cloud-era utility names", () => {
     const pagination = renderToString(() =>
       createComponent(Pagination, { currentPage: 5, totalPages: 20, baseUrl: "/items?page=" }),

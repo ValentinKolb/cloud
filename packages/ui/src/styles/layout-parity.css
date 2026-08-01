@@ -479,6 +479,8 @@
 }
 
 .k2b-ui .k2b-app-workspace__detail {
+  gap: 0.75rem;
+  padding: 0.75rem;
   border-left: 1px solid var(--k2b-border);
   background: var(--k2b-surface-muted);
 }

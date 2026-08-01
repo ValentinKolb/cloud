@@ -469,6 +469,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-app-workspace__sidebar-body")).toContain("padding:0");
       expect(rule(".k2b-app-workspace__sidebar-footer")).toContain("padding:0");
       expect(rule(".k2b-app-workspace__detail")).toContain("background:var(--k2b-surface-muted)");
+      expect(rule(".k2b-app-workspace__detail")).toContain("padding:.75rem");
       expect(rule(".k2b-app-workspace__drawer")).toContain("background:var(--k2b-surface-muted)");
     });
 
