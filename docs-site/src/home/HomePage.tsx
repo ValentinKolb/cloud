@@ -137,9 +137,10 @@ export default function HomePage(props: HomePageProps) {
                       )}
                     </For>
                   </ul>
-                  <a class="cloud-btn cloud-apps-more" href="/en/apps">
-                    Explore all applications
-                  </a>
+                  <p class="cloud-apps-more">
+                    <span>And more.</span>
+                    <a href="/en/apps">Explore all applications →</a>
+                  </p>
                 </div>
               </div>
               <aside class="cloud-inherits">

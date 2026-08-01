@@ -726,9 +726,28 @@
   line-height: 1.5;
 }
 
-.cloud-apps-more {
-  width: fit-content;
-  margin-top: 1.35rem;
+.cloud-home .cloud-apps-more {
+  margin: 1.35rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.75rem;
+  color: var(--c-muted);
+  font-size: 0.875rem;
+}
+
+.cloud-apps-more a {
+  color: var(--c-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cloud-apps-more a:hover {
+  color: var(--c-accent);
+}
+
+.cloud-apps-more a:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 3px;
 }
 
 @media (min-width: 34rem) {
