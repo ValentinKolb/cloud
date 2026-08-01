@@ -121,11 +121,20 @@ Dev admin login: open `/auth/login?method=admin` and paste `dev-admin` into the 
 
 ## Agent skills
 
+The developer skill is published by the current Fibel site:
+
+```bash
+bun run dev:fibel
+bunx skills add http://localhost:4187
+```
+
+Install the CLI operator skill directly from the repository:
+
 ```bash
 bunx skills add github.com/ValentinKolb/cloud
 ```
 
-- [`cloud-dev`](skills/cloud-dev/SKILL.md) — building on the platform: architecture, backend, frontend, UI, design, ops
+- `cloud-dev` — building and maintaining Cloud applications with current documentation through Fibel MCP
 - [`cloud-cli`](skills/cloud-cli/SKILL.md) — using a Cloud instance from the terminal with `cld`
 
 ## License

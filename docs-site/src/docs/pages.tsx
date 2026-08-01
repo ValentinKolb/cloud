@@ -1,11 +1,12 @@
 import { solidPage } from "@k2b/fibel/solid";
-import overviewMarkdown from "./context/overview.md" with { type: "text" };
 import { fibelHtml } from "../ssr";
+import overviewMarkdown from "./context/overview.md" with { type: "text" };
 import { DocsOverviewPage } from "./DocsOverviewPage";
 
 export const docsPages = [
   solidPage({
     html: fibelHtml,
+    collection: "docs",
     path: "/",
     title: "Cloud developer documentation",
     navTitle: "Introduction",
@@ -13,11 +14,9 @@ export const docsPages = [
     section: "Start",
     order: 10,
     layout: "full",
-    context: overviewMarkdown,
+    content: overviewMarkdown,
     tags: ["cloud", "platform", "applications"],
     updated: "2026-07-27",
-    component: ({ page }) => (
-      <DocsOverviewPage locale={page.locale.code} />
-    ),
+    component: ({ page }) => <DocsOverviewPage locale={page.locale.code} />,
   }),
 ];

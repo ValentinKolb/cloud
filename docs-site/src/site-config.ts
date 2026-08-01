@@ -33,16 +33,16 @@ export const siteHeader = {
   homeHref: "/en",
   searchLabel: "Search",
   links: [
-    { label: "Home", href: "/en", activeWhen: "/en" },
+    { label: "Home", href: "/en" },
     {
       label: "Docs",
-      href: ({ locale }) => `/docs/${locale}`,
-      activeWhen: "/docs",
+      href: ({ locale }) => `/${locale}/docs`,
+      activeWhen: "/en/docs",
     },
     {
       label: "UI",
-      href: ({ locale }) => `/ui/${locale}`,
-      activeWhen: "/ui",
+      href: ({ locale }) => `/${locale}/ui`,
+      activeWhen: "/en/ui",
     },
     {
       label: "GitHub",

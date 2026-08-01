@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "workspaces": [
+    "docs-site",
     "packages/accounts",
     "packages/api-docs",
     "packages/assistant",
@@ -39,6 +40,7 @@
     "infra": "docker compose -f compose.yml up -d",
     "infra:down": "docker compose -f compose.yml down",
     "dev": "docker compose -f compose.dev.yml up --build",
+    "dev:fibel": "bun run --cwd docs-site dev",
     "dev:full": "docker compose -f compose.dev.yml --profile extra up --build",
     "dev:down": "docker compose -f compose.dev.yml --profile extra down --remove-orphans",
     "dev:rebuild:all": "docker compose -f compose.dev.yml --profile extra up --build -d",

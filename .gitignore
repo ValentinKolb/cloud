@@ -9,6 +9,8 @@ _old/
 .dex/
 .fallow/
 /.playwright-cli/
+/.agents/
+/skills-lock.json
 
 # Local scratch notes (todos, draft reviews)
 todo/

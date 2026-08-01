@@ -1,5 +1,5 @@
 import { defaultPlugins, defineFibel } from "@k2b/fibel";
-import { assistantPlugin, imprintPlugin, mcpPlugin, providerFromEnv } from "@k2b/fibel/plugins";
+import { agentSkillsPlugin, assistantPlugin, imprintPlugin, mcpPlugin, providerFromEnv } from "@k2b/fibel/plugins";
 import { cloudSitePlugin } from "./plugins/cloud-site";
 import { docsPages } from "./src/docs/pages";
 import { siteFooterLinks, siteHeader, siteLocales, siteTheme, siteUrl } from "./src/site-config";
@@ -64,6 +64,7 @@ export default defineFibel({
   plugins: [
     ...defaultPlugins(),
     mcpPlugin(),
+    agentSkillsPlugin({ directory: "agent-skills" }),
     ...assistantPlugins,
     imprintPlugin({ url: "https://impressum.valentin-kolb.com" }),
     cloudSitePlugin(

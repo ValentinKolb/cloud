@@ -1,8 +1,8 @@
 import { solidPage } from "@k2b/fibel/solid";
-import gettingStartedMarkdown from "./context/getting-started.md" with { type: "text" };
-import overviewMarkdown from "./context/overview.md" with { type: "text" };
 import { fibelHtml } from "../ssr";
 import { uiCatalogEntries } from "./catalog";
+import gettingStartedMarkdown from "./context/getting-started.md" with { type: "text" };
+import overviewMarkdown from "./context/overview.md" with { type: "text" };
 import { UiCatalogOverview, UiComponentShowcase } from "./UiCatalogPage";
 
 export const uiPages = [
@@ -16,14 +16,8 @@ export const uiPages = [
     section: "Start",
     order: 1,
     layout: "full",
-    context: overviewMarkdown,
-    component: ({ context, page }) => (
-      <UiCatalogOverview
-        title={page.meta.title}
-        documentation={context.html}
-        locale={page.locale.code}
-      />
-    ),
+    content: overviewMarkdown,
+    component: ({ content, page }) => <UiCatalogOverview title={page.meta.title} documentation={content.html} locale={page.locale.code} />,
   }),
   solidPage({
     html: fibelHtml,
@@ -35,8 +29,8 @@ export const uiPages = [
     section: "Start",
     order: 2,
     layout: "full",
-    context: gettingStartedMarkdown,
-    component: ({ context, page }) => (
+    content: gettingStartedMarkdown,
+    component: ({ content, page }) => (
       <article class="ui-showcase ui-reference-showcase">
         <header class="ui-reference-heading">
           <div class="ui-page-heading">
@@ -46,7 +40,7 @@ export const uiPages = [
           <p>{page.meta.description}</p>
         </header>
         <section class="ui-reference-body" aria-label="Getting started guide">
-          <div class="ui-documentation fibel-prose" innerHTML={context.html} />
+          <div class="ui-documentation fibel-prose" innerHTML={content.html} />
         </section>
       </article>
     ),
@@ -61,12 +55,12 @@ export const uiPages = [
       section: entry.sectionTitle,
       order: entry.order,
       layout: "full",
-      context: entry.context,
-      component: ({ context, page }) => (
+      content: entry.context,
+      component: ({ content, page }) => (
         <UiComponentShowcase
           title={page.meta.title}
           description={page.meta.description}
-          documentation={context.html}
+          documentation={content.html}
           packageName={entry.packageName}
           section={entry.section}
           slug={entry.page.slug}

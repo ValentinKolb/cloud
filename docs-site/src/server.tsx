@@ -2,13 +2,11 @@ import { createFibelApp } from "@k2b/fibel";
 import { Hono } from "hono";
 import { dirname, extname, join, normalize, resolve } from "path";
 import fibelConfig from "../fibel.config";
-import uiFibelConfig from "../ui.fibel.config";
 import HomePage from "./home/HomePage";
 import { html, config as ssrConfig } from "./ssr";
 import { siteTheme } from "./site-config";
 
-const docsApp = await createFibelApp(fibelConfig);
-const uiApp = await createFibelApp(uiFibelConfig);
+const fibelApp = await createFibelApp(fibelConfig);
 const app = new Hono();
 const assetsRoot = process.env.NODE_ENV === "production" ? join(import.meta.dir, "assets") : resolve(import.meta.dir, "..", "assets");
 const ssrRoot = ssrConfig.dev ? (ssrConfig.rootDir ?? process.cwd()) : dirname(Bun.main);
@@ -16,12 +14,6 @@ const ssrRoot = ssrConfig.dev ? (ssrConfig.rootDir ?? process.cwd()) : dirname(B
 const themeFromRequest = (request: Request) => {
   const theme = request.headers.get("Cookie")?.match(new RegExp(`(?:^|;\\s*)${siteTheme.cookieName}=(dark|light)(?:;|$)`))?.[1];
   return theme === "dark" ? "dark" : "light";
-};
-
-const fetchFibelPath = (request: Request, pathname: string) => {
-  const url = new URL(request.url);
-  url.pathname = pathname;
-  return docsApp.fetch(new Request(url, request));
 };
 
 const contentTypes: Record<string, string> = {
@@ -50,10 +42,6 @@ app.use("*", async (c, next) => {
   await next();
 
   const path = c.req.path;
-  if ((path.startsWith("/docs/assets/") || path.startsWith("/ui/assets/")) && !c.res.headers.has("Content-Type")) {
-    c.header("Content-Type", contentTypes[extname(path)] ?? "application/octet-stream");
-  }
-
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Referrer-Policy", "strict-origin-when-cross-origin");
   c.header("X-Frame-Options", "SAMEORIGIN");
@@ -116,11 +104,7 @@ app.get("/en", (c) =>
   }),
 );
 app.get("/assets/:path{.+}", (c) => serveAsset(c.req.param("path")));
-app.get("/robots.txt", (c) => fetchFibelPath(c.req.raw, "/docs/robots.txt"));
-app.get("/sitemap.xml", (c) => fetchFibelPath(c.req.raw, "/docs/sitemap.xml"));
-app.mount("/docs", docsApp.fetch, { replaceRequest: false });
-app.mount("/ui", uiApp.fetch, { replaceRequest: false });
-app.get("/health", (c) => c.json({ status: "ok", surfaces: ["/en", "/docs/en", "/ui/en"] }));
+app.get("/health", (c) => c.json({ status: "ok", surfaces: ["/en", "/en/docs", "/en/ui"] }));
 app.get("/humans.txt", (c) =>
   c.text(`Cloud
 Open-source application platform
@@ -131,6 +115,7 @@ UI: SolidJS
 Try: g then d, or g then u
 `),
 );
+app.mount("/", fibelApp.fetch, { replaceRequest: false });
 app.notFound((c) => c.text("Not found", 404));
 
 export default {

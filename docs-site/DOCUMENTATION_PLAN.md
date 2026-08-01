@@ -6,7 +6,7 @@ Finish the developer documentation as the canonical source for:
 
 1. developers who build Cloud applications;
 2. Fibel HTML, search, and raw Markdown routes;
-3. generated `cloud-dev` reference files.
+3. the Fibel MCP and its self-contained `cloud-dev` workflow skill.
 
 The documentation explains the supported application contract. It does not
 mirror the repository structure or document every exported symbol as a
@@ -26,7 +26,7 @@ Use sources in this order:
 2. implementation and tests of the public contract;
 3. shared primitives and their package documentation;
 4. working built-in applications as examples;
-5. existing documentation and `cloud-dev` references.
+5. existing documentation.
 
 An existing application is not authoritative when it conflicts with a shared
 primitive or public contract.
@@ -243,18 +243,18 @@ against it so a new public path cannot appear without documentation.
   `llms-full.txt`.
 - Run a final browser pass in light and dark mode.
 
-### 9. Generate skill references
+### 9. Publish agent knowledge
 
 Only after the developer documentation is complete:
 
-- concatenate explicit canonical page lists;
-- strip Fibel frontmatter;
-- rewrite documentation links to local reference links;
-- preserve headings, code, and warnings;
-- fail when generated output is stale.
+- publish one self-contained `cloud-dev` skill through Fibel;
+- keep workflow and stable platform invariants in `SKILL.md`;
+- keep detailed contracts, options, and examples in canonical pages;
+- expose those pages through search, MCP, raw Markdown, and `llms.txt`;
+- run realistic skill evaluations against the published skill and live MCP.
 
-`skills/cloud-dev/SKILL.md` remains hand-written. Generated references do not
-rewrite public documentation.
+The Fibel-published skill and MCP are the only developer-agent knowledge path.
+Do not generate or maintain a second copy of the documentation in a skill.
 
 ## Final hardening
 
@@ -264,7 +264,8 @@ Before release:
 - reject malformed frontmatter, duplicate headings, broken links, and
   undocumented package exports;
 - typecheck the site and every example without hiding unrelated diagnostics;
-- prove that generated references are current and contain no orphaned output;
+- prove that Fibel publishes exactly one valid `cloud-dev` skill;
+- verify the local MCP against the current Docs and UI collections;
 - run the Fibel build and the skill validator;
 - build the deployment container;
 - verify representative HTML, raw Markdown, search, and LLM routes in a real

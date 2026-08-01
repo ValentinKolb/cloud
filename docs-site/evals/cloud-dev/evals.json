@@ -1,0 +1,94 @@
+{
+  "skill_name": "cloud-dev",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add an authenticated JSON route to a standalone Cloud inventory application and expose its typed browser client.",
+      "expected_output": "Uses current Cloud documentation, identifies the application as owner, separates route policy from resource authorization, validates input, exports the Hono router type, and verifies the HTTP seam.",
+      "files": [],
+      "expectations": [
+        "The response reads the current Cloud contract through the documentation MCP or explicitly states reduced documentation mode.",
+        "The implementation separates route-entry policy from resource authorization.",
+        "The final Hono router type is the browser client's contract.",
+        "Verification exercises the HTTP boundary."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "The local gateway returns 502 for /app/inventory even though the inventory container is running. Diagnose and fix it.",
+      "expected_output": "Builds a red-capable route check, verifies app.start registration and declared prefixes before changing code, keeps the fix scoped, and reruns the original gateway request.",
+      "files": [],
+      "expectations": [
+        "The diagnosis does not treat a running process as proof of route readiness.",
+        "It checks declared prefixes, mounted Hono routes, app.start, and gateway registration.",
+        "The final check repeats the original gateway request."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Add a reusable async combobox to Cloud and use it in Contacts.",
+      "expected_output": "Searches the UI collection, assigns portable behavior to packages/ui and domain composition to Contacts, covers SSR and hydration behavior, updates Markdown context and a representative live state, and verifies public imports.",
+      "files": [],
+      "expectations": [
+        "The response searches the UI documentation before creating a primitive.",
+        "Portable behavior belongs to shared UI while Contacts owns domain composition.",
+        "The change covers accessibility, SSR, hydration, Markdown context, and a representative live state."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "After an invoice is committed, send a retry-safe notification and start a durable follow-up workflow.",
+      "expected_output": "Keeps the invoice transaction authoritative, performs effects after commit, uses stable event or effect keys, derives recipients from trusted state, and verifies notification and workflow recovery seams.",
+      "files": [],
+      "expectations": [
+        "The domain transaction commits before external effects run.",
+        "Retries reuse stable event or effect keys.",
+        "Recipients and authorization come from trusted server state.",
+        "Verification covers notification delivery and workflow recovery."
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Rename a private helper inside the Mail application without changing its behavior.",
+      "expected_output": "Keeps ownership in Mail, performs a focused refactor, verifies existing behavior, and explicitly avoids unnecessary public documentation changes.",
+      "files": [],
+      "expectations": [
+        "The work remains owned by Mail and avoids unrelated cleanup.",
+        "Existing behavior receives focused verification.",
+        "The response does not create public documentation for an unchanged internal contract."
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Update a Cloud public setting option while working in a dirty monorepo where cloud-dev-mcp is not connected.",
+      "expected_output": "Checks or starts current local Fibel, asks the human to connect cloud-dev-mcp and refresh, states reduced mode if unavailable, preserves unrelated work, and updates the canonical settings documentation.",
+      "files": [],
+      "expectations": [
+        "The response asks the human to enable cloud-dev-mcp instead of silently using stale knowledge.",
+        "Reduced documentation mode is explicit when MCP remains unavailable.",
+        "Unrelated working-tree changes are preserved.",
+        "The canonical Fibel settings page is updated for the public contract change."
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Change the title of an existing dashboard in my running Cloud installation.",
+      "expected_output": "Recognizes this as operating an existing installation and routes the task to cloud-cli instead of applying Cloud development guidance.",
+      "files": [],
+      "expectations": [
+        "The response chooses cloud-cli for operating existing Cloud content.",
+        "It does not propose a platform or application code change."
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Create a generic Bun and Hono API that does not use Cloud.",
+      "expected_output": "Recognizes that Cloud contracts do not apply and does not introduce @valentinkolb/cloud, Cloud identity, or Cloud deployment assumptions.",
+      "files": [],
+      "expectations": [
+        "The response does not apply Cloud-specific contracts to a generic Hono service.",
+        "It does not introduce @valentinkolb/cloud or Cloud runtime assumptions."
+      ]
+    }
+  ]
+}
