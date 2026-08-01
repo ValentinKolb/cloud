@@ -1,5 +1,6 @@
 import { type AccessSubject, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
+import { type PageParams, type Paginated, paginate } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { CreateSpace, MutationResult, Space, SpaceDetail, UpdateSpace } from "@/contracts";
 import {
@@ -25,6 +26,14 @@ type DbSpace = {
   ical_token: string | null;
   created_at: Date;
   updated_at: Date;
+};
+
+type DbSpaceWithPermission = DbSpace & {
+  permission_rank: number;
+};
+
+export type SpaceWithPermission = Space & {
+  permission: Exclude<PermissionLevel, "none">;
 };
 
 type DbSpaceAdmin = DbSpace & {
@@ -62,6 +71,11 @@ const mapToSpace = (row: DbSpace): Space => ({
   icalToken: row.ical_token,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
+});
+
+const mapToSpaceWithPermission = (row: DbSpaceWithPermission): SpaceWithPermission => ({
+  ...mapToSpace(row),
+  permission: row.permission_rank >= 3 ? "admin" : row.permission_rank === 2 ? "write" : "read",
 });
 
 const mapToSpaceAdminItem = (row: DbSpaceAdmin): SpaceAdminListItem => ({
@@ -154,6 +168,76 @@ export const list = async (params: {
     ORDER BY s.name
   `;
   return rows.map(mapToSpace);
+};
+
+/** List an actor's accessible Spaces with effective permission and SQL-side filtering/pagination. */
+export const listPage = async (params: {
+  subject: AccessSubject;
+  boundSpaceId?: string | null;
+  requiredLevel?: PermissionLevel;
+  query?: string;
+  pagination?: PageParams;
+}): Promise<Paginated<SpaceWithPermission>> => {
+  const { page, perPage, offset } = paginate(params.pagination);
+  if (params.subject.type === "service_account" && !isSpaceResourceId(params.boundSpaceId)) {
+    return { items: [], page, perPage, total: 0, hasNext: false };
+  }
+
+  const principalMatch = buildSpacePrincipalCondition(params.subject);
+  const bindingMatch = params.subject.type === "service_account" ? sql`s.id = ${params.boundSpaceId}::uuid` : sql`true`;
+  const permissionMatch =
+    params.requiredLevel === "admin"
+      ? sql`a.permission = 'admin'::auth.permission_level`
+      : params.requiredLevel === "write"
+        ? sql`a.permission IN ('write'::auth.permission_level, 'admin'::auth.permission_level)`
+        : sql`a.permission <> 'none'::auth.permission_level`;
+  const query = params.query?.trim();
+  const pattern = query ? `%${query}%` : null;
+
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(DISTINCT s.id)::int AS count
+    FROM spaces.spaces s
+    JOIN spaces.space_access sa ON s.id = sa.space_id
+    JOIN auth.access a ON sa.access_id = a.id
+    WHERE ${permissionMatch}
+      AND ${principalMatch}
+      AND ${bindingMatch}
+      AND (${pattern}::text IS NULL OR s.name ILIKE ${pattern} OR s.description ILIKE ${pattern})
+  `;
+  const rows = await sql<DbSpaceWithPermission[]>`
+    SELECT
+      s.id,
+      s.name,
+      s.description,
+      s.color,
+      s.ical_token,
+      s.created_at,
+      s.updated_at,
+      MAX(CASE a.permission
+        WHEN 'admin'::auth.permission_level THEN 3
+        WHEN 'write'::auth.permission_level THEN 2
+        ELSE 1
+      END)::int AS permission_rank
+    FROM spaces.spaces s
+    JOIN spaces.space_access sa ON s.id = sa.space_id
+    JOIN auth.access a ON sa.access_id = a.id
+    WHERE ${permissionMatch}
+      AND ${principalMatch}
+      AND ${bindingMatch}
+      AND (${pattern}::text IS NULL OR s.name ILIKE ${pattern} OR s.description ILIKE ${pattern})
+    GROUP BY s.id, s.name, s.description, s.color, s.ical_token, s.created_at, s.updated_at
+    ORDER BY lower(s.name), s.id
+    LIMIT ${perPage}
+    OFFSET ${offset}
+  `;
+  const total = countRow?.count ?? 0;
+  return {
+    items: rows.map(mapToSpaceWithPermission),
+    page,
+    perPage,
+    total,
+    hasNext: page * perPage < total,
+  };
 };
 
 /**

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { grantSpaceAccess, resolveSpaceApiKeyPermission, revokeSpaceAccess, updateSpaceAccessPermission } from "./access";
 import { checkOverlap, listCalendar, searchAcross } from "./items";
-import { list as listSpaces } from "./spaces";
+import { list as listSpaces, listPage as listSpacesPage } from "./spaces";
 
 const resourceSubject = {
   type: "service_account" as const,
@@ -29,6 +29,83 @@ test("resource service-account collections fail closed without a valid space bin
   expect(await searchAcross({ subject: resourceSubject, query: "test", kinds: "all", limit: 10 })).toEqual([]);
   expect(await listCalendar({ subject: resourceSubject, from: "2026-01-01T00:00:00Z", to: "2026-01-02T00:00:00Z" })).toEqual([]);
   expect(await checkOverlap({ subject: resourceSubject, from: "2026-01-01T00:00:00Z", to: "2026-01-02T00:00:00Z" })).toEqual([]);
+});
+
+test("Space pages filter and paginate in SQL while enforcing resource bindings", async () => {
+  const [tables] = await sql<{ spaces: string | null; users: string | null }[]>`
+    SELECT to_regclass('spaces.spaces')::text AS spaces, to_regclass('auth.users')::text AS users
+  `.catch(() => [{ spaces: null, users: null }]);
+  if (!tables?.spaces || !tables.users) return;
+
+  const suffix = crypto.randomUUID();
+  const [user] = await sql<{ id: string }[]>`
+    INSERT INTO auth.users (uid, provider, profile, display_name, mail)
+    VALUES (${`spaces-page-${suffix}`}, 'local', 'user', 'Spaces Page User', ${`spaces-page.${suffix}@example.test`})
+    RETURNING id
+  `;
+  const [serviceAccount] = await sql<{ id: string }[]>`
+    INSERT INTO auth.service_accounts (name, kind, app_id, resource_type, resource_id)
+    VALUES (${`Spaces page service ${suffix}`}, 'resource_bound', 'spaces', 'space', ${suffix})
+    RETURNING id
+  `;
+  const createdSpaces = await sql<{ id: string; name: string }[]>`
+    INSERT INTO spaces.spaces (name, description)
+    VALUES
+      (${`Capability Alpha ${suffix}`}, 'first match'),
+      (${`Capability Beta ${suffix}`}, 'second match')
+    RETURNING id, name
+  `;
+  const accessEntries = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (user_id, service_account_id, permission)
+    VALUES
+      (${user!.id}::uuid, NULL, 'read'),
+      (${user!.id}::uuid, NULL, 'write'),
+      (NULL, ${serviceAccount!.id}::uuid, 'admin')
+    RETURNING id
+  `;
+  await sql`
+    INSERT INTO spaces.space_access (space_id, access_id)
+    VALUES
+      (${createdSpaces[0]!.id}::uuid, ${accessEntries[0]!.id}::uuid),
+      (${createdSpaces[1]!.id}::uuid, ${accessEntries[1]!.id}::uuid),
+      (${createdSpaces[0]!.id}::uuid, ${accessEntries[2]!.id}::uuid),
+      (${createdSpaces[1]!.id}::uuid, ${accessEntries[2]!.id}::uuid)
+  `;
+
+  try {
+    const first = await listSpacesPage({
+      subject: { type: "user", userId: user!.id },
+      query: suffix,
+      pagination: { page: 1, perPage: 1 },
+    });
+    const second = await listSpacesPage({
+      subject: { type: "user", userId: user!.id },
+      query: suffix,
+      pagination: { page: 2, perPage: 1 },
+    });
+    expect(first).toMatchObject({ total: 2, hasNext: true, items: [{ name: `Capability Alpha ${suffix}`, permission: "read" }] });
+    expect(second).toMatchObject({ total: 2, hasNext: false, items: [{ name: `Capability Beta ${suffix}`, permission: "write" }] });
+
+    const writable = await listSpacesPage({
+      subject: { type: "user", userId: user!.id },
+      requiredLevel: "write",
+      query: suffix,
+      pagination: { page: 1, perPage: 10 },
+    });
+    expect(writable.items.map((entry) => entry.id)).toEqual([createdSpaces[1]!.id]);
+
+    const bound = await listSpacesPage({
+      subject: { type: "service_account", serviceAccountId: serviceAccount!.id },
+      boundSpaceId: createdSpaces[0]!.id,
+      pagination: { page: 1, perPage: 10 },
+    });
+    expect(bound.items.map((entry) => entry.id)).toEqual([createdSpaces[0]!.id]);
+  } finally {
+    await sql`DELETE FROM spaces.spaces WHERE id IN (${createdSpaces[0]!.id}::uuid, ${createdSpaces[1]!.id}::uuid)`;
+    await sql`DELETE FROM auth.access WHERE id IN (${accessEntries[0]!.id}::uuid, ${accessEntries[1]!.id}::uuid, ${accessEntries[2]!.id}::uuid)`;
+    await sql`DELETE FROM auth.service_accounts WHERE id = ${serviceAccount!.id}::uuid`;
+    await sql`DELETE FROM auth.users WHERE id = ${user!.id}::uuid`;
+  }
 });
 
 test("Space access mutations preserve an administrator and can recover an orphaned Space", async () => {

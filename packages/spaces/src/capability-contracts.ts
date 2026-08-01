@@ -1,0 +1,261 @@
+import { z } from "zod";
+import { PrioritySchema } from "./contracts";
+
+const TimestampSchema = z.string().datetime({ offset: true });
+const NullableTextSchema = z.string().nullable();
+const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque cursor returned by the previous page.");
+const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
+const QuerySchema = z.string().trim().max(500).optional().describe("Optional text search.");
+const IdListSchema = z.array(z.uuid()).max(100);
+const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
+
+const SpaceColumnDataSchema = z
+  .object({
+    id: z.uuid(),
+    name: z.string().min(1),
+    color: NullableTextSchema,
+    isDone: z.boolean(),
+  })
+  .strict();
+
+const SpaceTagDataSchema = z
+  .object({
+    id: z.uuid(),
+    name: z.string().min(1),
+    color: z.string().min(1),
+  })
+  .strict();
+
+export const SpaceSummaryDataSchema = z
+  .object({
+    id: z.uuid(),
+    name: z.string().min(1),
+    description: NullableTextSchema,
+    color: z.string().min(1),
+    permission: z.enum(["read", "write", "admin"]),
+    createdAt: TimestampSchema,
+    updatedAt: TimestampSchema,
+  })
+  .strict();
+
+export const SpaceDetailDataSchema = SpaceSummaryDataSchema.extend({
+  columns: z.array(SpaceColumnDataSchema).max(100),
+  columnsTruncated: z.boolean(),
+  tags: z.array(SpaceTagDataSchema).max(100),
+  tagsTruncated: z.boolean(),
+}).strict();
+
+export const SpaceListInputSchema = z
+  .object({
+    query: QuerySchema,
+    minimumPermission: z
+      .enum(["read", "write", "admin"])
+      .default("read")
+      .describe("Minimum effective permission required for every returned Space."),
+    ...PageInputShape,
+  })
+  .strict();
+
+export const SpaceListDataSchema = z.array(SpaceSummaryDataSchema).max(100);
+export const SpaceGetInputSchema = z.object({ spaceId: z.uuid().describe("Stable Space UUID.") }).strict();
+
+const ItemAssigneeDataSchema = z.object({ id: z.uuid(), displayName: z.string().min(1) }).strict();
+const ItemTagDataSchema = z.object({ id: z.uuid(), name: z.string().min(1), color: z.string().min(1) }).strict();
+
+const ItemBaseDataShape = {
+  id: z.uuid(),
+  spaceId: z.uuid(),
+  columnId: z.uuid(),
+  title: z.string().min(1),
+  description: NullableTextSchema,
+  completedAt: TimestampSchema.nullable(),
+  assignees: z.array(ItemAssigneeDataSchema).max(100),
+  tags: z.array(ItemTagDataSchema).max(100),
+  relationsTruncated: z.boolean(),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+};
+
+export const TaskDataSchema = z
+  .object({
+    kind: z.literal("task"),
+    ...ItemBaseDataShape,
+    deadline: TimestampSchema.nullable(),
+    priority: PrioritySchema.nullable(),
+  })
+  .strict();
+
+const RecurrenceDataSchema = z
+  .object({
+    rrule: z.string().min(1).max(2000),
+    dtstart: TimestampSchema.nullable().optional(),
+    exdate: z.array(TimestampSchema).max(1000).default([]),
+  })
+  .strict();
+
+export const EventDataSchema = z
+  .object({
+    kind: z.literal("event"),
+    ...ItemBaseDataShape,
+    location: NullableTextSchema,
+    url: z.string().nullable(),
+    startsAt: TimestampSchema,
+    endsAt: TimestampSchema,
+    allDay: z.boolean(),
+    recurrence: RecurrenceDataSchema.nullable(),
+    recurrenceExceptionsTruncated: z.boolean(),
+  })
+  .strict();
+
+export const ItemDataSchema = z.discriminatedUnion("kind", [TaskDataSchema, EventDataSchema]);
+export const TaskListDataSchema = z.array(TaskDataSchema).max(100);
+export const EventListDataSchema = z.array(EventDataSchema).max(100);
+
+const ItemListBaseShape = {
+  spaceId: z.uuid().describe("Space whose items should be listed."),
+  query: QuerySchema,
+  status: z.enum(["active", "completed", "all"]).default("active").describe("Completion-state filter."),
+  priority: z.array(PrioritySchema).max(4).optional().describe("Optional priority filter."),
+  columnIds: IdListSchema.optional().describe("Optional Space column UUID filter."),
+  tagIds: IdListSchema.optional().describe("Optional Space tag UUID filter."),
+  assigneeIds: IdListSchema.optional().describe("Optional assignee user UUID filter."),
+  assignedTo: z
+    .enum(["all", "assigned", "me", "unassigned"])
+    .default("all")
+    .describe("Assignment-state filter; me uses the user backing the current actor."),
+  sort: z.enum(["column", "priority", "deadline", "created", "updated", "title"]).default("updated").describe("Stable item sort key."),
+  sortDesc: z.boolean().default(true).describe("Sort descending when true."),
+  ...PageInputShape,
+};
+
+export const TaskListInputSchema = z.object(ItemListBaseShape).strict();
+export const EventListInputSchema = z.object(ItemListBaseShape).strict();
+export const ItemGetInputSchema = z.object({ itemId: z.uuid().describe("Stable Space item UUID.") }).strict();
+
+const ItemRelationInputShape = {
+  assigneeIds: IdListSchema.optional().describe("Complete replacement set of assignee user UUIDs from this Space."),
+  tagIds: IdListSchema.optional().describe("Complete replacement set of tag UUIDs from this Space."),
+};
+
+const TaskFieldsInputShape = {
+  title: z.string().trim().min(1).max(200).optional().describe("Optional task title."),
+  description: z.string().max(5000).nullable().optional().describe("Optional task description; null clears it."),
+  deadline: TimestampSchema.nullable().optional().describe("Optional task deadline; null clears it."),
+  priority: PrioritySchema.nullable().optional().describe("Optional task priority; null clears it."),
+};
+
+export const TaskCreateInputSchema = z
+  .object({
+    spaceId: z.uuid().describe("Writable Space UUID."),
+    columnId: z.uuid().describe("Target column UUID in the selected Space."),
+    title: z.string().trim().min(1).max(200).describe("Task title."),
+    description: z.string().max(5000).optional().describe("Optional task description."),
+    deadline: TimestampSchema.optional().describe("Optional task deadline."),
+    priority: PrioritySchema.optional().describe("Optional task priority."),
+    assigneeIds: IdListSchema.optional().describe("Optional assignee user UUIDs from this Space."),
+    tagIds: IdListSchema.optional().describe("Optional tag UUIDs from this Space."),
+  })
+  .strict();
+
+export const TaskUpdateInputSchema = z
+  .object({ itemId: z.uuid().describe("Stable task item UUID."), ...ItemRelationInputShape, ...TaskFieldsInputShape })
+  .strict()
+  .refine(({ itemId: _itemId, ...changes }) => Object.values(changes).some((value) => value !== undefined), {
+    message: "At least one task field must be provided",
+  });
+
+const EventFieldsInputShape = {
+  title: z.string().trim().min(1).max(200).optional().describe("Optional event title."),
+  description: z.string().max(5000).nullable().optional().describe("Optional event description; null clears it."),
+  location: z.string().max(500).nullable().optional().describe("Optional event location; null clears it."),
+  url: z.string().url().max(2000).nullable().optional().describe("Optional event URL; null clears it."),
+  startsAt: TimestampSchema.optional().describe("Replacement event start; provide together with endsAt."),
+  endsAt: TimestampSchema.optional().describe("Replacement event end; provide together with startsAt."),
+  allDay: z.boolean().optional().describe("Whether the event uses all-day presentation."),
+  recurrence: RecurrenceDataSchema.nullable().optional().describe("Optional recurrence series; null removes recurrence."),
+};
+
+const validTimeRange = (value: { startsAt?: string; endsAt?: string }) =>
+  value.startsAt === undefined || value.endsAt === undefined || new Date(value.endsAt) > new Date(value.startsAt);
+
+export const EventCreateInputSchema = z
+  .object({
+    spaceId: z.uuid().describe("Writable Space UUID."),
+    columnId: z.uuid().describe("Target column UUID in the selected Space."),
+    title: z.string().trim().min(1).max(200).describe("Event title."),
+    description: z.string().max(5000).optional().describe("Optional event description."),
+    location: z.string().max(500).optional().describe("Optional event location."),
+    url: z.string().url().max(2000).optional().describe("Optional event URL."),
+    startsAt: TimestampSchema.describe("Event start timestamp."),
+    endsAt: TimestampSchema.describe("Event end timestamp after startsAt."),
+    allDay: z.boolean().optional().describe("Whether the event uses all-day presentation."),
+    recurrence: RecurrenceDataSchema.optional().describe("Optional recurrence series."),
+    assigneeIds: IdListSchema.optional().describe("Optional assignee user UUIDs from this Space."),
+    tagIds: IdListSchema.optional().describe("Optional tag UUIDs from this Space."),
+  })
+  .strict()
+  .refine(validTimeRange, { message: "End time must be after start time", path: ["endsAt"] });
+
+export const EventUpdateInputSchema = z
+  .object({ itemId: z.uuid().describe("Stable event item UUID."), ...ItemRelationInputShape, ...EventFieldsInputShape })
+  .strict()
+  .refine(({ itemId: _itemId, ...changes }) => Object.values(changes).some((value) => value !== undefined), {
+    message: "At least one event field must be provided",
+  })
+  .refine((value) => (value.startsAt === undefined) === (value.endsAt === undefined), {
+    message: "startsAt and endsAt must be updated together",
+    path: ["endsAt"],
+  })
+  .refine(validTimeRange, { message: "End time must be after start time", path: ["endsAt"] });
+
+export const TaskSetCompletedInputSchema = z
+  .object({
+    itemId: z.uuid().describe("Stable task item UUID."),
+    completed: z.boolean().describe("True completes the task; false reopens it."),
+  })
+  .strict();
+export const ItemDeleteInputSchema = z.object({ itemId: z.uuid().describe("Stable task or event item UUID.") }).strict();
+export const ItemDeleteDataSchema = z.object({ itemId: z.uuid(), deleted: z.literal(true) }).strict();
+
+export const CommentDataSchema = z
+  .object({
+    id: z.uuid(),
+    itemId: z.uuid(),
+    recurrenceId: TimestampSchema.nullable(),
+    userId: z.uuid().nullable(),
+    userName: NullableTextSchema,
+    content: z.string().min(1).max(5000),
+    createdAt: TimestampSchema,
+    updatedAt: TimestampSchema,
+    canDelete: z.boolean(),
+  })
+  .strict();
+
+export const CommentListInputSchema = z
+  .object({
+    itemId: z.uuid().describe("Item whose discussion should be listed."),
+    recurrenceId: TimestampSchema.optional().describe("Optional recurring occurrence timestamp; omit for the item or whole series."),
+    query: QuerySchema,
+    ...PageInputShape,
+  })
+  .strict();
+
+export const CommentListDataSchema = z.array(CommentDataSchema).max(100);
+export const CommentGetInputSchema = z.object({ commentId: z.uuid().describe("Stable comment UUID.") }).strict();
+export const CommentCreateInputSchema = z
+  .object({
+    itemId: z.uuid().describe("Writable parent item UUID."),
+    recurrenceId: TimestampSchema.optional().describe("Optional recurring occurrence timestamp."),
+    content: z.string().trim().min(1).max(5000).describe("Comment content."),
+  })
+  .strict();
+export const CommentUpdateInputSchema = z
+  .object({
+    commentId: z.uuid().describe("Stable UUID of the current user's comment."),
+    content: z.string().trim().min(1).max(5000).describe("Replacement comment content."),
+  })
+  .strict();
+export const CommentDeleteInputSchema = z
+  .object({ commentId: z.uuid().describe("Stable UUID of the current user's recent comment.") })
+  .strict();
+export const CommentDeleteDataSchema = z.object({ commentId: z.uuid(), deleted: z.literal(true) }).strict();

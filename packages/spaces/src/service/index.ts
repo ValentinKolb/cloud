@@ -37,6 +37,7 @@ const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => 
 export const spacesService = {
   calendarInvitations,
   space: {
+    listWithPermission: spaces.listPage,
     list: async (config: {
       subject: AccessSubject;
       boundSpaceId?: string | null;
@@ -253,5 +254,5 @@ export const spacesService = {
 
 // Re-export types needed by widgets
 export type { ItemAcrossKind, ItemAcrossResult, TaskItem } from "./items";
-export type { SpaceAdminListItem } from "./spaces";
+export type { SpaceAdminListItem, SpaceWithPermission } from "./spaces";
 export { access, calendarInvitations, columns, comments, ical, items, spaces, tags, wormholes };
