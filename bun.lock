@@ -128,7 +128,7 @@
         "@fontsource/ibm-plex-mono": "^5.2.7",
         "@fontsource/ibm-plex-sans": "^5.2.8",
         "@fontsource/ibm-plex-sans-condensed": "^5.2.8",
-        "@k2b/nessi": "^0.10.0",
+        "@k2b/nessi": "^0.11.0",
         "@k2b/ssr": "0.12.0",
         "@k2b/stdlib": "0.17.1",
         "@k2b/sync": "5.9.1",
@@ -877,7 +877,7 @@
 
     "@k2b/fibel": ["@k2b/fibel@0.7.3", "", { "dependencies": { "@k2b/nessi": "^0.10.0", "@k2b/stdlib": "^0.17.0", "@k2b/sync": "^5.7.0", "@modelcontextprotocol/sdk": "1.30.0", "bun-plugin-tailwind": "^0.1.2", "marked": "^16.4.1", "tailwindcss": "^4.1.14", "zod": "^4.4.3" }, "peerDependencies": { "@k2b/ssr": "^0.12.0", "solid-js": "^1.9.0" }, "optionalPeers": ["@k2b/ssr", "solid-js"], "bin": { "fibel": "src/cli.ts" } }, "sha512-YYVLENco+1Zo3SuY0kx9mGhZhq+320gm6ve7YVpb09L1WyiCJkrYi5qgWjhkKCn8MC3VGlmN9A7/GxE3bYVxSQ=="],
 
-    "@k2b/nessi": ["@k2b/nessi@0.10.0", "", { "dependencies": { "zod": "^4.3.0" } }, "sha512-iHeqOH6Rb/+XutRXc6tJ4NjygCMe4A7TrV05f7YGwCe5U3am+3u9zJ3efMriDeCwCr4WJxwxv5s4Ig0RszQ3Tg=="],
+    "@k2b/nessi": ["@k2b/nessi@0.11.0", "", { "dependencies": { "zod": "^4.3.0" } }, "sha512-SajlKjEJQvM209JqFQNpGlGhOIj6z3U13NbgDYBx4snhbxxRXtCO3qNseNWMT5OgjqkWvrp4M84tP2nWZAC1Eg=="],
 
     "@k2b/ssr": ["@k2b/ssr@0.12.0", "", { "dependencies": { "@babel/core": "^7.29.7", "@babel/preset-typescript": "^7.29.7", "@types/babel__core": "^7.20.5", "babel-preset-solid": "^1.9.12", "seroval": "^1.5.5" }, "peerDependencies": { "elysia": "^1.0.0", "hono": "^4.0.0", "solid-js": "^1.9.0" }, "optionalPeers": ["elysia", "hono"] }, "sha512-71Yg65mfkpVuBSaq0m+QZyvw5KL4uvFVKnZREjNmXVf0K4+IpNWbCcM+fVXbPnzVMr48+FEM9n0/c1E6Jq7yPA=="],
 
@@ -2542,6 +2542,8 @@
     "@floating-ui/core/@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
 
     "@floating-ui/dom/@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
+
+    "@k2b/fibel/@k2b/nessi": ["@k2b/nessi@0.10.0", "", { "dependencies": { "zod": "^4.3.0" } }, "sha512-iHeqOH6Rb/+XutRXc6tJ4NjygCMe4A7TrV05f7YGwCe5U3am+3u9zJ3efMriDeCwCr4WJxwxv5s4Ig0RszQ3Tg=="],
 
     "@k2b/fibel/marked": ["marked@16.4.2", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA=="],
 
