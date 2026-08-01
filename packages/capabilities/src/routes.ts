@@ -6,11 +6,14 @@ export const capabilityApiPath = (input: { appId: string; kind: CapabilityKind; 
 };
 
 export const capabilityHref = (input: { appId?: string; kind?: CapabilityKind; capabilityId?: string; cursor?: string }): string => {
+  const segments = ["/app/capabilities"];
+  if (input.appId) segments.push(encodeURIComponent(input.appId));
+  if (input.appId && input.kind && input.capabilityId) {
+    segments.push(input.kind, encodeURIComponent(input.capabilityId));
+  }
+
   const params = new URLSearchParams();
-  if (input.appId) params.set("app", input.appId);
-  if (input.kind) params.set("kind", input.kind);
-  if (input.capabilityId) params.set("capability", input.capabilityId);
   if (input.cursor) params.set("cursor", input.cursor);
   const query = params.toString();
-  return `/app/capabilities${query ? `?${query}` : ""}`;
+  return `${segments.join("/")}${query ? `?${query}` : ""}`;
 };

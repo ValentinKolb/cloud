@@ -16,10 +16,10 @@ import {
 } from "@k2b/ui";
 import type { CapabilitySemanticLink } from "@valentinkolb/cloud/contracts";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
-import type { CapabilityCatalogPage, SelectedCapability } from "../catalog";
+import type { SelectedCapability } from "../catalog";
 import { buildCapabilityCurl } from "../curl";
 import { type CapabilityInvocationOutcome, readCapabilityOutcome } from "../invocation";
-import { type CapabilityKind, capabilityApiPath, capabilityHref } from "../routes";
+import { capabilityApiPath } from "../routes";
 import {
   buildCapabilityInput,
   createSchemaEditorModel,
@@ -30,9 +30,11 @@ import {
   type SchemaEditorModel,
   type SchemaEditorState,
 } from "../schema-editor";
+import CapabilitySearchButton, { type CapabilitySearchEntry } from "./CapabilitySearchButton.island";
 
 type Props = {
-  catalog: CapabilityCatalogPage;
+  selection: SelectedCapability;
+  searchEntries: CapabilitySearchEntry[];
   initialAttemptKey: string;
 };
 
@@ -40,119 +42,6 @@ type RunRequest = {
   input: Record<string, unknown>;
   idempotencyKey?: string;
 };
-
-const operationHref = (selection: SelectedCapability, kind: CapabilityKind, capabilityId: string) =>
-  capabilityHref({ appId: selection.app.id, kind, capabilityId });
-
-const operationMatches = (query: string, title: string, id: string, description: string) => {
-  const needle = query.trim().toLocaleLowerCase();
-  return !needle || `${title} ${id} ${description}`.toLocaleLowerCase().includes(needle);
-};
-
-function CapabilitySidebarContent(props: {
-  catalog: CapabilityCatalogPage;
-  selection?: SelectedCapability;
-  query: () => string;
-  onQueryChange: (value: string) => void;
-}) {
-  const apps = createMemo(() => props.catalog.apps.filter((app) => operationMatches(props.query(), app.name, app.id, app.description)));
-  const queries = createMemo(() =>
-    (props.selection?.manifest.queries ?? []).filter((operation) =>
-      operationMatches(props.query(), operation.title, operation.localId, operation.description),
-    ),
-  );
-  const actions = createMemo(() =>
-    (props.selection?.manifest.actions ?? []).filter((operation) =>
-      operationMatches(props.query(), operation.title, operation.localId, operation.description),
-    ),
-  );
-
-  return (
-    <>
-      <AppWorkspace.SidebarBody class="flex flex-col gap-3">
-        <TextInput
-          type="search"
-          value={props.query}
-          onValueChange={props.onQueryChange}
-          placeholder="Filter capabilities"
-          aria-label="Filter capabilities"
-          icon="ti ti-search"
-          clearable
-        />
-        <AppWorkspace.SidebarSection title="Apps">
-          <Show when={apps().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No matching apps.</p>}>
-            <For each={apps()}>
-              {(app) => (
-                <AppWorkspace.SidebarItem
-                  href={capabilityHref({ appId: app.id })}
-                  navigation="document"
-                  active={props.selection?.app.id === app.id}
-                  icon={app.icon || "ti ti-apps"}
-                  title={app.description}
-                >
-                  {app.name}
-                </AppWorkspace.SidebarItem>
-              )}
-            </For>
-          </Show>
-        </AppWorkspace.SidebarSection>
-        <Show when={props.selection}>
-          {(selection) => (
-            <>
-              <AppWorkspace.SidebarSection title="Queries">
-                <For each={queries()}>
-                  {(operation) => (
-                    <AppWorkspace.SidebarItem
-                      href={operationHref(selection(), "query", operation.localId)}
-                      navigation="document"
-                      active={selection().kind === "query" && selection().operation.localId === operation.localId}
-                      icon="ti ti-search"
-                      title={operation.description}
-                    >
-                      {operation.title}
-                    </AppWorkspace.SidebarItem>
-                  )}
-                </For>
-              </AppWorkspace.SidebarSection>
-              <AppWorkspace.SidebarSection title="Actions">
-                <For each={actions()}>
-                  {(operation) => (
-                    <AppWorkspace.SidebarItem
-                      href={operationHref(selection(), "action", operation.localId)}
-                      navigation="document"
-                      active={selection().kind === "action" && selection().operation.localId === operation.localId}
-                      icon="ti ti-bolt"
-                      title={operation.description}
-                    >
-                      {operation.title}
-                    </AppWorkspace.SidebarItem>
-                  )}
-                </For>
-              </AppWorkspace.SidebarSection>
-            </>
-          )}
-        </Show>
-      </AppWorkspace.SidebarBody>
-      <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
-        <Show when={props.catalog.cursor}>
-          <AppWorkspace.SidebarItem href={capabilityHref({})} navigation="document" icon="ti ti-chevrons-left">
-            First page
-          </AppWorkspace.SidebarItem>
-        </Show>
-        <Show when={props.catalog.nextCursor}>
-          {(cursor) => (
-            <AppWorkspace.SidebarItem href={capabilityHref({ cursor: cursor() })} navigation="document" icon="ti ti-chevron-right">
-              More apps
-            </AppWorkspace.SidebarItem>
-          )}
-        </Show>
-        <AppWorkspace.SidebarItem href="/app/api-docs" navigation="document" icon="ti ti-book-2">
-          API documentation
-        </AppWorkspace.SidebarItem>
-      </AppWorkspace.SidebarFooter>
-    </>
-  );
-}
 
 function FieldEditor(props: {
   field: EditorField;
@@ -290,7 +179,10 @@ const linkIcon = (link: CapabilitySemanticLink) => {
   return "ti ti-external-link";
 };
 
-function ResponsePanel(props: { run: ReturnType<typeof mutation.create<CapabilityInvocationOutcome, RunRequest>> }) {
+function ResponsePanel(props: {
+  run: ReturnType<typeof mutation.create<CapabilityInvocationOutcome, RunRequest>>;
+  visible: () => boolean;
+}) {
   const outcome = () => props.run.data();
   return (
     <div class="paper flex min-h-0 flex-col overflow-hidden">
@@ -306,10 +198,10 @@ function ResponsePanel(props: { run: ReturnType<typeof mutation.create<Capabilit
       <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         <Show when={!props.run.loading()} fallback={<Placeholder state="loading" variant="panel" title="Running capability" />}>
           <Show
-            when={props.run.error()}
+            when={props.visible() ? props.run.error() : null}
             fallback={
               <Show
-                when={outcome()}
+                when={props.visible() ? outcome() : null}
                 fallback={
                   <Placeholder
                     variant="panel"
@@ -379,10 +271,11 @@ function OutcomeContent(props: { outcome: CapabilityInvocationOutcome }) {
   );
 }
 
-function CapabilityRunner(props: { selection: SelectedCapability; initialAttemptKey: string }) {
+function CapabilityRunner(props: Props) {
   const model = createSchemaEditorModel(props.selection.operation.inputSchema);
   const [editor, setEditor] = createSignal(createSchemaEditorState(model, props.selection.operation.inputSchema));
   const [submitted, setSubmitted] = createSignal(false);
+  const [resultVisible, setResultVisible] = createSignal(false);
   const [attemptKey, setAttemptKey] = createSignal(props.initialAttemptKey);
   const input = createMemo<InputBuildResult>(() => buildCapabilityInput(model, editor()));
   const action = () => (props.selection.kind === "action" ? props.selection.operation : undefined);
@@ -421,13 +314,15 @@ function CapabilityRunner(props: { selection: SelectedCapability; initialAttempt
       });
       if (!confirmed) return;
     }
+    setResultVisible(true);
     await run.mutate({ input: built.input, idempotencyKey: idempotencyKey() });
   };
 
-  const newAttempt = () => {
+  const reset = () => {
     run.abort();
     setAttemptKey(crypto.randomUUID());
     setSubmitted(false);
+    setResultVisible(false);
     setEditor(createSchemaEditorState(model, props.selection.operation.inputSchema));
   };
 
@@ -462,9 +357,12 @@ function CapabilityRunner(props: { selection: SelectedCapability; initialAttempt
           <h1 class="mt-2 text-xl font-semibold text-primary">{props.selection.operation.title}</h1>
           <p class="mt-1 max-w-3xl text-sm text-dimmed">{props.selection.operation.description}</p>
         </div>
-        <Button size="sm" variant="secondary" onClick={newAttempt}>
-          <i class="ti ti-refresh" aria-hidden="true" /> New attempt
-        </Button>
+        <div class="flex items-center gap-2">
+          <CapabilitySearchButton entries={props.searchEntries} variant="compact" registerShortcut />
+          <Button size="sm" variant="secondary" onClick={reset}>
+            <i class="ti ti-refresh" aria-hidden="true" /> Reset
+          </Button>
+        </div>
       </header>
 
       <Show when={action()}>
@@ -510,61 +408,18 @@ function CapabilityRunner(props: { selection: SelectedCapability; initialAttempt
             </div>
           </div>
         </div>
-        <ResponsePanel run={run} />
+        <ResponsePanel run={run} visible={resultVisible} />
       </div>
     </div>
   );
 }
 
 export default function CapabilitiesWorkspace(props: Props): JSX.Element {
-  const [query, setQuery] = createSignal("");
-  const sidebar = () => (
-    <CapabilitySidebarContent catalog={props.catalog} selection={props.catalog.selected} query={query} onQueryChange={setQuery} />
-  );
-
   return (
     <AppWorkspace resizable={false}>
-      <AppWorkspace.Sidebar resizable={false}>
-        <AppWorkspace.SidebarHeader
-          title="Capabilities"
-          subtitle={props.catalog.selected?.app.name ?? `${props.catalog.apps.length} live apps`}
-          icon="ti ti-api-app"
-        />
-        <AppWorkspace.SidebarMobile>{sidebar()}</AppWorkspace.SidebarMobile>
-        <AppWorkspace.SidebarDesktop>{sidebar()}</AppWorkspace.SidebarDesktop>
-      </AppWorkspace.Sidebar>
       <AppWorkspace.Content>
         <AppWorkspace.Main class="overflow-y-auto p-[var(--ui-space-shell)]">
-          <Show
-            when={!props.catalog.selectedAppUnavailable}
-            fallback={
-              <Placeholder
-                state="error"
-                variant="panel"
-                title="Capability manifest unavailable"
-                description="The app changed or disconnected while the catalog was loading. Refresh to try again."
-                action={
-                  <Button variant="secondary" onClick={() => window.location.reload()}>
-                    <i class="ti ti-refresh" aria-hidden="true" /> Refresh
-                  </Button>
-                }
-              />
-            }
-          >
-            <Show
-              when={props.catalog.selected}
-              fallback={
-                <Placeholder
-                  variant="panel"
-                  icon="ti ti-api-app"
-                  title="No live capabilities"
-                  description="Apps with protocol v1 Queries or Actions appear here when they are registered."
-                />
-              }
-            >
-              {(selection) => <CapabilityRunner selection={selection()} initialAttemptKey={props.initialAttemptKey} />}
-            </Show>
-          </Show>
+          <CapabilityRunner {...props} />
         </AppWorkspace.Main>
       </AppWorkspace.Content>
     </AppWorkspace>
