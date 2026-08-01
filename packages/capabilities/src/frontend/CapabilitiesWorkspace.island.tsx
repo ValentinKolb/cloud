@@ -1,11 +1,9 @@
 import { mutation } from "@k2b/stdlib/solid";
 import {
-  AppWorkspace,
   Button,
   Checkbox,
   CodeDisplay,
   Disclosure,
-  LinkCard,
   NumberInput,
   Placeholder,
   prompts,
@@ -14,7 +12,6 @@ import {
   StructuredDataPreview,
   TextInput,
 } from "@k2b/ui";
-import type { CapabilitySemanticLink } from "@valentinkolb/cloud/contracts";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { SelectedCapability } from "../catalog";
 import { buildCapabilityCurl } from "../curl";
@@ -30,11 +27,11 @@ import {
   type SchemaEditorModel,
   type SchemaEditorState,
 } from "../schema-editor";
-import CapabilitySearchButton, { type CapabilitySearchEntry } from "./CapabilitySearchButton.island";
+import CapabilityResultView from "./CapabilityResultView";
 
 type Props = {
   selection: SelectedCapability;
-  searchEntries: CapabilitySearchEntry[];
+  closeHref: string;
   initialAttemptKey: string;
 };
 
@@ -171,71 +168,62 @@ function RequestEditor(props: {
   );
 }
 
-const linkIcon = (link: CapabilitySemanticLink) => {
-  if (link.rel === "edit") return "ti ti-pencil";
-  if (link.rel === "download") return "ti ti-download";
-  if (link.rel === "preview") return "ti ti-eye";
-  if (link.rel === "status") return "ti ti-activity";
-  return "ti ti-external-link";
-};
-
 function ResponsePanel(props: {
   run: ReturnType<typeof mutation.create<CapabilityInvocationOutcome, RunRequest>>;
   visible: () => boolean;
+  selection: SelectedCapability;
 }) {
   const outcome = () => props.run.data();
   return (
-    <div class="paper flex min-h-0 flex-col overflow-hidden">
-      <div class="flex items-center justify-between gap-3 px-4 py-3">
-        <div>
-          <h2 class="text-sm font-semibold text-primary">Response</h2>
+    <section class="detail-section">
+      <div class="mb-3 flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h3 class="detail-section-label mb-1">Response</h3>
           <p class="text-xs text-dimmed">Validated result, metadata, and semantic links.</p>
         </div>
         <Show when={outcome()}>
           {(value) => <StatusBadge tone={value().ok ? "ok" : "error"} label={`${value().status} · ${Math.round(value().durationMs)} ms`} />}
         </Show>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        <Show when={!props.run.loading()} fallback={<Placeholder state="loading" variant="panel" title="Running capability" />}>
-          <Show
-            when={props.visible() ? props.run.error() : null}
-            fallback={
-              <Show
-                when={props.visible() ? outcome() : null}
-                fallback={
-                  <Placeholder
-                    variant="panel"
-                    icon="ti ti-player-play"
-                    title="Ready to run"
-                    description="Complete the request and run the selected capability."
-                  />
-                }
-              >
-                {(value) => <OutcomeContent outcome={value()} />}
-              </Show>
-            }
-          >
-            {(error) => (
-              <Placeholder
-                state="error"
-                variant="panel"
-                title="Could not reach the capability"
-                description={error().message}
-                action={
-                  <Button size="sm" variant="secondary" onClick={() => void props.run.retry()}>
-                    <i class="ti ti-refresh" aria-hidden="true" /> Retry
-                  </Button>
-                }
-              />
-            )}
-          </Show>
+      <Show when={!props.run.loading()} fallback={<Placeholder state="loading" variant="panel" title="Running capability" />}>
+        <Show
+          when={props.visible() ? props.run.error() : null}
+          fallback={
+            <Show
+              when={props.visible() ? outcome() : null}
+              fallback={
+                <Placeholder
+                  variant="panel"
+                  icon="ti ti-player-play"
+                  title="Ready to run"
+                  description="Complete the request and run the selected capability."
+                />
+              }
+            >
+              {(value) => <OutcomeContent outcome={value()} selection={props.selection} />}
+            </Show>
+          }
+        >
+          {(error) => (
+            <Placeholder
+              state="error"
+              variant="panel"
+              title="Could not reach the capability"
+              description={error().message}
+              action={
+                <Button size="sm" variant="secondary" onClick={() => void props.run.retry()}>
+                  <i class="ti ti-refresh" aria-hidden="true" /> Retry
+                </Button>
+              }
+            />
+          )}
         </Show>
-      </div>
-    </div>
+      </Show>
+    </section>
   );
 }
 
-function OutcomeContent(props: { outcome: CapabilityInvocationOutcome }) {
+function OutcomeContent(props: { outcome: CapabilityInvocationOutcome; selection: SelectedCapability }) {
   if (!props.outcome.ok) {
     return (
       <div class="flex flex-col gap-4">
@@ -246,27 +234,13 @@ function OutcomeContent(props: { outcome: CapabilityInvocationOutcome }) {
   }
   return (
     <div class="flex flex-col gap-4">
-      <StructuredDataPreview title="Data" data={props.outcome.result.data} empty="The capability returned no data." />
-      <Show when={props.outcome.result.refs?.length}>
-        <StructuredDataPreview title="Resource references" data={props.outcome.result.refs} />
-      </Show>
-      <Show when={props.outcome.result.page}>{(page) => <StructuredDataPreview title="Page" data={page()} />}</Show>
-      <Show when={props.outcome.result.links?.length}>
-        <div class="flex flex-col gap-2">
-          <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">Links</h3>
-          <For each={props.outcome.result.links}>
-            {(link) => (
-              <LinkCard
-                href={link.href}
-                title={link.title ?? `${link.rel[0]!.toUpperCase()}${link.rel.slice(1)}`}
-                description={link.href}
-                icon={linkIcon(link)}
-                color="blue"
-              />
-            )}
-          </For>
-        </div>
-      </Show>
+      <CapabilityResultView
+        selection={props.selection}
+        data={props.outcome.result.data}
+        refs={props.outcome.result.refs}
+        page={props.outcome.result.page}
+        links={props.outcome.result.links}
+      />
     </div>
   );
 }
@@ -347,81 +321,73 @@ function CapabilityRunner(props: Props) {
   };
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col gap-4">
-      <header class="flex flex-wrap items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="flex flex-wrap items-center gap-2">
+    <div class="flex h-full min-h-0 flex-col">
+      <header class="detail-header">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
             <StatusBadge tone="neutral" label={props.selection.kind === "query" ? "Query" : "Action"} />
-            <code class="text-xs text-dimmed">{props.selection.operation.id}</code>
+            <code class="truncate text-xs text-dimmed">{props.selection.operation.id}</code>
           </div>
-          <h1 class="mt-2 text-xl font-semibold text-primary">{props.selection.operation.title}</h1>
-          <p class="mt-1 max-w-3xl text-sm text-dimmed">{props.selection.operation.description}</p>
+          <div class="flex shrink-0 items-center gap-1">
+            <Button size="sm" variant="secondary" onClick={reset}>
+              <i class="ti ti-refresh" aria-hidden="true" /> Reset
+            </Button>
+            <a class="icon-btn h-8 w-8" href={props.closeHref} aria-label="Close capability details" title="Close">
+              <i class="ti ti-x" aria-hidden="true" />
+              <span class="sr-only">Close capability details</span>
+            </a>
+          </div>
         </div>
-        <div class="flex items-center gap-2">
-          <CapabilitySearchButton entries={props.searchEntries} variant="compact" registerShortcut />
-          <Button size="sm" variant="secondary" onClick={reset}>
-            <i class="ti ti-refresh" aria-hidden="true" /> Reset
-          </Button>
-        </div>
+        <h2 class="mt-3 text-lg font-semibold text-primary">{props.selection.operation.title}</h2>
+        <p class="mt-1 text-sm text-dimmed">{props.selection.operation.description}</p>
+        <Show when={action()}>
+          {(selectedAction) => (
+            <div class="mt-3 flex flex-wrap gap-2">
+              <StatusBadge
+                tone={selectedAction().destructive ? "warning" : "neutral"}
+                label={selectedAction().destructive ? "Destructive" : "Non-destructive"}
+              />
+              <StatusBadge
+                tone={selectedAction().openWorld ? "warning" : "neutral"}
+                label={selectedAction().openWorld ? "Open world" : "Cloud only"}
+              />
+              <StatusBadge tone="neutral" label={`Approval: ${selectedAction().approval}`} />
+              <StatusBadge tone="neutral" label={`Idempotency: ${selectedAction().idempotency}`} />
+            </div>
+          )}
+        </Show>
       </header>
 
-      <Show when={action()}>
-        {(selectedAction) => (
-          <div class="flex flex-wrap gap-2">
-            <StatusBadge
-              tone={selectedAction().destructive ? "warning" : "neutral"}
-              label={selectedAction().destructive ? "Destructive" : "Non-destructive"}
-            />
-            <StatusBadge
-              tone={selectedAction().openWorld ? "warning" : "neutral"}
-              label={selectedAction().openWorld ? "Open world" : "Cloud only"}
-            />
-            <StatusBadge tone="neutral" label={`Approval: ${selectedAction().approval}`} />
-            <StatusBadge tone="neutral" label={`Idempotency: ${selectedAction().idempotency}`} />
-          </div>
-        )}
-      </Show>
-
-      <div class="grid min-h-0 flex-1 gap-4 xl:grid-cols-2">
-        <div class="paper flex min-h-0 flex-col overflow-hidden">
-          <div class="flex items-center justify-between gap-3 px-4 py-3">
-            <div>
-              <h2 class="text-sm font-semibold text-primary">Request</h2>
+      <div class="detail-stack">
+        <section class="detail-section">
+          <div class="mb-4 flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h3 class="detail-section-label mb-1">Request</h3>
               <p class="text-xs text-dimmed">Input is validated before it is sent.</p>
             </div>
             <Button loading={run.loading()} loadingLabel="Running" onClick={() => void execute()}>
               <i class="ti ti-player-play" aria-hidden="true" /> Run
             </Button>
           </div>
-          <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            <RequestEditor model={model} state={editor} errors={fieldErrors} formError={formError} onStateChange={setEditor} />
-            <div class="mt-4 flex flex-col gap-3">
-              <Disclosure summary="Request as cURL" icon="ti ti-terminal-2" disabled={!curl()}>
-                <Show when={curl()}>{(value) => <CodeDisplay code={value()} language="script" lineNumbers={false} />}</Show>
-              </Disclosure>
-              <Disclosure summary="Schemas" icon="ti ti-braces">
-                <div class="grid gap-3 lg:grid-cols-2">
-                  <StructuredDataPreview title="Input schema" data={props.selection.operation.inputSchema} maxRows={10} />
-                  <StructuredDataPreview title="Result schema" data={props.selection.operation.resultSchema} maxRows={10} />
-                </div>
-              </Disclosure>
-            </div>
+          <RequestEditor model={model} state={editor} errors={fieldErrors} formError={formError} onStateChange={setEditor} />
+          <div class="mt-4 flex flex-col gap-3">
+            <Disclosure summary="Request as cURL" icon="ti ti-terminal-2" disabled={!curl()}>
+              <Show when={curl()}>{(value) => <CodeDisplay code={value()} language="script" lineNumbers={false} />}</Show>
+            </Disclosure>
+            <Disclosure summary="Schemas" icon="ti ti-braces">
+              <div class="grid gap-3">
+                <StructuredDataPreview title="Input schema" data={props.selection.operation.inputSchema} maxRows={10} />
+                <StructuredDataPreview title="Result schema" data={props.selection.operation.resultSchema} maxRows={10} />
+              </div>
+            </Disclosure>
           </div>
-        </div>
-        <ResponsePanel run={run} visible={resultVisible} />
+        </section>
+        <ResponsePanel run={run} visible={resultVisible} selection={props.selection} />
       </div>
     </div>
   );
 }
 
 export default function CapabilitiesWorkspace(props: Props): JSX.Element {
-  return (
-    <AppWorkspace resizable={false}>
-      <AppWorkspace.Content>
-        <AppWorkspace.Main class="overflow-y-auto p-[var(--ui-space-shell)]">
-          <CapabilityRunner {...props} />
-        </AppWorkspace.Main>
-      </AppWorkspace.Content>
-    </AppWorkspace>
-  );
+  return <CapabilityRunner {...props} />;
 }

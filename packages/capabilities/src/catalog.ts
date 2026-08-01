@@ -4,7 +4,7 @@ import { CAPABILITY_PROTOCOL_VERSION } from "@valentinkolb/cloud/contracts";
 
 const CATALOG_PAGE_SIZE = 25;
 
-type CapabilityAppSummary = {
+export type CapabilityAppSummary = {
   id: string;
   name: string;
   icon: string;
@@ -17,14 +17,13 @@ type CapabilityAppsPage = {
   nextCursor?: string;
 };
 
-type LoadedCapabilityApp =
+export type LoadedCapabilityApp =
   | { kind: "ready"; app: CapabilityAppSummary; manifest: CapabilityManifest }
   | { kind: "unavailable"; app: CapabilityAppSummary }
   | { kind: "not-found" };
 
 type SelectedCapabilityBase = {
   app: CapabilityAppSummary;
-  manifest: CapabilityManifest;
 };
 
 export type SelectedCapability =
@@ -62,15 +61,36 @@ export async function loadCapabilityApps(url: URL): Promise<CapabilityAppsPage> 
   };
 }
 
-export async function loadCapabilityApp(appId: string): Promise<LoadedCapabilityApp> {
-  const entry = (await liveCapabilityApps()).find((candidate) => candidate.id === appId);
-  if (!entry) return { kind: "not-found" };
+export type LoadedCapabilityWorkspace = {
+  apps: CapabilityAppSummary[];
+  selected: LoadedCapabilityApp;
+};
+
+export async function loadCapabilityWorkspace(appId: string): Promise<LoadedCapabilityWorkspace> {
+  const entries = await liveCapabilityApps();
+  const apps = entries.map(summary);
+  const entry = entries.find((candidate) => candidate.id === appId);
+  if (!entry) return { apps, selected: { kind: "not-found" } };
 
   const app = summary(entry);
   const capability = await getCapability(entry.id);
   if (!capability || capability.manifest.manifestHash !== entry.capabilities?.manifestHash) {
-    return { kind: "unavailable", app };
+    return { apps, selected: { kind: "unavailable", app } };
   }
 
-  return { kind: "ready", app, manifest: capability.manifest };
+  return { apps, selected: { kind: "ready", app, manifest: capability.manifest } };
 }
+
+export const selectCapability = (
+  loaded: Extract<LoadedCapabilityApp, { kind: "ready" }>,
+  kind: "query" | "action",
+  capabilityId: string,
+): SelectedCapability | undefined => {
+  if (kind === "query") {
+    const operation = loaded.manifest.queries.find((candidate) => candidate.localId === capabilityId);
+    return operation ? { app: loaded.app, kind, operation } : undefined;
+  }
+
+  const operation = loaded.manifest.actions.find((candidate) => candidate.localId === capabilityId);
+  return operation ? { app: loaded.app, kind, operation } : undefined;
+};
