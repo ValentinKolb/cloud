@@ -119,14 +119,41 @@ Dev admin login: open `/auth/login?method=admin` and paste `dev-admin` into the 
 | `bun run dev:down` | Tear the dev stack down |
 | `bun run typecheck` | skills + boundaries + cycles + biome + tsc |
 
-## Agent skills
+## Agent-assisted development
 
-The developer skill is published by the current Fibel site:
+After a fresh clone, start the documentation and install its current developer
+skill:
 
 ```bash
+bun install --frozen-lockfile
 bun run dev:fibel
 bunx skills add http://localhost:4187
 ```
+
+Connect the same local documentation as an MCP server. Use the command for
+your agent:
+
+```bash
+# Codex
+codex mcp add cloud-dev-mcp --url http://localhost:4187/_fibel/mcp
+
+# Claude Code
+claude mcp add --transport http cloud-dev-mcp http://localhost:4187/_fibel/mcp
+```
+
+For another code agent, configure a streamable HTTP MCP server named
+`cloud-dev-mcp` with the same URL and load `AGENTS.md` as repository guidance.
+The **Agents** dialog in the Fibel footer shows additional client-specific
+setup.
+
+If Fibel starts on another port, replace `4187` in both commands. Restart the
+agent session after adding the connection. The agent should see the Docs and
+UI collections through `list_collections`, `search_docs`, and `read_doc`.
+
+Repository-wide agent instructions live in [`AGENTS.md`](AGENTS.md). Claude
+Code loads the same instructions through [`CLAUDE.md`](CLAUDE.md). The
+canonical contribution rules are in
+[`Document Cloud core changes`](docs-site/docs/en/contributing/document-cloud-core-changes.md).
 
 Install the CLI operator skill directly from the repository:
 

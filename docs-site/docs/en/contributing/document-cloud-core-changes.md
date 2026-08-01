@@ -71,7 +71,9 @@ instance, choose a free port and use the same port in `CLOUD_DOCS_SITE_URL`:
 PORT=4199 CLOUD_DOCS_SITE_URL=http://localhost:4199 bun run dev:fibel
 ```
 
-Add the active MCP endpoint to Codex with a stable local name:
+Add the active MCP endpoint with the stable local name `cloud-dev-mcp`.
+
+For Codex:
 
 ```bash
 codex mcp get cloud-dev-mcp
@@ -79,11 +81,26 @@ codex mcp remove cloud-dev-mcp # only when an existing URL is stale
 codex mcp add cloud-dev-mcp --url http://localhost:4187/_fibel/mcp
 ```
 
+For Claude Code:
+
+```bash
+claude mcp get cloud-dev-mcp
+claude mcp remove cloud-dev-mcp # only when an existing URL is stale
+claude mcp add --transport http cloud-dev-mcp http://localhost:4187/_fibel/mcp
+```
+
+For another code agent, configure a streamable HTTP MCP server named
+`cloud-dev-mcp` with the same endpoint. The **Agents** dialog in the Fibel
+footer provides additional client-specific setup.
+
 Replace `4187` when the current server uses another port.
 
 Refresh the agent session after adding the connection. The agent should confirm
 that `cloud-dev-mcp` is available by calling `list_collections`, then use
 `search_docs` and `read_doc` for current documentation.
+
+Repository-wide agent instructions live in `AGENTS.md`. Claude Code imports
+the same file through `CLAUDE.md`; do not maintain a second set of rules there.
 
 Running the website and configuring MCP are separate steps. A healthy website
 does not make its tools visible to an agent that has not connected the
