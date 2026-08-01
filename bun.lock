@@ -83,6 +83,23 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/capabilities": {
+      "name": "@valentinkolb/cloud-app-capabilities",
+      "version": "0.0.0",
+      "dependencies": {
+        "@k2b/ssr": "0.12.0",
+        "@k2b/stdlib": "0.17.1",
+        "@k2b/ui": "workspace:*",
+        "@valentinkolb/cloud": "workspace:*",
+        "hono": "^4.11.1",
+        "solid-js": "^1.9.10",
+        "zod": "^4.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.9",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/cloud": {
       "name": "@valentinkolb/cloud",
       "version": "0.6.0",
@@ -1157,6 +1174,8 @@
     "@valentinkolb/cloud-app-api-docs": ["@valentinkolb/cloud-app-api-docs@workspace:packages/api-docs"],
 
     "@valentinkolb/cloud-app-assistant": ["@valentinkolb/cloud-app-assistant@workspace:packages/assistant"],
+
+    "@valentinkolb/cloud-app-capabilities": ["@valentinkolb/cloud-app-capabilities@workspace:packages/capabilities"],
 
     "@valentinkolb/cloud-app-contacts": ["@valentinkolb/cloud-app-contacts@workspace:packages/contacts"],
 
@@ -2536,6 +2555,8 @@
 
     "@valentinkolb/cloud-app-assistant/@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
 
+    "@valentinkolb/cloud-app-capabilities/@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
+
     "@valentinkolb/cloud-app-contacts/@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
 
     "@valentinkolb/cloud-app-core/@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
@@ -2711,6 +2732,8 @@
     "@valentinkolb/cloud-app-api-docs/@types/bun/bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
 
     "@valentinkolb/cloud-app-assistant/@types/bun/bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
+
+    "@valentinkolb/cloud-app-capabilities/@types/bun/bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
 
     "@valentinkolb/cloud-app-contacts/@types/bun/bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
 

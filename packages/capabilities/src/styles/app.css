@@ -1,0 +1,5 @@
+/* Scoped scan: only this app's own TSX. Portable component styles are owned by
+   the global @k2b/ui stylesheet. */
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "../**/*.{ts,tsx}";
+@custom-variant dark (&:where(.dark, .dark *));
