@@ -188,7 +188,6 @@ const dynamicClassEvidence = new Map(
   [
     ["content/Pagination.tsx", "k2b-pagination__page--wide-only"],
     ["content/StructuredDataPreview.tsx", "k2b-content-structured-data"],
-    ["layout/Settings.tsx", "k2b-settings-actions__save-ai"],
     ["surfaces/Avatar.tsx", "k2b-avatar"],
   ].map(([file, token]) => [resolve(packageRoot, "src", file!), token!]),
 );

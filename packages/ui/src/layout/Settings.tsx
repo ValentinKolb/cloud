@@ -1,5 +1,5 @@
 import { type JSX, Show } from "solid-js";
-import { Button } from "../actions";
+import { Button, type ButtonVariant } from "../actions";
 import type { MaybeAccessor } from "../inputs/field-contract";
 
 const read = <T,>(value: MaybeAccessor<T>): T => (typeof value === "function" ? (value as () => T)() : value);
@@ -56,13 +56,13 @@ export type SettingsSaveBarProps = {
   onDiscard: () => void;
   onSave: () => void;
   saveLabel?: string;
+  saveVariant?: ButtonVariant;
   class?: string;
 };
 
 const SettingsActions = (
   props: SettingsSaveBarProps & {
     disableWithoutChanges?: boolean;
-    saveClass?: "btn-primary" | "btn-ai";
   },
 ): JSX.Element => {
   const changeCount = () => read(props.changeCount);
@@ -74,7 +74,7 @@ const SettingsActions = (
         Discard
       </Button>
       <Button
-        class={props.saveClass === "btn-ai" ? "k2b-settings-actions__save-ai" : undefined}
+        variant={props.saveVariant ?? "primary"}
         loading={loading()}
         loadingLabel="Saving"
         disabled={disabled()}
@@ -101,9 +101,7 @@ export function SettingsSaveBar(props: SettingsSaveBarProps): JSX.Element {
   );
 }
 
-export type SettingsPanelFooterProps = SettingsSaveBarProps & {
-  saveClass?: "btn-primary" | "btn-ai";
-};
+export type SettingsPanelFooterProps = SettingsSaveBarProps;
 
 export function SettingsPanelFooter(props: SettingsPanelFooterProps): JSX.Element {
   const changeCount = () => read(props.changeCount);

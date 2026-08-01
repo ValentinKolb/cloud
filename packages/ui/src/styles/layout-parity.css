@@ -389,23 +389,6 @@
   font-weight: 500;
 }
 
-/* `saveClass: "btn-ai"` marks the save action as an AI surface. `Settings.tsx`
-   emitted this class but no rule existed, so the variant was indistinguishable
-   from a normal primary save. Mirrors Cloud's `btn-ai` (cyan-tinted fill,
-   border and label) through the package's own `--k2b-ai-*` tokens. */
-.k2b-ui .k2b-button.k2b-settings-actions__save-ai {
-  border-color: color-mix(in srgb, var(--k2b-ai-border) 20%, var(--k2b-border));
-  color: color-mix(in srgb, var(--k2b-ai-accent-hover) 78%, var(--k2b-accent-700));
-  background: color-mix(in srgb, var(--k2b-ai-border) 8%, var(--k2b-surface));
-  box-shadow: none;
-}
-
-.k2b-ui .k2b-button.k2b-settings-actions__save-ai:not(:disabled):hover {
-  border-color: color-mix(in srgb, var(--k2b-ai-border) 30%, var(--k2b-border));
-  color: var(--k2b-ai-accent-hover);
-  background: color-mix(in srgb, var(--k2b-ai-border) 12%, var(--k2b-surface));
-}
-
 /* --------------------------------------------------------- app workspace */
 
 .k2b-ui .k2b-app-workspace {

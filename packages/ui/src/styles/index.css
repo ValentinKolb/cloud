@@ -859,6 +859,7 @@
   background: var(--k2b-action-solid);
   font-size: 0.75rem;
   font-weight: 500;
+  text-decoration: none;
   cursor: pointer;
   user-select: none;
   transition:
@@ -945,6 +946,18 @@
 
 .k2b-ui .k2b-button[data-variant="success"] {
   background: var(--k2b-success-600);
+}
+
+.k2b-ui .k2b-button[data-variant="ai"] {
+  border-color: color-mix(in srgb, var(--k2b-ai-border) 20%, var(--k2b-border));
+  color: color-mix(in srgb, var(--k2b-ai-accent-hover) 78%, var(--k2b-accent-700));
+  background: color-mix(in srgb, var(--k2b-ai-border) 8%, var(--k2b-surface));
+}
+
+.k2b-ui .k2b-button[data-variant="ai"]:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--k2b-ai-border) 30%, var(--k2b-border));
+  color: var(--k2b-ai-accent-hover);
+  background: color-mix(in srgb, var(--k2b-ai-border) 12%, var(--k2b-surface));
 }
 
 .k2b-ui .k2b-button__label {

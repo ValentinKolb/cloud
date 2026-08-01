@@ -1,5 +1,5 @@
-export type { ButtonProps, ButtonSize, ButtonVariant, IconButtonProps } from "./Button";
-export { Button, IconButton } from "./Button";
+export type { ButtonLinkProps, ButtonProps, ButtonSize, ButtonVariant, IconButtonProps } from "./Button";
+export { Button, ButtonLink, IconButton } from "./Button";
 export type { CopyButtonProps, CopyButtonValue } from "./CopyButton";
 export { CopyButton } from "./CopyButton";
 export type { DisclosureProps } from "./Disclosure";

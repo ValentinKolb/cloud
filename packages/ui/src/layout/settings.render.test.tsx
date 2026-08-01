@@ -65,6 +65,7 @@ describe("@k2b/ui complete settings surfaces", () => {
         loading: () => false,
         onDiscard: () => {},
         onSave: () => {},
+        saveVariant: "ai",
       }),
     );
 
@@ -72,6 +73,7 @@ describe("@k2b/ui complete settings surfaces", () => {
     expect(field).toContain('role="alert"');
     expect(bar).toContain("2</strong> unsaved changes");
     expect(footer).toContain("No unsaved changes");
+    expect(footer).toContain('data-variant="ai"');
     expect(footer.match(/disabled/g)?.length).toBeGreaterThanOrEqual(2);
 
     // Cloud labels the save action with a floppy glyph on both surfaces; the

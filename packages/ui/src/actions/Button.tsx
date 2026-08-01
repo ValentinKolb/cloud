@@ -1,6 +1,6 @@
 import { type JSX, Show, splitProps } from "solid-js";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger" | "success";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger" | "success" | "ai";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
 
 export type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -10,6 +10,13 @@ export type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
 };
 
+export type ButtonLinkProps = JSX.AnchorHTMLAttributes<HTMLAnchorElement> & {
+  size?: ButtonSize;
+  variant?: ButtonVariant;
+};
+
+const buttonClass = (className?: string): string => ["k2b-button", className].filter(Boolean).join(" ");
+
 export function Button(props: ButtonProps): JSX.Element {
   const [local, rest] = splitProps(props, ["children", "class", "disabled", "loading", "loadingLabel", "size", "type", "variant"]);
 
@@ -17,7 +24,7 @@ export function Button(props: ButtonProps): JSX.Element {
     <button
       {...rest}
       type={local.type ?? "button"}
-      class={`k2b-button ${local.class ?? ""}`}
+      class={buttonClass(local.class)}
       data-size={local.size ?? "md"}
       data-variant={local.variant ?? "primary"}
       disabled={local.disabled || local.loading}
@@ -32,6 +39,16 @@ export function Button(props: ButtonProps): JSX.Element {
         </Show>
       </span>
     </button>
+  );
+}
+
+export function ButtonLink(props: ButtonLinkProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["children", "class", "size", "variant"]);
+
+  return (
+    <a {...rest} class={buttonClass(local.class)} data-size={local.size ?? "md"} data-variant={local.variant ?? "primary"}>
+      <span class="k2b-button__label">{local.children}</span>
+    </a>
   );
 }
 

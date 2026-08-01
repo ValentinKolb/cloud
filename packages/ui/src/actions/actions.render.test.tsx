@@ -14,6 +14,7 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const {
   Button,
+  ButtonLink,
   ContextMenu,
   CopyButton,
   Disclosure,
@@ -108,6 +109,19 @@ describe("@k2b/ui complete action migrations", () => {
     expect(button).toContain('type="button"');
     expect(rule('.k2b-ui .k2b-button[data-size="xs"]')).toContain("min-height: 1.5rem");
     expect(rule('.k2b-ui .k2b-button[data-variant="subtle"]')).toContain("background: var(--k2b-surface-muted)");
+    expect(rule('.k2b-ui .k2b-button[data-variant="ai"]')).toContain("var(--k2b-ai-border)");
+  });
+
+  test("renders navigational actions as styled links", () => {
+    const html = renderToString(() =>
+      createComponent(ButtonLink, { href: "/items", size: "sm", variant: "secondary", children: "Open items" }),
+    );
+
+    expect(html).toContain('<a href="/items" class="k2b-button');
+    expect(html).toContain('data-size="sm" data-variant="secondary"');
+    expect(html).toContain('<span class="k2b-button__label">Open items</span>');
+    expect(html).not.toContain("<button");
+    expect(rule(".k2b-ui .k2b-button")).toContain("text-decoration: none");
   });
 
   test("renders sections, links, actions, and free dropdown elements", () => {
