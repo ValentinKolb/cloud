@@ -1,6 +1,5 @@
-import { CheckboxCard, LogEntriesTable, type LogTableEntry, prompts, TextInput } from "@valentinkolb/cloud/ui";
-import { Link } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, CheckboxCard, LogEntriesTable, type LogTableEntry, prompts, TextInput } from "@k2b/ui";
 import { type Accessor, createEffect, createResource, createSignal, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
@@ -18,12 +17,19 @@ function SnapshotUploadAction(props: {
   return (
     <Show when={props.enabled}>
       <div class="flex flex-wrap items-center justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" disabled={props.disabled || !props.configured} onClick={props.onRun}>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={props.disabled || !props.configured}
+          onClick={props.onRun}
+          loading={props.loading}
+          loadingLabel="Uploading"
+        >
           <Show when={!props.loading} fallback={<i class="ti ti-loader-2 animate-spin" />}>
             <i class="ti ti-cloud-upload" />
             Upload now
           </Show>
-        </button>
+        </Button>
         <Show when={props.lastRun}>
           {(result) => <span class="text-xs text-emerald-600 dark:text-emerald-300">Uploaded {Math.round(result().bytes / 1024)} KB.</span>}
         </Show>
@@ -59,7 +65,7 @@ function SnapshotConfigFields(props: {
         description="Writes latest.zip, a timestamped snapshot, and latest-manifest.json to your bucket."
         icon="ti ti-cloud-upload"
         value={props.enabled}
-        onChange={props.setEnabled}
+        onValueChange={props.setEnabled}
         disabled={props.saving}
       />
 
@@ -73,7 +79,7 @@ function SnapshotConfigFields(props: {
           <TextInput
             label="Endpoint"
             value={props.endpoint}
-            onInput={props.setEndpoint}
+            onValueChange={props.setEndpoint}
             placeholder="https://..."
             icon="ti ti-link"
             type="url"
@@ -91,11 +97,11 @@ function SnapshotConfigFields(props: {
             </div>
           </div>
           <div class="grid gap-2 md:grid-cols-2">
-            <TextInput label="Region" value={props.region} onInput={props.setRegion} placeholder="eu-central-1" icon="ti ti-map" />
+            <TextInput label="Region" value={props.region} onValueChange={props.setRegion} placeholder="eu-central-1" icon="ti ti-map" />
             <TextInput
               label="Bucket"
               value={props.bucket}
-              onInput={props.setBucket}
+              onValueChange={props.setBucket}
               placeholder="my-notebook-backups"
               icon="ti ti-bucket"
             />
@@ -104,14 +110,14 @@ function SnapshotConfigFields(props: {
             <TextInput
               label="Access key ID"
               value={props.accessKeyId}
-              onInput={props.setAccessKeyId}
+              onValueChange={props.setAccessKeyId}
               placeholder={props.status?.accessKeyIdSet ? "Stored - leave empty to keep" : ""}
               icon="ti ti-key"
             />
             <TextInput
               label="Secret access key"
               value={props.secretAccessKey}
-              onInput={props.setSecretAccessKey}
+              onValueChange={props.setSecretAccessKey}
               placeholder={props.status?.secretAccessKeySet ? "Stored - leave empty to keep" : ""}
               icon="ti ti-lock"
               password
@@ -127,12 +133,12 @@ function SnapshotConfigFields(props: {
       </Show>
 
       <div class="flex flex-wrap items-center gap-2">
-        <button type="button" class="btn-primary btn-sm" disabled={props.saving || !props.dirty} onClick={props.onSave}>
+        <Button size="sm" disabled={!props.dirty} onClick={props.onSave} loading={props.saving} loadingLabel="Saving">
           <Show when={!props.saving} fallback={<i class="ti ti-loader-2 animate-spin" />}>
             <i class="ti ti-device-floppy" />
             Save snapshot settings
           </Show>
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -281,10 +287,10 @@ export function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
         archive contains the full notebook.
       </div>
       <Show when={props.isAdmin} fallback={<p class="text-xs text-dimmed">Only notebook admins can download full exports.</p>}>
-        <Link href={href()} download="" class="btn-primary btn-md self-start">
+        <ButtonLink href={href()} download="" class="self-start">
           <i class="ti ti-download" />
           Download ZIP export
-        </Link>
+        </ButtonLink>
         <section class="flex flex-col gap-2">
           <div class="flex flex-wrap items-start justify-between gap-2">
             <div>

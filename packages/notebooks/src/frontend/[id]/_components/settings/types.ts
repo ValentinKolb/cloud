@@ -1,6 +1,7 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { LogTableEntry, ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@k2b/stdlib";
+import type { LogTableEntry } from "@k2b/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
 
 export type NotebookSettingsProps = {

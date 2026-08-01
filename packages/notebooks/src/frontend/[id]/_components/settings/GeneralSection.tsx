@@ -1,6 +1,6 @@
-import { IconInput, prompts, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { IconInput, prompts, Select, TextInput } from "@k2b/ui";
 import { createMemo, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildNoteTitleTemplateContext, renderNoteTitleTemplate } from "@/lib/note-title-template";
@@ -100,7 +100,7 @@ export function GeneralSection(props: {
           label="Name"
           description="Shown in the sidebar and overview."
           value={name}
-          onInput={setName}
+          onValueChange={setName}
           icon="ti ti-notebook"
           required
           disabled={!props.canWrite}
@@ -109,7 +109,7 @@ export function GeneralSection(props: {
           label="Icon"
           description="Used in the sidebar header."
           value={icon}
-          onChange={setIcon}
+          onValueChange={(value) => setIcon(value ?? "")}
           placeholder="Search icons..."
           disabled={!props.canWrite}
         />
@@ -119,7 +119,7 @@ export function GeneralSection(props: {
         label="Description"
         description="Optional short note for the overview."
         value={description}
-        onInput={setDescription}
+        onValueChange={setDescription}
         multiline
         lines={2}
         placeholder="What is this notebook for?"
@@ -127,11 +127,11 @@ export function GeneralSection(props: {
         disabled={!props.canWrite}
       />
 
-      <SelectInput
+      <Select
         label="Homepage"
         description="Opened when this notebook has no URL note and no valid last active note."
         value={homepageNoteId}
-        onChange={setHomepageNoteId}
+        onValueChange={(value) => setHomepageNoteId(value ?? "")}
         selectedLabel={selectedLabel}
         fetchData={fetchNotes}
         placeholder="Select a note..."
@@ -145,7 +145,7 @@ export function GeneralSection(props: {
         label="Default note title"
         description="Liquid template used for the initial H1 when new Markdown has no usable title. Supplied content is preserved."
         value={defaultNoteTitleTemplate}
-        onInput={setDefaultNoteTitleTemplate}
+        onValueChange={setDefaultNoteTitleTemplate}
         multiline
         lines={3}
         icon="ti ti-template"

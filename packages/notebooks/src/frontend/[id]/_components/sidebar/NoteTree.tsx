@@ -1,7 +1,7 @@
-import type { DropdownItem } from "@valentinkolb/cloud/ui";
-import { Dropdown, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import type { DropdownItem } from "@k2b/ui";
+import { Button, Dropdown, IconButton, Placeholder, prompts } from "@k2b/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
@@ -135,41 +135,38 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
 
             <div class="flex flex-col gap-1 max-h-64 overflow-y-auto">
               {/* Root level option */}
-              <button
-                type="button"
+              <Button
+                variant={selected() === null ? "subtle" : "ghost"}
+                size="sm"
                 onClick={() => setSelected(null)}
-                class={`list-item w-full !px-3 !py-2 text-left text-sm ${selected() === null ? "list-item-active" : ""}`}
+                class="w-full justify-start text-left"
               >
                 <i class="ti ti-home text-xs mr-1.5" />
                 Root Level
-              </button>
+              </Button>
 
               <For each={allFlat}>
                 {(target) => (
-                  <button
-                    type="button"
+                  <Button
+                    variant={selected() === target.id ? "subtle" : "ghost"}
+                    size="sm"
                     onClick={() => setSelected(target.id)}
-                    class={`list-item w-full !px-3 !py-2 text-left text-sm ${selected() === target.id ? "list-item-active" : ""}`}
+                    class="w-full justify-start text-left"
                   >
                     <i class="ti ti-file-text text-xs mr-1.5" />
                     {getNodeDepthLabel(target, allFlat)}
-                  </button>
+                  </Button>
                 )}
               </For>
             </div>
 
             <div class="flex justify-end gap-2">
-              <button type="button" onClick={() => close(undefined)} class="btn-secondary btn-md">
+              <Button variant="secondary" onClick={() => close(undefined)}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => close({ parentId: selected() })}
-                class="btn-primary btn-md"
-                disabled={selected() === node.parentId}
-              >
+              </Button>
+              <Button onClick={() => close({ parentId: selected() })} disabled={selected() === node.parentId}>
                 Move
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -341,15 +338,18 @@ function TreeNode(props: {
   const href = () => buildNoteUrl(props.notebookId, props.node.shortId);
 
   return (
-    <div class="sidebar-tree-item">
-      <div class={`sidebar-tree-row group/node ${isSelected() ? "sidebar-item-active" : ""}`} style={`--sidebar-level:${props.depth}`}>
+    <div>
+      <div
+        class={`group/node flex min-h-8 items-center gap-1 rounded-[var(--ui-radius-control)] pr-1 text-xs ${isSelected() ? "bg-[var(--ui-selected)] app-accent-text" : ""}`}
+        style={`padding-left:${0.25 + props.depth * 0.75}rem`}
+      >
         {/* Expand/collapse toggle or leaf dot */}
         {hasChildren() ? (
-          <button type="button" class="sidebar-tree-toggle" onClick={() => setExpanded((v) => !v)}>
+          <IconButton label={expanded() ? "Collapse note" : "Expand note"} size="xs" onClick={() => setExpanded((v) => !v)}>
             <i class={`ti ti-chevron-right text-xs transition-transform ${expanded() ? "rotate-90" : ""}`} />
-          </button>
+          </IconButton>
         ) : (
-          <span class="sidebar-tree-toggle">
+          <span class="inline-flex h-6 w-6 shrink-0 items-center justify-center">
             <i class="ti ti-file-text text-[10px] text-dimmed" />
           </span>
         )}
@@ -367,24 +367,24 @@ function TreeNode(props: {
         {/* Context menu */}
         <Show when={props.onToggleFavorite}>
           {(toggleFavorite) => (
-            <button
-              type="button"
-              class={`sidebar-item-action opacity-0 group-hover/node:opacity-100 group-focus-within/node:opacity-100 ${
+            <IconButton
+              label={props.favoriteNoteIds?.().has(props.node.id) ? "Remove favorite" : "Add favorite"}
+              size="xs"
+              class={`opacity-0 group-hover/node:opacity-100 group-focus-within/node:opacity-100 ${
                 props.favoriteNoteIds?.().has(props.node.id) ? "opacity-100 !text-amber-500 hover:!text-amber-500" : ""
               }`}
               title={props.favoriteNoteIds?.().has(props.node.id) ? "Remove favorite" : "Add favorite"}
-              aria-label={props.favoriteNoteIds?.().has(props.node.id) ? "Remove favorite" : "Add favorite"}
               onClick={(event) => toggleFavorite()(props.node, event)}
             >
               <i class="ti ti-star text-xs" />
-            </button>
+            </IconButton>
           )}
         </Show>
         <Show when={props.canWrite}>
           <div class="shrink-0 opacity-0 transition-opacity group-hover/node:opacity-100 group-focus-within/node:opacity-100">
             <Dropdown
               trigger={
-                <span class="sidebar-item-action">
+                <span class="inline-flex h-6 w-6 items-center justify-center rounded-[var(--ui-radius-control)]">
                   <i class="ti ti-dots text-xs" />
                 </span>
               }
@@ -441,7 +441,7 @@ export default function NoteTree(props: Props) {
   });
 
   return (
-    <div class="sidebar-tree min-h-0 flex-1">
+    <div class="flex min-h-0 flex-1 flex-col">
       {/* Header with search + add buttons */}
       <Show when={showHeaderActions()}>
         <div class="flex items-center justify-between px-2 py-1">

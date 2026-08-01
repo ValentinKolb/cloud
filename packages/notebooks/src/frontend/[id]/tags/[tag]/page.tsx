@@ -7,11 +7,10 @@
  * handler re-renders, no client-side filtering.
  */
 
-import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
+import { AppWorkspace, Pagination, Placeholder } from "@k2b/ui";
+import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { AppWorkspace, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { notebookHelp } from "@/help";
 import { notebooksService } from "@/service";
 import { ssr } from "../../../../config";
@@ -47,10 +46,7 @@ export default ssr<AuthContext>(async (c) => {
       <Layout c={c} title="Not Found">
         <NotebookLayoutHelp documents={notebookHelp.manifest} />
         <div class="max-w-md mx-auto mt-16">
-          <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            <i class="ti ti-alert-circle text-sm" />
-            Notebook not found
-          </div>
+          <Placeholder surface="paper" state="error" icon="ti ti-alert-circle" title="Notebook not found" />
         </div>
       </Layout>
     );
@@ -65,10 +61,13 @@ export default ssr<AuthContext>(async (c) => {
       <Layout c={c} title="Access Denied">
         <NotebookLayoutHelp documents={notebookHelp.manifest} />
         <div class="max-w-md mx-auto mt-16">
-          <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            <i class="ti ti-lock text-sm" />
-            You don't have access to this notebook
-          </div>
+          <Placeholder
+            surface="paper"
+            state="error"
+            icon="ti ti-lock"
+            title="Access denied"
+            description="You don't have access to this notebook."
+          />
         </div>
       </Layout>
     );
@@ -157,7 +156,7 @@ export default ssr<AuthContext>(async (c) => {
                     <li>
                       <a
                         href={buildNoteUrl(notebook.shortId, n.shortId)}
-                        class="list-item flex-col !items-stretch gap-1 !px-3 !py-2.5 no-underline"
+                        class="flex flex-col items-stretch gap-1 rounded-[var(--ui-radius-control)] px-3 py-2.5 no-underline transition-colors hover:bg-[var(--ui-hover)]"
                       >
                         <div class="flex items-center gap-2">
                           <i class="ti ti-file-text text-sm shrink-0 text-dimmed" />

@@ -1,6 +1,7 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { prompts, type ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, prompts } from "@k2b/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@/api/client";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
 import { openNotebookSettingsDialog } from "./NotebookSettingsPanel";
@@ -65,15 +66,16 @@ export default function NotebookSettingsButton(props: Props) {
 
   if (props.variant === "mobile") {
     return (
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => void open()}
-        class="sidebar-item-mobile w-full"
+        class="w-full justify-start"
         style={props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined}
       >
         <i class="ti ti-settings" />
         Settings
-      </button>
+      </Button>
     );
   }
 

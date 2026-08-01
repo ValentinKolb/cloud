@@ -1,5 +1,5 @@
+import { PermissionEditor, type ResourceApiKey, ResourceApiKeys } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { PermissionEditor, type ResourceApiKey, ResourceApiKeys } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";

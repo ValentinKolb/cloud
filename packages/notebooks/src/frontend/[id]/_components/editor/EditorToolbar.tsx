@@ -1,7 +1,7 @@
 import { Prec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { keymap } from "@codemirror/view";
-import { Dropdown, Tooltip } from "@valentinkolb/cloud/ui";
+import { Dropdown, IconButton, Tooltip } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { requestNotebookSearch } from "../../../lib/hotkeys";
 import { DETAIL_PANEL_STATE_EVENT, DETAIL_PANEL_TOGGLE_EVENT } from "../detail/events";
@@ -132,9 +132,9 @@ export default function EditorToolbar(props: Props) {
 
   const Btn = (p: { icon: string; title: string; onClick: () => void }) => (
     <Tooltip content={p.title}>
-      <button type="button" aria-label={p.title} onClick={p.onClick} class="icon-btn h-7 w-7 text-dimmed">
+      <IconButton label={p.title} size="xs" onClick={p.onClick} class="text-dimmed">
         <i class={`ti ${p.icon}`} />
-      </button>
+      </IconButton>
     </Tooltip>
   );
 
@@ -152,10 +152,10 @@ export default function EditorToolbar(props: Props) {
         <Dropdown
           trigger={
             <Tooltip content="Insert content">
-              <button type="button" aria-label="Insert content" class="icon-btn flex h-7 w-7 items-center gap-0.5 text-dimmed">
+              <IconButton label="Insert content" size="xs" class="text-dimmed">
                 <i class="ti ti-layout-grid-add" />
                 <i class="ti ti-chevron-down text-[10px]" />
-              </button>
+              </IconButton>
             </Tooltip>
           }
           position="top-right"

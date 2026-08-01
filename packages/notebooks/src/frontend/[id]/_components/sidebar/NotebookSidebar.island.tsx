@@ -1,5 +1,5 @@
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import type { LinkNavigateEvent } from "@k2b/ssr/nav";
+import { AppWorkspace, prompts } from "@k2b/ui";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { hasOnlyNavigatorQuery } from "../../../../lib/navigator-url";
@@ -214,10 +214,11 @@ export default function NotebookSidebar(props: Props) {
   );
 
   return (
-    <AppWorkspace.Sidebar resizable={!navigatorMode()} class={navigatorMode() ? "lg:!w-[35rem] [&>.paper>div:first-child]:lg:hidden" : ""}>
+    <AppWorkspace.Sidebar resizable={!navigatorMode()} class={navigatorMode() ? "lg:!w-[35rem]" : ""}>
       <AppWorkspace.SidebarHeader
         title={notebook().name}
         icon={notebook().icon || "ti-notebook"}
+        showDesktop={!navigatorMode()}
         action={
           <NotebookSettingsButton
             notebook={notebook()}

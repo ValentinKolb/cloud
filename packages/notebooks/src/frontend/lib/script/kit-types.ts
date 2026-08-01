@@ -581,7 +581,7 @@ export type KitUI = {
 /** Pass-through binding for the platform `prompts.*` modal API,
  *  exposed via `ui.prompt`. We re-declare the surface here as a
  *  thin type so script-side typings don't reach into
- *  `@valentinkolb/cloud/ui`. */
+ *  `@k2b/ui`. */
 export type KitPromptAPI = {
   alert: (message: string, options?: { title?: string; icon?: string }) => Promise<void>;
   confirm: (message: string, options?: { title?: string; icon?: string }) => Promise<boolean>;

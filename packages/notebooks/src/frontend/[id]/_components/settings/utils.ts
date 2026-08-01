@@ -1,4 +1,4 @@
-import type { LogTableEntry } from "@valentinkolb/cloud/ui";
+import type { LogTableEntry } from "@k2b/ui";
 import type { NoteTreeNode } from "../sidebar/types";
 import type { BackupDraft, BackupRunResult, BackupStatus, NoteSelectOption } from "./types";
 

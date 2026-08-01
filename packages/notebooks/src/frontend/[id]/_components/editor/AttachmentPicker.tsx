@@ -9,8 +9,8 @@
  * with {id, kind, filename}. The editor listens, inserts at cursor.
  */
 
-import { FileDropzone, prompts } from "@valentinkolb/cloud/ui";
 import { fileIcons } from "@k2b/stdlib";
+import { Button, FileDropzone, prompts } from "@k2b/ui";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { EDITOR_INSERT_ATTACHMENT_EVENT } from "../detail/events";
@@ -64,7 +64,7 @@ const AttachmentPicker = (props: Props) => {
         title="Drop file or click to choose"
         subtitle="Upload a new attachment and insert it at the cursor."
         hint="Max 10 MB"
-        busy={busy}
+        busy={busy()}
         onDrop={handleFiles}
       />
 
@@ -80,13 +80,13 @@ const AttachmentPicker = (props: Props) => {
             <For each={list() ?? []}>
               {(att) => (
                 <li>
-                  <button type="button" onClick={() => pick(att)} class="list-item w-full !px-2 !py-1.5 text-left text-xs">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => pick(att)} class="w-full justify-start text-left text-xs">
                     <i
                       class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`}
                     />
                     <span class="flex-1 truncate">{att.filename}</span>
                     <span class="text-dimmed tabular-nums">{formatBytes(att.sizeBytes)}</span>
-                  </button>
+                  </Button>
                 </li>
               )}
             </For>

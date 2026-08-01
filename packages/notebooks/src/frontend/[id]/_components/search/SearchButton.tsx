@@ -1,4 +1,4 @@
-import { SPOTLIGHT_SHORTCUT_TITLE, SpotlightButton, type SpotlightButtonVariant } from "@valentinkolb/cloud/ui";
+import { SPOTLIGHT_SHORTCUT_TITLE, SpotlightButton, type SpotlightButtonVariant } from "@k2b/ui";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import { buildNoteUrl } from "../../../params";
 import { openNoteSearchPrompt } from "./openNoteSearchPrompt";

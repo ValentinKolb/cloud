@@ -1,6 +1,6 @@
+import { AppWorkspace, Placeholder } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { notebookHelp } from "@/help";
 import { ssr } from "../../config";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
@@ -21,10 +21,7 @@ export default ssr<AuthContext>(async (c) => {
     return () => (
       <Layout c={c} title="Not Found">
         <div class="max-w-md mx-auto mt-16">
-          <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            <i class="ti ti-alert-circle text-sm" />
-            Notebook not found
-          </div>
+          <Placeholder surface="paper" state="error" icon="ti ti-alert-circle" title="Notebook not found" />
         </div>
       </Layout>
     );
@@ -34,10 +31,13 @@ export default ssr<AuthContext>(async (c) => {
     return () => (
       <Layout c={c} title="Access Denied">
         <div class="max-w-md mx-auto mt-16">
-          <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            <i class="ti ti-lock text-sm" />
-            You don't have access to this notebook
-          </div>
+          <Placeholder
+            surface="paper"
+            state="error"
+            icon="ti ti-lock"
+            title="Access denied"
+            description="You don't have access to this notebook."
+          />
         </div>
       </Layout>
     );

@@ -1,6 +1,6 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
 import { readErrorMessage } from "./utils";
@@ -35,7 +35,7 @@ export function DangerZone(props: { notebook: Notebook }) {
   return (
     <div class="flex flex-col gap-2">
       <p class="text-xs text-dimmed">This removes notes, versions, attachments, and access grants. It cannot be undone.</p>
-      <button type="button" onClick={handleDelete} disabled={mutation.loading()} class="btn-danger btn-md self-start">
+      <Button variant="danger" onClick={handleDelete} loading={mutation.loading()} loadingLabel="Deleting" class="self-start">
         {mutation.loading() ? (
           <>
             <i class="ti ti-loader-2 animate-spin" />
@@ -47,7 +47,7 @@ export function DangerZone(props: { notebook: Notebook }) {
             Delete notebook
           </>
         )}
-      </button>
+      </Button>
     </div>
   );
 }

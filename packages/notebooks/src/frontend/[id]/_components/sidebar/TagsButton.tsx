@@ -8,8 +8,9 @@
  * tag-count is bounded — even a notebook with thousands of tags fits
  * in one fetch and a memo-based filter.
  */
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+
 import { timed } from "@k2b/stdlib/solid";
+import { AppWorkspace, Button, Placeholder, prompts, TextInput } from "@k2b/ui";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildTagPageUrl } from "../../../params";
@@ -50,15 +51,21 @@ const TagsModal = (props: { notebookId: string; close: () => void }) => {
     return list.filter((t) => t.tag.includes(q));
   });
 
-  const onInput = (e: Event) => {
-    const v = (e.currentTarget as HTMLInputElement).value;
+  const onInput = (v: string) => {
     setQuery(v);
     setQueryDebounced(v);
   };
 
   return (
     <div class="flex min-w-[24rem] w-full max-w-full flex-col gap-2">
-      <input type="text" class="input" placeholder="Search tags..." autofocus value={query()} onInput={onInput} />
+      <TextInput
+        aria-label="Search tags"
+        placeholder="Search tags..."
+        autofocus
+        value={query}
+        onValueChange={onInput}
+        icon="ti ti-search"
+      />
 
       <Show when={!tags.loading} fallback={<p class="text-xs text-dimmed">Loading tags…</p>}>
         <Show
@@ -103,36 +110,30 @@ const openTagsModal = (notebookId: string) =>
 export default function TagsButton(props: Props) {
   if (props.variant === "icon") {
     return (
-      <button
-        type="button"
-        class="sidebar-icon-action"
+      <AppWorkspace.SidebarIconAction
+        label={`${props.tagCount} tag${props.tagCount === 1 ? "" : "s"}`}
+        icon="ti ti-hash"
         onClick={() => void openTagsModal(props.notebookId)}
-        title={`${props.tagCount} tag${props.tagCount === 1 ? "" : "s"}`}
-        aria-label="Tags"
-      >
-        <i class="ti ti-hash text-base" />
-      </button>
+      />
     );
   }
 
   if (props.variant === "sidebar-mobile") {
     return (
-      <button type="button" class="sidebar-item-mobile w-full" onClick={() => void openTagsModal(props.notebookId)}>
+      <Button variant="ghost" size="sm" class="w-full justify-start" onClick={() => void openTagsModal(props.notebookId)}>
         <i class="ti ti-hash" />
         Tags ({props.tagCount})
-      </button>
+      </Button>
     );
   }
   return (
-    <button
-      type="button"
-      class="sidebar-item text-xs w-full"
+    <AppWorkspace.SidebarItem
+      icon="ti ti-hash"
+      meta={props.tagCount}
       onClick={() => void openTagsModal(props.notebookId)}
       title={`${props.tagCount} tag${props.tagCount === 1 ? "" : "s"}`}
     >
-      <i class="ti ti-hash text-sm" />
-      <span class="flex-1 text-left">Tags</span>
-      <span class="text-dimmed tabular-nums">{props.tagCount}</span>
-    </button>
+      Tags
+    </AppWorkspace.SidebarItem>
   );
 }

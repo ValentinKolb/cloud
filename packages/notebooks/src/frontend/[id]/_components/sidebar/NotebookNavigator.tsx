@@ -1,5 +1,5 @@
-import { Dropdown, Placeholder, prompts, SelectChip } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates, searchParams } from "@k2b/stdlib";
+import { Dropdown, IconButton, Placeholder, prompts, SelectChip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { type NavigatorQuery, parseNavigatorQuery, withNavigatorQuery } from "../../../../lib/navigator-url";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
@@ -53,7 +53,13 @@ const TREE_MODE_OPTIONS = [
 ] satisfies { value: TreeMode; label: string }[];
 
 const navigatorRowClass = (active: boolean, extra = "") =>
-  `sidebar-item h-8 min-h-8 w-full py-0 text-xs ${active ? "sidebar-item-active" : ""} ${extra}`;
+  `flex h-8 min-h-8 w-full items-center gap-2 rounded-[var(--ui-radius-control)] px-2 py-0 text-xs transition-colors hover:bg-[var(--ui-hover)] ${active ? "bg-[var(--ui-selected)] app-accent-text" : ""} ${extra}`;
+
+const navigatorActionClass =
+  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] text-dimmed transition-colors hover:bg-[var(--ui-hover)] hover:text-primary";
+
+const noteCardClass = (active: boolean) =>
+  `group relative rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-surface)] transition-colors hover:bg-[var(--ui-hover)] ${active ? "bg-[var(--ui-selected)]" : ""}`;
 
 const directChildren = (nodes: NoteTreeNode[], parentId: string | null): NoteTreeNode[] => {
   if (!parentId) return nodes;
@@ -138,7 +144,7 @@ const NoteBranchPicker = (props: {
             <Show when={note.children.length > 0} fallback={<span class="h-4 w-4 shrink-0" />}>
               <button
                 type="button"
-                class="sidebar-item-action h-4 w-4 shrink-0"
+                class={navigatorActionClass}
                 aria-label={`${props.collapsedIds.has(note.id) ? "Expand" : "Collapse"} ${note.title || "Untitled"}`}
                 onClick={() => props.onToggle(note.id)}
               >
@@ -294,11 +300,11 @@ export default function NotebookNavigator(props: Props) {
       <div class="flex min-h-0 flex-col pr-1">
         <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`notebooks-navigator-roots-${props.notebook.shortId}`}>
           <div class="relative mb-2 flex items-center gap-2 pr-7">
-            <div class="sidebar-header-icon flex shrink-0 items-center justify-center bg-blue-500 text-white">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] bg-[var(--app-accent,var(--color-blue-500))] text-white">
               <i class={`ti ${props.notebook.icon || "ti-notebook"} text-xs`} />
             </div>
             <div class="min-w-0 flex-1">
-              <p class="sidebar-header-title">{props.notebook.name}</p>
+              <p class="truncate text-sm font-semibold text-primary">{props.notebook.name}</p>
             </div>
             <NotebookSettingsButton
               notebook={props.notebook}
@@ -339,7 +345,7 @@ export default function NotebookNavigator(props: Props) {
               <Show when={hasBranches()}>
                 <button
                   type="button"
-                  class="sidebar-item-action h-4 w-4 shrink-0"
+                  class={navigatorActionClass}
                   aria-label={`${notesExpanded() ? "Collapse" : "Expand"} all notes`}
                   onClick={() => setNotesExpanded((value) => !value)}
                 >
@@ -391,11 +397,11 @@ export default function NotebookNavigator(props: Props) {
         </div>
 
         <div class="mt-2 flex shrink-0 flex-col gap-0.5">
-          <a href="/app/notebooks" class="sidebar-item w-full text-xs">
+          <a href="/app/notebooks" class={navigatorRowClass(false)}>
             <i class="ti ti-library text-sm" />
             <span class="min-w-0 flex-1 truncate text-left">All Notebooks</span>
           </a>
-          <a href={attachmentsHref()} class="sidebar-item w-full text-xs">
+          <a href={attachmentsHref()} class={navigatorRowClass(false)}>
             <i class="ti ti-paperclip text-sm" />
             <span class="min-w-0 flex-1 truncate text-left">Attachments</span>
           </a>
@@ -404,18 +410,12 @@ export default function NotebookNavigator(props: Props) {
 
       <div class="flex min-h-0 min-w-0 flex-col">
         <div class="flex shrink-0 flex-wrap items-center gap-2 pb-2">
-          <SelectChip value={treeMode()} options={TREE_MODE_OPTIONS} onChange={setTreeMode} icon="ti ti-list-tree" />
-          <SelectChip value={sortMode()} options={SORT_OPTIONS} onChange={changeSortMode} icon="ti ti-sort-descending" />
+          <SelectChip value={treeMode()} options={TREE_MODE_OPTIONS} onValueChange={setTreeMode} icon="ti ti-list-tree" />
+          <SelectChip value={sortMode()} options={SORT_OPTIONS} onValueChange={changeSortMode} icon="ti ti-sort-descending" />
           <Show when={props.canWrite}>
-            <button
-              type="button"
-              class="icon-btn ml-auto text-green-600 dark:text-green-400"
-              title="New note"
-              aria-label="New note"
-              onClick={() => actions.handleCreateNote()}
-            >
+            <IconButton class="ml-auto text-green-600 dark:text-green-400" label="New note" onClick={() => actions.handleCreateNote()}>
               <i class="ti ti-plus" />
-            </button>
+            </IconButton>
           </Show>
         </div>
 
@@ -433,10 +433,7 @@ export default function NotebookNavigator(props: Props) {
                 {(note) => {
                   const active = () => note().id === activeNoteId();
                   return (
-                    <div
-                      class={`paper group relative transition-all hover:paper-highlighted ${active() ? "paper-highlighted" : ""}`}
-                      style={{ "border-color": active() ? "var(--ui-app-accent-border)" : undefined }}
-                    >
+                    <div class={noteCardClass(active())} style={{ "border-color": active() ? "var(--ui-app-accent-border)" : undefined }}>
                       <a
                         href={noteHref(note())}
                         class="block p-3 pr-10 no-underline"
@@ -464,7 +461,7 @@ export default function NotebookNavigator(props: Props) {
                         <Show when={props.canWrite}>
                           <Dropdown
                             trigger={
-                              <span class="sidebar-item-action opacity-70 group-hover:opacity-100">
+                              <span class={`${navigatorActionClass} opacity-70 group-hover:opacity-100`}>
                                 <i class="ti ti-dots text-xs" />
                               </span>
                             }
@@ -484,10 +481,7 @@ export default function NotebookNavigator(props: Props) {
                   const active = () => note.id === activeNoteId();
                   const tags = () => noteTags(note).slice(0, 3);
                   return (
-                    <div
-                      class={`paper group relative transition-all hover:paper-highlighted ${active() ? "paper-highlighted" : ""}`}
-                      style={{ "border-color": active() ? "var(--ui-app-accent-border)" : undefined }}
-                    >
+                    <div class={noteCardClass(active())} style={{ "border-color": active() ? "var(--ui-app-accent-border)" : undefined }}>
                       <a
                         href={href()}
                         class="block p-3 pr-16 no-underline"
@@ -524,7 +518,7 @@ export default function NotebookNavigator(props: Props) {
                       <div class="absolute right-2 top-2 flex items-center gap-0.5">
                         <button
                           type="button"
-                          class={`sidebar-item-action opacity-70 group-hover:opacity-100 ${
+                          class={`${navigatorActionClass} opacity-70 group-hover:opacity-100 ${
                             favoriteIds().has(note.id) ? "!text-amber-500 hover:!text-amber-500" : ""
                           }`}
                           title={favoriteIds().has(note.id) ? "Remove favorite" : "Add favorite"}
@@ -536,7 +530,7 @@ export default function NotebookNavigator(props: Props) {
                         <Show when={props.canWrite}>
                           <Dropdown
                             trigger={
-                              <span class="sidebar-item-action opacity-70 group-hover:opacity-100">
+                              <span class={`${navigatorActionClass} opacity-70 group-hover:opacity-100`}>
                                 <i class="ti ti-dots text-xs" />
                               </span>
                             }

@@ -9,8 +9,9 @@
  * Extensible by design: future settings just need a `defaults.ts`
  * entry — they auto-appear in this modal without any frontend change.
  */
-import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, toast } from "@valentinkolb/cloud/ui";
+
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { Button, ButtonLink, dialogCore, NumberInput, PanelDialog, Placeholder, panelDialogOptions, TextInput, toast } from "@k2b/ui";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 
@@ -70,8 +71,7 @@ const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => 
   const isNumber = props.entry.kind === "number";
   const suffix = unitSuffixForKey(props.entry.key);
 
-  const handleInput = (e: Event) => {
-    const raw = (e.currentTarget as HTMLInputElement).value;
+  const handleValue = (raw: string) => {
     setValue(raw);
     // For number kinds we parse before handing the value off so the
     // PUT body matches the backend validator's expectation. Empty
@@ -85,28 +85,28 @@ const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => 
   };
 
   return (
-    <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-primary" for={`setting-${props.entry.key}`}>
-        {props.entry.label}
-        <span class="ml-1.5 text-[10px] text-dimmed font-normal font-mono">{props.entry.key}</span>
-      </label>
-      <div class="relative">
-        <input
+    <Show
+      when={isNumber}
+      fallback={
+        <TextInput
           id={`setting-${props.entry.key}`}
-          type={isNumber ? "number" : "text"}
-          class={`input w-full ${suffix ? "pr-12" : ""}`}
-          value={value()}
-          onInput={handleInput}
+          label={props.entry.label}
+          description={props.entry.description}
+          value={value}
+          onValueChange={handleValue}
           placeholder={typeof props.entry.default === "string" ? props.entry.default : String(props.entry.default ?? "")}
         />
-        <Show when={suffix}>
-          <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] font-mono text-dimmed">{suffix}</span>
-        </Show>
-      </div>
-      <Show when={props.entry.description}>
-        <p class="text-[11px] text-dimmed">{props.entry.description}</p>
-      </Show>
-    </div>
+      }
+    >
+      <NumberInput
+        id={`setting-${props.entry.key}`}
+        label={props.entry.label}
+        description={props.entry.description}
+        value={() => (value().trim() === "" ? null : Number(value()))}
+        onValueChange={(next) => handleValue(next === null ? "" : String(next))}
+        suffix={suffix ? <span class="font-mono text-[11px]">{suffix}</span> : undefined}
+      />
+    </Show>
   );
 };
 
@@ -172,18 +172,18 @@ const SettingsBody = (props: { close: () => void }) => {
         </PanelDialog.Section>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <a href="/admin/observability/jobs?search=notebooks%3Areindex" class="btn-input btn-input-sm">
+        <ButtonLink href="/admin/observability/jobs?search=notebooks%3Areindex" variant="secondary" size="sm">
           <i class="ti ti-calendar-time text-sm" />
           Reindex job
-        </a>
+        </ButtonLink>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={busy()}>
+          <Button type="button" variant="secondary" size="sm" onClick={props.close} disabled={busy()}>
             Cancel
-          </button>
-          <button type="button" class="btn-input btn-input-sm" onClick={() => void onSave()} disabled={busy()}>
+          </Button>
+          <Button type="button" size="sm" onClick={() => void onSave()} loading={busy()} loadingLabel="Saving">
             <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
             Save
-          </button>
+          </Button>
         </div>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -194,9 +194,9 @@ const openSettingsDialog = () => dialogCore.open<void>((close) => <SettingsBody 
 
 export default function AdminNotebooksAppSettings() {
   return (
-    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={() => void openSettingsDialog()}>
+    <Button type="button" variant="secondary" size="sm" class="shrink-0" onClick={() => void openSettingsDialog()}>
       <i class="ti ti-settings text-sm" />
       Settings
-    </button>
+    </Button>
   );
 }

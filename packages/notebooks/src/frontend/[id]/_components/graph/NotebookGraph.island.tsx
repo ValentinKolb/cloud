@@ -1,5 +1,5 @@
-import { Tooltip } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { ButtonLink, IconButton, Tooltip } from "@k2b/ui";
 import { forceCenter, forceLink, forceManyBody, forceSimulation, type Simulation } from "d3-force";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { NoteGraph } from "../../../../service/links";
@@ -292,12 +292,18 @@ export default function NotebookGraph(props: Props) {
   });
 
   return (
-    <div class="flex-1 min-w-0 min-h-0 paper relative overflow-hidden">
+    <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)]">
       <Show when={simNodes.length > 0} fallback={<EmptyState />}>
         <Tooltip content="Close graph">
-          <a href={closeHref()} class="icon-btn absolute left-2 top-2 z-10 h-8 w-8" aria-label="Close graph">
+          <ButtonLink
+            href={closeHref()}
+            variant="ghost"
+            size="sm"
+            class="k2b-icon-button absolute left-2 top-2 z-10"
+            aria-label="Close graph"
+          >
             <i class="ti ti-x" />
-          </a>
+          </ButtonLink>
         </Tooltip>
 
         <svg
@@ -323,8 +329,8 @@ export default function NotebookGraph(props: Props) {
               )}
             </For>
 
-            {/* Nodes — borderless circles in the same neutral as the edges,
-                selected note picks up the soft `sidebar-item-active` blue. */}
+            {/* Nodes — borderless circles in the same neutral as the edges;
+                the selected note uses the shared accent palette. */}
             <For each={simNodes}>
               {(node) => {
                 const radius = radiusFor(node.inDegree);
@@ -368,21 +374,21 @@ export default function NotebookGraph(props: Props) {
           </g>
         </svg>
 
-        <div class="paper absolute bottom-2 right-2 z-10 flex flex-col gap-1 p-1">
+        <div class="absolute bottom-2 right-2 z-10 flex flex-col gap-1 rounded-[var(--ui-radius-control)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1 shadow-[var(--ui-shadow-float)]">
           <Tooltip content="Zoom in">
-            <button type="button" class="icon-btn h-8 w-8" aria-label="Zoom in" onClick={() => setClampedZoom(zoom() * ZOOM_STEP)}>
+            <IconButton label="Zoom in" size="sm" onClick={() => setClampedZoom(zoom() * ZOOM_STEP)}>
               <i class="ti ti-plus" />
-            </button>
+            </IconButton>
           </Tooltip>
           <Tooltip content="Zoom out">
-            <button type="button" class="icon-btn h-8 w-8" aria-label="Zoom out" onClick={() => setClampedZoom(zoom() / ZOOM_STEP)}>
+            <IconButton label="Zoom out" size="sm" onClick={() => setClampedZoom(zoom() / ZOOM_STEP)}>
               <i class="ti ti-minus" />
-            </button>
+            </IconButton>
           </Tooltip>
           <Tooltip content="Fit graph">
-            <button type="button" class="icon-btn h-8 w-8" aria-label="Fit graph" onClick={fitGraph}>
+            <IconButton label="Fit graph" size="sm" onClick={fitGraph}>
               <i class="ti ti-focus-centered" />
-            </button>
+            </IconButton>
           </Tooltip>
         </div>
       </Show>

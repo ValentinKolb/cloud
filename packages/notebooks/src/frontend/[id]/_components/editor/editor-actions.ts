@@ -1,5 +1,5 @@
 import type { EditorView } from "@codemirror/view";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 import { buildDataBlockTemplate, dataBlockRefSelection } from "../../../lib/editor/data-block-template";
 import { openNoteLinkPrompt } from "../search/openNoteSearchPrompt";
 

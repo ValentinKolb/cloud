@@ -1,9 +1,8 @@
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import { hasRole } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
+import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
-import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
-import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { extractNamedBlockSummaries } from "@/lib/named-blocks";
 import { parseNavigatorQuery } from "@/lib/navigator-url";
 import { notebooksService } from "@/service";

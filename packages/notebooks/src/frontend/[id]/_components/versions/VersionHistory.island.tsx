@@ -1,8 +1,8 @@
-import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, openSpotlightSearch, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, MarkdownView, openSpotlightSearch, Placeholder, prompts, SegmentedControl } from "@k2b/ui";
+import { markdown } from "@valentinkolb/cloud/shared";
 import { diffLines } from "diff";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -328,9 +328,16 @@ export default function VersionHistory(props: Props) {
       {/* Header */}
       <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 px-2 pt-2">
         <div class="flex items-center gap-2">
-          <a href={backUrl} class="icon-btn h-8 w-8 text-dimmed" title="Back to editor" aria-label="Back to editor">
+          <ButtonLink
+            href={backUrl}
+            variant="ghost"
+            size="sm"
+            class="k2b-icon-button text-dimmed"
+            title="Back to editor"
+            aria-label="Back to editor"
+          >
             <i class="ti ti-arrow-left" />
-          </a>
+          </ButtonLink>
           <div>
             <h2 class="text-sm font-semibold">Version History</h2>
             <p class="text-xs text-dimmed">{props.noteTitle}</p>
@@ -339,37 +346,28 @@ export default function VersionHistory(props: Props) {
 
         <Show when={selectedVersionId()}>
           <div class="flex flex-wrap items-center justify-end gap-2">
-            <div class="flex items-center gap-1" role="group" aria-label="Version preview">
-              <button
-                type="button"
-                class={`btn-input btn-input-sm ${previewMode() === "content" ? "btn-input-active" : ""}`}
-                aria-pressed={previewMode() === "content"}
-                onClick={() => setPreviewMode("content")}
-              >
-                <i class="ti ti-file-text" />
-                Content
-              </button>
-              <button
-                type="button"
-                class={`btn-input btn-input-sm ${previewMode() === "changes" ? "btn-input-active" : ""}`}
-                aria-pressed={previewMode() === "changes"}
-                onClick={() => setPreviewMode("changes")}
-              >
-                <i class="ti ti-git-compare" />
-                Changes
-              </button>
-            </div>
+            <SegmentedControl
+              ariaLabel="Version preview"
+              size="sm"
+              value={previewMode}
+              onValueChange={setPreviewMode}
+              options={[
+                { value: "content", label: "Content", icon: "ti ti-file-text" },
+                { value: "changes", label: "Changes", icon: "ti ti-git-compare" },
+              ]}
+            />
             <Show when={props.isLocked}>
               <span class="text-xs text-dimmed flex items-center gap-1">
                 <i class="ti ti-lock text-xs" />
                 Locked
               </span>
             </Show>
-            <button
-              type="button"
+            <Button
+              size="sm"
               onClick={handleRestoreAsNew}
               disabled={isWorking() || previewLoading() || !getRestoreSnapshot()}
-              class="btn-input btn-input-sm"
+              loading={restoreAsNewMut.loading()}
+              loadingLabel="Creating note"
               title="Creates a new note. The current note stays unchanged."
             >
               {restoreAsNewMut.loading() ? (
@@ -380,7 +378,7 @@ export default function VersionHistory(props: Props) {
                   Create note from version
                 </>
               )}
-            </button>
+            </Button>
           </div>
         </Show>
       </div>
@@ -415,15 +413,16 @@ export default function VersionHistory(props: Props) {
               <p class="px-2.5 pb-1 text-[10px] font-semibold uppercase text-dimmed">Saved versions</p>
               <For each={versions()}>
                 {(version) => (
-                  <button
-                    type="button"
+                  <Button
+                    variant={selectedVersionId() === version.id ? "subtle" : "ghost"}
+                    size="sm"
                     onClick={() => selectVersion(version.id)}
-                    class={`list-item w-full !px-2.5 !py-1.5 text-left text-xs ${selectedVersionId() === version.id ? "list-item-active" : ""}`}
+                    class="w-full justify-start text-left"
                     aria-pressed={selectedVersionId() === version.id}
                   >
                     <i class="ti ti-history text-[11px] text-dimmed" />
                     <span>{formatDate(version.createdAt)}</span>
-                  </button>
+                  </Button>
                 )}
               </For>
 

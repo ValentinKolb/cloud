@@ -5,7 +5,7 @@
  *
  * Server-safe regex copies live in `service/attachments.ts`.
  */
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 
 const ATTACHMENT_URL_RE = /^attach:\/\/([0-9a-zA-Z]{6})$/;
 const ATTACHMENT_REF_RE_GLOBAL = /attach:\/\/([0-9a-zA-Z]{6})/g;

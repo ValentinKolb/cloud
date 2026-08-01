@@ -37,6 +37,7 @@
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
     "@uiw/codemirror-themes": "^4.25.4",
+    "@k2b/ui": "workspace:*",
     "@valentinkolb/cloud": "workspace:*",
     "@k2b/ssr": "0.12.0",
     "@k2b/stdlib": "0.17.1",

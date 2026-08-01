@@ -1,5 +1,5 @@
-import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppWorkspace, Button, IconButton, prompts } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import { buildNoteUrl } from "../../../params";
@@ -34,30 +34,27 @@ const CreateNoteButton = (props: Props) => {
 
   if (props.variant === "compact") {
     return (
-      <button type="button" onClick={handleCreate} disabled={mutation.loading()} class="p-1.5 text-dimmed hover:text-primary">
+      <IconButton label="New note" size="xs" onClick={handleCreate} loading={mutation.loading()} loadingLabel="Creating note">
         <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-file-plus"}`} />
-      </button>
+      </IconButton>
     );
   }
 
   if (props.variant === "icon") {
     return (
-      <button
-        type="button"
+      <AppWorkspace.SidebarIconAction
+        label="New note"
+        icon={mutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"}
+        tone="success"
         onClick={handleCreate}
         disabled={mutation.loading()}
-        class="sidebar-icon-action sidebar-icon-action-success"
-        title="New Note"
-        aria-label="New Note"
-      >
-        <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
-      </button>
+      />
     );
   }
 
   if (props.variant === "chip") {
     return (
-      <button type="button" onClick={handleCreate} disabled={mutation.loading()} class="btn-primary btn-sm">
+      <Button size="sm" onClick={handleCreate} loading={mutation.loading()} loadingLabel="Creating note">
         {mutation.loading() ? (
           <i class="ti ti-loader-2 animate-spin" />
         ) : (
@@ -66,37 +63,25 @@ const CreateNoteButton = (props: Props) => {
             <span>New Note</span>
           </>
         )}
-      </button>
+      </Button>
     );
   }
 
   if (props.variant === "sidebar") {
     return (
-      <button
-        type="button"
+      <AppWorkspace.SidebarItem
+        icon={mutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"}
+        tone="success"
         onClick={handleCreate}
         disabled={mutation.loading()}
-        class="sidebar-item w-full min-h-8 px-2 py-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20"
       >
-        {mutation.loading() ? (
-          <i class="ti ti-loader-2 animate-spin" />
-        ) : (
-          <>
-            <i class="ti ti-plus" />
-            <span>New Note</span>
-          </>
-        )}
-      </button>
+        New Note
+      </AppWorkspace.SidebarItem>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleCreate}
-      disabled={mutation.loading()}
-      class="paper btn-md border-emerald-200/50 dark:border-emerald-900/30 bg-emerald-50/30 dark:bg-emerald-900/10"
-    >
+    <Button variant="success" onClick={handleCreate} loading={mutation.loading()} loadingLabel="Creating note">
       {mutation.loading() ? (
         <i class="ti ti-loader-2 animate-spin" />
       ) : (
@@ -105,7 +90,7 @@ const CreateNoteButton = (props: Props) => {
           <span class="text-emerald-700 dark:text-emerald-300">New Note</span>
         </>
       )}
-    </button>
+    </Button>
   );
 };
 

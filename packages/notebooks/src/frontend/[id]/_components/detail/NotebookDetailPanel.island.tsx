@@ -1,7 +1,7 @@
-import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
-import { AppWorkspace, Avatar, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { dates, fileIcons } from "@k2b/stdlib";
 import { clipboard, files } from "@k2b/stdlib/browser";
+import { AppWorkspace, Avatar, Button, ButtonLink, IconButton, Tooltip, toast } from "@k2b/ui";
+import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { NamedBlockSummary } from "../../../../lib/named-blocks";
@@ -296,9 +296,9 @@ export default function NotebookDetailPanel(props: Props) {
           <div class="flex items-center justify-between gap-2">
             <span class="text-xs font-semibold text-secondary">Note details</span>
             <Tooltip content="Close details">
-              <button type="button" class="icon-btn" aria-label="Close note details" onClick={closePanel}>
+              <IconButton label="Close note details" size="sm" onClick={closePanel}>
                 <i class="ti ti-x" />
-              </button>
+              </IconButton>
             </Tooltip>
           </div>
 
@@ -317,35 +317,42 @@ export default function NotebookDetailPanel(props: Props) {
           <div class="mt-3 flex flex-wrap items-center gap-1">
             <Show when={props.mode === "edit"}>
               <Tooltip content={isRich() ? "Show Markdown source" : "Show rich text"}>
-                <button
-                  type="button"
-                  class="icon-btn"
-                  aria-label={isRich() ? "Show Markdown source" : "Show rich text"}
-                  onClick={toggleRichMode}
-                >
+                <IconButton label={isRich() ? "Show Markdown source" : "Show rich text"} size="sm" onClick={toggleRichMode}>
                   <i class={`ti ${isRich() ? "ti-markdown" : "ti-typography"}`} />
-                </button>
+                </IconButton>
               </Tooltip>
             </Show>
             <Tooltip content="Copy content">
-              <button type="button" class="icon-btn" aria-label="Copy note content" onClick={copyContent}>
+              <IconButton label="Copy note content" size="sm" onClick={copyContent}>
                 <i class="ti ti-copy" />
-              </button>
+              </IconButton>
             </Tooltip>
             <Tooltip content="Download Markdown">
-              <button type="button" class="icon-btn" aria-label="Download note as Markdown" onClick={downloadContent}>
+              <IconButton label="Download note as Markdown" size="sm" onClick={downloadContent}>
                 <i class="ti ti-download" />
-              </button>
+              </IconButton>
             </Tooltip>
             <Tooltip content="Version history">
-              <a href={buildVersionsUrl(props.notebookId, noteId())} class="icon-btn" aria-label="Open version history">
+              <ButtonLink
+                href={buildVersionsUrl(props.notebookId, noteId())}
+                variant="ghost"
+                size="sm"
+                class="k2b-icon-button"
+                aria-label="Open version history"
+              >
                 <i class="ti ti-history" />
-              </a>
+              </ButtonLink>
             </Tooltip>
             <Tooltip content="Graph view">
-              <a href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`} class="icon-btn" aria-label="Open graph view">
+              <ButtonLink
+                href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`}
+                variant="ghost"
+                size="sm"
+                class="k2b-icon-button"
+                aria-label="Open graph view"
+              >
                 <i class="ti ti-affiliate" />
-              </a>
+              </ButtonLink>
             </Tooltip>
           </div>
         </header>
@@ -418,14 +425,14 @@ export default function NotebookDetailPanel(props: Props) {
                         <span class="text-dimmed capitalize">{block.type}</span>
                       </button>
                       <Tooltip content={`Copy script snippet for @${block.name}`} class="shrink-0">
-                        <button
-                          type="button"
-                          class="icon-btn h-6 w-6 shrink-0 text-dimmed opacity-0 transition-opacity hover:text-primary focus:opacity-100 group-hover:opacity-100"
+                        <IconButton
+                          label={`Copy script snippet for ${block.name}`}
+                          size="xs"
+                          class="shrink-0 text-dimmed opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
                           onClick={(event) => void copyNamedBlockSnippet(event, block)}
-                          aria-label={`Copy script snippet for ${block.name}`}
                         >
                           <i class="ti ti-copy text-xs" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                     </li>
                   )}
@@ -444,10 +451,11 @@ export default function NotebookDetailPanel(props: Props) {
                 <For each={visibleAttachments()}>
                   {(att) => (
                     <li>
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId))}
-                        class="list-item w-full !px-2 !py-1.5 text-left text-xs"
+                        class="w-full justify-start text-left"
                         title={att.filename}
                       >
                         <i
@@ -455,7 +463,7 @@ export default function NotebookDetailPanel(props: Props) {
                         />
                         <span class="flex-1 truncate">{att.filename}</span>
                         <span class="text-dimmed tabular-nums shrink-0">{formatBytes(att.sizeBytes)}</span>
-                      </button>
+                      </Button>
                     </li>
                   )}
                 </For>
@@ -500,9 +508,13 @@ export default function NotebookDetailPanel(props: Props) {
                   {(p) => (
                     <li class="detail-row">
                       <Avatar
-                        username={p.displayName}
-                        userId={p.userId}
-                        avatarHash={p.avatarHash}
+                        name={p.displayName}
+                        fallback={(p.displayName.trim() || "?").slice(0, 2).toUpperCase()}
+                        src={
+                          p.userId && p.avatarHash
+                            ? `/api/accounts/users/${encodeURIComponent(p.userId)}/avatar?rev=${encodeURIComponent(p.avatarHash)}`
+                            : undefined
+                        }
                         size="xs"
                         style={`outline: 2px solid ${p.color}; outline-offset: 1px`}
                       />

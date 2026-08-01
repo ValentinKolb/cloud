@@ -1,6 +1,7 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, PermissionEditor, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { Dropdown, prompts, Tooltip, toast } from "@k2b/ui";
+import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@/api/client";
 
 type AdminNotebookActionsProps = {

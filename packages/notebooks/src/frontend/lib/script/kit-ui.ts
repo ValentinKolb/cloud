@@ -22,9 +22,10 @@
  * specific options (e.g. `button({ variant: "danger" })`). For
  * advanced cases scripts can drop down to `ui.html(...)`.
  */
-import { markdown } from "@valentinkolb/cloud/shared";
-import { toast as platformToast, prompts } from "@valentinkolb/cloud/ui";
+
 import { charts as stdCharts } from "@k2b/stdlib";
+import { toast as platformToast, prompts } from "@k2b/ui";
+import { markdown } from "@valentinkolb/cloud/shared";
 import { renderPrettyTableHtml } from "../pretty-table";
 import type {
   KitButtonOptions,
@@ -400,7 +401,8 @@ const makeButton = (
   const btn = document.createElement("button");
   btn.type = "button";
   const variant = options?.variant ?? "primary";
-  btn.className = `md-script-ui-button md-script-button btn-sm ${variant === "danger" ? "btn-danger" : variant === "secondary" ? "btn-secondary" : "btn-primary"}`;
+  btn.className = "md-script-ui-button md-script-button";
+  btn.dataset.variant = variant;
 
   const icon = document.createElement("i");
   icon.className = options?.icon ?? "ti ti-sparkles";

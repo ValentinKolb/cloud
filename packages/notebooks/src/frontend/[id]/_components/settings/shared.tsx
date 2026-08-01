@@ -1,3 +1,4 @@
+import { Button } from "@k2b/ui";
 import { Show } from "solid-js";
 
 export function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?: string; onSave: () => void }) {
@@ -11,12 +12,12 @@ export function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?
         </p>
       }
     >
-      <div class="info-block-info flex flex-wrap items-center gap-2 text-xs">
+      <div class="flex flex-wrap items-center gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-3 text-xs text-secondary">
         <span class="flex items-center gap-1.5">
           <i class="ti ti-pencil" />
           Unsaved changes
         </span>
-        <button type="button" class="btn-primary btn-sm ml-auto" disabled={props.loading} onClick={props.onSave}>
+        <Button size="sm" class="ml-auto" loading={props.loading} loadingLabel="Saving" onClick={props.onSave}>
           {props.loading ? (
             <>
               <i class="ti ti-loader-2 animate-spin" />
@@ -25,14 +26,14 @@ export function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?
           ) : (
             (props.label ?? "Save")
           )}
-        </button>
+        </Button>
       </div>
     </Show>
   );
 }
 
 export const settingsChoiceClass = (active: boolean) =>
-  `paper relative p-4 text-left transition-[background-color,box-shadow,color] ${
+  `relative rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 text-left shadow-[var(--ui-shadow-surface)] transition-[background-color,box-shadow,color] ${
     active
       ? "text-blue-700 dark:text-blue-300 before:absolute before:left-2 before:top-4 before:h-3.5 before:w-0.5 before:rounded-full before:bg-blue-500 dark:before:bg-blue-400"
       : "text-secondary"

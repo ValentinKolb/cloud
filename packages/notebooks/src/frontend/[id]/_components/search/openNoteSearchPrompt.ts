@@ -1,4 +1,4 @@
-import { openSpotlightSearch } from "@valentinkolb/cloud/ui";
+import { openSpotlightSearch } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 type NoteResult = {

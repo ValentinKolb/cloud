@@ -1,7 +1,7 @@
+import { DataPanel, DataTable, type DataTableColumn, Pagination, StatCell, StatGrid, StatusBadge } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { notebookHelp } from "../help";
 import { notebooksService } from "../service";
@@ -80,7 +80,12 @@ export default ssr<AuthContext>(async (c) => {
           <AdminNotebooksAppSettings />
         </div>
 
-        <section class="paper overflow-hidden" style="view-transition-name: admin-notebooks-table">
+        <DataPanel
+          title="Notebook records"
+          subtitle={`${notebooks.items.length} of ${notebooks.total}`}
+          class="overflow-hidden"
+          footer={<Pagination currentPage={notebooks.page} totalPages={totalPages} baseUrl={baseUrl} />}
+        >
           <DataTable
             rows={notebooks.items}
             columns={columns}
@@ -106,24 +111,17 @@ export default ssr<AuthContext>(async (c) => {
               }
               if (col.id === "permissions") {
                 return (
-                  <span
-                    class={`chip ${
-                      notebook.permissionCount === 0
-                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                        : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                    }`}
-                  >
-                    {notebook.permissionCount} access {notebook.permissionCount === 1 ? "entry" : "entries"}
-                  </span>
+                  <StatusBadge
+                    tone={notebook.permissionCount === 0 ? "error" : "neutral"}
+                    label={`${notebook.permissionCount} access ${notebook.permissionCount === 1 ? "entry" : "entries"}`}
+                  />
                 );
               }
               if (col.id === "actions") return <AdminNotebookActions notebookId={notebook.id} notebookName={notebook.name} />;
               return "";
             }}
           />
-        </section>
-
-        <Pagination currentPage={notebooks.page} totalPages={totalPages} baseUrl={baseUrl} />
+        </DataPanel>
       </div>
     </AdminLayout>
   );

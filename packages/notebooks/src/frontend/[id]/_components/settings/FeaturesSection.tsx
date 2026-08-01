@@ -1,6 +1,6 @@
-import { CheckboxCard, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { CheckboxCard, prompts } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../sidebar/types";
@@ -97,7 +97,7 @@ export function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; o
           description="Allows ```script fences to run trusted JavaScript for everyone who opens this notebook."
           icon="ti ti-code"
           value={enabled}
-          onChange={setScriptsEnabled}
+          onValueChange={setScriptsEnabled}
           disabled={!props.isAdmin || mutation.loading()}
         />
         <div class="info-block-warning flex items-start gap-2 text-xs">

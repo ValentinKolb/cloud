@@ -11,9 +11,10 @@
  * Delete is the only path that wipes a blob. After delete, broken refs in
  * other notes stay broken by design (KISS — see dex task `vnzej6v5`).
  */
-import { Placeholder, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
+
 import { fileIcons } from "@k2b/stdlib";
 import { clipboard } from "@k2b/stdlib/browser";
+import { IconButton, Placeholder, prompts, Tooltip, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import {
@@ -109,7 +110,7 @@ const AttachmentsOverview = (props: Props) => {
       <ul class="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 2xl:grid-cols-16">
         <For each={items()}>
           {(att) => (
-            <li class="paper group relative flex flex-col overflow-hidden">
+            <li class="group relative flex flex-col overflow-hidden rounded-[var(--ui-radius-surface)] border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-surface)]">
               {/* Preview area — fixed square box. Thumbnail / icon sits
                     absolutely inside it so portrait/landscape images can
                     never push the tile out of square (otherwise
@@ -140,34 +141,35 @@ const AttachmentsOverview = (props: Props) => {
                       preview so meta row stays clean (filename + size). */}
                 <div class="absolute right-1 top-1 flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
                   <Tooltip content="Download attachment">
-                    <button
-                      type="button"
+                    <IconButton
+                      label={`Download ${att.filename}`}
+                      size="xs"
                       onClick={() => onDownload(att)}
-                      aria-label={`Download ${att.filename}`}
-                      class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-primary dark:bg-zinc-950/80"
+                      class="bg-white/90 text-dimmed backdrop-blur-sm dark:bg-zinc-950/80"
                     >
                       <i class="ti ti-download text-xs" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                   <Tooltip content="Copy attachment Markdown">
-                    <button
-                      type="button"
+                    <IconButton
+                      label={`Copy Markdown for ${att.filename}`}
+                      size="xs"
                       onClick={() => void onCopy(att)}
-                      aria-label={`Copy Markdown for ${att.filename}`}
-                      class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-primary dark:bg-zinc-950/80"
+                      class="bg-white/90 text-dimmed backdrop-blur-sm dark:bg-zinc-950/80"
                     >
                       <i class="ti ti-copy text-xs" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                   <Tooltip content="Delete attachment">
-                    <button
-                      type="button"
+                    <IconButton
+                      label={`Delete ${att.filename}`}
+                      size="xs"
+                      variant="danger"
                       onClick={() => void onDelete(att)}
-                      aria-label={`Delete ${att.filename}`}
-                      class="icon-btn h-6 w-6 bg-white/90 text-dimmed backdrop-blur-sm hover:text-red-500 dark:bg-zinc-950/80"
+                      class="bg-white/90 backdrop-blur-sm dark:bg-zinc-950/80"
                     >
                       <i class="ti ti-trash text-xs" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 </div>
               </div>

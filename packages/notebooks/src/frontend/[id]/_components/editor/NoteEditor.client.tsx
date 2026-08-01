@@ -1,10 +1,11 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { layout, prompts, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { encoding } from "@k2b/stdlib";
 import { clipboard, files } from "@k2b/stdlib/browser";
 import { dropzone } from "@k2b/stdlib/solid";
+import { prompts, toast } from "@k2b/ui";
+import { layout } from "@valentinkolb/cloud/ssr/layout-runtime";
 import { createCodeMirror } from "solid-codemirror";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";

@@ -1,4 +1,4 @@
-import { prompts, SettingsModal } from "@valentinkolb/cloud/ui";
+import { prompts, SettingsModal } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { AccessSection } from "./AccessSection";
 import { DangerZone } from "./DangerZone";

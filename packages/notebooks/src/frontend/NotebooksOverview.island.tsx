@@ -1,6 +1,6 @@
-import { AppOverview, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppOverview, Button, LinkCard, prompts, TextInput } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../service/notebooks";
@@ -138,12 +138,12 @@ export default function NotebooksOverview(props: Props) {
           <TextInput
             name="notebooks-search"
             type="search"
-            ariaLabel="Search notebooks"
+            aria-label="Search notebooks"
             placeholder="Search notebooks..."
             icon="ti ti-search"
             activeIcon="ti ti-search"
             value={query}
-            onInput={onSearchInput}
+            onValueChange={onSearchInput}
             clearable
             onClear={() => onSearchInput("")}
           />
@@ -168,19 +168,13 @@ export default function NotebooksOverview(props: Props) {
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <For each={filteredNotebooks()}>
                 {(notebook) => (
-                  <a
+                  <LinkCard
                     href={`/app/notebooks/${notebook.shortId}`}
-                    class="paper group flex items-center gap-2 p-4 no-underline transition-all hover:paper-highlighted"
-                  >
-                    <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
-                      <i class={`${notebook.icon || "ti ti-notebook"} text-lg text-blue-600 dark:text-blue-400`} />
-                    </div>
-                    <div class="flex-1 min-w-0">
-                      <span class="text-sm font-semibold text-primary block truncate">{notebook.name}</span>
-                      <p class="text-xs text-dimmed truncate">{notebook.description || "No description"}</p>
-                    </div>
-                    <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
-                  </a>
+                    title={notebook.name}
+                    description={notebook.description || "No description"}
+                    icon={notebook.icon || "ti ti-notebook"}
+                    color="blue"
+                  />
                 )}
               </For>
             </div>
@@ -192,9 +186,10 @@ export default function NotebooksOverview(props: Props) {
         <div class="grid grid-cols-1 gap-2">
           <For each={props.templates}>
             {(template) => (
-              <button
+              <Button
                 type="button"
-                class="paper group flex items-start gap-2 p-4 text-left transition-all hover:paper-highlighted"
+                variant="subtle"
+                class="w-full justify-start text-left"
                 onClick={() => createFromTemplate(template)}
                 disabled={createFromTemplateMutation.loading()}
               >
@@ -206,13 +201,14 @@ export default function NotebooksOverview(props: Props) {
                   <span class="block text-xs text-dimmed leading-snug line-clamp-2">{template.description}</span>
                 </span>
                 <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
-              </button>
+              </Button>
             )}
           </For>
 
-          <button
+          <Button
             type="button"
-            class="paper group flex items-start gap-2 p-4 text-left transition-all hover:paper-highlighted"
+            variant="subtle"
+            class="w-full justify-start text-left"
             onClick={createBlank}
             disabled={createNotebookMutation.loading()}
           >
@@ -224,7 +220,7 @@ export default function NotebooksOverview(props: Props) {
               <span class="block text-xs text-dimmed leading-snug">Create an empty notebook with the standard welcome note.</span>
             </span>
             <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
-          </button>
+          </Button>
         </div>
       </AppOverview.Aside>
     </AppOverview>
