@@ -1,8 +1,8 @@
-import { coreClient } from "@valentinkolb/cloud/clients/core";
-import type { AnnouncementEntry, CreateAnnouncement, UpdateAnnouncement } from "@valentinkolb/cloud/contracts";
-import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, IconButton, prompts, Tooltip, toast } from "@k2b/ui";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
+import type { AnnouncementEntry, CreateAnnouncement, UpdateAnnouncement } from "@valentinkolb/cloud/contracts";
 
 const errorMessage = async (response: Response, fallback: string): Promise<string> => {
   const body = await response.json().catch(() => null);
@@ -131,10 +131,10 @@ function CreateAnnouncementButton() {
   };
 
   return (
-    <button type="button" class="btn-primary btn-sm" onClick={handleClick} disabled={create.loading()}>
-      {create.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-plus" />}
+    <Button type="button" size="sm" onClick={handleClick} loading={create.loading()} loadingLabel="Creating">
+      <i class="ti ti-plus" aria-hidden="true" />
       New
-    </button>
+    </Button>
   );
 }
 
@@ -186,20 +186,21 @@ function AnnouncementRowActions(props: { entry: AnnouncementEntry }) {
   return (
     <div class="flex justify-end gap-1">
       <Tooltip content="Edit announcement">
-        <button type="button" class="btn-simple btn-sm" onClick={handleEdit} disabled={update.loading()} aria-label="Edit announcement">
-          {update.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-pencil" />}
-        </button>
+        <IconButton label="Edit announcement" size="sm" onClick={handleEdit} loading={update.loading()} loadingLabel="Editing announcement">
+          <i class="ti ti-pencil" aria-hidden="true" />
+        </IconButton>
       </Tooltip>
       <Tooltip content="Delete announcement">
-        <button
-          type="button"
-          class="btn-simple btn-sm text-red-500"
+        <IconButton
+          label="Delete announcement"
+          variant="danger"
+          size="sm"
           onClick={handleDelete}
-          disabled={remove.loading()}
-          aria-label="Delete announcement"
+          loading={remove.loading()}
+          loadingLabel="Deleting announcement"
         >
-          {remove.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
-        </button>
+          <i class="ti ti-trash" aria-hidden="true" />
+        </IconButton>
       </Tooltip>
     </div>
   );

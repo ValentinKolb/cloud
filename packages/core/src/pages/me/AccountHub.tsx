@@ -1,6 +1,6 @@
+import { Avatar } from "@k2b/ui";
 import type { User } from "@valentinkolb/cloud/contracts";
 import { getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
-import { Avatar } from "@valentinkolb/cloud/ui";
 import type { JSXElement } from "solid-js";
 import ProfileActions from "./ProfileActions.island";
 
@@ -28,15 +28,18 @@ const roleClass = (role: string): string =>
 export default function AccountHub(props: { user: User; active: AccountSection; children: JSXElement; actions?: JSXElement }) {
   const supplementalRoles = props.user.roles.filter((role) => role === "admin" || role === "group-manager");
   const expired = props.user.accountExpires ? new Date(props.user.accountExpires) < new Date() : false;
+  const avatarSrc =
+    props.user.id && props.user.avatarHash
+      ? `/api/accounts/users/${encodeURIComponent(props.user.id)}/avatar?rev=${encodeURIComponent(props.user.avatarHash)}`
+      : undefined;
 
   return (
     <div class="mx-auto flex w-full max-w-6xl flex-col gap-2 px-2">
       <section class="paper p-4 sm:p-5" style="view-transition-name: account-hub">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
           <Avatar
-            username={props.user.displayName || props.user.uid}
-            userId={props.user.id}
-            avatarHash={props.user.avatarHash}
+            name={props.user.displayName || props.user.uid}
+            src={avatarSrc}
             size={props.active === "overview" ? "lg" : "md"}
             class="bg-zinc-100 shadow-[var(--ui-shadow-surface)] dark:bg-zinc-800"
             style="view-transition-name: user-avatar"

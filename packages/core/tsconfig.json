@@ -8,7 +8,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@valentinkolb/cloud": ["../cloud/src/index.ts"],
-      "@valentinkolb/cloud/ui": ["../cloud/src/ui/index.ts"],
+      "@valentinkolb/cloud/account/ui": ["../cloud/src/account/ui.ts"],
+      "@valentinkolb/cloud/ai/ui": ["../cloud/src/ai/ui.tsx"],
       "@valentinkolb/cloud/server": ["../cloud/src/server/index.ts"],
       "@valentinkolb/cloud/server/*": ["../cloud/src/server/*"],
       "@valentinkolb/cloud/browser": ["../cloud/src/server/api-client.ts"],

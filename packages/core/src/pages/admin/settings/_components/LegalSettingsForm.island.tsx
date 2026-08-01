@@ -8,19 +8,10 @@
  * input show/hide based on the mode toggle to keep the form scannable.
  */
 
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { PanelDialog, prompts, readSettingsError, Select, SettingsPanelFooter, sameSettingValue, TextInput, Tooltip } from "@k2b/ui";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import type { SettingValueSource } from "@valentinkolb/cloud/contracts";
-import {
-  PanelDialog,
-  prompts,
-  readSettingsError,
-  SelectInput,
-  SettingsPanelFooter,
-  sameSettingValue,
-  TextInput,
-  Tooltip,
-} from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import type { SettingFieldDef } from "./CoreSettingsForm.island";
 
@@ -203,7 +194,11 @@ export default function LegalSettingsForm(props: Props) {
                   canUseDefault={() => canUseDefault(modeKey)}
                   onUseDefault={() => stageDefault(modeKey)}
                 >
-                  <SelectInput value={() => currentMode()} onChange={(v) => update(modeKey, v as LegalMode)} options={MODE_OPTIONS} />
+                  <Select
+                    value={() => currentMode()}
+                    onValueChange={(value) => value !== null && update(modeKey, value as LegalMode)}
+                    options={MODE_OPTIONS}
+                  />
                 </LegalField>
 
                 <Show when={currentMode() === "local"}>
@@ -220,7 +215,7 @@ export default function LegalSettingsForm(props: Props) {
                     <TextInput
                       multiline
                       value={() => draft()[contentKey]}
-                      onChange={(v) => update(contentKey, v)}
+                      onValueChange={(v) => update(contentKey, v)}
                       placeholder={`# ${kind.label}\n\n...`}
                     />
                   </LegalField>
@@ -240,7 +235,7 @@ export default function LegalSettingsForm(props: Props) {
                     <TextInput
                       type="url"
                       value={() => draft()[urlKey]}
-                      onChange={(v) => update(urlKey, v)}
+                      onValueChange={(v) => update(urlKey, v)}
                       placeholder="https://example.org/..."
                     />
                   </LegalField>

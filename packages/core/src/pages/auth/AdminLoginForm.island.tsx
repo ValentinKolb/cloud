@@ -1,7 +1,7 @@
-import { createSignal } from "solid-js";
-import { TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
+import { createSignal } from "solid-js";
 
 export default function AdminLoginForm(props: { redirectTo?: string }) {
   const [token, setToken] = createSignal("");
@@ -36,7 +36,7 @@ export default function AdminLoginForm(props: { redirectTo?: string }) {
         icon="ti ti-key"
         password
         value={token}
-        onChange={setToken}
+        onValueChange={setToken}
         autocomplete="off"
       />
 

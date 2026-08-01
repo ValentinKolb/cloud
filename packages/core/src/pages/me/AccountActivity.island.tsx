@@ -1,7 +1,7 @@
-import type { AccountActivity as AccountActivityEntry } from "@valentinkolb/cloud/contracts";
-import { DataTable, type DataTableColumn, FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { dates } from "@k2b/stdlib";
+import { DataTable, type DataTableColumn, FilterChip, type FilterChipSection } from "@k2b/ui";
+import type { AccountActivity as AccountActivityEntry } from "@valentinkolb/cloud/contracts";
 
 type ActivityDays = 7 | 30 | 90;
 
@@ -60,7 +60,7 @@ export default function AccountActivity(props: Props) {
           icon="ti ti-calendar"
           options={RANGE_OPTIONS}
           value={[String(props.days)]}
-          onChange={(value) => setActivityDays(value[0] ?? "30")}
+          onValueChange={(value) => setActivityDays(value[0] ?? "30")}
           isActive={props.days !== 30}
           defaultValue={["30"]}
           position="bottom-right"

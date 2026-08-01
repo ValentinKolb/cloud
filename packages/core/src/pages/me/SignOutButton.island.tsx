@@ -1,4 +1,4 @@
-import { toast } from "@valentinkolb/cloud/ui";
+import { toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { signOutCurrentSession } from "./account-session";
 

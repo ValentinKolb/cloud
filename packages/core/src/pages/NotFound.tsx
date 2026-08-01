@@ -1,5 +1,5 @@
+import { NotFoundState } from "@k2b/ui";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { NotFoundState } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { coreHelp } from "../help";
 import CoreLayoutHelp from "./CoreLayoutHelp.island";

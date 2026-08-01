@@ -3,7 +3,8 @@
  * assistant modal uses, in admin mode: global enable switches, code review
  * queue, and the durable audit log. Personal skills stay out of here.
  */
-import { AiSkillsManagerBody, PanelDialog } from "@valentinkolb/cloud/ui";
+import { PanelDialog } from "@k2b/ui";
+import { AiSkillsManagerBody } from "@valentinkolb/cloud/ai/ui";
 
 export default function AdminAiSkills(props: { title: string; subtitle: string; icon: string }) {
   return (

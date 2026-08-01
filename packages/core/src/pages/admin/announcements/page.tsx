@@ -1,8 +1,8 @@
+import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AnnouncementEntry } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { announcements } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../../config";
 import { coreHelp } from "../../../help";
 import CoreLayoutHelp from "../../CoreLayoutHelp.island";
@@ -62,6 +62,7 @@ export default ssr<AuthContext>(async (c) => {
         {items.length > 0 ? (
           <section class="paper overflow-hidden" style="view-transition-name: admin-announcements-table">
             <DataTable
+              ariaLabel="Announcements"
               rows={items}
               columns={columns}
               getRowId={(entry) => entry.id}

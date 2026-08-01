@@ -1,7 +1,7 @@
-import { createSignal } from "solid-js";
-import { apiClient } from "@valentinkolb/cloud/clients/core";
-import { TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { TextInput } from "@k2b/ui";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
+import { createSignal } from "solid-js";
 import { PasswordSetupFields } from "../PasswordSetupFields";
 
 type NewPasswordFormProps = {
@@ -53,8 +53,7 @@ export default function NewPasswordForm(props: NewPasswordFormProps) {
         placeholder="e.g. eva"
         icon="ti ti-user"
         value={username}
-        onChange={setUsername}
-        onInput={setUsername}
+        onValueChange={setUsername}
         autocomplete="username"
       />
 
@@ -65,8 +64,7 @@ export default function NewPasswordForm(props: NewPasswordFormProps) {
         icon="ti ti-lock"
         password
         value={currentPassword}
-        onChange={setCurrentPassword}
-        onInput={setCurrentPassword}
+        onValueChange={setCurrentPassword}
         autocomplete="current-password"
       />
 

@@ -1,8 +1,8 @@
-import { createSignal } from "solid-js";
-import { TextInput } from "@valentinkolb/cloud/ui";
 import { cookies } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
+import { createSignal } from "solid-js";
 
 export default function LoginForm(props: { redirectTo?: string; showBanner?: boolean; defaultUsername?: string; appName?: string }) {
   const [username, setUsername] = createSignal(props.defaultUsername ?? "");
@@ -58,7 +58,7 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
         placeholder="e.g. eva or eva@example.org"
         icon="ti ti-user"
         value={username}
-        onChange={setUsername}
+        onValueChange={setUsername}
         autocomplete="username"
       />
       <div class="flex flex-col gap-1">
@@ -69,7 +69,7 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
           icon="ti ti-lock"
           password
           value={password}
-          onChange={setPassword}
+          onValueChange={setPassword}
           autocomplete="current-password"
         />
         <a href={resetPasswordHref()} class="self-start text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline">

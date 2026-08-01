@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 type RequestFreeIpaAccountProps = {

@@ -1,7 +1,7 @@
-import { createSignal } from "solid-js";
-import { apiClient } from "@valentinkolb/cloud/clients/core";
-import { TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { TextInput } from "@k2b/ui";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
+import { createSignal } from "solid-js";
 
 type PasswordResetRequestFormProps = {
   redirectTo?: string;
@@ -51,8 +51,7 @@ export default function PasswordResetRequestForm(props: PasswordResetRequestForm
         icon="ti ti-mail"
         type="email"
         value={email}
-        onChange={setEmail}
-        onInput={setEmail}
+        onValueChange={setEmail}
         autocomplete="email"
       />
 

@@ -1,7 +1,8 @@
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, TextInput } from "@k2b/ui";
+import { openAvatarUploadDialog } from "@valentinkolb/cloud/account/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
-import { openAvatarUploadDialog, prompts, TextInput } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 
 type Props = {
@@ -196,7 +197,7 @@ export default function ProfileActions(props: Props) {
 
             <div class="flex flex-col gap-3">
               <span class="text-[11px] uppercase tracking-[0.14em] text-dimmed">Contact</span>
-              <TextInput label="Phone" placeholder="Phone number..." icon="ti ti-phone" value={phone} onInput={setPhone} />
+              <TextInput label="Phone" placeholder="Phone number..." icon="ti ti-phone" value={phone} onValueChange={setPhone} />
             </div>
 
             <Show when={isIpa}>
@@ -209,13 +210,25 @@ export default function ProfileActions(props: Props) {
                       placeholder="Street and house number..."
                       icon="ti ti-road"
                       value={street}
-                      onInput={setStreet}
+                      onValueChange={setStreet}
                     />
                   </div>
-                  <TextInput label="Postal Code" placeholder="e.g. 89081" icon="ti ti-hash" value={postalCode} onInput={setPostalCode} />
-                  <TextInput label="City" placeholder="e.g. Ulm" icon="ti ti-building-community" value={city} onInput={setCity} />
+                  <TextInput
+                    label="Postal Code"
+                    placeholder="e.g. 89081"
+                    icon="ti ti-hash"
+                    value={postalCode}
+                    onValueChange={setPostalCode}
+                  />
+                  <TextInput label="City" placeholder="e.g. Ulm" icon="ti ti-building-community" value={city} onValueChange={setCity} />
                   <div class="sm:col-span-2">
-                    <TextInput label="State" placeholder="e.g. Baden-Wuerttemberg" icon="ti ti-map" value={state} onInput={setState} />
+                    <TextInput
+                      label="State"
+                      placeholder="e.g. Baden-Wuerttemberg"
+                      icon="ti ti-map"
+                      value={state}
+                      onValueChange={setState}
+                    />
                   </div>
                 </div>
               </div>
@@ -264,7 +277,7 @@ export default function ProfileActions(props: Props) {
                     placeholder="ssh-ed25519 AAAA... your-comment"
                     icon="ti ti-key"
                     value={newKey}
-                    onInput={(v) => {
+                    onValueChange={(v) => {
                       setNewKey(v);
                       setKeyError(null);
                     }}

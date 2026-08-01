@@ -1,7 +1,7 @@
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
-import { prompts, TextInput } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { PasswordSetupFields } from "../auth/PasswordSetupFields";
 import { signOutCurrentSession } from "./account-session";
@@ -78,8 +78,7 @@ function ChangePasswordDialog(props: { close: (value: ChangePasswordPayload | nu
         icon="ti ti-lock"
         password
         value={currentPassword}
-        onChange={setCurrentPassword}
-        onInput={setCurrentPassword}
+        onValueChange={setCurrentPassword}
         autocomplete="current-password"
       />
 

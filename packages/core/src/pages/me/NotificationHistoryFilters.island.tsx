@@ -1,6 +1,6 @@
-import type { NotificationDeliveryStatus } from "@valentinkolb/cloud/contracts";
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
+import type { NotificationDeliveryStatus } from "@valentinkolb/cloud/contracts";
 
 const STATUS_OPTIONS: FilterChipSection[] = [
   {
@@ -30,7 +30,7 @@ export default function NotificationHistoryFilters(props: { status?: Notificatio
       icon="ti ti-filter"
       options={STATUS_OPTIONS}
       value={[props.status ?? "all"]}
-      onChange={(value) => setStatus(value[0] ?? "all")}
+      onValueChange={(value) => setStatus(value[0] ?? "all")}
       isActive={props.status !== undefined}
       defaultValue={["all"]}
       position="bottom-right"

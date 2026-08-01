@@ -1,10 +1,10 @@
-import { createSignal, For, Show } from "solid-js";
-import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
 import { dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Placeholder, prompts, TextInput } from "@k2b/ui";
+import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { WebAuthnPasskey } from "@valentinkolb/cloud/contracts";
-import { Placeholder, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { createSignal, For, Show } from "solid-js";
 
 type Props = {
   initialPasskeys: WebAuthnPasskey[];
@@ -38,7 +38,7 @@ function PasskeyCreateDialog(props: { close: (value: { name: string } | null) =>
         placeholder="e.g. MacBook Touch ID"
         icon="ti ti-tag"
         value={name}
-        onInput={(value) => {
+        onValueChange={(value) => {
           setName(value);
           setError(undefined);
         }}

@@ -1,7 +1,7 @@
+import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Checkbox, Placeholder, toast } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserNotificationPreference, UserNotificationPreferencesResponse } from "@valentinkolb/cloud/contracts";
-import { Checkbox, Placeholder, toast } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { notificationChannelAvailability, notificationChannelMeta } from "./notification-ui";
 
@@ -104,7 +104,7 @@ const PreferenceRow = (props: { preference: UserNotificationPreference; availabl
                 label={meta.label}
                 description={availability().description}
                 value={() => selected().includes(channel)}
-                onChange={(enabled) => toggleChannel(channel, enabled)}
+                onValueChange={(enabled) => toggleChannel(channel, enabled)}
                 disabled={update.loading() || !availability().enabled}
               />
             );

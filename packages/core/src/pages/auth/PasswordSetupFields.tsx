@@ -1,7 +1,7 @@
-import { createMemo, createSignal, type Accessor } from "solid-js";
-import { prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { password } from "@k2b/stdlib";
 import { clipboard } from "@k2b/stdlib/solid";
+import { prompts, TextInput } from "@k2b/ui";
+import { type Accessor, createMemo, createSignal } from "solid-js";
 
 type PasswordSetupFieldsProps = {
   newPassword: Accessor<string>;
@@ -105,10 +105,9 @@ export function PasswordSetupFields(props: PasswordSetupFieldsProps) {
         icon="ti ti-lock-open"
         password
         value={props.newPassword}
-        onChange={updateNewPassword}
-        onInput={updateNewPassword}
+        onValueChange={updateNewPassword}
         autocomplete="new-password"
-        ariaLabel="New password"
+        aria-label="New password"
       />
 
       <div class="flex flex-col gap-1.5">
@@ -143,8 +142,7 @@ export function PasswordSetupFields(props: PasswordSetupFieldsProps) {
         icon="ti ti-lock-check"
         password
         value={props.confirmPassword}
-        onChange={props.onConfirmPasswordChange}
-        onInput={props.onConfirmPasswordChange}
+        onValueChange={props.onConfirmPasswordChange}
         autocomplete="new-password"
       />
     </div>

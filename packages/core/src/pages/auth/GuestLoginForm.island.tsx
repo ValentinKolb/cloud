@@ -1,8 +1,8 @@
-import { createSignal, Show, onMount } from "solid-js";
-import { CheckboxInput, TextInput } from "@valentinkolb/cloud/ui";
 import { cookies } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Checkbox, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
+import { createSignal, onMount, Show } from "solid-js";
 
 export default function GuestLoginForm(props: { redirectTo?: string; token?: string; allowSelfRegistration: boolean }) {
   const [email, setEmail] = createSignal("");
@@ -65,7 +65,7 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
             placeholder="Login code"
             icon="ti ti-key"
             value={tokenInput}
-            onChange={setTokenInput}
+            onValueChange={setTokenInput}
             autocomplete="one-time-code"
           />
 
@@ -75,7 +75,7 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
             </div>
           )}
 
-          <CheckboxInput
+          <Checkbox
             label={
               <span>
                 I accept the{" "}
@@ -89,7 +89,7 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
               </span>
             }
             value={acceptedAgb}
-            onChange={setAcceptedAgb}
+            onValueChange={setAcceptedAgb}
           />
 
           <button type="submit" class="btn-primary w-full justify-center py-2" disabled={loading()}>
@@ -116,7 +116,7 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
           type="email"
           icon="ti ti-mail"
           value={email}
-          onChange={setEmail}
+          onValueChange={setEmail}
           autocomplete="email"
         />
 
@@ -126,7 +126,7 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
           </div>
         )}
 
-        <CheckboxInput
+        <Checkbox
           label={
             <span>
               I accept the{" "}
@@ -140,7 +140,7 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
             </span>
           }
           value={acceptedAgb}
-          onChange={setAcceptedAgb}
+          onValueChange={setAcceptedAgb}
         />
 
         <button type="submit" class="btn-primary w-full justify-center py-2" disabled={loading()}>

@@ -10,9 +10,8 @@
  * own settings build their own bespoke admin forms (DIY HTTP route + UI).
  */
 
-import type { AiEnrichmentOverview } from "@valentinkolb/cloud/ai";
-import { coreClient } from "@valentinkolb/cloud/clients/core";
-import { AI_PLATFORM_PROMPT_TEMPLATE, formatBytes, renderLiquidTemplate } from "@valentinkolb/cloud/shared";
+import { img } from "@k2b/stdlib/browser";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   CheckboxCard,
   createTemplateEditorPanesValue,
@@ -25,7 +24,7 @@ import {
   panelDialogOptions,
   prompts,
   readSettingsError,
-  SelectInput,
+  Select,
   SettingsPanelFooter,
   Switch,
   sameSettingValue,
@@ -38,9 +37,10 @@ import {
   TextInput,
   Tooltip,
   toast,
-} from "@valentinkolb/cloud/ui";
-import { img } from "@k2b/stdlib/browser";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+} from "@k2b/ui";
+import type { AiEnrichmentOverview } from "@valentinkolb/cloud/ai";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
+import { AI_PLATFORM_PROMPT_TEMPLATE, formatBytes, renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { LegacySettingsSection } from "./LegacySettingsPanel.island";
 
@@ -687,7 +687,7 @@ function TestEmailDialog(props: { close: () => void }) {
         type="email"
         required
         value={recipient}
-        onChange={setRecipient}
+        onValueChange={setRecipient}
         placeholder="you@example.org"
       />
 
@@ -1020,7 +1020,7 @@ function AiSettingsPanel(props: {
               label="Model profiles JSON"
               description="Use this only for bulk import or hand-editing advanced profile fields."
               value={draft}
-              onInput={setDraft}
+              onValueChange={setDraft}
               error={error}
               monospace
             />
@@ -1075,16 +1075,16 @@ function AiSettingsPanel(props: {
             <Switch
               label={props.valueOf(AI_ENABLED_SETTING_KEY) ? "AI enabled" : "AI disabled"}
               value={() => Boolean(props.valueOf(AI_ENABLED_SETTING_KEY))}
-              onChange={(value) => props.onChange(AI_ENABLED_SETTING_KEY, value)}
+              onValueChange={(value) => props.onChange(AI_ENABLED_SETTING_KEY, value)}
             />
             <p class="text-xs text-dimmed">Controls whether Cloud AI features are available to apps and users.</p>
           </div>
 
-          <SelectInput
+          <Select
             label="Default model"
             description="Used when an app asks for the platform default model."
             value={() => defaultModelId()}
-            onChange={setDefaultModel}
+            onValueChange={(value) => value !== null && setDefaultModel(value)}
             options={profiles()
               .filter((profile) => profile.enabled || profile.id === defaultModelId())
               .map((profile) => ({
@@ -1108,7 +1108,7 @@ function AiSettingsPanel(props: {
             </div>
             <TemplateEditor
               value={() => asString(props.valueOf(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY))}
-              onInput={(value) => props.onChange(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY, value)}
+              onValueChange={(value) => props.onChange(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY, value)}
               variables={AI_PROMPT_TEMPLATE_VARIABLES}
               lines={14}
               placeholder={AI_PLATFORM_PROMPT_TEMPLATE}
@@ -1145,7 +1145,7 @@ function AiSettingsPanel(props: {
             label="Compaction prompt"
             description="Optional prompt used when old chat context is summarized before continuing long conversations. Leave empty for the built-in structured handoff prompt (goal, requests, decisions, facts, dead ends, open tasks, next step)."
             value={() => asString(props.valueOf(AI_COMPACTION_PROMPT_SETTING_KEY))}
-            onInput={(value) => props.onChange(AI_COMPACTION_PROMPT_SETTING_KEY, value)}
+            onValueChange={(value) => props.onChange(AI_COMPACTION_PROMPT_SETTING_KEY, value)}
             placeholder={
               entry(AI_COMPACTION_PROMPT_SETTING_KEY)?.placeholder ??
               "Leave empty for the built-in handoff prompt (goal, user requests, decisions, facts, dead ends, open tasks, next step)."
@@ -1157,7 +1157,7 @@ function AiSettingsPanel(props: {
             label="Max tool result chars"
             description="Tool results above this size are truncated before they are sent back into the model context. Higher keeps more detail in long chats; lower saves context."
             value={maxToolResultChars}
-            onChange={(value) => props.onChange(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY, value ?? 8000)}
+            onValueChange={(value) => props.onChange(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY, value ?? 8000)}
             min={500}
             max={50000}
             showSteppers={false}
@@ -1172,11 +1172,11 @@ function AiSettingsPanel(props: {
           subtitle="Model and schedule for background AI work like chat summaries, keywords, and titles."
           icon="ti ti-clock-bolt"
         >
-          <SelectInput
+          <Select
             label="Background model"
             description="Model used for background AI jobs. Falls back to the default model when unset."
             value={() => asString(props.valueOf(AI_BACKGROUND_MODEL_SETTING_KEY))}
-            onChange={(value) => props.onChange(AI_BACKGROUND_MODEL_SETTING_KEY, value ?? "")}
+            onValueChange={(value) => props.onChange(AI_BACKGROUND_MODEL_SETTING_KEY, value ?? "")}
             options={[
               { id: "", label: "Use default model", icon: "ti ti-sparkles" },
               ...profiles()
@@ -1196,7 +1196,7 @@ function AiSettingsPanel(props: {
             label="Chat enrichment schedule"
             description="Cron for the job that summarizes changed chats and refreshes keywords and titles for search."
             value={() => asString(props.valueOf(AI_ENRICH_CRON_SETTING_KEY))}
-            onInput={(value) => props.onChange(AI_ENRICH_CRON_SETTING_KEY, value)}
+            onValueChange={(value) => props.onChange(AI_ENRICH_CRON_SETTING_KEY, value)}
             placeholder="*/10 * * * *"
             monospace
             error={() => props.errorFor(AI_ENRICH_CRON_SETTING_KEY)}
@@ -1223,7 +1223,7 @@ function AiSettingsPanel(props: {
                 : "Enables the default web_search and web_extract tools. The key is stored encrypted and never sent to the browser after save."
             }
             value={() => asString(props.valueOf(AI_FIRECRAWL_API_KEY_SETTING_KEY))}
-            onInput={(value) => props.onChange(AI_FIRECRAWL_API_KEY_SETTING_KEY, value)}
+            onValueChange={(value) => props.onChange(AI_FIRECRAWL_API_KEY_SETTING_KEY, value)}
             placeholder={
               firecrawlKeyConfigured()
                 ? "Leave empty to keep current key"
@@ -1524,14 +1524,14 @@ async function openAiProfileDialog(input: {
                 description="Disabled profiles stay configured but cannot be selected by apps or users."
                 icon="ti ti-power"
                 value={enabled}
-                onChange={setEnabled}
+                onValueChange={setEnabled}
               />
 
-              <SelectInput
+              <Select
                 label="Provider"
                 description="Provider type used to create the Nessi model adapter."
                 value={() => provider()}
-                onChange={chooseProvider}
+                onValueChange={(value) => value !== null && chooseProvider(value)}
                 options={AI_PROVIDER_OPTIONS.map((option) => ({
                   id: option.id,
                   label: option.label,
@@ -1546,14 +1546,14 @@ async function openAiProfileDialog(input: {
                   label="Name"
                   description="User-visible model label shown in model pickers and chat UI."
                   value={label}
-                  onInput={setLabel}
+                  onValueChange={setLabel}
                   placeholder={currentProvider().label}
                 />
                 <TextInput
                   label="Profile ID"
                   description="Stable internal id."
                   value={id}
-                  onInput={setId}
+                  onValueChange={setId}
                   placeholder="openrouter-fast"
                   monospace
                 />
@@ -1563,7 +1563,7 @@ async function openAiProfileDialog(input: {
                 label="Model"
                 description="Provider model identifier sent to the AI adapter."
                 value={model}
-                onInput={setModel}
+                onValueChange={setModel}
                 placeholder={currentProvider().defaultModel}
                 monospace
               />
@@ -1572,7 +1572,7 @@ async function openAiProfileDialog(input: {
                 label="Base URL"
                 description="Optional endpoint override for private or OpenAI-compatible providers."
                 value={baseURL}
-                onInput={setBaseURL}
+                onValueChange={setBaseURL}
                 placeholder={currentProvider().defaultBaseURL ?? "Optional provider override"}
                 type="url"
               />
@@ -1582,7 +1582,7 @@ async function openAiProfileDialog(input: {
                 description="Optional small logo shown in the provider card and the model picker."
                 variant="small"
                 value={image}
-                onChange={setImage}
+                onValueChange={setImage}
                 transform={(file) => img.presets.avatar(file, 64, 0.8, "webp")}
               />
             </PanelDialog.Section>
@@ -1602,7 +1602,7 @@ async function openAiProfileDialog(input: {
                   }
                   password
                   value={apiKey}
-                  onInput={setApiKey}
+                  onValueChange={setApiKey}
                   placeholder={hasExistingCredential() ? "Leave empty to keep current key" : "Provider API key"}
                 />
               </PanelDialog.Section>
@@ -1617,18 +1617,18 @@ async function openAiProfileDialog(input: {
                 label="Context window"
                 description="Optional max token context window. Leave empty to use the provider default."
                 value={contextWindow}
-                onChange={setContextWindow}
+                onValueChange={setContextWindow}
                 min={1}
                 clearable
                 showSteppers={false}
                 placeholder="Provider default"
               />
 
-              <SelectInput
+              <Select
                 label="Data boundary"
                 description="Whether requests leave the workspace or stay on controlled infrastructure."
                 value={() => dataBoundary()}
-                onChange={(value) => setDataBoundary(value as AiDataBoundary)}
+                onValueChange={(value) => value !== null && setDataBoundary(value as AiDataBoundary)}
                 options={[...AI_DATA_BOUNDARY_OPTIONS]}
                 icon="ti ti-shield"
               />
@@ -1637,7 +1637,7 @@ async function openAiProfileDialog(input: {
                 label="Capabilities"
                 description="Capabilities describe runtime features apps can require."
                 value={capabilities}
-                onChange={setCapabilities}
+                onValueChange={setCapabilities}
                 options={AI_MODEL_CAPABILITY_OPTIONS.map((option) => ({ ...option, icon: "ti ti-bolt" }))}
                 placeholder="Choose capabilities"
                 icon="ti ti-bolt"
@@ -1768,7 +1768,7 @@ function ImageSettingInput(props: { value: () => unknown; error: () => string | 
       <ImageInput
         variant="small"
         value={() => (typeof props.value() === "string" && props.value() ? (props.value() as string) : null)}
-        onChange={(v) => props.onChange(v ?? "")}
+        onValueChange={(v) => props.onChange(v ?? "")}
       />
       <FieldError error={props.error} />
     </div>
@@ -1778,7 +1778,11 @@ function ImageSettingInput(props: { value: () => unknown; error: () => string | 
 function BooleanSettingInput(props: { value: () => unknown; error: () => string | undefined; onChange: (value: unknown) => void }) {
   return (
     <div class="flex flex-col gap-1">
-      <Switch label={props.value() ? "Enabled" : "Disabled"} value={() => Boolean(props.value())} onChange={(v) => props.onChange(v)} />
+      <Switch
+        label={props.value() ? "Enabled" : "Disabled"}
+        value={() => Boolean(props.value())}
+        onValueChange={(v) => props.onChange(v)}
+      />
       <FieldError error={props.error} />
     </div>
   );
@@ -1788,7 +1792,7 @@ function NumberSettingInput(props: FieldInputProps) {
   return (
     <NumberInput
       value={() => (typeof props.value() === "number" ? (props.value() as number) : 0)}
-      onChange={(v) => props.onChange(v)}
+      onValueChange={(v) => props.onChange(v)}
       min={props.entry.min}
       max={props.entry.max}
       error={props.error}
@@ -1799,9 +1803,9 @@ function NumberSettingInput(props: FieldInputProps) {
 function EnumSettingInput(props: FieldInputProps) {
   const options = (props.entry.options ?? []).map((o) => ({ id: o.value, value: o.value, label: o.label }));
   return (
-    <SelectInput
+    <Select
       value={() => (typeof props.value() === "string" ? (props.value() as string) : (props.entry.options?.[0]?.value ?? ""))}
-      onChange={(v) => props.onChange(v)}
+      onValueChange={(v) => props.onChange(v)}
       options={options}
       icon="ti ti-selector"
       error={props.error}
@@ -1813,7 +1817,7 @@ function StringListSettingInput(props: FieldInputProps) {
   return (
     <TagsInput
       value={() => (Array.isArray(props.value()) ? (props.value() as string[]) : [])}
-      onChange={(v) => props.onChange(v)}
+      onValueChange={(v) => props.onChange(v)}
       placeholder={props.entry.placeholder ?? props.entry.label}
       error={props.error}
     />
@@ -1824,7 +1828,7 @@ function NumberListSettingInput(props: FieldInputProps) {
   return (
     <TagsInput
       value={() => (Array.isArray(props.value()) ? (props.value() as number[]).map(String) : [])}
-      onChange={(v) => props.onChange(v.map((s) => Number(s)).filter((n) => Number.isInteger(n) && n > 0))}
+      onValueChange={(v) => props.onChange(v.map((s) => Number(s)).filter((n) => Number.isInteger(n) && n > 0))}
       placeholder={props.entry.placeholder ?? props.entry.label}
       error={props.error}
     />
@@ -1836,7 +1840,7 @@ function TextAreaSettingInput(props: FieldInputProps) {
     <TextInput
       multiline
       value={() => (typeof props.value() === "string" ? (props.value() as string) : "")}
-      onChange={(v) => props.onChange(v)}
+      onValueChange={(v) => props.onChange(v)}
       placeholder={props.entry.placeholder ?? props.entry.label}
       error={props.error}
     />
@@ -1962,12 +1966,12 @@ function TemplateSettingInput(props: FieldInputProps) {
             </p>
 
             <div class="h-[min(62vh,46rem)] min-h-[34rem] min-w-0 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
-              <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full" allowResize={false}>
+              <Panes.Root value={panes()} onValueChange={setPanes} class="h-full w-full" allowResize={false}>
                 <Panes.Element id="html" title="HTML" icon="ti ti-code">
                   <div class="h-full min-h-0 overflow-auto">
                     <TemplateEditor
                       value={draft}
-                      onInput={setDraft}
+                      onValueChange={setDraft}
                       variables={templateVariables()}
                       placeholder={props.entry.placeholder ?? props.entry.label}
                       fill
@@ -1975,10 +1979,10 @@ function TemplateSettingInput(props: FieldInputProps) {
                   </div>
                 </Panes.Element>
                 <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-                  <TemplatePreview html={renderedPreview} />
+                  <TemplatePreview html={renderedPreview()} />
                 </Panes.Element>
                 <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
-                  <TemplateSampleData variables={templateVariables()} values={sampleData} onChange={setSampleValue} />
+                  <TemplateSampleData variables={templateVariables()} values={sampleData()} onValueChange={setSampleValue} />
                 </Panes.Element>
               </Panes.Root>
             </div>
@@ -2034,7 +2038,7 @@ function DefaultTextSettingInput(props: FieldInputProps) {
   return (
     <TextInput
       value={() => (typeof props.value() === "string" ? (props.value() as string) : String(props.value() ?? ""))}
-      onChange={(v) => props.onChange(v)}
+      onValueChange={(v) => props.onChange(v)}
       placeholder={isSecret ? "Leave empty to keep current value" : (props.entry.placeholder ?? props.entry.label)}
       type={props.entry.kind === "email" ? "email" : props.entry.kind === "url" ? "url" : "text"}
       password={isSecret}

@@ -1,9 +1,9 @@
-import { createSignal, For, Show } from "solid-js";
 import { dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { CopyButton, DateTimePicker, Placeholder, prompts, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { ServiceAccountCredential } from "@valentinkolb/cloud/contracts";
-import { CopyButton, DateTimePicker, Placeholder, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { createSignal, For, Show } from "solid-js";
 
 type Props = {
   initialKeys: ServiceAccountCredential[];
@@ -27,7 +27,7 @@ function TokenDialog(props: { token: string }) {
         <code class="block break-all font-mono text-xs text-primary">{props.token}</code>
       </div>
       <div class="flex justify-end">
-        <CopyButton text={props.token} label="Copy key" class="btn-primary btn-sm" />
+        <CopyButton text={props.token} label="Copy key" variant="primary" size="sm" />
       </div>
     </div>
   );
@@ -61,7 +61,7 @@ function ApiKeyCreateDialog(props: { close: (value: { name: string; expiresAt: s
         placeholder="e.g. Desktop sync"
         icon="ti ti-tag"
         value={name}
-        onInput={(value) => {
+        onValueChange={(value) => {
           setName(value);
           setError(undefined);
         }}
@@ -72,7 +72,7 @@ function ApiKeyCreateDialog(props: { close: (value: { name: string; expiresAt: s
         label="Expires"
         description="Leave empty only for long-lived automation you actively maintain."
         value={expiresAt}
-        onChange={setExpiresAt}
+        onValueChange={setExpiresAt}
         clearable
         presets={[
           { label: "30 days", value: presetDate(30) },

@@ -8,10 +8,10 @@
  * One small helper, three mounts in Core's page router — KISS.
  */
 
+import { MarkdownView, Placeholder } from "@k2b/ui";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";

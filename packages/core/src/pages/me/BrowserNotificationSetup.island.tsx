@@ -1,6 +1,6 @@
+import { toast } from "@k2b/ui";
 import type { BrowserNotificationState } from "@valentinkolb/cloud/browser/notifications";
 import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
-import { toast } from "@valentinkolb/cloud/ui";
 import { createSignal, onMount, Show } from "solid-js";
 
 const statusMeta = (state: BrowserNotificationState | null) => {
