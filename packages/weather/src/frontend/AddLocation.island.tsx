@@ -1,6 +1,6 @@
-import { AppWorkspace, Button, prompts, toast } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppWorkspace, Button, openSpotlightSearch, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 
 type GeoResult = {
@@ -36,7 +36,8 @@ const searchLocations = async ({ query, abortSignal }: { query: string; abortSig
 const AddLocationButton = (props: { variant?: "button" | "sidebar" | "overview" }) => {
   const addMutation = mutations.create({
     mutation: async () => {
-      const selected = await prompts.search<GeoResult>(searchLocations, {
+      const selected = await openSpotlightSearch<GeoResult>({
+        resolve: searchLocations,
         title: "Add location",
         icon: "ti ti-map-pin",
         placeholder: "Search for a city in Germany...",

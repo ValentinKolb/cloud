@@ -1,8 +1,15 @@
-import { isSpotlightShortcut, openSpotlightSearch, SpotlightButton, SPOTLIGHT_SHORTCUT_TITLE, type SpotlightButtonVariant } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { fuzzy } from "@k2b/stdlib";
+import {
+  AppWorkspace,
+  isSpotlightShortcut,
+  openSpotlightSearch,
+  SPOTLIGHT_SHORTCUT_TITLE,
+  SpotlightButton,
+  type SpotlightButtonVariant,
+} from "@k2b/ui";
 import { onCleanup, onMount } from "solid-js";
-import { categories, categoryOrder, tools, toolSearchText, type ToolDef } from "./tools/registry";
+import { categories, categoryOrder, type ToolDef, toolSearchText, tools } from "./tools/registry";
 
 type Props = {
   variant?: SpotlightButtonVariant;
@@ -54,6 +61,10 @@ export default function ToolSearchButton(props: Props) {
     window.addEventListener("keydown", onKeyDown);
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
+
+  if (props.variant === "icon") {
+    return <AppWorkspace.SidebarIconAction icon="ti ti-search" label="Search tools" onClick={() => void openSearch()} />;
+  }
 
   return (
     <SpotlightButton

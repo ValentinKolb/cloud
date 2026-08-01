@@ -38,7 +38,7 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
   );
 
   return (
-    <div class="k2b-ui flex min-h-0 min-w-0 flex-1">
+    <div class="flex min-h-0 min-w-0 flex-1">
       <AppWorkspace class="min-h-0 flex-1">
         <AppWorkspace.Sidebar collapsible>
           <AppWorkspace.SidebarHeader

@@ -1,6 +1,6 @@
+import { AppOverview } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppOverview } from "@k2b/ui";
 import { toolsHelp } from "@/help";
 import { ssr } from "../config";
 import ToolsLayoutHelp from "./_components/help/ToolsLayoutHelp.island";
@@ -9,7 +9,7 @@ import { ToolsWorkspace } from "./ToolsWorkspace";
 
 export default ssr<AuthContext>(async (c) => {
   return () => (
-    <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Tools" }]}>
+    <Layout c={c} fullPage workspaceSidebarCollapsible title={[{ title: "Start", href: "/" }, { title: "Tools" }]}>
       <ToolsLayoutHelp documents={toolsHelp.manifest} />
       <ToolsWorkspace>
         <AppOverview title="Tools" subtitle="Focused utilities for common data, media, security, and network tasks." icon="ti ti-tools">

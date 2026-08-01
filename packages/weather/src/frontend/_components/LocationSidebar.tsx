@@ -1,5 +1,5 @@
-import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { AppWorkspace } from "@k2b/ui";
+import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import AddLocationButton from "../AddLocation.island";
 
 type Location = {
@@ -74,7 +74,9 @@ export default function LocationSidebar(props: Props) {
 
       <AppWorkspace.SidebarDesktop>
         <div class="flex min-h-0 flex-1 flex-col gap-3">
-          <AddLocationButton />
+          <div class="px-2">
+            <AddLocationButton />
+          </div>
           <AppWorkspace.SidebarBody scrollPreserveKey="weather-locations">
             <AppWorkspace.SidebarSection title="Locations">
               {props.locations.map((loc) => renderLocation(loc, "desktop"))}

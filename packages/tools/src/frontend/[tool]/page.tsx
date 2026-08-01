@@ -55,7 +55,7 @@ export default ssr<AuthContext>(async (c) => {
   const breadcrumbs = [{ title: "Start", href: "/" }, { title: "Tools", href: "/tools" }, { title: tool.name }];
 
   return () => (
-    <Layout c={c} fullPage title={breadcrumbs}>
+    <Layout c={c} fullPage workspaceSidebarCollapsible={tool.id !== "webhooks"} title={breadcrumbs}>
       <ToolsLayoutHelp documents={toolsHelp.manifest} />
       {tool.id === "webhooks" ? (
         renderTool?.({ webhookState, baseHref: `/tools/${tool.id}` })

@@ -1,3 +1,5 @@
+import { navigate } from "@k2b/ssr/nav";
+import { timed } from "@k2b/stdlib/solid";
 import {
   AppWorkspace,
   CopyButton,
@@ -12,8 +14,6 @@ import {
   Tooltip,
   toast,
 } from "@k2b/ui";
-import { navigate } from "@k2b/ssr/nav";
-import { timed } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 
@@ -438,7 +438,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   };
 
   return (
-    <div class="k2b-ui flex min-h-0 min-w-0 flex-1">
+    <div class="flex min-h-0 min-w-0 flex-1">
       <AppWorkspace class="min-h-0 flex-1">
         <AppWorkspace.Sidebar>
           <AppWorkspace.SidebarHeader title="Webhook Tester" subtitle="Inspect HTTP calls" icon="ti ti-webhook" />

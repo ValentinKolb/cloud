@@ -1,6 +1,6 @@
-import { Button, Dropdown, IconButton, prompts, SegmentedControl, toast, Tooltip } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, Dropdown, IconButton, prompts, SegmentedControl, Tooltip, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildDisplayUrl, type DisplaySettings } from "./params";
@@ -117,12 +117,7 @@ export default function LocationActions(props: { id: string; lat: number; lon: n
       <Dropdown
         trigger={
           <Tooltip content="Location options">
-            <IconButton
-              label="Location options"
-              size="sm"
-              disabled={remove.loading()}
-              loading={remove.loading()}
-            >
+            <IconButton label="Location options" size="sm" disabled={remove.loading()} loading={remove.loading()}>
               <i class="ti ti-dots" aria-hidden="true" />
             </IconButton>
           </Tooltip>
