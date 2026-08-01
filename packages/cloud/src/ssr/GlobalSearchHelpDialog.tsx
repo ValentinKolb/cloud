@@ -1,5 +1,5 @@
+import { prompts } from "@k2b/ui";
 import { createMemo, For, Show } from "solid-js";
-import { prompts } from "../ui";
 
 export type GlobalSearchHelpApp = {
   appId: string;

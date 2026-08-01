@@ -6,7 +6,7 @@ solid-island {
 
 /* Popover positioning. Strip the UA-default white box only when a
    popover has not opted into one of the shared floating surfaces. */
-[popover]:not(.paper):not(.popup):not(.tooltip-surface):not(.dropdown-menu-surface):not(.context-menu-surface) {
+:where([popover]:not(.paper):not(.popup):not(.tooltip-surface):not(.dropdown-menu-surface):not(.context-menu-surface)) {
   background: transparent;
   border: none;
 }

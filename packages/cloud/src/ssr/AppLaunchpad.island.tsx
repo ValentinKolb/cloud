@@ -1,5 +1,5 @@
+import { prompts } from "@k2b/ui";
 import { createEffect, For, Show } from "solid-js";
-import { prompts } from "../ui";
 
 export type AppLaunchpadApp = {
   id: string;

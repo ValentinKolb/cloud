@@ -1,3 +1,4 @@
+import { Avatar, appWorkspaceLayoutStyle as portableAppWorkspaceLayoutStyle } from "@k2b/ui";
 import type { JSX } from "solid-js/jsx-runtime";
 import { resolveNavMatch } from "../contracts/app"; // ==========================
 import { hasRole, type User } from "../contracts/shared";
@@ -5,7 +6,6 @@ import type { LayoutAnnouncementsState } from "../server/middleware/settings";
 import { dates } from "../shared";
 import { readThemeFromCookieHeader } from "../shared/theme";
 import type { LayoutBreadcrumb } from "../ui/layout";
-import Avatar from "../ui/misc/Avatar";
 import { appWorkspaceLayoutStyle, readAppWorkspaceLayoutCookie, resolveAppWorkspaceLayoutForSidebar } from "../ui/misc/app-workspace-state";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
 import AppWorkspaceController from "./AppWorkspaceController.island";
@@ -212,7 +212,12 @@ export default function Layout({
   const showRail = !!user;
   const mainLayoutClass = fullPage || fullWidth ? "flex flex-col" : "md:overflow-auto";
   const canvasStyle =
-    [appAppearanceStyle(currentApp?.appearance), appWorkspaceLayoutStyle(workspaceLayout), focusMode && flushCanvas ? "padding:0" : ""]
+    [
+      appAppearanceStyle(currentApp?.appearance),
+      appWorkspaceLayoutStyle(workspaceLayout),
+      portableAppWorkspaceLayoutStyle(workspaceLayout),
+      focusMode && flushCanvas ? "padding:0" : "",
+    ]
       .filter(Boolean)
       .join(";") || undefined;
   if (focusMode) {
@@ -314,7 +319,15 @@ export default function Layout({
             {user ? (
               <>
                 <a href="/me" class="hidden cursor-pointer items-center justify-center md:flex" aria-label="Profile">
-                  <Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="xs" />
+                  <Avatar
+                    name={user.displayName || user.uid}
+                    src={
+                      user.avatarHash
+                        ? `/api/accounts/users/${encodeURIComponent(user.id)}/avatar?rev=${encodeURIComponent(user.avatarHash)}`
+                        : undefined
+                    }
+                    size="xs"
+                  />
                 </a>
                 <div class="md:hidden">
                   <div class="flex items-center gap-1">

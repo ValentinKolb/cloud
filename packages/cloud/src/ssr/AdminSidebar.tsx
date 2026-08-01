@@ -1,4 +1,4 @@
-import { AppWorkspace } from "../ui";
+import { AppWorkspace } from "@k2b/ui";
 import { activeAdminHref } from "./admin-active-link";
 import { type AdminLink, buildAdminGroups } from "./admin-navigation";
 import type { RuntimeContext } from "./runtime";

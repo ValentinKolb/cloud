@@ -1,6 +1,6 @@
 import { mutation, timed } from "@k2b/stdlib/solid";
+import { dialogCore } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { dialogCore } from "../ui";
 import { type GlobalSearchHelpApp, openGlobalSearchHelpDialog } from "./GlobalSearchHelpDialog";
 
 type SearchMetadata = {

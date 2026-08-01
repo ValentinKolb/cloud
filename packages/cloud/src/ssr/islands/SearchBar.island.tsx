@@ -1,5 +1,5 @@
+import { TextInput } from "@k2b/ui";
 import { createEffect, createSignal, onMount } from "solid-js";
-import TextInput from "../../ui/input/TextInput";
 
 type SearchBarProps = {
   action?: string;
@@ -60,11 +60,11 @@ export default function SearchBar(props: SearchBarProps = {}) {
         name={param}
         type="search"
         placeholder={props.placeholder ?? "Search..."}
-        ariaLabel={props.ariaLabel ?? "Search"}
+        aria-label={props.ariaLabel ?? "Search"}
         icon="ti ti-search"
         activeIcon="ti ti-search"
         value={query}
-        onInput={setQuery}
+        onValueChange={setQuery}
         clearable
         clearLabel="Clear search"
         onClear={handleClear}

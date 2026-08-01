@@ -265,7 +265,7 @@ export const defineApp = <
     <link rel="stylesheet" href="/public/global.css?v=${v}">
     <script>${themeBootstrapScript}</script>
   </head>
-  <body>
+  <body class="k2b-ui" data-k2b-app-workspace-controller="global">
     ${body}
   </body>
   ${scripts}

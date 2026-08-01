@@ -1,3 +1,4 @@
+import { dialogCore, MarkdownView, PanelDialog, panelDialogOptions } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import {
   ANNOUNCEMENTS_COOKIE,
@@ -7,9 +8,6 @@ import {
   mergeAnnouncementCookieState,
   serializeAnnouncementCookieState,
 } from "../contracts/announcements";
-import { dialogCore } from "../ui/dialog-core";
-import MarkdownView from "../ui/misc/MarkdownView";
-import PanelDialog, { panelDialogOptions } from "../ui/misc/PanelDialog";
 
 type Props = {
   banners: AnnouncementDisplayEntry[];

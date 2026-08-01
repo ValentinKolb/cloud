@@ -1,6 +1,6 @@
+import { AppWorkspace } from "@k2b/ui";
 import type { JSX } from "solid-js/jsx-runtime";
 import type { LayoutAnnouncementsState } from "../server/middleware/settings";
-import { AppWorkspace } from "../ui";
 import AdminSidebar from "./AdminSidebar";
 import Layout from "./Layout";
 import { getRuntimeContext, type RuntimeContext } from "./runtime";

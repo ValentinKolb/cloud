@@ -1,5 +1,5 @@
+import { Avatar, Dropdown } from "@k2b/ui";
 import type { Role } from "../contracts/shared";
-import { Avatar, Dropdown } from "../ui";
 
 /**
  * Minimal user projection for the nav menu — covers exactly what's rendered
@@ -22,6 +22,12 @@ type NavMenuProps = {
 
 /** Navigation dropdown menu - always visible, adapts to auth state. */
 export default function NavMenu(props: NavMenuProps) {
+  const avatarName = () => props.user?.displayName || props.user?.uid || "?";
+  const avatarSrc = () =>
+    props.user?.id && props.user.avatarHash
+      ? `/api/accounts/users/${encodeURIComponent(props.user.id)}/avatar?rev=${encodeURIComponent(props.user.avatarHash)}`
+      : undefined;
+
   const getElements = () => [
     // Top: Profile or Login
     ...(props.user
@@ -30,12 +36,7 @@ export default function NavMenu(props: NavMenuProps) {
             element: (
               <a href="/me" class="m-1 flex rounded-lg p-3 transition-colors hover:bg-white/30 dark:hover:bg-white/10">
                 <div class="flex items-center gap-3">
-                  <Avatar
-                    username={props.user.displayName || props.user.uid}
-                    userId={props.user.id}
-                    avatarHash={props.user.avatarHash}
-                    size="sm"
-                  />
+                  <Avatar name={avatarName()} src={avatarSrc()} fallback={avatarName().slice(0, 2).toUpperCase()} size="sm" />
                   <div class="flex-1">
                     <div class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{props.user.displayName || props.user.uid}</div>
                     {props.user.displayName && props.user.profile !== "guest" && (
@@ -64,7 +65,7 @@ export default function NavMenu(props: NavMenuProps) {
         </button>
       }
       position="bottom-left"
-      width="w-64"
+      width="16rem"
       elements={getElements()}
     />
   );
