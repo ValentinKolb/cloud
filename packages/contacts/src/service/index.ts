@@ -8,7 +8,7 @@ import * as contacts from "./contacts";
 import { publishContactEvent } from "./events";
 import * as favorites from "./favorites";
 import * as imports from "./imports";
-import * as mailIntegration from "./mail-integration";
+import * as contactLookup from "./contact-lookup";
 import * as notes from "./notes";
 import { getSystemBook, isSystemBookId, SYSTEM_BOOK_ID } from "./system";
 import * as tags from "./tags";
@@ -43,9 +43,7 @@ const withEvent = async <T>(
  * `system` exposes virtual read-only helpers for the IPA-projected book.
  */
 export const contactsService = {
-  integration: {
-    mail: mailIntegration,
-  },
+  lookup: contactLookup,
   favorite: favorites,
   book: {
     readableIds: async (config: { subject: AccessSubject; boundBookId?: string | null }): Promise<string[]> =>

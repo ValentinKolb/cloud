@@ -1,20 +1,21 @@
-import type { ContactMailMatch } from "@valentinkolb/cloud-app-contacts/integration";
 import type { z } from "zod";
+import { ContactResolveMatchDataSchema } from "@valentinkolb/cloud-app-contacts/capability-contracts";
 import type { mailConversationParticipantSchema } from "../../contracts";
 
 type MailConversationParticipant = z.infer<typeof mailConversationParticipantSchema>;
+type ContactMatch = z.infer<typeof ContactResolveMatchDataSchema>;
 
 type MailContactParticipantRow = MailConversationParticipant & {
-  contacts: ContactMailMatch[];
+  contacts: ContactMatch[];
   hasMatch: boolean;
 };
 
 export const buildMailContactParticipantRows = (params: {
   participants: MailConversationParticipant[];
-  contacts: ContactMailMatch[];
+  contacts: ContactMatch[];
   matchedEmails: string[];
 }): MailContactParticipantRow[] => {
-  const matchesByEmail = new Map<string, ContactMailMatch[]>();
+  const matchesByEmail = new Map<string, ContactMatch[]>();
   for (const contact of params.contacts) {
     for (const email of contact.matchedEmails) {
       const matches = matchesByEmail.get(email);

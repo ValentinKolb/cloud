@@ -27,7 +27,6 @@ import { err, fail, ok } from "@k2b/stdlib";
 import { type Context, Hono, type MiddlewareHandler, type TypedResponse } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { ResolveMailParticipantsInputSchema, ResolveMailParticipantsResponseSchema } from "../integration";
 import { contactsService } from "../service";
 import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID } from "../service/access";
 import { isUuid } from "../service/shared";
@@ -616,36 +615,6 @@ const app = new Hono<AuthContext>()
   .use(rateLimit())
   .route("/admin", adminApi)
   .use(auth.requireRole("authenticated"))
-
-  .post(
-    "/integrations/mail/resolve-participants",
-    documentRoute({
-      tags: ["Contacts:Integrations"],
-      summary: "Resolve readable contacts for Mail participants",
-      description: "Returns a minimal projection for exact normalized email matches in contact books the current actor can read.",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(ResolveMailParticipantsResponseSchema, "Permission-filtered contact matches"),
-        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
-        403: jsonResponse(ErrorResponseSchema, "Access denied"),
-      },
-    }),
-    v("json", ResolveMailParticipantsInputSchema),
-    async (c) => {
-      const subject = getBookAccessSubject(c);
-      const binding = await requireReadableCollectionBinding(c, subject);
-      if (binding.error) return binding.error;
-      return respond(
-        c,
-        contactsService.integration.mail.resolveMailParticipants({
-          subject: subject.subject,
-          boundBookId: binding.boundBookId,
-          includeSystem: Boolean(subject.user),
-          input: c.req.valid("json"),
-        }),
-      );
-    },
-  )
 
   // ----------------------------------------------------------------
   // PERSONAL FAVORITES

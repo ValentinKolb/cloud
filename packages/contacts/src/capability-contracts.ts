@@ -10,6 +10,8 @@ const CapabilityPageInputShape = {
   limit: LimitSchema,
 };
 
+export const NormalizedContactEmailSchema = z.email().max(320);
+
 const ContactTagDataSchema = z
   .object({
     id: z.uuid(),
@@ -59,6 +61,76 @@ const ContactSummaryDataSchema = z
     primaryPhone: NullableTextSchema,
     tags: z.array(ContactTagDataSchema).max(100),
     updatedAt: TimestampSchema,
+  })
+  .strict();
+
+const ContactLookupEmailDataSchema = z.object({ label: NullableTextSchema, email: z.email() }).strict();
+const ContactLookupPhoneDataSchema = z.object({ label: NullableTextSchema, phone: z.string().min(1) }).strict();
+
+export const ContactSuggestInputSchema = z
+  .object({
+    query: z
+      .string()
+      .trim()
+      .min(2)
+      .max(500)
+      .describe("Text matched against readable contact names, organizations, email addresses, phone numbers, and addresses."),
+    cursor: CursorSchema,
+    limit: z.number().int().min(1).max(25).default(8).describe("Maximum number of contact suggestions to return."),
+  })
+  .strict();
+
+export const ContactSuggestionDataSchema = z
+  .object({
+    contactId: z.uuid(),
+    bookId: z.string().min(1),
+    displayName: z.string().min(1),
+    companyName: NullableTextSchema,
+    jobTitle: NullableTextSchema,
+    emails: z.array(ContactLookupEmailDataSchema).min(1).max(20),
+    phones: z.array(ContactLookupPhoneDataSchema).max(20),
+    contactPointsTruncated: z.boolean(),
+    openHref: z.string().startsWith("/app/contacts/"),
+    updatedAt: TimestampSchema,
+  })
+  .strict();
+
+export const ContactSuggestDataSchema = z.array(ContactSuggestionDataSchema).max(25);
+
+export const ContactResolveInputSchema = z
+  .object({
+    emails: z
+      .array(NormalizedContactEmailSchema)
+      .min(1)
+      .max(100)
+      .describe("Normalized email addresses to resolve to every readable matching contact."),
+    contactIds: z.array(z.uuid()).max(20).optional().describe("Optional contact UUIDs that further restrict the matches."),
+    cursor: CursorSchema,
+    limit: z.number().int().min(1).max(50).default(25).describe("Maximum number of exact contact matches to return."),
+  })
+  .strict();
+
+export const ContactResolveMatchDataSchema = z
+  .object({
+    contactId: z.uuid(),
+    bookId: z.string().min(1),
+    bookName: z.string().min(1),
+    displayName: z.string().min(1),
+    companyName: NullableTextSchema,
+    jobTitle: NullableTextSchema,
+    matchedEmails: z.array(NormalizedContactEmailSchema).min(1).max(100),
+    emails: z.array(ContactLookupEmailDataSchema).max(20),
+    phones: z.array(ContactLookupPhoneDataSchema).max(20),
+    contactPointsTruncated: z.boolean(),
+    openHref: z.string().startsWith("/app/contacts/"),
+    updatedAt: TimestampSchema,
+  })
+  .strict();
+
+export const ContactResolveDataSchema = z
+  .object({
+    items: z.array(ContactResolveMatchDataSchema).max(50),
+    matchedEmails: z.array(NormalizedContactEmailSchema).max(100),
   })
   .strict();
 
@@ -112,6 +184,10 @@ export const ContactBookListDataSchema = z.array(ContactBookDataSchema).max(100)
 export const ContactBookListInputSchema = z
   .object({
     query: z.string().trim().max(500).optional().describe("Optional address-book name or description search."),
+    minimumPermission: z
+      .enum(["read", "write", "admin"])
+      .default("read")
+      .describe("Minimum effective permission required for each returned address book."),
     ...CapabilityPageInputShape,
   })
   .strict();

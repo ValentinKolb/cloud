@@ -1,16 +1,10 @@
-import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import { Placeholder } from "@valentinkolb/cloud/ui";
-import {
-  buildContactCreateHref,
-  CONTACTS_LIVE_WS_TYPE,
-  type ContactLiveClientMessage,
-  type ContactLiveServerMessage,
-  parseContactLiveServerMessage,
-} from "@valentinkolb/cloud-app-contacts/integration";
+import { mutation } from "@k2b/stdlib/solid";
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailConversationContext, RelatedMailPage } from "../../contracts";
 import { readApiError } from "./api-response";
+import { createContact, listWritableContactBooks } from "./contact-capabilities";
 import { buildMailContactParticipantRows } from "./mail-contact-context";
 
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
@@ -141,14 +135,9 @@ export default function MailConversationContext(props: {
   const [loading, setLoading] = createSignal(false);
   const [loaded, setLoaded] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [liveEpoch, setLiveEpoch] = createSignal(0);
   let controller: AbortController | null = null;
   let loadedConversationId: string | null = null;
   let loadGeneration = 0;
-  let refreshChain: Promise<boolean> = Promise.resolve(true);
-  let pendingRefresh: Promise<boolean> | null = null;
-  let requestedRefresh = 0;
-  let appliedRefresh = 0;
 
   const loadContacts = async (contactsCursor?: string): Promise<boolean> => {
     const currentController = new AbortController();
@@ -191,31 +180,6 @@ export default function MailConversationContext(props: {
     }
   };
 
-  const queueContactsPage = (contactsCursor: string): Promise<boolean> => {
-    const operation = refreshChain.then(() => loadContacts(contactsCursor));
-    refreshChain = operation.catch(() => false);
-    return operation;
-  };
-
-  const queueContactsRefresh = (): Promise<boolean> => {
-    requestedRefresh += 1;
-    if (pendingRefresh) return pendingRefresh;
-    const operation = refreshChain.then(async () => {
-      while (appliedRefresh < requestedRefresh) {
-        const target = requestedRefresh;
-        if (!(await loadContacts())) return false;
-        appliedRefresh = target;
-      }
-      return true;
-    });
-    const tracked = operation.finally(() => {
-      if (pendingRefresh === tracked) pendingRefresh = null;
-    });
-    pendingRefresh = tracked;
-    refreshChain = tracked.catch(() => false);
-    return tracked;
-  };
-
   createEffect(() => {
     if (!props.active) {
       loadGeneration += 1;
@@ -231,45 +195,9 @@ export default function MailConversationContext(props: {
       loadedConversationId = conversationId;
       setContext(null);
       setLoaded(false);
-      refreshChain = Promise.resolve(true);
-      pendingRefresh = null;
-      requestedRefresh = 0;
-      appliedRefresh = 0;
     }
-    void queueContactsRefresh();
+    void loadContacts();
     onCleanup(() => controller?.abort());
-  });
-
-  createEffect(() => {
-    if (!props.active) return;
-    props.conversationId;
-    liveEpoch();
-    const live = createLiveWebSocket<ContactLiveServerMessage>({
-      url: "/api/contacts/ws",
-      initialCursor: null,
-      activity: "visible",
-      subscribe: (cursor) =>
-        ({
-          type: CONTACTS_LIVE_WS_TYPE.subscribe,
-          payload: { scope: { kind: "all" }, fromCursor: cursor },
-        }) satisfies ContactLiveClientMessage,
-      parse: parseContactLiveServerMessage,
-      onMessage: (message, controls) => {
-        if (message.type === CONTACTS_LIVE_WS_TYPE.ready) {
-          void refreshChain.then((applied) => applied && controls.markApplied(message.payload.cursor));
-        } else if (message.type === CONTACTS_LIVE_WS_TYPE.event) {
-          void queueContactsRefresh().then((applied) => applied && controls.markApplied(message.payload.cursor));
-        } else if (message.type === CONTACTS_LIVE_WS_TYPE.scopeChanged) {
-          controls.terminate({ code: "contacts_changed", message: "Contacts access changed" });
-          void queueContactsRefresh().finally(() => setLiveEpoch((epoch) => epoch + 1));
-        } else if (message.type === CONTACTS_LIVE_WS_TYPE.revoked) {
-          controls.terminate({ code: "contacts_revoked", message: "Contacts access was revoked" });
-          void queueContactsRefresh();
-        }
-      },
-    });
-    live.connect();
-    onCleanup(() => live.dispose());
   });
 
   onCleanup(() => {
@@ -287,6 +215,82 @@ export default function MailConversationContext(props: {
       matchedEmails: current.contacts.matchedEmails,
     });
   });
+
+  const createParticipantContact = mutation.create<
+    void,
+    { participant: { email: string; displayName: string | null }; book: { id: string; name: string }; conversationId: string }
+  >({
+    mutation: async ({ participant, book, conversationId }, { abortSignal }) => {
+      const result = await createContact(
+        {
+          bookId: book.id,
+          label: participant.displayName || participant.email,
+          emails: [{ label: "Email", email: participant.email }],
+        },
+        crypto.randomUUID(),
+        abortSignal,
+      );
+      if (conversationId !== props.conversationId) return;
+      const contact = result.data.contact;
+      const openHref = result.links?.find((link) => link.rel === "edit" || link.rel === "open")?.href;
+      setContext((current) => {
+        if (!current || current.conversationId !== conversationId || current.contacts.status !== "ready") return current;
+        return {
+          ...current,
+          contacts: {
+            ...current.contacts,
+            items: [
+              ...current.contacts.items,
+              {
+                contactId: contact.id,
+                bookId: contact.bookId,
+                bookName: book.name,
+                displayName: contact.displayName,
+                companyName: contact.companyName,
+                jobTitle: contact.jobTitle,
+                matchedEmails: [participant.email],
+                emails: contact.emails.slice(0, 20),
+                phones: contact.phones.slice(0, 20),
+                contactPointsTruncated: contact.emails.length > 20 || contact.phones.length > 20,
+                openHref:
+                  openHref ??
+                  `/app/contacts/${encodeURIComponent(contact.bookId)}?contact=${encodeURIComponent(contact.id)}&contactBook=${encodeURIComponent(contact.bookId)}`,
+                updatedAt: contact.updatedAt,
+              },
+            ],
+            matchedEmails: [...new Set([...current.contacts.matchedEmails, participant.email])],
+          },
+        };
+      });
+    },
+    onError: (error) => void prompts.error(error.message, { title: "Could not create contact" }),
+  });
+
+  const chooseBookAndCreate = async (participant: { email: string; displayName: string | null }) => {
+    const selected = await prompts.search<{ id: string; name: string }>(
+      async ({ query, abortSignal }) => {
+        const result = await listWritableContactBooks({ query: query.trim() || undefined, limit: 25 }, abortSignal);
+        return result.data.map((book) => ({
+          value: { id: book.id, name: book.name },
+          label: book.name,
+          desc: book.description ?? undefined,
+          icon: "ti ti-address-book",
+        }));
+      },
+      {
+        title: "Choose contact book",
+        icon: "ti ti-address-book",
+        placeholder: "Search writable contact books...",
+        minQueryLength: 0,
+        noResultsText: "No writable contact books found.",
+        size: "small",
+      },
+    );
+    if (!selected?.value) return;
+    createParticipantContact.mutate({ participant, book: selected.value, conversationId: props.conversationId });
+  };
+
+  onCleanup(() => createParticipantContact.abort());
 
   return (
     <section class="detail-section">
@@ -328,14 +332,14 @@ export default function MailConversationContext(props: {
                                 when={!participant.hasMatch}
                                 fallback={<p class="mt-2 text-xs text-dimmed">Matching contact available. Load more to view it.</p>}
                               >
-                                <a
+                                <button
+                                  type="button"
                                   class="btn-secondary btn-sm mt-2 w-full justify-center"
-                                  href={buildContactCreateHref({ email: participant.email, name: participant.displayName ?? undefined })}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
+                                  disabled={createParticipantContact.loading()}
+                                  onClick={() => void chooseBookAndCreate(participant)}
                                 >
                                   <i class="ti ti-user-plus" aria-hidden="true" /> Create contact
-                                </a>
+                                </button>
                               </Show>
                             }
                           >
@@ -343,7 +347,7 @@ export default function MailConversationContext(props: {
                               <For each={participant.contacts}>
                                 {(contact) => (
                                   <div class="min-w-0">
-                                    <a class="block truncate text-sm font-medium text-primary hover:underline" href={contact.href}>
+                                    <a class="block truncate text-sm font-medium text-primary hover:underline" href={contact.openHref}>
                                       {contact.displayName}
                                     </a>
                                     <p class="truncate text-xs text-dimmed">
@@ -351,8 +355,8 @@ export default function MailConversationContext(props: {
                                     </p>
                                     <Show when={contact.phones[0]}>
                                       {(phone) => (
-                                        <a class="text-xs text-secondary hover:text-primary" href={`tel:${phone().value}`}>
-                                          {phone().value}
+                                        <a class="text-xs text-secondary hover:text-primary" href={`tel:${phone().phone}`}>
+                                          {phone().phone}
                                         </a>
                                       )}
                                     </Show>
@@ -380,7 +384,7 @@ export default function MailConversationContext(props: {
                     type="button"
                     class="btn-simple btn-sm mt-3"
                     disabled={loading()}
-                    onClick={() => void queueContactsPage(cursor())}
+                    onClick={() => void loadContacts(cursor())}
                   >
                     Load more
                   </button>

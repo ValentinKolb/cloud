@@ -1,19 +1,8 @@
-import {
-  CONTACTS_MAIL_SUGGESTIONS_PATH,
-  type ContactMailSuggestion,
-  ContactMailSuggestionsResponseSchema,
-} from "@valentinkolb/cloud-app-contacts/integration";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { suggestContacts } from "./contact-capabilities";
 import { commitMailRecipient, shouldCommitMailRecipient } from "./mail-recipient";
 
-type RecipientSuggestion = { label: string; address: string };
-
-const displayName = (contact: ContactMailSuggestion): string =>
-  contact.label ||
-  [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
-  contact.companyName ||
-  contact.emails[0]?.email ||
-  "Contact";
+type RecipientSuggestion = { label: string; address: string; context: string | null };
 
 export default function MailRecipientInput(props: {
   value: () => string[];
@@ -113,7 +102,7 @@ export default function MailRecipientInput(props: {
     const value = query().trim();
     if (timer) clearTimeout(timer);
     controller?.abort();
-    if (value.length < 2 || value.includes("@")) {
+    if (value.length < 2) {
       setSuggestions([]);
       setLoading(false);
       return;
@@ -123,20 +112,17 @@ export default function MailRecipientInput(props: {
       const request = new AbortController();
       controller = request;
       try {
-        const params = new URLSearchParams({ q: value, email: "yes", per_page: "8", page: "1" });
-        const response = await fetch(`${CONTACTS_MAIL_SUGGESTIONS_PATH}?${params}`, { signal: request.signal });
-        if (!response.ok) throw new Error("Contacts unavailable");
-        const result = ContactMailSuggestionsResponseSchema.parse(await response.json());
+        const result = await suggestContacts({ query: value, limit: 8 }, request.signal);
         if (disposed || controller !== request) return;
         const seen = new Set<string>();
         setSuggestions(
           result.data.flatMap((contact) => {
-            const label = displayName(contact);
+            const context = [contact.companyName, contact.jobTitle, contact.phones[0]?.phone].filter(Boolean).join(" · ") || null;
             return contact.emails.flatMap(({ email }) => {
               const address = email.toLowerCase();
               if (seen.has(address)) return [];
               seen.add(address);
-              return [{ label, address }];
+              return [{ label: contact.displayName, address, context }];
             });
           }),
         );
@@ -285,6 +271,9 @@ export default function MailRecipientInput(props: {
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm text-primary">{suggestion.label}</span>
                   <span class="block truncate text-xs text-dimmed">{suggestion.address}</span>
+                  <Show when={suggestion.context}>
+                    {(context) => <span class="block truncate text-[10px] text-dimmed">{context()}</span>}
+                  </Show>
                 </span>
               </button>
             )}

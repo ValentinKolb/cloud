@@ -7,7 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",
-    "./integration": "./src/integration.ts"
+    "./capability-contracts": "./src/capability-contracts.ts"
   },
   "scripts": {
     "test": "bun test",

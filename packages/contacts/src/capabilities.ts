@@ -30,6 +30,10 @@ import {
   ContactNoteCreateInputSchema,
   ContactNoteListDataSchema,
   ContactNoteListInputSchema,
+  ContactResolveDataSchema,
+  ContactResolveInputSchema,
+  ContactSuggestDataSchema,
+  ContactSuggestInputSchema,
   ContactTagChangeDataSchema,
   ContactTagChangeInputSchema,
   ContactTagListDataSchema,
@@ -105,6 +109,19 @@ const mapContactDetail = (contact: Contact) => ({
     note: item.note,
   })),
   createdAt: contact.createdAt,
+});
+
+const mapContactSuggestion = (contact: Contact) => ({
+  contactId: contact.id,
+  bookId: contact.bookId,
+  displayName: resolveContactName(contact),
+  companyName: contact.companyName,
+  jobTitle: contact.jobTitle,
+  emails: contact.emails.slice(0, 20).map((item) => ({ label: item.label, email: item.email })),
+  phones: contact.phones.slice(0, 20).map((item) => ({ label: item.label, phone: item.phone })),
+  contactPointsTruncated: contact.emails.length > 20 || contact.phones.length > 20,
+  openHref: contactHref(contact),
+  updatedAt: contact.updatedAt,
 });
 
 const mapNote = (note: ContactNote) => ({
@@ -278,6 +295,51 @@ const runSearch = async (input: UniversalSearchInput, context: CapabilityExecuti
   return ok({ data });
 };
 
+const runContactSuggest = async (input: z.infer<typeof ContactSuggestInputSchema>, context: CapabilityExecutionContext) => {
+  const cursor = decodeContactCapabilityCursor(input.cursor);
+  if (!cursor.ok) return cursor;
+  if (!serviceAccountBindingValid(context)) return fail(err.forbidden("A readable Contacts credential is required"));
+  const user = userBacked(context);
+  const page = await contactsService.contact.search({
+    subject: context.accessSubject,
+    boundBookId: resourceBoundBookId(context),
+    bypassAccess: Boolean(user && hasRole(user, "admin")),
+    pagination: { page: cursor.data, perPage: input.limit },
+    filter: {
+      query: input.query,
+      includeSystem: Boolean(user),
+      email: "yes",
+    },
+  });
+  return pageResult(
+    page,
+    page.items.map(mapContactSuggestion),
+    page.items.map((contact) => ({ type: "contacts.contact", id: contact.id })),
+  );
+};
+
+const runContactResolve = async (input: z.infer<typeof ContactResolveInputSchema>, context: CapabilityExecutionContext) => {
+  if (!serviceAccountBindingValid(context)) return fail(err.forbidden("A readable Contacts credential is required"));
+  const normalizedInput = {
+    ...input,
+    emails: [...new Set(input.emails.map((email) => email.trim().toLowerCase()))],
+    ...(input.contactIds ? { contactIds: [...new Set(input.contactIds)] } : {}),
+  };
+  const result = await contactsService.lookup.resolveContactsByEmail({
+    subject: context.accessSubject,
+    boundBookId: resourceBoundBookId(context),
+    includeSystem: Boolean(userBacked(context)),
+    input: normalizedInput,
+  });
+  if (!result.ok) return result;
+  const { nextCursor, ...data } = result.data;
+  return ok({
+    data,
+    refs: data.items.map((contact) => ({ type: "contacts.contact", id: contact.contactId })),
+    page: { hasMore: nextCursor !== null, ...(nextCursor ? { nextCursor } : {}) },
+  });
+};
+
 const runContactList = async (input: z.infer<typeof ContactListInputSchema>, context: CapabilityExecutionContext) => {
   const cursor = decodeContactCapabilityCursor(input.cursor);
   if (!cursor.ok) return cursor;
@@ -317,6 +379,13 @@ const runBookList = async (input: z.infer<typeof ContactBookListInputSchema>, co
   const cursor = decodeContactCapabilityCursor(input.cursor);
   if (!cursor.ok) return cursor;
   if (!serviceAccountBindingValid(context)) return fail(err.forbidden("A resource-bound Contacts credential is required"));
+  const scopedPermission =
+    context.actor.kind === "service_account" && context.actor.serviceAccount.kind === "resource_bound"
+      ? permissionFromScopes(context.actor.scopes)
+      : ("admin" as PermissionLevel);
+  if (!hasPermission(scopedPermission, input.minimumPermission)) {
+    return fail(err.forbidden(`The Contacts credential does not grant ${input.minimumPermission} access`));
+  }
   const user = userBacked(context);
   if (user && hasRole(user, "admin")) {
     const page = await contactsService.book.admin.list({
@@ -340,12 +409,8 @@ const runBookList = async (input: z.infer<typeof ContactBookListInputSchema>, co
     subject: context.accessSubject,
     boundBookId: resourceBoundBookId(context),
     pagination: { page: cursor.data, perPage: input.limit },
-    filter: { query: input.query },
+    filter: { query: input.query, minimumPermission: input.minimumPermission },
   });
-  const scopedPermission =
-    context.actor.kind === "service_account" && context.actor.serviceAccount.kind === "resource_bound"
-      ? permissionFromScopes(context.actor.scopes)
-      : ("admin" as PermissionLevel);
   return pageResult(
     page,
     page.items.map((book) => ({
@@ -582,6 +647,21 @@ export const contactsCapabilities = defineCapabilities({
         ],
       },
       run: runSearch,
+    },
+    "contact.suggest": {
+      title: "Suggest contacts",
+      description:
+        "Suggest readable contacts with email addresses by matching names, organizations, email addresses, phone numbers, and addresses.",
+      input: ContactSuggestInputSchema,
+      data: ContactSuggestDataSchema,
+      run: runContactSuggest,
+    },
+    "contact.resolve": {
+      title: "Resolve contacts by email",
+      description: "Resolve up to 100 exact email addresses to every readable matching contact with bounded contact details.",
+      input: ContactResolveInputSchema,
+      data: ContactResolveDataSchema,
+      run: runContactResolve,
     },
     "contact.list": {
       title: "List contacts",

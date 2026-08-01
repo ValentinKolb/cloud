@@ -4,12 +4,20 @@ import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
-import type { ContactMailMatch, ResolveMailParticipantsInput, ResolveMailParticipantsResponse } from "../integration";
+import {
+  ContactResolveDataSchema,
+  ContactResolveInputSchema,
+  ContactResolveMatchDataSchema,
+} from "../capability-contracts";
 import { SYSTEM_BOOK_ID, SYSTEM_BOOK_NAME } from "./system";
 
 const cursorSchema = z.object({ version: z.literal(1), source: z.enum(["manual", "system"]), id: z.uuid() }).strict();
 
 type MatchCursor = z.infer<typeof cursorSchema>;
+type ContactResolveInput = z.infer<typeof ContactResolveInputSchema>;
+type ContactResolveData = z.infer<typeof ContactResolveDataSchema>;
+type ContactResolveMatch = z.infer<typeof ContactResolveMatchDataSchema>;
+type ContactResolvePage = ContactResolveData & { nextCursor: string | null };
 
 type MatchRow = {
   contact_id: string;
@@ -20,8 +28,8 @@ type MatchRow = {
   company_name: string | null;
   job_title: string | null;
   matched_emails: string[];
-  emails: Array<{ label: string | null; value: string }>;
-  phones: Array<{ label: string | null; value: string }>;
+  emails: Array<{ label: string | null; email: string }>;
+  phones: Array<{ label: string | null; phone: string }>;
   updated_at: Date;
 };
 
@@ -32,18 +40,18 @@ const decodeCursor = (value?: string): Result<MatchCursor | null> => {
   if (!value) return ok(null);
   try {
     const parsed = cursorSchema.safeParse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
-    return parsed.success ? ok(parsed.data) : fail(err.badInput("Invalid Contacts integration cursor"));
+    return parsed.success ? ok(parsed.data) : fail(err.badInput("Invalid contact resolution cursor"));
   } catch {
-    return fail(err.badInput("Invalid Contacts integration cursor"));
+    return fail(err.badInput("Invalid contact resolution cursor"));
   }
 };
 
-export const resolveMailParticipants = async (params: {
+export const resolveContactsByEmail = async (params: {
   subject: AccessSubject;
   boundBookId: string | null;
   includeSystem: boolean;
-  input: ResolveMailParticipantsInput;
-}): Promise<Result<ResolveMailParticipantsResponse>> => {
+  input: ContactResolveInput;
+}): Promise<Result<ContactResolvePage>> => {
   const cursor = decodeCursor(params.input.cursor);
   if (!cursor.ok) return cursor;
 
@@ -79,7 +87,7 @@ export const resolveMailParticipants = async (params: {
         NULLIF(BTRIM(c.job_title), '') AS job_title,
         ARRAY_AGG(DISTINCT LOWER(BTRIM(match_email.email)) ORDER BY LOWER(BTRIM(match_email.email))) AS matched_emails,
         (
-          SELECT COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT('label', points.label, 'value', points.email) ORDER BY points.position), '[]'::jsonb)
+          SELECT COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT('label', points.label, 'email', points.email) ORDER BY points.position), '[]'::jsonb)
           FROM (
             SELECT email.label, email.email, email.position
             FROM contacts.contact_emails email
@@ -89,7 +97,7 @@ export const resolveMailParticipants = async (params: {
           ) points
         ) AS emails,
         (
-          SELECT COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT('label', points.label, 'value', points.phone) ORDER BY points.position), '[]'::jsonb)
+          SELECT COALESCE(JSONB_AGG(JSONB_BUILD_OBJECT('label', points.label, 'phone', points.phone) ORDER BY points.position), '[]'::jsonb)
           FROM (
             SELECT phone.label, phone.phone, phone.position
             FROM contacts.contact_phones phone
@@ -122,14 +130,14 @@ export const resolveMailParticipants = async (params: {
         NULL::text AS company_name,
         NULL::text AS job_title,
         ARRAY[LOWER(BTRIM(u.mail))]::text[] AS matched_emails,
-        JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('label', 'work', 'value', u.mail)) AS emails,
+        JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('label', 'work', 'email', u.mail)) AS emails,
         CASE
           WHEN NULLIF(BTRIM(d.phone), '') IS NOT NULL AND NULLIF(BTRIM(d.mobile), '') IS NOT NULL THEN JSONB_BUILD_ARRAY(
-            JSONB_BUILD_OBJECT('label', 'phone', 'value', d.phone),
-            JSONB_BUILD_OBJECT('label', 'mobile', 'value', d.mobile)
+            JSONB_BUILD_OBJECT('label', 'phone', 'phone', d.phone),
+            JSONB_BUILD_OBJECT('label', 'mobile', 'phone', d.mobile)
           )
-          WHEN NULLIF(BTRIM(d.phone), '') IS NOT NULL THEN JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('label', 'phone', 'value', d.phone))
-          WHEN NULLIF(BTRIM(d.mobile), '') IS NOT NULL THEN JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('label', 'mobile', 'value', d.mobile))
+          WHEN NULLIF(BTRIM(d.phone), '') IS NOT NULL THEN JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('label', 'phone', 'phone', d.phone))
+          WHEN NULLIF(BTRIM(d.mobile), '') IS NOT NULL THEN JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('label', 'mobile', 'phone', d.mobile))
           ELSE '[]'::jsonb
         END AS phones,
         COALESCE(d.synced_at, u.created_at) AS updated_at
@@ -183,7 +191,7 @@ export const resolveMailParticipants = async (params: {
 
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
-  const items: ContactMailMatch[] = page.map((row) => {
+  const items: ContactResolveMatch[] = page.map((row) => {
     const contactPointsTruncated = row.emails.length > 20 || row.phones.length > 20;
     return {
       contactId: row.contact_id,
@@ -196,7 +204,7 @@ export const resolveMailParticipants = async (params: {
       emails: row.emails.slice(0, 20),
       phones: row.phones.slice(0, 20),
       contactPointsTruncated,
-      href: `/app/contacts/${encodeURIComponent(row.book_id)}?contact=${encodeURIComponent(row.contact_id)}&contactBook=${encodeURIComponent(row.book_id)}`,
+      openHref: `/app/contacts/${encodeURIComponent(row.book_id)}?contact=${encodeURIComponent(row.contact_id)}&contactBook=${encodeURIComponent(row.book_id)}`,
       updatedAt: row.updated_at.toISOString(),
     };
   });

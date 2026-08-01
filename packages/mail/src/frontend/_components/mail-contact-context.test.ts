@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { ContactMailMatch } from "@valentinkolb/cloud-app-contacts/integration";
+import { ContactResolveMatchDataSchema } from "@valentinkolb/cloud-app-contacts/capability-contracts";
+import type { z } from "zod";
 import { buildMailContactParticipantRows } from "./mail-contact-context";
 
-const contact = (id: string, bookId: string, email: string): ContactMailMatch => ({
+type ContactMatch = z.infer<typeof ContactResolveMatchDataSchema>;
+
+const contact = (id: string, bookId: string, email: string): ContactMatch => ({
   contactId: id,
   bookId,
   bookName: `Book ${bookId}`,
@@ -10,10 +13,10 @@ const contact = (id: string, bookId: string, email: string): ContactMailMatch =>
   companyName: null,
   jobTitle: null,
   matchedEmails: [email],
-  emails: [{ label: "Email", value: email }],
+  emails: [{ label: "Email", email }],
   phones: [],
   contactPointsTruncated: false,
-  href: `/app/contacts/${bookId}?contact=${id}`,
+  openHref: `/app/contacts/${bookId}?contact=${id}`,
   updatedAt: "2026-07-21T10:00:00.000Z",
 });
 

@@ -8,7 +8,7 @@ import { spacesCapabilities } from "../packages/spaces/src/capabilities";
 import { weatherCapabilities } from "../packages/weather/src/capabilities";
 
 const providers = [
-  ["contacts", contactsCapabilities, ["contacts.contact"]],
+  ["contacts", contactsCapabilities, ["contacts.book", "contacts.contact", "contacts.note", "contacts.tag"]],
   ["files", filesCapabilities, ["files.directory", "files.file"]],
   ["mail", mailCapabilities, ["mail.message"]],
   ["notebooks", notebooksCapabilities, ["notebooks.note", "notebooks.notebook"]],
@@ -28,14 +28,13 @@ describe("capability provider inventory", () => {
 
   test("Contacts publishes the idempotent create action", () => {
     const manifest = compileCapabilities("contacts", contactsCapabilities).manifest;
-    expect(manifest.actions).toEqual([
+    expect(manifest.actions.find((action) => action.id === "contacts.contact.create")).toEqual(
       expect.objectContaining({
-        id: "contacts.create",
         approval: "once",
         idempotency: "required",
         destructive: false,
         openWorld: false,
       }),
-    ]);
+    );
   });
 });

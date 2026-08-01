@@ -100,7 +100,7 @@ export const listPage = async (config: {
   subject: AccessSubject;
   boundBookId?: string | null;
   pagination?: PageParams;
-  filter?: { query?: string };
+  filter?: { query?: string; minimumPermission?: PermissionLevel };
 }): Promise<Paginated<ReadableContactBook>> => {
   const { page, perPage, offset } = paginate(config.pagination);
   if (config.subject.type === "service_account" && !isUuid(config.boundBookId ?? "")) {
@@ -125,6 +125,12 @@ export const listPage = async (config: {
           OR POSITION(${query} IN LOWER(COALESCE(b.description, ''))) > 0
         )`
       : sql`true`;
+  const permissionMatch =
+    config.filter?.minimumPermission === "admin"
+      ? sql`a.permission = 'admin'::auth.permission_level`
+      : config.filter?.minimumPermission === "write"
+        ? sql`a.permission IN ('write'::auth.permission_level, 'admin'::auth.permission_level)`
+        : sql`a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)`;
 
   const [countRow] = await sql<{ count: number }[]>`
     SELECT COUNT(DISTINCT b.id)::int AS count
@@ -134,7 +140,7 @@ export const listPage = async (config: {
     WHERE ${principalMatch}
       AND ${bindingMatch}
       AND ${queryMatch}
-      AND a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+      AND ${permissionMatch}
   `;
 
   const rows = await sql<DbReadableBook[]>`
@@ -156,7 +162,7 @@ export const listPage = async (config: {
     WHERE ${principalMatch}
       AND ${bindingMatch}
       AND ${queryMatch}
-      AND a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+      AND ${permissionMatch}
     GROUP BY b.id, b.name, b.description, b.created_at, b.updated_at
     ORDER BY LOWER(b.name) ASC, b.id ASC
     LIMIT ${perPage}
