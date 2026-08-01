@@ -36,7 +36,7 @@ type DbReadableBook = DbBook & {
   permission_rank: number;
 };
 
-export type ReadableContactBook = ContactBook & {
+type ReadableContactBook = ContactBook & {
   permission: PermissionLevel;
 };
 

@@ -5,12 +5,12 @@ const TimestampSchema = z.string().datetime({ offset: true });
 const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque cursor returned by the previous page.");
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
 
-export const CapabilityPageInputShape = {
+const CapabilityPageInputShape = {
   cursor: CursorSchema,
   limit: LimitSchema,
 };
 
-export const ContactTagDataSchema = z
+const ContactTagDataSchema = z
   .object({
     id: z.uuid(),
     bookId: z.uuid(),
@@ -48,7 +48,7 @@ const ContactBankAccountDataSchema = z
   })
   .strict();
 
-export const ContactSummaryDataSchema = z
+const ContactSummaryDataSchema = z
   .object({
     id: z.uuid(),
     bookId: z.string().min(1),
@@ -98,7 +98,7 @@ export const ContactListInputSchema = z
 
 export const ContactGetInputSchema = z.object({ contactId: z.uuid().describe("Stable contact UUID.") }).strict();
 
-export const ContactBookDataSchema = z
+const ContactBookDataSchema = z
   .object({
     id: z.uuid(),
     name: z.string().min(1),
@@ -121,7 +121,7 @@ export const ContactTagListInputSchema = z
   .object({ bookId: z.uuid().describe("Address-book UUID whose tags should be listed."), ...CapabilityPageInputShape })
   .strict();
 
-export const ContactNoteDataSchema = z
+const ContactNoteDataSchema = z
   .object({
     id: z.uuid(),
     contactId: z.uuid(),
