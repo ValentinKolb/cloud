@@ -1,5 +1,5 @@
 import type { AppAdminNavigationGroup, AppAppearance } from "./app";
-import type { CapabilityManifest, CapabilitySearchTagManifest } from "./capabilities";
+import type { CapabilityManifest } from "./capabilities";
 import type { DashboardWidgetPresentation } from "./widgets";
 
 /**
@@ -15,14 +15,6 @@ export type AppRegistryNav = {
   requiresAuth?: boolean;
   requiresRoles?: string[];
   adminHref?: string;
-};
-
-export type AppRegistrySearch = {
-  endpoint: string;
-  queryId: string;
-  schemaHash: string;
-  description: string;
-  tags: CapabilitySearchTagManifest[];
 };
 
 export type AppRegistryCapabilitySummary = {
@@ -74,7 +66,6 @@ export type AppRegistryEntry = {
   nav?: AppRegistryNav;
   adminNav?: AppAdminNavigationGroup[];
   capabilities?: AppRegistryCapabilitySummary;
-  search?: AppRegistrySearch;
   legalLinks?: AppRegistryLegalLink[];
   widgets?: AppRegistryWidget[];
   /** Setting keys declared by this app. Used by admin tooling to avoid treating live app-owned settings as legacy. */

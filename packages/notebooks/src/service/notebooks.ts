@@ -1,7 +1,7 @@
+import type { DateContext } from "@k2b/stdlib";
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { deleteAccess, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
-import type { DateContext } from "@k2b/stdlib";
 import { sql } from "bun";
 import { buildNoteTitleTemplateContext, renderNoteTitleTemplate, validateNoteTitleTemplate } from "../lib/note-title-template";
 import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
@@ -79,6 +79,14 @@ export type NotebookAdminListItem = Notebook & {
   permissionCount: number;
 };
 
+export type NotebookWithPermission = Notebook & {
+  permission: Exclude<PermissionLevel, "none">;
+};
+
+type DbNotebookWithPermission = DbNotebook & {
+  permission_rank: number;
+};
+
 // ==========================
 // Helpers
 // ==========================
@@ -104,6 +112,13 @@ const mapToNotebook = (row: DbNotebook): Notebook => ({
 const mapToNotebookAdminItem = (row: DbNotebookAdmin): NotebookAdminListItem => ({
   ...mapToNotebook(row),
   permissionCount: row.permission_count,
+});
+
+const permissionFromRank = (rank: number): Exclude<PermissionLevel, "none"> => (rank >= 3 ? "admin" : rank >= 2 ? "write" : "read");
+
+const mapToNotebookWithPermission = (row: DbNotebookWithPermission): NotebookWithPermission => ({
+  ...mapToNotebook(row),
+  permission: permissionFromRank(row.permission_rank),
 });
 
 const noteExistsInNotebook = async (noteId: string, notebookId: string): Promise<boolean> => {
@@ -166,23 +181,27 @@ export const getPermission = async (params: {
 /**
  * List all notebooks accessible to a user.
  */
-export const list = async (params: {
+export type ListNotebooksParams = {
   userId: string | null;
   serviceAccountId?: string | null;
   boundNotebookId?: string | null;
+  requiredLevel?: PermissionLevel;
   query?: string;
   pagination?: { limit: number; offset: number };
-}): Promise<{ items: Notebook[]; total: number }> => {
+};
+
+export const listWithPermission = async (params: ListNotebooksParams): Promise<{ items: NotebookWithPermission[]; total: number }> => {
   const { userId } = params;
   if (params.serviceAccountId && !params.boundNotebookId) return { items: [], total: 0 };
   const principalMatch = buildNotebookVisibleAccessCondition({ userId, serviceAccountId: params.serviceAccountId });
   const boundNotebookId = params.boundNotebookId ?? null;
+  const requiredRank = params.requiredLevel === "admin" ? 3 : params.requiredLevel === "write" ? 2 : 1;
   const query = params.query?.trim().toLowerCase();
   const pattern = query && query.length > 0 ? `%${query}%` : null;
 
   const rows =
     params.pagination === undefined
-      ? await sql<DbNotebook[]>`
+      ? await sql<DbNotebookWithPermission[]>`
           SELECT
             n.id,
             n.short_id,
@@ -195,17 +214,18 @@ export const list = async (params: {
             n.default_note_title_template,
             n.created_by,
             n.created_at,
-            n.updated_at
+            n.updated_at,
+            visible.permission_rank
           FROM notebooks.notebooks n
           LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
-          WHERE EXISTS (
-            SELECT 1
+          JOIN LATERAL (
+            SELECT MAX(CASE a.permission WHEN 'admin' THEN 3 WHEN 'write' THEN 2 WHEN 'read' THEN 1 ELSE 0 END)::int AS permission_rank
             FROM notebooks.notebook_access na
             JOIN auth.access a ON a.id = na.access_id
             WHERE na.notebook_id = n.id
               AND ${principalMatch}
-          )
-            AND (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
+          ) visible ON visible.permission_rank >= ${requiredRank}
+          WHERE (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
             AND (
               ${pattern}::text IS NULL
               OR LOWER(n.name) LIKE ${pattern}
@@ -213,7 +233,7 @@ export const list = async (params: {
             )
           ORDER BY LOWER(n.name) ASC, n.created_at ASC
         `
-      : await sql<DbNotebook[]>`
+      : await sql<DbNotebookWithPermission[]>`
           SELECT
             n.id,
             n.short_id,
@@ -226,17 +246,18 @@ export const list = async (params: {
             n.default_note_title_template,
             n.created_by,
             n.created_at,
-            n.updated_at
+            n.updated_at,
+            visible.permission_rank
           FROM notebooks.notebooks n
           LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
-          WHERE EXISTS (
-            SELECT 1
+          JOIN LATERAL (
+            SELECT MAX(CASE a.permission WHEN 'admin' THEN 3 WHEN 'write' THEN 2 WHEN 'read' THEN 1 ELSE 0 END)::int AS permission_rank
             FROM notebooks.notebook_access na
             JOIN auth.access a ON a.id = na.access_id
             WHERE na.notebook_id = n.id
               AND ${principalMatch}
-          )
-            AND (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
+          ) visible ON visible.permission_rank >= ${requiredRank}
+          WHERE (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
             AND (
               ${pattern}::text IS NULL
               OR LOWER(n.name) LIKE ${pattern}
@@ -250,14 +271,14 @@ export const list = async (params: {
   const [countRow] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM notebooks.notebooks n
-    WHERE EXISTS (
-      SELECT 1
+    JOIN LATERAL (
+      SELECT MAX(CASE a.permission WHEN 'admin' THEN 3 WHEN 'write' THEN 2 WHEN 'read' THEN 1 ELSE 0 END)::int AS permission_rank
       FROM notebooks.notebook_access na
       JOIN auth.access a ON a.id = na.access_id
       WHERE na.notebook_id = n.id
         AND ${principalMatch}
-    )
-      AND (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
+    ) visible ON visible.permission_rank >= ${requiredRank}
+    WHERE (${boundNotebookId}::text IS NULL OR n.id::text = ${boundNotebookId})
       AND (
         ${pattern}::text IS NULL
         OR LOWER(n.name) LIKE ${pattern}
@@ -266,8 +287,17 @@ export const list = async (params: {
   `;
 
   return {
-    items: rows.map(mapToNotebook),
+    items: rows.map(mapToNotebookWithPermission),
     total: countRow?.count ?? 0,
+  };
+};
+
+/** Existing list contract without the capability-only permission projection. */
+export const list = async (params: ListNotebooksParams): Promise<{ items: Notebook[]; total: number }> => {
+  const result = await listWithPermission(params);
+  return {
+    items: result.items.map(({ permission: _permission, ...notebook }) => notebook),
+    total: result.total,
   };
 };
 

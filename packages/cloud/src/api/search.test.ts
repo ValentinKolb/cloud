@@ -3,7 +3,7 @@ import { ok } from "@k2b/stdlib";
 import type { MiddlewareHandler } from "hono";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities, UniversalSearchDataSchema, UniversalSearchInputSchema } from "../contracts/capabilities";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { CapabilityRegistryEntry } from "../contracts/registry";
 import type { AuthContext } from "../server";
 import { createSearchRoutes } from "./search";
 
@@ -27,20 +27,12 @@ const capabilities = defineCapabilities({
 });
 
 const manifest = compileCapabilities("demo", capabilities).manifest;
-const app: AppRegistryEntry = {
-  id: "demo",
-  name: "Demo",
-  icon: "ti ti-box",
-  description: "Demo app",
-  baseUrl: "http://demo:3000",
-  routes: [],
-  search: {
-    endpoint: "http://demo:3000/api/_internal/capabilities/v1/queries/search",
-    queryId: "search",
-    schemaHash: manifest.queries[0]!.schemaHash,
-    description: manifest.queries[0]!.description,
-    tags: manifest.queries[0]!.universalSearch!.tags,
-  },
+const app: CapabilityRegistryEntry = {
+  appId: "demo",
+  appName: "Demo",
+  appIcon: "ti ti-box",
+  endpoint: "http://demo:3000/api/_internal/capabilities/v1",
+  manifest,
 };
 
 const authenticate: MiddlewareHandler<AuthContext> = async (c, next) => {
@@ -52,11 +44,50 @@ const authenticate: MiddlewareHandler<AuthContext> = async (c, next) => {
 };
 
 describe("global capability search", () => {
+  test("discovers and routes multiple providers from one app", async () => {
+    const multiManifest = compileCapabilities(
+      "demo",
+      defineCapabilities({
+        version: 1,
+        types: { item: { title: "Item", description: "One search result." } },
+        queries: {
+          first: {
+            ...capabilities.queries.search,
+            universalSearch: { tags: [{ tag: "first", title: "First", description: "Search first items." }] },
+          },
+          second: {
+            ...capabilities.queries.search,
+            universalSearch: { tags: [{ tag: "second", title: "Second", description: "Search second items." }] },
+          },
+        },
+      }),
+    ).manifest;
+    const calls: string[] = [];
+    const routes = createSearchRoutes({
+      authenticate,
+      listCapabilities: async () => [{ ...app, manifest: multiManifest }],
+      fetch: async (url) => {
+        calls.push(String(url));
+        return Response.json({ data: [] });
+      },
+    });
+
+    expect((await routes.request("/search?q=test&tag=second")).status).toBe(200);
+    expect(calls).toEqual(["http://demo:3000/api/_internal/capabilities/v1/queries/second"]);
+
+    calls.length = 0;
+    expect((await routes.request("/search?q=test")).status).toBe(200);
+    expect(calls.sort()).toEqual([
+      "http://demo:3000/api/_internal/capabilities/v1/queries/first",
+      "http://demo:3000/api/_internal/capabilities/v1/queries/second",
+    ]);
+  });
+
   test("discovers tags and maps stable resource refs", async () => {
     let input: unknown;
     const routes = createSearchRoutes({
       authenticate,
-      listApps: async () => [app],
+      listCapabilities: async () => [app],
       fetch: async (_url, init) => {
         input = JSON.parse(String(init?.body));
         return Response.json({
@@ -98,7 +129,7 @@ describe("global capability search", () => {
     let calls = 0;
     const routes = createSearchRoutes({
       authenticate,
-      listApps: async () => [app],
+      listCapabilities: async () => [app],
       fetch: async () => {
         calls += 1;
         return Response.json({ data: [] });
@@ -112,7 +143,7 @@ describe("global capability search", () => {
   });
 
   test("rejects unbounded queries and provider limits before fan-out", async () => {
-    const routes = createSearchRoutes({ authenticate, listApps: async () => [app] });
+    const routes = createSearchRoutes({ authenticate, listCapabilities: async () => [app] });
     expect((await routes.request(`/search?q=${"x".repeat(501)}`)).status).toBe(400);
     expect((await routes.request("/search?provider_limit=31")).status).toBe(400);
     expect((await routes.request(`/search?${Array.from({ length: 21 }, (_, index) => `tag=t${index}`).join("&")}`)).status).toBe(400);
@@ -121,7 +152,7 @@ describe("global capability search", () => {
   test("caps a provider that returns more items than requested", async () => {
     const routes = createSearchRoutes({
       authenticate,
-      listApps: async () => [app],
+      listCapabilities: async () => [app],
       fetch: async () =>
         Response.json({
           data: Array.from({ length: 100 }, (_, index) => ({

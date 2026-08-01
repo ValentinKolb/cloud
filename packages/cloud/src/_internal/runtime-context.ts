@@ -1,5 +1,5 @@
 import type { CloudRuntime, RuntimeAppMeta } from "../contracts/app";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import type { Role } from "../contracts/shared";
 
 /**
@@ -9,9 +9,10 @@ import type { Role } from "../contracts/shared";
  * This produces the exact same shape as `createRuntimeContext()` in core/runtime.ts,
  * so all existing UI components work unchanged.
  */
-export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRuntime => ({
+export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[], capabilities: CapabilityRegistryEntry[] = []): CloudRuntime => ({
   apps: entries.map((e): RuntimeAppMeta => {
-    const searchTags = e.search?.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]);
+    const searchQueries = capabilities.find((entry) => entry.appId === e.id)?.manifest.queries.filter((query) => query.universalSearch);
+    const searchTags = searchQueries?.flatMap((query) => query.universalSearch!.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]));
     return {
       id: e.id,
       name: e.name,
@@ -36,11 +37,13 @@ export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRunt
           }
         : undefined,
       searchTags,
-      searchHelp: e.search?.description,
-      searchTagHelp: e.search?.tags.flatMap((tag) => [
-        { tag: tag.tag, help: tag.description },
-        ...(tag.aliases ?? []).map((alias) => ({ tag: alias, help: `${tag.description} (alias of #${tag.tag})` })),
-      ]),
+      searchHelp: searchQueries?.map((query) => query.description).join(" "),
+      searchTagHelp: searchQueries?.flatMap((query) =>
+        query.universalSearch!.tags.flatMap((tag) => [
+          { tag: tag.tag, help: tag.description },
+          ...(tag.aliases ?? []).map((alias) => ({ tag: alias, help: `${tag.description} (alias of #${tag.tag})` })),
+        ]),
+      ),
       legalLinks: e.legalLinks ? e.legalLinks.map((l) => ({ ...l })) : undefined,
       openapi: e.openapi,
     };

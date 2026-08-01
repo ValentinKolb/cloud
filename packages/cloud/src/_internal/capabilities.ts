@@ -189,11 +189,6 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
       resultSchema: schemas.resultZodSchema,
     });
   }
-  const universalSearchQueries = [...queries.values()].filter((entry) => entry.manifest.universalSearch);
-  if (universalSearchQueries.length > 1) {
-    throw new Error("An app may expose at most one Query through Universal Search");
-  }
-
   const actions = new Map<string, CompiledCapabilityAction>();
   for (const [localId, definition] of Object.entries(definitions.actions ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
     assertLocalId(localId, "Action");

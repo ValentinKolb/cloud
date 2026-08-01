@@ -155,7 +155,7 @@ describe("capability v1 compilation", () => {
     ).toThrow('input field "idempotencyKey" is reserved');
   });
 
-  test("allows many app queries but only one Universal Search projection", () => {
+  test("allows multiple Universal Search queries per app", () => {
     const searchQuery = {
       title: "Search items",
       description: "Finds items for the global search surface.",
@@ -166,29 +166,28 @@ describe("capability v1 compilation", () => {
       },
       run: async () => ok({ data: [] }),
     };
-    expect(() =>
-      compileCapabilities(
-        "example",
-        defineCapabilities({
-          version: 1,
-          queries: {
-            first: searchQuery,
-            second: {
-              ...searchQuery,
-              universalSearch: {
-                tags: [
-                  {
-                    tag: "other",
-                    title: "Other",
-                    description: "Search other items.",
-                  },
-                ],
-              },
+    const compiled = compileCapabilities(
+      "example",
+      defineCapabilities({
+        version: 1,
+        queries: {
+          first: searchQuery,
+          second: {
+            ...searchQuery,
+            universalSearch: {
+              tags: [
+                {
+                  tag: "other",
+                  title: "Other",
+                  description: "Search other items.",
+                },
+              ],
             },
           },
-        }),
-      ),
-    ).toThrow("at most one Query through Universal Search");
+        },
+      }),
+    );
+    expect(compiled.manifest.queries.filter((query) => query.universalSearch).map((query) => query.localId)).toEqual(["first", "second"]);
 
     expect(() =>
       compileCapabilities(

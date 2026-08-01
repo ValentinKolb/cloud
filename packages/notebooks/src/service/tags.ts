@@ -54,13 +54,20 @@ export type TagSummary = {
 
 /** All tags in a notebook with their note-count. Drives the tag-overview
  *  page and the `/tag` slash-command picker. */
-export const listForNotebook = async (params: { notebookId: string }): Promise<TagSummary[]> => {
+export const listForNotebook = async (params: {
+  notebookId: string;
+  pagination?: { limit: number; offset: number };
+}): Promise<TagSummary[]> => {
+  const limit = params.pagination?.limit ?? null;
+  const offset = params.pagination?.offset ?? 0;
   const rows = await sql<{ tag: string; count: number }[]>`
     SELECT tag, COUNT(*)::int AS count
     FROM notebooks.note_tags
     WHERE notebook_id = ${params.notebookId}
     GROUP BY tag
     ORDER BY count DESC, tag ASC
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return rows;
 };

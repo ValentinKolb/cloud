@@ -13,7 +13,7 @@
 import type { CloudRuntime } from "../contracts/app";
 import { logger } from "../services/logging";
 import { superviseRuntimeTask } from "../services/runtime-lifecycle";
-import { appRegistry, listApps } from "./registry";
+import { appRegistry, listApps, listCapabilities } from "./registry";
 import { buildRuntimeFromRegistry } from "./runtime-context";
 
 const log = logger("runtime-watcher");
@@ -24,7 +24,8 @@ let watcherTask: Promise<void> | undefined;
 let abort: AbortController | undefined;
 
 const refresh = async () => {
-  current = buildRuntimeFromRegistry(await listApps());
+  const [apps, capabilities] = await Promise.all([listApps(), listCapabilities()]);
+  current = buildRuntimeFromRegistry(apps, capabilities);
 };
 
 export const ensureRuntimeWatcher = (): Promise<void> => {
@@ -39,9 +40,9 @@ export const ensureRuntimeWatcher = (): Promise<void> => {
       name: "Runtime registry watcher",
       signal: controller.signal,
       run: async (signal) => {
-        const snap = await appRegistry.snapshot({ prefix: "apps/" });
+        const appSnap = await appRegistry.snapshot({ prefix: "apps/" });
         await refresh();
-        for await (const _ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal })) {
+        for await (const _ev of appRegistry.reader({ prefix: "apps/", after: appSnap.cursor }).stream({ signal })) {
           await refresh();
         }
       },

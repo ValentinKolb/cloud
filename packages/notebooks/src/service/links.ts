@@ -83,6 +83,17 @@ export type Backlink = {
   updatedAt: string;
 };
 
+export type NoteRelation = {
+  direction: "incoming" | "outgoing";
+  noteId: string;
+  noteShortId: string;
+  title: string;
+  notebookId: string;
+  notebookShortId: string;
+  notebookName: string;
+  updatedAt: string;
+};
+
 // Graph view payload — nodes + edges scoped to a single notebook. The shape
 // is intentionally tight (only what the visualisation needs) so we can stream
 // hundreds of notes without ballooning the SSR/JSON payload.
@@ -261,6 +272,98 @@ export const listBacklinks = async (params: {
     notebookShortId: r.notebook_short_id,
     notebookName: r.notebook_name,
     updatedAt: r.updated_at.toISOString(),
+  }));
+};
+
+/**
+ * List a bounded page of readable notes connected to one note. Access is
+ * checked on the related note's notebook so links never reveal hidden titles.
+ */
+export const listNoteRelations = async (params: {
+  noteId: string;
+  userId: string | null;
+  serviceAccountId?: string | null;
+  boundNotebookId?: string | null;
+  direction: "incoming" | "outgoing" | "all";
+  pagination: { limit: number; offset: number };
+}): Promise<NoteRelation[]> => {
+  if (params.serviceAccountId && !params.boundNotebookId) return [];
+  const principalMatch = buildNotebookVisibleAccessCondition({
+    userId: params.userId,
+    serviceAccountId: params.serviceAccountId,
+  });
+  const boundNotebookId = params.boundNotebookId ?? null;
+  const rows = await sql<
+    {
+      direction: "incoming" | "outgoing";
+      note_id: string;
+      note_short_id: string;
+      title: string;
+      notebook_id: string;
+      notebook_short_id: string;
+      notebook_name: string;
+      updated_at: Date;
+    }[]
+  >`
+    WITH related AS (
+      SELECT
+        'incoming'::text AS direction,
+        src.id AS note_id,
+        src.short_id AS note_short_id,
+        src.title,
+        src.notebook_id,
+        src.updated_at
+      FROM notebooks.note_links nl
+      JOIN notebooks.notes src ON src.id = nl.source_note_id
+      WHERE nl.target_note_id = ${params.noteId}::uuid
+        AND ${params.direction !== "outgoing"}
+
+      UNION ALL
+
+      SELECT
+        'outgoing'::text AS direction,
+        target.id AS note_id,
+        target.short_id AS note_short_id,
+        target.title,
+        target.notebook_id,
+        target.updated_at
+      FROM notebooks.note_links nl
+      JOIN notebooks.notes target ON target.id = nl.target_note_id
+      WHERE nl.source_note_id = ${params.noteId}::uuid
+        AND ${params.direction !== "incoming"}
+    )
+    SELECT
+      related.direction,
+      related.note_id,
+      related.note_short_id,
+      related.title,
+      related.notebook_id,
+      nb.short_id AS notebook_short_id,
+      nb.name AS notebook_name,
+      related.updated_at
+    FROM related
+    JOIN notebooks.notebooks nb ON nb.id = related.notebook_id
+    WHERE (${boundNotebookId}::uuid IS NULL OR related.notebook_id = ${boundNotebookId}::uuid)
+      AND EXISTS (
+        SELECT 1
+        FROM notebooks.notebook_access na
+        JOIN auth.access a ON a.id = na.access_id
+        WHERE na.notebook_id = related.notebook_id
+          AND ${principalMatch}
+      )
+    ORDER BY related.direction ASC, related.updated_at DESC, related.note_id ASC
+    LIMIT ${params.pagination.limit}
+    OFFSET ${params.pagination.offset}
+  `;
+  return rows.map((row) => ({
+    direction: row.direction,
+    noteId: row.note_id,
+    noteShortId: row.note_short_id,
+    title: row.title,
+    notebookId: row.notebook_id,
+    notebookShortId: row.notebook_short_id,
+    notebookName: row.notebook_name,
+    updatedAt: row.updated_at.toISOString(),
   }));
 };
 

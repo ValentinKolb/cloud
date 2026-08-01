@@ -1,8 +1,8 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
-import { listApps } from "..";
+import { listCapabilities } from "..";
 import { readBoundedJson } from "../_internal/bounded-json";
-import type { AppRegistryEntry } from "../contracts";
+import type { CapabilityRegistryEntry } from "../contracts";
 import { CloudResourceViewSchema, ErrorResponseSchema } from "../contracts";
 import { type AuthContext, auth, expectUserBackedActor, jsonResponse, requiresAuth, v } from "../server";
 import { logger } from "../services";
@@ -30,27 +30,30 @@ type HttpSearchProvider = {
 };
 
 /**
- * Discovers search providers from the app registry.
+ * Discovers search providers from live capability manifests.
  * Only live apps with a Query that opts into Universal Search are included.
  */
-const getSearchProviders = (entries: AppRegistryEntry[]): HttpSearchProvider[] => {
+const getSearchProviders = (entries: CapabilityRegistryEntry[]): HttpSearchProvider[] => {
   return entries.flatMap((entry) => {
-    if (!entry.search) return [];
-    return [
-      {
-        appId: entry.id,
-        appName: entry.name,
-        appIcon: entry.icon,
-        endpoint: entry.search.endpoint,
-        tags: entry.search.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]),
-        schemaHash: entry.search.schemaHash,
-      },
-    ];
+    return entry.manifest.queries.flatMap((query) =>
+      query.universalSearch
+        ? [
+            {
+              appId: entry.appId,
+              appName: entry.appName,
+              appIcon: entry.appIcon,
+              endpoint: `${entry.endpoint}/queries/${encodeURIComponent(query.localId)}`,
+              tags: query.universalSearch.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]),
+              schemaHash: query.schemaHash,
+            },
+          ]
+        : [],
+    );
   });
 };
 
 type SearchRouteDependencies = {
-  listApps?: () => Promise<AppRegistryEntry[]>;
+  listCapabilities?: () => Promise<CapabilityRegistryEntry[]>;
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   authenticate?: MiddlewareHandler<AuthContext>;
 };
@@ -81,11 +84,11 @@ const settleBounded = async <T, R>(items: readonly T[], concurrency: number, run
 
 /**
  * Creates the global search route.
- * Discovers search providers from the registry and fetches results via HTTP,
+ * Discovers search providers from the capability registry and fetches results via HTTP,
  * forwarding the session cookie for authentication.
  */
 export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) => {
-  const registry = dependencies.listApps ?? listApps;
+  const registry = dependencies.listCapabilities ?? listCapabilities;
   const fetchProvider = dependencies.fetch ?? globalThis.fetch;
   return new Hono<AuthContext>().use(dependencies.authenticate ?? auth.requireRole("authenticated")).get(
     "/search",

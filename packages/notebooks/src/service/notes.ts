@@ -1,6 +1,6 @@
+import { type DateContext, dates, fromBase64Strict } from "@k2b/stdlib";
 import type { MutationResult, PaginationParams } from "@valentinkolb/cloud/contracts";
 import { logger, get as settingsGet, toPgTextArray } from "@valentinkolb/cloud/services";
-import { type DateContext, dates, fromBase64Strict } from "@k2b/stdlib";
 import { sql } from "bun";
 import * as Y from "yjs";
 import {
@@ -48,6 +48,8 @@ export type NoteWithContent = Note & {
 export type NoteTreeNode = Note & {
   children: NoteTreeNode[];
 };
+
+export type NoteTreeEntry = Pick<Note, "id" | "shortId" | "parentId" | "title" | "position" | "hasChildren">;
 
 export type CreateNote = {
   notebookId: string;
@@ -519,6 +521,45 @@ export const getTree = async (params: { notebookId: string }): Promise<NoteTreeN
   sortTreeNodes(roots);
 
   return roots;
+};
+
+/**
+ * Read a stable, lightweight page of the note adjacency index. Unlike
+ * `getTree`, this never loads Markdown or constructs recursive objects.
+ */
+export const listTreePage = async (params: { notebookId: string; afterId?: string; limit: number }): Promise<NoteTreeEntry[]> => {
+  const afterId = params.afterId ?? null;
+  const rows = await sql<
+    {
+      id: string;
+      short_id: string;
+      parent_id: string | null;
+      title: string;
+      position: number;
+      has_children: boolean;
+    }[]
+  >`
+    SELECT
+      n.id,
+      n.short_id,
+      n.parent_id,
+      n.title,
+      n.position,
+      EXISTS(SELECT 1 FROM notebooks.notes child WHERE child.parent_id = n.id) AS has_children
+    FROM notebooks.notes n
+    WHERE n.notebook_id = ${params.notebookId}::uuid
+      AND (${afterId}::uuid IS NULL OR n.id > ${afterId}::uuid)
+    ORDER BY n.id ASC
+    LIMIT ${params.limit}
+  `;
+  return rows.map((row) => ({
+    id: row.id,
+    shortId: row.short_id,
+    parentId: row.parent_id,
+    title: row.title,
+    position: row.position,
+    hasChildren: row.has_children,
+  }));
 };
 
 /**

@@ -63,26 +63,6 @@ export const validateAppRegistryEntry = (value: unknown): string | null => {
     }
   }
   if (value.settingKeys !== undefined && !isStringArray(value.settingKeys)) return invalid("settingKeys", "an array of strings");
-  if (value.search !== undefined) {
-    if (
-      !isRecord(value.search) ||
-      !isString(value.search.endpoint) ||
-      !isString(value.search.queryId) ||
-      !isString(value.search.schemaHash) ||
-      !isString(value.search.description) ||
-      !Array.isArray(value.search.tags) ||
-      value.search.tags.some(
-        (tag) =>
-          !isRecord(tag) ||
-          !isString(tag.tag) ||
-          !isString(tag.title) ||
-          !isString(tag.description) ||
-          (tag.aliases !== undefined && !isStringArray(tag.aliases)),
-      )
-    ) {
-      return invalid("search", "a valid search descriptor");
-    }
-  }
   if (value.capabilities !== undefined) {
     if (
       !isRecord(value.capabilities) ||

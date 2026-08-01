@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { ok } from "@k2b/stdlib";
 import { z } from "zod";
 import { defineCapabilities, UniversalSearchDataSchema, UniversalSearchInputSchema } from "../contracts/capabilities";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import { compileCapabilities } from "./capabilities";
 import { buildRuntimeFromRegistry } from "./runtime-context";
 
@@ -77,16 +77,15 @@ describe("buildRuntimeFromRegistry", () => {
         },
       }),
     ).manifest;
-    const search = manifest.queries.find((query) => query.universalSearch)!;
-    app.search = {
-      endpoint: "http://app-example:3000/api/_internal/capabilities/v1/queries/search",
-      queryId: search.localId,
-      schemaHash: search.schemaHash,
-      description: search.description,
-      tags: search.universalSearch!.tags,
+    const capability: CapabilityRegistryEntry = {
+      appId: app.id,
+      appName: app.name,
+      appIcon: app.icon,
+      endpoint: "http://app-example:3000/api/_internal/capabilities/v1",
+      manifest,
     };
 
-    expect(buildRuntimeFromRegistry([app]).apps[0]).toMatchObject({
+    expect(buildRuntimeFromRegistry([app], [capability]).apps[0]).toMatchObject({
       searchTags: ["example", "sample"],
       searchHelp: "Find visible examples.",
       searchTagHelp: [

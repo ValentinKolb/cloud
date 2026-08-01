@@ -322,7 +322,6 @@ export const defineApp = <
     const advertiseOpenapi = !!(opts.openapi && startOpts.openapi);
     const compiledCapabilities = startOpts.capabilities ? compileCapabilities(meta.id, startOpts.capabilities) : undefined;
     const capabilityEndpoint = `${baseUrl}/api/_internal/capabilities/v1`;
-    const searchQuery = compiledCapabilities?.manifest.queries.find((query) => query.universalSearch);
 
     // Registry entry
     const entry: AppRegistryEntry = {
@@ -353,15 +352,6 @@ export const defineApp = <
         ? {
             protocolVersion: compiledCapabilities.manifest.protocolVersion,
             manifestHash: compiledCapabilities.manifest.manifestHash,
-          }
-        : undefined,
-      search: searchQuery?.universalSearch
-        ? {
-            endpoint: `${capabilityEndpoint}/queries/${encodeURIComponent(searchQuery.localId)}`,
-            queryId: searchQuery.localId,
-            schemaHash: searchQuery.schemaHash,
-            description: searchQuery.description,
-            tags: searchQuery.universalSearch.tags,
           }
         : undefined,
       legalLinks: meta.legalLinks ? meta.legalLinks.map((l) => ({ ...l })) : undefined,
