@@ -66,9 +66,7 @@ const sidebarItemSlot = (value: unknown): value is SidebarItemSlot =>
     value &&
       typeof value === "object" &&
       "kind" in value &&
-      [SIDEBAR_ITEM_ICON, SIDEBAR_ITEM_LABEL, SIDEBAR_ITEM_META, SIDEBAR_ITEM_ACTION].includes(
-        (value as SidebarItemSlot).kind,
-      ),
+      [SIDEBAR_ITEM_ICON, SIDEBAR_ITEM_LABEL, SIDEBAR_ITEM_META, SIDEBAR_ITEM_ACTION].includes((value as SidebarItemSlot).kind),
   );
 
 type ResizeHandleProps = {
@@ -265,14 +263,11 @@ export type AppWorkspaceSidebarItemActionProps = {
   children?: JSX.Element;
 };
 
-const modeAttrs = (mode?: AppWorkspaceSidebarVisibility) =>
-  mode && mode !== "always" ? { "data-sidebar-mode": mode } : {};
+const modeAttrs = (mode?: AppWorkspaceSidebarVisibility) => (mode && mode !== "always" ? { "data-sidebar-mode": mode } : {});
 /** Same rule as `modeAttrs`, for the un-prefixed `data` bag on sidebar items. */
-const modeData = (mode?: AppWorkspaceSidebarVisibility) =>
-  mode && mode !== "always" ? { "sidebar-mode": mode } : {};
+const modeData = (mode?: AppWorkspaceSidebarVisibility) => (mode && mode !== "always" ? { "sidebar-mode": mode } : {});
 const scrollAttrs = (key?: string | false) => (key ? { "data-scroll-preserve": key } : {});
-const iconClass = (icon: string | undefined, fallback = "ti-circle") =>
-  icon?.startsWith("ti ") ? icon : `ti ${icon || fallback}`;
+const iconClass = (icon: string | undefined, fallback = "ti-circle") => (icon?.startsWith("ti ") ? icon : `ti ${icon || fallback}`);
 
 function AppWorkspaceMainPane(props: AppWorkspaceMainPaneProps): JSX.Element {
   return {
@@ -291,10 +286,7 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
     const primary = all.filter((value) => !mainPaneSlot(value));
     const primaryIndex = all.findIndex((value) => !mainPaneSlot(value));
     let inserted = false;
-    const result: Array<
-      | { type: "primary"; index: number; children: unknown[] }
-      | { type: "pane"; index: number; slot: MainPaneSlot }
-    > = [];
+    const result: Array<{ type: "primary"; index: number; children: unknown[] } | { type: "pane"; index: number; slot: MainPaneSlot }> = [];
     all.forEach((value, index) => {
       if (mainPaneSlot(value)) {
         if (value.props.open !== false) result.push({ type: "pane", index, slot: value });
@@ -349,11 +341,7 @@ function AppWorkspaceMain(props: AppWorkspaceMainProps): JSX.Element {
               data-workspace-mobile-active={activeMobilePane === pane.props.id ? "true" : "false"}
               data-workspace-panel-id={panelId}
               data-workspace-resizable={resizable ? "true" : "false"}
-              style={
-                isAnchor
-                  ? undefined
-                  : { "--k2b-workspace-panel-size": `var(${variable}, ${defaultSize}px)` }
-              }
+              style={isAnchor ? undefined : { "--k2b-workspace-panel-size": `var(${variable}, ${defaultSize}px)` }}
             >
               {pane.props.children}
             </section>
@@ -489,7 +477,9 @@ const SidebarHeaderContent = (props: { header: SidebarHeaderSlot; mobile?: boole
       <strong style={{ "view-transition-name": props.header.titleViewTransitionName }}>{props.header.title}</strong>
       <Show when={!props.mobile && props.header.subtitle}>{(subtitle) => <small>{subtitle()}</small>}</Show>
     </span>
-    <Show when={!props.mobile && props.header.action}><span class="k2b-app-workspace__sidebar-action">{props.header.action}</span></Show>
+    <Show when={!props.mobile && props.header.action}>
+      <span class="k2b-app-workspace__sidebar-action">{props.header.action}</span>
+    </Show>
   </header>
 );
 
@@ -549,20 +539,32 @@ const AppWorkspaceSidebarMobile = (props: AppWorkspaceSidebarMobileProps): JSX.E
 const AppWorkspaceSidebarDesktop = (props: { children: JSX.Element }): JSX.Element =>
   ({ kind: SIDEBAR_DESKTOP, children: props.children }) as unknown as JSX.Element;
 const AppWorkspaceSidebarMobileItems = (props: AppWorkspaceSidebarMobileItemsProps) => (
-  <div class="k2b-app-workspace__sidebar-mobile-items" {...scrollAttrs(props.scrollPreserveKey)}>{props.children}</div>
+  <div class="k2b-app-workspace__sidebar-mobile-items" {...scrollAttrs(props.scrollPreserveKey)}>
+    {props.children}
+  </div>
 );
 const AppWorkspaceSidebarBody = (props: AppWorkspaceSidebarBodyProps) => (
-  <div class={`k2b-app-workspace__sidebar-body ${props.class ?? ""}`} {...scrollAttrs(props.scrollPreserveKey)} {...modeAttrs(props.sidebarMode)}>
+  <div
+    class={`k2b-app-workspace__sidebar-body ${props.class ?? ""}`}
+    {...scrollAttrs(props.scrollPreserveKey)}
+    {...modeAttrs(props.sidebarMode)}
+  >
     {props.children}
   </div>
 );
 const AppWorkspaceSidebarMobileBody = (props: AppWorkspaceSidebarBodyProps) => (
-  <div class={`k2b-app-workspace__sidebar-mobile-body ${props.class ?? ""}`} {...scrollAttrs(props.scrollPreserveKey)} {...modeAttrs(props.sidebarMode)}>
+  <div
+    class={`k2b-app-workspace__sidebar-mobile-body ${props.class ?? ""}`}
+    {...scrollAttrs(props.scrollPreserveKey)}
+    {...modeAttrs(props.sidebarMode)}
+  >
     {props.children}
   </div>
 );
 const AppWorkspaceSidebarFooter = (props: AppWorkspaceSidebarBodyProps) => (
-  <footer class={`k2b-app-workspace__sidebar-footer ${props.class ?? ""}`} {...modeAttrs(props.sidebarMode)}>{props.children}</footer>
+  <footer class={`k2b-app-workspace__sidebar-footer ${props.class ?? ""}`} {...modeAttrs(props.sidebarMode)}>
+    {props.children}
+  </footer>
 );
 const AppWorkspaceSidebarSection = (props: AppWorkspaceSidebarSectionProps) => (
   <section class={`k2b-app-workspace__sidebar-section ${props.class ?? ""}`} {...modeAttrs(props.sidebarMode)}>
@@ -585,18 +587,30 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
   const resolved = children(() => props.children);
   const values = createMemo(() => flatten(resolved()));
   const slots = createMemo(() => values().filter(sidebarItemSlot));
-  const iconSlot = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_ITEM_ICON) as
-    | (AppWorkspaceSidebarItemIconProps & { kind: typeof SIDEBAR_ITEM_ICON })
-    | undefined);
-  const labelSlot = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_ITEM_LABEL) as
-    | (AppWorkspaceSidebarItemLabelProps & { kind: typeof SIDEBAR_ITEM_LABEL })
-    | undefined);
-  const metaSlot = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_ITEM_META) as
-    | (AppWorkspaceSidebarItemMetaProps & { kind: typeof SIDEBAR_ITEM_META })
-    | undefined);
-  const actionSlot = createMemo(() => slots().find((slot) => slot.kind === SIDEBAR_ITEM_ACTION) as
-    | (AppWorkspaceSidebarItemActionProps & { kind: typeof SIDEBAR_ITEM_ACTION })
-    | undefined);
+  const iconSlot = createMemo(
+    () =>
+      slots().find((slot) => slot.kind === SIDEBAR_ITEM_ICON) as
+        | (AppWorkspaceSidebarItemIconProps & { kind: typeof SIDEBAR_ITEM_ICON })
+        | undefined,
+  );
+  const labelSlot = createMemo(
+    () =>
+      slots().find((slot) => slot.kind === SIDEBAR_ITEM_LABEL) as
+        | (AppWorkspaceSidebarItemLabelProps & { kind: typeof SIDEBAR_ITEM_LABEL })
+        | undefined,
+  );
+  const metaSlot = createMemo(
+    () =>
+      slots().find((slot) => slot.kind === SIDEBAR_ITEM_META) as
+        | (AppWorkspaceSidebarItemMetaProps & { kind: typeof SIDEBAR_ITEM_META })
+        | undefined,
+  );
+  const actionSlot = createMemo(
+    () =>
+      slots().find((slot) => slot.kind === SIDEBAR_ITEM_ACTION) as
+        | (AppWorkspaceSidebarItemActionProps & { kind: typeof SIDEBAR_ITEM_ACTION })
+        | undefined,
+  );
   const legacy = createMemo(() => values().filter((value) => !sidebarItemSlot(value)));
   const label = () => labelSlot()?.children ?? (legacy().length === 1 ? legacy()[0] : legacy());
   const icon = () => iconSlot()?.icon ?? props.icon;
@@ -704,10 +718,18 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
     );
   }
   if (!props.href || props.disabled) {
-    return <button type="button" {...common()} disabled={props.disabled} onClick={props.onClick}>{mainContent}</button>;
+    return (
+      <button type="button" {...common()} disabled={props.disabled} onClick={props.onClick}>
+        {mainContent}
+      </button>
+    );
   }
   if (props.navigation === "document") {
-    return <a href={props.href} {...common()} aria-current={current()} onClick={props.onClick}>{mainContent}</a>;
+    return (
+      <a href={props.href} {...common()} aria-current={current()} onClick={props.onClick}>
+        {mainContent}
+      </a>
+    );
   }
   return (
     <Link
@@ -727,7 +749,9 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
 const AppWorkspaceSidebarIconGrid = (props: AppWorkspaceSidebarIconGridProps) => (
   <section class={`k2b-app-workspace__sidebar-icon-grid-wrap ${props.class ?? ""}`} {...modeAttrs(props.sidebarMode)}>
     <Show when={props.title}>{(title) => <h2>{title()}</h2>}</Show>
-    <div class="k2b-app-workspace__sidebar-icon-grid" data-columns={props.columns ?? 2}>{props.children}</div>
+    <div class="k2b-app-workspace__sidebar-icon-grid" data-columns={props.columns ?? 2}>
+      {props.children}
+    </div>
   </section>
 );
 
@@ -740,9 +764,30 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
     "data-tone": props.tone,
     ...modeAttrs(props.sidebarMode),
   });
-  if (!props.href || props.disabled) return <button type="button" {...attrs()} disabled={props.disabled} onClick={props.onClick}>{content}</button>;
-  if (props.navigation === "document") return <a href={props.href} {...attrs()} onClick={props.onClick}>{content}</a>;
-  return <Link href={props.href} {...attrs()} replace={props.replace} scroll={props.scroll} onNavigate={props.onNavigate} onClick={props.onClick}>{content}</Link>;
+  if (!props.href || props.disabled)
+    return (
+      <button type="button" {...attrs()} disabled={props.disabled} onClick={props.onClick}>
+        {content}
+      </button>
+    );
+  if (props.navigation === "document")
+    return (
+      <a href={props.href} {...attrs()} onClick={props.onClick}>
+        {content}
+      </a>
+    );
+  return (
+    <Link
+      href={props.href}
+      {...attrs()}
+      replace={props.replace}
+      scroll={props.scroll}
+      onNavigate={props.onNavigate}
+      onClick={props.onClick}
+    >
+      {content}
+    </Link>
+  );
 };
 
 type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
@@ -774,9 +819,11 @@ const AppWorkspace = ((props: AppWorkspaceProps) => {
 
   // The resize handles are inert markup until the controller is attached, so
   // the workspace attaches it itself and scopes it to this root. `onMount`
-  // never runs during SSR, and the disposer removes every listener.
+  // never runs during SSR, and the disposer removes every listener. A host
+  // shell may own one document-level controller for SSR and hydrated roots;
+  // its marker keeps controller ownership singular without app-level props.
   onMount(() => {
-    if (props.controller === false || !root) return;
+    if (props.controller === false || !root || root.closest("[data-k2b-app-workspace-controller]")) return;
     onCleanup(
       installAppWorkspaceController({
         root,

@@ -36,11 +36,7 @@
     max(0.75rem, env(safe-area-inset-top, 0px)) -
     max(0.75rem, env(safe-area-inset-bottom, 0px))
   );
-  --k2b-dialog-available-width: calc(
-    100dvw -
-    max(0.75rem, env(safe-area-inset-left, 0px)) -
-    max(0.75rem, env(safe-area-inset-right, 0px))
-  );
+  --k2b-dialog-available-width: calc(100dvw - max(0.75rem, env(safe-area-inset-left, 0px)) - max(0.75rem, env(safe-area-inset-right, 0px)));
 }
 
 /* ---------------------------------------------------------- panel header */
@@ -428,10 +424,10 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid var(--k2b-border);
-  border-radius: var(--k2b-radius-surface);
+  border: 0;
+  border-radius: var(--k2b-radius-dialog);
   background: var(--k2b-surface);
-  box-shadow: var(--k2b-shadow-surface);
+  box-shadow: var(--k2b-shadow-frame);
 }
 
 .k2b-ui .k2b-app-workspace__content {
@@ -468,9 +464,7 @@
   display: none;
 }
 
-.k2b-ui
-  .k2b-app-workspace__main.has-panes
-  > [data-workspace-main-region][data-workspace-mobile-active="true"] {
+.k2b-ui .k2b-app-workspace__main.has-panes > [data-workspace-main-region][data-workspace-mobile-active="true"] {
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -823,9 +817,7 @@
 }
 
 @media (max-width: 63.999rem) {
-  .k2b-ui
-    .k2b-app-workspace__content:has(> .k2b-app-workspace__detail:not([hidden]))
-    > .k2b-app-workspace__main {
+  .k2b-ui .k2b-app-workspace__content:has(> .k2b-app-workspace__detail:not([hidden])) > .k2b-app-workspace__main {
     display: none;
   }
 

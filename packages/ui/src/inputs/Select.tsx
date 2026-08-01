@@ -1,12 +1,6 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { createFieldMeta, Field, fieldControlAria } from "../internal/field";
-import {
-  type ChoiceOption,
-  createChoiceLoader,
-  createChoicePopover,
-  filterChoiceOptions,
-  nextEnabledChoiceIndex,
-} from "./choice";
+import { type ChoiceOption, createChoiceLoader, createChoicePopover, filterChoiceOptions, nextEnabledChoiceIndex } from "./choice";
 import type { ValueFieldProps } from "./field-contract";
 import { commitFieldValue, resolveMaybeAccessor } from "./field-contract";
 
@@ -53,10 +47,7 @@ export function Select(props: SelectProps): JSX.Element {
   const error = () => resolveMaybeAccessor(props.error);
 
   const loader = createChoiceLoader(
-    () =>
-      props.fetchData
-        ? async (value, signal) => (await props.fetchData!(value, signal)).map(normalize)
-        : props.loadOptions,
+    () => (props.fetchData ? async (value, signal) => (await props.fetchData!(value, signal)).map(normalize) : props.loadOptions),
     () => props.fetchDebounceMs ?? props.debounceMs ?? 200,
   );
   const isAsync = () => Boolean(props.fetchData || props.loadOptions);
@@ -67,14 +58,17 @@ export function Select(props: SelectProps): JSX.Element {
   const options = createMemo(() => (isAsync() || !props.searchable ? sourceOptions() : filterChoiceOptions(sourceOptions(), query())));
   const selected = createMemo(() => {
     const current = value();
-    if (!current) return undefined;
+    if (current === null) return undefined;
     // Resolve against the unfiltered list so typing in the search field never
     // blanks the trigger label of the current selection.
-    return sourceOptions().find((option) => option.value === current) ?? cache()[current] ?? props.selectedOption ?? { value: current, label: props.selectedLabel?.() ?? current };
+    return (
+      sourceOptions().find((option) => option.value === current) ??
+      cache()[current] ??
+      props.selectedOption ?? { value: current, label: props.selectedLabel?.() ?? current }
+    );
   });
   const accessibleLabel = () =>
-    props["aria-label"] ??
-    (typeof props.label === "string" ? undefined : props.placeholder ?? "Select option");
+    props["aria-label"] ?? (typeof props.label === "string" ? undefined : (props.placeholder ?? "Select option"));
   const popover = createChoicePopover(() => Boolean(props.disabled));
   const focusedOption = () => options()[focusedIndex()];
   const focus = (index: number) => {
@@ -170,7 +164,14 @@ export function Select(props: SelectProps): JSX.Element {
             <i class="ti ti-x" aria-hidden="true" />
           </button>
         </Show>
-        <div ref={popover.setPopover} popover="manual" class="k2b-choice-popover" role="group" onKeyDown={onKeyDown} aria-label={typeof props.label === "string" ? props.label : "Options"}>
+        <div
+          ref={popover.setPopover}
+          popover="manual"
+          class="k2b-choice-popover"
+          role="group"
+          onKeyDown={onKeyDown}
+          aria-label={typeof props.label === "string" ? props.label : "Options"}
+        >
           <Show when={isSearchable()}>
             <div class="k2b-choice-search">
               <i class="ti ti-search" aria-hidden="true" />
@@ -191,7 +192,16 @@ export function Select(props: SelectProps): JSX.Element {
             </div>
           </Show>
           <div id={listboxId} class="k2b-choice-options" role="listbox">
-            <Show when={loader.error()}>{(message) => <div class="k2b-choice-status" data-tone="danger"><span>{message()}</span><button type="button" onClick={loader.retry}>Retry</button></div>}</Show>
+            <Show when={loader.error()}>
+              {(message) => (
+                <div class="k2b-choice-status" data-tone="danger">
+                  <span>{message()}</span>
+                  <button type="button" onClick={loader.retry}>
+                    Retry
+                  </button>
+                </div>
+              )}
+            </Show>
             <Show when={loader.loading() && options().length === 0}>
               <div class="k2b-choice-status">
                 <i class="ti ti-loader-2 k2b-spin" aria-hidden="true" />
@@ -219,13 +229,13 @@ export function Select(props: SelectProps): JSX.Element {
                   onPointerMove={() => focus(index())}
                   onClick={() => select(option)}
                 >
-                  <Show
-                    when={option.color}
-                    fallback={<Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>}
-                  >
+                  <Show when={option.color} fallback={<Show when={option.icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>}>
                     {(color) => <span class="k2b-choice-dot" style={{ "background-color": color() }} aria-hidden="true" />}
                   </Show>
-                  <span><strong>{option.label}</strong><Show when={option.description}>{(description) => <small>{description()}</small>}</Show></span>
+                  <span>
+                    <strong>{option.label}</strong>
+                    <Show when={option.description}>{(description) => <small>{description()}</small>}</Show>
+                  </span>
                 </button>
               )}
             </For>

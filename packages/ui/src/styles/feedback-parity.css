@@ -377,7 +377,7 @@
   outline-offset: -2px;
 }
 
-.k2b-ui .k2b-prompt-search__list > button > span {
+.k2b-ui .k2b-prompt-search__copy {
   display: flex;
   min-width: 0;
   flex: 1;

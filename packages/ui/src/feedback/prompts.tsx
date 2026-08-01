@@ -1,19 +1,11 @@
 import { mutation, timed } from "@k2b/stdlib/solid";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  type JSX,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Checkbox } from "../inputs/Checkbox";
+import { PinInput } from "../inputs/ChoiceInputs";
 import { DatePicker, DateTimePicker } from "../inputs/DatePicker";
 import { ImageInput } from "../inputs/FileInputs";
 import { NumberInput } from "../inputs/NumberInput";
-import { PinInput } from "../inputs/ChoiceInputs";
 import { Select } from "../inputs/Select";
 import { TagsInput } from "../inputs/TagsInput";
 import { TextInput } from "../inputs/TextInput";
@@ -275,7 +267,7 @@ const PromptControl = (props: {
           required={props.field.required}
           placeholder={props.field.placeholder}
           error={props.error}
-          value={typeof props.value() === "number" ? props.value() as number : null}
+          value={typeof props.value() === "number" ? (props.value() as number) : null}
           onValueChange={(value) => props.update(value ?? undefined)}
           min={props.field.min}
           max={props.field.max}
@@ -289,7 +281,7 @@ const PromptControl = (props: {
           description={props.field.description}
           required={props.field.required}
           error={props.error}
-          value={() => typeof props.value() === "string" ? props.value() as string : null}
+          value={() => (typeof props.value() === "string" ? (props.value() as string) : null)}
           onValueChange={(value) => props.update(value ?? undefined)}
           round={props.field.round}
           aria-label={props.field.ariaLabel}
@@ -317,7 +309,7 @@ const PromptControl = (props: {
           required={props.field.required}
           placeholder={props.field.placeholder}
           error={props.error}
-          value={() => typeof props.value() === "string" ? props.value() as string : null}
+          value={() => (typeof props.value() === "string" ? (props.value() as string) : null)}
           onValueChange={(value) => props.update(value ?? undefined)}
           options={props.field.options}
           icon={props.field.icon}
@@ -333,7 +325,7 @@ const PromptControl = (props: {
           required={props.field.required}
           placeholder={props.field.placeholder}
           error={props.error}
-          value={() => Array.isArray(props.value()) ? props.value() as string[] : []}
+          value={() => (Array.isArray(props.value()) ? (props.value() as string[]) : [])}
           onValueChange={props.update}
           maxTags={props.field.maxTags}
           icon={props.field.icon}
@@ -358,13 +350,11 @@ const PromptControl = (props: {
         required: props.field.required,
         placeholder: props.field.placeholder,
         error: props.error(),
-        value: typeof props.value() === "string" ? props.value() as string : null,
+        value: typeof props.value() === "string" ? (props.value() as string) : null,
         onValueChange: (value: string | null) => props.update(value ?? ""),
         clearable: true,
       };
-      return (
-        props.field.dateOnly ? <DatePicker {...pickerProps} /> : <DateTimePicker {...pickerProps} />
-      );
+      return props.field.dateOnly ? <DatePicker {...pickerProps} /> : <DateTimePicker {...pickerProps} />;
     }
   }
 };
@@ -415,14 +405,9 @@ const PromptFormDialog = <T extends Record<string, FieldSchema>>(props: {
   );
 };
 
-type CloudSearchResolver<T> = (
-  input: PromptSearchInput,
-) => Promise<PromptSearchItem<T>[]> | PromptSearchItem<T>[];
+type CloudSearchResolver<T> = (input: PromptSearchInput) => Promise<PromptSearchItem<T>[]> | PromptSearchItem<T>[];
 
-const openSearchPrompt = <T = unknown>(
-  resolver: CloudSearchResolver<T>,
-  options?: PromptSearchOptions,
-) =>
+const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options?: PromptSearchOptions) =>
   dialogCore.open<PromptSearchItem<T>>(
     (close) => {
       const [query, setQuery] = createSignal(options?.initialQuery ?? "");
@@ -435,11 +420,7 @@ const openSearchPrompt = <T = unknown>(
 
       const minQueryLength = options?.minQueryLength ?? 0;
       const debounceMs = options?.debounceMs ?? 180;
-      const searchMutation = mutation.create<
-        { query: string; items: PromptSearchItem<T>[] },
-        string,
-        { requestQuery: string }
-      >({
+      const searchMutation = mutation.create<{ query: string; items: PromptSearchItem<T>[] }, string, { requestQuery: string }>({
         onBefore: (requestQuery) => ({ requestQuery }),
         mutation: async (requestQuery, context) => {
           const result = await resolver({
@@ -522,9 +503,7 @@ const openSearchPrompt = <T = unknown>(
 
       return (
         <div class="k2b-prompt-search-shell">
-          <Show when={options?.title}>
-            {(title) => <p class="k2b-prompt-search-shell__title">{title()}</p>}
-          </Show>
+          <Show when={options?.title}>{(title) => <p class="k2b-prompt-search-shell__title">{title()}</p>}</Show>
           <div class="k2b-prompt-search">
             <label class="k2b-prompt-search__input">
               <i class={options?.icon ?? "ti ti-search"} aria-hidden="true" />
@@ -589,7 +568,7 @@ const openSearchPrompt = <T = unknown>(
                               </Show>
                             </span>
                           </Show>
-                          <span>
+                          <span class="k2b-prompt-search__copy">
                             <strong>{item.label}</strong>
                             <Show when={item.desc}>{(description) => <small>{description()}</small>}</Show>
                           </span>
@@ -710,20 +689,14 @@ export const prompts = {
   promptNumber,
 
   form: <T extends Record<string, FieldSchema>>(config: PromptFormOptions<T>): Promise<InferFormValues<T> | null> =>
-    dialogCore.open<InferFormValues<T> | null>(
-      (close) => <PromptFormDialog config={config} close={(value) => close(value)} />,
-      {
-        panelClassName: panelClass(config),
-        contentClassName: contentClass(),
-        cancelBehavior: config.cancelBehavior,
-        ariaLabel: config.ariaLabel ?? config.title ?? "Form",
-      },
-    ) as Promise<InferFormValues<T> | null>,
+    dialogCore.open<InferFormValues<T> | null>((close) => <PromptFormDialog config={config} close={(value) => close(value)} />, {
+      panelClassName: panelClass(config),
+      contentClassName: contentClass(),
+      cancelBehavior: config.cancelBehavior,
+      ariaLabel: config.ariaLabel ?? config.title ?? "Form",
+    }) as Promise<InferFormValues<T> | null>,
 
-  dialog: <T = unknown>(
-    component: (close: (result?: T) => void) => JSX.Element,
-    options?: DialogOptions,
-  ): Promise<T | undefined> =>
+  dialog: <T = unknown>(component: (close: (result?: T) => void) => JSX.Element, options?: DialogOptions): Promise<T | undefined> =>
     dialogCore.open<T>(
       (close) => {
         const body = component(close);

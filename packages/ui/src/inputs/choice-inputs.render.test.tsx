@@ -43,12 +43,14 @@ const options = [
 
 describe("@k2b/ui complete choice input migrations", () => {
   test("renders a controlled tag manager without persistence assumptions", () => {
-    const html = renderToString(() => createComponent(TagEditor, {
-      items: [{ id: "ui", name: "UI", color: "#06b6d4" }],
-      onCreate: () => {},
-      onUpdate: () => {},
-      onDelete: () => {},
-    }));
+    const html = renderToString(() =>
+      createComponent(TagEditor, {
+        items: [{ id: "ui", name: "UI", color: "#06b6d4" }],
+        onCreate: () => {},
+        onUpdate: () => {},
+        onDelete: () => {},
+      }),
+    );
 
     expect(html).toContain("k2b-tag-editor");
     expect(html).toContain("UI");
@@ -163,7 +165,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain("Selected Platform");
     expect(html).toContain("Option Platform");
     expect(html).toContain('class="k2b-choice-dot"');
-    expect(html).toContain('background:#0891b2');
+    expect(html).toContain("background:#0891b2");
   });
 
   test("renders tags as removable values and form entries", () => {
@@ -311,9 +313,7 @@ describe("@k2b/ui complete choice input migrations", () => {
   });
 
   test("marks filled pin digits and numeric values by value, not by placeholder", () => {
-    const pin = renderToString(() =>
-      createComponent(PinInput, { value: () => "12", length: 4, error: () => "Wrong code" }),
-    );
+    const pin = renderToString(() => createComponent(PinInput, { value: () => "12", length: 4, error: () => "Wrong code" }));
     const filledNumber = renderToString(() => createComponent(NumberInput, { value: () => 42 }));
     const emptyNumber = renderToString(() => createComponent(NumberInput, { value: () => null }));
 
@@ -428,6 +428,19 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html.match(/background-color:\s*#2563eb/g)).toHaveLength(2);
   });
 
+  test("treats an empty string as a selectable value", () => {
+    const html = renderToString(() =>
+      createComponent(Select, {
+        label: "Model",
+        value: () => "",
+        options: [{ id: "", label: "Use default model" }],
+      }),
+    );
+
+    expect(html).toContain("Use default model");
+    expect(html).not.toContain('data-placeholder="true"');
+  });
+
   test("keeps the trigger chevron prop out of the leading decoration slot", () => {
     const html = renderToString(() =>
       createComponent(Select, { label: "Sort", icon: "ti ti-filter", options: [], placeholder: "Pick one" }),
@@ -502,10 +515,7 @@ describe("@k2b/ui complete choice input migrations", () => {
         getBoundingClientRect: () => ({ height: 200, width: 160 }) as DOMRect,
       } as unknown as HTMLElement;
 
-      placeChoicePopover(
-        { getBoundingClientRect: () => rect({ left: 900, top: 250, bottom: 280, width: 160 }) } as HTMLElement,
-        popover,
-      );
+      placeChoicePopover({ getBoundingClientRect: () => rect({ left: 900, top: 250, bottom: 280, width: 160 }) } as HTMLElement, popover);
 
       // Cloud sizes the panel to the control, with no minimum that would make a
       // narrow trigger open a wider, misaligned dropdown.
@@ -513,10 +523,7 @@ describe("@k2b/ui complete choice input migrations", () => {
       expect(style.left).toBe("856px");
       expect(style.top).toBe("46px");
 
-      placeChoicePopover(
-        { getBoundingClientRect: () => rect({ left: 12, top: 10, bottom: 40, width: 96 }) } as HTMLElement,
-        popover,
-      );
+      placeChoicePopover({ getBoundingClientRect: () => rect({ left: 12, top: 10, bottom: 40, width: 96 }) } as HTMLElement, popover);
 
       expect(style.width).toBe("96px");
       expect(style.left).toBe("12px");

@@ -20,6 +20,7 @@ const { Tooltip } = await import("./Tooltip");
 const stylesDir = resolve(import.meta.dir, "../styles");
 const feedbackCss = await Bun.file(resolve(stylesDir, "feedback-parity.css")).text();
 const indexCss = await Bun.file(resolve(stylesDir, "index.css")).text();
+const promptsSource = await Bun.file(resolve(import.meta.dir, "prompts.tsx")).text();
 
 const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
 
@@ -39,7 +40,7 @@ describe("@k2b/ui Cloud feedback parity", () => {
         custom: {
           type: "text",
           default: "draft",
-          validate: (value) => value === "ready" ? null : "not ready",
+          validate: (value) => (value === "ready" ? null : "not ready"),
         },
       });
 
@@ -78,9 +79,7 @@ describe("@k2b/ui Cloud feedback parity", () => {
       style: {},
       getBoundingClientRect: () => {
         measurements += 1;
-        return measurements === 1
-          ? { width: 180, height: 20 }
-          : { width: 120, height: 40 };
+        return measurements === 1 ? { width: 180, height: 20 } : { width: 120, height: 40 };
       },
     } as unknown as HTMLElement;
     const target = {
@@ -103,9 +102,7 @@ describe("@k2b/ui Cloud feedback parity", () => {
   });
 
   test("keeps browser-only dialog and server-safe toast defaults", () => {
-    expect(() => createDialogCore().open(() => undefined)).toThrow(
-      "@k2b/ui dialogs can only be opened in the browser",
-    );
+    expect(() => createDialogCore().open(() => undefined)).toThrow("@k2b/ui dialogs can only be opened in the browser");
 
     const handle = toast("Rendered on the server");
     expect(() => handle.update("Still safe")).not.toThrow();
@@ -176,6 +173,15 @@ describe("@k2b/ui Cloud feedback parity", () => {
     expect(shellRule).not.toContain("--k2b-search-dialog-height:");
   });
 
+  test("keeps search result icons compact beside flexible result copy", () => {
+    expect(promptsSource).toContain('class="k2b-prompt-search__copy"');
+    expect(feedbackCss).toContain(".k2b-ui .k2b-prompt-search__copy {");
+    expect(feedbackCss).not.toContain(".k2b-prompt-search__list > button > span {");
+
+    const previewRule = feedbackCss.match(/\.k2b-ui \.k2b-prompt-search__preview \{([^}]*)\}/)?.[1] ?? "";
+    expect(previewRule).toContain("flex: none");
+  });
+
   test("lets a consumer frame class keep its own dialog size", () => {
     // `.k2b-panel-dialog-frame` has the same class count as `.k2b-dialog`, so
     // the default size has to lose on specificity rather than on import order.
@@ -186,9 +192,7 @@ describe("@k2b/ui Cloud feedback parity", () => {
   });
 
   test("renders the dialog header contract on the server", () => {
-    const titled = renderToString(() =>
-      createComponent(DialogHeader, { title: "Rename", icon: "ti ti-pencil", close: () => {} }),
-    );
+    const titled = renderToString(() => createComponent(DialogHeader, { title: "Rename", icon: "ti ti-pencil", close: () => {} }));
     expect(titled).toContain('class="k2b-dialog__header"');
     expect(titled).toContain("<h2>Rename</h2>");
     expect(titled).toContain('class="ti ti-pencil"');

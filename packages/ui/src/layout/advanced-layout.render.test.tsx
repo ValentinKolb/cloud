@@ -221,9 +221,10 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       min: 176,
       max: 296,
     });
-    expect(
-      appWorkspaceResizeLimits({ kind: "sidebar", workspaceSize: 1000, reservedSize: 384, sidebarCollapsible: true }),
-    ).toEqual({ min: 64, max: 296 });
+    expect(appWorkspaceResizeLimits({ kind: "sidebar", workspaceSize: 1000, reservedSize: 384, sidebarCollapsible: true })).toEqual({
+      min: 64,
+      max: 296,
+    });
     expect(appWorkspaceResizeLimits({ kind: "detail", workspaceSize: 1400, reservedSize: 208 })).toEqual({
       min: 288,
       max: 640,
@@ -356,7 +357,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     // Persistence stays app-owned — the package reads and writes nothing.
     expect(source).toContain("readState: () => props.layoutState?.()");
     expect(source).toContain("writeState: (state) => props.onLayoutChange?.(state)");
-    expect(source).toContain('if (props.controller === false || !root) return;');
+    expect(source).toContain('root.closest("[data-k2b-app-workspace-controller]")');
     // `onMount` never runs during SSR, so rendering must stay DOM-free.
     expect(renderToString(() => createComponent(AppWorkspace, { children: "body" }))).toContain("data-k2b-app-workspace");
   });
@@ -412,9 +413,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     /** Every declaration the cascade applies to `selector`, in source order. */
     const rule = (selector: string) => {
       const matches = [
-        ...css.matchAll(
-          new RegExp(`(?:^|[,}])\\s*\\.k2b-ui ${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`, "g"),
-        ),
+        ...css.matchAll(new RegExp(`(?:^|[,}])\\s*\\.k2b-ui ${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`, "g")),
       ];
       if (matches.length === 0) throw new Error(`no rule for ${selector}`);
       return matches.map((match) => match[1] ?? "").join(";");
@@ -449,12 +448,8 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(css).toMatch(
         /data-sidebar-collapsed=true\][^{]*sidebar-header>:not\(\.k2b-app-workspace__sidebar-header-icon\)\{display:none!important/,
       );
-      expect(css).toMatch(
-        /data-sidebar-collapsed=true\][^{]*sidebar-item-label[^}]*\{display:none!important/,
-      );
-      expect(css).toMatch(
-        /data-sidebar-collapsed=true\][^{]*:is\(\.k2b-app-workspace__sidebar-item,[^{]*\)\{justify-content:center/,
-      );
+      expect(css).toMatch(/data-sidebar-collapsed=true\][^{]*sidebar-item-label[^}]*\{display:none!important/);
+      expect(css).toMatch(/data-sidebar-collapsed=true\][^{]*:is\(\.k2b-app-workspace__sidebar-item,[^{]*\)\{justify-content:center/);
     });
 
     test("keeps DataPanel on Cloud's px-3 py-2 rhythm", () => {
@@ -473,9 +468,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-data-panel__footer")).toContain("padding:.5rem .75rem");
       expect(rule(".k2b-data-panel__footer")).toContain("border-top:1px solid var(--k2b-border)");
       expect(rule(".k2b-data-panel__footer>.k2b-pagination")).toBe("padding-top:0");
-      expect(
-        rule(".k2b-data-panel>.k2b-table-wrap[data-has-footer=true]+.k2b-data-panel__footer"),
-      ).toBe("border-top:0");
+      expect(rule(".k2b-data-panel>.k2b-table-wrap[data-has-footer=true]+.k2b-data-panel__footer")).toBe("border-top:0");
       // The compact Placeholder carries its own px-3 py-6.
       expect(css).not.toContain(".k2b-data-panel>.k2b-placeholder");
     });
@@ -488,7 +481,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-panel-header__title.is-medium")).toContain("font-size:1rem");
       expect(rule(".k2b-panel-header__subtitle")).toContain("font-size:.625rem");
       // The component emits `data-size`; before this it matched no rule at all.
-      expect(rule('.k2b-panel-header[data-size=md] .k2b-panel-header__subtitle')).toContain("font-size:.75rem");
+      expect(rule(".k2b-panel-header[data-size=md] .k2b-panel-header__subtitle")).toContain("font-size:.75rem");
     });
 
     test("gives the settings rail Cloud's sidebar-item affordances", () => {
@@ -498,7 +491,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(tab).toContain("padding:.375rem .5rem");
       // Roving tabindex moves focus programmatically — it must be visible.
       expect(css).toContain(".k2b-settings__tabs button:focus-visible");
-      expect(css).toContain('.k2b-settings__tabs button:not([data-active=true]):hover');
+      expect(css).toContain(".k2b-settings__tabs button:not([data-active=true]):hover");
       // A single-line label truncates; it is not a flex column.
       expect(rule(".k2b-settings__tabs button>span")).toContain("text-overflow:ellipsis");
       expect(rule(".k2b-settings__tabs button>span")).not.toContain("flex-direction:column");
@@ -542,17 +535,15 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(tab).toContain("min-width:8rem");
       expect(tab).not.toContain("max-width");
       // The active chip's inset hairline ring is Cloud's `.panes-tab-active`.
-      expect(rule('.k2b-panes__tab[data-active=true]')).toContain("inset 0 0 0 1px var(--k2b-border)");
+      expect(rule(".k2b-panes__tab[data-active=true]")).toContain("inset 0 0 0 1px var(--k2b-border)");
       // Cloud renders the single-pane header as an active chip, not a bar.
       expect(rule(".k2b-panes__single-header")).toContain("inset 0 0 0 1px var(--k2b-border)");
 
       // Cloud: `w-2`/`h-2` track with a full-width `rounded-full` indicator.
-      expect(rule('.k2b-panes__separator[data-direction=horizontal]')).toContain("width:.5rem");
-      expect(rule('.k2b-panes__separator[data-direction=horizontal]>span')).not.toContain("width:1px");
+      expect(rule(".k2b-panes__separator[data-direction=horizontal]")).toContain("width:.5rem");
+      expect(rule(".k2b-panes__separator[data-direction=horizontal]>span")).not.toContain("width:1px");
       // Cloud: `inset-y-2 w-2` / `inset-x-2 h-2`, `rounded`.
-      expect(rule('.k2b-panes__drop-zone[data-zone=left],.k2b-ui .k2b-panes__drop-zone[data-zone=right]')).toContain(
-        "width:.5rem",
-      );
+      expect(rule(".k2b-panes__drop-zone[data-zone=left],.k2b-ui .k2b-panes__drop-zone[data-zone=right]")).toContain("width:.5rem");
       const merge = rule(".k2b-panes__merge-preview");
       expect(merge).toContain("width:.5rem");
       expect(merge).toContain("border-radius:999px");
@@ -574,7 +565,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     test("drives the sidebar marquee from a measured overflow", () => {
       // The prop used to emit `data-marquee` with nothing behind it.
       expect(css).toContain("@keyframes k2b-sidebar-label-marquee");
-      expect(css).toContain('.k2b-app-workspace__sidebar-item-label[data-overflow=true][data-marquee=true]');
+      expect(css).toContain(".k2b-app-workspace__sidebar-item-label[data-overflow=true][data-marquee=true]");
       expect(rule(".k2b-app-workspace__sidebar-item-label-text")).toContain("min-width:max-content");
       // Reduced motion must win over the running animation.
       expect(css).toContain("animation:none!important");
@@ -582,7 +573,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
 
     test("mutes a pane separator that cannot be dragged", () => {
       // Cloud paints the highlight only when `canResize()` is true.
-      expect(css).toContain('.k2b-panes__separator:not([aria-disabled=true]):hover>span');
+      expect(css).toContain(".k2b-panes__separator:not([aria-disabled=true]):hover>span");
       expect(css).not.toMatch(/\.k2b-panes__separator:hover>span/);
       // Cloud's leaf is `flex-col gap-1`.
       expect(rule(".k2b-panes__leaf")).toContain("gap:.25rem");

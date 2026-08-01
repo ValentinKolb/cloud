@@ -35,12 +35,17 @@ External consumers install the published package version instead. Import
 `@k2b/ui/styles.css` once in the host application as described in the Getting
 Started guide.
 
-Component styles are descendant-scoped below `.k2b-ui`. Until the Cloud shell
-owns that scope globally, place one outer `.k2b-ui` wrapper around the migrated
-app content. The wrapper must contain the component root; adding `k2b-ui` to
-the component root itself does not match descendant selectors. Do not add a
-wrapper around every component. Mark the app-local wrapper as temporary and
-remove it when the Cloud shell provides the global scope.
+Component styles are descendant-scoped below `.k2b-ui`. Cloud's shared HTML
+shell owns that scope on `<body>`, so built-in apps must not add app-local
+`.k2b-ui` wrappers. External hosts add one outer scope around their UI as
+described in the Getting Started guide; it must contain the component root
+because adding `k2b-ui` to the component root itself does not match descendant
+selectors.
+
+Cloud also marks that document scope with `data-k2b-app-workspace-controller`.
+This declares the shell as the single resize-controller owner for both SSR and
+hydrated workspaces. Standalone consumers omit the marker and keep the local
+controller installed by `AppWorkspace`.
 
 ## 3. Convert to canonical public APIs
 
@@ -58,13 +63,16 @@ component with a smaller substitute that loses behavior.
 ## 4. Remove the old path
 
 Delete an app-local TypeScript path alias when no source file uses it. The
-following gate must return no matches:
+generic legacy UI gate must return no matches:
 
 ```sh
 rg -n '@valentinkolb/cloud/(ui|ai/ui)' packages/<app>
 ```
 
-Cloud-owned imports such as `@valentinkolb/cloud/ssr` are expected to remain.
+Cloud-owned imports such as `@valentinkolb/cloud/ssr`,
+`@valentinkolb/cloud/ai/ui`, or another focused Cloud protocol subpath are
+expected to remain. Do not import Cloud-specific adapters through the generic
+`@valentinkolb/cloud/ui` barrel.
 
 ## 5. Verify the cut
 
@@ -116,8 +124,8 @@ and verification commands before implementation.
 
 ```text
 Add @k2b/ui as a direct dependency, migrate every portable import and canonical
-API, add one temporary outer .k2b-ui scope only if the host does not provide it,
-remove the unused legacy alias, and preserve behavior without shims.
+API, rely on the shared Cloud scope, remove the unused legacy alias, and
+preserve behavior without shims.
 ```
 
 ### Child 3: verify and commit

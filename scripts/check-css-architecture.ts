@@ -54,7 +54,14 @@ const checkEmbeddableUiStyles = () => {
 
   for (const line of source.split("\n")) {
     const selector = line.trim();
-    if (!selector.endsWith("{") || selector.startsWith("@") || selector === "from {" || selector === "to {") continue;
+    if (
+      !selector.endsWith("{") ||
+      selector.startsWith("@") ||
+      selector === "from {" ||
+      selector === "to {" ||
+      /^(?:\d+(?:\.\d+)?%)(?:\s*,\s*\d+(?:\.\d+)?%)*\s*\{$/.test(selector)
+    )
+      continue;
     if (!selector.includes(".k2b-ui")) {
       report(uiStylesheet, `selector must stay below .k2b-ui: ${selector.slice(0, -1).trim()}`);
     }
