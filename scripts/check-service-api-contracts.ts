@@ -13,6 +13,14 @@ const workspacePackageNames = new Set((rootPackage.workspaces ?? []).map((worksp
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
 
+const listProductionTypeScriptFiles = (directory: string): string[] =>
+  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return listProductionTypeScriptFiles(path);
+    if (!entry.isFile() || !/\.(?:ts|tsx)$/.test(entry.name) || /\.(?:test|spec)\.(?:ts|tsx)$/.test(entry.name)) return [];
+    return [path];
+  });
+
 // Each app lives at packages/<app>/src/ now (shared libraries are excluded).
 const nonAppPackages = new Set(["cloud", "ui"]);
 const appDirs = readdirSync(packagesRoot)
@@ -79,6 +87,41 @@ for (const appDir of appDirs) {
   }
 
   const indexSource = readFileSync(indexPath, "utf8");
+  const capabilitiesPath = join(appDir, "capabilities.ts");
+  const capabilityDefinitionFiles = listProductionTypeScriptFiles(appDir).filter((path) =>
+    /\bdefineCapabilities\s*\(/.test(readFileSync(path, "utf8")),
+  );
+  const wiresCapabilities = /\bcapabilities\s*:/.test(indexSource);
+
+  for (const definitionPath of capabilityDefinitionFiles) {
+    if (definitionPath !== capabilitiesPath) {
+      violations.push({
+        file: definitionPath,
+        message: "Capability declarations must live in src/capabilities.ts.",
+      });
+    }
+  }
+
+  if (wiresCapabilities || capabilityDefinitionFiles.length > 0) {
+    if (!existsSync(capabilitiesPath)) {
+      violations.push({
+        file: indexPath,
+        message: "Apps that publish capabilities must declare them in src/capabilities.ts.",
+      });
+    } else if (!extractSpecifiers(indexSource).includes("./capabilities")) {
+      violations.push({
+        file: indexPath,
+        message: "App facade must import its capability declaration from ./capabilities.",
+      });
+    }
+
+    if (!wiresCapabilities) {
+      violations.push({
+        file: indexPath,
+        message: "App facade must pass its capability declaration to app.start({ capabilities }).",
+      });
+    }
+  }
 
   // Skip structural checks for special apps (gateway, core)
   if (!specialApps.has(appName)) {
