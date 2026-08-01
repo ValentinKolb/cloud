@@ -1,10 +1,9 @@
-import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
-import { weatherService } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { type AuthContext, auth, getUserBackedActor, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import { weatherService } from "@valentinkolb/cloud/services";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { CurrentWeatherSchema, WeatherDataSchema } from "../contracts";
 import { weatherHelp } from "../help";
 import { weatherSettingsRouter } from "./settings";
@@ -161,7 +160,7 @@ const app = new Hono<AuthContext>()
       tags: ["Weather"],
       summary: "Get weather data",
       description:
-        "Get current weather, hourly forecast (next 24h), and daily forecast (next 5 days). Optionally provide lat/lon coordinates, otherwise uses default location (Ulm).",
+        "Get current weather, hourly forecast (up to 12 hours), and daily forecast (up to 7 days). Optionally provide lat/lon coordinates, otherwise uses the configured default location.",
       responses: {
         200: jsonResponse(WeatherDataSchema, "Weather data"),
         400: jsonResponse(ErrorResponseSchema, "Invalid coordinates"),

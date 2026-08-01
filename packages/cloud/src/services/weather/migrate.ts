@@ -19,4 +19,10 @@ export const migrate = async (): Promise<void> => {
     ON weather_locations(user_id)
   `.simple();
   console.log("  ✓ weather_locations index");
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_weather_locations_user_created
+    ON weather_locations(user_id, created_at, id)
+  `.simple();
+  console.log("  ✓ weather_locations pagination index");
 };

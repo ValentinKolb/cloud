@@ -22,7 +22,7 @@ describe("capability provider inventory", () => {
       const manifest = compileCapabilities(appId, definitions).manifest;
       expect(manifest.types.map((type) => type.id)).toEqual([...expectedTypes]);
       expect(manifest.queries.filter((query) => query.universalSearch)).toHaveLength(1);
-      expect(manifest.queries[0]?.universalSearch?.tags.length).toBeGreaterThan(0);
+      expect(manifest.queries.find((query) => query.universalSearch)?.universalSearch?.tags.length).toBeGreaterThan(0);
     });
   }
 

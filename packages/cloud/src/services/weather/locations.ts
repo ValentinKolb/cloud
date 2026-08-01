@@ -67,41 +67,41 @@ const remove = async (config: { id: string; userId: string }): Promise<Result<vo
  * Lists all saved weather locations for one user with optional search and pagination.
  */
 const list = async (config: { userId: string; pagination?: PageParams; filter?: { query?: string } }): Promise<Paginated<Location>> => {
-  const locations = (await sql`
+  const query = config.filter?.query?.trim().toLowerCase() ?? "";
+  const queryMatch =
+    query.length > 0
+      ? sql`(
+          POSITION(${query} IN LOWER(name)) > 0
+          OR POSITION(${query} IN LOWER(COALESCE(state, ''))) > 0
+        )`
+      : sql`true`;
+  const pagination = config.pagination ? paginate(config.pagination) : null;
+
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM weather_locations
+    WHERE user_id = ${config.userId}
+      AND ${queryMatch}
+  `;
+
+  const items = (await sql`
     SELECT id, name, state, lat, lon
     FROM weather_locations
     WHERE user_id = ${config.userId}
-    ORDER BY created_at ASC
+      AND ${queryMatch}
+    ORDER BY created_at ASC, id ASC
+    LIMIT ${pagination?.perPage ?? null}
+    OFFSET ${pagination?.offset ?? 0}
   `) as Location[];
-
-  const query = config.filter?.query?.trim().toLowerCase();
-  const filtered =
-    query && query.length > 0
-      ? locations.filter((location) => {
-          const name = location.name.toLowerCase();
-          const state = (location.state ?? "").toLowerCase();
-          return name.includes(query) || state.includes(query);
-        })
-      : locations;
-
-  if (!config.pagination) {
-    return {
-      items: filtered,
-      page: 1,
-      perPage: filtered.length,
-      total: filtered.length,
-      hasNext: false,
-    };
-  }
-
-  const { page, perPage, offset } = paginate(config.pagination);
-  const items = filtered.slice(offset, offset + perPage);
+  const total = countRow?.count ?? 0;
+  const page = pagination?.page ?? 1;
+  const perPage = pagination?.perPage ?? total;
   return {
     items,
     page,
     perPage,
-    total: filtered.length,
-    hasNext: page * perPage < filtered.length,
+    total,
+    hasNext: pagination !== null && page * perPage < total,
   };
 };
 
