@@ -1,10 +1,10 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { getApp, listApps } from "..";
+import { getCapability, listApps } from "..";
 import { readBoundedJson } from "../_internal/bounded-json";
 import { CAPABILITY_PROTOCOL_VERSION, CapabilityErrorSchema, CapabilityManifestSchema } from "../contracts/capabilities";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import { type AuthContext, auth, jsonResponse, requiresAuth, v } from "../server";
 import { logger } from "../services";
 
@@ -15,6 +15,7 @@ const ACTION_TIMEOUT_MS = 30_000;
 const MAX_APP_RESPONSE_BYTES = 2 * 1024 * 1024;
 const DEFAULT_CATALOG_LIMIT = 10;
 const MAX_CATALOG_LIMIT = 25;
+const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
 
 const CapabilityInvocationRequestSchema = z.object({ input: z.unknown() }).strict();
 const CapabilityCatalogQuerySchema = z
@@ -49,12 +50,12 @@ const CapabilityCatalogResponseSchema = z
 
 export type CapabilityRouteDependencies = {
   listApps?: () => Promise<AppRegistryEntry[]>;
-  getApp?: (appId: string) => Promise<AppRegistryEntry | null>;
+  getCapability?: (appId: string) => Promise<CapabilityRegistryEntry | null>;
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   authenticate?: MiddlewareHandler<AuthContext>;
 };
 
-export type CapabilityDispatchDependencies = Pick<CapabilityRouteDependencies, "getApp" | "fetch">;
+export type CapabilityDispatchDependencies = Pick<CapabilityRouteDependencies, "getCapability" | "fetch">;
 
 export const capabilityCredentialHeaders = (request: Request): Headers => {
   const headers = new Headers({
@@ -96,15 +97,15 @@ export const dispatchCapability = async (params: {
   input: unknown;
   dependencies?: CapabilityDispatchDependencies;
 }): Promise<Response> => {
-  const registryEntry = params.dependencies?.getApp ?? getApp;
+  const registryEntry = params.dependencies?.getCapability ?? getCapability;
   const fetchUpstream = params.dependencies?.fetch ?? globalThis.fetch;
   const entry = await registryEntry(params.appId);
-  if (!entry?.capabilities) {
+  if (!entry) {
     const error = errorResponse("APP_UNAVAILABLE", `App ${params.appId} is not currently available`, 404);
     return capabilityJsonResponse(error.body, error.status);
   }
 
-  const operations = params.kind === "queries" ? entry.capabilities.manifest.queries : entry.capabilities.manifest.actions;
+  const operations = params.kind === "queries" ? entry.manifest.queries : entry.manifest.actions;
   const operation = operations.find((candidate) => candidate.localId === params.capabilityId);
   if (!operation) {
     const label = params.kind === "queries" ? "Query" : "Action";
@@ -119,7 +120,7 @@ export const dispatchCapability = async (params: {
 
   let response: Response;
   try {
-    response = await fetchUpstream(`${entry.capabilities.endpoint}/${params.kind}/${encodeURIComponent(params.capabilityId)}`, {
+    response = await fetchUpstream(`${entry.endpoint}/${params.kind}/${encodeURIComponent(params.capabilityId)}`, {
       method: "POST",
       headers,
       body: JSON.stringify({ input: params.input }),
@@ -144,7 +145,7 @@ export const dispatchCapability = async (params: {
 
   if (!response.ok) {
     const parsed = CapabilityErrorSchema.safeParse(upstreamBody.data);
-    if (parsed.success && [400, 401, 403, 404, 409, 500].includes(response.status)) {
+    if (parsed.success && response.status >= 400 && response.status <= 599) {
       return capabilityJsonResponse(parsed.data, response.status);
     }
     const invalid = errorResponse("INVALID_APP_RESPONSE", `App ${params.appId} returned an invalid capability error`, 502);
@@ -156,6 +157,7 @@ export const dispatchCapability = async (params: {
 
 export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies = {}) => {
   const registry = dependencies.listApps ?? listApps;
+  const capabilityLookup = dependencies.getCapability ?? getCapability;
 
   return new Hono<AuthContext>()
     .use(dependencies.authenticate ?? auth.requireRole("authenticated"))
@@ -176,24 +178,39 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
         const query = c.req.valid("query");
         const entries = await registry();
         const liveApps = entries
-          .filter((entry) => entry.capabilities?.manifest.protocolVersion === CAPABILITY_PROTOCOL_VERSION)
+          .filter((entry) => entry.capabilities?.protocolVersion === CAPABILITY_PROTOCOL_VERSION)
           .sort((left, right) => left.id.localeCompare(right.id));
         const start = query.cursor ? liveApps.findIndex((entry) => entry.id > query.cursor!) : 0;
         const offset = start < 0 ? liveApps.length : start;
-        const pageEntries = liveApps.slice(offset, offset + query.limit + 1);
-        const hasMore = pageEntries.length > query.limit;
-        const apps = pageEntries.slice(0, query.limit).map((entry) => ({
-          appId: entry.id,
-          appName: entry.name,
-          appIcon: entry.icon,
-          manifest: entry.capabilities!.manifest,
-        }));
+        const apps: Array<{ appId: string; appName: string; appIcon: string; manifest: CapabilityRegistryEntry["manifest"] }> = [];
+        let bytes = 0;
+        let lastScannedAppId: string | undefined;
+        for (const entry of liveApps.slice(offset)) {
+          if (apps.length === query.limit) break;
+          const capability = await capabilityLookup(entry.id);
+          if (!capability || capability.manifest.manifestHash !== entry.capabilities?.manifestHash) {
+            lastScannedAppId = entry.id;
+            continue;
+          }
+          const projected = {
+            appId: capability.appId,
+            appName: capability.appName,
+            appIcon: capability.appIcon,
+            manifest: capability.manifest,
+          };
+          const projectedBytes = new TextEncoder().encode(JSON.stringify(projected)).byteLength;
+          if (apps.length > 0 && bytes + projectedBytes > MAX_CATALOG_BYTES) break;
+          apps.push(projected);
+          bytes += projectedBytes;
+          lastScannedAppId = entry.id;
+        }
+        const hasMore = lastScannedAppId !== undefined && liveApps.some((entry) => entry.id > lastScannedAppId);
         return c.json({
           protocolVersion: CAPABILITY_PROTOCOL_VERSION,
           apps,
           page: {
             hasMore,
-            ...(hasMore && apps.length > 0 ? { nextCursor: apps.at(-1)!.appId } : {}),
+            ...(hasMore && lastScannedAppId ? { nextCursor: lastScannedAppId } : {}),
           },
         });
       },
@@ -211,6 +228,8 @@ export const createCapabilityRoutes = (dependencies: CapabilityRouteDependencies
           401: jsonResponse(CapabilityErrorSchema, "Authentication required"),
           404: jsonResponse(CapabilityErrorSchema, "Capability or app unavailable"),
           409: jsonResponse(CapabilityErrorSchema, "Schema changed"),
+          429: jsonResponse(CapabilityErrorSchema, "Capability rate limited"),
+          500: jsonResponse(CapabilityErrorSchema, "Capability execution failed"),
           502: jsonResponse(CapabilityErrorSchema, "Invalid app response"),
           503: jsonResponse(CapabilityErrorSchema, "App unavailable"),
         },

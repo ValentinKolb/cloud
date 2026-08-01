@@ -1,5 +1,5 @@
 import { ephemeral } from "@k2b/sync";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import type { DashboardWidgetPresentation } from "../contracts/widgets";
 
 /**
@@ -13,9 +13,12 @@ export const APP_REGISTRY_TTL_MS = 180_000;
 export const appRegistry = ephemeral<AppRegistryEntry>({
   id: "cloud-apps",
   ttlMs: APP_REGISTRY_TTL_MS,
-  // Capability manifests contain bounded JSON Schemas. Keep the registry
-  // contract explicit instead of inheriting ephemeral's presence-sized 4 KiB
-  // default; compileCapabilities caps the manifest itself at 256 KiB.
+  limits: { maxPayloadBytes: 64 * 1024 },
+});
+
+export const capabilityRegistry = ephemeral<CapabilityRegistryEntry>({
+  id: "cloud-capabilities",
+  ttlMs: APP_REGISTRY_TTL_MS,
   limits: { maxPayloadBytes: 512 * 1024 },
 });
 
@@ -43,6 +46,17 @@ export const listApps = async (): Promise<AppRegistryEntry[]> => {
 export const getApp = async (appId: string): Promise<AppRegistryEntry | null> => {
   const key = `apps/${appId}`;
   const snap = await appRegistry.snapshot({ prefix: key });
+  return snap.entries.find((entry) => entry.key === key)?.value ?? null;
+};
+
+export const listCapabilities = async (): Promise<CapabilityRegistryEntry[]> => {
+  const snap = await capabilityRegistry.snapshot({ prefix: "capabilities/" });
+  return snap.entries.map((entry) => entry.value);
+};
+
+export const getCapability = async (appId: string): Promise<CapabilityRegistryEntry | null> => {
+  const key = `capabilities/${appId}`;
+  const snap = await capabilityRegistry.snapshot({ prefix: key });
   return snap.entries.find((entry) => entry.key === key)?.value ?? null;
 };
 

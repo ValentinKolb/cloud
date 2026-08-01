@@ -3,17 +3,19 @@ import { isServiceError, type Result, type ServiceError } from "@k2b/stdlib";
 import { z } from "zod";
 import {
   CAPABILITY_PROTOCOL_VERSION,
-  CapabilityLocalIdSchema,
-  CapabilityManifestSchema,
-  capabilityResultSchema,
   type CapabilityActionDefinition,
   type CapabilityActionManifest,
   type CapabilityDefinitions,
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
+  CapabilityLocalIdSchema,
   type CapabilityManifest,
+  CapabilityManifestSchema,
   type CapabilityQueryDefinition,
   type CapabilityQueryManifest,
+  capabilityResultSchema,
+  UniversalSearchDataSchema,
+  UniversalSearchInputSchema,
 } from "../contracts/capabilities";
 
 type JsonSchema = Record<string, unknown>;
@@ -124,9 +126,11 @@ const compileOperationSchemas = (definition: CapabilityQueryDefinition | Capabil
     throw new Error(`${label} input field "idempotencyKey" is reserved for capability transports`);
   }
   const resultZodSchema = capabilityResultSchema(definition.data);
+  const dataSchema = projectSchema(definition.data, `${label} data`);
   const resultSchema = projectSchema(resultZodSchema, `${label} result`);
   return {
     inputSchema,
+    dataSchema,
     resultSchema,
     resultZodSchema,
     schemaHash: capabilityHash({ inputSchema, resultSchema }),
@@ -159,6 +163,16 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
     assertLocalId(localId, "Query");
     const label = `Query ${localId}`;
     const schemas = compileOperationSchemas(definition, label);
+    if (definition.universalSearch) {
+      const expectedInput = projectSchema(UniversalSearchInputSchema, "Universal Search input");
+      const expectedData = projectSchema(UniversalSearchDataSchema, "Universal Search data");
+      if (capabilityHash(schemas.inputSchema) !== capabilityHash(expectedInput)) {
+        throw new Error(`${label} exposed through Universal Search must use UniversalSearchInputSchema`);
+      }
+      if (capabilityHash(schemas.dataSchema) !== capabilityHash(expectedData)) {
+        throw new Error(`${label} exposed through Universal Search must use UniversalSearchDataSchema`);
+      }
+    }
     const manifest = {
       id: qualifiedId(appId, localId),
       localId,
@@ -190,6 +204,10 @@ export const compileCapabilities = (appId: string, definitions: CapabilityDefini
       assertLocalId(definition.target.type, `${label} target type`);
       const targetType = qualifiedId(appId, definition.target.type);
       if (!typeIds.has(targetType)) throw new Error(`${label} targets undeclared resource type "${definition.target.type}"`);
+      const properties = (schemas.inputSchema.properties as Record<string, unknown> | undefined) ?? {};
+      if (!Object.hasOwn(properties, definition.target.inputField)) {
+        throw new Error(`${label} target input field "${definition.target.inputField}" is not declared by the action input`);
+      }
       target = { type: targetType, inputField: definition.target.inputField };
     }
     const manifest = {
@@ -283,6 +301,7 @@ export const invokeCompiledCapability = async (params: {
   input: unknown;
   expectedSchemaHash: string | null;
   context: CapabilityExecutionContext;
+  onUnexpectedError?: (error: unknown) => void;
 }): Promise<CapabilityInvocationResult<unknown>> => {
   const operation = params.kind === "query" ? params.compiled.queries.get(params.localId) : params.compiled.actions.get(params.localId);
   if (!operation) {
@@ -343,6 +362,11 @@ export const invokeCompiledCapability = async (params: {
       : { ok: false, error: validated.error };
   } catch (error) {
     if (isServiceError(error)) return { ok: false, error };
+    try {
+      params.onUnexpectedError?.(error);
+    } catch {
+      // Observability must not change the public failure contract.
+    }
     return {
       ok: false,
       error: {

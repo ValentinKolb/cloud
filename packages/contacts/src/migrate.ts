@@ -274,9 +274,14 @@ export const migrate = async (): Promise<void> => {
       request_hash TEXT NOT NULL,
       -- Keep replay records even when a user later deletes the created contact.
       contact_id UUID NOT NULL,
+      result_label TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (actor_key, action_id, idempotency_key_hash)
     )
+  `.simple();
+  await sql`
+    ALTER TABLE contacts.capability_action_results
+    ADD COLUMN IF NOT EXISTS result_label TEXT
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_contacts_capability_action_results_created

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { compileCapabilities } from "../packages/cloud/src/_internal/capabilities";
 import { contactsCapabilities } from "../packages/contacts/src/capabilities";
 import { filesCapabilities } from "../packages/files/src/capabilities";
 import { mailCapabilities } from "../packages/mail/src/capabilities";
 import { notebooksCapabilities } from "../packages/notebooks/src/capabilities";
 import { spacesCapabilities } from "../packages/spaces/src/capabilities";
 import { weatherCapabilities } from "../packages/weather/src/capabilities";
-import { compileCapabilities } from "../packages/cloud/src/_internal/capabilities";
 
 const providers = [
   ["contacts", contactsCapabilities, ["contacts.contact"]],

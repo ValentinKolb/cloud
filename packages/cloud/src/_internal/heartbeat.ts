@@ -1,6 +1,5 @@
 /** Keep an app discoverable even when the ephemeral registry is recreated. */
 
-import type { AppRegistryEntry } from "../contracts/registry";
 import { APP_REGISTRY_TTL_MS, appRegistry } from "./registry";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
@@ -8,24 +7,29 @@ const HEARTBEAT_WRITE_TIMEOUT_MS = 10_000;
 const HEARTBEAT_RETRY_MS = 5_000;
 const HEARTBEAT_STALE_MARGIN_MS = 15_000;
 
-type HeartbeatRegistry = Pick<typeof appRegistry, "remove" | "upsert"> & Partial<Pick<typeof appRegistry, "touch">>;
+type HeartbeatRegistry<T> = {
+  remove: (input: { key: string }) => Promise<unknown>;
+  upsert: (input: { key: string; value: T }) => Promise<unknown>;
+  touch?: (input: { key: string }) => Promise<{ ok: boolean }>;
+};
 
-type HeartbeatOptions = {
+type HeartbeatOptions<T> = {
+  key?: string;
   intervalMs?: number;
   retryMs?: number;
   staleAfterMs?: number;
   writeTimeoutMs?: number;
-  registry?: HeartbeatRegistry;
+  registry?: HeartbeatRegistry<T>;
   onError?: (error: unknown) => void;
   onStale?: (error: unknown) => void;
 };
 
-export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options: HeartbeatOptions = {}) => {
+export const createHeartbeat = <T>(appId: string, entry: T, options: HeartbeatOptions<T> = {}) => {
   const intervalMs = options.intervalMs ?? HEARTBEAT_INTERVAL_MS;
   const retryMs = options.retryMs ?? Math.min(HEARTBEAT_RETRY_MS, intervalMs);
   const staleAfterMs = options.staleAfterMs ?? APP_REGISTRY_TTL_MS - HEARTBEAT_STALE_MARGIN_MS;
   const writeTimeoutMs = options.writeTimeoutMs ?? HEARTBEAT_WRITE_TIMEOUT_MS;
-  const registry = options.registry ?? appRegistry;
+  const registry = options.registry ?? (appRegistry as unknown as HeartbeatRegistry<T>);
   const onError = options.onError ?? ((error: unknown) => console.error(`[app:${appId}] Registry heartbeat failed`, error));
   const onStale = options.onStale;
 
@@ -38,7 +42,7 @@ export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options:
   let running = false;
   let lastSuccessAt = 0;
   let staleReported = false;
-  const key = `apps/${appId}`;
+  const key = options.key ?? `apps/${appId}`;
 
   const noteSuccess = (): void => {
     if (!running) return;
@@ -60,10 +64,9 @@ export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options:
     noteSuccess();
   };
 
-  const refreshWithTimeout = async (): Promise<void> => {
+  const writeWithTimeout = async (write: Promise<void>): Promise<void> => {
     let timer: Timer | null = null;
     let timedOut = false;
-    const write = refresh();
     void write
       .then(async () => {
         // A write that completed after its timeout must not resurrect a stopped app.
@@ -76,7 +79,7 @@ export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options:
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
             timedOut = true;
-            reject(new Error(`Registry heartbeat timed out after ${writeTimeoutMs}ms`));
+            reject(new Error(`Registry write timed out after ${writeTimeoutMs}ms`));
           }, writeTimeoutMs);
         }),
       ]);
@@ -84,6 +87,8 @@ export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options:
       if (timer) clearTimeout(timer);
     }
   };
+
+  const refreshWithTimeout = (): Promise<void> => writeWithTimeout(refresh());
 
   const reportError = (error: unknown): void => {
     try {
@@ -129,7 +134,7 @@ export const createHeartbeat = (appId: string, entry: AppRegistryEntry, options:
         return;
       }
       running = true;
-      const operation = register();
+      const operation = writeWithTimeout(register());
       inFlight = operation;
       try {
         await operation;

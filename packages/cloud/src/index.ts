@@ -2,8 +2,19 @@ export type { AppDefinition, AppOptions, StartOptions, StartResult } from "./_in
 export { defineApp } from "./_internal/define-app";
 export { createHeartbeat } from "./_internal/heartbeat";
 export type { AppRegistryDetail, DashboardWidget } from "./_internal/registry";
-export { appRegistry, getApp, listApps, listAppsDetailed, listLegalLinks, listWidgets } from "./_internal/registry";
+export {
+  appRegistry,
+  capabilityRegistry,
+  getApp,
+  getCapability,
+  listApps,
+  listAppsDetailed,
+  listCapabilities,
+  listLegalLinks,
+  listWidgets,
+} from "./_internal/registry";
 export { buildRuntimeFromRegistry } from "./_internal/runtime-context";
+export { defineCapabilities } from "./contracts/capabilities";
 export type {
   AnyBoundNotificationDefinition,
   BoundNotificationDefinition,
@@ -21,4 +32,3 @@ export type {
   NotificationSendInput,
 } from "./contracts/notification-types";
 export { notification } from "./contracts/notification-types";
-export { defineCapabilities } from "./contracts/capabilities";

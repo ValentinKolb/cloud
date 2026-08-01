@@ -1,17 +1,17 @@
 import { createHash } from "node:crypto";
+import { err, fail, ok } from "@k2b/stdlib";
 import {
-  type CloudResourceView,
-  type CapabilityInvocationResult,
   type CapabilityExecutionContext,
+  type CapabilityInvocationResult,
+  type CloudResourceView,
   defineCapabilities,
   hasRole,
-  type UniversalSearchInput,
   UniversalSearchDataSchema,
+  type UniversalSearchInput,
   UniversalSearchInputSchema,
 } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
-import { audit, type AuditActor } from "@valentinkolb/cloud/services";
-import { err, fail, ok } from "@k2b/stdlib";
+import { type AuditActor, audit } from "@valentinkolb/cloud/services";
 import { z } from "zod";
 import { contactsService } from "./service";
 import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID } from "./service/access";
@@ -127,14 +127,13 @@ const runCreateContact = async (
   }
 
   const created: CapabilityInvocationResult<CreateContactCapabilityData> = ok({
-    data: { id: result.data.id, bookId: result.data.bookId, label: resolveContactName(result.data) },
+    data: { id: result.data.id, bookId: result.data.bookId, label: result.data.label },
     refs: [{ type: "contacts.contact", id: result.data.id }],
     links: [{ rel: "edit", href: `/app/contacts/${result.data.bookId}?contact=${result.data.id}&contactBook=${result.data.bookId}` }],
   });
-  return audit.recordResultAfterSideEffect({
-    ...auditParams,
-    result: created,
-  });
+  return result.data.replayed
+    ? audit.recordResult({ ...auditParams, metadata: { ...auditParams.metadata, replayed: true }, result: created })
+    : audit.recordResultAfterSideEffect({ ...auditParams, result: created });
 };
 
 const runSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {

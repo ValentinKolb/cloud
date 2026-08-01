@@ -3,7 +3,7 @@ import { ok } from "@k2b/stdlib";
 import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import { capabilityCredentialHeaders, createCapabilityRoutes } from "./capabilities";
 
 const compiled = compileCapabilities(
@@ -23,16 +23,24 @@ const compiled = compileCapabilities(
   }),
 );
 
-const entry = (id = "demo"): AppRegistryEntry => ({
-  id,
-  name: id,
-  icon: "ti ti-box",
-  description: "Demo app",
-  baseUrl: `http://${id}:3000`,
+const entry = (id = "demo"): CapabilityRegistryEntry => ({
+  appId: id,
+  appName: id,
+  appIcon: "ti ti-box",
+  endpoint: `http://${id}:3000/api/_internal/capabilities/v1`,
+  manifest: { ...compiled.manifest, appId: id },
+});
+
+const summary = (capability: CapabilityRegistryEntry): AppRegistryEntry => ({
+  id: capability.appId,
+  name: capability.appName,
+  icon: capability.appIcon,
+  description: `${capability.appName} app`,
+  baseUrl: `http://${capability.appId}:3000`,
   routes: [],
   capabilities: {
-    endpoint: `http://${id}:3000/api/_internal/capabilities/v1`,
-    manifest: { ...compiled.manifest, appId: id },
+    protocolVersion: capability.manifest.protocolVersion,
+    manifestHash: capability.manifest.manifestHash,
   },
 });
 
@@ -41,7 +49,12 @@ const authenticate = async (_c: unknown, next: () => Promise<void>) => next();
 describe("capability API", () => {
   test("paginates the live catalog deterministically", async () => {
     const apps = [entry("zeta"), entry("alpha"), entry("middle")];
-    const routes = createCapabilityRoutes({ listApps: async () => apps, authenticate });
+    const byId = new Map(apps.map((app) => [app.appId, app]));
+    const routes = createCapabilityRoutes({
+      listApps: async () => apps.map(summary),
+      getCapability: async (appId) => byId.get(appId) ?? null,
+      authenticate,
+    });
 
     const first = await routes.request("/capabilities/v1/catalog?limit=2");
     expect(first.status).toBe(200);
@@ -55,7 +68,7 @@ describe("capability API", () => {
   });
 
   test("returns a structured error for an unavailable app", async () => {
-    const routes = createCapabilityRoutes({ getApp: async () => null, authenticate });
+    const routes = createCapabilityRoutes({ getCapability: async () => null, authenticate });
     const response = await routes.request("/capabilities/v1/queries/missing/get", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -68,7 +81,7 @@ describe("capability API", () => {
   test("forwards only caller credentials and protocol headers", async () => {
     let forwarded: Headers | undefined;
     const routes = createCapabilityRoutes({
-      getApp: async () => entry(),
+      getCapability: async () => entry(),
       authenticate,
       fetch: async (_input, init) => {
         forwarded = new Headers(init?.headers);
@@ -90,6 +103,21 @@ describe("capability API", () => {
     expect(forwarded?.get("cookie")).toBeNull();
     expect(forwarded?.get("x-cloud-actor")).toBeNull();
     expect(forwarded?.get("x-cloud-capability-schema-hash")).toBe(compiled.manifest.queries[0]?.schemaHash);
+  });
+
+  test("preserves structured throttling errors from the owning app", async () => {
+    const routes = createCapabilityRoutes({
+      getCapability: async () => entry(),
+      authenticate,
+      fetch: async () => Response.json({ code: "RATE_LIMITED", message: "Retry later" }, { status: 429 }),
+    });
+    const response = await routes.request("/capabilities/v1/queries/demo/get", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ input: { id: "one" } }),
+    });
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({ code: "RATE_LIMITED", message: "Retry later" });
   });
 });
 

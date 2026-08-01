@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { ok } from "@k2b/stdlib";
 import type { MiddlewareHandler } from "hono";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities, UniversalSearchDataSchema, UniversalSearchInputSchema } from "../contracts/capabilities";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { AuthContext } from "../server";
-import { ok } from "@k2b/stdlib";
 import { createSearchRoutes } from "./search";
 
 const capabilities = defineCapabilities({
@@ -34,9 +34,12 @@ const app: AppRegistryEntry = {
   description: "Demo app",
   baseUrl: "http://demo:3000",
   routes: [],
-  capabilities: {
-    endpoint: "http://demo:3000/api/_internal/capabilities/v1",
-    manifest,
+  search: {
+    endpoint: "http://demo:3000/api/_internal/capabilities/v1/queries/search",
+    queryId: "search",
+    schemaHash: manifest.queries[0]!.schemaHash,
+    description: manifest.queries[0]!.description,
+    tags: manifest.queries[0]!.universalSearch!.tags,
   },
 };
 
@@ -106,5 +109,30 @@ describe("global capability search", () => {
     expect(response.status).toBe(200);
     expect(calls).toBe(0);
     expect(await response.json()).toEqual({ query: "", count: 0, items: [], unsupportedTags: ["missing"] });
+  });
+
+  test("rejects unbounded queries and provider limits before fan-out", async () => {
+    const routes = createSearchRoutes({ authenticate, listApps: async () => [app] });
+    expect((await routes.request(`/search?q=${"x".repeat(501)}`)).status).toBe(400);
+    expect((await routes.request("/search?provider_limit=31")).status).toBe(400);
+    expect((await routes.request(`/search?${Array.from({ length: 21 }, (_, index) => `tag=t${index}`).join("&")}`)).status).toBe(400);
+  });
+
+  test("caps a provider that returns more items than requested", async () => {
+    const routes = createSearchRoutes({
+      authenticate,
+      listApps: async () => [app],
+      fetch: async () =>
+        Response.json({
+          data: Array.from({ length: 100 }, (_, index) => ({
+            ref: { type: "demo.item", id: String(index) },
+            title: `Item ${index}`,
+            links: [{ rel: "open", href: `/app/demo/${index}` }],
+          })),
+        }),
+    });
+    const response = await routes.request("/search?provider_limit=2");
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { items: unknown[] }).items).toHaveLength(6);
   });
 });

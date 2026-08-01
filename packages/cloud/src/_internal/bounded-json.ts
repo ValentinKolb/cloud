@@ -13,15 +13,20 @@ export const readBoundedJson = async (message: Request | Response, maxBytes: num
 
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
-    const next = await reader.read();
-    if (next.done) break;
-    total += next.value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return { ok: false, reason: "too_large" };
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return { ok: false, reason: "too_large" };
+      }
+      chunks.push(next.value);
     }
-    chunks.push(next.value);
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return { ok: false, reason: "invalid_json" };
   }
 
   const bytes = new Uint8Array(total);
@@ -32,7 +37,7 @@ export const readBoundedJson = async (message: Request | Response, maxBytes: num
   }
 
   try {
-    return { ok: true, data: JSON.parse(new TextDecoder().decode(bytes)) };
+    return { ok: true, data: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) };
   } catch {
     return { ok: false, reason: "invalid_json" };
   }

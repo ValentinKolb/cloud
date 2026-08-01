@@ -11,8 +11,7 @@ import type { Role } from "../contracts/shared";
  */
 export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRuntime => ({
   apps: entries.map((e): RuntimeAppMeta => {
-    const searchQuery = e.capabilities?.manifest.queries.find((query) => query.universalSearch);
-    const searchTags = searchQuery?.universalSearch?.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]);
+    const searchTags = e.search?.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]);
     return {
       id: e.id,
       name: e.name,
@@ -37,8 +36,8 @@ export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRunt
           }
         : undefined,
       searchTags,
-      searchHelp: searchQuery?.description,
-      searchTagHelp: searchQuery?.universalSearch?.tags.flatMap((tag) => [
+      searchHelp: e.search?.description,
+      searchTagHelp: e.search?.tags.flatMap((tag) => [
         { tag: tag.tag, help: tag.description },
         ...(tag.aliases ?? []).map((alias) => ({ tag: alias, help: `${tag.description} (alias of #${tag.tag})` })),
       ]),

@@ -1,6 +1,6 @@
-import { FilterChip, type FilterChipSection, Pagination, TextInput } from "@valentinkolb/cloud/ui";
 import { documentNavigate, navigate } from "@k2b/ssr/nav";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
+import { FilterChip, type FilterChipSection, Pagination, TextInput } from "@valentinkolb/cloud/ui";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactPresenceFilter, ContactSort, ContactTag } from "../../service";
@@ -118,7 +118,7 @@ const fetchContactsResults = async (props: Pick<Props, "bookId" | "perPage">, hr
     sort: options.sort === "name" ? undefined : options.sort,
     email: options.email === "all" ? undefined : options.email,
     phone: options.phone === "all" ? undefined : options.phone,
-    favorites: options.favorites ? "true" : undefined,
+    favorites: options.favorites ? ("true" as const) : undefined,
   };
   const response = props.bookId
     ? await apiClient.books[":bookId"].contacts.$get(

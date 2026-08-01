@@ -91,11 +91,14 @@ await app.start({ capabilities, fetch: router.fetch });
   rely on an in-memory cache or a preflight lookup.
 - Return `CapabilityResult`: `data` plus optional stable `refs`, pagination,
   and root-relative semantic `links`. Return structured service errors.
+- A Universal Search query must use `UniversalSearchInputSchema` and
+  `UniversalSearchDataSchema`; this keeps every provider interchangeable.
 
 The app lifecycle compiles the declaration once, rejects invalid public
 schemas and manifests larger than 256 KiB at startup, and publishes the
-versioned manifest only while the app's registry lease is live. Recurring
-heartbeats renew the lease without rewriting the manifest. Core dispatch forwards only the caller credential,
+versioned manifest in a dedicated capability registry only while the app's
+lease is live. The normal app registry carries only compact search metadata.
+Recurring heartbeats renew both leases without rewriting manifests. Core dispatch forwards only the caller credential,
 trace context, and capability protocol headers. Generic clients must refresh
 the live catalog after a schema mismatch or unavailable-app response.
 

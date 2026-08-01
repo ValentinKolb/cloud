@@ -46,11 +46,14 @@ describe("capabilities CLI", () => {
     expect(lines).toEqual(['{"data":[]}']);
   });
 
-  test("requires a stable idempotency key for actions", async () => {
-    const { ctx } = createContext(["action", "contacts", "create"], { input: '{"bookId":"one","label":"Ada"}' }, async () =>
-      Response.json({}),
-    );
-    await expect(capabilitiesCliModule.run(ctx)).rejects.toThrow("Missing required flag --idempotency-key");
+  test("omits an idempotency key for actions that do not require one", async () => {
+    const keys: Array<string | null> = [];
+    const { ctx } = createContext(["action", "example", "refresh"], { input: "{}" }, async (_path, init) => {
+      keys.push(new Headers(init?.headers).get("idempotency-key"));
+      return Response.json({ data: {} });
+    });
+    await capabilitiesCliModule.run(ctx);
+    expect(keys).toEqual([null]);
   });
 
   test("forwards the idempotency key", async () => {

@@ -1,6 +1,6 @@
+import { ok, type PageParams, type Paginated, type Result } from "@k2b/stdlib";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { type AccessSubject, type PermissionLevel, paginate, paginateItems } from "@valentinkolb/cloud/server";
-import { ok, type PageParams, type Paginated, type Result } from "@k2b/stdlib";
 import type { ContactServiceEventData } from "../live-events";
 import * as apiKeys from "./api-keys";
 import * as books from "./books";
@@ -159,9 +159,9 @@ export const contactsService = {
       const result = await contacts.createIdempotent(config);
       if (!result.ok) return result;
       if (!result.data.replayed) {
-        await publishContactEvent({ type: "contact.created", bookId: config.bookId, contactId: result.data.contact.id });
+        await publishContactEvent({ type: "contact.created", bookId: config.bookId, contactId: result.data.id });
       }
-      return ok(result.data.contact);
+      return ok(result.data);
     },
     update: (config: { bookId: string; id: string; data: UpdateContactInput }) =>
       withEvent(contacts.update(config), { type: "contact.updated", bookId: config.bookId, contactId: config.id }),

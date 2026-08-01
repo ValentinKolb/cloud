@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { fail, ok } from "@k2b/stdlib";
 import { z } from "zod";
-import { defineCapabilities } from "../contracts/capabilities";
+import {
+  CapabilitySemanticLinkSchema,
+  defineCapabilities,
+  UniversalSearchDataSchema,
+  UniversalSearchInputSchema,
+} from "../contracts/capabilities";
 import { compileCapabilities, invokeCompiledCapability } from "./capabilities";
 
 const context = {
@@ -154,8 +159,8 @@ describe("capability v1 compilation", () => {
     const searchQuery = {
       title: "Search items",
       description: "Finds items for the global search surface.",
-      input: z.object({ query: z.string().describe("Search text.") }).strict(),
-      data: z.array(z.string()),
+      input: UniversalSearchInputSchema,
+      data: UniversalSearchDataSchema,
       universalSearch: {
         tags: [{ tag: "item", title: "Items", description: "Search test items." }],
       },
@@ -200,6 +205,39 @@ describe("capability v1 compilation", () => {
         }),
       ),
     ).not.toThrow();
+  });
+
+  test("requires the canonical Universal Search schemas", () => {
+    expect(() =>
+      compileCapabilities(
+        "example",
+        defineCapabilities({
+          version: 1,
+          queries: {
+            search: {
+              title: "Search items",
+              description: "Find items.",
+              input: z.object({ query: z.string().describe("Search text.") }).strict(),
+              data: UniversalSearchDataSchema,
+              universalSearch: { tags: [{ tag: "item", title: "Items", description: "Show items." }] },
+              run: async () => ok({ data: [] }),
+            },
+          },
+        }),
+      ),
+    ).toThrow("must use UniversalSearchInputSchema");
+  });
+
+  test("rejects action targets that are absent from the input", () => {
+    const base = example();
+    const definitions = {
+      ...base,
+      actions: {
+        ...base.actions,
+        rename: { ...base.actions!.rename!, target: { type: "item", inputField: "missing" } },
+      },
+    };
+    expect(() => compileCapabilities("example", definitions)).toThrow('target input field "missing" is not declared');
   });
 
   test("rejects manifests that are too large for the bounded live registry", () => {
@@ -291,6 +329,36 @@ describe("capability v1 compilation", () => {
     });
   });
 
+  test("reports unexpected handler failures without changing the public error", async () => {
+    const base = example();
+    const definitions = {
+      ...base,
+      queries: {
+        ...base.queries,
+        get: {
+          ...base.queries!.get!,
+          run: async () => {
+            throw new Error("database password must stay private");
+          },
+        },
+      },
+    };
+    const compiled = compileCapabilities("example", definitions);
+    const errors: unknown[] = [];
+    const result = await invokeCompiledCapability({
+      compiled,
+      kind: "query",
+      localId: "get",
+      input: { id: "one" },
+      expectedSchemaHash: compiled.manifest.queries[0]!.schemaHash,
+      context,
+      onUnexpectedError: (error) => errors.push(error),
+    });
+    expect(errors).toHaveLength(1);
+    expect(result).toEqual({ ok: false, error: { code: "INTERNAL", message: "Capability execution failed", status: 500 } });
+    expect(JSON.stringify(result)).not.toContain("password");
+  });
+
   test("rejects undeclared refs returned by a handler", async () => {
     const base = example();
     const definitions = {
@@ -321,4 +389,9 @@ describe("capability v1 compilation", () => {
       error: { code: "INTERNAL", status: 500 },
     });
   });
+});
+
+test("semantic links cannot escape the Cloud origin through backslashes", () => {
+  expect(CapabilitySemanticLinkSchema.safeParse({ rel: "open", href: "/app/demo" }).success).toBe(true);
+  expect(CapabilitySemanticLinkSchema.safeParse({ rel: "open", href: "/\\\\evil.example/path" }).success).toBe(false);
 });

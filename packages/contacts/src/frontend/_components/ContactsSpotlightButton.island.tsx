@@ -1,11 +1,11 @@
+import { navigateTo } from "@k2b/ssr/nav";
 import {
   isSpotlightShortcut,
   openSpotlightSearch,
-  SpotlightButton,
   SPOTLIGHT_SHORTCUT_TITLE,
+  SpotlightButton,
   type SpotlightButtonVariant,
 } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@k2b/ssr/nav";
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact } from "../../service";
@@ -44,7 +44,6 @@ export default function ContactsSpotlightButton(props: Props) {
           {
             query: {
               q: trimmed,
-              includeSystem: "false",
               page: "1",
               per_page: String(PER_PAGE),
             },

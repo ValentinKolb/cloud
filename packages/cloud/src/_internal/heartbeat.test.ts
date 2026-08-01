@@ -58,6 +58,28 @@ describe("createHeartbeat", () => {
     expect(upserts).toBe(2);
   });
 
+  test("supports an independent registry key for capability manifests", async () => {
+    const keys: string[] = [];
+    const heartbeat = createHeartbeat(
+      "test",
+      { manifest: true },
+      {
+        key: "capabilities/test",
+        intervalMs: 100,
+        registry: {
+          upsert: async ({ key }) => void keys.push(key),
+          remove: async ({ key }) => {
+            keys.push(key);
+            return true;
+          },
+        },
+      },
+    );
+    await heartbeat.start();
+    await heartbeat.stop();
+    expect(keys).toEqual(["capabilities/test", "capabilities/test"]);
+  });
+
   test("registers immediately and refreshes without overlapping writes", async () => {
     let writes = 0;
     let concurrent = 0;
@@ -144,6 +166,25 @@ describe("createHeartbeat", () => {
 
     expect(errors).toHaveLength(1);
     expect((errors[0] as Error).message).toContain("timed out");
+  });
+
+  test("times out initial registration and removes a late write", async () => {
+    const stuck = Promise.withResolvers<ReturnType<typeof upsertResult>>();
+    let removals = 0;
+    const heartbeat = createHeartbeat("test", entry, {
+      writeTimeoutMs: 5,
+      registry: {
+        upsert: async () => stuck.promise,
+        remove: async () => {
+          removals += 1;
+          return true;
+        },
+      },
+    });
+
+    await expect(heartbeat.start()).rejects.toThrow("timed out");
+    stuck.resolve(upsertResult());
+    await waitUntil(() => removals === 1);
   });
 
   test("reports lease risk once while retries continue", async () => {

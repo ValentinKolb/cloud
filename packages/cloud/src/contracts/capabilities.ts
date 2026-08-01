@@ -1,12 +1,21 @@
-import type { AccessSubject, RequestActor, User } from "./shared";
 import type { Result, ServiceError } from "@k2b/stdlib";
 import { z } from "zod";
+import type { AccessSubject, RequestActor, User } from "./shared";
 
 export const CAPABILITY_PROTOCOL_VERSION = 1 as const;
 
 const CAPABILITY_LOCAL_ID_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const CAPABILITY_QUALIFIED_ID_PATTERN = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
-const ROOT_RELATIVE_PATH_PATTERN = /^\/(?!\/)/;
+const CLOUD_LINK_BASE_URL = "https://cloud.invalid";
+
+const isSameOriginCloudPath = (value: string): boolean => {
+  if (!value.startsWith("/")) return false;
+  try {
+    return new URL(value, CLOUD_LINK_BASE_URL).origin === CLOUD_LINK_BASE_URL;
+  } catch {
+    return false;
+  }
+};
 
 export const CapabilityLocalIdSchema = z
   .string()
@@ -36,7 +45,7 @@ export const CapabilitySemanticLinkSchema = z
       .string()
       .min(1)
       .max(2048)
-      .regex(ROOT_RELATIVE_PATH_PATTERN, "Capability links must be root-relative Cloud paths")
+      .refine(isSameOriginCloudPath, "Capability links must be root-relative same-origin Cloud paths")
       .describe("Root-relative Cloud URL."),
     title: z.string().min(1).max(120).optional().describe("Optional human-readable link label."),
   })
@@ -254,4 +263,5 @@ export const CapabilityManifestSchema = z
 export type CapabilityResourceTypeManifest = z.infer<typeof CapabilityResourceTypeManifestSchema>;
 export type CapabilityQueryManifest = z.infer<typeof CapabilityQueryManifestSchema>;
 export type CapabilityActionManifest = z.infer<typeof CapabilityActionManifestSchema>;
+export type CapabilitySearchTagManifest = z.infer<typeof CapabilitySearchTagManifestSchema>;
 export type CapabilityManifest = z.infer<typeof CapabilityManifestSchema>;

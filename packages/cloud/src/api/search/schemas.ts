@@ -22,17 +22,21 @@ const TagArraySchema = z.preprocess(
     if (typeof value === "string") return [value];
     return [];
   },
-  z.array(z.string().trim().min(1).regex(TAG_PATTERN)).transform((tags) => [...new Set(tags.map((tag) => tag.toLowerCase()))]),
+  z
+    .array(z.string().trim().min(1).max(64).regex(TAG_PATTERN))
+    .max(20)
+    .transform((tags) => [...new Set(tags.map((tag) => tag.toLowerCase()))]),
 );
 
 export const SearchQuerySchema = z.object({
   q: z
     .string()
+    .max(500)
     .optional()
     .default("")
     .transform((query) => query.trim()),
   tag: TagArraySchema.optional().default([]),
-  provider_limit: z.coerce.number().int().min(1).max(99).optional().default(10),
+  provider_limit: z.coerce.number().int().min(1).max(30).optional().default(10),
 });
 
 export const SearchItemSchema = z.object({

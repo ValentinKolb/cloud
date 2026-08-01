@@ -4,7 +4,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities } from "../contracts/capabilities";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import { createMcpRoutes } from "./mcp";
 
 const compiled = compileCapabilities(
@@ -37,18 +37,26 @@ const compiled = compileCapabilities(
   }),
 );
 
-const app: AppRegistryEntry = {
-  id: "demo",
-  name: "Demo",
-  icon: "ti ti-box",
-  description: "Demo app",
-  baseUrl: "http://demo:3000",
+const app: CapabilityRegistryEntry = {
+  appId: "demo",
+  appName: "Demo",
+  appIcon: "ti ti-box",
+  endpoint: "http://demo:3000/api/_internal/capabilities/v1",
+  manifest: compiled.manifest,
+};
+
+const summary = (capability: CapabilityRegistryEntry): AppRegistryEntry => ({
+  id: capability.appId,
+  name: capability.appName,
+  icon: capability.appIcon,
+  description: `${capability.appName} app`,
+  baseUrl: `http://${capability.appId}:3000`,
   routes: [],
   capabilities: {
-    endpoint: "http://demo:3000/api/_internal/capabilities/v1",
-    manifest: compiled.manifest,
+    protocolVersion: capability.manifest.protocolVersion,
+    manifestHash: capability.manifest.manifestHash,
   },
-};
+});
 
 const rpc = (routes: ReturnType<typeof createMcpRoutes>, body: unknown) =>
   routes.request("/mcp/v1", {
@@ -63,9 +71,22 @@ const rpc = (routes: ReturnType<typeof createMcpRoutes>, body: unknown) =>
   });
 
 describe("capability MCP projection", () => {
+  test("rejects oversized JSON-RPC bodies before the MCP transport parses them", async () => {
+    const routes = createMcpRoutes({ authenticate: async (_c, next) => next() });
+    const response = await rpc(routes, {
+      jsonrpc: "2.0",
+      id: 99,
+      method: "tools/list",
+      params: { padding: "x".repeat(300 * 1024) },
+    });
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: { code: -32600, message: "MCP request is too large" } });
+  });
+
   test("lists live queries and actions with schemas and safety annotations", async () => {
     const routes = createMcpRoutes({
-      listApps: async () => [app],
+      listApps: async () => [summary(app)],
+      getCapability: async () => app,
       authenticate: async (_c, next) => next(),
     });
     const response = await rpc(routes, {
@@ -98,26 +119,23 @@ describe("capability MCP projection", () => {
   });
 
   test("paginates large live catalogs without materializing every tool schema", async () => {
-    const apps = Array.from({ length: 101 }, (_, index): AppRegistryEntry => {
+    const apps = Array.from({ length: 150 }, (_, index): CapabilityRegistryEntry => {
       const id = `demo-${String(index).padStart(3, "0")}`;
       return {
         ...app,
-        id,
-        name: id,
-        capabilities: app.capabilities
-          ? {
-              ...app.capabilities,
-              manifest: {
-                ...app.capabilities.manifest,
-                appId: id,
-                actions: [],
-              },
-            }
-          : undefined,
+        appId: id,
+        appName: id,
+        manifest: { ...app.manifest, appId: id, actions: [] },
       };
     });
+    const byId = new Map(apps.map((candidate) => [candidate.appId, candidate]));
+    let lookups = 0;
     const routes = createMcpRoutes({
-      listApps: async () => apps,
+      listApps: async () => apps.map(summary),
+      getCapability: async (appId) => {
+        lookups += 1;
+        return byId.get(appId) ?? null;
+      },
       authenticate: async (_c, next) => next(),
     });
     const firstResponse = await rpc(routes, {
@@ -133,7 +151,9 @@ describe("capability MCP projection", () => {
     ).result;
     expect(first.tools).toHaveLength(100);
     expect(first.nextCursor).toBe(first.tools.at(-1)?.name);
+    expect(lookups).toBe(101);
 
+    lookups = 0;
     const secondResponse = await rpc(routes, {
       jsonrpc: "2.0",
       id: 11,
@@ -145,15 +165,15 @@ describe("capability MCP projection", () => {
         result: { tools: Tool[]; nextCursor?: string };
       }
     ).result;
-    expect(second.tools).toHaveLength(1);
+    expect(second.tools).toHaveLength(50);
     expect(second.nextCursor).toBeUndefined();
+    expect(lookups).toBe(51);
   });
 
   test("calls the shared dispatcher with caller credentials and structured results", async () => {
     let forwarded: Headers | undefined;
     const routes = createMcpRoutes({
-      listApps: async () => [app],
-      getApp: async () => app,
+      getCapability: async () => app,
       authenticate: async (_c, next) => next(),
       fetch: async (_input, init) => {
         forwarded = new Headers(init?.headers);
@@ -190,7 +210,7 @@ describe("capability MCP projection", () => {
 
   test("returns an actionable structured error when a live tool disappears", async () => {
     const routes = createMcpRoutes({
-      listApps: async () => [],
+      getCapability: async () => null,
       authenticate: async (_c, next) => next(),
     });
     const response = await rpc(routes, {
@@ -209,8 +229,7 @@ describe("capability MCP projection", () => {
 
   test("preserves app authorization failures as structured tool errors", async () => {
     const routes = createMcpRoutes({
-      listApps: async () => [app],
-      getApp: async () => app,
+      getCapability: async () => app,
       authenticate: async (_c, next) => next(),
       fetch: async () => Response.json({ code: "FORBIDDEN", message: "No access to this item" }, { status: 403 }),
     });

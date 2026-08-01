@@ -1,5 +1,5 @@
-import { logger } from "@valentinkolb/cloud/services";
 import { scheduler } from "@k2b/sync";
+import { logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 
 const log = logger("contacts:capability-retention");
@@ -43,6 +43,20 @@ export const capabilityRetention = {
         label: "Capability idempotency retention",
       },
       process: async () => ({ deleted: await deleteExpiredResults() }),
+      after: ({ ctx }) => {
+        if (ctx.error && ctx.failureCount < 3) {
+          ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 60_000 }) });
+          return;
+        }
+        if (ctx.error) {
+          log.error("Capability idempotency retention exhausted retries", {
+            failureCount: ctx.failureCount,
+            error: ctx.error.message,
+          });
+          return;
+        }
+        if (ctx.data?.deleted === DELETE_BATCH_SIZE) ctx.reschedule({ delayMs: 0 });
+      },
     });
   },
   stop: async (): Promise<void> => {

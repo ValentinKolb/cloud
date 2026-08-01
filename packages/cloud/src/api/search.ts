@@ -1,12 +1,12 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { listApps } from "..";
+import { readBoundedJson } from "../_internal/bounded-json";
+import type { AppRegistryEntry } from "../contracts";
 import { CloudResourceViewSchema, ErrorResponseSchema } from "../contracts";
 import { type AuthContext, auth, expectUserBackedActor, jsonResponse, requiresAuth, v } from "../server";
 import { logger } from "../services";
 import { capabilityCredentialHeaders } from "./capabilities";
-import { readBoundedJson } from "../_internal/bounded-json";
-import type { AppRegistryEntry } from "../contracts";
 import { type SearchItem, SearchItemSchema, SearchQuerySchema, SearchResponseSchema } from "./search/schemas";
 
 const log = logger("search");
@@ -35,17 +35,15 @@ type HttpSearchProvider = {
  */
 const getSearchProviders = (entries: AppRegistryEntry[]): HttpSearchProvider[] => {
   return entries.flatMap((entry) => {
-    if (!entry.capabilities) return [];
-    const query = entry.capabilities.manifest.queries.find((candidate) => candidate.universalSearch);
-    if (!query?.universalSearch) return [];
+    if (!entry.search) return [];
     return [
       {
         appId: entry.id,
         appName: entry.name,
         appIcon: entry.icon,
-        endpoint: `${entry.capabilities.endpoint}/queries/${encodeURIComponent(query.localId)}`,
-        tags: query.universalSearch.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]),
-        schemaHash: query.schemaHash,
+        endpoint: entry.search.endpoint,
+        tags: entry.search.tags.flatMap((tag) => [tag.tag, ...(tag.aliases ?? [])]),
+        schemaHash: entry.search.schemaHash,
       },
     ];
   });
@@ -170,7 +168,7 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
         const results = Array.isArray(envelope.data) ? envelope.data : [];
         const validItems: SearchItem[] = [];
 
-        for (const item of results) {
+        for (const item of results.slice(0, effectiveProviderLimit)) {
           const view = CloudResourceViewSchema.safeParse(item);
           if (!view.success) {
             log.warn("Search capability returned invalid resource view", {

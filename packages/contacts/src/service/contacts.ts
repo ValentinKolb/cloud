@@ -1,7 +1,7 @@
-import { type AccessSubject, buildAccessPrincipalCondition } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
+import { type AccessSubject, buildAccessPrincipalCondition } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
-import { resolveStoredContactLabel } from "../shared";
+import { resolveContactName, resolveStoredContactLabel } from "../shared";
 import { emptyToNull, isUuid, type SqlExecutor, toDateOnly, toPgUuidArray } from "./shared";
 import { getSystemContact, getSystemContactsByIds, isSystemBookId, listSystemContacts, SYSTEM_BOOK_ID } from "./system";
 import * as tags from "./tags";
@@ -1169,17 +1169,47 @@ export const createIdempotent = async (config: {
   actionId: string;
   idempotencyKeyHash: string;
   requestHash: string;
-}): Promise<Result<{ contact: Contact; replayed: boolean }>> => {
+}): Promise<Result<{ id: string; bookId: string; label: string; replayed: boolean }>> => {
   if (isSystemBookId(config.bookId)) return fail(err.forbidden("System contacts are read-only"));
   if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
 
   const fields = buildCreateFields(config.data);
+  const resultLabel = resolveContactName(config.data);
   const prepared = await prepareContactCreate({ bookId: config.bookId, data: config.data });
   if (!prepared.ok) return prepared;
 
-  const outcome = await sql.begin(async (tx): Promise<Result<{ contactId: string; replayed: boolean }>> => {
+  const outcome = await sql.begin(async (tx): Promise<Result<{ contactId: string; resultLabel: string; replayed: boolean }>> => {
     const [allocated] = await tx<{ id: string }[]>`SELECT gen_random_uuid() AS id`;
     if (!allocated) return fail(err.internal("Failed to allocate contact id"));
+
+    const [claim] = await tx<{ contact_id: string }[]>`
+      INSERT INTO contacts.capability_action_results (
+        actor_key, action_id, idempotency_key_hash, request_hash, contact_id, result_label
+      ) VALUES (
+        ${config.actorKey}, ${config.actionId}, ${config.idempotencyKeyHash},
+        ${config.requestHash}, ${allocated.id}::uuid, ${resultLabel}
+      )
+      ON CONFLICT (actor_key, action_id, idempotency_key_hash) DO NOTHING
+      RETURNING contact_id
+    `;
+    if (!claim) {
+      const [existing] = await tx<{ request_hash: string; contact_id: string; result_label: string | null }[]>`
+        SELECT request_hash, contact_id, result_label
+        FROM contacts.capability_action_results
+        WHERE actor_key = ${config.actorKey}
+          AND action_id = ${config.actionId}
+          AND idempotency_key_hash = ${config.idempotencyKeyHash}
+      `;
+      if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
+      if (existing.request_hash !== config.requestHash) {
+        return fail({
+          code: "CONFLICT",
+          message: "Idempotency-Key was already used with different input",
+          status: 409,
+        });
+      }
+      return ok({ contactId: existing.contact_id, resultLabel: existing.result_label ?? resultLabel, replayed: true });
+    }
 
     const [inserted] = await tx<{ id: string }[]>`
       INSERT INTO contacts.contacts (
@@ -1195,37 +1225,7 @@ export const createIdempotent = async (config: {
       )
       RETURNING id
     `;
-    if (!inserted) return fail(err.internal("Failed to create contact"));
-
-    const [claim] = await tx<{ contact_id: string }[]>`
-      INSERT INTO contacts.capability_action_results (
-        actor_key, action_id, idempotency_key_hash, request_hash, contact_id
-      ) VALUES (
-        ${config.actorKey}, ${config.actionId}, ${config.idempotencyKeyHash},
-        ${config.requestHash}, ${inserted.id}::uuid
-      )
-      ON CONFLICT (actor_key, action_id, idempotency_key_hash) DO NOTHING
-      RETURNING contact_id
-    `;
-    if (!claim) {
-      await tx`DELETE FROM contacts.contacts WHERE id = ${inserted.id}::uuid`;
-      const [existing] = await tx<{ request_hash: string; contact_id: string }[]>`
-        SELECT request_hash, contact_id
-        FROM contacts.capability_action_results
-        WHERE actor_key = ${config.actorKey}
-          AND action_id = ${config.actionId}
-          AND idempotency_key_hash = ${config.idempotencyKeyHash}
-      `;
-      if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
-      if (existing.request_hash !== config.requestHash) {
-        return fail({
-          code: "CONFLICT",
-          message: "Idempotency-Key was already used with different input",
-          status: 409,
-        });
-      }
-      return ok({ contactId: existing.contact_id, replayed: true });
-    }
+    if (!inserted) throw new Error("Failed to create claimed contact");
 
     await replaceContactCollections(
       inserted.id,
@@ -1241,12 +1241,16 @@ export const createIdempotent = async (config: {
     if (prepared.data.tagIds !== null) {
       await tags.replaceAssignments({ contactId: inserted.id, tagIds: prepared.data.tagIds, db: tx });
     }
-    return ok({ contactId: inserted.id, replayed: false });
+    return ok({ contactId: inserted.id, resultLabel, replayed: false });
   });
 
   if (!outcome.ok) return outcome;
-  const contact = await loadWrittenContact({ bookId: config.bookId, id: outcome.data.contactId, action: "created" });
-  return contact.ok ? ok({ contact: contact.data, replayed: outcome.data.replayed }) : contact;
+  return ok({
+    id: outcome.data.contactId,
+    bookId: config.bookId,
+    label: outcome.data.resultLabel,
+    replayed: outcome.data.replayed,
+  });
 };
 
 /**

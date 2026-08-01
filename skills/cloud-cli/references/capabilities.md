@@ -18,7 +18,8 @@ cld capabilities action contacts create \
   result schema, safety metadata, and semantic links before invoking a tool.
 - Query and Action ids after the app id are app-local ids from the live catalog.
 - Pass one strict JSON object through `--input`, `--input-file`, or stdin.
-- Always use a stable idempotency key for an Action retry. Reuse the key only
+- Read the Action's idempotency policy from the catalog. Supply a stable key
+  when it is `required` or when retrying an `optional` Action; reuse it only
   for the identical logical request.
 - Use `--json` for one complete result and `--jsonl` only when the surrounding
   automation expects a stream record.

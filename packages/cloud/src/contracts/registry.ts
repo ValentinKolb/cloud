@@ -1,5 +1,5 @@
 import type { AppAdminNavigationGroup, AppAppearance } from "./app";
-import type { CapabilityManifest } from "./capabilities";
+import type { CapabilityManifest, CapabilitySearchTagManifest } from "./capabilities";
 import type { DashboardWidgetPresentation } from "./widgets";
 
 /**
@@ -17,7 +17,24 @@ export type AppRegistryNav = {
   adminHref?: string;
 };
 
-export type AppRegistryCapabilities = {
+export type AppRegistrySearch = {
+  endpoint: string;
+  queryId: string;
+  schemaHash: string;
+  description: string;
+  tags: CapabilitySearchTagManifest[];
+};
+
+export type AppRegistryCapabilitySummary = {
+  protocolVersion: number;
+  manifestHash: string;
+};
+
+/** Full manifests live separately so normal app discovery stays small. */
+export type CapabilityRegistryEntry = {
+  appId: string;
+  appName: string;
+  appIcon: string;
   endpoint: string;
   manifest: CapabilityManifest;
 };
@@ -49,7 +66,8 @@ export type AppRegistryEntry = {
   routes: readonly string[];
   nav?: AppRegistryNav;
   adminNav?: AppAdminNavigationGroup[];
-  capabilities?: AppRegistryCapabilities;
+  capabilities?: AppRegistryCapabilitySummary;
+  search?: AppRegistrySearch;
   legalLinks?: AppRegistryLegalLink[];
   widgets?: AppRegistryWidget[];
   /** Setting keys declared by this app. Used by admin tooling to avoid treating live app-owned settings as legacy. */

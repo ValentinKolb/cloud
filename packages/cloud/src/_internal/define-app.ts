@@ -14,7 +14,7 @@ import { env } from "../config/env";
 import type { AppAdminNavigationGroup, AppAppearance, AppLifecycle, AppMeta, CloudContext, WidgetEndpoint } from "../contracts/app";
 import type { CapabilityDefinitions } from "../contracts/capabilities";
 import { type BoundNotificationMap, bindNotificationDefinitions, type NotificationDefinitionMap } from "../contracts/notification-types";
-import type { AppRegistryEntry } from "../contracts/registry";
+import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
 import { type AuthContext, auth } from "../server/middleware/auth";
@@ -25,9 +25,10 @@ import { get, loadCache as loadSettingsCache, set } from "../services/settings";
 import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
 import { registerSettings, toLegacySettingDefs } from "../services/settings/defaults";
 import { themeBootstrapScript } from "../shared/theme";
-import { createHeartbeat } from "./heartbeat";
-import { compileCapabilities, invokeCompiledCapability } from "./capabilities";
 import { readBoundedJson } from "./bounded-json";
+import { compileCapabilities, invokeCompiledCapability } from "./capabilities";
+import { createHeartbeat } from "./heartbeat";
+import { capabilityRegistry } from "./registry";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 import { servePublicAsset } from "./static-assets";
 import { createStatusPreservingSsrHandler } from "./status-preserving-ssr";
@@ -319,6 +320,8 @@ export const defineApp = <
     // flag so the registry never points at a URL that 404s.
     const advertiseOpenapi = !!(opts.openapi && startOpts.openapi);
     const compiledCapabilities = startOpts.capabilities ? compileCapabilities(meta.id, startOpts.capabilities) : undefined;
+    const capabilityEndpoint = `${baseUrl}/api/_internal/capabilities/v1`;
+    const searchQuery = compiledCapabilities?.manifest.queries.find((query) => query.universalSearch);
 
     // Registry entry
     const entry: AppRegistryEntry = {
@@ -346,8 +349,17 @@ export const defineApp = <
       })),
       capabilities: compiledCapabilities
         ? {
-            endpoint: `${baseUrl}/api/_internal/capabilities/v1`,
-            manifest: compiledCapabilities.manifest,
+            protocolVersion: compiledCapabilities.manifest.protocolVersion,
+            manifestHash: compiledCapabilities.manifest.manifestHash,
+          }
+        : undefined,
+      search: searchQuery?.universalSearch
+        ? {
+            endpoint: `${capabilityEndpoint}/queries/${encodeURIComponent(searchQuery.localId)}`,
+            queryId: searchQuery.localId,
+            schemaHash: searchQuery.schemaHash,
+            description: searchQuery.description,
+            tags: searchQuery.universalSearch.tags,
           }
         : undefined,
       legalLinks: meta.legalLinks ? meta.legalLinks.map((l) => ({ ...l })) : undefined,
@@ -372,6 +384,39 @@ export const defineApp = <
       },
     });
     await heartbeat.start();
+    const capabilityEntry: CapabilityRegistryEntry | undefined = compiledCapabilities
+      ? {
+          appId: meta.id,
+          appName: meta.name,
+          appIcon: meta.icon,
+          endpoint: capabilityEndpoint,
+          manifest: compiledCapabilities.manifest,
+        }
+      : undefined;
+    const capabilityHeartbeat = capabilityEntry
+      ? createHeartbeat(meta.id, capabilityEntry, {
+          key: `capabilities/${meta.id}`,
+          registry: capabilityRegistry,
+          onError: (error) =>
+            log.error("Capability registry heartbeat failed", {
+              appId: meta.id,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          onStale: (error) => {
+            log.error("Capability registry lease expired; restarting", {
+              appId: meta.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            process.exit(1);
+          },
+        })
+      : undefined;
+    try {
+      await capabilityHeartbeat?.start();
+    } catch (error) {
+      await heartbeat.stop();
+      throw error;
+    }
     log.info(`Registered "${meta.id}"`, { baseUrl });
 
     // Runtime context — start the registry watcher so middleware.runtime() and
@@ -444,6 +489,13 @@ export const defineApp = <
             idempotencyKey,
             signal: c.req.raw.signal,
           },
+          onUnexpectedError: (error) =>
+            log.error("Capability execution failed", {
+              appId: meta.id,
+              kind,
+              capabilityId: c.req.param("capabilityId") ?? "",
+              error: error instanceof Error ? error.message : String(error),
+            }),
         });
         return result.ok
           ? c.json(result.data)
@@ -527,6 +579,7 @@ export const defineApp = <
       } catch {}
       stopNotificationRegistration();
       await stopRuntimeWatcher();
+      await capabilityHeartbeat?.stop();
       await heartbeat.stop();
     };
 

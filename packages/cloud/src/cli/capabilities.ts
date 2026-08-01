@@ -125,8 +125,7 @@ export default defineCliCommands({
         }),
         idempotencyKey: flag.string({
           name: "idempotency-key",
-          required: true,
-          description: "Stable key used to make retries safe",
+          description: "Stable retry key when the action supports or requires idempotency",
         }),
       },
       run: ({ ctx, args, flags }) =>

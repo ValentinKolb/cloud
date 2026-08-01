@@ -14,4 +14,17 @@ describe("readBoundedJson", () => {
       reason: "too_large",
     });
   });
+
+  test("rejects invalid UTF-8 and body stream failures", async () => {
+    expect(await readBoundedJson(new Response(new Uint8Array([0x7b, 0xff, 0x7d])), 32)).toEqual({
+      ok: false,
+      reason: "invalid_json",
+    });
+    const broken = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error("socket closed"));
+      },
+    });
+    expect(await readBoundedJson(new Response(broken), 32)).toEqual({ ok: false, reason: "invalid_json" });
+  });
 });
