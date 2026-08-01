@@ -1,13 +1,14 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, Tooltip, toast } from "@k2b/ui";
+import { AppWorkspace, Button, type ButtonVariant, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./api";
 
 type Props = {
-  buttonClass?: string;
+  class?: string;
   label?: string;
   variant?: "button" | "icon";
+  buttonVariant?: ButtonVariant;
 };
 
 /**
@@ -57,22 +58,30 @@ export default function CreateBookButton(props: Props) {
       prompts.error(error.message);
     },
   });
-  const isIcon = () => props.variant === "icon";
-  const buttonClass = () => props.buttonClass ?? (isIcon() ? "sidebar-icon-action" : "btn-primary btn-sm w-full");
+  if (props.variant === "icon") {
+    return (
+      <AppWorkspace.SidebarIconAction
+        icon={mutation.loading() ? "ti ti-loader-2 k2b-spin" : "ti ti-cube-plus"}
+        label={props.label ?? "New book"}
+        disabled={mutation.loading()}
+        onClick={() => mutation.mutate(undefined)}
+      />
+    );
+  }
 
-  const button = (
-    <button
-      type="button"
-      class={buttonClass()}
+  return (
+    <Button
+      variant={props.buttonVariant ?? "secondary"}
+      size="sm"
+      class={props.class}
+      loading={mutation.loading()}
+      loadingLabel="Creating book"
       data-contacts-editor={mutation.loading() ? "true" : undefined}
-      disabled={mutation.loading()}
       onClick={() => mutation.mutate(undefined)}
       aria-label="Create new contact book"
     >
-      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-cube-plus" />}
-      {!isIcon() && (props.label ?? "New Book")}
-    </button>
+      <i class="ti ti-cube-plus" aria-hidden="true" />
+      {props.label ?? "New book"}
+    </Button>
   );
-
-  return isIcon() ? <Tooltip content={props.label ?? "New book"}>{button}</Tooltip> : button;
 }

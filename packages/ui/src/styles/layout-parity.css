@@ -720,8 +720,12 @@
   }
 
   .k2b-ui .k2b-app-workspace__sidebar-desktop {
-    display: block;
+    display: flex;
     height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem;
   }
 
   .k2b-ui .k2b-app-workspace__sidebar-mobile {

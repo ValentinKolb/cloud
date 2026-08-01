@@ -603,9 +603,9 @@
 
 .k2b-ui .k2b-app-workspace__sidebar-header {
   @apply flex min-w-0 items-center;
-  min-height: 3rem;
+  min-height: 2.5rem;
   gap: 0.625rem;
-  padding: 0.625rem 0.75rem;
+  padding: 0 0.25rem;
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-header-icon {
@@ -642,11 +642,11 @@
   @apply flex min-h-0 flex-1;
   gap: 0.25rem;
   overflow: auto;
-  padding: 0 0.5rem 0.5rem;
+  padding: 0;
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-footer {
-  padding: 0.5rem;
+  padding: 0;
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-section {

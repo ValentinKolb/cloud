@@ -13,6 +13,12 @@ import {
 } from "./app-workspace-state";
 
 describe("AppWorkspace layout state", () => {
+  test("passes the cookie-derived layout state into portable workspaces during SSR", async () => {
+    const source = await Bun.file(new URL("../../ssr/Layout.tsx", import.meta.url)).text();
+
+    expect(source.match(/<AppWorkspace\.LayoutStateProvider state=\{workspaceLayout\}>/g)).toHaveLength(2);
+  });
+
   test("migrates legacy detail width and clamps persisted sizes", () => {
     expect(normalizeAppWorkspaceLayoutState({ version: 1, sidebarWidth: 100, detailWidth: 900 })).toEqual({
       version: 2,

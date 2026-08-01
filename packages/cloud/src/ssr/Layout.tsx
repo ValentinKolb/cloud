@@ -1,4 +1,4 @@
-import { Avatar, appWorkspaceLayoutStyle as portableAppWorkspaceLayoutStyle } from "@k2b/ui";
+import { AppWorkspace, Avatar, appWorkspaceLayoutStyle as portableAppWorkspaceLayoutStyle } from "@k2b/ui";
 import type { JSX } from "solid-js/jsx-runtime";
 import { resolveNavMatch } from "../contracts/app"; // ==========================
 import { hasRole, type User } from "../contracts/shared";
@@ -229,7 +229,9 @@ export default function Layout({
         data-workspace-sidebar-collapsed={workspaceLayout?.sidebarCollapsed ? "true" : undefined}
       >
         <TimezoneCookie />
-        <main class="min-h-0 min-w-0 flex-1">{children}</main>
+        <main class="min-h-0 min-w-0 flex-1">
+          <AppWorkspace.LayoutStateProvider state={workspaceLayout}>{children}</AppWorkspace.LayoutStateProvider>
+        </main>
       </div>
     );
   }
@@ -350,7 +352,9 @@ export default function Layout({
         )}
         {user && <ProfileWarnings user={user} />}
         {user && <ExpiryWarnings user={user} />}
-        <main class={`layout-content-main min-h-0 min-w-0 flex-1 ${mainLayoutClass}`}>{children}</main>
+        <main class={`layout-content-main min-h-0 min-w-0 flex-1 ${mainLayoutClass}`}>
+          <AppWorkspace.LayoutStateProvider state={workspaceLayout}>{children}</AppWorkspace.LayoutStateProvider>
+        </main>
         {!fullPage && !showRail && (
           <div class="hidden shrink-0 md:block">
             <Footer isLoggedIn={!!user} appName={settings?.app?.copyright || appName} legalLinks={legalLinks} />

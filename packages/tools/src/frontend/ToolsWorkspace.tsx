@@ -62,7 +62,7 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
           </AppWorkspace.SidebarMobile>
           <AppWorkspace.SidebarDesktop>
             <AppWorkspace.SidebarBody scrollPreserveKey="tools-sidebar">
-              <AppWorkspace.SidebarIconGrid columns={2} class="pt-2">
+              <AppWorkspace.SidebarIconGrid columns={2}>
                 <AppWorkspace.SidebarIconAction
                   href="/tools"
                   navigation="document"

@@ -47,6 +47,13 @@ This declares the shell as the single resize-controller owner for both SSR and
 hydrated workspaces. Standalone consumers omit the marker and keep the local
 controller installed by `AppWorkspace`.
 
+An SSR host that persists workspace geometry wraps its rendered page content
+in `AppWorkspace.LayoutStateProvider`. The provider projects the initial width
+and collapse state onto each workspace root, so server HTML and the first
+client render agree before the controller attaches. Cloud passes its
+cookie-derived state from `Layout`; individual apps must not read the cookie or
+reimplement this bridge.
+
 ## 3. Convert to canonical public APIs
 
 Use the `@k2b/ui` source, types, and Fibel examples as the contract. Preserve
@@ -74,6 +81,21 @@ Cloud-owned imports such as `@valentinkolb/cloud/ssr`,
 expected to remain. Do not import Cloud-specific adapters through the generic
 `@valentinkolb/cloud/ui` barrel.
 
+Imports are only half of the cut. Inventory legacy Cloud UI utility classes as
+well; otherwise an app can compile against `@k2b/ui` while its controls still
+depend on the old host stylesheet:
+
+```sh
+rg -n --glob '*.tsx' --glob '*.ts' \
+  'class=.*\b(btn|sidebar|workspace|panel|input|table|badge)-' \
+  packages/<app>/src
+```
+
+Replace portable controls with their canonical `@k2b/ui` components and props.
+For each remaining match, record why it is Cloud-owned or app-owned. An
+unclassified legacy utility match means the hard cut is incomplete; a green
+typecheck or build does not override this gate.
+
 ## 5. Verify the cut
 
 Run the smallest complete evidence set for the app:
@@ -84,6 +106,9 @@ Run the smallest complete evidence set for the app:
 4. light and dark theme, narrow and wide layout;
 5. keyboard operation, focus restoration, labels, errors, and disabled states;
 6. final legacy-import and diff checks.
+
+The final legacy check covers both imports and unclassified Cloud utility
+classes from section 4.
 
 If a check fails, fix the package contract or the app usage at its owner. Do
 not hide a failure behind a local shim.

@@ -74,9 +74,7 @@ export default function LocationSidebar(props: Props) {
 
       <AppWorkspace.SidebarDesktop>
         <div class="flex min-h-0 flex-1 flex-col gap-3">
-          <div class="px-2">
-            <AddLocationButton />
-          </div>
+          <AddLocationButton />
           <AppWorkspace.SidebarBody scrollPreserveKey="weather-locations">
             <AppWorkspace.SidebarSection title="Locations">
               {props.locations.map((loc) => renderLocation(loc, "desktop"))}

@@ -46,7 +46,6 @@ export default function ContactsWorkspaceMain(props: Props) {
             writableBooks={props.writableBooks}
             defaultBookId={props.defaultCreateBookId}
             chooseBook={props.chooseBookOnCreate}
-            buttonClass="btn-secondary btn-sm shrink-0"
             label="New contact"
           />
         </div>

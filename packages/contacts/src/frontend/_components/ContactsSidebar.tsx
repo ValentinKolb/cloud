@@ -49,7 +49,7 @@ export default function ContactsSidebar(props: Props) {
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
           <ContactsSpotlightButton variant="sidebar-mobile" />
-          <CreateBookButton buttonClass="sidebar-item-mobile" label="New book" />
+          <CreateBookButton label="New book" />
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="contacts-sidebar-mobile">
           <AppWorkspace.SidebarSection>
@@ -149,7 +149,7 @@ export default function ContactsSidebar(props: Props) {
         </AppWorkspace.SidebarBody>
 
         <AppWorkspace.SidebarFooter sidebarMode="expanded">
-          <CreateBookButton buttonClass="btn-simple btn-sm w-full justify-start text-dimmed" label="New book" />
+          <CreateBookButton buttonVariant="ghost" class="w-full justify-start" label="New book" />
         </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>

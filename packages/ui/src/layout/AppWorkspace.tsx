@@ -16,11 +16,13 @@ import {
   APP_WORKSPACE_SIDEBAR_MAX,
   APP_WORKSPACE_SIDEBAR_MIN,
   type AppWorkspaceLayoutState,
+  appWorkspaceLayoutStyle,
   appWorkspacePanelVariable,
   safeAppWorkspacePanelId,
 } from "./app-workspace-state";
 
 const ResizeContext = createContext(true);
+const LayoutStateContext = createContext<AppWorkspaceLayoutState | null>(null);
 type SidebarMode = "desktop" | "mobile";
 const SidebarModeContext = createContext<SidebarMode>("desktop");
 const MAIN_PANE = Symbol("AppWorkspace.MainPane");
@@ -135,6 +137,10 @@ export type AppWorkspaceProps = {
    * every listener.
    */
   controller?: false;
+};
+export type AppWorkspaceLayoutStateProviderProps = {
+  children: JSX.Element;
+  state: AppWorkspaceLayoutState | null | undefined;
 };
 export type AppWorkspaceContentProps = { children: JSX.Element; class?: string };
 export type AppWorkspaceMainProps = {
@@ -791,6 +797,7 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
 };
 
 type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
+  LayoutStateProvider: (props: AppWorkspaceLayoutStateProviderProps) => JSX.Element;
   Content: (props: AppWorkspaceContentProps) => JSX.Element;
   Main: (props: AppWorkspaceMainProps) => JSX.Element;
   MainPane: (props: AppWorkspaceMainPaneProps) => JSX.Element;
@@ -816,6 +823,7 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
 
 const AppWorkspace = ((props: AppWorkspaceProps) => {
   let root: HTMLDivElement | undefined;
+  const serverLayoutState = useContext(LayoutStateContext);
 
   // The resize handles are inert markup until the controller is attached, so
   // the workspace attaches it itself and scopes it to this root. `onMount`
@@ -827,7 +835,7 @@ const AppWorkspace = ((props: AppWorkspaceProps) => {
     onCleanup(
       installAppWorkspaceController({
         root,
-        readState: () => props.layoutState?.(),
+        readState: () => (props.layoutState ? props.layoutState() : serverLayoutState),
         writeState: (state) => props.onLayoutChange?.(state),
       }),
     );
@@ -839,7 +847,9 @@ const AppWorkspace = ((props: AppWorkspaceProps) => {
         ref={root}
         class={`k2b-app-workspace ${props.class ?? ""}`}
         data-k2b-app-workspace
+        data-sidebar-collapsed={serverLayoutState?.sidebarCollapsed === undefined ? undefined : String(serverLayoutState.sidebarCollapsed)}
         data-workspace-resizable={props.resizable === false ? "false" : "true"}
+        style={appWorkspaceLayoutStyle(serverLayoutState)}
       >
         {props.children}
       </div>
@@ -847,6 +857,9 @@ const AppWorkspace = ((props: AppWorkspaceProps) => {
   );
 }) as AppWorkspaceComponent;
 
+AppWorkspace.LayoutStateProvider = (props) => (
+  <LayoutStateContext.Provider value={props.state ?? null}>{props.children}</LayoutStateContext.Provider>
+);
 AppWorkspace.Content = (props) => <div class={`k2b-app-workspace__content ${props.class ?? ""}`}>{props.children}</div>;
 AppWorkspace.Main = AppWorkspaceMain;
 AppWorkspace.MainPane = AppWorkspaceMainPane;

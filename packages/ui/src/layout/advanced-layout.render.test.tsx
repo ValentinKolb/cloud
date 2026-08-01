@@ -207,6 +207,20 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(appWorkspaceLayoutStyle(state)).toBe("--k2b-workspace-sidebar-width:64px");
   });
 
+  test("renders the host-provided collapse state before hydration", () => {
+    const html = renderToString(() =>
+      createComponent(AppWorkspace.LayoutStateProvider, {
+        state: { version: 2, sidebarWidth: 248, sidebarCollapsed: true },
+        get children() {
+          return createComponent(AppWorkspace, { children: "body" });
+        },
+      }),
+    );
+
+    expect(html).toContain('data-sidebar-collapsed="true"');
+    expect(html).toContain("--k2b-workspace-sidebar-width:64px");
+  });
+
   test("inherits a server-rendered sidebar width before controller hydration", () => {
     const css = readFileSync(resolve(import.meta.dir, "../styles/layout-parity.css"), "utf8");
     const rootRule = css.match(/\.k2b-ui \.k2b-app-workspace\s*\{([\s\S]*?)\}/)?.[1];
@@ -365,7 +379,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(source).toContain("onMount(() => {");
     expect(source).toContain("onCleanup(");
     // Persistence stays app-owned — the package reads and writes nothing.
-    expect(source).toContain("readState: () => props.layoutState?.()");
+    expect(source).toContain("readState: () => (props.layoutState ? props.layoutState() : serverLayoutState)");
     expect(source).toContain("writeState: (state) => props.onLayoutChange?.(state)");
     expect(source).toContain('root.closest("[data-k2b-app-workspace-controller]")');
     // `onMount` never runs during SSR, so rendering must stay DOM-free.
@@ -450,6 +464,10 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-app-workspace")).toContain("--k2b-workspace-resize-hit-size:1.25rem");
       expect(rule(".k2b-app-workspace")).toContain("background:var(--k2b-surface)");
       expect(rule(".k2b-app-workspace__sidebar")).toContain("background:var(--k2b-surface-muted)");
+      expect(rule(".k2b-app-workspace__sidebar-desktop")).toContain("display:flex");
+      expect(rule(".k2b-app-workspace__sidebar-desktop")).toContain("padding:.5rem");
+      expect(rule(".k2b-app-workspace__sidebar-body")).toContain("padding:0");
+      expect(rule(".k2b-app-workspace__sidebar-footer")).toContain("padding:0");
       expect(rule(".k2b-app-workspace__detail")).toContain("background:var(--k2b-surface-muted)");
       expect(rule(".k2b-app-workspace__drawer")).toContain("background:var(--k2b-surface-muted)");
     });
