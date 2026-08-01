@@ -409,7 +409,6 @@
 /* --------------------------------------------------------- app workspace */
 
 .k2b-ui .k2b-app-workspace {
-  --k2b-workspace-sidebar-width: 13rem;
   --k2b-workspace-resize-hit-size: 1.25rem;
   position: relative;
   display: grid;
@@ -535,7 +534,7 @@
 }
 
 .k2b-ui .k2b-app-workspace__resize[data-app-workspace-resize="sidebar"] {
-  left: var(--k2b-workspace-sidebar-width);
+  left: var(--k2b-workspace-sidebar-width, 13rem);
 }
 
 .k2b-ui .k2b-app-workspace__resize[data-app-workspace-resize="detail"] {
@@ -716,7 +715,7 @@
 
   .k2b-ui .k2b-app-workspace__sidebar {
     display: flex;
-    width: var(--k2b-workspace-sidebar-width);
+    width: var(--k2b-workspace-sidebar-width, 13rem);
     grid-area: sidebar;
   }
 
@@ -766,7 +765,7 @@
   }
 
   .k2b-ui .k2b-app-workspace:has(> .k2b-app-workspace__sidebar) > .k2b-app-workspace__resize[data-app-workspace-resize="drawer"] {
-    left: var(--k2b-workspace-sidebar-width);
+    left: var(--k2b-workspace-sidebar-width, 13rem);
   }
 
   /* Cloud's `detailWidthClass` presets, then the resizable override — the

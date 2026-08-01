@@ -207,6 +207,16 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(appWorkspaceLayoutStyle(state)).toBe("--k2b-workspace-sidebar-width:64px");
   });
 
+  test("inherits a server-rendered sidebar width before controller hydration", () => {
+    const css = readFileSync(resolve(import.meta.dir, "../styles/layout-parity.css"), "utf8");
+    const rootRule = css.match(/\.k2b-ui \.k2b-app-workspace\s*\{([\s\S]*?)\}/)?.[1];
+
+    expect(rootRule).toBeDefined();
+    expect(rootRule).not.toContain("--k2b-workspace-sidebar-width");
+    expect(css.match(/var\(--k2b-workspace-sidebar-width, 13rem\)/g)).toHaveLength(3);
+    expect(css).not.toContain("var(--k2b-workspace-sidebar-width)");
+  });
+
   test("snaps only opt-in sidebars to the collapsed width", () => {
     expect(resolveAppWorkspaceSidebarWidth(120, 360, true)).toEqual({ width: 64, collapsed: true });
     expect(resolveAppWorkspaceSidebarWidth(140, 360, true)).toEqual({ width: 176, collapsed: false });
