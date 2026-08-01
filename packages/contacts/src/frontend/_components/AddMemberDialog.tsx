@@ -1,5 +1,5 @@
-import { PanelDialog, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { PanelDialog, prompts } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";

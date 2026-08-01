@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, Select, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { z } from "zod";
 import { apiClient } from "@/api/client";
@@ -108,9 +108,9 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
               <Select
                 label="Send from"
                 value={() => mailboxId() ?? undefined}
-                onChange={setMailboxId}
+                onValueChange={setMailboxId}
                 options={value().mailboxes.map((mailbox) => ({
-                  id: mailbox.id,
+                  value: mailbox.id,
                   label: mailbox.name,
                   description: mailbox.from.name ? `${mailbox.from.name} <${mailbox.from.address}>` : mailbox.from.address,
                   icon: "ti ti-mail",
@@ -125,7 +125,7 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
                 multiline
                 lines={3}
                 value={recipients}
-                onInput={setRecipients}
+                onValueChange={setRecipients}
                 error={() => validationError() ?? undefined}
                 placeholder="alex@example.com, sam@example.com"
               />

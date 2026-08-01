@@ -1,7 +1,7 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Dropdown, type DropdownItem, MarkdownView, prompts, Tooltip, toast } from "@k2b/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
-import { Dropdown, type DropdownItem, MarkdownView, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
@@ -199,7 +199,7 @@ function EditableDropdown(props: {
           </div>
         }
       >
-        <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-48" />
+        <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="12rem" />
       </Show>
     </div>
   );
@@ -318,7 +318,7 @@ function TagsDropdown(props: {
         </div>
       }
     >
-      <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-52" onClose={handleClose} />
+      <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="13rem" onClose={handleClose} />
     </Show>
   );
 }

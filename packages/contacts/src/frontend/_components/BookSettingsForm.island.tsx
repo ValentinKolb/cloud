@@ -1,7 +1,8 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { PermissionEditor, prompts, type ResourceApiKey, ResourceApiKeys, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, SettingsModal, TextInput, toast } from "@k2b/ui";
+import { PermissionEditor, type ResourceApiKey, ResourceApiKeys } from "@valentinkolb/cloud/access/ui";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
@@ -70,7 +71,7 @@ export default function BookSettingsForm(props: Props) {
               placeholder="Sales Contacts"
               required
               value={name}
-              onInput={setName}
+              onValueChange={setName}
               onSubmit={() => updateMutation.mutate(undefined)}
             />
 
@@ -80,7 +81,7 @@ export default function BookSettingsForm(props: Props) {
               multiline
               placeholder="Optional description"
               value={description}
-              onInput={setDescription}
+              onValueChange={setDescription}
               onSubmit={() => updateMutation.mutate(undefined)}
             />
           </div>

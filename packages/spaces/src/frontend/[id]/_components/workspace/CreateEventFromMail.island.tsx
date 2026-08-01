@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
-import { dialogCore, panelDialogFixedOptions, prompts, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, panelDialogFixedOptions, prompts, toast } from "@k2b/ui";
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";

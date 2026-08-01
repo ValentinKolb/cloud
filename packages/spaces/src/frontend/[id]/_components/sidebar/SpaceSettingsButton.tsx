@@ -1,5 +1,5 @@
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
+import { AppWorkspace, prompts } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import SpaceSettingsDialog from "../edit/SpaceSettingsDialog";
 

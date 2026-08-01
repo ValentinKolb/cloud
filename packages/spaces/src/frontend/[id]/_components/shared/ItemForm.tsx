@@ -6,9 +6,9 @@ import {
   NumberInput,
   PanelDialog,
   SegmentedControl,
-  SelectInput,
+  Select,
   TextInput,
-} from "@valentinkolb/cloud/ui";
+} from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import type { SpaceItemAssignee } from "@/contracts";
 import {
@@ -253,7 +253,7 @@ export default function ItemForm(props: ItemFormProps) {
                     },
                   ]}
                   value={itemType}
-                  onChange={handleTypeChange}
+                  onValueChange={handleTypeChange}
                 />
               </div>
             </Show>
@@ -263,7 +263,7 @@ export default function ItemForm(props: ItemFormProps) {
               placeholder="What needs to be done?"
               icon="ti ti-text-caption"
               value={title}
-              onInput={(v) => {
+              onValueChange={(v) => {
                 setTitle(v);
                 setError("");
               }}
@@ -274,7 +274,7 @@ export default function ItemForm(props: ItemFormProps) {
               description={!isEditMode() ? "Optional details or notes" : undefined}
               placeholder="Description in markdown ..."
               value={description}
-              onInput={setDescription}
+              onValueChange={setDescription}
               markdown
             />
             <Show when={!isEvent()}>
@@ -282,7 +282,7 @@ export default function ItemForm(props: ItemFormProps) {
                 label="Deadline"
                 description={!isEditMode() ? "When should this be completed?" : undefined}
                 value={() => deadline() || null}
-                onChange={(value) => setDeadline(value ?? "")}
+                onValueChange={(value) => setDeadline(value ?? "")}
                 dateConfig={props.dateConfig}
                 presets={deadlinePresets(props.dateConfig)}
                 clearable
@@ -295,7 +295,7 @@ export default function ItemForm(props: ItemFormProps) {
                 label="Schedule"
                 description={!isEditMode() ? (allDay() ? "Calendar days for the event" : "Start and end time for the event") : undefined}
                 value={eventRange}
-                onChange={(value) => {
+                onValueChange={(value) => {
                   setStartsAt(value.start ?? "");
                   setEndsAt(value.end ?? "");
                   setError("");
@@ -312,7 +312,7 @@ export default function ItemForm(props: ItemFormProps) {
                 icon="ti ti-calendar"
                 variant="input"
                 value={allDay}
-                onChange={handleAllDayChange}
+                onValueChange={handleAllDayChange}
               />
               <Show when={recurrenceEnabled() && !showAdvanced()}>
                 <button
@@ -338,16 +338,16 @@ export default function ItemForm(props: ItemFormProps) {
                 icon="ti ti-repeat"
                 variant="input"
                 value={recurrenceEnabled}
-                onChange={handleRecurrenceEnabled}
+                onValueChange={handleRecurrenceEnabled}
               />
               <Show when={recurrenceEnabled()}>
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <SelectInput
+                  <Select
                     label="Frequency"
                     description={!isEditMode() ? "Repeat cadence" : undefined}
                     icon="ti ti-repeat"
                     value={recurrenceFrequency}
-                    onChange={(value) => setRecurrenceFrequency(value as RecurrenceFrequency)}
+                    onValueChange={(value) => value && setRecurrenceFrequency(value as RecurrenceFrequency)}
                     options={recurrenceFrequencyOptions}
                   />
                   <NumberInput
@@ -355,7 +355,7 @@ export default function ItemForm(props: ItemFormProps) {
                     description={!isEditMode() ? "Interval between repeats" : undefined}
                     icon="ti ti-refresh"
                     value={recurrenceInterval}
-                    onChange={setRecurrenceInterval}
+                    onValueChange={setRecurrenceInterval}
                     min={1}
                     step={1}
                     allowNegative={false}
@@ -382,12 +382,12 @@ export default function ItemForm(props: ItemFormProps) {
                     </div>
                   </div>
                 </Show>
-                <SelectInput
+                <Select
                   label="Ends"
                   description={!isEditMode() ? "Limit the series when needed" : undefined}
                   icon="ti ti-calendar-due"
                   value={recurrenceEndMode}
-                  onChange={(value) => setRecurrenceEndMode(value as RecurrenceEndMode)}
+                  onValueChange={(value) => value && setRecurrenceEndMode(value as RecurrenceEndMode)}
                   options={recurrenceEndOptions}
                 />
               </Show>
@@ -398,7 +398,7 @@ export default function ItemForm(props: ItemFormProps) {
                       label="Until"
                       description={!isEditMode() ? "Last date that may contain an occurrence" : undefined}
                       value={() => recurrenceUntil() || null}
-                      onChange={(value) => setRecurrenceUntil(value ?? "")}
+                      onValueChange={(value) => setRecurrenceUntil(value ?? "")}
                       dateConfig={props.dateConfig}
                       clearable
                     />
@@ -409,7 +409,7 @@ export default function ItemForm(props: ItemFormProps) {
                       description={!isEditMode() ? "Maximum number of generated events" : undefined}
                       icon="ti ti-list-numbers"
                       value={recurrenceCount}
-                      onChange={setRecurrenceCount}
+                      onValueChange={setRecurrenceCount}
                       min={1}
                       step={1}
                       allowNegative={false}
@@ -434,7 +434,7 @@ export default function ItemForm(props: ItemFormProps) {
                   placeholder="Office, meeting room, or address"
                   icon="ti ti-map-pin"
                   value={location}
-                  onInput={setLocation}
+                  onValueChange={setLocation}
                 />
                 <TextInput
                   label="URL"
@@ -444,7 +444,7 @@ export default function ItemForm(props: ItemFormProps) {
                   type="url"
                   inputMode="url"
                   value={url}
-                  onInput={(v) => {
+                  onValueChange={(v) => {
                     setUrl(v);
                     setError("");
                   }}
@@ -456,23 +456,23 @@ export default function ItemForm(props: ItemFormProps) {
           <Show when={showAdvanced()}>
             <PanelDialog.Section title="Organize" subtitle="Workflow, priority, tags, and ownership." icon="ti ti-tags">
               <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <SelectInput
+                <Select
                   label="Status"
                   description={!isEditMode() ? "Current workflow state" : undefined}
                   placeholder="Select column"
                   icon="ti ti-progress"
                   value={columnId}
-                  onChange={setColumnId}
+                  onValueChange={(value) => value && setColumnId(value)}
                   options={columnOptions()}
                   required={!isEvent()}
                 />
-                <SelectInput
+                <Select
                   label="Priority"
                   description={!isEditMode() ? "How urgent is this?" : undefined}
                   placeholder="Select priority"
                   icon="ti ti-flag"
                   value={priority}
-                  onChange={setPriority}
+                  onValueChange={(value) => setPriority(value ?? "")}
                   options={PRIORITY_OPTIONS}
                   clearable
                 />

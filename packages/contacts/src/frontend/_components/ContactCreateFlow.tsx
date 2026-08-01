@@ -1,4 +1,4 @@
-import { dialogCore, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, panelDialogOptions, prompts } from "@k2b/ui";
 import type { Contact } from "../../service";
 import ContactUpsertForm from "./ContactUpsertForm";
 import type { ContactUpsertInitialValues } from "./ContactUpsertForm.model";

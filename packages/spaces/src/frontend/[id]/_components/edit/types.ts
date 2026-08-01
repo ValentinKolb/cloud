@@ -1,5 +1,5 @@
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { SpaceDetail, SpaceWormhole } from "@/contracts";
 import type { SpaceUserSettings } from "../settings/SpaceSettingsStore";
 

@@ -1,5 +1,5 @@
-import { TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
+import { TextInput } from "@k2b/ui";
 import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact } from "../../service";
@@ -71,11 +71,11 @@ export default function ContactSearchPicker(props: Props) {
   return (
     <div class="flex flex-col gap-2">
       <TextInput
-        ariaLabel="Search contacts"
+        aria-label="Search contacts"
         placeholder={props.placeholder ?? "Search by name, email, company…"}
         icon="ti ti-search"
         value={query}
-        onInput={setQuery}
+        onValueChange={setQuery}
       />
       <div class="-mx-1 flex max-h-72 flex-col overflow-y-auto px-1">
         <Show

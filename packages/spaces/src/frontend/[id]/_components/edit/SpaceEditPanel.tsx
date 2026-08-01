@@ -1,4 +1,4 @@
-import { SettingsModal } from "@valentinkolb/cloud/ui";
+import { SettingsModal } from "@k2b/ui";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import { AccessSection } from "./AccessSection";
 import { CalendarSection } from "./CalendarSection";

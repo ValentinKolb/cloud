@@ -1,5 +1,5 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { AppWorkspace } from "@k2b/ui";
 import { Show } from "solid-js";
 import SearchButton from "../search/SearchButton.island";
 import type { ViewType } from "../settings/SpaceSettingsStore";

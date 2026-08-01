@@ -1,4 +1,4 @@
-import { PanelDialog, RemoveBtn, TextInput, Tooltip } from "@valentinkolb/cloud/ui";
+import { PanelDialog, RemoveButton, TextInput, Tooltip } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { Index } from "solid-js";
 import {
@@ -68,7 +68,7 @@ const ContactPointActions = <T,>(props: { rows: Accessor<T[]>; setRows: Setter<T
         <i class="ti ti-chevron-down" />
       </button>
     </Tooltip>
-    <RemoveBtn ariaLabel={`Remove ${props.label}`} onClick={() => props.setRows((rows) => rows.filter((_, i) => i !== props.index))} />
+    <RemoveButton ariaLabel={`Remove ${props.label}`} onClick={() => props.setRows((rows) => rows.filter((_, i) => i !== props.index))} />
   </div>
 );
 
@@ -87,17 +87,17 @@ export const ReachFields = (props: {
           {(email, index) => (
             <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
               <TextInput
-                ariaLabel="Email label"
+                aria-label="Email label"
                 placeholder="work, private..."
                 value={() => email().label}
-                onInput={(value) => props.setEmails((rows) => updateRow(rows, index, { label: value }))}
+                onValueChange={(value) => props.setEmails((rows) => updateRow(rows, index, { label: value }))}
               />
               <TextInput
-                ariaLabel="Email address"
+                aria-label="Email address"
                 placeholder="name@company.com"
                 icon="ti ti-mail text-blue-500 dark:text-blue-400"
                 value={() => email().email}
-                onInput={(value) => props.setEmails((rows) => updateRow(rows, index, { email: value }))}
+                onValueChange={(value) => props.setEmails((rows) => updateRow(rows, index, { email: value }))}
               />
               <ContactPointActions rows={props.emails} setRows={props.setEmails} index={index} label="email" />
             </div>
@@ -117,17 +117,17 @@ export const ReachFields = (props: {
           {(phone, index) => (
             <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
               <TextInput
-                ariaLabel="Telephone label"
+                aria-label="Telephone label"
                 placeholder="mobile, work..."
                 value={() => phone().label}
-                onInput={(value) => props.setPhones((rows) => updateRow(rows, index, { label: value }))}
+                onValueChange={(value) => props.setPhones((rows) => updateRow(rows, index, { label: value }))}
               />
               <TextInput
-                ariaLabel="Telephone number"
+                aria-label="Telephone number"
                 placeholder="+49 151 12345678"
                 icon="ti ti-phone text-green-600 dark:text-green-400"
                 value={() => phone().phone}
-                onInput={(value) => props.setPhones((rows) => updateRow(rows, index, { phone: value }))}
+                onValueChange={(value) => props.setPhones((rows) => updateRow(rows, index, { phone: value }))}
               />
               <ContactPointActions rows={props.phones} setRows={props.setPhones} index={index} label="phone number" />
             </div>
@@ -147,17 +147,17 @@ export const ReachFields = (props: {
           {(website, index) => (
             <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
               <TextInput
-                ariaLabel="Website label"
+                aria-label="Website label"
                 placeholder="work, personal..."
                 value={() => website().label}
-                onInput={(value) => props.setWebsites((rows) => updateRow(rows, index, { label: value }))}
+                onValueChange={(value) => props.setWebsites((rows) => updateRow(rows, index, { label: value }))}
               />
               <TextInput
-                ariaLabel="Website URL"
+                aria-label="Website URL"
                 placeholder="https://example.com"
                 icon="ti ti-world text-purple-600 dark:text-purple-400"
                 value={() => website().url}
-                onInput={(value) => props.setWebsites((rows) => updateRow(rows, index, { url: value }))}
+                onValueChange={(value) => props.setWebsites((rows) => updateRow(rows, index, { url: value }))}
               />
               <ContactPointActions rows={props.websites} setRows={props.setWebsites} index={index} label="website" />
             </div>
@@ -187,14 +187,14 @@ export const AddressFields = (props: RowsProps<EditableAddress>) => (
                 placeholder="e.g. office, home"
                 icon="ti ti-tag"
                 value={() => address().label}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { label: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { label: value }))}
               />
               <TextInput
                 label="Recipient"
                 placeholder="Max Mustermann"
                 icon="ti ti-user"
                 value={() => address().recipientName}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { recipientName: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { recipientName: value }))}
               />
               <div class="md:col-span-2">
                 <TextInput
@@ -202,7 +202,7 @@ export const AddressFields = (props: RowsProps<EditableAddress>) => (
                   placeholder="Example GmbH"
                   icon="ti ti-building"
                   value={() => address().companyName}
-                  onInput={(value) => props.setRows((rows) => updateRow(rows, index, { companyName: value }))}
+                  onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { companyName: value }))}
                 />
               </div>
               <TextInput
@@ -211,14 +211,14 @@ export const AddressFields = (props: RowsProps<EditableAddress>) => (
                 icon="ti ti-home"
                 required
                 value={() => address().line1}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { line1: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { line1: value }))}
               />
               <TextInput
                 label="Address Line 2"
                 placeholder="c/o, floor, etc. (optional)"
                 icon="ti ti-home"
                 value={() => address().line2}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { line2: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { line2: value }))}
               />
               <TextInput
                 label="Postal Code"
@@ -226,7 +226,7 @@ export const AddressFields = (props: RowsProps<EditableAddress>) => (
                 icon="ti ti-map-pin"
                 required
                 value={() => address().postalCode}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { postalCode: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { postalCode: value }))}
               />
               <TextInput
                 label="City"
@@ -234,7 +234,7 @@ export const AddressFields = (props: RowsProps<EditableAddress>) => (
                 icon="ti ti-building-community"
                 required
                 value={() => address().city}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { city: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { city: value }))}
               />
               <TextInput
                 label="State / Region"
@@ -242,7 +242,7 @@ export const AddressFields = (props: RowsProps<EditableAddress>) => (
                 description="Optional. US state or other region."
                 icon="ti ti-map-2"
                 value={() => address().stateRegion}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { stateRegion: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { stateRegion: value }))}
               />
               <TextInput
                 label="Country Code"
@@ -250,7 +250,7 @@ export const AddressFields = (props: RowsProps<EditableAddress>) => (
                 description="ISO 2-letter, e.g. DE, AT, CH."
                 icon="ti ti-flag"
                 value={() => address().countryCode}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { countryCode: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { countryCode: value }))}
               />
             </div>
             <div class="mt-4 flex justify-end">
@@ -288,7 +288,7 @@ export const BankAccountFields = (props: RowsProps<EditableBankAccount>) => (
                 placeholder="e.g. billing, refunds"
                 icon="ti ti-tag"
                 value={() => account().label}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { label: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { label: value }))}
               />
               <TextInput
                 label="Account Holder"
@@ -296,7 +296,7 @@ export const BankAccountFields = (props: RowsProps<EditableBankAccount>) => (
                 icon="ti ti-user"
                 required
                 value={() => account().accountHolderName}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { accountHolderName: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { accountHolderName: value }))}
               />
               <TextInput
                 label="IBAN"
@@ -304,28 +304,28 @@ export const BankAccountFields = (props: RowsProps<EditableBankAccount>) => (
                 icon="ti ti-credit-card"
                 required
                 value={() => account().iban}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { iban: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { iban: value }))}
               />
               <TextInput
                 label="BIC"
                 placeholder="BYLADEM1001"
                 icon="ti ti-building-bank"
                 value={() => account().bic}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { bic: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { bic: value }))}
               />
               <TextInput
                 label="Bank Name"
                 placeholder="Example Bank"
                 icon="ti ti-building-bank"
                 value={() => account().bankName}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { bankName: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { bankName: value }))}
               />
               <TextInput
                 label="Note"
                 placeholder="Optional"
                 icon="ti ti-notes"
                 value={() => account().note}
-                onInput={(value) => props.setRows((rows) => updateRow(rows, index, { note: value }))}
+                onValueChange={(value) => props.setRows((rows) => updateRow(rows, index, { note: value }))}
               />
             </div>
             <div class="mt-4 flex justify-end">

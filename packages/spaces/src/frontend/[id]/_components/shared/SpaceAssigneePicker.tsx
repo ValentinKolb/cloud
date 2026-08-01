@@ -1,4 +1,4 @@
-import { Avatar, Combobox, type ComboboxOption } from "@valentinkolb/cloud/ui";
+import { Avatar, Combobox, type ComboboxOption } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceItemAssignee } from "@/contracts";
@@ -61,7 +61,16 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
               <For each={current()}>
                 {(assignee) => (
                   <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--ui-surface-muted)] px-2 py-1 text-xs">
-                    <Avatar username={assignee.displayName} userId={assignee.id} avatarHash={assignee.avatarHash} size="xs" />
+                    <Avatar
+                      name={assignee.displayName}
+                      fallback={(assignee.displayName.trim() || "?").slice(0, 2).toUpperCase()}
+                      src={
+                        assignee.avatarHash
+                          ? `/api/accounts/users/${encodeURIComponent(assignee.id)}/avatar?rev=${encodeURIComponent(assignee.avatarHash)}`
+                          : undefined
+                      }
+                      size="xs"
+                    />
                     <span>{assignee.displayName}</span>
                     <Show when={!props.disabled}>
                       <button
@@ -83,7 +92,16 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
             <For each={current()}>
               {(assignee) => (
                 <div class="group flex items-center gap-2">
-                  <Avatar username={assignee.displayName} userId={assignee.id} avatarHash={assignee.avatarHash} size="xs" />
+                  <Avatar
+                    name={assignee.displayName}
+                    fallback={(assignee.displayName.trim() || "?").slice(0, 2).toUpperCase()}
+                    src={
+                      assignee.avatarHash
+                        ? `/api/accounts/users/${encodeURIComponent(assignee.id)}/avatar?rev=${encodeURIComponent(assignee.avatarHash)}`
+                        : undefined
+                    }
+                    size="xs"
+                  />
                   <div class="min-w-0 flex-1">
                     <span class="block truncate text-sm">{assignee.displayName}</span>
                   </div>
@@ -107,6 +125,7 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
 
       <Show when={!props.disabled}>
         <Combobox
+          aria-label="Add assignee"
           placeholder={props.placeholder ?? "Search people with access..."}
           fetchData={fetchAssignableUsers}
           onSelect={addAssignee}

@@ -1,6 +1,6 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, toast } from "@k2b/ui";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";

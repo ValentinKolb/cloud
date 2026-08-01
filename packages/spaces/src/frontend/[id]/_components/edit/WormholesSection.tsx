@@ -1,5 +1,5 @@
-import { ColorInput, prompts, SelectInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { ColorInput, prompts, Select, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceWormhole, SpaceWormholeDestination } from "@/contracts";
@@ -37,28 +37,28 @@ function WormholeForm(props: {
 
   return (
     <form onSubmit={submit} class="flex flex-col gap-3 py-2">
-      <SelectInput
+      <Select
         label="Destination space"
         description="Only Spaces where you are also an admin are available."
         value={targetSpaceId}
-        onChange={changeTargetSpace}
+        onValueChange={(value) => value && changeTargetSpace(value)}
         options={props.destinations.map((destination) => ({
-          id: destination.spaceId,
+          value: destination.spaceId,
           label: destination.spaceName,
           icon: "ti ti-layout-kanban",
         }))}
         required
       />
-      <SelectInput
+      <Select
         label="Destination status"
         description="Items moved through this wormhole enter this status."
         value={selectedColumnId}
-        onChange={setTargetColumnId}
-        options={columns().map((column) => ({ id: column.id, label: column.name, icon: "ti ti-columns-3" }))}
+        onValueChange={(value) => value && setTargetColumnId(value)}
+        options={columns().map((column) => ({ value: column.id, label: column.name, icon: "ti ti-columns-3" }))}
         disabled={columns().length === 0}
         required
       />
-      <ColorInput label="Color" description="Used to recognize this wormhole on the Kanban board." value={color} onChange={setColor} />
+      <ColorInput label="Color" description="Used to recognize this wormhole on the Kanban board." value={color} onValueChange={setColor} />
       <div class="flex items-center gap-2">
         <button type="submit" class="btn-primary btn-sm" disabled={props.loading || !selectedColumnId()}>
           <i class={`ti ${props.loading ? "ti-loader-2 animate-spin" : "ti-check"}`} />

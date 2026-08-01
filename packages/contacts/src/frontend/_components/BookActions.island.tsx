@@ -1,6 +1,6 @@
-import { CheckboxCard, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { CheckboxCard, prompts } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CreateContactInput } from "../../service";
@@ -154,7 +154,7 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
                   }
                   icon={item.match ? "ti ti-alert-circle" : "ti ti-user-plus"}
                   value={() => selected().has(index())}
-                  onChange={() => toggleIndex(index())}
+                  onValueChange={() => toggleIndex(index())}
                 />
               </li>
             )}

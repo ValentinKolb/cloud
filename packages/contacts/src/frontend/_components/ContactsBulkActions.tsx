@@ -1,6 +1,6 @@
-import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { documentNavigate } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, Tooltip, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
@@ -29,7 +29,7 @@ const chooseTags = (tags: ContactTag[]) =>
             placeholder="Choose tags"
             icon="ti ti-tags"
             value={selected}
-            onChange={setSelected}
+            onValueChange={setSelected}
             options={tags.map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
             clearable
           />

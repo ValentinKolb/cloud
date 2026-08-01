@@ -1,7 +1,7 @@
-import { markdown } from "@valentinkolb/cloud/shared";
-import { Avatar, MarkdownView, Placeholder, prompts, TextInput, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Avatar, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
+import { markdown } from "@valentinkolb/cloud/shared";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceComment } from "@/contracts";
@@ -136,7 +136,16 @@ export default function CommentsSection(props: Props) {
             <For each={sortedComments()}>
               {(comment) => (
                 <li class="group flex gap-2">
-                  <Avatar username={comment.userName ?? "Unknown"} userId={comment.userId} avatarHash={comment.userAvatarHash} size="xs" />
+                  <Avatar
+                    name={comment.userName ?? "Unknown"}
+                    fallback={((comment.userName ?? "Unknown").trim() || "?").slice(0, 2).toUpperCase()}
+                    src={
+                      comment.userId && comment.userAvatarHash
+                        ? `/api/accounts/users/${encodeURIComponent(comment.userId)}/avatar?rev=${encodeURIComponent(comment.userAvatarHash)}`
+                        : undefined
+                    }
+                    size="xs"
+                  />
                   <div class="min-w-0 flex-1">
                     <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span class="truncate text-xs font-medium text-primary">{comment.userName ?? "Unknown"}</span>
@@ -171,8 +180,9 @@ export default function CommentsSection(props: Props) {
       <Show when={props.canWrite && composerOpen()}>
         <form onSubmit={handleSubmit} class="flex flex-col gap-2">
           <TextInput
+            aria-label="Add comment"
             value={() => newComment()}
-            onInput={setNewComment}
+            onValueChange={setNewComment}
             placeholder="Write a comment in markdown…"
             markdown
             disabled={createCommentMutation.loading()}

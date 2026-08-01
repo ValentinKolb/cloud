@@ -1,5 +1,5 @@
-import { Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Pagination, Placeholder } from "@k2b/ui";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import type { ItemListResult, SpaceColumn, SpaceTag } from "@/contracts";
 import { subscribeToDetailSelection } from "../../../lib/detail";

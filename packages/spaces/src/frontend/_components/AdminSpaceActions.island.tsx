@@ -1,6 +1,7 @@
-import { Dropdown, PermissionEditor, prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Dropdown, prompts, Tooltip, toast } from "@k2b/ui";
+import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import { apiClient } from "@/api/client";
 import type { AccessEntry } from "@/contracts";
 
@@ -122,7 +123,7 @@ const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
         </Tooltip>
       }
       position="bottom-left"
-      width="w-52"
+      width="13rem"
       elements={[
         {
           items: [

@@ -1,5 +1,5 @@
-import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts } from "@k2b/ui";
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import { readResponseError } from "../../../lib/response";

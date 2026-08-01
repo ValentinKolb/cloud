@@ -1,11 +1,5 @@
 import { navigateTo } from "@k2b/ssr/nav";
-import {
-  isSpotlightShortcut,
-  openSpotlightSearch,
-  SPOTLIGHT_SHORTCUT_TITLE,
-  SpotlightButton,
-  type SpotlightButtonVariant,
-} from "@valentinkolb/cloud/ui";
+import { isSpotlightShortcut, openSpotlightSearch, SPOTLIGHT_SHORTCUT_TITLE, SpotlightButton, type SpotlightButtonVariant } from "@k2b/ui";
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact } from "../../service";

@@ -1,6 +1,6 @@
-import { prompts, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./api";
 

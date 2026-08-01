@@ -1,5 +1,5 @@
-import { AppWorkspace, Tooltip } from "@valentinkolb/cloud/ui";
 import { clipboard } from "@k2b/stdlib/browser";
+import { AppWorkspace, Tooltip } from "@k2b/ui";
 import { createSignal } from "solid-js";
 
 type Props = {

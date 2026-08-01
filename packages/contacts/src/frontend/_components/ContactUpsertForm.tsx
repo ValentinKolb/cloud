@@ -1,6 +1,6 @@
-import { PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { PanelDialog, prompts, TextInput, toast } from "@k2b/ui";
 import { type Accessor, createSignal, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
@@ -64,8 +64,8 @@ type IdentitySectionProps = {
 const IdentitySection = (props: IdentitySectionProps) => (
   <PanelDialog.Section title="Identity" subtitle="Name, parent contact, and book tags." icon="ti ti-id">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <TextInput label="First Name" placeholder="Max" icon="ti ti-user" value={props.firstName} onInput={props.setFirstName} />
-      <TextInput label="Last Name" placeholder="Mustermann" icon="ti ti-user" value={props.lastName} onInput={props.setLastName} />
+      <TextInput label="First Name" placeholder="Max" icon="ti ti-user" value={props.firstName} onValueChange={props.setFirstName} />
+      <TextInput label="Last Name" placeholder="Mustermann" icon="ti ti-user" value={props.lastName} onValueChange={props.setLastName} />
       <div class="md:col-span-2">
         <TextInput
           label="Nickname"
@@ -73,7 +73,7 @@ const IdentitySection = (props: IdentitySectionProps) => (
           description="Shown as the primary name in lists and the detail header. Falls back to first + last name when empty."
           icon="ti ti-user"
           value={props.label}
-          onInput={props.setLabel}
+          onValueChange={props.setLabel}
         />
       </div>
       <div class="md:col-span-2">
@@ -142,27 +142,27 @@ type PersonalSectionProps = {
 const PersonalSection = (props: PersonalSectionProps) => (
   <PanelDialog.Section title="Personal" subtitle="Optional personal profile details." icon="ti ti-user-heart">
     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={props.birthday} onInput={props.setBirthday} />
+      <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={props.birthday} onValueChange={props.setBirthday} />
       <TextInput
         label="Salutation / Title"
         placeholder="Dr., Prof., Ms., Mr."
         icon="ti ti-id-badge-2"
         value={props.salutation}
-        onInput={props.setSalutation}
+        onValueChange={props.setSalutation}
       />
       <TextInput
         label="Pronouns"
         placeholder="she/her, he/him, they/them"
         icon="ti ti-user-heart"
         value={props.pronouns}
-        onInput={props.setPronouns}
+        onValueChange={props.setPronouns}
       />
       <TextInput
         label="Preferred Language"
         placeholder="de, en, fr"
         icon="ti ti-language"
         value={props.preferredLanguage}
-        onInput={props.setPreferredLanguage}
+        onValueChange={props.setPreferredLanguage}
       />
     </div>
   </PanelDialog.Section>
@@ -188,7 +188,7 @@ const WorkSection = (props: WorkSectionProps) => (
         description="Shown as a chip in the contact header."
         icon="ti ti-building"
         value={props.companyName}
-        onInput={props.setCompanyName}
+        onValueChange={props.setCompanyName}
       />
       <TextInput
         label="VAT ID"
@@ -196,15 +196,21 @@ const WorkSection = (props: WorkSectionProps) => (
         description="Country prefix + ID, e.g. DE123456789."
         icon="ti ti-receipt-2"
         value={props.vatId}
-        onInput={props.setVatId}
+        onValueChange={props.setVatId}
       />
-      <TextInput label="Department" placeholder="Sales" icon="ti ti-hierarchy" value={props.department} onInput={props.setDepartment} />
+      <TextInput
+        label="Department"
+        placeholder="Sales"
+        icon="ti ti-hierarchy"
+        value={props.department}
+        onValueChange={props.setDepartment}
+      />
       <TextInput
         label="Job Title"
         placeholder="Account Manager"
         icon="ti ti-briefcase"
         value={props.jobTitle}
-        onInput={props.setJobTitle}
+        onValueChange={props.setJobTitle}
       />
     </div>
   </PanelDialog.Section>

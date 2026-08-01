@@ -1,5 +1,5 @@
-import { CopyButton, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { CopyButton, prompts, toast } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./utils";

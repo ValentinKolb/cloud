@@ -1,4 +1,4 @@
-import { ColorInput, TextInput } from "@valentinkolb/cloud/ui";
+import { ColorInput, TextInput } from "@k2b/ui";
 import { createSignal } from "solid-js";
 
 export function NameColorForm(props: {
@@ -27,8 +27,8 @@ export function NameColorForm(props: {
 
   return (
     <form onSubmit={handleSubmit} class="flex flex-col gap-2 py-2">
-      <TextInput label={props.nameLabel} placeholder={props.namePlaceholder} value={name} onInput={setName} required />
-      <ColorInput label="Color" value={color} onChange={setColor} />
+      <TextInput label={props.nameLabel} placeholder={props.namePlaceholder} value={name} onValueChange={setName} required />
+      <ColorInput label="Color" value={color} onValueChange={setColor} />
       <div class="flex gap-2 mt-1">
         <button type="submit" disabled={props.loading} class="btn-primary btn-sm">
           {props.loading ? <i class="ti ti-loader-2 animate-spin" /> : props.mode === "create" ? props.createLabel : "Save"}

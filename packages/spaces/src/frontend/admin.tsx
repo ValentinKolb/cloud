@@ -1,7 +1,7 @@
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { spacesHelp } from "../help";
 import { spacesService } from "../service";

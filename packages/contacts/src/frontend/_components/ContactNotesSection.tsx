@@ -1,7 +1,7 @@
-import { markdown } from "@valentinkolb/cloud/shared";
-import { Avatar, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Avatar, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
+import { markdown } from "@valentinkolb/cloud/shared";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactNote } from "../../service";
@@ -203,8 +203,9 @@ export default function ContactNotesSection(props: Props) {
           }}
         >
           <TextInput
+            aria-label="Add note"
             value={draft}
-            onInput={setDraft}
+            onValueChange={setDraft}
             placeholder="Write a note in markdown…"
             markdown
             disabled={createMutation.loading()}
@@ -245,7 +246,16 @@ export default function ContactNotesSection(props: Props) {
               return (
                 <li class="group flex flex-col gap-1.5">
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <Avatar username={note.authorDisplayName} userId={note.authorUserId} avatarHash={note.authorAvatarHash} size="xs" />
+                    <Avatar
+                      name={note.authorDisplayName}
+                      fallback={(note.authorDisplayName.trim() || "?").slice(0, 2).toUpperCase()}
+                      src={
+                        note.authorUserId && note.authorAvatarHash
+                          ? `/api/accounts/users/${encodeURIComponent(note.authorUserId)}/avatar?rev=${encodeURIComponent(note.authorAvatarHash)}`
+                          : undefined
+                      }
+                      size="xs"
+                    />
                     <span class="truncate text-xs font-medium text-primary">{note.authorDisplayName}</span>
                     <span class="text-[11px] text-dimmed" title={dates.formatDateTime(note.createdAt)}>
                       {dates.formatDateTimeRelative(note.createdAt)}
@@ -287,8 +297,9 @@ export default function ContactNotesSection(props: Props) {
                   <Show when={isEditing()} fallback={<MarkdownView html={markdown.render(note.content)} smallHeadings class="text-sm" />}>
                     <div class="flex flex-col gap-1.5">
                       <TextInput
+                        aria-label="Edit note"
                         value={editingContent}
-                        onInput={setEditingContent}
+                        onValueChange={setEditingContent}
                         markdown
                         disabled={updateMutation.loading()}
                         onSubmit={() => submitEdit(note.id)}

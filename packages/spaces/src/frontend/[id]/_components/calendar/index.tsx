@@ -1,3 +1,6 @@
+import type { DateContext } from "@k2b/stdlib";
+import { dates as calendar } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   type CalendarEvent,
   type CalendarEventTimeChange,
@@ -10,10 +13,7 @@ import {
   panelDialogOptions,
   prompts,
   toast,
-} from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@k2b/stdlib";
-import { dates as calendar } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+} from "@k2b/ui";
 import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { AssignedToFilterSchema, type CalendarItem, ItemTypeSchema, PrioritySchema, type Recurrence, type SpaceItem } from "@/contracts";
@@ -528,7 +528,7 @@ export default function Calendar(props: CalendarProps) {
               value={[`type:${props.filter.type}`, `assigned:${props.filter.assignedTo}`]}
               defaultValue={[`type:${defaultCalendarFilter.type}`, `assigned:${defaultCalendarFilter.assignedTo}`]}
               isActive={props.filter.type !== defaultCalendarFilter.type || props.filter.assignedTo !== defaultCalendarFilter.assignedTo}
-              onChange={(values) => {
+              onValueChange={(values) => {
                 const type = values.find((value) => value.startsWith("type:"))?.slice(5);
                 const assignedTo = values.find((value) => value.startsWith("assigned:"))?.slice(9);
                 setFilter({
@@ -542,14 +542,14 @@ export default function Calendar(props: CalendarProps) {
               icon="ti ti-flag"
               options={priorityOptions}
               value={props.filter.priorities}
-              onChange={(priorities) => setFilter({ priorities: PrioritySchema.array().catch([]).parse(priorities) })}
+              onValueChange={(priorities) => setFilter({ priorities: PrioritySchema.array().catch([]).parse(priorities) })}
             />
             <FilterChip
               label="Status"
               icon="ti ti-layout-kanban"
               options={columnOptions()}
               value={props.filter.columnIds}
-              onChange={(columnIds) => setFilter({ columnIds })}
+              onValueChange={(columnIds) => setFilter({ columnIds })}
             />
             <Show when={props.tags.length > 0}>
               <FilterChip
@@ -557,7 +557,7 @@ export default function Calendar(props: CalendarProps) {
                 icon="ti ti-tag"
                 options={tagOptions()}
                 value={props.filter.tagIds}
-                onChange={(tagIds) => setFilter({ tagIds })}
+                onValueChange={(tagIds) => setFilter({ tagIds })}
               />
             </Show>
             <span class="ml-auto inline-flex min-w-16 shrink-0 items-center justify-end gap-1 text-xs text-dimmed">

@@ -1,5 +1,5 @@
-import { prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, TextInput, toast } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
@@ -95,15 +95,20 @@ export default function ContactQuickEdit(props: Props) {
       }}
     >
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <TextInput label="First name" value={firstName} onInput={setFirstName} autocomplete="given-name" />
-        <TextInput label="Last name" value={lastName} onInput={setLastName} autocomplete="family-name" />
+        <TextInput label="First name" value={firstName} onValueChange={setFirstName} autocomplete="given-name" />
+        <TextInput label="Last name" value={lastName} onValueChange={setLastName} autocomplete="family-name" />
         <div class="sm:col-span-2">
-          <TextInput label="Display name" description="Optional. Falls back to first and last name." value={label} onInput={setLabel} />
+          <TextInput
+            label="Display name"
+            description="Optional. Falls back to first and last name."
+            value={label}
+            onValueChange={setLabel}
+          />
         </div>
-        <TextInput label="Company" value={companyName} onInput={setCompanyName} autocomplete="organization" />
-        <TextInput label="Job title" value={jobTitle} onInput={setJobTitle} autocomplete="organization-title" />
-        <TextInput label="Primary email" type="email" value={email} onInput={setEmail} autocomplete="email" />
-        <TextInput label="Primary phone" type="tel" value={phone} onInput={setPhone} autocomplete="tel" />
+        <TextInput label="Company" value={companyName} onValueChange={setCompanyName} autocomplete="organization" />
+        <TextInput label="Job title" value={jobTitle} onValueChange={setJobTitle} autocomplete="organization-title" />
+        <TextInput label="Primary email" type="email" value={email} onValueChange={setEmail} autocomplete="email" />
+        <TextInput label="Primary phone" type="tel" value={phone} onValueChange={setPhone} autocomplete="tel" />
       </div>
 
       <div class="grid gap-4 sm:grid-cols-2">

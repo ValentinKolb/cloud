@@ -1,5 +1,5 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceTag } from "@/contracts";

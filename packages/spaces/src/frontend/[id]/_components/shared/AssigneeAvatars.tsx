@@ -1,4 +1,4 @@
-import { Avatar, type AvatarSize } from "@valentinkolb/cloud/ui";
+import { Avatar, type AvatarSize } from "@k2b/ui";
 import type { JSX } from "solid-js";
 import { For, Show } from "solid-js";
 import type { SpaceItemAssignee } from "@/contracts";
@@ -36,9 +36,13 @@ export default function AssigneeAvatars(props: Props) {
           <For each={visible()}>
             {(assignee) => (
               <Avatar
-                username={assignee.displayName}
-                userId={assignee.id}
-                avatarHash={assignee.avatarHash}
+                name={assignee.displayName}
+                fallback={(assignee.displayName.trim() || "?").slice(0, 2).toUpperCase()}
+                src={
+                  assignee.avatarHash
+                    ? `/api/accounts/users/${encodeURIComponent(assignee.id)}/avatar?rev=${encodeURIComponent(assignee.avatarHash)}`
+                    : undefined
+                }
                 size={size()}
                 class={`border-2 border-[var(--ui-surface)] ${props.avatarClass ?? ""}`}
               />

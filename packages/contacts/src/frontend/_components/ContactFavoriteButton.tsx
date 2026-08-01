@@ -1,4 +1,4 @@
-import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
+import { prompts, Tooltip } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { listenForContactFavoriteChanges, saveContactFavorite } from "./contacts-favorites";
 

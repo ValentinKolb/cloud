@@ -1,5 +1,5 @@
-import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import { mutation } from "@k2b/stdlib/solid";
+import { Placeholder, Tooltip } from "@k2b/ui";
 import { onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceSettingsContext } from "@/settings-context";

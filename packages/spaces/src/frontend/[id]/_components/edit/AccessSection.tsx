@@ -1,4 +1,4 @@
-import { PermissionEditor, type ResourceApiKey, ResourceApiKeys } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, type ResourceApiKey, ResourceApiKeys } from "@valentinkolb/cloud/access/ui";
 import { apiClient } from "@/api/client";
 import type { AccessEntry } from "@/contracts";
 import { readErrorMessage } from "./utils";

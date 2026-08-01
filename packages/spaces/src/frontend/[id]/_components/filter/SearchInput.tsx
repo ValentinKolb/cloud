@@ -1,5 +1,5 @@
-import { TextInput } from "@valentinkolb/cloud/ui";
 import { timed as timing } from "@k2b/stdlib/solid";
+import { TextInput } from "@k2b/ui";
 import { createEffect, createSignal } from "solid-js";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import { buildSearchUrl } from "./types";
@@ -44,10 +44,10 @@ export default function SearchInput(props: SearchInputProps) {
     <div onFocusIn={() => setFocused(true)} onFocusOut={() => setFocused(false)}>
       <TextInput
         icon="ti ti-search"
-        ariaLabel="Search items"
+        aria-label="Search items"
         placeholder="Search..."
         value={value}
-        onInput={handleInput}
+        onValueChange={handleInput}
         clearable
         onClear={() => handleInput("")}
         suffix={pending() ? <i class="ti ti-loader-2 animate-spin text-zinc-400" /> : undefined}

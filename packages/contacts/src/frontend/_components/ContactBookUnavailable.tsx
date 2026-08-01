@@ -1,4 +1,4 @@
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder } from "@k2b/ui";
 
 type Props = {
   title: string;

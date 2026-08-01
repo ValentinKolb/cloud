@@ -1,5 +1,5 @@
-import { ColorInput, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { ColorInput, prompts, TextInput, toast } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceDetail } from "@/contracts";
@@ -51,18 +51,18 @@ export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: 
 
   return (
     <form onSubmit={handleSubmit} class="flex flex-col gap-3">
-      <TextInput label="Name" placeholder="My Space" icon="ti ti-typography" value={name} onInput={updateField(setName)} required />
+      <TextInput label="Name" placeholder="My Space" icon="ti ti-typography" value={name} onValueChange={updateField(setName)} required />
 
       <TextInput
         label="Description"
         placeholder="Optional description..."
         icon="ti ti-align-left"
         value={description}
-        onInput={updateField(setDescription)}
+        onValueChange={updateField(setDescription)}
         multiline
       />
 
-      <ColorInput label="Color" value={color} onChange={updateField(setColor)} />
+      <ColorInput label="Color" value={color} onValueChange={updateField(setColor)} />
 
       <Show when={hasChanges()}>
         <button type="submit" disabled={mutation.loading()} class="btn-primary btn-sm self-start mt-2">

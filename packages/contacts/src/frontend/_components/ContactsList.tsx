@@ -1,4 +1,4 @@
-import { Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
+import { Placeholder, Tooltip } from "@k2b/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact } from "../../service";
 import { resolveContactInitials, resolveContactName } from "../../shared";

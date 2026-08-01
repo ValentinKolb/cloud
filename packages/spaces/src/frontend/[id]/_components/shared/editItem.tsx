@@ -1,5 +1,5 @@
-import { dialogCore, panelDialogFixedOptions, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { dialogCore, panelDialogFixedOptions, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { requestCurrentSpacesRouteRefresh } from "../workspace/workspace-events";

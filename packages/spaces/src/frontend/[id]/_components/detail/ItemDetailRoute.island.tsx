@@ -1,6 +1,6 @@
-import { AppWorkspace, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppWorkspace, Placeholder, prompts } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceTag, SpaceWormhole } from "@/contracts";

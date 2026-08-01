@@ -1,4 +1,4 @@
-import { toast } from "@valentinkolb/cloud/ui";
+import { toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { SpaceItem, WormholeTransferResult } from "@/contracts";
 import { readResponseError } from "../../lib/response";

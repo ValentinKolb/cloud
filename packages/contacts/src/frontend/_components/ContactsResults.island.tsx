@@ -1,6 +1,6 @@
 import { documentNavigate, navigate } from "@k2b/ssr/nav";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
-import { FilterChip, type FilterChipSection, Pagination, TextInput } from "@valentinkolb/cloud/ui";
+import { FilterChip, type FilterChipSection, Pagination, TextInput } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactPresenceFilter, ContactSort, ContactTag } from "../../service";
@@ -297,12 +297,12 @@ export default function ContactsResults(props: Props) {
           <TextInput
             name="search"
             type="search"
-            ariaLabel="Filter contacts"
+            aria-label="Filter contacts"
             placeholder={props.searchPlaceholder}
             icon="ti ti-search"
             activeIcon="ti ti-search"
             value={query}
-            onInput={(value) => {
+            onValueChange={(value) => {
               requestVersion += 1;
               setQuery(value);
               debounce.debouncedFn(value);
@@ -366,7 +366,7 @@ export default function ContactsResults(props: Props) {
             value={[readContactsQueryOptions(state().href).sort]}
             defaultValue={["name"]}
             isActive={readContactsQueryOptions(state().href).sort !== "name"}
-            onChange={(value) => updateOptions({ sort: (value[0] ?? "name") as ContactSort })}
+            onValueChange={(value) => updateOptions({ sort: (value[0] ?? "name") as ContactSort })}
           />
           <FilterChip
             label="Contact info"
@@ -375,7 +375,7 @@ export default function ContactsResults(props: Props) {
             value={[`email:${readContactsQueryOptions(state().href).email}`, `phone:${readContactsQueryOptions(state().href).phone}`]}
             defaultValue={["email:all", "phone:all"]}
             isActive={readContactsQueryOptions(state().href).email !== "all" || readContactsQueryOptions(state().href).phone !== "all"}
-            onChange={(value) =>
+            onValueChange={(value) =>
               updateOptions({
                 email: (value.find((entry) => entry.startsWith("email:"))?.slice(6) ?? "all") as ContactPresenceFilter,
                 phone: (value.find((entry) => entry.startsWith("phone:"))?.slice(6) ?? "all") as ContactPresenceFilter,

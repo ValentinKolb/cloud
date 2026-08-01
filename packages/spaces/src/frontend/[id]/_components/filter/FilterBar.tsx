@@ -1,4 +1,4 @@
-import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
+import { FilterChip, type FilterChipSection } from "@k2b/ui";
 import type {
   AssignedToFilter,
   DeadlineFilter,
@@ -192,7 +192,7 @@ export default function FilterBar(props: FilterBarProps) {
           icon="ti ti-filter"
           options={VIEW_OPTIONS}
           value={[`type:${props.filter.type}`, `status:${props.filter.status}`, `assigned:${props.filter.assignedTo}`]}
-          onChange={(v) => {
+          onValueChange={(v) => {
             const type = (v.find((x) => x.startsWith("type:"))?.slice(5) ?? defaultFilter.type) as ItemType;
             const status = (v.find((x) => x.startsWith("status:"))?.slice(7) ?? defaultFilter.status) as ItemStatus;
             const assignedTo = (v.find((x) => x.startsWith("assigned:"))?.slice(9) ?? defaultFilter.assignedTo) as AssignedToFilter;
@@ -212,7 +212,7 @@ export default function FilterBar(props: FilterBarProps) {
           icon="ti ti-flag"
           options={PRIORITY_OPTIONS}
           value={props.filter.priority}
-          onChange={(v) => navigate({ priority: v as Priority[] })}
+          onValueChange={(v) => navigate({ priority: v as Priority[] })}
         />
 
         {/* Deadline */}
@@ -221,7 +221,7 @@ export default function FilterBar(props: FilterBarProps) {
           icon="ti ti-clock"
           options={DEADLINE_OPTIONS}
           value={[props.filter.deadlineFilter]}
-          onChange={(v) => navigate({ deadlineFilter: (v[0] ?? "all") as DeadlineFilter })}
+          onValueChange={(v) => navigate({ deadlineFilter: (v[0] ?? "all") as DeadlineFilter })}
           isActive={props.filter.deadlineFilter !== defaultFilter.deadlineFilter}
           defaultValue={[defaultFilter.deadlineFilter]}
         />
@@ -233,7 +233,7 @@ export default function FilterBar(props: FilterBarProps) {
             icon="ti ti-tag"
             options={tagOptions()}
             value={props.filter.tagIds}
-            onChange={(v) => navigate({ tagIds: v })}
+            onValueChange={(v) => navigate({ tagIds: v })}
           />
         )}
 
@@ -244,7 +244,7 @@ export default function FilterBar(props: FilterBarProps) {
             icon="ti ti-layout-kanban"
             options={columnOptions()}
             value={props.filter.columnIds}
-            onChange={(v) => navigate({ columnIds: v })}
+            onValueChange={(v) => navigate({ columnIds: v })}
           />
         </div>
 
@@ -255,7 +255,7 @@ export default function FilterBar(props: FilterBarProps) {
             icon="ti ti-arrows-sort"
             options={SORT_OPTIONS}
             value={[`sort:${props.filter.sort}`, `dir:${props.filter.sortDesc ? "desc" : "asc"}`]}
-            onChange={(v) => {
+            onValueChange={(v) => {
               const sort = (v.find((x) => x.startsWith("sort:"))?.slice(5) ?? defaultFilter.sort) as ItemSort;
               const sortDesc = v.includes("dir:desc");
               navigate({ sort, sortDesc });
@@ -273,7 +273,7 @@ export default function FilterBar(props: FilterBarProps) {
               icon="ti ti-layout-list"
               options={GROUP_BY_OPTIONS}
               value={[props.filter.groupBy]}
-              onChange={(v) =>
+              onValueChange={(v) =>
                 navigate({
                   groupBy: (v[0] ?? defaultFilter.groupBy) as ItemGroupBy,
                 })

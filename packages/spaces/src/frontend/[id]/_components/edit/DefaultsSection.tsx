@@ -1,4 +1,4 @@
-import { SegmentedControl } from "@valentinkolb/cloud/ui";
+import { SegmentedControl } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import type { Priority } from "@/contracts";
 import {
@@ -57,7 +57,7 @@ function LocalSettingsForm(props: { spaceId: string; initialSettings: SpaceUserS
             icon: `ti ${o.icon}`,
           }))}
           value={() => settings().view}
-          onChange={(v) => updateSetting("view", v)}
+          onValueChange={(v) => updateSetting("view", v)}
         />
       </div>
 
@@ -82,7 +82,7 @@ function WidgetSettingsForm() {
         <SegmentedControl
           options={EVENTS_DAYS_OPTIONS}
           value={() => String(settings().eventsDaysAhead)}
-          onChange={(v) => updateSetting("eventsDaysAhead", Number(v) as EventsDaysAhead)}
+          onValueChange={(v) => updateSetting("eventsDaysAhead", Number(v) as EventsDaysAhead)}
         />
       </div>
 
@@ -91,7 +91,7 @@ function WidgetSettingsForm() {
         <SegmentedControl
           options={TASKS_PRIORITY_OPTIONS}
           value={() => settings().tasksMinPriority ?? ""}
-          onChange={(v) => updateSetting("tasksMinPriority", (v || null) as Priority | null)}
+          onValueChange={(v) => updateSetting("tasksMinPriority", (v || null) as Priority | null)}
         />
       </div>
 

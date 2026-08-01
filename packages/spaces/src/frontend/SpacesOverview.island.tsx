@@ -1,6 +1,6 @@
-import { AppOverview, ColorInput, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppOverview, ColorInput, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Space } from "@/contracts";
@@ -104,7 +104,7 @@ function CreateSpaceForm(props: { starter: SpaceStarter; close: (result: SpaceDr
         placeholder={props.starter.name}
         icon="ti ti-typography"
         value={name}
-        onInput={(value) => {
+        onValueChange={(value) => {
           setName(value);
           setError("");
         }}
@@ -116,11 +116,11 @@ function CreateSpaceForm(props: { starter: SpaceStarter; close: (result: SpaceDr
         placeholder={props.starter.description}
         icon="ti ti-align-left"
         value={description}
-        onInput={setDescription}
+        onValueChange={setDescription}
         multiline
         lines={3}
       />
-      <ColorInput label="Color" description="Used for cards, calendars, and visual identification" value={color} onChange={setColor} />
+      <ColorInput label="Color" description="Used for cards, calendars, and visual identification" value={color} onValueChange={setColor} />
       <Show when={error()}>
         <p class="flex items-center gap-1 text-sm text-red-500">
           <i class="ti ti-alert-circle" />
@@ -179,11 +179,7 @@ export default function SpacesOverview(props: Props) {
   };
 
   return (
-    <AppOverview
-      title="Spaces"
-      subtitle="Organize tasks, events, calendars, and lightweight project workflows."
-      icon="ti ti-layout-kanban"
-    >
+    <AppOverview title="Spaces" subtitle="Organize tasks, events, calendars, and lightweight project workflows." icon="ti ti-layout-kanban">
       <AppOverview.Main
         title="Your spaces"
         description={
@@ -195,12 +191,12 @@ export default function SpacesOverview(props: Props) {
           <TextInput
             name="spaces-search"
             type="search"
-            ariaLabel="Search spaces"
+            aria-label="Search spaces"
             placeholder="Search spaces..."
             icon="ti ti-search"
             activeIcon="ti ti-search"
             value={query}
-            onInput={onSearchInput}
+            onValueChange={onSearchInput}
             clearable
             onClear={() => onSearchInput("")}
           />

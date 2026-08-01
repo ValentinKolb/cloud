@@ -1,5 +1,5 @@
-import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@k2b/stdlib";
+import { DataTable, type DataTableColumn } from "@k2b/ui";
 import type { JSX } from "solid-js";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";

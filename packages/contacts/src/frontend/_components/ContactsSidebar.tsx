@@ -1,4 +1,4 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@k2b/ui";
 import type { ContactBook } from "../../service";
 import ContactsSpotlightButton from "./ContactsSpotlightButton.island";
 import CreateBookButton from "./CreateBookButton.island";

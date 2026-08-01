@@ -1,6 +1,6 @@
-import { dialogCore, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { dialogCore, panelDialogOptions, prompts, toast } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef, ContactTree, ContactTreeNode } from "../../service";

@@ -1,6 +1,6 @@
-import { AppWorkspace, dialogCore, panelDialogFixedOptions, prompts, toast, Tooltip } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppWorkspace, dialogCore, panelDialogFixedOptions, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { readResponseError } from "../../../lib/response";
