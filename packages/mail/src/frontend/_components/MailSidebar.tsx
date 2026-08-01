@@ -390,7 +390,10 @@ export default function MailSidebar(props: {
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
           {props.canWrite && (
-            <a href={`/app/mail/compose?mailbox=${props.mailboxId}`} class="mail-compose-action sidebar-item-mobile btn-primary btn-sm">
+            <a
+              href={`/app/mail/compose?mailbox=${props.mailboxId}&autostart=1`}
+              class="mail-compose-action sidebar-item-mobile btn-primary btn-sm"
+            >
               <i class="ti ti-pencil" aria-hidden="true" /> Compose
             </a>
           )}
@@ -413,7 +416,7 @@ export default function MailSidebar(props: {
       </AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarDesktop>
         {props.canWrite && (
-          <a href={`/app/mail/compose?mailbox=${props.mailboxId}`} class="mail-compose-action btn-primary btn-sm mx-2 mt-2">
+          <a href={`/app/mail/compose?mailbox=${props.mailboxId}&autostart=1`} class="mail-compose-action btn-primary btn-sm mx-2 mt-2">
             <i class="ti ti-pencil" aria-hidden="true" />
             <span>Compose</span>
           </a>

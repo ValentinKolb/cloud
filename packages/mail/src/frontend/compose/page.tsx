@@ -35,6 +35,7 @@ export default ssr<AuthContext>(async (c) => {
       <MailComposeIntentPage
         mailboxes={writableMailboxes}
         initialMailboxId={initialMailboxId}
+        autoStart={c.req.query("autostart") === "1" && Boolean(initialMailboxId) && !c.req.query("mailto")}
         mailto={c.req.query("mailto") ?? null}
         returnHref={c.req.query("return") ?? null}
       />

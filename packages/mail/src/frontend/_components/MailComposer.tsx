@@ -39,6 +39,7 @@ import { mailDraftHref, mailDraftSeedHref } from "./mail-compose-route";
 import { createMailComposerAttachmentManager } from "./mail-composer-attachment-manager";
 import { focusMailComposerEditorAtStart } from "./mail-composer-editor-focus";
 import { createMailComposerTransition } from "./mail-composer-transition";
+import { writeMailSenderPreference } from "./mail-sender-preference";
 import { removeMailDraftSeed } from "./mail-draft-seed-store";
 import { createMailDraftSession } from "./mail-draft-session";
 import { formatMailRecipients, parseMailRecipients } from "./mail-recipient";
@@ -94,7 +95,10 @@ export default function MailComposer(props: {
     verifiedIdentities().map((identity) => ({
       icon: identity.id === identityId() ? "ti ti-check" : "ti ti-user",
       label: `${identity.label} · ${identity.fromAddress}`,
-      action: () => setIdentityId(identity.id),
+      action: () => {
+        setIdentityId(identity.id);
+        writeMailSenderPreference(localStorage, props.mailboxId, identity.id);
+      },
     })),
   );
   const [to, setTo] = createSignal(formatMailRecipients(initialContent.to));
