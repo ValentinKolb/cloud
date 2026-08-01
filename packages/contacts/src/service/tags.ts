@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { isUuid, type SqlExecutor, toPgUuidArray } from "./shared";
 import type { ContactTag, CreateContactTagInput, UpdateContactTagInput } from "./types";
@@ -45,6 +45,26 @@ export const list = async (config: { bookId: string }): Promise<ContactTag[]> =>
     ORDER BY LOWER(name) ASC
   `;
   return rows.map(mapTag);
+};
+
+/** Lists one bounded page of tags for capability and API consumers. */
+export const listPage = async (config: { bookId: string; pagination?: PageParams }): Promise<Paginated<ContactTag>> => {
+  const { page, perPage, offset } = paginate(config.pagination);
+  if (!isUuid(config.bookId)) return { items: [], page, perPage, total: 0, hasNext: false };
+
+  const [[countRow], rows] = await Promise.all([
+    sql<{ count: number }[]>`SELECT COUNT(*)::int AS count FROM contacts.tags WHERE book_id = ${config.bookId}::uuid`,
+    sql<DbTag[]>`
+      SELECT id, book_id, name, color, created_at, updated_at
+      FROM contacts.tags
+      WHERE book_id = ${config.bookId}::uuid
+      ORDER BY LOWER(name) ASC, id ASC
+      LIMIT ${perPage}
+      OFFSET ${offset}
+    `,
+  ]);
+  const total = countRow?.count ?? 0;
+  return { items: rows.map(mapTag), page, perPage, total, hasNext: page * perPage < total };
 };
 
 /** Lists the combined tag vocabulary for a set of already-authorized books. */
@@ -183,6 +203,65 @@ export const replaceAssignments = async (config: { contactId: string; tagIds: st
     return;
   }
   await sql.begin((tx) => replaceAssignmentsWithDb({ ...config, db: tx }));
+};
+
+/** Atomically adds and removes book-scoped tags from one contact. */
+export const changeAssignments = async (config: {
+  bookId: string;
+  contactId: string;
+  addTagIds: string[];
+  removeTagIds: string[];
+}): Promise<Result<ContactTag[]>> => {
+  if (!isUuid(config.bookId) || !isUuid(config.contactId)) return fail(err.notFound("Contact"));
+  const addTagIds = [...new Set(config.addTagIds)];
+  const removeTagIds = [...new Set(config.removeTagIds)];
+  if ([...addTagIds, ...removeTagIds].some((id) => !isUuid(id))) return fail(err.badInput("Tag ids must be UUIDs"));
+  if (addTagIds.some((id) => removeTagIds.includes(id))) {
+    return fail(err.badInput("A tag cannot be added and removed in the same change"));
+  }
+
+  return sql.begin(async (tx): Promise<Result<ContactTag[]>> => {
+    const [contact] = await tx<{ id: string }[]>`
+      SELECT id FROM contacts.contacts
+      WHERE id = ${config.contactId}::uuid AND book_id = ${config.bookId}::uuid
+      FOR UPDATE
+    `;
+    if (!contact) return fail(err.notFound("Contact"));
+
+    const requested = [...new Set([...addTagIds, ...removeTagIds])];
+    if (requested.length > 0) {
+      const found = await tx<{ id: string }[]>`
+        SELECT id FROM contacts.tags
+        WHERE book_id = ${config.bookId}::uuid
+          AND id = ANY(${toPgUuidArray(requested)}::uuid[])
+      `;
+      if (found.length !== requested.length) return fail(err.badInput("One or more tags do not belong to this book"));
+    }
+
+    if (removeTagIds.length > 0) {
+      await tx`
+        DELETE FROM contacts.contact_tag_assignments
+        WHERE contact_id = ${config.contactId}::uuid
+          AND tag_id = ANY(${toPgUuidArray(removeTagIds)}::uuid[])
+      `;
+    }
+    for (const tagId of addTagIds) {
+      await tx`
+        INSERT INTO contacts.contact_tag_assignments (contact_id, tag_id)
+        VALUES (${config.contactId}::uuid, ${tagId}::uuid)
+        ON CONFLICT DO NOTHING
+      `;
+    }
+
+    const rows = await tx<DbTag[]>`
+      SELECT t.id, t.book_id, t.name, t.color, t.created_at, t.updated_at
+      FROM contacts.tags t
+      JOIN contacts.contact_tag_assignments assignment ON assignment.tag_id = t.id
+      WHERE assignment.contact_id = ${config.contactId}::uuid
+      ORDER BY LOWER(t.name) ASC, t.id ASC
+    `;
+    return ok(rows.map(mapTag));
+  });
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;

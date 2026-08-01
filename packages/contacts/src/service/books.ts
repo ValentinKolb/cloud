@@ -1,6 +1,6 @@
+import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
 import { type AccessSubject, buildAccessPrincipalCondition, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import {
   addBookAccess,
@@ -30,6 +30,14 @@ type DbBook = {
 type DbAdminBook = DbBook & {
   permission_count: number;
   contact_count: number;
+};
+
+type DbReadableBook = DbBook & {
+  permission_rank: number;
+};
+
+export type ReadableContactBook = ContactBook & {
+  permission: PermissionLevel;
 };
 
 /**
@@ -81,6 +89,91 @@ export const list = async (config: { subject: AccessSubject; boundBookId?: strin
   `;
 
   return rows.map(mapBook);
+};
+
+/**
+ * Lists readable manual books with database-side filtering and pagination.
+ * The effective permission is computed in the same query so capability
+ * callers do not need one permission lookup per row.
+ */
+export const listPage = async (config: {
+  subject: AccessSubject;
+  boundBookId?: string | null;
+  pagination?: PageParams;
+  filter?: { query?: string };
+}): Promise<Paginated<ReadableContactBook>> => {
+  const { page, perPage, offset } = paginate(config.pagination);
+  if (config.subject.type === "service_account" && !isUuid(config.boundBookId ?? "")) {
+    return { items: [], page, perPage, total: 0, hasNext: false };
+  }
+
+  const principalMatch = buildAccessPrincipalCondition({
+    subject: config.subject,
+    columns: {
+      userId: sql`a.user_id`,
+      groupId: sql`a.group_id`,
+      serviceAccountId: sql`a.service_account_id`,
+      authenticatedOnly: sql`a.authenticated_only`,
+    },
+  });
+  const bindingMatch = config.subject.type === "service_account" ? sql`b.id = ${config.boundBookId}::uuid` : sql`true`;
+  const query = config.filter?.query?.trim().toLowerCase() ?? "";
+  const queryMatch =
+    query.length > 0
+      ? sql`(
+          POSITION(${query} IN LOWER(b.name)) > 0
+          OR POSITION(${query} IN LOWER(COALESCE(b.description, ''))) > 0
+        )`
+      : sql`true`;
+
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(DISTINCT b.id)::int AS count
+    FROM contacts.books b
+    JOIN contacts.book_access ba ON ba.book_id = b.id
+    JOIN auth.access a ON a.id = ba.access_id
+    WHERE ${principalMatch}
+      AND ${bindingMatch}
+      AND ${queryMatch}
+      AND a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+  `;
+
+  const rows = await sql<DbReadableBook[]>`
+    SELECT
+      b.id,
+      b.name,
+      b.description,
+      b.created_at,
+      b.updated_at,
+      MAX(CASE a.permission
+        WHEN 'admin'::auth.permission_level THEN 3
+        WHEN 'write'::auth.permission_level THEN 2
+        WHEN 'read'::auth.permission_level THEN 1
+        ELSE 0
+      END)::int AS permission_rank
+    FROM contacts.books b
+    JOIN contacts.book_access ba ON ba.book_id = b.id
+    JOIN auth.access a ON a.id = ba.access_id
+    WHERE ${principalMatch}
+      AND ${bindingMatch}
+      AND ${queryMatch}
+      AND a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+    GROUP BY b.id, b.name, b.description, b.created_at, b.updated_at
+    ORDER BY LOWER(b.name) ASC, b.id ASC
+    LIMIT ${perPage}
+    OFFSET ${offset}
+  `;
+
+  const total = countRow?.count ?? 0;
+  return {
+    items: rows.map((row) => ({
+      ...mapBook(row),
+      permission: row.permission_rank >= 3 ? "admin" : row.permission_rank >= 2 ? "write" : "read",
+    })),
+    page,
+    perPage,
+    total,
+    hasNext: page * perPage < total,
+  };
 };
 
 /**

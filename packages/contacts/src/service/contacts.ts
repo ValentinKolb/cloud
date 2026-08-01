@@ -1001,6 +1001,15 @@ export const get = async (config: { bookId: string; id: string }): Promise<Conta
   return contact;
 };
 
+/** Resolves the owning manual book for a stable contact id. */
+export const findBookId = async (config: { id: string }): Promise<string | null> => {
+  if (!isUuid(config.id)) return null;
+  const [row] = await sql<{ book_id: string }[]>`
+    SELECT book_id FROM contacts.contacts WHERE id = ${config.id}::uuid
+  `;
+  return row?.book_id ?? null;
+};
+
 /**
  * Loads the full manual-book hierarchy around a selected contact.
  *
@@ -1256,7 +1265,12 @@ export const createIdempotent = async (config: {
 /**
  * Updates one manual contact. Child arrays are fully replaced when provided.
  */
-export const update = async (config: { bookId: string; id: string; data: UpdateContactInput }): Promise<Result<Contact>> => {
+export const update = async (config: {
+  bookId: string;
+  id: string;
+  data: UpdateContactInput;
+  expectedUpdatedAt?: string;
+}): Promise<Result<Contact>> => {
   if (isSystemBookId(config.bookId)) {
     return fail(err.forbidden("System contacts are read-only"));
   }
@@ -1290,6 +1304,9 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
   `;
 
   if (!existing) return fail(err.notFound("Contact"));
+  if (config.expectedUpdatedAt !== undefined && existing.updated_at.toISOString() !== config.expectedUpdatedAt) {
+    return fail(err.conflict("Contact changed since it was read"));
+  }
 
   const nextLabel = buildUpdateLabel(existing, config.data);
 
@@ -1321,6 +1338,10 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
         updated_at = now()
       WHERE id = ${config.id}::uuid
         AND book_id = ${config.bookId}::uuid
+        AND (
+          ${config.expectedUpdatedAt ?? null}::timestamptz IS NULL
+          OR date_trunc('milliseconds', updated_at) = ${config.expectedUpdatedAt ?? null}::timestamptz
+        )
       RETURNING id
     `;
 
@@ -1333,7 +1354,7 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
     return updated;
   });
 
-  if (!row) return fail(err.internal("Failed to update contact"));
+  if (!row) return fail(err.conflict("Contact changed since it was read"));
 
   return loadWrittenContact({ bookId: config.bookId, id: row.id, action: "updated" });
 };
@@ -1341,7 +1362,12 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
 /**
  * Moves one manual contact to another manual book.
  */
-export const move = async (config: { sourceBookId: string; targetBookId: string; id: string }): Promise<Result<Contact>> => {
+export const move = async (config: {
+  sourceBookId: string;
+  targetBookId: string;
+  id: string;
+  expectedUpdatedAt?: string;
+}): Promise<Result<Contact>> => {
   if (isSystemBookId(config.sourceBookId) || isSystemBookId(config.targetBookId)) {
     return fail(err.forbidden("System contacts are read-only"));
   }
@@ -1359,14 +1385,17 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
   //   * own tag assignments → DELETE (tags are book-scoped vocabulary)
   // The user sees a warning in the UI before confirming.
   const row = await sql.begin(async (tx) => {
-    const [existing] = await tx<{ id: string }[]>`
-      SELECT id
+    const [existing] = await tx<{ id: string; updated_at: Date }[]>`
+      SELECT id, updated_at
       FROM contacts.contacts
       WHERE id = ${config.id}::uuid
         AND book_id = ${config.sourceBookId}::uuid
       FOR UPDATE
     `;
     if (!existing) return null;
+    if (config.expectedUpdatedAt !== undefined && existing.updated_at.toISOString() !== config.expectedUpdatedAt) {
+      return "stale" as const;
+    }
 
     await tx`
       UPDATE contacts.contacts
@@ -1405,6 +1434,7 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
     return moved ?? null;
   });
 
+  if (row === "stale") return fail(err.conflict("Contact changed since it was read"));
   if (!row) return fail(err.notFound("Contact"));
 
   const moved = await get({ bookId: config.targetBookId, id: row.id });
@@ -1416,7 +1446,7 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
 /**
  * Deletes one contact from one manual book.
  */
-export const remove = async (config: { bookId: string; id: string }): Promise<Result<void>> => {
+export const remove = async (config: { bookId: string; id: string; expectedUpdatedAt?: string }): Promise<Result<void>> => {
   if (isSystemBookId(config.bookId)) {
     return fail(err.forbidden("System contacts are read-only"));
   }
@@ -1426,19 +1456,33 @@ export const remove = async (config: { bookId: string; id: string }): Promise<Re
   }
 
   const result = await sql.begin(async (tx) => {
-    await tx`
-      DELETE FROM contacts.contact_favorites
-      WHERE book_id = ${config.bookId}
-        AND contact_id = ${config.id}::uuid
-    `;
-    return tx`
+    const deleted = await tx`
       DELETE FROM contacts.contacts
       WHERE id = ${config.id}::uuid
         AND book_id = ${config.bookId}::uuid
+        AND (
+          ${config.expectedUpdatedAt ?? null}::timestamptz IS NULL
+          OR date_trunc('milliseconds', updated_at) = ${config.expectedUpdatedAt ?? null}::timestamptz
+        )
     `;
+    if (deleted.count > 0) {
+      await tx`
+        DELETE FROM contacts.contact_favorites
+        WHERE book_id = ${config.bookId}
+          AND contact_id = ${config.id}::uuid
+      `;
+    }
+    return deleted;
   });
 
-  if (result.count === 0) return fail(err.notFound("Contact"));
+  if (result.count === 0) {
+    const [existing] = await sql<{ id: string }[]>`
+      SELECT id FROM contacts.contacts WHERE id = ${config.id}::uuid AND book_id = ${config.bookId}::uuid
+    `;
+    return existing && config.expectedUpdatedAt !== undefined
+      ? fail(err.conflict("Contact changed since it was read"))
+      : fail(err.notFound("Contact"));
+  }
   return ok();
 };
 
@@ -1847,6 +1891,7 @@ const hydrateSearchRows = async (rows: SearchRow[]): Promise<Contact[]> => {
 export const search = async (config: {
   subject: AccessSubject;
   boundBookId?: string | null;
+  bypassAccess?: boolean;
   pagination?: PageParams;
   filter?: ContactListFilter & { includeSystem?: boolean };
 }): Promise<Paginated<Contact>> => {
@@ -1879,13 +1924,13 @@ export const search = async (config: {
         c.book_id::text AS book_id,
         'manual'::text AS source_kind
       FROM contacts.contacts c
-      JOIN contacts.book_access ba ON ba.book_id = c.book_id
-      JOIN auth.access a ON a.id = ba.access_id
+      LEFT JOIN contacts.book_access ba ON ba.book_id = c.book_id
+      LEFT JOIN auth.access a ON a.id = ba.access_id
       LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE ${mapManualReadableAccessCondition(config.subject)}
+      WHERE (${config.bypassAccess ?? false}::boolean OR ${mapManualReadableAccessCondition(config.subject)})
         AND ${bindingMatch}
         AND ${mapManualSearchCondition(searchPattern)}
         AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
@@ -1949,13 +1994,13 @@ export const search = async (config: {
         c.updated_at AS updated_at,
         'manual'::text AS source_kind
       FROM contacts.contacts c
-      JOIN contacts.book_access ba ON ba.book_id = c.book_id
-      JOIN auth.access a ON a.id = ba.access_id
+      LEFT JOIN contacts.book_access ba ON ba.book_id = c.book_id
+      LEFT JOIN auth.access a ON a.id = ba.access_id
       LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE ${mapManualReadableAccessCondition(config.subject)}
+      WHERE (${config.bypassAccess ?? false}::boolean OR ${mapManualReadableAccessCondition(config.subject)})
         AND ${bindingMatch}
         AND ${mapManualSearchCondition(searchPattern)}
         AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (

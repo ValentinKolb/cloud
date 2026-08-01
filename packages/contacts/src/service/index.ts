@@ -75,6 +75,7 @@ export const contactsService = {
 
       return paginateItems(filtered, config.pagination);
     },
+    listPage: books.listPage,
     get: async (config: { id: string }): Promise<ContactBook | null> => {
       if (isSystemBookId(config.id)) return getSystemBook();
       return books.get({ id: config.id });
@@ -141,16 +142,20 @@ export const contactsService = {
   },
   tag: {
     list: (config: { bookId: string }) => tags.list(config),
+    listPage: tags.listPage,
     listForBooks: (config: { bookIds: string[] }) => tags.listForBooks(config),
     create: (config: { bookId: string; data: CreateContactTagInput }) =>
       withEvent(tags.create(config), { type: "tags.changed", bookId: config.bookId }),
     update: (config: { bookId: string; id: string; data: UpdateContactTagInput }) =>
       withEvent(tags.update(config), { type: "tags.changed", bookId: config.bookId }),
     remove: (config: { bookId: string; id: string }) => withEvent(tags.remove(config), { type: "tags.changed", bookId: config.bookId }),
+    changeAssignments: (config: Parameters<typeof tags.changeAssignments>[0]) =>
+      withEvent(tags.changeAssignments(config), { type: "contact.updated", bookId: config.bookId, contactId: config.contactId }),
   },
   contact: {
     list: (config: { bookId: string; pagination?: PageParams; filter?: import("./types").ContactListFilter }) => contacts.list(config),
     get: (config: { bookId: string; id: string }) => contacts.get(config),
+    findBookId: contacts.findBookId,
     getMany: (config: { bookId: string; ids: string[] }) => contacts.getMany(config),
     tree: (config: { bookId: string; id: string }) => contacts.tree(config),
     create: (config: { bookId: string; data: CreateContactInput }) =>
@@ -163,16 +168,16 @@ export const contactsService = {
       }
       return ok(result.data);
     },
-    update: (config: { bookId: string; id: string; data: UpdateContactInput }) =>
+    update: (config: { bookId: string; id: string; data: UpdateContactInput; expectedUpdatedAt?: string }) =>
       withEvent(contacts.update(config), { type: "contact.updated", bookId: config.bookId, contactId: config.id }),
-    move: (config: { sourceBookId: string; targetBookId: string; id: string }) =>
+    move: (config: { sourceBookId: string; targetBookId: string; id: string; expectedUpdatedAt?: string }) =>
       withEvent(contacts.move(config), {
         type: "contact.moved",
         sourceBookId: config.sourceBookId,
         targetBookId: config.targetBookId,
         contactId: config.id,
       }),
-    remove: (config: { bookId: string; id: string }) =>
+    remove: (config: { bookId: string; id: string; expectedUpdatedAt?: string }) =>
       withEvent(contacts.remove(config), { type: "contact.deleted", bookId: config.bookId, contactId: config.id }),
     bulk: {
       addTags: (config: { bookId: string; ids: string[]; tagIds: string[] }) =>
@@ -198,11 +203,13 @@ export const contactsService = {
     search: (config: {
       subject: AccessSubject;
       boundBookId?: string | null;
+      bypassAccess?: boolean;
       pagination?: PageParams;
       filter?: import("./types").ContactListFilter & { includeSystem?: boolean };
     }) => contacts.search(config),
     notes: {
       list: (config: { bookId: string; contactId: string }) => notes.list(config),
+      listPage: notes.listPage,
       create: (config: {
         bookId: string;
         contactId: string;
@@ -210,6 +217,13 @@ export const contactsService = {
         authorDisplayName: string;
         data: CreateContactNoteInput;
       }) => withEvent(notes.create(config), { type: "notes.changed", bookId: config.bookId, contactId: config.contactId }),
+      createIdempotent: async (config: Parameters<typeof notes.createIdempotent>[0]) => {
+        const result = await notes.createIdempotent(config);
+        if (result.ok && !result.data.replayed) {
+          await publishContactEvent({ type: "notes.changed", bookId: config.bookId, contactId: config.contactId });
+        }
+        return result;
+      },
       update: (config: { bookId: string; contactId: string; noteId: string; authorUserId: string; data: UpdateContactNoteInput }) =>
         withEvent(notes.update(config), { type: "notes.changed", bookId: config.bookId, contactId: config.contactId }),
       remove: (config: { bookId: string; contactId: string; noteId: string; authorUserId: string; isBookAdmin: boolean }) =>
