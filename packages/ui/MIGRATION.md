@@ -1,9 +1,11 @@
 # Cloud UI migration inventory
 
-Cloud stays on `@valentinkolb/cloud/ui` for the remaining component families
-until the package-wide big bang. Chat completed an earlier hard cut because its
-generic package contract and Cloud protocol boundary are now explicit. There
-are no compatibility re-exports.
+Cloud apps migrate one at a time through the hard cut described in
+[`APP_MIGRATION.md`](./APP_MIGRATION.md). Migrated apps import `@k2b/ui`
+directly; remaining apps stay on `@valentinkolb/cloud/ui` until their own cut.
+Weather completed the first app pilot. Chat completed an earlier hard cut
+because its generic package contract and Cloud protocol boundary are explicit.
+There are no compatibility re-exports.
 
 [`migration-inventory.json`](./migration-inventory.json) covers the public
 exports of both `packages/cloud/src/ui/index.ts` and
@@ -123,8 +125,9 @@ duplicate classifications.
    standalone Calendar styles, namespaced toast ownership, single-layer
    editor focus treatment, and isolated Cloud-only showcase CSS.
 5. Done for chat: migrate Assistant and both showcases in one hard cut, then
-   remove the duplicate Cloud chat presentation components. The remaining
-   Cloud UI families still wait for the package-wide big bang.
+   remove the duplicate Cloud chat presentation components. App migration now
+   proceeds one package at a time through `APP_MIGRATION.md`; Weather is the
+   first completed app pilot.
 
 ## Production performance gate
 
