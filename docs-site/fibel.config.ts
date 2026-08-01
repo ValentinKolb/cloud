@@ -38,6 +38,13 @@ export default defineFibel({
       path: "/docs",
     },
     {
+      id: "apps",
+      label: "Apps",
+      description: "Built-in Cloud applications, their product boundaries, and their Cloud integration.",
+      content: "apps-content",
+      path: "/apps",
+    },
+    {
       id: "ui",
       label: "UI",
       description: "Portable @k2b/ui components and Cloud-specific integrations.",

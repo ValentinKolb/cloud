@@ -1,0 +1,72 @@
+---
+title: Spaces
+navTitle: Spaces
+section: Work
+order: 130
+description: Shared boards for tasks, events, comments, views, and calendar planning.
+tags: [spaces, tasks, calendar]
+updated: 2026-08-02
+---
+
+# Spaces
+
+Spaces organizes tasks and events for a team, project, household, class, or
+recurring process. The same items can be viewed as a list, table, Kanban board,
+or calendar without copying the work into separate systems.
+
+## Use Spaces
+
+- Track tasks with status, priority, assignees, deadlines, tags, descriptions,
+  and comments.
+- Plan events with start and end times, recurrence, and calendar views.
+- Switch between list, table, Kanban, and calendar views for the current job.
+- Filter and group the same items by state, person, priority, tag, or time.
+- Import an invitation from Mail into a chosen writable Space, or publish an
+  enabled calendar feed to another calendar client.
+
+Use one Space for work that shares a team and access boundary. Create another
+when the audience or lifecycle is different.
+
+## Understand the Spaces model
+
+| Resource | Responsibility |
+| --- | --- |
+| Space | Permission-scoped work area with columns, tags, items, and settings |
+| Item | Task or event with shared content and workflow fields |
+| Column and tag | Ordered workflow stage and cross-cutting label |
+| Comment and assignee | Collaboration context attached to one item |
+| Calendar surface | Time-based view, invitation integration, and optional iCal export |
+
+Tasks use deadlines; events use a schedule and may recur. Views, filters, and
+grouping change how items are presented, not which resource owns them.
+
+## How Spaces fits Cloud
+
+Spaces owns its items, views, calendar behavior, comments, and recurrence.
+Cloud supplies identity, resource access, resource-bound API keys, live
+application discovery, dashboard widgets, capability registration, and shared
+Help. Mail passes authorized invitation context to Spaces; Spaces remains the
+owner of the resulting event.
+
+## Find detailed product help
+
+Open **Help** inside Spaces for first use, views, daily workflow, sharing,
+calendar integration, and troubleshooting. Developers can read
+[Resource authorization](/en/docs/identity/authorization),
+[URL state and navigation](/en/docs/frontend/url-state-and-navigation), and
+[App capabilities](/en/docs/platform/capabilities) for the shared contracts
+Spaces adopts.
+
+## Automate Spaces from the terminal
+
+Spaces provides a native CLI module for spaces, items, comments, access, and
+calendar queries. Start with read commands:
+
+```bash
+cld spaces list --json
+cld spaces items "Product" --status active --json
+```
+
+Run `cld spaces help` for the available areas. Run
+`cld spaces <command> --help` before creating or changing work, access, or
+calendar integrations.
