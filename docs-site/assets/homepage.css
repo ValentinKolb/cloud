@@ -479,6 +479,7 @@
   display: inline-flex;
   min-height: 2.7rem;
   align-items: center;
+  gap: 0.5rem;
   border: 1px solid var(--c-line-2);
   border-radius: 0.45rem;
   padding: 0.6rem 1.05rem;
@@ -491,6 +492,12 @@
   transition:
     border-color 140ms ease,
     background 140ms ease;
+}
+
+.cloud-home .cloud-btn svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
 }
 
 .cloud-home .cloud-btn:hover {
@@ -717,6 +724,11 @@
   color: var(--c-muted);
   font-size: 0.875rem;
   line-height: 1.5;
+}
+
+.cloud-apps-more {
+  width: fit-content;
+  margin-top: 1.35rem;
 }
 
 @media (min-width: 34rem) {
@@ -1006,6 +1018,44 @@
 .cloud-cta code {
   font-family: var(--c-mono);
   font-size: 0.9em;
+}
+
+/* --- homepage footer ---------------------------------------------------- */
+
+.cloud-home-footer {
+  border-top: 1px solid var(--c-line);
+  background: var(--c-canvas);
+  color: var(--c-muted);
+  font-family: var(--c-sans);
+  font-size: 0.875rem;
+}
+
+.cloud-home-footer-inner {
+  min-height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+}
+
+.cloud-home-footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+}
+
+.cloud-home-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cloud-home-footer a:hover {
+  color: var(--c-ink);
+}
+
+.cloud-home-footer a:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 3px;
 }
 
 /* --- narrow -------------------------------------------------------------- */

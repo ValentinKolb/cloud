@@ -31,18 +31,18 @@ export default defineFibel({
   siteUrl,
   collections: [
     {
-      id: "docs",
-      label: "Docs",
-      description: "Developer documentation for building and operating Cloud applications.",
-      content: "docs",
-      path: "/docs",
-    },
-    {
       id: "apps",
       label: "Apps",
       description: "Built-in Cloud applications, their product boundaries, and their Cloud integration.",
       content: "apps-content",
       path: "/apps",
+    },
+    {
+      id: "docs",
+      label: "Docs",
+      description: "Developer documentation for building and operating Cloud applications.",
+      content: "docs",
+      path: "/docs",
     },
     {
       id: "ui",

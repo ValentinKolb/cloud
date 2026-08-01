@@ -33,25 +33,20 @@ export const siteHeader = {
   homeHref: "/en",
   searchLabel: "Search",
   links: [
-    { label: "Home", href: "/en" },
-    {
-      label: "Docs",
-      href: ({ locale }) => `/${locale}/docs`,
-      activeWhen: "/en/docs",
-    },
     {
       label: "Apps",
       href: ({ locale }) => `/${locale}/apps`,
       activeWhen: "/en/apps",
     },
     {
+      label: "Docs",
+      href: ({ locale }) => `/${locale}/docs`,
+      activeWhen: "/en/docs",
+    },
+    {
       label: "UI",
       href: ({ locale }) => `/${locale}/ui`,
       activeWhen: "/en/ui",
-    },
-    {
-      label: "GitHub",
-      href: "https://github.com/ValentinKolb/cloud",
     },
   ],
 } satisfies FibelHeaderConfig;

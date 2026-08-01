@@ -56,10 +56,9 @@ export default function HomeHeader(props: HomeHeaderProps) {
           <span>Cloud</span>
         </a>
         <nav class="cloud-header-nav" aria-label="Primary navigation">
-          <a href="/en/docs">Docs</a>
           <a href="/en/apps">Apps</a>
+          <a href="/en/docs">Docs</a>
           <a href="/en/ui">UI</a>
-          <a href="https://github.com/ValentinKolb/cloud">GitHub</a>
         </nav>
         <button class="cloud-theme-toggle" type="button" onClick={toggleTheme} aria-label="Toggle theme">
           {theme() === "dark" ? <SunIcon /> : <MoonIcon />}
