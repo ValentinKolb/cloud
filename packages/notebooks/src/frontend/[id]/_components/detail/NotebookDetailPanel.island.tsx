@@ -290,7 +290,7 @@ export default function NotebookDetailPanel(props: Props) {
   });
 
   return (
-    <AppWorkspace.Detail open={open()} class="!p-[var(--ui-space-section)]">
+    <AppWorkspace.Detail open={open()}>
       <div class="flex h-full min-h-0 flex-col">
         <header class="detail-header" style="view-transition-name: notebook-detail-panel">
           <div class="flex items-center justify-between gap-2">

@@ -67,6 +67,19 @@ the app's behavior while adopting the canonical API in one pass, especially:
 Do not recreate removed aliases such as `SwitchInput`, and do not replace a
 component with a smaller substitute that loses behavior.
 
+### Shared workspace shell ownership
+
+`AppWorkspace` owns the structural geometry of its regions. In particular,
+`AppWorkspace.Detail` provides the outer detail inset and spacing; applications
+must not repeat that contract with `p-*`, `!p-*`, negative margins, or an
+app-local wrapper around the detail region. Detail content starts with the
+shared `detail-header` and `detail-stack` patterns where applicable.
+
+Do not add a local flush workaround when an application needs edge-to-edge
+content. First verify whether that is a real shared use case and, if so, evolve
+the public `AppWorkspace` contract with a documented and tested API. One-off
+CSS exceptions make workspace geometry inconsistent across applications.
+
 ## 4. Remove the old path
 
 Delete an app-local TypeScript path alias when no source file uses it. The
@@ -109,6 +122,31 @@ Run the smallest complete evidence set for the app:
 
 The final legacy check covers both imports and unclassified Cloud utility
 classes from section 4.
+
+### Shared component impact check
+
+A change to a shared layout or base component can affect applications that are
+already migrated. Before committing such a change, inventory every current
+consumer and classify whether it follows the shared contract. For example:
+
+```sh
+rg -n 'AppWorkspace\.Detail' packages --glob '*.tsx'
+rg -n 'AppWorkspace\.Detail[^>]*class=' packages --glob '*.tsx'
+```
+
+Remove redundant app-local geometry and stop if a consumer intentionally needs
+a different contract. Then run the full shared-package tests, typecheck every
+affected migrated application, and rebuild or restart affected development
+containers when their image embeds the package build. Only then visually smoke
+the Fibel showcase plus the affected application shells at narrow and wide
+widths. Record the consumer search and verification evidence in the migration
+task; a green shared-package test or a stale running container is not
+sufficient.
+
+For `AppWorkspace.Detail`, explicitly verify that the shared inset is present
+once: the workspace region owns it and the application child starts at zero
+outer padding. Check both an open desktop detail and its narrow overlay state so
+the shared change cannot introduce double padding or clipped content.
 
 If a check fails, fix the package contract or the app usage at its owner. Do
 not hide a failure behind a local shim.
