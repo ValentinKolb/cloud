@@ -24,30 +24,38 @@ standard Compose profile.
 | Spaces | space event topic |
 
 Mutexes, rate limits, and ephemeral registry/presence state do not require the
-durable migration, but they still require a coordinated restart so every
-process loads the same package version.
+durable migration. Sync 5.9.1 keeps ephemeral records readable by 5.8 during a
+short transition, but durable producers and workers still require a coordinated
+restart across the 5.8 to 5.9 boundary.
 
 ## Read-only preflight
 
-1. Verify the artifact resolves one version only:
+1. Choose a complete immutable Cloud release set and render production Compose:
 
    ```sh
-   bun pm ls --all | rg '@k2b/sync@'
+   export CLOUD_IMAGE_TAG=sha-0123456789ab
+   docker compose -f compose.prod.yml config
    ```
 
-2. Record the running version in every Cloud container. A 5.8 container blocks
-   the 5.9 start:
+   Use only a tag whose Docker workflow completed the `release-set` job.
+
+2. Run the read-only production guard. It renders every image, inspects running
+   image tags, reports app release and Sync metadata from the live registry,
+   and inventories Sync keys. A mixed 5.8/5.9 runtime or unresolved legacy
+   durable key blocks the upgrade:
 
    ```sh
-   docker compose -f compose.dev.yml --profile extra ps -q \
-     | xargs -n1 docker inspect --format '{{.Name}}' \
-     | while read -r container; do
-         docker exec "${container#/}" bun -e \
-           'console.log(process.env.APP_ID, require("@k2b/sync/package.json").version)'
-       done
+   bun run prod:preflight
    ```
 
-3. Export an exact, read-only Redis key inventory and a Redis backup before
+3. Pull the complete release set. Do not stop or recreate any service unless
+   every image pull succeeds:
+
+   ```sh
+   docker compose -f compose.prod.yml pull
+   ```
+
+4. Export an exact, read-only Redis key inventory and a Redis backup before
    changing state. Keep the raw keys: ambiguous names must be decided by an
    operator, not parsed by a migration script.
 
@@ -56,12 +64,12 @@ process loads the same package version.
    redis-cli -u "$REDIS_URL" --rdb sync-5.9-before.rdb
    ```
 
-4. For every queue, verify ready, delayed, and active work is empty and inspect
+5. For every queue, verify ready, delayed, and active work is empty and inspect
    its DLQ. Consume or export retained topic entries and pending groups. Let job
    claims expire, pumps finish their active page, and pending scheduler-control
    requests settle. Preserve any pump cursor or run that must continue.
 
-5. Record scheduler definitions, indexes, due state, and next-run times. These
+6. Record scheduler definitions, indexes, due state, and next-run times. These
    legacy scheduler keys are preserved through the deployment.
 
 ## Execution
@@ -77,9 +85,12 @@ process loads the same package version.
 5. Call each scheduler's normal list/get/create path and verify the new
    collision-free schedule records and next slots. Keep the compatible legacy
    scheduler keys.
-6. Verify every container reports 5.9.0, all apps are present in the Gateway
-   registry, representative queue/topic/job/pump flows complete, and logs contain
-   no `namespace migration required` error.
+6. Verify every app reports the selected Cloud release and Sync 5.9.1 in Admin
+   → Apps, all apps are present in the Gateway registry, representative
+   queue/topic/job/pump flows complete, and logs contain no
+   `namespace migration required` error.
+7. Run `bun run prod:preflight` again. It must finish without a compatibility or
+   legacy-state blocker.
 
 ## Rollback boundary
 

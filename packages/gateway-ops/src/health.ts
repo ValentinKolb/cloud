@@ -1,5 +1,6 @@
-import { listAppsDetailed } from "@valentinkolb/cloud";
+import { readAppRegistrySnapshot } from "@valentinkolb/cloud";
 import { listGatewayRouteSnapshots } from "@valentinkolb/cloud/services";
+import { buildAppRuntimeStatuses } from "./app-runtime-status";
 import { getGridsOperationalSnapshot, gridsSloStatus, listAppSloWindows } from "./grids-operational-health";
 import { listRegisteredAppStatus } from "./registered-apps";
 
@@ -15,6 +16,8 @@ export type GatewayHealthApp = {
   lastSeenAt: string;
   offlineForMs: number;
   signals: string[];
+  release?: string;
+  syncVersion?: string;
 };
 
 export type GatewayHealth = {
@@ -59,19 +62,24 @@ export const scopeGatewayHealth = (health: GatewayHealth, scopeAppIds?: readonly
 
 export const buildGatewayHealth = async (scopeAppIds?: readonly string[]): Promise<GatewayHealth> => {
   const checkedAt = new Date();
-  const [liveApps, snapshots, gridsOperations, gridsSlo] = await Promise.all([
-    listAppsDetailed(),
+  const [registry, snapshots, gridsOperations, gridsSlo] = await Promise.all([
+    readAppRegistrySnapshot(),
     listGatewayRouteSnapshots(),
     getGridsOperationalSnapshot(),
     listAppSloWindows("grids"),
   ]);
-  const registeredApps = await listRegisteredAppStatus(liveApps);
+  const registeredApps = await listRegisteredAppStatus(registry.apps);
+  const runtimeStatuses = buildAppRuntimeStatuses(registry.apps, registry.issues);
   const latestSnapshot = snapshots.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
 
   const apps = registeredApps.map<GatewayHealthApp>((app) => {
     const fresh = Boolean(app.live && app.live.expiresAt - Date.now() > 30_000);
     let status: GatewayHealthStatus = app.isOnline ? (fresh ? "ok" : "warn") : "error";
     const signals: string[] = [];
+    const runtimeStatus = runtimeStatuses.get(app.id);
+    if (runtimeStatus?.status === "error") status = "error";
+    else if (runtimeStatus?.status === "warn" && status === "ok") status = "warn";
+    signals.push(...(runtimeStatus?.signals ?? []));
     if (app.id === "grids" && app.isOnline) {
       const sloStatus = gridsSloStatus(gridsSlo);
       if (gridsOperations?.status === "error" || sloStatus === "error") status = "error";
@@ -91,8 +99,26 @@ export const buildGatewayHealth = async (scopeAppIds?: readonly string[]): Promi
       lastSeenAt: new Date(app.live?.updatedAt ?? app.lastSeenAt).toISOString(),
       offlineForMs: app.offlineForMs,
       signals,
+      release: (app.live?.runtime ?? app.runtime)?.release,
+      syncVersion: (app.live?.runtime ?? app.runtime)?.syncVersion,
     };
   });
+
+  const knownAppIds = new Set(apps.map((app) => app.id));
+  for (const [appId, runtimeStatus] of runtimeStatuses) {
+    if (knownAppIds.has(appId)) continue;
+    apps.push({
+      id: appId,
+      name: appId,
+      icon: "ti ti-alert-triangle",
+      status: runtimeStatus.status,
+      online: true,
+      healthy: false,
+      lastSeenAt: checkedAt.toISOString(),
+      offlineForMs: 0,
+      signals: runtimeStatus.signals,
+    });
+  }
 
   const routeErrors = snapshots.reduce(
     (total, snapshot) => total + snapshot.stats.byRoute.reduce((sum, route) => sum + route.errors, 0),

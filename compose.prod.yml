@@ -28,7 +28,7 @@ services:
   # Gateway — the only service exposed to Traefik.
   gateway:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-gateway:latest
+    image: ghcr.io/valentinkolb/cloud-gateway:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
     networks: [cloud-internal, traefik]
     labels:
       - "traefik.enable=true"
@@ -40,81 +40,85 @@ services:
 
   app-gateway-ops:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-gateway-ops:latest
+    image: ghcr.io/valentinkolb/cloud-app-gateway-ops:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   # Apps — internal only, reached through the gateway.
   app-core:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-core:latest
+    image: ghcr.io/valentinkolb/cloud-core:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-accounts:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-accounts:latest
+    image: ghcr.io/valentinkolb/cloud-app-accounts:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-api-docs:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-api-docs:latest
+    image: ghcr.io/valentinkolb/cloud-app-api-docs:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-assistant:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-assistant:latest
+    image: ghcr.io/valentinkolb/cloud-app-assistant:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
+
+  app-capabilities:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-capabilities:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-contacts:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-contacts:latest
+    image: ghcr.io/valentinkolb/cloud-app-contacts:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-dashboard:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-dashboard:latest
+    image: ghcr.io/valentinkolb/cloud-app-dashboard:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-faq:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-faq:latest
+    image: ghcr.io/valentinkolb/cloud-app-faq:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-files:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-files:latest
+    image: ghcr.io/valentinkolb/cloud-app-files:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-grids:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-grids:latest
+    image: ghcr.io/valentinkolb/cloud-app-grids:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-ipa-hosts:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-ipa-hosts:latest
+    image: ghcr.io/valentinkolb/cloud-app-ipa-hosts:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-mail:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-mail:latest
+    image: ghcr.io/valentinkolb/cloud-app-mail:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-notebooks:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-notebooks:latest
+    image: ghcr.io/valentinkolb/cloud-app-notebooks:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-oauth:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-oauth:latest
+    image: ghcr.io/valentinkolb/cloud-app-oauth:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-proxy-auth:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-proxy-auth:latest
+    image: ghcr.io/valentinkolb/cloud-app-proxy-auth:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-quotes:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-quotes:latest
+    image: ghcr.io/valentinkolb/cloud-app-quotes:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-spaces:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-spaces:latest
+    image: ghcr.io/valentinkolb/cloud-app-spaces:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-tools:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-tools:latest
+    image: ghcr.io/valentinkolb/cloud-app-tools:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-venue:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-venue:latest
+    image: ghcr.io/valentinkolb/cloud-app-venue:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}
 
   app-weather:
     <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-weather:latest
+    image: ghcr.io/valentinkolb/cloud-app-weather:${CLOUD_IMAGE_TAG:?CLOUD_IMAGE_TAG is required}

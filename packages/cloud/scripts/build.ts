@@ -41,6 +41,19 @@ const root = process.cwd();
 // (monorepo) or node_modules/@valentinkolb/cloud/scripts/ (npm install).
 const frameworkDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+const release = process.env.CLOUD_RELEASE?.trim() || "local";
+if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(release)) {
+  throw new Error(`Invalid CLOUD_RELEASE: ${JSON.stringify(release)}`);
+}
+const syncPackagePath = Bun.resolveSync("@k2b/sync/package.json", frameworkDir);
+const syncPackage = JSON.parse(await readFile(syncPackagePath, "utf8")) as {
+  version?: unknown;
+};
+if (typeof syncPackage.version !== "string" || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(syncPackage.version)) {
+  throw new Error("Could not resolve the installed @k2b/sync version");
+}
+const syncVersion = syncPackage.version;
+
 // App dir — APP_DIR override for standalone consumers, defaults to monorepo
 // convention. Resolved against cwd if relative.
 const appDir = process.env.APP_DIR ? resolve(root, process.env.APP_DIR) : resolve(root, "packages", appId);
@@ -110,6 +123,10 @@ try {
     naming: "server.js",
     target: "bun",
     minify: true,
+    define: {
+      __CLOUD_RELEASE__: JSON.stringify(release),
+      __CLOUD_SYNC_VERSION__: JSON.stringify(syncVersion),
+    },
     plugins: [plugin()],
   });
 } finally {

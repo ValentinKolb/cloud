@@ -33,7 +33,7 @@
     "fixtures/ui-ssr"
   ],
   "overrides": {
-    "@k2b/sync": "5.9.0"
+    "@k2b/sync": "5.9.1"
   },
   "scripts": {
     "infra": "docker compose -f compose.yml up -d",
@@ -48,6 +48,7 @@
     "dev:logs": "bun run scripts/dev-logs.ts",
     "dev:status": "bun run scripts/dev-status.ts",
     "dev:help": "bun run scripts/dev-help.ts",
+    "prod:preflight": "bun run scripts/prod-upgrade-preflight.ts",
     "format": "bun run scripts/run-biome.ts format",
     "format:check": "bun run scripts/run-biome.ts format:check",
     "lint": "bun run scripts/run-biome.ts lint",

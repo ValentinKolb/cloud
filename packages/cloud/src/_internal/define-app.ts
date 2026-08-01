@@ -26,6 +26,7 @@ import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
 import { registerSettings, toLegacySettingDefs } from "../services/settings/defaults";
 import { themeBootstrapScript } from "../shared/theme";
 import { readBoundedJson } from "./bounded-json";
+import { appRuntimeMetadata } from "./build-metadata";
 import { compileCapabilities, invokeCompiledCapability } from "./capabilities";
 import { createHeartbeat } from "./heartbeat";
 import { capabilityRegistry } from "./registry";
@@ -331,6 +332,7 @@ export const defineApp = <
       description: meta.description,
       appearance: meta.appearance,
       baseUrl,
+      runtime: appRuntimeMetadata,
       routes: [...meta.routes],
       nav:
         meta.nav || meta.adminHref

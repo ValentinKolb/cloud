@@ -9,6 +9,7 @@ type DbRegisteredAppRow = {
   icon: string;
   description: string;
   appearance: unknown;
+  runtime: unknown;
   base_url: string;
   routes: unknown;
   nav: unknown;
@@ -53,6 +54,7 @@ const mapRow = (row: DbRegisteredAppRow): PersistentRegisteredApp => ({
   icon: row.icon,
   description: row.description,
   appearance: jsonObject<AppRegistryEntry["appearance"]>(row.appearance),
+  runtime: jsonObject<AppRegistryEntry["runtime"]>(row.runtime),
   baseUrl: row.base_url,
   routes: jsonArray<string>(row.routes),
   nav: jsonObject<AppRegistryEntry["nav"]>(row.nav),
@@ -71,7 +73,7 @@ export const upsertRegisteredApps = async (apps: readonly AppRegistryEntry[]): P
   for (const app of apps) {
     await sql`
       INSERT INTO gateway.registered_apps (
-        id, name, icon, description, appearance, base_url, routes, nav, search, legal_links,
+        id, name, icon, description, appearance, runtime, base_url, routes, nav, search, legal_links,
         widgets, openapi, first_seen_at, last_seen_at, updated_at, removed_at
       )
       VALUES (
@@ -80,6 +82,7 @@ export const upsertRegisteredApps = async (apps: readonly AppRegistryEntry[]): P
         ${app.icon},
         ${app.description},
         ${app.appearance ? JSON.stringify(app.appearance) : null}::jsonb,
+        ${app.runtime ? JSON.stringify(app.runtime) : null}::jsonb,
         ${app.baseUrl},
         ${JSON.stringify(app.routes)}::jsonb,
         ${app.nav ? JSON.stringify(app.nav) : null}::jsonb,
@@ -97,6 +100,7 @@ export const upsertRegisteredApps = async (apps: readonly AppRegistryEntry[]): P
         icon = EXCLUDED.icon,
         description = EXCLUDED.description,
         appearance = EXCLUDED.appearance,
+        runtime = EXCLUDED.runtime,
         base_url = EXCLUDED.base_url,
         routes = EXCLUDED.routes,
         nav = EXCLUDED.nav,

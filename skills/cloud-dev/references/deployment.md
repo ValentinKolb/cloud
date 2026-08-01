@@ -67,6 +67,7 @@ The root Dockerfile accepts one application ID:
 ```bash
 docker build \
   --build-arg APP_ID=inventory \
+  --build-arg CLOUD_RELEASE=sha-0123456789ab \
   -t cloud-app-inventory:local \
   .
 ```
@@ -92,8 +93,22 @@ Give it:
 Do not expose the application directly. The gateway discovers its registered
 prefixes and proxies public traffic.
 
-Use immutable image tags for production rollouts. Deploy the gateway and Core
-alongside compatible application versions.
+Production Compose requires one immutable `CLOUD_IMAGE_TAG` for every runtime
+image. Use only a `sha-...` tag whose Docker workflow finished the
+`release-set` job; that job proves the complete image set exists.
+
+Render and inspect the deployment before changing containers:
+
+```bash
+export CLOUD_IMAGE_TAG=sha-0123456789ab
+docker compose -f compose.prod.yml config
+bun run prod:preflight
+docker compose -f compose.prod.yml pull
+```
+
+Pull every image successfully before stopping or recreating services. For the
+Sync 5.8 to 5.9 durable namespace boundary, follow `SYNC_5_9_MIGRATION.md` and
+stop the complete old runtime before starting the new release set.
 
 <a id="page-operations-build-and-deploy-check-the-rollout"></a>
 ### Check the rollout
@@ -105,7 +120,9 @@ After deployment:
 3. inspect skipped or duplicate route warnings;
 4. request one route through the gateway;
 5. verify migrations and background workers;
-6. stop one instance and confirm registry cleanup.
+6. confirm every app reports the expected release and Sync version in Admin → Apps;
+7. run `bun run prod:preflight` again;
+8. stop one instance and confirm registry cleanup.
 
 See [Runtime configuration](#page-operations-runtime-configuration) before
 setting container values.

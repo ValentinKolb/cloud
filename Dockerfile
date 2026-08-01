@@ -15,6 +15,7 @@ COPY package.json bun.lock ./
 COPY packages/accounts/package.json      packages/accounts/
 COPY packages/api-docs/package.json      packages/api-docs/
 COPY packages/assistant/package.json     packages/assistant/
+COPY packages/capabilities/package.json  packages/capabilities/
 COPY packages/cloud/package.json         packages/cloud/
 COPY packages/cloud-cli/package.json     packages/cloud-cli/
 COPY packages/contacts/package.json      packages/contacts/
@@ -54,7 +55,9 @@ RUN bun install --frozen-lockfile --ignore-scripts --production
 # ──────────────────────────────────────────────────────────────────────
 FROM deps AS build
 ARG APP_ID
+ARG CLOUD_RELEASE=local
 ENV APP_ID=${APP_ID} \
+    CLOUD_RELEASE=${CLOUD_RELEASE} \
     NODE_ENV=production
 
 COPY packages packages

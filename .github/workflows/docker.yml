@@ -1,5 +1,8 @@
 name: Docker Images
 
+env:
+  DOCKER_METADATA_SHORT_SHA_LENGTH: 12
+
 # Three trigger paths:
 #
 #   push to main            → build only apps with changed source (changes to
@@ -30,6 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       apps: ${{ steps.set.outputs.apps }}
+      complete_set: ${{ steps.set.outputs.complete_set }}
+      release_tag: ${{ steps.set.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,7 +49,7 @@ jobs:
           set -euo pipefail
 
           # Single source of truth for which apps produce a docker image.
-          ALL='["gateway","core","accounts","api-docs","assistant","contacts","dashboard","faq","files","gateway-ops","grids","ipa-hosts","mail","notebooks","oauth","proxy-auth","quotes","spaces","tools","venue","weather"]'
+          ALL='["gateway","core","accounts","api-docs","assistant","capabilities","contacts","dashboard","faq","files","gateway-ops","grids","ipa-hosts","mail","notebooks","oauth","proxy-auth","quotes","spaces","tools","venue","weather"]'
 
           if [[ "$REF" == refs/tags/cloud-*-v* ]]; then
             # Tag form: cloud-<image>-v<version>. Strip prefix + version to
@@ -59,8 +64,10 @@ jobs:
               exit 1
             fi
             apps="[\"$id\"]"
+            release_tag="${tag##*-}"
           elif [[ "$EVENT" == "workflow_dispatch" ]]; then
             apps="$ALL"
+            release_tag="sha-${GITHUB_SHA:0:12}"
           else
             # Push to main: detect what changed since the previous push.
             base="$BEFORE"
@@ -77,9 +84,17 @@ jobs:
               apps=$(jq -nc --argjson all "$ALL" --arg list "$touched" \
                 '[$list | split("\n")[] | select(length > 0)] as $t | $all | map(select(. as $a | $t | index($a)))')
             fi
+            release_tag="sha-${GITHUB_SHA:0:12}"
+          fi
+
+          complete_set=false
+          if [[ "$(jq -c . <<<"$apps")" == "$(jq -c . <<<"$ALL")" ]]; then
+            complete_set=true
           fi
 
           echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "complete_set=$complete_set" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "Matrix: $apps"
 
   build:
@@ -133,8 +148,40 @@ jobs:
           platforms: linux/amd64,linux/arm64
           build-args: |
             APP_ID=${{ matrix.app }}
+            CLOUD_RELEASE=${{ needs.matrix.outputs.release_tag }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  release-set:
+    needs: [matrix, build]
+    if: ${{ needs.matrix.outputs.complete_set == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify complete immutable release set
+        env:
+          APPS_JSON: ${{ needs.matrix.outputs.apps }}
+          OWNER: ${{ github.repository_owner }}
+          RELEASE_TAG: ${{ needs.matrix.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          while read -r app; do
+            case "$app" in
+              gateway|core) image="cloud-$app" ;;
+              *) image="cloud-app-$app" ;;
+            esac
+            docker buildx imagetools inspect "ghcr.io/$OWNER/$image:$RELEASE_TAG" >/dev/null
+          done < <(jq -r '.[]' <<<"$APPS_JSON")

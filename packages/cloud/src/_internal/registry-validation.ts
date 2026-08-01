@@ -1,0 +1,100 @@
+import type { AppRegistryEntry } from "../contracts/registry";
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const isString = (value: unknown): value is string => typeof value === "string";
+const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(isString);
+
+const invalid = (path: string, expected: string): string => `${path} must be ${expected}`;
+
+export const validateAppRegistryEntry = (value: unknown): string | null => {
+  if (!isRecord(value)) return "entry must be an object";
+  for (const field of ["id", "name", "icon", "description", "baseUrl"] as const) {
+    if (!isString(value[field]) || value[field].length === 0) return invalid(field, "a non-empty string");
+  }
+  if (!isStringArray(value.routes) || value.routes.some((route) => !route.startsWith("/"))) {
+    return invalid("routes", "an array of absolute paths");
+  }
+  if (value.runtime !== undefined) {
+    if (!isRecord(value.runtime)) return invalid("runtime", "an object");
+    if (!isString(value.runtime.release) || value.runtime.release.length === 0) return invalid("runtime.release", "a non-empty string");
+    if (!isString(value.runtime.syncVersion) || value.runtime.syncVersion.length === 0) {
+      return invalid("runtime.syncVersion", "a non-empty string");
+    }
+  }
+  if (value.nav !== undefined) {
+    if (!isRecord(value.nav)) return invalid("nav", "an object");
+    if (!isString(value.nav.href) || !["primary", "more", "hidden"].includes(String(value.nav.section))) {
+      return invalid("nav", "a valid navigation object");
+    }
+    if (value.nav.requiresRoles !== undefined && !isStringArray(value.nav.requiresRoles)) {
+      return invalid("nav.requiresRoles", "an array of strings");
+    }
+  }
+  if (value.adminNav !== undefined) {
+    if (
+      !Array.isArray(value.adminNav) ||
+      value.adminNav.some(
+        (group) =>
+          !isRecord(group) ||
+          !isString(group.label) ||
+          !Array.isArray(group.links) ||
+          group.links.some((link) => !isRecord(link) || !isString(link.label) || !isString(link.href) || !isString(link.icon)),
+      )
+    ) {
+      return invalid("adminNav", "an array of valid navigation groups");
+    }
+  }
+  if (value.legalLinks !== undefined) {
+    if (
+      !Array.isArray(value.legalLinks) ||
+      value.legalLinks.some(
+        (link) => !isRecord(link) || !isString(link.label) || !isString(link.href) || (link.icon !== undefined && !isString(link.icon)),
+      )
+    ) {
+      return invalid("legalLinks", "an array of valid links");
+    }
+  }
+  if (value.widgets !== undefined) {
+    if (
+      !Array.isArray(value.widgets) ||
+      value.widgets.some((widget) => !isRecord(widget) || !isString(widget.id) || !isString(widget.path))
+    ) {
+      return invalid("widgets", "an array of valid widgets");
+    }
+  }
+  if (value.settingKeys !== undefined && !isStringArray(value.settingKeys)) return invalid("settingKeys", "an array of strings");
+  if (value.search !== undefined) {
+    if (
+      !isRecord(value.search) ||
+      !isString(value.search.endpoint) ||
+      !isString(value.search.queryId) ||
+      !isString(value.search.schemaHash) ||
+      !isString(value.search.description) ||
+      !Array.isArray(value.search.tags) ||
+      value.search.tags.some(
+        (tag) =>
+          !isRecord(tag) ||
+          !isString(tag.tag) ||
+          !isString(tag.title) ||
+          !isString(tag.description) ||
+          (tag.aliases !== undefined && !isStringArray(tag.aliases)),
+      )
+    ) {
+      return invalid("search", "a valid search descriptor");
+    }
+  }
+  if (value.capabilities !== undefined) {
+    if (
+      !isRecord(value.capabilities) ||
+      typeof value.capabilities.protocolVersion !== "number" ||
+      !isString(value.capabilities.manifestHash)
+    ) {
+      return invalid("capabilities", "a valid capability summary");
+    }
+  }
+  if (value.openapi !== undefined && !isString(value.openapi)) return invalid("openapi", "a string");
+  return null;
+};
+
+export const asAppRegistryEntry = (value: unknown): AppRegistryEntry | null =>
+  validateAppRegistryEntry(value) === null ? (value as AppRegistryEntry) : null;

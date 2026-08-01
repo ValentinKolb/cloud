@@ -1,4 +1,4 @@
-import { listAppsDetailed } from "@valentinkolb/cloud";
+import { readAppRegistrySnapshot } from "@valentinkolb/cloud";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { latestGatewayRouteSnapshot } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
@@ -17,7 +17,8 @@ const rangeUrl = (url: URL, range: TelemetryRange): string => {
 
 import { formatNumber as fmtCount, formatDurationMs as fmtMs } from "@valentinkolb/cloud/shared";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, NoticeCard, StatCell, StatGrid, StatusBadge } from "@valentinkolb/cloud/ui";
+import { type AppRuntimeStatus, buildAppRuntimeStatuses } from "../app-runtime-status";
 import { ssr } from "../config";
 import { gatewayOpsHelp } from "../help";
 import { getTelemetryAppTotals, getTelemetryPrefixTotals } from "../observability/telemetry/service";
@@ -50,6 +51,7 @@ type GatewayAppRow = RegisteredAppStatus & {
   traffic: { count: number; totalMs: number; errors: number } | undefined;
   isHealthy: boolean;
   upSince: number;
+  runtimeStatus: AppRuntimeStatus;
 };
 
 type GatewayRouteRow = {
@@ -67,8 +69,8 @@ export default ssr<AuthContext>(async (c) => {
   const range = isTelemetryRange(url.searchParams.get("range"))
     ? (url.searchParams.get("range") as TelemetryRange)
     : DEFAULT_TELEMETRY_RANGE;
-  const [liveApps, routerSnapshot, appTotals, prefixTotals] = await Promise.all([
-    listAppsDetailed(),
+  const [registry, routerSnapshot, appTotals, prefixTotals] = await Promise.all([
+    readAppRegistrySnapshot(),
     latestGatewayRouteSnapshot(),
     // Router counters are cumulative since the process started, so a long-lived
     // router reports a healthy lifetime average while it is failing right now.
@@ -88,7 +90,8 @@ export default ssr<AuthContext>(async (c) => {
   );
   const windowRequests = [...appTotals.values()].reduce((sum, totals) => sum + totals.requests, 0);
   const unmatchedRequests = appTotals.get("gateway")?.requests ?? 0;
-  const registeredApps = await listRegisteredAppStatus(liveApps);
+  const registeredApps = await listRegisteredAppStatus(registry.apps);
+  const runtimeStatuses = buildAppRuntimeStatuses(registry.apps, registry.issues);
   const visibleApps = registeredApps.filter((a) => a.id !== "gateway" && a.id !== "gateway-router");
 
   const navOf = (app: RegisteredAppStatus) => app.live?.nav ?? app.nav;
@@ -96,18 +99,31 @@ export default ssr<AuthContext>(async (c) => {
   const withNav = visibleApps.filter((a) => navOf(a)?.href);
   const withAdmin = visibleApps.filter((a) => navOf(a)?.adminHref);
   const withSearch = visibleApps.filter((a) => searchOf(a));
-  const healthy = visibleApps.filter((a) => a.live && a.live.expiresAt - Date.now() > 30_000);
   const appCount = visibleApps.length;
   const offlineCount = visibleApps.filter((a) => !a.isOnline).length;
 
   const appRows = visibleApps
     .map((app) => {
       const traffic = appTraffic.get(app.id);
-      const isHealthy = Boolean(app.live && app.live.expiresAt - Date.now() > 30_000);
+      const fresh = Boolean(app.live && app.live.expiresAt - Date.now() > 30_000);
+      const currentRuntimeStatus = runtimeStatuses.get(app.id);
+      const runtimeStatus: AppRuntimeStatus = {
+        status: currentRuntimeStatus?.status ?? "ok",
+        signals: [...(currentRuntimeStatus?.signals ?? [])],
+      };
+      if (!app.isOnline) {
+        runtimeStatus.status = "error";
+        runtimeStatus.signals = [...runtimeStatus.signals, "No live registry heartbeat."];
+      } else if (!fresh && runtimeStatus.status === "ok") {
+        runtimeStatus.status = "warn";
+        runtimeStatus.signals = [...runtimeStatus.signals, "Registry heartbeat expires soon."];
+      }
+      const isHealthy = runtimeStatus.status === "ok";
       const upSince = app.live ? Math.max(0, Date.now() - app.live.createdAt) : app.offlineForMs;
-      return { ...app, traffic, isHealthy, upSince };
+      return { ...app, traffic, isHealthy, upSince, runtimeStatus };
     })
     .sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || (b.traffic?.count ?? 0) - (a.traffic?.count ?? 0));
+  const healthy = appRows.filter((app) => app.isHealthy);
 
   // Route data with hit counts, server-side filtered
   const searchQuery = url.searchParams.get("search")?.toLowerCase().trim() ?? "";
@@ -121,6 +137,7 @@ export default ssr<AuthContext>(async (c) => {
   const appColumns: DataTableColumn<GatewayAppRow>[] = [
     { id: "app", header: "App", value: (app) => app.name },
     { id: "status", header: "Status", value: (app) => app.isOnline, headerClass: "text-center", cellClass: "text-center" },
+    { id: "runtime", header: "Release", value: (app) => (app.live?.runtime ?? app.runtime)?.release },
     { id: "baseUrl", header: "Base URL", value: (app) => app.baseUrl },
     { id: "nav", header: "Nav", value: (app) => app.nav?.href, headerClass: "text-center", cellClass: "text-center" },
     { id: "admin", header: "Admin", value: (app) => app.nav?.adminHref, headerClass: "text-center", cellClass: "text-center" },
@@ -243,6 +260,14 @@ export default ssr<AuthContext>(async (c) => {
         {/* ── Apps Table ── */}
         {!isRoutesPage ? (
           <section class="paper overflow-hidden">
+            {registry.issues.length > 0 ? (
+              <NoticeCard
+                tone="error"
+                title={`${registry.issues.length} invalid app registry ${registry.issues.length === 1 ? "entry" : "entries"}`}
+                detail={registry.issues.map((issue) => `${issue.key}: ${issue.reason}`).join(" · ")}
+                class="m-3"
+              />
+            ) : null}
             <div class="flex flex-col gap-2 px-3 py-3">
               <div>
                 <h2 class="text-xs font-semibold text-primary">Apps</h2>
@@ -255,7 +280,13 @@ export default ssr<AuthContext>(async (c) => {
               getRowId={(app) => app.id}
               hoverRows
               highlightColumns={false}
-              rowClass={(app) => (app.isHealthy ? "" : "bg-red-50/50 dark:bg-red-950/20")}
+              rowClass={(app) =>
+                app.runtimeStatus.status === "error"
+                  ? "bg-red-50/50 dark:bg-red-950/20"
+                  : app.runtimeStatus.status === "warn"
+                    ? "bg-amber-50/50 dark:bg-amber-950/20"
+                    : ""
+              }
               class="overflow-x-auto"
               tableClass="w-full text-sm"
               renderCell={({ row: app, col }) => {
@@ -272,14 +303,33 @@ export default ssr<AuthContext>(async (c) => {
                 }
                 if (col.id === "baseUrl") return <code class="text-[10px] text-dimmed">{app.baseUrl}</code>;
                 if (col.id === "status") {
-                  return app.isOnline ? (
-                    <span class="inline-flex items-center justify-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                      <i class="ti ti-heartbeat text-[9px]" /> live
-                    </span>
-                  ) : (
-                    <span class="inline-flex items-center justify-center gap-1 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-500">
-                      <i class="ti ti-plug-off text-[9px]" /> offline
-                    </span>
+                  const label = !app.isOnline
+                    ? "Offline"
+                    : app.runtimeStatus.status === "error"
+                      ? "Incompatible"
+                      : app.runtimeStatus.status === "warn"
+                        ? "Degraded"
+                        : "Live";
+                  return (
+                    <div class="flex max-w-64 flex-col items-center gap-1">
+                      <StatusBadge
+                        tone={app.runtimeStatus.status}
+                        label={label}
+                        title={app.runtimeStatus.signals.join("\n") || undefined}
+                      />
+                      {app.runtimeStatus.signals.length > 0 ? (
+                        <span class="text-[9px] leading-tight text-dimmed">{app.runtimeStatus.signals[0]}</span>
+                      ) : null}
+                    </div>
+                  );
+                }
+                if (col.id === "runtime") {
+                  const runtime = app.live?.runtime ?? app.runtime;
+                  return (
+                    <div class="flex flex-col whitespace-nowrap">
+                      <code class="text-[10px] text-primary">{runtime?.release ?? "unknown"}</code>
+                      <span class="text-[9px] text-dimmed">Sync {runtime?.syncVersion ?? "unknown"}</span>
+                    </div>
                   );
                 }
                 if (col.id === "nav") return navOf(app)?.href ? <Check /> : <Dash />;

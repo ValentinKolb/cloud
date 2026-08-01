@@ -4,8 +4,8 @@ import type { DashboardWidgetPresentation } from "./widgets";
 
 /**
  * App-registry entry type. Populated internally by `defineApp()` + the
- * heartbeat runtime; never parsed from external input — plain TS types are
- * enough for type safety (no runtime validation needed).
+ * heartbeat runtime. Values are validated when read because Redis may still
+ * contain records written by older or interrupted runtimes.
  */
 
 export type AppRegistryNav = {
@@ -52,6 +52,11 @@ export type AppRegistryWidget = {
   presentation?: DashboardWidgetPresentation;
 };
 
+export type AppRuntimeMetadata = {
+  release: string;
+  syncVersion: string;
+};
+
 export type AppRegistryEntry = {
   id: string;
   name: string;
@@ -59,6 +64,8 @@ export type AppRegistryEntry = {
   description: string;
   appearance?: AppAppearance;
   baseUrl: string;
+  /** Build metadata reported by the running app. Missing on older app releases. */
+  runtime?: AppRuntimeMetadata;
   /**
    * Top-level URL prefixes the gateway routes to this app. The gateway
    * builds a prefix-trie from these strings, no derivation or heuristics.

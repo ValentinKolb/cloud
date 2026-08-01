@@ -1,6 +1,7 @@
 import { ephemeral } from "@k2b/sync";
 import type { AppRegistryEntry, CapabilityRegistryEntry } from "../contracts/registry";
 import type { DashboardWidgetPresentation } from "../contracts/widgets";
+import { validateAppRegistryEntry } from "./registry-validation";
 
 /**
  * Shared app registry backed by Redis via @k2b/sync ephemeral store.
@@ -34,19 +35,93 @@ export type AppRegistryDetail = AppRegistryEntry & {
   version: string;
 };
 
+export type AppRegistryIssue = {
+  key: string;
+  version: string;
+  reason: string;
+};
+
+export type AppRegistrySnapshot = {
+  apps: AppRegistryDetail[];
+  issues: AppRegistryIssue[];
+};
+
+const loggedInvalidReasons = new Map<string, string>();
+
+const reportInvalidEntry = (issue: AppRegistryIssue): void => {
+  if (loggedInvalidReasons.get(issue.key) === issue.reason) return;
+  loggedInvalidReasons.set(issue.key, issue.reason);
+  console.error(
+    JSON.stringify({
+      level: "error",
+      source: "app-registry",
+      message: "Rejected invalid app registry entry",
+      registryKey: issue.key,
+      registryVersion: issue.version,
+      reason: issue.reason,
+    }),
+  );
+};
+
+export const readAppRegistrySnapshot = async (): Promise<AppRegistrySnapshot> => {
+  const snapshot = await appRegistry.snapshot({ prefix: "apps/" });
+  const apps: AppRegistryDetail[] = [];
+  const issues: AppRegistryIssue[] = [];
+  const presentKeys = new Set<string>();
+
+  for (const entry of snapshot.entries) {
+    presentKeys.add(entry.key);
+    const reason = validateAppRegistryEntry(entry.value);
+    if (reason) {
+      const issue = { key: entry.key, version: entry.version, reason };
+      issues.push(issue);
+      reportInvalidEntry(issue);
+      continue;
+    }
+    loggedInvalidReasons.delete(entry.key);
+    apps.push({
+      ...(entry.value as AppRegistryEntry),
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      expiresAt: entry.expiresAt,
+      version: entry.version,
+    });
+  }
+
+  for (const key of loggedInvalidReasons.keys()) {
+    if (!presentKeys.has(key)) loggedInvalidReasons.delete(key);
+  }
+  return { apps, issues };
+};
+
+export const requireUsableAppRegistry = (snapshot: AppRegistrySnapshot): AppRegistryDetail[] => {
+  if (snapshot.apps.length === 0 && snapshot.issues.length > 0) {
+    throw new Error(`App registry contains no valid entries (${snapshot.issues.length} rejected)`);
+  }
+  return snapshot.apps;
+};
+
 /**
  * List all currently live (TTL-valid) app registry entries.
  */
 export const listApps = async (): Promise<AppRegistryEntry[]> => {
-  const snap = await appRegistry.snapshot({ prefix: "apps/" });
-  return snap.entries.map((e) => e.value);
+  const snapshot = await readAppRegistrySnapshot();
+  return requireUsableAppRegistry(snapshot);
 };
 
 /** Reads one live app without materializing the full registry. */
 export const getApp = async (appId: string): Promise<AppRegistryEntry | null> => {
   const key = `apps/${appId}`;
   const snap = await appRegistry.snapshot({ prefix: key });
-  return snap.entries.find((entry) => entry.key === key)?.value ?? null;
+  const entry = snap.entries.find((candidate) => candidate.key === key);
+  if (!entry) return null;
+  const reason = validateAppRegistryEntry(entry.value);
+  if (!reason) {
+    loggedInvalidReasons.delete(key);
+    return entry.value;
+  }
+  reportInvalidEntry({ key, version: entry.version, reason });
+  return null;
 };
 
 export const listCapabilities = async (): Promise<CapabilityRegistryEntry[]> => {
@@ -64,14 +139,8 @@ export const getCapability = async (appId: string): Promise<CapabilityRegistryEn
  * Same as `listApps` but returns registry metadata for admin observability.
  */
 export const listAppsDetailed = async (): Promise<AppRegistryDetail[]> => {
-  const snap = await appRegistry.snapshot({ prefix: "apps/" });
-  return snap.entries.map((e) => ({
-    ...e.value,
-    createdAt: e.createdAt,
-    updatedAt: e.updatedAt,
-    expiresAt: e.expiresAt,
-    version: e.version,
-  }));
+  const snapshot = await readAppRegistrySnapshot();
+  return snapshot.apps;
 };
 
 /**
