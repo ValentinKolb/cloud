@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { AppWorkspace, dialogCore, panelDialogFixedOptions, prompts, Tooltip, toast } from "@k2b/ui";
+import { AppWorkspace, Button, dialogCore, IconButton, panelDialogFixedOptions, prompts, Tooltip, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { readResponseError } from "../../../lib/response";
@@ -66,7 +66,7 @@ export default function CreateItemButton(props: Props) {
 
   if (props.variant === "chip") {
     return (
-      <button type="button" onClick={() => mutation.mutate(undefined)} disabled={mutation.loading()} class="btn-primary btn-sm">
+      <Button type="button" size="sm" onClick={() => mutation.mutate(undefined)} disabled={mutation.loading()}>
         {mutation.loading() ? (
           <i class="ti ti-loader-2 animate-spin" />
         ) : (
@@ -75,7 +75,7 @@ export default function CreateItemButton(props: Props) {
             <span>{label()}</span>
           </>
         )}
-      </button>
+      </Button>
     );
   }
 
@@ -95,35 +95,31 @@ export default function CreateItemButton(props: Props) {
   if (props.variant === "icon") {
     return (
       <Tooltip content={label()}>
-        <button
-          type="button"
-          onClick={() => mutation.mutate(undefined)}
-          disabled={mutation.loading()}
-          class="sidebar-icon-action"
-          aria-label={label()}
-        >
+        <IconButton label={label()} size="sm" onClick={() => mutation.mutate(undefined)} disabled={mutation.loading()}>
           <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
-        </button>
+        </IconButton>
       </Tooltip>
     );
   }
 
   if (props.variant === "inline") {
     return (
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="xs"
         onClick={() => mutation.mutate(undefined)}
         disabled={mutation.loading()}
-        class="focus-ui flex w-full items-center gap-1.5 rounded-[var(--ui-radius-control)] px-2 py-1.5 text-left text-[11px] font-medium text-dimmed transition-colors hover:bg-[var(--ui-hover)] hover:text-primary"
+        class="w-full justify-start text-left text-[11px] text-dimmed hover:text-primary [&_.k2b-button__label]:w-full [&_.k2b-button__label]:justify-start"
       >
         <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-xs`} />
         <span>{defaultType() === "event" ? "Add event" : "Add task"}</span>
-      </button>
+      </Button>
     );
   }
 
   return (
-    <button type="button" onClick={() => mutation.mutate(undefined)} disabled={mutation.loading()} class="btn-primary btn-md w-full">
+    <Button type="button" onClick={() => mutation.mutate(undefined)} disabled={mutation.loading()} class="w-full">
       {mutation.loading() ? (
         <i class="ti ti-loader-2 animate-spin" />
       ) : (
@@ -132,6 +128,6 @@ export default function CreateItemButton(props: Props) {
           <span>{label()}</span>
         </>
       )}
-    </button>
+    </Button>
   );
 }

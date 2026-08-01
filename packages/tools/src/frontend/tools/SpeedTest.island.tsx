@@ -1,4 +1,4 @@
-import { Chart, CopyButton } from "@k2b/ui";
+import { Button, Chart, CopyButton } from "@k2b/ui";
 import { batch, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { ToolCodeBlock } from "./ToolOutput";
@@ -330,15 +330,15 @@ export default function SpeedTest(props: SpeedTestProps) {
           <Show
             when={isRunning()}
             fallback={
-              <button class="btn-primary btn-md" onClick={run}>
+              <Button onClick={run}>
                 <i class="ti ti-player-play" />
                 {phase() === "done" || phase() === "error" ? "Run again" : "Start test"}
-              </button>
+              </Button>
             }
           >
-            <button class="btn-secondary btn-md" onClick={stop}>
+            <Button variant="secondary" onClick={stop}>
               <i class="ti ti-player-stop" /> Stop
-            </button>
+            </Button>
             <span class="text-sm text-dimmed flex items-center gap-1.5">
               <i class="ti ti-loader-2 animate-spin" />
               {phaseLabel[phase()]}…
@@ -392,7 +392,7 @@ export default function SpeedTest(props: SpeedTestProps) {
           <div class="relative">
             <ToolCodeBlock class="overflow-x-auto pr-12">{cliSnippet()}</ToolCodeBlock>
             <div class="absolute top-2 right-2">
-              <CopyButton text={cliSnippet()} class="btn-simple text-xs px-2 py-1" />
+              <CopyButton text={cliSnippet()} size="xs" />
             </div>
           </div>
         </div>

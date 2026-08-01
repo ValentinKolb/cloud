@@ -1,6 +1,6 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Dropdown, prompts, Tooltip } from "@k2b/ui";
+import { Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
 import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@/api/client";
@@ -77,9 +77,9 @@ const AdminBookActions = (props: AdminBookActionsProps) => {
     <Dropdown
       trigger={
         <Tooltip content="Manage permissions">
-          <button type="button" class="icon-btn h-7 w-7" aria-label={`Manage permissions for ${props.bookName}`}>
+          <IconButton label={`Manage permissions for ${props.bookName}`} size="xs">
             <i class={permissionDialogMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"} />
-          </button>
+          </IconButton>
         </Tooltip>
       }
       position="bottom-left"

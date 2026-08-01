@@ -6,7 +6,7 @@ import {
   dnd,
   mutation as mutations,
 } from "@k2b/stdlib/solid";
-import { prompts, Tooltip } from "@k2b/ui";
+import { IconButton, prompts, Tooltip } from "@k2b/ui";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ItemFilter, ItemListResult, SpaceColumn, SpaceItem, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
@@ -735,16 +735,16 @@ export default function KanbanBoard(props: Props) {
                     </Show>
 
                     <Show when={hasMore(bucket)}>
-                      <button
-                        type="button"
+                      <IconButton
+                        label={`Load more items in ${bucket.label}`}
+                        size="sm"
                         onClick={() => loadMoreMutation.mutate({ bucketKey: bucket.key })}
                         disabled={isLoadingBucket(bucket.key)}
-                        class="icon-btn mx-auto mt-1 h-7 w-7"
-                        aria-label={`Load more items in ${bucket.label}`}
+                        class="mx-auto mt-1 h-7 w-7"
                         title="Load more"
                       >
                         <i class={`ti ${isLoadingBucket(bucket.key) ? "ti-loader-2 animate-spin" : "ti-arrow-down"} text-sm`} />
-                      </button>
+                      </IconButton>
                     </Show>
 
                     <Show when={props.canWrite && bucket.columnId}>
@@ -770,9 +770,9 @@ export default function KanbanBoard(props: Props) {
                 <i class="ti ti-arrow-bounce shrink-0 text-sm text-dimmed" />
                 <h3 class="flex-1 truncate text-xs font-medium">Wormholes</h3>
                 <Tooltip content="Drop an item into a wormhole to move it directly into a status in another Space.">
-                  <button type="button" class="icon-btn h-5 w-5" aria-label="About wormholes">
+                  <IconButton label="About wormholes" size="xs" class="h-5 w-5">
                     <i class="ti ti-info-circle text-xs" />
-                  </button>
+                  </IconButton>
                 </Tooltip>
               </header>
 

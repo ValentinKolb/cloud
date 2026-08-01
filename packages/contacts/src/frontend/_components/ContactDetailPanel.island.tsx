@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Dropdown, Placeholder, Tooltip } from "@k2b/ui";
+import { Button, ButtonLink, Dropdown, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";
@@ -233,9 +233,9 @@ export default function ContactDetailPanel(props: Props) {
                       <Dropdown
                         trigger={
                           <Tooltip content="More contact actions">
-                            <button type="button" class="icon-btn" aria-label="More contact actions">
+                            <IconButton label="More contact actions">
                               <i class="ti ti-dots" />
-                            </button>
+                            </IconButton>
                           </Tooltip>
                         }
                         elements={[
@@ -266,14 +266,9 @@ export default function ContactDetailPanel(props: Props) {
                         position="bottom-left"
                       />
                       <Tooltip content="Close details">
-                        <button
-                          type="button"
-                          class="icon-btn"
-                          aria-label="Close contact detail panel"
-                          onClick={() => clearSelectedContactInUrl()}
-                        >
+                        <IconButton label="Close contact detail panel" onClick={() => clearSelectedContactInUrl()}>
                           <i class="ti ti-x" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                     </div>
                   </div>
@@ -301,22 +296,22 @@ export default function ContactDetailPanel(props: Props) {
                     <div class="mt-3 mb-2 flex flex-wrap items-center justify-center gap-2">
                       <Show when={c().emails[0]}>
                         {(email) => (
-                          <a href={`mailto:${email().email}`} class="btn-secondary btn-sm">
+                          <ButtonLink href={`mailto:${email().email}`} variant="secondary" size="sm">
                             <i class="ti ti-mail" /> Email
-                          </a>
+                          </ButtonLink>
                         )}
                       </Show>
                       <Show when={c().phones[0]}>
                         {(phone) => (
-                          <a href={`tel:${phone().phone}`} class="btn-secondary btn-sm">
+                          <ButtonLink href={`tel:${phone().phone}`} variant="secondary" size="sm">
                             <i class="ti ti-phone" /> Call
-                          </a>
+                          </ButtonLink>
                         )}
                       </Show>
                       <Show when={actions.canEdit()}>
-                        <button type="button" class="btn-secondary btn-sm" onClick={() => requestContactNoteComposer(c().id)}>
+                        <Button variant="secondary" size="sm" onClick={() => requestContactNoteComposer(c().id)}>
                           <i class="ti ti-note" /> Note
-                        </button>
+                        </Button>
                       </Show>
                     </div>
                   </div>
@@ -327,9 +322,9 @@ export default function ContactDetailPanel(props: Props) {
                     <div class="mb-3 flex items-center justify-between gap-2">
                       <h3 class="detail-section-label mb-0">Key details</h3>
                       <Show when={actions.canEdit() && !quickEditing()}>
-                        <button type="button" class="btn-simple btn-sm" onClick={() => setQuickEditing(true)}>
+                        <Button variant="ghost" size="sm" onClick={() => setQuickEditing(true)}>
                           <i class="ti ti-pencil" /> Quick edit
-                        </button>
+                        </Button>
                       </Show>
                     </div>
                     <Show
@@ -568,17 +563,18 @@ export default function ContactDetailPanel(props: Props) {
                               )}
                             </Show>
                             <Show when={hasOrgTree()}>
-                              <button
-                                type="button"
-                                class="btn-simple btn-sm ml-auto shrink-0"
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                class="ml-auto shrink-0"
                                 aria-label="Show org tree"
                                 title="Show org tree"
-                                disabled={actions.orgTreeLoading()}
+                                loading={actions.orgTreeLoading()}
                                 onClick={() => actions.openOrgTree(c())}
                               >
-                                {actions.orgTreeLoading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-hierarchy" />}
+                                <i class="ti ti-hierarchy" />
                                 Tree
-                              </button>
+                              </Button>
                             </Show>
                           </div>
                         </Show>
@@ -628,13 +624,14 @@ export default function ContactDetailPanel(props: Props) {
                           </ul>
                         </Show>
                         <Show when={actions.canEdit()}>
-                          <button
-                            type="button"
-                            class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary"
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            class="w-fit text-xs text-dimmed hover:text-primary"
                             onClick={() => actions.openAddMemberDialog(c())}
                           >
                             <i class="ti ti-plus" /> Add member
-                          </button>
+                          </Button>
                         </Show>
                       </div>
                     </section>

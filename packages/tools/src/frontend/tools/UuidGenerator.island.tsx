@@ -1,4 +1,4 @@
-import { CopyButton, Slider } from "@k2b/ui";
+import { Button, CopyButton, Slider } from "@k2b/ui";
 import { createEffect, createSignal, For } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 export default function UuidGenerator() {
@@ -39,19 +39,16 @@ export default function UuidGenerator() {
             <p class="text-xs font-medium text-dimmed">
               {uuids().length} UUID{uuids().length !== 1 ? "s" : ""}
             </p>
-            <button class="btn-secondary btn-sm" onClick={copyAll}>
+            <Button variant="secondary" size="sm" onClick={copyAll}>
               <i class={`ti ${copiedAll() ? "ti-check" : "ti-copy"}`} /> {copiedAll() ? "Copied" : "Copy All"}
-            </button>
+            </Button>
           </div>
           <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
             <For each={uuids()}>
               {(uuid) => (
                 <div class="flex items-center gap-2 group">
                   <ToolCodeBlock class="flex-1 px-2 py-1">{uuid}</ToolCodeBlock>
-                  <CopyButton
-                    text={uuid}
-                    class="icon-btn opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity shrink-0"
-                  />
+                  <CopyButton text={uuid} class="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 shrink-0" />
                 </div>
               )}
             </For>

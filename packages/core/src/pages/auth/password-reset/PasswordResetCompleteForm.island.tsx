@@ -1,6 +1,7 @@
-import { createSignal } from "solid-js";
-import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button } from "@k2b/ui";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
+import { createSignal } from "solid-js";
 import { PasswordSetupFields } from "../PasswordSetupFields";
 
 type PasswordResetCompleteFormProps = {
@@ -55,7 +56,7 @@ export default function PasswordResetCompleteForm(props: PasswordResetCompleteFo
         </div>
       )}
 
-      <button type="submit" class="btn-primary w-full justify-center py-2" disabled={mutation.loading()} style={{ "min-height": "32px" }}>
+      <Button type="submit" class="w-full justify-center py-2" loading={mutation.loading()} loadingLabel="Resetting password">
         {mutation.loading() ? (
           <i class="ti ti-loader-2 animate-spin" />
         ) : (
@@ -64,7 +65,7 @@ export default function PasswordResetCompleteForm(props: PasswordResetCompleteFo
             <span>Set password</span>
           </>
         )}
-      </button>
+      </Button>
     </form>
   );
 }

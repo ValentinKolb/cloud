@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { TextInput } from "@k2b/ui";
+import { Button, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { createSignal } from "solid-js";
 
@@ -46,10 +46,10 @@ export default function AdminLoginForm(props: { redirectTo?: string }) {
         </div>
       )}
 
-      <button type="submit" class="btn-primary w-full justify-center py-2" disabled={mutation.loading()}>
+      <Button type="submit" class="w-full justify-center py-2" loading={mutation.loading()} loadingLabel="Signing in">
         {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-shield" />}
         Sign in with admin token
-      </button>
+      </Button>
     </form>
   );
 }

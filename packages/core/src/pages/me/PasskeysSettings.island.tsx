@@ -1,6 +1,6 @@
 import { dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Placeholder, prompts, TextInput } from "@k2b/ui";
+import { Button, Placeholder, prompts, TextInput } from "@k2b/ui";
 import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/browser";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { WebAuthnPasskey } from "@valentinkolb/cloud/contracts";
@@ -46,13 +46,13 @@ function PasskeyCreateDialog(props: { close: (value: { name: string } | null) =>
         required
       />
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => props.close(null)}>
           Cancel
-        </button>
-        <button type="submit" class="btn-primary btn-sm">
+        </Button>
+        <Button type="submit" size="sm">
           <i class="ti ti-fingerprint" />
           Add passkey
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -127,10 +127,10 @@ export default function PasskeysSettings(props: Props) {
           </h2>
           <p class="mt-1 text-xs text-dimmed">Use device passkeys such as Touch ID, Windows Hello, or security keys to sign in.</p>
         </div>
-        <button type="button" class="btn-secondary btn-sm shrink-0" onClick={openCreate} disabled={createMutation.loading()}>
+        <Button type="button" variant="secondary" size="sm" class="shrink-0" onClick={openCreate} disabled={createMutation.loading()}>
           <i class="ti ti-plus" />
           Add
-        </button>
+        </Button>
       </div>
 
       <Show
@@ -158,10 +158,16 @@ export default function PasskeysSettings(props: Props) {
                     {passkey.transports.length > 0 && <span>{passkey.transports.join(", ")}</span>}
                   </div>
                 </div>
-                <button type="button" class="btn-simple btn-sm shrink-0 text-red-600 dark:text-red-400" onClick={() => remove(passkey)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  class="shrink-0 text-red-600 dark:text-red-400"
+                  onClick={() => remove(passkey)}
+                >
                   <i class="ti ti-trash" />
                   Delete
-                </button>
+                </Button>
               </div>
             )}
           </For>

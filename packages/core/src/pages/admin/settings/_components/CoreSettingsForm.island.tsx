@@ -13,9 +13,12 @@
 import { img } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
+  ButtonLink,
   CheckboxCard,
   createTemplateEditorPanesValue,
   dialogCore,
+  IconButton,
   ImageInput,
   MultiSelectInput,
   NumberInput,
@@ -354,9 +357,9 @@ export default function CoreSettingsForm(props: Props) {
               Gotenberg returned a {formatBytes(result.bytes)} {result.contentType} response.
             </p>
             <div class="flex justify-end">
-              <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+              <Button type="button" size="sm" onClick={() => close()}>
                 Close
-              </button>
+              </Button>
             </div>
           </div>
         ),
@@ -388,35 +391,43 @@ export default function CoreSettingsForm(props: Props) {
         <Tooltip
           content={hasChanges() ? "Save pending changes before sending a test email" : "Send a test email with the saved SMTP settings"}
         >
-          <button type="button" class="btn-secondary btn-sm justify-center" onClick={openTestEmailDialog} disabled={hasChanges()}>
+          <Button type="button" variant="secondary" size="sm" class="justify-center" onClick={openTestEmailDialog} disabled={hasChanges()}>
             <i class="ti ti-send" /> Test email
-          </button>
+          </Button>
         </Tooltip>
       </Show>
 
       <Show when={props.showTestPdfAction}>
         <Tooltip content={hasChanges() ? "Save pending changes before testing Gotenberg" : "Render a test PDF with the saved settings"}>
-          <button
+          <Button
             type="button"
-            class="btn-secondary btn-sm justify-center"
+            variant="secondary"
+            size="sm"
+            class="justify-center"
             onClick={() => testPdf.mutate()}
-            disabled={hasChanges() || testPdf.loading()}
+            loading={testPdf.loading()}
+            loadingLabel="Testing renderer"
+            disabled={hasChanges()}
           >
             <i class={testPdf.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-file-type-pdf"} /> Test renderer
-          </button>
+          </Button>
         </Tooltip>
       </Show>
 
       <Show when={props.showTestFreeIpaAction}>
         <Tooltip content={hasChanges() ? "Save pending changes before testing FreeIPA" : "Test TLS, service account login, and ping"}>
-          <button
+          <Button
             type="button"
-            class="btn-secondary btn-sm justify-center"
+            variant="secondary"
+            size="sm"
+            class="justify-center"
             onClick={() => testFreeIpa.mutate()}
-            disabled={hasChanges() || testFreeIpa.loading()}
+            loading={testFreeIpa.loading()}
+            loadingLabel="Testing connection"
+            disabled={hasChanges()}
           >
             <i class={testFreeIpa.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plug-connected"} /> Test connection
-          </button>
+          </Button>
         </Tooltip>
       </Show>
     </>
@@ -475,7 +486,7 @@ export default function CoreSettingsForm(props: Props) {
             loading={() => save.loading()}
             onDiscard={discardAll}
             onSave={() => save.mutate()}
-            saveClass={props.icon === "ti ti-sparkles" ? "btn-ai" : "btn-primary"}
+            saveVariant={props.icon === "ti ti-sparkles" ? "ai" : "primary"}
           />
         </PanelDialog.Footer>
       </PanelDialog>
@@ -661,9 +672,9 @@ function TestEmailDialog(props: { close: () => void }) {
           <div class="flex flex-col gap-4">
             <p class="text-sm text-secondary">The test email was handed to the configured SMTP server.</p>
             <div class="flex justify-end">
-              <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+              <Button type="button" size="sm" onClick={() => close()}>
                 Close
-              </button>
+              </Button>
             </div>
           </div>
         ),
@@ -692,12 +703,12 @@ function TestEmailDialog(props: { close: () => void }) {
       />
 
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={props.close} disabled={send.loading()}>
+        <Button type="button" variant="secondary" size="sm" onClick={props.close} disabled={send.loading()}>
           Cancel
-        </button>
-        <button type="submit" class="btn-primary btn-sm" disabled={send.loading()}>
+        </Button>
+        <Button type="submit" size="sm" loading={send.loading()} loadingLabel="Sending">
           <i class={send.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-send"} /> Send
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -860,9 +871,9 @@ function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview; show
         <div class="flex items-center gap-2">
           <RunEnrichmentButton />
           <Show when={props.showJobsLink}>
-            <a class="btn-ai btn-sm" href="/admin/observability/jobs?search=ai%3Achat">
+            <ButtonLink href="/admin/observability/jobs?search=ai%3Achat" variant="ai" size="sm">
               <i class="ti ti-external-link" /> Open jobs
-            </a>
+            </ButtonLink>
           </Show>
         </div>
       </div>
@@ -914,10 +925,10 @@ function RunEnrichmentButton() {
     }
   };
   return (
-    <button type="button" class="btn-secondary btn-sm" disabled={running()} onClick={() => void run()}>
+    <Button type="button" variant="secondary" size="sm" loading={running()} loadingLabel="Running" onClick={() => void run()}>
       <i class={running() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} aria-hidden="true" />
       Run now
-    </button>
+    </Button>
   );
 }
 
@@ -1025,12 +1036,12 @@ function AiSettingsPanel(props: {
               monospace
             />
             <div class="flex justify-end gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => close(undefined)}>
                 Cancel
-              </button>
-              <button type="submit" class="btn-primary btn-sm">
+              </Button>
+              <Button type="submit" size="sm">
                 <i class="ti ti-upload" /> Import
-              </button>
+              </Button>
             </div>
           </form>
         );
@@ -1243,16 +1254,16 @@ function AiSettingsPanel(props: {
         >
           <div class="flex flex-wrap justify-end gap-2">
             <Tooltip content="API keys are never exported">
-              <button type="button" class="btn-secondary btn-sm" onClick={exportJson}>
+              <Button type="button" variant="secondary" size="sm" onClick={exportJson}>
                 <i class="ti ti-file-export" /> Export JSON
-              </button>
+              </Button>
             </Tooltip>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => void importJson()}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => void importJson()}>
               <i class="ti ti-file-import" /> Import JSON
-            </button>
-            <button type="button" class="btn-ai btn-sm" onClick={() => void addProvider()}>
+            </Button>
+            <Button type="button" variant="ai" size="sm" onClick={() => void addProvider()}>
               <i class="ti ti-plus" /> Add provider
-            </button>
+            </Button>
           </div>
 
           <Show
@@ -1353,19 +1364,19 @@ function AiProfileCard(props: {
         </div>
         <div class="flex shrink-0 gap-1">
           <Tooltip content="Edit profile">
-            <button type="button" class="icon-btn" aria-label="Edit profile" onClick={props.onEdit}>
-              <i class="ti ti-pencil" />
-            </button>
+            <IconButton label="Edit profile" size="sm" onClick={props.onEdit}>
+              <i class="ti ti-pencil" aria-hidden="true" />
+            </IconButton>
           </Tooltip>
           <Tooltip content="Duplicate profile">
-            <button type="button" class="icon-btn" aria-label="Duplicate profile" onClick={props.onDuplicate}>
-              <i class="ti ti-copy" />
-            </button>
+            <IconButton label="Duplicate profile" size="sm" onClick={props.onDuplicate}>
+              <i class="ti ti-copy" aria-hidden="true" />
+            </IconButton>
           </Tooltip>
           <Tooltip content="Remove profile">
-            <button type="button" class="icon-btn text-red-500 hover:text-red-700" aria-label="Remove profile" onClick={props.onRemove}>
-              <i class="ti ti-trash" />
-            </button>
+            <IconButton label="Remove profile" size="sm" variant="danger" onClick={props.onRemove}>
+              <i class="ti ti-trash" aria-hidden="true" />
+            </IconButton>
           </Tooltip>
         </div>
       </div>
@@ -1377,14 +1388,15 @@ function AiProfileCard(props: {
       </div>
 
       <div class="mt-3 flex justify-between gap-2">
-        <button
+        <Button
           type="button"
-          class="btn-input btn-input-sm"
+          variant="secondary"
+          size="sm"
           onClick={props.onSetDefault}
           disabled={props.isDefault() || !props.profile.enabled}
         >
           <i class="ti ti-star" /> Set default
-        </button>
+        </Button>
         <span class="text-[11px] text-dimmed">{dataBoundary().label}</span>
       </div>
     </article>
@@ -1650,12 +1662,12 @@ async function openAiProfileDialog(input: {
               <FieldError error={formError} />
             </div>
             <div class="flex items-center gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => close(undefined)}>
                 Cancel
-              </button>
-              <button type="submit" class="btn-ai btn-sm">
+              </Button>
+              <Button type="submit" variant="ai" size="sm">
                 <i class="ti ti-check" /> Save
-              </button>
+              </Button>
             </div>
           </PanelDialog.Footer>
         </PanelDialog>
@@ -1709,15 +1721,16 @@ function FieldRow(props: {
         </div>
         <div class="flex shrink-0 items-center gap-1">
           <Tooltip content="Stage the default value. Save applies it; Discard cancels it.">
-            <button
+            <Button
               type="button"
-              class="btn-input btn-input-sm"
+              variant="secondary"
+              size="sm"
               onClick={props.onUseDefault}
               disabled={!props.canUseDefault()}
               aria-label={`Use default for ${e().label}`}
             >
               <i class="ti ti-arrow-back-up" /> Use default
-            </button>
+            </Button>
           </Tooltip>
         </div>
       </div>
@@ -1988,12 +2001,12 @@ function TemplateSettingInput(props: FieldInputProps) {
             </div>
 
             <div class="flex justify-end gap-2">
-              <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => close(undefined)}>
                 Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={() => close(draft())}>
+              </Button>
+              <Button type="button" size="sm" onClick={() => close(draft())}>
                 <i class="ti ti-check" /> Save
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -2011,9 +2024,9 @@ function TemplateSettingInput(props: FieldInputProps) {
           <p class="text-xs font-medium text-primary">HTML body template</p>
           <p class="mt-1 truncate text-xs text-dimmed">{props.entry.description}</p>
         </div>
-        <button type="button" class="btn-secondary btn-sm justify-center" onClick={() => void openEditor()}>
+        <Button type="button" variant="secondary" size="sm" class="justify-center" onClick={() => void openEditor()}>
           <i class="ti ti-pencil" /> Edit template
-        </button>
+        </Button>
       </div>
 
       <details class="group rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">

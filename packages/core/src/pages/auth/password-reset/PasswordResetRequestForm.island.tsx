@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { TextInput } from "@k2b/ui";
+import { Button, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { createSignal } from "solid-js";
 
@@ -61,10 +61,10 @@ export default function PasswordResetRequestForm(props: PasswordResetRequestForm
         </div>
       )}
 
-      <button type="submit" class="btn-primary w-full justify-center py-2" disabled={mutation.loading()}>
+      <Button type="submit" class="w-full justify-center py-2" loading={mutation.loading()} loadingLabel="Sending reset link">
         {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
         Send reset link
-      </button>
+      </Button>
     </form>
   );
 }

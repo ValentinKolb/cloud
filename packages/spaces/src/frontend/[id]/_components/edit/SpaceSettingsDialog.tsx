@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Placeholder, Tooltip } from "@k2b/ui";
+import { Button, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceSettingsContext } from "@/settings-context";
@@ -41,9 +41,9 @@ export default function SpaceSettingsDialog(props: Props) {
       fallback={
         <div class={`paper relative ${settingsDialogFrameClass} rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]`}>
           <Tooltip content="Close settings" class="absolute right-4 top-4 z-10">
-            <button type="button" class="icon-btn" aria-label="Close settings" onClick={props.close}>
+            <IconButton label="Close settings" onClick={props.close}>
               <i class="ti ti-x" />
-            </button>
+            </IconButton>
           </Tooltip>
           <Show
             when={load.error()}
@@ -57,10 +57,10 @@ export default function SpaceSettingsDialog(props: Props) {
                 description={error().message}
                 class="flex-1"
                 action={
-                  <button type="button" class="btn-secondary btn-sm" disabled={load.loading()} onClick={retry}>
+                  <Button type="button" variant="secondary" size="sm" disabled={load.loading()} onClick={retry}>
                     <i class={load.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
                     Retry
-                  </button>
+                  </Button>
                 }
               />
             )}

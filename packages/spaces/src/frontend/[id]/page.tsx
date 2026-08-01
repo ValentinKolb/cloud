@@ -1,4 +1,4 @@
-import { Placeholder } from "@k2b/ui";
+import { ButtonLink, Placeholder } from "@k2b/ui";
 import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
@@ -29,9 +29,9 @@ export default ssr<AuthContext>(async (c) => {
           description={state.message}
           class="mx-auto max-w-md"
           action={
-            <a href="/app/spaces" class="btn-primary btn-sm">
+            <ButtonLink href="/app/spaces" size="sm">
               Back to Spaces
-            </a>
+            </ButtonLink>
           }
         />
       </Layout>

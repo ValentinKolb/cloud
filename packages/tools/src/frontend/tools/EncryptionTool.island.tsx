@@ -1,7 +1,8 @@
-import { createSignal } from "solid-js";
 import { crypto } from "@k2b/stdlib";
-import { CopyButton, SegmentedControl, Switch, TextInput } from "@k2b/ui";
+import { Button, CopyButton, SegmentedControl, Switch, TextInput } from "@k2b/ui";
+import { createSignal } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
+
 type Tab = "symmetric" | "asymmetric";
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
@@ -86,7 +87,7 @@ export default function EncryptionTool() {
       setAsymLoading(false);
     }
   };
-  const CopyBtn = (props: { value: string }) => <CopyButton text={props.value} class="icon-btn shrink-0" />;
+  const CopyBtn = (props: { value: string }) => <CopyButton text={props.value} class="shrink-0" />;
   const OutputBlock = (props: { label: string; value: string }) => (
     <div class="flex flex-col gap-1">
       {" "}
@@ -148,14 +149,14 @@ export default function EncryptionTool() {
             </div>{" "}
             <div class="flex items-center gap-2">
               {" "}
-              <button class="btn-primary btn-sm" onClick={symEncrypt} disabled={symLoading() || !symPayload() || !symKey()}>
+              <Button size="sm" onClick={symEncrypt} disabled={symLoading() || !symPayload() || !symKey()}>
                 {" "}
                 <i class="ti ti-lock" /> Encrypt{" "}
-              </button>{" "}
-              <button class="btn-secondary btn-sm" onClick={symDecrypt} disabled={symLoading() || !symPayload() || !symKey()}>
+              </Button>{" "}
+              <Button variant="secondary" size="sm" onClick={symDecrypt} disabled={symLoading() || !symPayload() || !symKey()}>
                 {" "}
                 <i class="ti ti-lock-open" /> Decrypt{" "}
-              </button>{" "}
+              </Button>{" "}
             </div>{" "}
           </div>{" "}
           {symError() && (
@@ -199,10 +200,10 @@ export default function EncryptionTool() {
             <div class="flex items-center justify-between">
               {" "}
               <p class="text-xs font-medium text-dimmed">Key Pair</p>{" "}
-              <button class="btn-primary btn-sm" onClick={generateKeys} disabled={asymLoading()}>
+              <Button size="sm" onClick={generateKeys} disabled={asymLoading()}>
                 {" "}
                 <i class="ti ti-refresh" /> Generate Keys{" "}
-              </button>{" "}
+              </Button>{" "}
             </div>{" "}
             <TextInput
               label="Public Key"
@@ -235,14 +236,14 @@ export default function EncryptionTool() {
             />{" "}
             <div class="flex items-center gap-2">
               {" "}
-              <button class="btn-primary btn-sm" onClick={asymEncrypt} disabled={asymLoading() || !asymPayload() || !asymPubKey()}>
+              <Button size="sm" onClick={asymEncrypt} disabled={asymLoading() || !asymPayload() || !asymPubKey()}>
                 {" "}
                 <i class="ti ti-lock" /> Encrypt (Public Key){" "}
-              </button>{" "}
-              <button class="btn-secondary btn-sm" onClick={asymDecrypt} disabled={asymLoading() || !asymPayload() || !asymPrivKey()}>
+              </Button>{" "}
+              <Button variant="secondary" size="sm" onClick={asymDecrypt} disabled={asymLoading() || !asymPayload() || !asymPrivKey()}>
                 {" "}
                 <i class="ti ti-lock-open" /> Decrypt (Private Key){" "}
-              </button>{" "}
+              </Button>{" "}
             </div>{" "}
           </div>{" "}
           {asymError() && (

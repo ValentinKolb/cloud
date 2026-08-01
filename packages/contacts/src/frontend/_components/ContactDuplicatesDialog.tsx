@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, toast } from "@k2b/ui";
+import { Button, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, toast } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactDuplicateMatch } from "../../service";
@@ -83,9 +83,9 @@ function DuplicateReviewDialog(props: { bookId: string; close: (changed: boolean
                   description="Try again. No contacts were changed."
                   variant="panel"
                 />
-                <button type="button" class="btn-secondary btn-sm" onClick={() => void loadMutation.mutate()}>
+                <Button variant="secondary" size="sm" onClick={() => void loadMutation.mutate()}>
                   <i class="ti ti-refresh" /> Retry
-                </button>
+                </Button>
               </div>
             }
           >
@@ -113,14 +113,15 @@ function DuplicateReviewDialog(props: { bookId: string; close: (changed: boolean
                               <div class="min-w-0 p-1">
                                 <p class="truncate text-sm font-medium text-primary">{resolveContactName(contact)}</p>
                                 <p class="mt-0.5 truncate text-xs text-dimmed">{contactSummary(contact)}</p>
-                                <button
-                                  type="button"
-                                  class="btn-secondary btn-sm mt-3 w-full"
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  class="mt-3 w-full"
                                   disabled={mergeMutation.loading()}
                                   onClick={() => void keep(contact, other())}
                                 >
                                   Keep this record
-                                </button>
+                                </Button>
                               </div>
                             );
                           }}
@@ -138,9 +139,9 @@ function DuplicateReviewDialog(props: { bookId: string; close: (changed: boolean
         <span class="text-xs text-dimmed">
           {matches().length} match{matches().length === 1 ? "" : "es"}
         </span>
-        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(changed())}>
+        <Button variant="secondary" size="sm" onClick={() => props.close(changed())}>
           Done
-        </button>
+        </Button>
       </PanelDialog.Footer>
     </PanelDialog>
   );

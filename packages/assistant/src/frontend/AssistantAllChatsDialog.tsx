@@ -1,6 +1,6 @@
-import type { AiConversation, AiConversationPage, AiConversationStatusFilter } from "@valentinkolb/cloud/ai";
-import { dialogCore, PanelDialog, panelDialogFixedOptions, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, dialogCore, PanelDialog, panelDialogFixedOptions, SegmentedControl, TextInput } from "@k2b/ui";
+import type { AiConversation, AiConversationPage, AiConversationStatusFilter } from "@valentinkolb/cloud/ai";
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import AssistantAllChatsList from "./AssistantAllChatsList";
@@ -107,10 +107,10 @@ function AssistantAllChatsDialog(props: {
             type="search"
             icon="ti ti-search"
             activeIcon="ti ti-search"
-            ariaLabel="Search chats"
+            aria-label="Search chats"
             placeholder="Search chats..."
             value={query}
-            onInput={(value) => {
+            onValueChange={(value) => {
               setPage(1);
               setQuery(value);
             }}
@@ -120,18 +120,14 @@ function AssistantAllChatsDialog(props: {
               setQuery("");
             }}
           />
-          <nav class="flex max-w-full gap-1 overflow-x-auto" aria-label="Chat filters">
-            {CHAT_VIEWS.map((option) => (
-              <button
-                type="button"
-                class={`btn-input btn-input-sm shrink-0 ${option.value === view() ? "bg-[var(--ui-selected)] text-primary" : ""}`}
-                aria-pressed={option.value === view()}
-                onClick={() => selectView(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </nav>
+          <SegmentedControl
+            options={CHAT_VIEWS}
+            value={view}
+            onValueChange={selectView}
+            ariaLabel="Chat filters"
+            size="sm"
+            class="max-w-full overflow-x-auto"
+          />
         </div>
 
         <Show when={load.error()}>
@@ -163,24 +159,19 @@ function AssistantAllChatsDialog(props: {
           Page {page()} of {totalPages()}
         </span>
         <nav class="flex items-center gap-1" aria-label="Chat history pages">
-          <button
-            type="button"
-            class="btn-simple btn-sm"
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={page() <= 1 || load.loading()}
             onClick={() => setPage((value) => Math.max(1, value - 1))}
           >
             <i class="ti ti-chevron-left" aria-hidden="true" />
             Previous
-          </button>
-          <button
-            type="button"
-            class="btn-simple btn-sm"
-            disabled={!result()?.hasNext || load.loading()}
-            onClick={() => setPage((value) => value + 1)}
-          >
+          </Button>
+          <Button variant="ghost" size="sm" disabled={!result()?.hasNext || load.loading()} onClick={() => setPage((value) => value + 1)}>
             Next
             <i class="ti ti-chevron-right" aria-hidden="true" />
-          </button>
+          </Button>
         </nav>
       </PanelDialog.Footer>
     </PanelDialog>

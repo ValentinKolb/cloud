@@ -1,4 +1,4 @@
-import { prompts, Tooltip } from "@k2b/ui";
+import { IconButton, prompts } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { listenForContactFavoriteChanges, saveContactFavorite } from "./contacts-favorites";
 
@@ -42,22 +42,19 @@ export default function ContactFavoriteButton(props: Props) {
   };
 
   return (
-    <Tooltip content={favorite() ? "Remove from favorites" : "Add to favorites"}>
-      <button
-        type="button"
-        class={props.class ?? "icon-btn"}
-        classList={{ "app-accent-text": favorite(), "text-dimmed": !favorite() }}
-        aria-label={favorite() ? "Remove from favorites" : "Add to favorites"}
-        aria-pressed={favorite()}
-        disabled={saving()}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void toggle();
-        }}
-      >
-        <i class="ti ti-star" />
-      </button>
-    </Tooltip>
+    <IconButton
+      label={favorite() ? "Remove from favorites" : "Add to favorites"}
+      class={props.class}
+      classList={{ "app-accent-text": favorite(), "text-dimmed": !favorite() }}
+      aria-pressed={favorite()}
+      disabled={saving()}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void toggle();
+      }}
+    >
+      <i class="ti ti-star" />
+    </IconButton>
   );
 }

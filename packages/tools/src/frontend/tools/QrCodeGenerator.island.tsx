@@ -1,9 +1,9 @@
-import { createMemo, createSignal, Match, Show, Switch } from "solid-js";
 // stdlib's qr module is no longer barrel-exported (v0.3.0+) because it
 // depends on the optional peer `lean-qr`. Use the subpath import; this
 // app declares lean-qr as a direct dep so it's installed in the container.
 import { qr } from "@k2b/stdlib/qr";
-import { ColorInput, CopyButton, DateTimePicker, Select, Slider, Switch as Toggle, TextInput } from "@k2b/ui";
+import { Button, ColorInput, CopyButton, DateTimePicker, Select, Slider, TextInput, Switch as Toggle } from "@k2b/ui";
+import { createMemo, createSignal, Match, Show, Switch } from "solid-js";
 
 type Mode = "text" | "wifi" | "email" | "tel" | "vcard" | "event";
 
@@ -408,15 +408,15 @@ export default function QrCodeGenerator() {
 
           <Show when={qrSvg()}>
             <div class="flex flex-wrap items-center justify-center gap-2">
-              <button type="button" class="btn-primary btn-sm" onClick={downloadSvg}>
+              <Button size="sm" onClick={downloadSvg}>
                 <i class="ti ti-download" />
                 Download SVG
-              </button>
-              <button type="button" class="btn-secondary btn-sm" onClick={downloadPng}>
+              </Button>
+              <Button variant="secondary" size="sm" onClick={downloadPng}>
                 <i class="ti ti-photo-down" />
                 PNG
-              </button>
-              <CopyButton text={payload()} label="Copy content" class="btn-secondary btn-sm" />
+              </Button>
+              <CopyButton text={payload()} label="Copy content" variant="secondary" size="sm" />
             </div>
           </Show>
         </section>

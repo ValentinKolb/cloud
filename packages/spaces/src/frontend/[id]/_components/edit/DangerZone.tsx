@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, toast } from "@k2b/ui";
+import { Button, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./utils";
 
@@ -32,7 +32,7 @@ export function DangerZone(props: { spaceId: string; spaceName: string }) {
   return (
     <div class="flex flex-col gap-2">
       <p class="text-sm text-secondary">Permanently delete this space and all its contents.</p>
-      <button type="button" onClick={() => deleteMut.mutate(undefined)} disabled={deleteMut.loading()} class="btn-danger btn-md self-start">
+      <Button type="button" variant="danger" onClick={() => deleteMut.mutate(undefined)} disabled={deleteMut.loading()} class="self-start">
         {deleteMut.loading() ? (
           <i class="ti ti-loader-2 animate-spin" />
         ) : (
@@ -41,7 +41,7 @@ export function DangerZone(props: { spaceId: string; spaceName: string }) {
             Delete Space
           </>
         )}
-      </button>
+      </Button>
     </div>
   );
 }

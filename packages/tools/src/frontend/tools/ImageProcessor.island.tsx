@@ -1,6 +1,19 @@
-import { AppWorkspace, ColorInput, Dropdown, NumberInput, prompts, SegmentedControl, Select, Slider, Switch, Tooltip } from "@k2b/ui";
 import { files as fileTools, images as imageTools } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import {
+  AppWorkspace,
+  Button,
+  ColorInput,
+  Dropdown,
+  IconButton,
+  NumberInput,
+  prompts,
+  SegmentedControl,
+  Select,
+  Slider,
+  Switch,
+  Tooltip,
+} from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { DEFAULT_ADJ, PRESETS } from "./image-processor/constants";
 import { type CropHandle, createCropRect, moveCropRect, resizeCropRect, toPixelCropRect } from "./image-processor/crop-geometry";
@@ -755,13 +768,13 @@ export default function ImageProcessor() {
             </Show>
 
             <div class="flex gap-2 justify-end">
-              <button class="btn-secondary btn-sm" onClick={() => close()} disabled={exporting()}>
+              <Button variant="secondary" size="sm" onClick={() => close()} disabled={exporting()}>
                 Cancel
-              </button>
-              <button class="btn-primary btn-sm" onClick={doExport} disabled={exporting()}>
-                <i class={`ti ${exporting() ? "ti-loader-2 animate-spin" : "ti-download"}`} />
+              </Button>
+              <Button size="sm" onClick={doExport} loading={exporting()} loadingLabel="Exporting">
+                <i class="ti ti-download" />
                 {mode === "all" ? `Export ${count}` : "Export"}
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -986,14 +999,13 @@ export default function ImageProcessor() {
           >
             <Show when={!inspectorOpen()}>
               <Tooltip content="Open image controls">
-                <button
-                  type="button"
-                  class="icon-btn absolute right-[var(--ui-space-shell)] top-[var(--ui-space-shell)] z-10 lg:hidden"
+                <IconButton
+                  label="Open image controls"
+                  class="absolute right-[var(--ui-space-shell)] top-[var(--ui-space-shell)] z-10 lg:hidden"
                   onClick={() => setInspectorOpen(true)}
-                  aria-label="Open image controls"
                 >
                   <i class="ti ti-adjustments-horizontal" />
-                </button>
+                </IconButton>
               </Tooltip>
             </Show>
 
@@ -1187,44 +1199,39 @@ export default function ImageProcessor() {
             </div>
             <Show when={hasImages()}>
               <Tooltip content="Add images">
-                <button
-                  type="button"
-                  class="icon-btn h-8 w-8 shrink-0"
+                <IconButton
+                  label="Add images"
+                  size="sm"
+                  class="h-8 w-8 shrink-0"
                   onClick={selectFiles}
                   disabled={loadMutation.loading() || cropActive()}
-                  aria-label="Add images"
                 >
                   <i class="ti ti-photo-plus" />
-                </button>
+                </IconButton>
               </Tooltip>
               <Tooltip content="Remove image">
-                <button
-                  type="button"
-                  class="icon-btn h-8 w-8 shrink-0 text-red-600 dark:text-red-400"
+                <IconButton
+                  label="Remove image"
+                  size="sm"
+                  class="h-8 w-8 shrink-0 text-red-600 dark:text-red-400"
                   onClick={() => removeImage(activeIndex())}
                   disabled={cropActive() || cropBusy()}
-                  aria-label="Remove image"
                 >
                   <i class="ti ti-trash" />
-                </button>
+                </IconButton>
               </Tooltip>
             </Show>
-            <button
-              type="button"
-              class="icon-btn h-8 w-8 shrink-0 lg:hidden"
-              onClick={() => setInspectorOpen(false)}
-              aria-label="Show image canvas"
-            >
+            <IconButton label="Show image canvas" size="sm" class="h-8 w-8 shrink-0 lg:hidden" onClick={() => setInspectorOpen(false)}>
               <i class="ti ti-x" />
-            </button>
+            </IconButton>
           </div>
 
           <Show
             when={hasImages()}
             fallback={
-              <button type="button" class="btn-primary btn-sm w-full" onClick={selectFiles} disabled={loadMutation.loading()}>
+              <Button size="sm" class="w-full" onClick={selectFiles} loading={loadMutation.loading()} loadingLabel="Adding images">
                 <i class="ti ti-photo-plus" /> Add images
-              </button>
+              </Button>
             }
           >
             <SegmentedControl<"edit" | "markup">
@@ -1247,9 +1254,9 @@ export default function ImageProcessor() {
             >
               <i class="ti ti-alert-circle shrink-0" />
               <span class="min-w-0 flex-1">{error()}</span>
-              <button type="button" class="icon-btn h-6 w-6 shrink-0 text-current" onClick={() => setError("")} aria-label="Dismiss error">
+              <IconButton label="Dismiss error" size="xs" class="h-6 w-6 shrink-0 text-current" onClick={() => setError("")}>
                 <i class="ti ti-x" />
-              </button>
+              </IconButton>
             </div>
           </Show>
 
@@ -1262,31 +1269,31 @@ export default function ImageProcessor() {
                 </div>
                 <div class="flex items-center gap-1">
                   <Tooltip content="Zoom out">
-                    <button
-                      type="button"
-                      class="icon-btn h-8 w-8"
+                    <IconButton
+                      label="Zoom out"
+                      size="sm"
+                      class="h-8 w-8"
                       onClick={() => setClampedPreviewZoom(previewZoom() / PREVIEW_ZOOM_STEP)}
                       disabled={previewZoom() <= MIN_PREVIEW_ZOOM}
-                      aria-label="Zoom out"
                     >
                       <i class="ti ti-minus" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                   <Tooltip content="Zoom in">
-                    <button
-                      type="button"
-                      class="icon-btn h-8 w-8"
+                    <IconButton
+                      label="Zoom in"
+                      size="sm"
+                      class="h-8 w-8"
                       onClick={() => setClampedPreviewZoom(previewZoom() * PREVIEW_ZOOM_STEP)}
                       disabled={previewZoom() >= MAX_PREVIEW_ZOOM}
-                      aria-label="Zoom in"
                     >
                       <i class="ti ti-plus" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                   <Tooltip content="Fit image">
-                    <button type="button" class="icon-btn h-8 w-8" onClick={fitPreview} aria-label="Fit image">
+                    <IconButton label="Fit image" size="sm" class="h-8 w-8" onClick={fitPreview}>
                       <i class="ti ti-focus-centered" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 </div>
               </div>
@@ -1309,63 +1316,51 @@ export default function ImageProcessor() {
                       >
                         {(tool) => (
                           <Tooltip content={tool.label}>
-                            <button
-                              type="button"
-                              class="icon-btn h-9 w-full"
+                            <IconButton
+                              label={tool.label}
+                              size="sm"
+                              class="h-9 w-full"
                               onClick={() => chooseMarkupTool(tool.value)}
-                              aria-label={tool.label}
                               aria-pressed={markupTool() === tool.value}
                             >
                               <i class={`ti ${tool.icon}`} />
-                            </button>
+                            </IconButton>
                           </Tooltip>
                         )}
                       </For>
                     </div>
                     <div class="flex items-center gap-1">
                       <Tooltip content="Undo">
-                        <button
-                          type="button"
-                          class="icon-btn h-8 w-8"
-                          onClick={undoMarkup}
-                          disabled={!canUndoMarkup()}
-                          aria-label="Undo markup"
-                        >
+                        <IconButton label="Undo markup" size="sm" class="h-8 w-8" onClick={undoMarkup} disabled={!canUndoMarkup()}>
                           <i class="ti ti-arrow-back-up" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                       <Tooltip content="Redo">
-                        <button
-                          type="button"
-                          class="icon-btn h-8 w-8"
-                          onClick={redoMarkup}
-                          disabled={!canRedoMarkup()}
-                          aria-label="Redo markup"
-                        >
+                        <IconButton label="Redo markup" size="sm" class="h-8 w-8" onClick={redoMarkup} disabled={!canRedoMarkup()}>
                           <i class="ti ti-arrow-forward-up" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                       <Tooltip content="Delete selected markup">
-                        <button
-                          type="button"
-                          class="icon-btn h-8 w-8 text-red-600 dark:text-red-400"
+                        <IconButton
+                          label="Delete selected markup"
+                          size="sm"
+                          class="h-8 w-8 text-red-600 dark:text-red-400"
                           onClick={deleteSelectedMarkup}
                           disabled={!selectedMarkupId()}
-                          aria-label="Delete selected markup"
                         >
                           <i class="ti ti-trash" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                       <Tooltip content="Clear markup">
-                        <button
-                          type="button"
-                          class="icon-btn h-8 w-8 text-red-600 dark:text-red-400"
+                        <IconButton
+                          label="Clear markup"
+                          size="sm"
+                          class="h-8 w-8 text-red-600 dark:text-red-400"
                           onClick={clearMarkup}
                           disabled={(activeImage()?.markup.length ?? 0) === 0}
-                          aria-label="Clear markup"
                         >
                           <i class="ti ti-trash-x" />
-                        </button>
+                        </IconButton>
                       </Tooltip>
                     </div>
                   </div>
@@ -1382,20 +1377,20 @@ export default function ImageProcessor() {
                       <Show
                         when={cropActive()}
                         fallback={
-                          <button class="btn-secondary btn-sm flex-1" onClick={startCrop} disabled={cropBusy()}>
+                          <Button variant="secondary" size="sm" class="flex-1" onClick={startCrop} disabled={cropBusy()}>
                             <i class="ti ti-crop" /> Crop
-                          </button>
+                          </Button>
                         }
                       >
-                        <button class="btn-primary btn-sm flex-1" onClick={applyCrop} disabled={cropBusy()}>
-                          <i class={`ti ${cropBusy() ? "ti-loader-2 animate-spin" : "ti-check"}`} /> Apply
-                        </button>
+                        <Button size="sm" class="flex-1" onClick={applyCrop} loading={cropBusy()} loadingLabel="Applying">
+                          <i class="ti ti-check" /> Apply
+                        </Button>
                       </Show>
                       <Dropdown
                         trigger={
-                          <span class="btn-secondary btn-sm">
+                          <Button variant="secondary" size="sm">
                             {cropAspect() === "free" ? "Free" : cropAspect()} <i class="ti ti-chevron-down text-[10px]" />
-                          </span>
+                          </Button>
                         }
                         position="bottom-left"
                         elements={(
@@ -1413,15 +1408,15 @@ export default function ImageProcessor() {
                         }))}
                       />
                       <Show when={!cropActive() && activeImage()?.cropped}>
-                        <button class="btn-secondary btn-sm" onClick={resetCrop} title="Reset crop" disabled={cropBusy()}>
-                          <i class={`ti ${cropBusy() ? "ti-loader-2 animate-spin" : "ti-arrow-back-up"}`} />
-                        </button>
+                        <IconButton label="Reset crop" size="sm" onClick={resetCrop} loading={cropBusy()} loadingLabel="Resetting crop">
+                          <i class="ti ti-arrow-back-up" />
+                        </IconButton>
                       </Show>
                     </div>
                     <Show when={cropActive()}>
-                      <button class="btn-secondary btn-sm w-full" onClick={cancelCrop} disabled={cropBusy()}>
+                      <Button variant="secondary" size="sm" class="w-full" onClick={cancelCrop} disabled={cropBusy()}>
                         Cancel
-                      </button>
+                      </Button>
                     </Show>
                   </div>
 
@@ -1544,9 +1539,9 @@ export default function ImageProcessor() {
                     <div class="grid grid-cols-4 gap-1">
                       <For each={Object.entries(PRESETS)}>
                         {([key, preset]) => (
-                          <button class="btn-secondary btn-sm" onClick={() => applyPreset(key)}>
+                          <Button variant="secondary" size="sm" onClick={() => applyPreset(key)}>
                             {preset.label}
-                          </button>
+                          </Button>
                         )}
                       </For>
                     </div>
@@ -1556,25 +1551,27 @@ export default function ImageProcessor() {
                   <div class="flex flex-col gap-2">
                     <SectionLabel label="Edits" />
                     <div class="grid grid-cols-3 gap-1">
-                      <button class="btn-secondary btn-sm" onClick={copyEdits} title="Copy adjustments from this image">
+                      <Button variant="secondary" size="sm" onClick={copyEdits} title="Copy adjustments from this image">
                         <i class="ti ti-copy" /> Copy
-                      </button>
-                      <button
-                        class="btn-secondary btn-sm"
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={pasteEdits}
                         disabled={!clipboard()}
                         title="Paste adjustments to this image"
                       >
                         <i class="ti ti-clipboard" /> Paste
-                      </button>
-                      <button
-                        class="btn-secondary btn-sm"
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={pasteEditsAll}
                         disabled={!clipboard()}
                         title="Paste adjustments to all images"
                       >
                         <i class="ti ti-clipboard-check" /> All
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -1585,23 +1582,19 @@ export default function ImageProcessor() {
 
         <Show when={hasImages()}>
           <footer class="flex flex-none flex-col gap-2">
-            <button
-              type="button"
-              class="btn-primary btn-sm w-full"
-              onClick={() => showExportModal("single")}
-              disabled={cropActive() || cropBusy()}
-            >
+            <Button size="sm" class="w-full" onClick={() => showExportModal("single")} disabled={cropActive() || cropBusy()}>
               <i class="ti ti-download" /> Export image
-            </button>
+            </Button>
             <Show when={images().length > 1}>
-              <button
-                type="button"
-                class="btn-secondary btn-sm w-full"
+              <Button
+                variant="secondary"
+                size="sm"
+                class="w-full"
                 onClick={() => showExportModal("all")}
                 disabled={cropActive() || cropBusy()}
               >
                 <i class="ti ti-download" /> Export all ({images().length})
-              </button>
+              </Button>
             </Show>
           </footer>
         </Show>

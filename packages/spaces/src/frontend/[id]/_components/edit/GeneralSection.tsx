@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { ColorInput, prompts, TextInput, toast } from "@k2b/ui";
+import { Button, ColorInput, prompts, TextInput, toast } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceDetail } from "@/contracts";
@@ -65,9 +65,9 @@ export function GeneralSection(props: { space: SpaceDetail; onWorkspaceChange?: 
       <ColorInput label="Color" value={color} onValueChange={updateField(setColor)} />
 
       <Show when={hasChanges()}>
-        <button type="submit" disabled={mutation.loading()} class="btn-primary btn-sm self-start mt-2">
+        <Button type="submit" disabled={mutation.loading()} size="sm" class="self-start mt-2">
           {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-        </button>
+        </Button>
       </Show>
     </form>
   );

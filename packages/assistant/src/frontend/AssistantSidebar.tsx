@@ -1,13 +1,7 @@
 import { type LinkNavigateEvent, navigate, navigateTo } from "@k2b/ssr/nav";
+import { AppWorkspace, Dropdown, isSpotlightShortcut, openSpotlightSearch, SPOTLIGHT_SHORTCUT_TITLE } from "@k2b/ui";
 import type { AiConversation } from "@valentinkolb/cloud/ai";
-import {
-  AppWorkspace,
-  Dropdown,
-  isSpotlightShortcut,
-  openAiSkillsManager,
-  openSpotlightSearch,
-  SPOTLIGHT_SHORTCUT_TITLE,
-} from "@valentinkolb/cloud/ui";
+import { openAiSkillsManager } from "@valentinkolb/cloud/ui";
 import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantAllChatsDialog } from "./AssistantAllChatsDialog";

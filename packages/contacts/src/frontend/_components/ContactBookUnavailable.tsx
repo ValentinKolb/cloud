@@ -1,4 +1,4 @@
-import { Placeholder } from "@k2b/ui";
+import { ButtonLink, Placeholder } from "@k2b/ui";
 
 type Props = {
   title: string;
@@ -19,9 +19,9 @@ export default function ContactBookUnavailable(props: Props) {
         icon={props.icon}
         class="w-full"
         action={
-          <a href="/app/contacts" class="btn-secondary btn-sm">
+          <ButtonLink href="/app/contacts" variant="secondary" size="sm">
             Back to contacts
-          </a>
+          </ButtonLink>
         }
       />
     </main>

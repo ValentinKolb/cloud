@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts } from "@k2b/ui";
+import { Button, prompts } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 export default function WithdrawAccountRequest() {
@@ -30,14 +30,17 @@ export default function WithdrawAccountRequest() {
   };
 
   return (
-    <button
+    <Button
       type="button"
+      variant="secondary"
+      size="sm"
       onClick={handleClick}
-      disabled={mutation.loading()}
-      class="btn-secondary btn-sm inline-flex items-center gap-1 leading-none"
+      loading={mutation.loading()}
+      loadingLabel="Withdrawing"
+      class="leading-none"
     >
       {mutation.loading() ? <i class="ti ti-loader-2 animate-spin text-sm" /> : <i class="ti ti-x text-sm" />}
       Withdraw Request
-    </button>
+    </Button>
   );
 }

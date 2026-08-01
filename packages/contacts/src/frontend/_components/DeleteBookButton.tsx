@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, toast } from "@k2b/ui";
+import { Button, prompts, toast } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./api";
 
@@ -40,9 +40,9 @@ export default function DeleteBookButton(props: Props) {
   });
 
   return (
-    <button type="button" class="btn-danger btn-sm" disabled={mutation.loading()} onClick={() => mutation.mutate(undefined)}>
-      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
+    <Button type="button" variant="danger" size="sm" loading={mutation.loading()} onClick={() => mutation.mutate(undefined)}>
+      <i class="ti ti-trash" />
       Delete Book
-    </button>
+    </Button>
   );
 }

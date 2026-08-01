@@ -1,6 +1,6 @@
-import { createSignal, createMemo } from "solid-js";
 import { encoding } from "@k2b/stdlib";
-import { TextInput, SegmentedControl } from "@k2b/ui";
+import { Button, SegmentedControl, TextInput } from "@k2b/ui";
+import { createMemo, createSignal } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 
 type Direction = "encode" | "decode";
@@ -122,10 +122,10 @@ export default function EncodingTool() {
             {direction() === "encode" ? `${format().charAt(0).toUpperCase() + format().slice(1)} Output` : "Decoded Text"}
           </p>
           <ToolCodeBlock>{output()}</ToolCodeBlock>
-          <button class="btn-primary btn-sm self-start" onClick={copy}>
+          <Button size="sm" class="self-start" onClick={copy}>
             <i class={`ti ${copied() ? "ti-check" : "ti-copy"}`} />
             {copied() ? "Copied" : "Copy"}
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { cookies } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Checkbox, TextInput } from "@k2b/ui";
+import { Button, Checkbox, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { createSignal, onMount, Show } from "solid-js";
 
@@ -92,9 +92,9 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
             onValueChange={setAcceptedAgb}
           />
 
-          <button type="submit" class="btn-primary w-full justify-center py-2" disabled={loading()}>
+          <Button type="submit" class="w-full justify-center py-2" loading={loading()} loadingLabel="Verifying">
             {tokenMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Verify"}
-          </button>
+          </Button>
         </form>
       }
     >
@@ -143,10 +143,10 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
           onValueChange={setAcceptedAgb}
         />
 
-        <button type="submit" class="btn-primary w-full justify-center py-2" disabled={loading()}>
+        <Button type="submit" class="w-full justify-center py-2" loading={loading()} loadingLabel="Sending login link">
           {emailMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
           Send login link
-        </button>
+        </Button>
 
         <div class="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs leading-5 text-dimmed dark:border-zinc-800 dark:bg-zinc-900">
           {props.allowSelfRegistration

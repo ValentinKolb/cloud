@@ -1,6 +1,6 @@
 import { documentNavigate } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, Tooltip, toast } from "@k2b/ui";
+import { Button, dialogCore, IconButton, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, Tooltip, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
@@ -37,12 +37,12 @@ const chooseTags = (tags: ContactTag[]) =>
         <PanelDialog.Footer>
           <span />
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+            <Button variant="ghost" size="sm" onClick={() => close(null)}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" disabled={selected().length === 0} onClick={() => close(selected())}>
+            </Button>
+            <Button size="sm" disabled={selected().length === 0} onClick={() => close(selected())}>
               Add tags
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </PanelDialog>
@@ -150,45 +150,30 @@ export default function ContactsBulkActions(props: {
   return (
     <div class="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-selected)] p-2">
       <span class="mr-auto text-xs font-medium text-primary tabular-nums">{props.selectedIds().length} selected</span>
-      <button type="button" class="btn-simple btn-sm" onClick={props.onSelectVisible} disabled={props.visibleIds().length === 0}>
+      <Button variant="ghost" size="sm" onClick={props.onSelectVisible} disabled={props.visibleIds().length === 0}>
         Select page
-      </button>
-      <button
-        type="button"
-        class="btn-simple btn-sm"
-        onClick={() => void runMutation.mutate("tags")}
-        disabled={runMutation.loading() || noSelection()}
-      >
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => void runMutation.mutate("tags")} disabled={runMutation.loading() || noSelection()}>
         <i class="ti ti-tags" /> Tag
-      </button>
-      <button
-        type="button"
-        class="btn-simple btn-sm"
-        onClick={() => void runMutation.mutate("move")}
-        disabled={runMutation.loading() || noSelection()}
-      >
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => void runMutation.mutate("move")} disabled={runMutation.loading() || noSelection()}>
         <i class="ti ti-folder-symlink" /> Move
-      </button>
-      <button
-        type="button"
-        class="btn-simple btn-sm"
-        onClick={() => void runMutation.mutate("export")}
-        disabled={runMutation.loading() || noSelection()}
-      >
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => void runMutation.mutate("export")} disabled={runMutation.loading() || noSelection()}>
         <i class="ti ti-download" /> Export
-      </button>
-      <button
-        type="button"
-        class="btn-danger btn-sm"
+      </Button>
+      <Button
+        variant="danger"
+        size="sm"
         onClick={() => void runMutation.mutate("delete")}
         disabled={runMutation.loading() || noSelection()}
       >
         <i class="ti ti-trash" /> Delete
-      </button>
+      </Button>
       <Tooltip content="Exit selection">
-        <button type="button" class="icon-btn icon-btn-sm" aria-label="Exit selection" onClick={props.onClear}>
+        <IconButton size="xs" label="Exit selection" onClick={props.onClear}>
           <i class="ti ti-x" />
-        </button>
+        </IconButton>
       </Tooltip>
     </div>
   );

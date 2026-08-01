@@ -1,5 +1,5 @@
+import { FileBrowserPanel, IconButton, prompts, Tooltip } from "@k2b/ui";
 import { conversationFileSource } from "@valentinkolb/cloud/ai/solid";
-import { FileBrowserPanel, prompts, Tooltip } from "@valentinkolb/cloud/ui";
 import type { Accessor } from "solid-js";
 
 type AssistantFilesDialogProps = {
@@ -13,11 +13,11 @@ function AssistantFilesDialog(props: AssistantFilesDialogProps) {
   const source = conversationFileSource("/api/assistant", props.conversationId);
 
   return (
-    <div class="dialog-fixed-frame paper relative flex min-h-0 flex-col overflow-hidden rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]">
+    <div class="dialog-fixed-frame relative flex min-h-0 flex-col overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--k2b-surface)] [box-shadow:var(--ui-shadow-float)]">
       <Tooltip content="Close files" class="absolute right-3 top-3 z-20">
-        <button type="button" class="icon-btn" onClick={props.close} aria-label="Close files">
+        <IconButton label="Close files" onClick={props.close}>
           <i class="ti ti-x" aria-hidden="true" />
-        </button>
+        </IconButton>
       </Tooltip>
       <FileBrowserPanel
         source={source}

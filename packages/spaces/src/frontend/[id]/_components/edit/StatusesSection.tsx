@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, toast } from "@k2b/ui";
+import { Button, IconButton, prompts, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn } from "@/contracts";
@@ -20,38 +20,38 @@ function StatusRow(props: {
       <span class="w-4 h-4 rounded-full shrink-0" style={`background-color: ${props.column.color || "#6b7280"}`} />
       <span class="flex-1 text-sm truncate">{props.column.name}</span>
       <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/status:opacity-100 sm:group-focus-within/status:opacity-100">
-        <button
-          type="button"
+        <IconButton
+          label={`Move ${props.column.name} up`}
+          size="sm"
           onClick={props.onMoveUp}
           disabled={props.index === 0}
-          class="icon-btn h-7 w-7"
-          aria-label={`Move ${props.column.name} up`}
+          class="h-7 w-7"
           title="Move up"
         >
           <i class="ti ti-arrow-up text-sm" />
-        </button>
-        <button
-          type="button"
+        </IconButton>
+        <IconButton
+          label={`Move ${props.column.name} down`}
+          size="sm"
           onClick={props.onMoveDown}
           disabled={props.index === props.total - 1}
-          class="icon-btn h-7 w-7"
-          aria-label={`Move ${props.column.name} down`}
+          class="h-7 w-7"
           title="Move down"
         >
           <i class="ti ti-arrow-down text-sm" />
-        </button>
-        <button type="button" onClick={props.onEdit} class="icon-btn h-7 w-7" aria-label={`Edit ${props.column.name}`} title="Edit status">
+        </IconButton>
+        <IconButton label={`Edit ${props.column.name}`} size="sm" onClick={props.onEdit} class="h-7 w-7" title="Edit status">
           <i class="ti ti-pencil text-sm" />
-        </button>
-        <button
-          type="button"
+        </IconButton>
+        <IconButton
+          label={`Delete ${props.column.name}`}
+          size="sm"
           onClick={props.onDelete}
-          class="icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
-          aria-label={`Delete ${props.column.name}`}
+          class="h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
           title="Delete status"
         >
           <i class="ti ti-x text-sm" />
-        </button>
+        </IconButton>
       </div>
     </div>
   );
@@ -64,10 +64,10 @@ function AddStatusButton(props: { onSave: (data: { name: string; color?: string 
     <Show
       when={isOpen()}
       fallback={
-        <button type="button" onClick={() => setIsOpen(true)} class="btn-simple btn-sm self-start">
+        <Button type="button" variant="ghost" size="sm" onClick={() => setIsOpen(true)} class="self-start">
           <i class="ti ti-plus" />
           <span>Add status</span>
-        </button>
+        </Button>
       }
     >
       <NameColorForm

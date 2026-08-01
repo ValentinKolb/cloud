@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, TextInput } from "@k2b/ui";
+import { Button, prompts, TextInput } from "@k2b/ui";
 import { openAvatarUploadDialog } from "@valentinkolb/cloud/account/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
@@ -257,15 +257,17 @@ export default function ProfileActions(props: Props) {
                                 {info.type} {info.suffix}
                               </span>
                             </div>
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="sm"
                               onClick={() => setKeys(keys().filter((_, idx) => idx !== i()))}
-                              class="btn-ghost btn-sm shrink-0 text-red-500 hover:text-red-700 dark:hover:text-red-400"
+                              class="shrink-0 text-red-500 hover:text-red-700 dark:hover:text-red-400"
                               title="Remove key"
                               aria-label={`Remove ${info.comment || info.type} SSH key`}
                             >
                               <i class="ti ti-trash text-sm" />
-                            </button>
+                            </Button>
                           </div>
                         );
                       }}
@@ -286,27 +288,27 @@ export default function ProfileActions(props: Props) {
                   <Show when={keyError()}>
                     <p class="text-xs text-red-500">{keyError()}</p>
                   </Show>
-                  <button type="button" onClick={addKey} class="btn-secondary btn-sm self-end">
+                  <Button type="button" variant="secondary" size="sm" onClick={addKey} class="self-end">
                     <i class="ti ti-plus text-sm" />
                     Add Key
-                  </button>
+                  </Button>
                 </div>
               </div>
             </Show>
 
             <div class="flex justify-end gap-3 pt-1">
-              <button type="button" onClick={() => close(undefined)} class="btn-secondary btn-sm">
+              <Button type="button" variant="secondary" size="sm" onClick={() => close(undefined)}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                class="btn-primary btn-sm"
+                size="sm"
                 onClick={() =>
                   close({ phone: phone(), street: street(), postalCode: postalCode(), city: city(), state: state(), sshKeys: keys() })
                 }
               >
                 Save
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -390,15 +392,16 @@ export default function ProfileActions(props: Props) {
       <div class="flex flex-wrap items-center gap-2">
         <For each={actions}>
           {(action) => (
-            <button
+            <Button
               type="button"
-              class="btn-secondary btn-sm"
+              variant="secondary"
+              size="sm"
               disabled={action.id === "extend" && extendMutation.loading()}
               onClick={action.action}
             >
               <i class={action.icon} />
               {action.label}
-            </button>
+            </Button>
           )}
         </For>
       </div>

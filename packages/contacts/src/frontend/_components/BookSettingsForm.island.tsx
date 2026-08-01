@@ -1,6 +1,6 @@
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, SettingsModal, TextInput, toast } from "@k2b/ui";
+import { Button, prompts, SettingsModal, TextInput, toast } from "@k2b/ui";
 import { PermissionEditor, type ResourceApiKey, ResourceApiKeys } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createSignal } from "solid-js";
@@ -86,15 +86,10 @@ export default function BookSettingsForm(props: Props) {
             />
           </div>
 
-          <button
-            type="button"
-            class="btn-primary btn-sm"
-            disabled={updateMutation.loading()}
-            onClick={() => updateMutation.mutate(undefined)}
-          >
-            {updateMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-device-floppy" />}
+          <Button type="button" size="sm" loading={updateMutation.loading()} onClick={() => updateMutation.mutate(undefined)}>
+            <i class="ti ti-device-floppy" />
             Save
-          </button>
+          </Button>
         </SettingsModal.Tab>
 
         <SettingsModal.Tab id="tags" title="Tags" icon="ti ti-tags" description="Book vocabulary assigned from the contact editor.">

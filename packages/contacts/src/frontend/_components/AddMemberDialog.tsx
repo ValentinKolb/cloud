@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { PanelDialog, prompts } from "@k2b/ui";
+import { Button, PanelDialog, prompts } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
@@ -86,12 +86,12 @@ export default function AddMemberDialog(props: Props) {
             </PanelDialog.Section>
           </PanelDialog.Body>
           <PanelDialog.Footer>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+            <Button type="button" variant="secondary" size="sm" onClick={() => props.close(null)}>
               Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={() => setMode("create")}>
+            </Button>
+            <Button type="button" size="sm" onClick={() => setMode("create")}>
               <i class="ti ti-plus" /> Create new contact
-            </button>
+            </Button>
           </PanelDialog.Footer>
         </div>
       </PanelDialog>

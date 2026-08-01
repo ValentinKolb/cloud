@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, TextInput, toast } from "@k2b/ui";
+import { Button, prompts, TextInput, toast } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
@@ -117,20 +117,20 @@ export default function ContactQuickEdit(props: Props) {
           <Show
             when={parentRef()}
             fallback={
-              <button type="button" class="btn-simple btn-sm" onClick={openParentPicker}>
+              <Button variant="ghost" size="sm" onClick={openParentPicker}>
                 <i class="ti ti-corner-down-right" /> Choose parent
-              </button>
+              </Button>
             }
           >
             {(parent) => (
               <div class="flex flex-wrap items-center gap-1.5">
                 <span class="rounded-md bg-[var(--ui-surface-subtle)] px-2 py-1 text-xs text-primary">{resolveContactName(parent())}</span>
-                <button type="button" class="btn-simple btn-sm" onClick={openParentPicker}>
+                <Button variant="ghost" size="sm" onClick={openParentPicker}>
                   Change
-                </button>
-                <button type="button" class="btn-simple btn-sm text-dimmed" onClick={() => setParentRef(null)}>
+                </Button>
+                <Button variant="ghost" size="sm" class="text-dimmed" onClick={() => setParentRef(null)}>
                   Clear
-                </button>
+                </Button>
               </div>
             )}
           </Show>
@@ -148,17 +148,17 @@ export default function ContactQuickEdit(props: Props) {
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <button type="button" class="btn-simple btn-sm text-dimmed" onClick={props.onEditAll}>
+        <Button variant="ghost" size="sm" class="text-dimmed" onClick={props.onEditAll}>
           Edit all fields <i class="ti ti-arrow-up-right" />
-        </button>
+        </Button>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn-secondary btn-sm" onClick={props.onCancel} disabled={saveMutation.loading()}>
+          <Button variant="secondary" size="sm" onClick={props.onCancel} disabled={saveMutation.loading()}>
             Cancel
-          </button>
-          <button type="submit" class="btn-primary btn-sm" disabled={saveMutation.loading()}>
-            {saveMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-check" />}
+          </Button>
+          <Button type="submit" size="sm" loading={saveMutation.loading()}>
+            <i class="ti ti-check" />
             Save
-          </button>
+          </Button>
         </div>
       </div>
     </form>

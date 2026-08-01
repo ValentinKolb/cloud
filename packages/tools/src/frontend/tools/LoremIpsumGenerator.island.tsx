@@ -1,6 +1,6 @@
-import { createSignal, createMemo, createEffect } from "solid-js";
-import { SegmentedControl, Slider } from "@k2b/ui";
 import { timed } from "@k2b/stdlib/solid";
+import { Button, SegmentedControl, Slider } from "@k2b/ui";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 
 type Mode = "paragraphs" | "sentences" | "words";
@@ -205,16 +205,16 @@ export default function LoremIpsumGenerator() {
           step={1}
           showValue
         />
-        <button class="btn-primary btn-sm self-start" onClick={() => generateNow()}>
+        <Button size="sm" class="self-start" onClick={() => generateNow()}>
           <i class="ti ti-refresh" /> Regenerate
-        </button>
+        </Button>
       </div>
       {output() && (
         <div class="paper p-4 flex flex-col gap-3">
           <ToolCodeBlock class="max-h-96 overflow-y-auto text-sm leading-relaxed">{output()}</ToolCodeBlock>
-          <button class="btn-primary btn-sm self-start" onClick={copy}>
+          <Button size="sm" class="self-start" onClick={copy}>
             <i class={`ti ${copied() ? "ti-check" : "ti-copy"}`} /> {copied() ? "Copied" : "Copy Text"}
-          </button>
+          </Button>
         </div>
       )}
     </div>

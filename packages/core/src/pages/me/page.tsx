@@ -1,7 +1,8 @@
+import { dates } from "@k2b/stdlib";
+import { ButtonLink } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService, audit, coreSettings, notifications, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { dates } from "@k2b/stdlib";
 import { ssr } from "../../config";
 import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
@@ -165,10 +166,10 @@ export default ssr<AuthContext>(async (c) => {
                 <h3 class="text-sm font-semibold text-primary">Recent security activity</h3>
                 <p class="mt-1 text-xs text-dimmed">The latest account-relevant events. Full history remains in Security.</p>
               </div>
-              <a href="/me/security" class="btn-simple btn-sm shrink-0">
+              <ButtonLink href="/me/security" variant="ghost" size="sm" class="shrink-0">
                 View all
                 <i class="ti ti-arrow-right" />
-              </a>
+              </ButtonLink>
             </div>
             {activityPage.items.length > 0 ? (
               <div class="flex flex-col gap-1 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-2">

@@ -1,4 +1,4 @@
-import { toast } from "@k2b/ui";
+import { Button, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { signOutCurrentSession } from "./account-session";
 
@@ -17,9 +17,9 @@ export default function SignOutButton() {
   };
 
   return (
-    <button type="button" class="btn-secondary btn-sm" disabled={signingOut()} onClick={() => void signOut()}>
+    <Button type="button" variant="secondary" size="sm" loading={signingOut()} loadingLabel="Signing out" onClick={() => void signOut()}>
       <i class="ti ti-logout" />
-      {signingOut() ? "Signing out..." : "Sign Out"}
-    </button>
+      Sign Out
+    </Button>
   );
 }

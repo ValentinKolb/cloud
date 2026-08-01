@@ -1,3 +1,4 @@
+import { Button } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import type { ContactTree, ContactTreeNode } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -96,9 +97,9 @@ export default function ContactOrgTreeView(props: Props) {
             <h2 class="truncate text-lg font-semibold leading-tight text-primary">Org Tree</h2>
             <p class="mt-1 text-xs text-dimmed">Hierarchy of this contact.</p>
           </div>
-          <button type="button" class="btn-secondary btn-sm" onClick={props.onBack}>
+          <Button type="button" variant="secondary" size="sm" onClick={props.onBack}>
             <i class="ti ti-arrow-left" /> Details
-          </button>
+          </Button>
         </div>
       </header>
       <div class="detail-stack">

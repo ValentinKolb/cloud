@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Dropdown, type DropdownItem, MarkdownView, prompts, Tooltip, toast } from "@k2b/ui";
+import { Button, ButtonLink, Dropdown, type DropdownItem, IconButton, MarkdownView, prompts, Tooltip, toast } from "@k2b/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -57,12 +57,6 @@ const PRIORITY_DROPDOWN_OPTIONS = PRIORITY_OPTIONS.map((priority) => ({
   color: priority.color,
 }));
 
-const DROPDOWN_TRIGGER_CLASS = "btn-input btn-input-sm w-full gap-2";
-
-const ICON_ACTION_BUTTON_CLASS = "icon-btn h-7 w-7";
-
-const DANGER_ICON_ACTION_BUTTON_CLASS = "icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400";
-
 // =============================================================================
 // Helper Components
 // =============================================================================
@@ -70,15 +64,15 @@ const DANGER_ICON_ACTION_BUTTON_CLASS = "icon-btn h-7 w-7 hover:text-red-600 dar
 function IconActionButton(props: { icon: string; title: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
   return (
     <Tooltip content={props.title}>
-      <button
-        type="button"
+      <IconButton
+        label={props.title}
+        size="sm"
         onClick={props.onClick}
         disabled={props.disabled}
-        class={props.danger ? DANGER_ICON_ACTION_BUTTON_CLASS : ICON_ACTION_BUTTON_CLASS}
-        aria-label={props.title}
+        class={`h-7 w-7 ${props.danger ? "hover:text-red-600 dark:hover:text-red-400" : ""}`}
       >
         <i class={props.icon} />
-      </button>
+      </IconButton>
     </Tooltip>
   );
 }
@@ -122,7 +116,9 @@ function EditableDropdown(props: {
       element: (
         <button
           type="button"
-          class="menu-item"
+          class="k2b-dropdown__item"
+          role="menuitemradio"
+          aria-checked={props.value === option.value}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -160,7 +156,7 @@ function EditableDropdown(props: {
   };
 
   const trigger = (
-    <div class={DROPDOWN_TRIGGER_CLASS}>
+    <Button type="button" variant="secondary" size="sm" class="w-full [&_.k2b-button__label]:w-full">
       <Show when={props.loading}>
         <i class="ti ti-loader-2 animate-spin text-dimmed" />
       </Show>
@@ -179,7 +175,7 @@ function EditableDropdown(props: {
         {selectedOption()?.label ?? `No ${props.label}`}
       </span>
       <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" />
-    </div>
+    </Button>
   );
 
   return (
@@ -245,7 +241,9 @@ function TagsDropdown(props: {
       element: (
         <button
           type="button"
-          class="menu-item"
+          class="k2b-dropdown__item"
+          role="menuitemcheckbox"
+          aria-checked={localSelection().includes(tag.id)}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -286,7 +284,7 @@ function TagsDropdown(props: {
   };
 
   const trigger = (
-    <div class={DROPDOWN_TRIGGER_CLASS}>
+    <Button type="button" variant="secondary" size="sm" class="w-full [&_.k2b-button__label]:w-full">
       <Show when={props.loading}>
         <i class="ti ti-loader-2 animate-spin text-dimmed" />
       </Show>
@@ -297,7 +295,7 @@ function TagsDropdown(props: {
         {selectedTags().length > 0 ? `${selectedTags().length} Tags` : "No Tags"}
       </span>
       <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" />
-    </div>
+    </Button>
   );
 
   return (
@@ -631,9 +629,9 @@ export default function ItemDetailPanel(props: Props) {
               <Dropdown
                 trigger={
                   <Tooltip content="More item actions">
-                    <button type="button" class="icon-btn" aria-label="More item actions">
+                    <IconButton label="More item actions">
                       <i class="ti ti-dots" />
-                    </button>
+                    </IconButton>
                   </Tooltip>
                 }
                 elements={itemActions()}
@@ -641,18 +639,20 @@ export default function ItemDetailPanel(props: Props) {
               />
             </Show>
             <Tooltip content="Close details">
-              <a
+              <ButtonLink
                 href={props.baseUrl}
                 onClick={(event) => {
                   if (!shouldHandleDetailClick(event, event.currentTarget)) return;
                   event.preventDefault();
                   requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
                 }}
-                class="icon-btn"
+                variant="ghost"
+                size="sm"
+                class="h-8 w-8 px-0"
                 aria-label="Close item details"
               >
                 <i class="ti ti-x" />
-              </a>
+              </ButtonLink>
             </Tooltip>
           </div>
         </div>
@@ -660,11 +660,13 @@ export default function ItemDetailPanel(props: Props) {
         <Show when={props.canWrite || props.recurringContext}>
           <div class="mt-3 flex flex-wrap items-center gap-2">
             <Show when={canEditItem()}>
-              <button
+              <Button
                 type="button"
                 onClick={() => completeMutation.mutate(!isCompleted())}
                 disabled={isLoading()}
-                class={`${isCompleted() ? "btn-secondary text-emerald-700 dark:text-emerald-300" : "btn-success-subtle"} btn-sm`}
+                variant={isCompleted() ? "secondary" : "success"}
+                size="sm"
+                class={isCompleted() ? "text-emerald-700 dark:text-emerald-300" : undefined}
               >
                 <Show when={isCompleted() || completeMutation.loading()}>
                   <i class={`ti ${completeMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"}`} />
@@ -673,15 +675,16 @@ export default function ItemDetailPanel(props: Props) {
                   <i class="ti ti-circle-check" />
                 </Show>
                 {isCompleted() ? "Reopen" : "Mark complete"}
-              </button>
-              <button type="button" class="btn-simple btn-sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => editItemMutation.mutate(undefined)} disabled={isLoading()}>
                 <i class="ti ti-pencil" /> Edit
-              </button>
+              </Button>
             </Show>
             <Show when={props.recurringContext}>
-              <a
+              <ButtonLink
                 href={seriesHref()}
-                class="btn-simple btn-sm"
+                variant="ghost"
+                size="sm"
                 onClick={(event) => {
                   if (!shouldHandleDetailClick(event, event.currentTarget)) return;
                   event.preventDefault();
@@ -689,7 +692,7 @@ export default function ItemDetailPanel(props: Props) {
                 }}
               >
                 <i class="ti ti-repeat" /> View series
-              </a>
+              </ButtonLink>
             </Show>
           </div>
         </Show>

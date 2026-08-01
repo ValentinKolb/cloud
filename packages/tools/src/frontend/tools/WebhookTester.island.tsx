@@ -2,16 +2,17 @@ import { navigate } from "@k2b/ssr/nav";
 import { timed } from "@k2b/stdlib/solid";
 import {
   AppWorkspace,
+  Button,
   CopyButton,
   DataTable,
   type DataTableColumn,
   type DataTableRenderCell,
   FilterChip,
   type FilterChipSection,
+  IconButton,
   prompts,
   Select,
   TextInput,
-  Tooltip,
   toast,
 } from "@k2b/ui";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -399,15 +400,21 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
       return (
         <div class="flex items-center gap-2">
           <code class="truncate text-[11px]">{url}</code>
-          <CopyButton text={url} class="btn-input btn-sm shrink-0 !px-2" />
+          <CopyButton text={url} variant="secondary" size="sm" class="shrink-0" />
         </div>
       );
     }
     if (ctx.col.id === "actions") {
       return (
-        <button type="button" class="btn-danger btn-sm" disabled={busy()} onClick={() => deleteEndpoint(ctx.row)}>
-          <i class="ti ti-trash" />
-        </button>
+        <IconButton
+          label={`Delete endpoint ${ctx.row.name}`}
+          variant="danger"
+          size="sm"
+          disabled={busy()}
+          onClick={() => deleteEndpoint(ctx.row)}
+        >
+          <i class="ti ti-trash" aria-hidden="true" />
+        </IconButton>
       );
     }
     return ctx.render(ctx.value);
@@ -491,10 +498,10 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
                   <p class="mt-0.5 text-xs text-dimmed">Create receive URLs, send test calls, and inspect stored request logs.</p>
                 </div>
                 <Show when={routeState().mode === "receive"}>
-                  <button type="button" class="btn-input btn-input-sm shrink-0" disabled={busy()} onClick={() => void openCreateEndpoint()}>
+                  <Button variant="secondary" size="xs" class="shrink-0" disabled={busy()} onClick={() => void openCreateEndpoint()}>
                     <i class="ti ti-plus text-sm" />
                     Add
-                  </button>
+                  </Button>
                 </Show>
               </div>
 
@@ -574,16 +581,16 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
                     onValueChange={(value) => commitRoute({ method: (value[0] as Method | undefined) ?? null, requestId: null })}
                   />
                   <Show when={hasActiveFilters()}>
-                    <button type="button" class="btn-input btn-sm text-red-600 dark:text-red-400" onClick={clearFilters}>
+                    <Button variant="secondary" size="sm" class="text-red-600 dark:text-red-400" onClick={clearFilters}>
                       <i class="ti ti-x" />
                       Clear
-                    </button>
+                    </Button>
                   </Show>
                   <span class="text-xs text-dimmed">{totalLabel()}</span>
-                  <button type="button" class="btn-input btn-sm ml-auto" onClick={() => refetchLogs()}>
+                  <Button variant="secondary" size="sm" class="ml-auto" onClick={() => refetchLogs()}>
                     <i class="ti ti-refresh" />
                     Refresh
-                  </button>
+                  </Button>
                 </div>
 
                 <DataTable
@@ -686,10 +693,17 @@ function SendPanel(props: {
           <h2 class="text-sm font-semibold text-primary">Send request</h2>
           <p class="mt-0.5 text-xs text-dimmed">Call an external webhook from the server and log the response.</p>
         </div>
-        <button type="button" class="btn-primary btn-sm shrink-0" disabled={props.busy || !props.targetUrl().trim()} onClick={props.onSend}>
-          <i class={`ti ${props.busy ? "ti-loader-2 animate-spin" : "ti-send"} text-sm`} />
+        <Button
+          size="sm"
+          class="shrink-0"
+          loading={props.busy}
+          loadingLabel="Sending"
+          disabled={!props.targetUrl().trim()}
+          onClick={props.onSend}
+        >
+          <i class="ti ti-send text-sm" />
           Send
-        </button>
+        </Button>
       </div>
 
       <div class="grid grid-cols-1 gap-2 lg:grid-cols-[10rem_1fr]">
@@ -742,12 +756,10 @@ function RequestDetail(props: { log: WebhookLog; endpoint: Endpoint | null | und
               {formatDate(props.log.createdAt)}
             </p>
           </div>
-          <CopyButton text={JSON.stringify(props.log, null, 2)} label="Copy JSON" class="btn-input btn-sm shrink-0 !px-2" />
-          <Tooltip content="Close request details">
-            <button type="button" class="btn-icon" aria-label="Close request details" onClick={props.onClose}>
-              <i class="ti ti-x" />
-            </button>
-          </Tooltip>
+          <CopyButton text={JSON.stringify(props.log, null, 2)} label="Copy JSON" variant="secondary" size="sm" class="shrink-0" />
+          <IconButton label="Close request details" onClick={props.onClose}>
+            <i class="ti ti-x" />
+          </IconButton>
         </div>
       </section>
 
@@ -796,10 +808,10 @@ const LogBlock = (props: { title: string; value: unknown }) => {
       <div class="mb-2 flex items-center justify-between gap-2">
         <h3 class="min-w-0 truncate text-xs font-semibold text-dimmed">{props.title}</h3>
         <div class="flex shrink-0 items-center gap-1">
-          <button type="button" class="btn-input btn-input-sm !h-7 !px-2 text-[11px]" onClick={() => setRaw(!raw())}>
+          <Button variant="secondary" size="xs" class="text-[11px]" onClick={() => setRaw(!raw())}>
             {raw() ? "Pretty" : "Raw"}
-          </button>
-          <CopyButton text={rawText()} label="Copy" class="btn-input btn-input-sm !h-7 !px-2 text-[11px]" />
+          </Button>
+          <CopyButton text={rawText()} label="Copy" variant="secondary" size="xs" class="text-[11px]" />
         </div>
       </div>
       <Show

@@ -1,8 +1,9 @@
+import { dates } from "@k2b/stdlib";
+import { ButtonLink } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService, coreSettings } from "@valentinkolb/cloud/services";
 import { canManageAnyGroups } from "@valentinkolb/cloud/shared";
 import { getRuntimeContext, hasDedicatedRuntimeRoute, Layout } from "@valentinkolb/cloud/ssr";
-import { dates } from "@k2b/stdlib";
 import { ssr } from "../../config";
 import { coreHelp } from "../../help";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
@@ -38,10 +39,10 @@ export default ssr<AuthContext>(async (c) => {
             actions={
               <div class="flex flex-wrap items-center gap-2">
                 {accountsUiAvailable && (
-                  <a href="/app/accounts/groups" class="btn-secondary btn-sm">
+                  <ButtonLink href="/app/accounts/groups" variant="secondary" size="sm">
                     <i class="ti ti-users-group" />
                     Browse groups
-                  </a>
+                  </ButtonLink>
                 )}
                 <AccountProfileActions user={user} appName={appName} freeIpaEnabled={freeIpaEnabled} actions={["extend"]} />
               </div>
@@ -102,10 +103,10 @@ export default ssr<AuthContext>(async (c) => {
                   <p class="mt-1 text-xs text-dimmed">Direct and inherited access visible to your account.</p>
                 </div>
                 {displayGroups.length > 0 && (
-                  <a href={showAllGroups ? "/me/access" : "/me/access?groups=all"} class="btn-simple btn-sm shrink-0">
+                  <ButtonLink href={showAllGroups ? "/me/access" : "/me/access?groups=all"} variant="ghost" size="sm" class="shrink-0">
                     <i class="ti ti-git-branch" />
                     {showAllGroups ? "Direct only" : "Show inherited"}
-                  </a>
+                  </ButtonLink>
                 )}
               </div>
               {displayGroups.length > 0 ? (

@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { DataTable, type DataTableColumn, PanelDialog, prompts, toast } from "@k2b/ui";
+import { Button, DataTable, type DataTableColumn, PanelDialog, prompts, toast } from "@k2b/ui";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { formatDateTime as formatDate } from "@valentinkolb/cloud/shared";
 import { createResource, Show } from "solid-js";
@@ -75,15 +75,19 @@ export function LegacySettingsSection() {
       subtitle="Persisted settings that are no longer registered by the running Cloud version. Cleanup never deletes active registered keys."
       icon="ti ti-database-off"
       actions={
-        <button
+        <Button
           type="button"
-          class="btn-input btn-input-sm shrink-0"
+          variant="secondary"
+          size="sm"
+          class="shrink-0"
           onClick={() => void cleanup.mutate()}
-          disabled={cleanup.loading() || legacySettings.loading || (legacySettings()?.length ?? 0) === 0}
+          loading={cleanup.loading()}
+          loadingLabel="Cleaning up"
+          disabled={legacySettings.loading || (legacySettings()?.length ?? 0) === 0}
         >
           <i class={`ti ${cleanup.loading() ? "ti-loader-2 animate-spin" : "ti-trash"} text-sm`} />
           Clean up
-        </button>
+        </Button>
       }
     >
       <Show when={!legacySettings.loading} fallback={<div class="p-3 text-xs text-dimmed">Loading legacy settings...</div>}>

@@ -1,5 +1,5 @@
-import { createSignal, createMemo } from "solid-js";
-import { TagsInput, TextInput } from "@k2b/ui";
+import { ButtonLink, CopyButton, TagsInput, TextInput } from "@k2b/ui";
+import { createMemo, createSignal } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 
 export default function MailtoGenerator() {
@@ -33,21 +33,6 @@ export default function MailtoGenerator() {
     const label = subject().trim() || `Email ${to().trim()}`;
     return `<a href="${mailto()}">${label}</a>`;
   });
-
-  const [copiedField, setCopiedField] = createSignal<string | null>(null);
-
-  const copy = async (value: string, field: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-  };
-
-  const CopyBtn = (props: { value: string; field: string; label: string }) => (
-    <button class="btn-secondary btn-sm" onClick={() => copy(props.value, props.field)}>
-      <i class={`ti ${copiedField() === props.field ? "ti-check" : "ti-copy"}`} />
-      {copiedField() === props.field ? "Copied" : props.label}
-    </button>
-  );
 
   return (
     <div class="flex flex-col gap-4">
@@ -123,13 +108,13 @@ export default function MailtoGenerator() {
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
-            <CopyBtn value={mailto()} field="mailto" label="Copy Link" />
-            <CopyBtn value={markdownLink()} field="markdown" label="Copy Markdown" />
-            <CopyBtn value={htmlLink()} field="html" label="Copy HTML" />
-            <a href={mailto()} class="btn-primary btn-sm inline-flex items-center gap-1">
+            <CopyButton value={mailto()} label="Copy Link" variant="secondary" size="sm" />
+            <CopyButton value={markdownLink()} label="Copy Markdown" variant="secondary" size="sm" />
+            <CopyButton value={htmlLink()} label="Copy HTML" variant="secondary" size="sm" />
+            <ButtonLink href={mailto()} size="sm">
               <i class="ti ti-external-link" />
               Open in Mail Client
-            </a>
+            </ButtonLink>
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { password } from "@k2b/stdlib";
 import { clipboard } from "@k2b/stdlib/solid";
-import { prompts, TextInput } from "@k2b/ui";
+import { Button, prompts, TextInput } from "@k2b/ui";
 import { type Accessor, createMemo, createSignal } from "solid-js";
 
 type PasswordSetupFieldsProps = {
@@ -31,14 +31,14 @@ function GeneratedPasswordDialog(props: { password: string; close: () => void })
       </p>
 
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => void copyPassword()}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => void copyPassword()}>
           <i class={wasCopied() ? "ti ti-clipboard-check" : "ti ti-copy"} />
           {wasCopied() ? "Copied" : "Copy password"}
-        </button>
+        </Button>
         {copiedOnce() && (
-          <button type="button" class="btn-primary btn-sm" onClick={props.close}>
+          <Button type="button" size="sm" onClick={props.close}>
             Done
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -94,10 +94,10 @@ export function PasswordSetupFields(props: PasswordSetupFieldsProps) {
           <p class="text-sm font-medium text-primary">New password</p>
           <p class="text-xs text-dimmed">Choose a strong password or generate one automatically.</p>
         </div>
-        <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void generatePassword()}>
+        <Button type="button" variant="secondary" size="sm" class="shrink-0" onClick={() => void generatePassword()}>
           <i class="ti ti-sparkles" />
           Generate
-        </button>
+        </Button>
       </div>
 
       <TextInput

@@ -1,3 +1,4 @@
+import { ButtonLink } from "@k2b/ui";
 import { listLegalLinks } from "@valentinkolb/cloud";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import {
@@ -182,14 +183,14 @@ export default ssr(async (c) => {
 
               {!isAdminLogin && !token && (
                 <div class="mt-4 flex items-center justify-between gap-3 text-xs text-dimmed">
-                  <a href={supportHref} class="btn-secondary btn-sm">
+                  <ButtonLink href={supportHref} variant="secondary" size="sm">
                     <i class="ti ti-lifebuoy" />
                     Contact support
-                  </a>
-                  <a href={adminHref} class="btn-secondary btn-sm">
+                  </ButtonLink>
+                  <ButtonLink href={adminHref} variant="secondary" size="sm">
                     <i class="ti ti-shield" />
                     Admin token
-                  </a>
+                  </ButtonLink>
                 </div>
               )}
             </div>

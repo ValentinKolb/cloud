@@ -1,6 +1,6 @@
 import { dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { CopyButton, DateTimePicker, Placeholder, prompts, TextInput } from "@k2b/ui";
+import { Button, CopyButton, DateTimePicker, Placeholder, prompts, TextInput } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { ServiceAccountCredential } from "@valentinkolb/cloud/contracts";
 import { createSignal, For, Show } from "solid-js";
@@ -82,13 +82,13 @@ function ApiKeyCreateDialog(props: { close: (value: { name: string; expiresAt: s
         ]}
       />
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => props.close(null)}>
           Cancel
-        </button>
-        <button type="submit" class="btn-primary btn-sm">
+        </Button>
+        <Button type="submit" size="sm">
           <i class="ti ti-plus" />
           Create key
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -162,10 +162,10 @@ export default function ApiKeysSettings(props: Props) {
           </h2>
           <p class="mt-1 text-xs text-dimmed">Personal automation keys inherit your account permissions.</p>
         </div>
-        <button type="button" class="btn-secondary btn-sm shrink-0" onClick={openCreate} disabled={createMutation.loading()}>
+        <Button type="button" variant="secondary" size="sm" class="shrink-0" onClick={openCreate} disabled={createMutation.loading()}>
           <i class="ti ti-plus" />
           Add
-        </button>
+        </Button>
       </div>
 
       <Show
@@ -191,10 +191,10 @@ export default function ApiKeysSettings(props: Props) {
                     <span>{key.lastUsedAt ? `Used ${dates.formatDateTimeRelative(key.lastUsedAt)}` : "Never used"}</span>
                   </div>
                 </div>
-                <button type="button" class="btn-simple btn-sm shrink-0 text-red-600 dark:text-red-400" onClick={() => revoke(key)}>
+                <Button type="button" variant="ghost" size="sm" class="shrink-0 text-red-600 dark:text-red-400" onClick={() => revoke(key)}>
                   <i class="ti ti-trash" />
                   Revoke
-                </button>
+                </Button>
               </div>
             )}
           </For>

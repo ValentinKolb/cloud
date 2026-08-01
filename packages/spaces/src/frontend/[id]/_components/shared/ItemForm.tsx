@@ -1,4 +1,5 @@
 import {
+  Button,
   CheckboxCard,
   DatePicker,
   DateRangePicker,
@@ -315,9 +316,11 @@ export default function ItemForm(props: ItemFormProps) {
                 onValueChange={handleAllDayChange}
               />
               <Show when={recurrenceEnabled() && !showAdvanced()}>
-                <button
+                <Button
                   type="button"
-                  class="btn-input btn-input-sm w-full justify-between text-secondary"
+                  variant="secondary"
+                  size="sm"
+                  class="w-full text-secondary [&_.k2b-button__label]:w-full [&_.k2b-button__label]:justify-between"
                   onClick={() => setAdvancedOpen(true)}
                 >
                   <span class="flex min-w-0 items-center gap-2">
@@ -325,7 +328,7 @@ export default function ItemForm(props: ItemFormProps) {
                     <span class="truncate">{summarizeRecurrence(currentRecurrence()) ?? "Repeats"}</span>
                   </span>
                   <span class="shrink-0 text-xs text-blue-600 dark:text-blue-300">Edit repeat</span>
-                </button>
+                </Button>
               </Show>
             </Show>
           </div>
@@ -368,15 +371,17 @@ export default function ItemForm(props: ItemFormProps) {
                     <div class="grid grid-cols-7 gap-1">
                       <For each={weekdayOptions}>
                         {(day) => (
-                          <button
+                          <Button
                             type="button"
+                            variant={recurrenceByDay().includes(day.id) ? "subtle" : "secondary"}
+                            size="sm"
                             aria-label={day.fullLabel}
                             aria-pressed={recurrenceByDay().includes(day.id)}
-                            class={`btn-input btn-input-sm justify-center px-0 ${recurrenceByDay().includes(day.id) ? "btn-input-active" : ""}`}
+                            class="w-full justify-center px-0"
                             onClick={() => toggleRecurrenceDay(day.id)}
                           >
                             {day.label}
-                          </button>
+                          </Button>
                         )}
                       </For>
                     </div>
@@ -527,22 +532,23 @@ export default function ItemForm(props: ItemFormProps) {
         </PanelDialog.Body>
 
         <PanelDialog.Footer>
-          <button
+          <Button
             type="button"
-            class="btn-secondary btn-sm"
+            variant="secondary"
+            size="sm"
             aria-expanded={advancedOpen()}
             onClick={() => setAdvancedOpen((open) => !open)}
           >
             <i class={`ti ${advancedOpen() ? "ti-eye-off" : "ti-eye"}`} />
             <span>{advancedOpen() ? "Hide options" : "More options"}</span>
-          </button>
+          </Button>
           <div class="flex items-center gap-2">
-            <button type="button" onClick={props.onCancel} class="btn-secondary btn-sm">
+            <Button type="button" variant="secondary" size="sm" onClick={props.onCancel}>
               Cancel
-            </button>
-            <button type="submit" class="btn-primary btn-sm">
+            </Button>
+            <Button type="submit" size="sm">
               {props.submitLabel ?? defaultSubmitLabel()}
-            </button>
+            </Button>
           </div>
         </PanelDialog.Footer>
       </form>

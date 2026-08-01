@@ -2,6 +2,7 @@ import type { DateContext } from "@k2b/stdlib";
 import { dates as calendar } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
+  Button,
   type CalendarEvent,
   type CalendarEventTimeChange,
   Calendar as CoreCalendar,
@@ -167,9 +168,9 @@ const chooseRecurringEditScope = async (): Promise<RecurringEditScope | null> =>
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <span />
-          <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => close(null)}>
             Cancel
-          </button>
+          </Button>
         </PanelDialog.Footer>
       </PanelDialog>
     ),
@@ -508,15 +509,16 @@ export default function Calendar(props: CalendarProps) {
         dateConfig={props.dateConfig}
         toolbarActions={
           <Show when={props.canWrite}>
-            <button
+            <Button
               type="button"
-              class="btn-primary btn-sm shrink-0 whitespace-nowrap"
+              size="sm"
+              class="shrink-0 whitespace-nowrap"
               disabled={createEvent.loading()}
               onClick={() => createEvent.mutate(defaultNewEventSlot())}
             >
               <i class={`ti ${createEvent.loading() ? "ti-loader-2 animate-spin" : "ti-calendar-plus"}`} />
               New event
-            </button>
+            </Button>
           </Show>
         }
         toolbarContent={

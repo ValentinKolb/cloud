@@ -9,7 +9,18 @@
  */
 
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { PanelDialog, prompts, readSettingsError, Select, SettingsPanelFooter, sameSettingValue, TextInput, Tooltip } from "@k2b/ui";
+import {
+  Button,
+  ButtonLink,
+  PanelDialog,
+  prompts,
+  readSettingsError,
+  Select,
+  SettingsPanelFooter,
+  sameSettingValue,
+  TextInput,
+  Tooltip,
+} from "@k2b/ui";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import type { SettingValueSource } from "@valentinkolb/cloud/contracts";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
@@ -179,9 +190,9 @@ export default function LegalSettingsForm(props: Props) {
                 subtitle={kind.description}
                 icon={kind.icon}
                 actions={
-                  <a href={kind.path} target="_blank" class="btn-input btn-input-sm" rel="noreferrer">
+                  <ButtonLink href={kind.path} target="_blank" variant="secondary" size="sm" rel="noreferrer">
                     <i class="ti ti-external-link" /> Open
-                  </a>
+                  </ButtonLink>
                 }
               >
                 <LegalField
@@ -320,9 +331,16 @@ function LegalField(props: {
           </Show>
         </div>
         <Tooltip content="Stage the default value. Save applies it; Discard cancels it.">
-          <button type="button" class="btn-input btn-input-sm shrink-0" onClick={props.onUseDefault} disabled={!props.canUseDefault()}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            class="shrink-0"
+            onClick={props.onUseDefault}
+            disabled={!props.canUseDefault()}
+          >
             <i class="ti ti-arrow-back-up" /> Use default
-          </button>
+          </Button>
         </Tooltip>
       </div>
       {props.children}

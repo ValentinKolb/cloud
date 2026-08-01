@@ -1,4 +1,4 @@
-import { Avatar, Combobox, type ComboboxOption } from "@k2b/ui";
+import { Avatar, Combobox, type ComboboxOption, IconButton } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceItemAssignee } from "@/contracts";
@@ -73,14 +73,14 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
                     />
                     <span>{assignee.displayName}</span>
                     <Show when={!props.disabled}>
-                      <button
-                        type="button"
+                      <IconButton
+                        label={`Remove ${assignee.displayName}`}
+                        size="xs"
                         onClick={() => remove(assignee.id)}
                         class="text-dimmed hover:text-red-500"
-                        aria-label={`Remove ${assignee.displayName}`}
                       >
                         <i class="ti ti-x text-xs" />
-                      </button>
+                      </IconButton>
                     </Show>
                   </span>
                 )}
@@ -106,15 +106,15 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
                     <span class="block truncate text-sm">{assignee.displayName}</span>
                   </div>
                   <Show when={!props.disabled}>
-                    <button
-                      type="button"
+                    <IconButton
+                      label={`Remove ${assignee.displayName}`}
+                      size="xs"
                       onClick={() => remove(assignee.id)}
-                      class="focus-ui rounded-[var(--ui-radius-control)] p-1 text-zinc-400 opacity-0 transition-all hover:text-red-500 focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-                      aria-label={`Remove ${assignee.displayName}`}
+                      class="text-zinc-400 opacity-0 transition-all hover:text-red-500 focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                       title={`Remove ${assignee.displayName}`}
                     >
                       <i class="ti ti-x text-sm" />
-                    </button>
+                    </IconButton>
                   </Show>
                 </div>
               )}

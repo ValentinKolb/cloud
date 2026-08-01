@@ -1,6 +1,6 @@
-import type { AiUserPrefs } from "@valentinkolb/cloud/ai";
-import { prompts, SettingsModal, Switch, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@k2b/stdlib/solid";
+import { Button, prompts, SettingsModal, Switch, TextInput, toast } from "@k2b/ui";
+import type { AiUserPrefs } from "@valentinkolb/cloud/ai";
 import { createSignal, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 
@@ -104,7 +104,7 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
               label="Custom instructions"
               description="Added to every new chat. Tell the assistant who you are, how to answer, and what to focus on."
               value={instructions}
-              onInput={setInstructions}
+              onValueChange={setInstructions}
               markdown
               lines={9}
               maxLength={INSTRUCTIONS_MAX_CHARS}
@@ -113,10 +113,16 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
             />
             <SystemPromptDisclosure />
             <div class="flex justify-end pt-2">
-              <button type="submit" class="btn-primary btn-sm" disabled={busy() || !instructionsDirty()}>
-                <i class={saveInstructions.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
+              <Button
+                type="submit"
+                size="sm"
+                loading={saveInstructions.loading()}
+                loadingLabel="Saving instructions"
+                disabled={busy() || !instructionsDirty()}
+              >
+                <i class="ti ti-device-floppy" aria-hidden="true" />
                 Save instructions
-              </button>
+              </Button>
             </div>
           </form>
         </SettingsModal.Tab>
@@ -138,14 +144,14 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
             <Switch
               label="Let the assistant remember things about you"
               value={memoryEnabled}
-              onChange={setMemoryEnabled}
+              onValueChange={setMemoryEnabled}
               disabled={busy()}
             />
             <TextInput
               label="Memories"
               description="One memory per line, stamped with the date it was saved. The assistant reads this list in every chat and can add or remove entries."
               value={memory}
-              onInput={setMemory}
+              onValueChange={setMemory}
               markdown
               lines={9}
               maxLength={MEMORY_MAX_CHARS}
@@ -153,10 +159,16 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
               disabled={busy()}
             />
             <div class="flex justify-end pt-2">
-              <button type="submit" class="btn-primary btn-sm" disabled={busy() || !memoryDirty()}>
-                <i class={saveMemory.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
+              <Button
+                type="submit"
+                size="sm"
+                loading={saveMemory.loading()}
+                loadingLabel="Saving memory"
+                disabled={busy() || !memoryDirty()}
+              >
+                <i class="ti ti-device-floppy" aria-hidden="true" />
                 Save memory
-              </button>
+              </Button>
             </div>
           </form>
         </SettingsModal.Tab>

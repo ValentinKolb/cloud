@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Pagination, Placeholder } from "@k2b/ui";
+import { Button, Pagination, Placeholder } from "@k2b/ui";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import type { ItemListResult, SpaceColumn, SpaceTag } from "@/contracts";
 import { subscribeToDetailSelection } from "../../../lib/detail";
@@ -91,9 +91,9 @@ export default function SpacesListRoute(props: Props) {
               title="No matching items"
               description="Try a different search or clear the active filters."
               action={
-                <button type="button" class="btn-secondary btn-sm" onClick={clearFilters}>
+                <Button type="button" variant="secondary" size="sm" onClick={clearFilters}>
                   <i class="ti ti-filter-off" /> Clear filters
-                </button>
+                </Button>
               }
             />
           )

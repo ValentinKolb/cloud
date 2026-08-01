@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { dialogCore, PanelDialog, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
+import { Button, dialogCore, PanelDialog, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { z } from "zod";
 import { apiClient } from "@/api/client";
@@ -134,18 +134,18 @@ function InvitationDialog(props: { spaceId: string; itemId: string; method: "req
         </Show>
       </PanelDialog.Body>
       <PanelDialog.Footer>
-        <button type="button" class="btn-secondary" onClick={props.close}>
+        <Button type="button" variant="secondary" onClick={props.close}>
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          class={props.method === "cancel" ? "btn-danger" : "btn-primary"}
+          variant={props.method === "cancel" ? "danger" : "primary"}
           disabled={load.loading() || create.loading() || !context()}
           onClick={() => create.mutate()}
         >
           <i class={create.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-mail-plus"} aria-hidden="true" />
           Create Mail
-        </button>
+        </Button>
       </PanelDialog.Footer>
     </PanelDialog>
   );
@@ -181,15 +181,15 @@ export default function EventInvitations(props: { spaceId: string; itemId: strin
         </p>
       </Show>
       <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => openDialog(props.spaceId, props.itemId, "request")}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => openDialog(props.spaceId, props.itemId, "request")}>
           <i class="ti ti-calendar-share" aria-hidden="true" />
           Invite or update
-        </button>
+        </Button>
         <Show when={canCancel()}>
-          <button type="button" class="btn-simple btn-sm" onClick={() => openDialog(props.spaceId, props.itemId, "cancel")}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => openDialog(props.spaceId, props.itemId, "cancel")}>
             <i class="ti ti-calendar-cancel" aria-hidden="true" />
             Cancel invitations
-          </button>
+          </Button>
         </Show>
       </div>
     </section>

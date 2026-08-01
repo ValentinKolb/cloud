@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { ColorInput, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
+import { Button, ColorInput, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
@@ -42,12 +42,12 @@ function TagForm(props: {
       <TextInput label="Name" placeholder="Tag name" value={name} onValueChange={setName} required />
       <ColorInput label="Color" value={color} onValueChange={setColor} />
       <div class="mt-1 flex gap-2">
-        <button type="submit" disabled={props.loading} class="btn-primary btn-sm">
-          {props.loading ? <i class="ti ti-loader-2 animate-spin" /> : isNew() ? "Create" : "Save"}
-        </button>
-        <button type="button" onClick={props.onCancel} class="btn-secondary btn-sm">
+        <Button type="submit" size="sm" loading={props.loading}>
+          {isNew() ? "Create" : "Save"}
+        </Button>
+        <Button type="button" variant="secondary" size="sm" onClick={props.onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

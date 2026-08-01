@@ -1,4 +1,4 @@
-import { FilterChip, type FilterChipSection } from "@k2b/ui";
+import { ButtonLink, FilterChip, type FilterChipSection } from "@k2b/ui";
 import type {
   AssignedToFilter,
   DeadlineFilter,
@@ -286,15 +286,17 @@ export default function FilterBar(props: FilterBarProps) {
 
         {/* Clear Filters */}
         {hasFilters && (
-          <a
+          <ButtonLink
             href={buildFilterUrl(props.baseUrl, defaultFilter, defaultFilter)}
             onClick={clearFilters}
-            class="btn-simple btn-sm shrink-0"
+            variant="ghost"
+            size="sm"
+            class="shrink-0"
             aria-label="Clear all filters"
           >
             <i class="ti ti-x" />
             <span class="hidden sm:inline">Clear</span>
-          </a>
+          </ButtonLink>
         )}
 
         <span class="shrink-0 whitespace-nowrap text-xs text-dimmed">

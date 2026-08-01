@@ -26,31 +26,23 @@ export default function LocationSidebar(props: Props) {
     const tempClass = data?.current ? weatherService.ui.getTempColorClass(data.current.temperature) : "";
 
     return (
-      <AppWorkspace.SidebarItem
-        href={`/app/weather/${loc.id}`}
-        navigation="document"
-        active={isActive}
-        class={mode === "desktop" ? "sidebar-item-tall" : ""}
-        title={loc.name}
-      >
-        <span class="flex min-w-0 flex-1 items-center gap-2">
+      <AppWorkspace.SidebarItem href={`/app/weather/${loc.id}`} navigation="document" active={isActive} title={loc.name}>
+        <AppWorkspace.SidebarItemIcon>
           <i
             class={`ti ti-${data?.current ? weatherService.ui.getTablerIcon(data.current.icon) : "map-pin"} shrink-0 text-sm ${
               tempClass || "text-dimmed"
             }`}
           />
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-xs">{loc.name}</span>
-            <span class="sidebar-item-meta mt-0.5 block text-[11px]">
-              {data?.current ? (
-                <span class={tempClass}>{weatherService.ui.formatTemp(data.current.temperature)}</span>
-              ) : (
-                <span class="text-dimmed">No forecast</span>
-              )}
-              {mode === "desktop" && loc.state ? <span class="ml-1 text-dimmed">· {loc.state}</span> : null}
+        </AppWorkspace.SidebarItemIcon>
+        <AppWorkspace.SidebarItemLabel>
+          <span class="flex flex-col leading-tight">
+            <span>{loc.name}</span>
+            <span class="mt-0.5 text-[0.6875rem] font-normal text-dimmed">
+              {data?.current ? <span class={tempClass}>{weatherService.ui.formatTemp(data.current.temperature)}</span> : "No forecast"}
+              {mode === "desktop" && loc.state ? <span class="ml-1">· {loc.state}</span> : null}
             </span>
           </span>
-        </span>
+        </AppWorkspace.SidebarItemLabel>
       </AppWorkspace.SidebarItem>
     );
   };

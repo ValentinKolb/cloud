@@ -1,7 +1,7 @@
-import { createEffect, createMemo, createSignal, For, type JSX } from "solid-js";
 import { password as pwdGen } from "@k2b/stdlib";
 import { clipboard } from "@k2b/stdlib/browser";
-import { SegmentedControl, Slider, Switch } from "@k2b/ui";
+import { Button, SegmentedControl, Slider, Switch } from "@k2b/ui";
+import { createEffect, createMemo, createSignal, For, type JSX } from "solid-js";
 
 type PasswordMode = "random" | "memorable" | "pin";
 
@@ -200,14 +200,14 @@ export default function PasswordGenerator() {
       </section>
 
       <div class="grid gap-3 sm:grid-cols-2">
-        <button type="button" class="btn-primary btn-md justify-center" onClick={copyPassword}>
+        <Button class="justify-center" onClick={copyPassword}>
           <i class={`ti ${copied() ? "ti-check" : "ti-copy"}`} />
           {copied() ? "Copied" : "Copy password"}
-        </button>
-        <button type="button" class="btn-secondary btn-md justify-center" onClick={refresh}>
+        </Button>
+        <Button variant="secondary" class="justify-center" onClick={refresh}>
           <i class="ti ti-refresh" />
           Refresh password
-        </button>
+        </Button>
       </div>
     </div>
   );

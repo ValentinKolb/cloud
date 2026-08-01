@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts } from "@k2b/ui";
+import { Button, prompts } from "@k2b/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 type RequestFreeIpaAccountProps = {
@@ -160,9 +160,9 @@ export default function RequestFreeIpaAccount(props: RequestFreeIpaAccountProps)
   };
 
   return (
-    <button type="button" onClick={handleClick} disabled={mutation.loading()} class="btn-primary btn-sm">
+    <Button type="button" size="sm" onClick={handleClick} loading={mutation.loading()} loadingLabel="Requesting">
       {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-building-fortress" />}
       <span>Request FreeIPA Account</span>
-    </button>
+    </Button>
   );
 }

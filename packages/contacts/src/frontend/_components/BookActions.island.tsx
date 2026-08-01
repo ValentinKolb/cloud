@@ -1,6 +1,6 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { CheckboxCard, prompts } from "@k2b/ui";
+import { Button, ButtonLink, CheckboxCard, prompts } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CreateContactInput } from "../../service";
@@ -128,12 +128,12 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
             {filename()} — {candidates().length} contact{candidates().length === 1 ? "" : "s"} found
           </span>
           <div class="flex items-center gap-1">
-            <button type="button" class="btn-simple btn-sm text-xs text-dimmed hover:text-primary" onClick={selectAll}>
+            <Button variant="ghost" size="xs" class="text-xs text-dimmed hover:text-primary" onClick={selectAll}>
               Select all
-            </button>
-            <button type="button" class="btn-simple btn-sm text-xs text-dimmed hover:text-primary" onClick={selectNone}>
+            </Button>
+            <Button variant="ghost" size="xs" class="text-xs text-dimmed hover:text-primary" onClick={selectNone}>
               Select none
-            </button>
+            </Button>
           </div>
         </div>
         <ul class="flex max-h-96 flex-col gap-1 overflow-y-auto">
@@ -161,9 +161,9 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
           </For>
         </ul>
         <div class="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            class="btn-secondary btn-sm"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => {
               setStage("upload");
               setCandidates([]);
@@ -171,13 +171,11 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
             }}
           >
             Back
-          </button>
-          <button type="button" class="btn-primary btn-sm" onClick={submit} disabled={selected().size === 0 || commitMutation.loading()}>
-            <Show when={commitMutation.loading()} fallback={<i class="ti ti-check" />}>
-              <i class="ti ti-loader-2 animate-spin" />
-            </Show>
+          </Button>
+          <Button size="sm" onClick={submit} disabled={selected().size === 0} loading={commitMutation.loading()}>
+            <i class="ti ti-check" />
             Import {selected().size} contact{selected().size === 1 ? "" : "s"}
-          </button>
+          </Button>
         </div>
       </Show>
 
@@ -205,16 +203,16 @@ export default function BookActions(props: Props) {
   return (
     <div class="flex flex-wrap items-center gap-2">
       <Show when={props.canWrite}>
-        <button type="button" class="btn-secondary btn-sm" onClick={openImport} title="Import contacts from a vCard file">
+        <Button variant="secondary" size="sm" onClick={openImport} title="Import contacts from a vCard file">
           <i class="ti ti-upload" /> Import vCard
-        </button>
+        </Button>
       </Show>
-      <a href={`/api/contacts/books/${props.bookId}/export.vcf`} class="btn-secondary btn-sm" title="Export as vCard">
+      <ButtonLink href={`/api/contacts/books/${props.bookId}/export.vcf`} variant="secondary" size="sm" title="Export as vCard">
         <i class="ti ti-address-book" /> Export vCard
-      </a>
-      <a href={`/api/contacts/books/${props.bookId}/export.csv`} class="btn-secondary btn-sm" title="Export as CSV">
+      </ButtonLink>
+      <ButtonLink href={`/api/contacts/books/${props.bookId}/export.csv`} variant="secondary" size="sm" title="Export as CSV">
         <i class="ti ti-file-type-csv" /> Export CSV
-      </a>
+      </ButtonLink>
     </div>
   );
 }

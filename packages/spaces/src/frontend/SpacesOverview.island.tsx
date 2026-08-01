@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { AppOverview, ColorInput, prompts, TextInput, toast } from "@k2b/ui";
+import { AppOverview, Button, ColorInput, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Space } from "@/contracts";
@@ -128,12 +128,12 @@ function CreateSpaceForm(props: { starter: SpaceStarter; close: (result: SpaceDr
         </p>
       </Show>
       <div class="flex justify-end gap-2 pt-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => props.close(null)}>
           Cancel
-        </button>
-        <button type="submit" class="btn-primary btn-sm">
+        </Button>
+        <Button type="submit" size="sm">
           Create
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -211,14 +211,15 @@ export default function SpacesOverview(props: Props) {
               icon="ti ti-layout-kanban"
               class="min-h-72"
             >
-              <button
+              <Button
                 type="button"
-                class="btn-secondary btn-sm"
+                variant="secondary"
+                size="sm"
                 onClick={() => createSpaceMutation.mutate(blankStarter)}
                 disabled={createSpaceMutation.loading()}
               >
                 <i class="ti ti-plus" /> Create a space
-              </button>
+              </Button>
             </AppOverview.EmptyState>
           }
         >
@@ -226,9 +227,9 @@ export default function SpacesOverview(props: Props) {
             when={filteredSpaces().length > 0}
             fallback={
               <AppOverview.EmptyState title="No matching spaces" description="Try a different search term." icon="ti ti-search">
-                <button type="button" class="btn-secondary btn-sm" onClick={() => onSearchInput("")}>
+                <Button type="button" variant="secondary" size="sm" onClick={() => onSearchInput("")}>
                   <i class="ti ti-x" /> Clear search
-                </button>
+                </Button>
               </AppOverview.EmptyState>
             }
           >

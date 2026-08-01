@@ -1,6 +1,6 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { PanelDialog, prompts, TextInput, toast } from "@k2b/ui";
+import { Button, ButtonLink, PanelDialog, prompts, TextInput, toast } from "@k2b/ui";
 import { type Accessor, createSignal, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
@@ -86,9 +86,9 @@ const IdentitySection = (props: IdentitySectionProps) => (
         <Show
           when={props.parentRef()}
           fallback={
-            <button type="button" class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary" onClick={props.openParentPicker}>
+            <Button variant="ghost" size="xs" class="w-fit text-xs text-dimmed hover:text-primary" onClick={props.openParentPicker}>
               <i class="ti ti-corner-down-right" /> Pick a parent contact
-            </button>
+            </Button>
           }
         >
           {(parent) => (
@@ -97,16 +97,12 @@ const IdentitySection = (props: IdentitySectionProps) => (
                 <i class="ti ti-corner-down-right text-[10px]" />
                 {resolveContactName(parent())}
               </span>
-              <button type="button" class="btn-simple btn-sm text-xs text-dimmed hover:text-primary" onClick={props.openParentPicker}>
+              <Button variant="ghost" size="xs" class="text-xs text-dimmed hover:text-primary" onClick={props.openParentPicker}>
                 Change
-              </button>
-              <button
-                type="button"
-                class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
-                onClick={() => props.setParentRef(null)}
-              >
+              </Button>
+              <Button variant="ghost" size="xs" class="text-xs text-dimmed hover:text-red-500" onClick={() => props.setParentRef(null)}>
                 Clear
-              </button>
+              </Button>
             </div>
           )}
         </Show>
@@ -230,16 +226,17 @@ const FooterContent = (props: FooterContentProps) => (
   <div class="flex w-full flex-wrap items-center justify-between gap-2">
     <div>
       {props.mode === "edit" && (
-        <button
-          type="button"
-          class="btn-danger btn-sm"
+        <Button
+          variant="danger"
+          size="sm"
           aria-label="Delete contact"
           disabled={props.saving || props.deleting}
+          loading={props.deleting}
           onClick={props.onDelete}
         >
-          {props.deleting ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
+          <i class="ti ti-trash" />
           Delete
-        </button>
+        </Button>
       )}
     </div>
 
@@ -248,30 +245,26 @@ const FooterContent = (props: FooterContentProps) => (
         when={props.backHref}
         fallback={
           <Show when={props.onCancel}>
-            <button type="button" class="btn-secondary btn-sm" onClick={() => props.onCancel?.()}>
+            <Button variant="secondary" size="sm" onClick={() => props.onCancel?.()}>
               Cancel
-            </button>
+            </Button>
           </Show>
         }
       >
-        <a href={props.backHref!} class="btn-secondary btn-sm">
+        <ButtonLink href={props.backHref!} variant="secondary" size="sm">
           Cancel
-        </a>
+        </ButtonLink>
       </Show>
-      <button
-        type="button"
-        class="btn-primary btn-sm"
+      <Button
+        size="sm"
         aria-label={props.mode === "create" ? "Create contact" : "Save contact changes"}
         disabled={props.saving || props.deleting}
+        loading={props.saving}
         onClick={props.onSave}
       >
-        {props.saving ? (
-          <i class="ti ti-loader-2 animate-spin" />
-        ) : (
-          <i class={props.mode === "create" ? "ti ti-plus" : "ti ti-device-floppy"} />
-        )}
+        <i class={props.mode === "create" ? "ti ti-plus" : "ti ti-device-floppy"} />
         {props.mode === "create" ? "Create Contact" : "Save Changes"}
-      </button>
+      </Button>
     </div>
   </div>
 );
@@ -572,38 +565,38 @@ export default function ContactUpsertForm(props: Props) {
           />
           <div class="flex flex-wrap items-center gap-2">
             <Show when={!showPersonal()}>
-              <button type="button" class="btn-simple btn-sm" onClick={() => setShowPersonal(true)}>
+              <Button variant="ghost" size="sm" onClick={() => setShowPersonal(true)}>
                 <i class="ti ti-user-heart" /> Add personal details
-              </button>
+              </Button>
             </Show>
             <Show when={!showWork()}>
-              <button type="button" class="btn-simple btn-sm" onClick={() => setShowWork(true)}>
+              <Button variant="ghost" size="sm" onClick={() => setShowWork(true)}>
                 <i class="ti ti-briefcase" /> Add work details
-              </button>
+              </Button>
             </Show>
             <Show when={!showAddresses()}>
-              <button
-                type="button"
-                class="btn-simple btn-sm"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setShowAddresses(true);
                   if (addresses().length === 0) setAddresses([{ ...EMPTY_ADDRESS }]);
                 }}
               >
                 <i class="ti ti-map-pin" /> Add address
-              </button>
+              </Button>
             </Show>
             <Show when={!showBankAccounts()}>
-              <button
-                type="button"
-                class="btn-simple btn-sm"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setShowBankAccounts(true);
                   if (bankAccounts().length === 0) setBankAccounts([{ ...EMPTY_BANK_ACCOUNT }]);
                 }}
               >
                 <i class="ti ti-building-bank" /> Add bank details
-              </button>
+              </Button>
             </Show>
           </div>
           <Show when={showPersonal()}>

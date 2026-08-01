@@ -1,6 +1,6 @@
-import { createSignal, createEffect } from "solid-js";
 import { crypto } from "@k2b/stdlib";
 import { CopyButton, TextInput } from "@k2b/ui";
+import { createEffect, createSignal } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 
 export default function HashGenerator() {
@@ -26,7 +26,7 @@ export default function HashGenerator() {
       </div>
       <div class="flex items-start gap-2">
         <ToolCodeBlock class="min-h-8 flex-1">{props.value || <span class="text-dimmed italic">—</span>}</ToolCodeBlock>
-        {props.value && <CopyButton text={props.value} class="icon-btn shrink-0" />}
+        {props.value && <CopyButton text={props.value} class="shrink-0" />}
       </div>
     </div>
   );

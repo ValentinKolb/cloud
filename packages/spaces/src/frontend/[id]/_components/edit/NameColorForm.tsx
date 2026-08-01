@@ -1,4 +1,4 @@
-import { ColorInput, TextInput } from "@k2b/ui";
+import { Button, ColorInput, TextInput } from "@k2b/ui";
 import { createSignal } from "solid-js";
 
 export function NameColorForm(props: {
@@ -30,12 +30,12 @@ export function NameColorForm(props: {
       <TextInput label={props.nameLabel} placeholder={props.namePlaceholder} value={name} onValueChange={setName} required />
       <ColorInput label="Color" value={color} onValueChange={setColor} />
       <div class="flex gap-2 mt-1">
-        <button type="submit" disabled={props.loading} class="btn-primary btn-sm">
+        <Button type="submit" disabled={props.loading} size="sm">
           {props.loading ? <i class="ti ti-loader-2 animate-spin" /> : props.mode === "create" ? props.createLabel : "Save"}
-        </button>
-        <button type="button" onClick={props.onCancel} class="btn-secondary btn-sm">
+        </Button>
+        <Button type="button" onClick={props.onCancel} variant="secondary" size="sm">
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

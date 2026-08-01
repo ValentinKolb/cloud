@@ -1,6 +1,6 @@
 import { documentNavigate, navigate } from "@k2b/ssr/nav";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
-import { FilterChip, type FilterChipSection, Pagination, TextInput } from "@k2b/ui";
+import { Button, FilterChip, type FilterChipSection, Pagination, TextInput } from "@k2b/ui";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactPresenceFilter, ContactSort, ContactTag } from "../../service";
@@ -384,24 +384,24 @@ export default function ContactsResults(props: Props) {
           />
           <Show when={props.canWrite && props.bookId}>
             <span class="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                class="btn-simple btn-sm"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={async () => {
                   const changed = await openContactDuplicatesDialog(props.bookId!);
                   if (changed) documentNavigate(state().href, { replace: true });
                 }}
               >
                 <i class="ti ti-users-group" /> Duplicates
-              </button>
-              <button
-                type="button"
-                class="btn-simple btn-sm"
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 aria-pressed={selectionMode()}
                 onClick={() => (selectionMode() ? clearSelection() : setSelectionMode(true))}
               >
                 <i class="ti ti-list-check" /> Select
-              </button>
+              </Button>
             </span>
           </Show>
         </div>

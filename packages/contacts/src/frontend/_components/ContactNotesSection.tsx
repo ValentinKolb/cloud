@@ -1,6 +1,6 @@
 import { dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Avatar, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
+import { Avatar, Button, IconButton, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -187,9 +187,9 @@ export default function ContactNotesSection(props: Props) {
             {notes().length} {notes().length === 1 ? "note" : "notes"}
           </span>
           <Show when={props.canWrite && !composerOpen()}>
-            <button type="button" class="btn-simple btn-sm" onClick={() => setComposerOpen(true)}>
+            <Button variant="ghost" size="sm" onClick={() => setComposerOpen(true)}>
               <i class="ti ti-plus" /> Add note
-            </button>
+            </Button>
           </Show>
         </div>
       </div>
@@ -212,20 +212,20 @@ export default function ContactNotesSection(props: Props) {
             onSubmit={submitDraft}
           />
           <div class="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              class="btn-simple btn-sm"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 setDraft("");
                 setComposerOpen(false);
               }}
             >
               Cancel
-            </button>
-            <button type="submit" disabled={createMutation.loading() || !draft().trim()} class="btn-primary btn-sm">
-              {createMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
+            </Button>
+            <Button type="submit" size="sm" disabled={!draft().trim()} loading={createMutation.loading()}>
+              <i class="ti ti-send" />
               Post note
-            </button>
+            </Button>
           </div>
         </form>
       </Show>
@@ -269,26 +269,26 @@ export default function ContactNotesSection(props: Props) {
                       <div class="ml-auto flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                         <Show when={isOwn()}>
                           <Tooltip content="Edit note">
-                            <button
-                              type="button"
+                            <IconButton
+                              size="xs"
                               onClick={() => startEdit(note)}
-                              class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                              aria-label="Edit note"
+                              class="text-xs text-dimmed hover:text-primary"
+                              label="Edit note"
                             >
                               <i class="ti ti-pencil" />
-                            </button>
+                            </IconButton>
                           </Tooltip>
                         </Show>
                         <Tooltip content={isOwn() ? "Delete note" : "Delete note as admin"}>
-                          <button
-                            type="button"
+                          <IconButton
+                            size="xs"
                             onClick={() => deleteMutation.mutate(note)}
                             disabled={deleteMutation.loading()}
-                            class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
-                            aria-label={isOwn() ? "Delete note" : "Delete note as admin"}
+                            class="text-xs text-dimmed hover:text-red-500"
+                            label={isOwn() ? "Delete note" : "Delete note as admin"}
                           >
                             <i class="ti ti-trash" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                       </div>
                     </Show>
@@ -305,18 +305,18 @@ export default function ContactNotesSection(props: Props) {
                         onSubmit={() => submitEdit(note.id)}
                       />
                       <div class="flex flex-wrap items-center justify-end gap-2">
-                        <button type="button" onClick={cancelEdit} class="btn-secondary btn-sm">
+                        <Button variant="secondary" size="sm" onClick={cancelEdit}>
                           Cancel
-                        </button>
-                        <button
-                          type="button"
+                        </Button>
+                        <Button
+                          size="sm"
                           onClick={() => submitEdit(note.id)}
-                          disabled={updateMutation.loading() || !editingContent().trim()}
-                          class="btn-primary btn-sm"
+                          disabled={!editingContent().trim()}
+                          loading={updateMutation.loading()}
                         >
-                          {updateMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-check" />}
+                          <i class="ti ti-check" />
                           Save
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   </Show>

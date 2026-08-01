@@ -1,8 +1,8 @@
 import { Link, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
+import { mutation } from "@k2b/stdlib/solid";
+import { IconButton, prompts, Tooltip } from "@k2b/ui";
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { formatDateTime as formatUpdatedAt } from "@valentinkolb/cloud/shared";
-import { prompts, Tooltip } from "@valentinkolb/cloud/ui";
-import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
@@ -101,17 +101,18 @@ export default function AssistantAllChatsList(props: Props) {
             <ConversationStatusMeta conversation={conversation} labels />
             <span class="hidden shrink-0 text-xs text-dimmed sm:block">{formatUpdatedAt(conversation.updatedAt)}</span>
             <Tooltip content={props.archived ? "Restore chat" : "Edit chat"}>
-              <button
-                type="button"
-                class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-dimmed opacity-60 transition-colors hover:bg-zinc-100 hover:text-primary hover:opacity-100 group-focus-within:opacity-100 dark:hover:bg-zinc-800"
-                aria-label={props.archived ? `Restore ${conversation.title}` : `Edit ${conversation.title}`}
+              <IconButton
+                size="sm"
+                variant="ghost"
+                class="shrink-0 opacity-60 group-focus-within:opacity-100"
+                label={props.archived ? `Restore ${conversation.title}` : `Edit ${conversation.title}`}
                 disabled={restore.loading()}
+                loading={props.archived && restoringId() === conversation.id}
+                loadingLabel={`Restoring ${conversation.title}`}
                 onClick={() => (props.archived ? void restore.mutate(conversation) : void openEditor(conversation))}
               >
-                <i
-                  class={`ti ${props.archived ? (restoringId() === conversation.id ? "ti-loader-2 animate-spin" : "ti-restore") : "ti-settings"} text-sm`}
-                />
-              </button>
+                <i class={`ti ${props.archived ? "ti-restore" : "ti-settings"}`} aria-hidden="true" />
+              </IconButton>
             </Tooltip>
           </div>
         )}

@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, toast } from "@k2b/ui";
+import { Button, IconButton, prompts, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceTag } from "@/contracts";
@@ -12,18 +12,18 @@ function TagRow(props: { tag: SpaceTag; onEdit: () => void; onDelete: () => void
       <span class="w-4 h-4 rounded-full shrink-0" style={`background-color: ${props.tag.color}`} />
       <span class="flex-1 text-sm truncate">{props.tag.name}</span>
       <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/tag:opacity-100 sm:group-focus-within/tag:opacity-100">
-        <button type="button" onClick={props.onEdit} class="icon-btn h-7 w-7" aria-label={`Edit ${props.tag.name}`} title="Edit tag">
+        <IconButton label={`Edit ${props.tag.name}`} size="sm" onClick={props.onEdit} class="h-7 w-7" title="Edit tag">
           <i class="ti ti-pencil text-sm" />
-        </button>
-        <button
-          type="button"
+        </IconButton>
+        <IconButton
+          label={`Delete ${props.tag.name}`}
+          size="sm"
           onClick={props.onDelete}
-          class="icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
-          aria-label={`Delete ${props.tag.name}`}
+          class="h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
           title="Delete tag"
         >
           <i class="ti ti-x text-sm" />
-        </button>
+        </IconButton>
       </div>
     </div>
   );
@@ -36,10 +36,10 @@ function AddTagButton(props: { onSave: (data: { name: string; color: string }) =
     <Show
       when={isOpen()}
       fallback={
-        <button type="button" onClick={() => setIsOpen(true)} class="btn-simple btn-sm self-start">
+        <Button type="button" variant="ghost" size="sm" onClick={() => setIsOpen(true)} class="self-start">
           <i class="ti ti-plus" />
           <span>Add tag</span>
-        </button>
+        </Button>
       }
     >
       <NameColorForm

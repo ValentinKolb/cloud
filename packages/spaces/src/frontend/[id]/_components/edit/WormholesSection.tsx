@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { ColorInput, prompts, Select, toast } from "@k2b/ui";
+import { Button, ColorInput, IconButton, prompts, Select, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceWormhole, SpaceWormholeDestination } from "@/contracts";
@@ -60,13 +60,13 @@ function WormholeForm(props: {
       />
       <ColorInput label="Color" description="Used to recognize this wormhole on the Kanban board." value={color} onValueChange={setColor} />
       <div class="flex items-center gap-2">
-        <button type="submit" class="btn-primary btn-sm" disabled={props.loading || !selectedColumnId()}>
+        <Button type="submit" size="sm" disabled={props.loading || !selectedColumnId()}>
           <i class={`ti ${props.loading ? "ti-loader-2 animate-spin" : "ti-check"}`} />
           {props.initial ? "Save" : "Create wormhole"}
-        </button>
-        <button type="button" class="btn-secondary btn-sm" onClick={props.onCancel} disabled={props.loading}>
+        </Button>
+        <Button type="button" variant="secondary" size="sm" onClick={props.onCancel} disabled={props.loading}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -226,48 +226,48 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
                   </Show>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    class="icon-btn h-7 w-7"
-                    aria-label="Move wormhole up"
+                  <IconButton
+                    label="Move wormhole up"
+                    size="sm"
+                    class="h-7 w-7"
                     title="Move up"
                     disabled={index() === 0 || reorderMutation.loading()}
                     onClick={() => move(index(), -1)}
                   >
                     <i class="ti ti-arrow-up text-sm" />
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn h-7 w-7"
-                    aria-label="Move wormhole down"
+                  </IconButton>
+                  <IconButton
+                    label="Move wormhole down"
+                    size="sm"
+                    class="h-7 w-7"
                     title="Move down"
                     disabled={index() === wormholes().length - 1 || reorderMutation.loading()}
                     onClick={() => move(index(), 1)}
                   >
                     <i class="ti ti-arrow-down text-sm" />
-                  </button>
+                  </IconButton>
                   <Show when={wormhole.target}>
-                    <button
-                      type="button"
-                      class="icon-btn h-7 w-7"
-                      aria-label="Edit wormhole"
+                    <IconButton
+                      label="Edit wormhole"
+                      size="sm"
+                      class="h-7 w-7"
                       title="Edit"
                       disabled={destinationsMutation.loading() || destinations().length === 0}
                       onClick={() => setEditingId(wormhole.id)}
                     >
                       <i class="ti ti-pencil text-sm" />
-                    </button>
+                    </IconButton>
                   </Show>
-                  <button
-                    type="button"
-                    class="icon-btn h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
-                    aria-label="Delete wormhole"
+                  <IconButton
+                    label="Delete wormhole"
+                    size="sm"
+                    class="h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
                     title="Delete"
                     disabled={deleteMutation.loading()}
                     onClick={() => deleteMutation.mutate(wormhole)}
                   >
                     <i class="ti ti-trash text-sm" />
-                  </button>
+                  </IconButton>
                 </div>
               </div>
             </Show>
@@ -278,15 +278,17 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
       <Show
         when={editingId() === "new"}
         fallback={
-          <button
+          <Button
             type="button"
-            class="btn-secondary btn-sm self-start"
+            variant="secondary"
+            size="sm"
+            class="self-start"
             disabled={destinationsMutation.loading() || destinations().length === 0}
             onClick={() => setEditingId("new")}
           >
             <i class={`ti ${destinationsMutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"}`} />
             Add wormhole
-          </button>
+          </Button>
         }
       >
         <WormholeForm
@@ -298,16 +300,18 @@ export function WormholesSection(props: { spaceId: string; initialWormholes: Spa
       </Show>
 
       <Show when={destinationsMutation.error()}>
-        <button
+        <Button
           type="button"
-          class="btn-secondary btn-sm self-start"
+          variant="secondary"
+          size="sm"
+          class="self-start"
           onClick={() => {
             destinationsMutation.abort();
             destinationsMutation.mutate(undefined);
           }}
         >
           <i class="ti ti-refresh" /> Retry destinations
-        </button>
+        </Button>
       </Show>
 
       <Show when={!destinationsMutation.loading() && !destinationsMutation.error() && destinations().length === 0}>

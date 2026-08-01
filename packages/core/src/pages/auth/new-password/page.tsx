@@ -1,8 +1,9 @@
-import { ssr } from "../../../config";
-import NewPasswordForm from "./NewPasswordForm.island";
+import { ButtonLink } from "@k2b/ui";
 import { listLegalLinks } from "@valentinkolb/cloud";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import { normalizeRedirectTo, readThemeFromCookieHeader } from "@valentinkolb/cloud/shared";
+import { ssr } from "../../../config";
+import NewPasswordForm from "./NewPasswordForm.island";
 
 /** Set new password page (for expired/temporary passwords). */
 export default ssr(async (c) => {
@@ -63,10 +64,10 @@ export default ssr(async (c) => {
 
               <NewPasswordForm defaultUsername={user} redirectTo={redirectTo} />
 
-              <a href={loginHref} class="btn-secondary btn-sm mt-4 w-full justify-center">
+              <ButtonLink href={loginHref} variant="secondary" size="sm" class="mt-4 w-full justify-center">
                 <i class="ti ti-arrow-left" />
                 Back to sign in
-              </a>
+              </ButtonLink>
             </div>
           </main>
         </div>

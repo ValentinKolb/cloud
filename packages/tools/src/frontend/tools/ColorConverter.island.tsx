@@ -1,5 +1,5 @@
-import { createSignal, batch } from "solid-js";
 import { ColorInput, CopyButton, TextInput } from "@k2b/ui";
+import { batch, createSignal } from "solid-js";
 
 // Conversion helpers
 
@@ -152,7 +152,7 @@ export default function ColorConverter() {
     isUpdating = false;
   };
 
-  const CopyBtn = (props: { value: string }) => <CopyButton text={props.value} class="icon-btn shrink-0" />;
+  const CopyBtn = (props: { value: string }) => <CopyButton text={props.value} class="shrink-0" />;
 
   return (
     <div class="flex flex-col gap-4">

@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Avatar, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
+import { Avatar, Button, IconButton, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -111,9 +111,9 @@ export default function CommentsSection(props: Props) {
             {props.total} {props.total === 1 ? "comment" : "comments"}
           </span>
           <Show when={props.canWrite && !composerOpen()}>
-            <button type="button" class="btn-simple btn-sm" onClick={() => setComposerOpen(true)}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setComposerOpen(true)}>
               <i class="ti ti-plus" /> Add comment
-            </button>
+            </Button>
           </Show>
         </div>
       </div>
@@ -128,9 +128,9 @@ export default function CommentsSection(props: Props) {
       >
         <>
           <Show when={props.hasMore}>
-            <button type="button" class="btn-simple btn-sm self-start" disabled={props.loadingMore} onClick={props.onLoadMore}>
+            <Button type="button" variant="ghost" size="sm" class="self-start" disabled={props.loadingMore} onClick={props.onLoadMore}>
               <i class={`ti ${props.loadingMore ? "ti-loader-2 animate-spin" : "ti-history"}`} /> Load earlier comments
-            </button>
+            </Button>
           </Show>
           <ol class="flex flex-col gap-3">
             <For each={sortedComments()}>
@@ -154,15 +154,15 @@ export default function CommentsSection(props: Props) {
                       </span>
                       <Show when={props.canWrite && comment.canDelete}>
                         <Tooltip content="Delete comment" class="ml-auto">
-                          <button
-                            type="button"
+                          <IconButton
+                            label="Delete comment"
+                            size="sm"
                             onClick={() => deleteCommentMutation.mutate(comment.id)}
                             disabled={deleteCommentMutation.loading()}
-                            class="icon-btn h-7 w-7 opacity-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:hover:text-red-400"
-                            aria-label="Delete comment"
+                            class="h-7 w-7 opacity-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 dark:hover:text-red-400"
                           >
                             <i class="ti ti-trash" />
-                          </button>
+                          </IconButton>
                         </Tooltip>
                       </Show>
                     </div>
@@ -189,20 +189,21 @@ export default function CommentsSection(props: Props) {
             onSubmit={submitNewComment}
           />
           <div class="flex flex-wrap items-center justify-end gap-2">
-            <button
+            <Button
               type="button"
-              class="btn-secondary btn-sm"
+              variant="secondary"
+              size="sm"
               onClick={() => {
                 setNewComment("");
                 setComposerOpen(false);
               }}
             >
               Cancel
-            </button>
-            <button type="submit" disabled={createCommentMutation.loading() || !newComment().trim()} class="btn-primary btn-sm">
+            </Button>
+            <Button type="submit" disabled={createCommentMutation.loading() || !newComment().trim()} size="sm">
               {createCommentMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
               Post comment
-            </button>
+            </Button>
           </div>
         </form>
       </Show>

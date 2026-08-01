@@ -1,7 +1,8 @@
-import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
-import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { cookies } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button } from "@k2b/ui";
+import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 export default function PasskeyLoginButton(props: { redirectTo?: string }) {
   const mutation = mutations.create({
@@ -33,15 +34,17 @@ export default function PasskeyLoginButton(props: { redirectTo?: string }) {
 
   return (
     <div class="flex flex-col gap-2">
-      <button
+      <Button
         type="button"
-        class="btn-primary h-12 w-full justify-center text-base"
-        disabled={mutation.loading()}
+        size="lg"
+        class="h-12 w-full justify-center text-base"
+        loading={mutation.loading()}
+        loadingLabel="Signing in"
         onClick={() => mutation.mutate({})}
       >
         {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-key" />}
         Continue with passkey
-      </button>
+      </Button>
       <p class="text-center text-xs text-dimmed">You can add passkeys from your profile page.</p>
       {mutation.error() && (
         <div class="info-block-danger">

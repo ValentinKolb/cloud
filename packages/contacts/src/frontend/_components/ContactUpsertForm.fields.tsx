@@ -1,4 +1,4 @@
-import { PanelDialog, RemoveButton, TextInput, Tooltip } from "@k2b/ui";
+import { Button, IconButton, PanelDialog, RemoveButton, TextInput, Tooltip } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { Index } from "solid-js";
 import {
@@ -36,37 +36,37 @@ const ContactPointActions = <T,>(props: { rows: Accessor<T[]>; setRows: Setter<T
       <span class="mr-1 text-[11px] font-medium text-secondary">Primary</span>
     ) : (
       <Tooltip content={`Make primary ${props.label}`}>
-        <button
-          type="button"
-          class="icon-btn icon-btn-sm text-dimmed"
-          aria-label={`Make primary ${props.label}`}
+        <IconButton
+          size="xs"
+          class="text-dimmed"
+          label={`Make primary ${props.label}`}
           onClick={() => props.setRows((rows) => moveRow(rows, props.index, 0))}
         >
           <i class="ti ti-star" />
-        </button>
+        </IconButton>
       </Tooltip>
     )}
     <Tooltip content="Move up">
-      <button
-        type="button"
-        class="icon-btn icon-btn-sm text-dimmed"
-        aria-label={`Move ${props.label} up`}
+      <IconButton
+        size="xs"
+        class="text-dimmed"
+        label={`Move ${props.label} up`}
         disabled={props.index === 0}
         onClick={() => props.setRows((rows) => moveRow(rows, props.index, props.index - 1))}
       >
         <i class="ti ti-chevron-up" />
-      </button>
+      </IconButton>
     </Tooltip>
     <Tooltip content="Move down">
-      <button
-        type="button"
-        class="icon-btn icon-btn-sm text-dimmed"
-        aria-label={`Move ${props.label} down`}
+      <IconButton
+        size="xs"
+        class="text-dimmed"
+        label={`Move ${props.label} down`}
         disabled={props.index === props.rows().length - 1}
         onClick={() => props.setRows((rows) => moveRow(rows, props.index, props.index + 1))}
       >
         <i class="ti ti-chevron-down" />
-      </button>
+      </IconButton>
     </Tooltip>
     <RemoveButton ariaLabel={`Remove ${props.label}`} onClick={() => props.setRows((rows) => rows.filter((_, i) => i !== props.index))} />
   </div>
@@ -103,13 +103,14 @@ export const ReachFields = (props: {
             </div>
           )}
         </Index>
-        <button
-          type="button"
-          class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+        <Button
+          variant="ghost"
+          size="xs"
+          class="text-xs text-dimmed hover:text-primary"
           onClick={() => props.setEmails([...props.emails(), { ...EMPTY_EMAIL }])}
         >
           <i class="ti ti-plus" /> Add email
-        </button>
+        </Button>
       </div>
 
       <div class="space-y-2">
@@ -133,13 +134,14 @@ export const ReachFields = (props: {
             </div>
           )}
         </Index>
-        <button
-          type="button"
-          class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+        <Button
+          variant="ghost"
+          size="xs"
+          class="text-xs text-dimmed hover:text-primary"
           onClick={() => props.setPhones([...props.phones(), { ...EMPTY_PHONE }])}
         >
           <i class="ti ti-plus" /> Add phone
-        </button>
+        </Button>
       </div>
 
       <div class="space-y-2">
@@ -163,13 +165,14 @@ export const ReachFields = (props: {
             </div>
           )}
         </Index>
-        <button
-          type="button"
-          class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+        <Button
+          variant="ghost"
+          size="xs"
+          class="text-xs text-dimmed hover:text-primary"
           onClick={() => props.setWebsites([...props.websites(), { ...EMPTY_WEBSITE }])}
         >
           <i class="ti ti-plus" /> Add website
-        </button>
+        </Button>
       </div>
     </div>
   </PanelDialog.Section>
@@ -254,24 +257,26 @@ export const AddressFields = (props: RowsProps<EditableAddress>) => (
               />
             </div>
             <div class="mt-4 flex justify-end">
-              <button
-                type="button"
-                class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
+              <Button
+                variant="ghost"
+                size="xs"
+                class="text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
                 onClick={() => props.setRows((rows) => rows.filter((_, i) => i !== index))}
               >
                 <i class="ti ti-trash" /> Remove address
-              </button>
+              </Button>
             </div>
           </div>
         )}
       </Index>
-      <button
-        type="button"
-        class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+      <Button
+        variant="ghost"
+        size="xs"
+        class="text-xs text-dimmed hover:text-primary"
         onClick={() => props.setRows([...props.rows(), { ...EMPTY_ADDRESS }])}
       >
         <i class="ti ti-plus" /> Add address
-      </button>
+      </Button>
     </div>
   </PanelDialog.Section>
 );
@@ -329,24 +334,26 @@ export const BankAccountFields = (props: RowsProps<EditableBankAccount>) => (
               />
             </div>
             <div class="mt-4 flex justify-end">
-              <button
-                type="button"
-                class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
+              <Button
+                variant="ghost"
+                size="xs"
+                class="text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
                 onClick={() => props.setRows((rows) => rows.filter((_, i) => i !== index))}
               >
                 <i class="ti ti-trash" /> Remove bank details
-              </button>
+              </Button>
             </div>
           </div>
         )}
       </Index>
-      <button
-        type="button"
-        class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+      <Button
+        variant="ghost"
+        size="xs"
+        class="text-xs text-dimmed hover:text-primary"
         onClick={() => props.setRows([...props.rows(), { ...EMPTY_BANK_ACCOUNT }])}
       >
         <i class="ti ti-plus" /> Add bank details
-      </button>
+      </Button>
     </div>
   </PanelDialog.Section>
 );

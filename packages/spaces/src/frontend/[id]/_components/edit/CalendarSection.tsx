@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { CopyButton, prompts, toast } from "@k2b/ui";
+import { Button, CopyButton, prompts, toast } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { readErrorMessage } from "./utils";
@@ -57,14 +57,16 @@ export function CalendarSection(props: { spaceId: string; icalToken: string | nu
           </p>
         </div>
         <Show when={props.isAdmin}>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => regenerateMut.mutate(undefined)}
             disabled={regenerateMut.loading()}
             class="text-xs text-red-500 hover:text-red-600 self-start"
           >
             {regenerateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Regenerate token"}
-          </button>
+          </Button>
         </Show>
       </Show>
     </div>

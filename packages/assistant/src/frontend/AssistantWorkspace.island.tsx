@@ -1,10 +1,6 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
-import {
-  ChatComposer,
-  ChatContextUsage,
-  ChatTimeline,
-  type ChatCommand,
-} from "@k2b/ui";
+import { mutation } from "@k2b/stdlib/solid";
+import { AppWorkspace, type ChatCommand, ChatComposer, ChatContextUsage, ChatTimeline, prompts } from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationTimelineEntry,
@@ -27,8 +23,6 @@ import {
   aiLatestUsageSnapshot,
   readAiComposerFiles,
 } from "@valentinkolb/cloud/ai/ui";
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
-import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
@@ -134,9 +128,7 @@ export default function AssistantWorkspace(props: Props) {
     const key = composerSessionKey();
     setComposerAttachments((current) => ({ ...current, [key]: attachments }));
   };
-  const selectedModel = createMemo(
-    () => props.models.find((model) => model.id === selectedModelId()) ?? null,
-  );
+  const selectedModel = createMemo(() => props.models.find((model) => model.id === selectedModelId()) ?? null);
   const supportsVision = () => Boolean(selectedModel()?.capabilities.includes("vision"));
   createEffect(() => {
     selectedModelId();
@@ -361,9 +353,7 @@ export default function AssistantWorkspace(props: Props) {
     });
     const attachmentErrors = [...result.errors];
     if (result.discarded > 0) {
-      attachmentErrors.push(
-        `${result.discarded} attachment${result.discarded === 1 ? "" : "s"} discarded because the limit was reached.`,
-      );
+      attachmentErrors.push(`${result.discarded} attachment${result.discarded === 1 ? "" : "s"} discarded because the limit was reached.`);
     }
     if (attachmentErrors.length > 0) chat.setError(attachmentErrors.join(" "));
     if (result.attachments.length === 0) return;
@@ -489,9 +479,7 @@ export default function AssistantWorkspace(props: Props) {
                 value={composerDraft()}
                 onValueChange={setComposerDraft}
                 attachments={aiChatAttachments(activeComposerAttachments())}
-                onAttachmentsChange={(next) =>
-                  setActiveComposerAttachments(aiComposerAttachmentRecords(next))
-                }
+                onAttachmentsChange={(next) => setActiveComposerAttachments(aiComposerAttachmentRecords(next))}
                 fileSelection={{
                   onSelect: addComposerFiles,
                   accept: aiComposerFileAccept,
@@ -524,9 +512,7 @@ export default function AssistantWorkspace(props: Props) {
                       }
                     : undefined
                 }
-                onError={(error) =>
-                  chat.setError(error instanceof Error ? error.message : "Chat action failed.")
-                }
+                onError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
                 actions={
                   <button
                     type="button"

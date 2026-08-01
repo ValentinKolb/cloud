@@ -1,4 +1,4 @@
-import { toast } from "@k2b/ui";
+import { Button, toast } from "@k2b/ui";
 import type { BrowserNotificationState } from "@valentinkolb/cloud/browser/notifications";
 import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
 import { createSignal, onMount, Show } from "solid-js";
@@ -84,15 +84,18 @@ export default function BrowserNotificationSetup() {
         </div>
 
         <Show when={state()?.supported && state()?.permission !== "denied"}>
-          <button
+          <Button
             type="button"
-            class={state()?.enabled ? "btn-secondary btn-sm shrink-0" : "btn-primary btn-sm shrink-0"}
-            disabled={pending()}
+            variant={state()?.enabled ? "secondary" : "primary"}
+            size="sm"
+            class="shrink-0"
+            loading={pending()}
+            loadingLabel={state()?.enabled ? "Disabling" : "Enabling"}
             onClick={() => void (state()?.enabled ? disable() : enable())}
           >
             <i class={pending() ? "ti ti-loader-2 animate-spin" : state()?.enabled ? "ti ti-bell-off" : "ti ti-bell-plus"} />
             {pending() ? "Working..." : state()?.enabled ? "Disable" : "Enable"}
-          </button>
+          </Button>
         </Show>
       </div>
     </section>
