@@ -815,15 +815,6 @@
     gap: 1.75rem;
   }
 
-  /* The steps are a sequence, so the gutter says so. */
-  .cloud-step + .cloud-step h3::before {
-    position: absolute;
-    left: -1.2rem;
-    color: var(--c-faint);
-    font-weight: 400;
-    content: "→";
-  }
-
   .cloud-step {
     grid-row: span 3;
     grid-template-rows: subgrid;
