@@ -4,6 +4,7 @@ import {
   DatePicker,
   DateRangePicker,
   DateTimePicker,
+  MultiSelectInput,
   NumberInput,
   PanelDialog,
   SegmentedControl,
@@ -107,10 +108,6 @@ export default function ItemForm(props: ItemFormProps) {
     }));
 
   const defaultColumnId = () => props.columns[0]?.id ?? "";
-
-  const toggleTag = (tagId: string) => {
-    setSelectedTags((prev) => (prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
-  };
 
   const toggleRecurrenceDay = (day: string) => {
     setRecurrenceByDay((prev) => (prev.includes(day) ? prev.filter((value) => value !== day) : [...prev, day]));
@@ -483,29 +480,17 @@ export default function ItemForm(props: ItemFormProps) {
                 />
               </div>
               <Show when={props.tags && props.tags.length > 0}>
-                <div>
-                  <p class="mb-1 block text-sm font-medium">Tags</p>
-                  <Show when={!isEditMode()}>
-                    <p class="mb-2 text-xs text-dimmed">Categorize with tags</p>
-                  </Show>
-                  <div class="flex flex-wrap gap-2">
-                    <For each={props.tags}>
-                      {(tag) => (
-                        <button
-                          type="button"
-                          onClick={() => toggleTag(tag.id)}
-                          class={`flex items-center gap-1 rounded-full px-2 py-1 text-xs transition-all ${
-                            selectedTags().includes(tag.id) ? "opacity-100" : "opacity-40 hover:opacity-70"
-                          }`}
-                          style={`background-color: ${tag.color}${selectedTags().includes(tag.id) ? "30" : "15"}; color: ${tag.color}`}
-                        >
-                          <span class="h-2 w-2 rounded-full" style={`background-color: ${tag.color}`} />
-                          {tag.name}
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </div>
+                <MultiSelectInput
+                  label="Tags"
+                  description={!isEditMode() ? "Categorize with tags" : undefined}
+                  placeholder="Select tags"
+                  searchPlaceholder="Search tags..."
+                  icon="ti ti-tags"
+                  value={selectedTags}
+                  onValueChange={setSelectedTags}
+                  options={(props.tags ?? []).map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
+                  clearable
+                />
               </Show>
 
               <div class="flex flex-col gap-3">

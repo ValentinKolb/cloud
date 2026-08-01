@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { prompts, toast } from "@k2b/ui";
+import { prompts, Tag, toast } from "@k2b/ui";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
@@ -172,12 +172,9 @@ export default function ItemRow(props: ItemRowProps) {
               </Show>
               <For each={props.item.tags?.slice(0, 2) ?? []}>
                 {(tag) => (
-                  <span
-                    class="max-w-24 truncate rounded px-1.5 py-0.5 text-[11px]"
-                    style={`background-color:${tag.color}20;color:${tag.color}`}
-                  >
+                  <Tag size="sm" color={tag.color} class="max-w-24">
                     {tag.name}
-                  </span>
+                  </Tag>
                 )}
               </For>
               <Show when={(props.item.tags?.length ?? 0) > 2}>

@@ -1,5 +1,5 @@
 import { type DateContext, dates } from "@k2b/stdlib";
-import { DataTable, type DataTableColumn } from "@k2b/ui";
+import { DataTable, type DataTableColumn, Tag } from "@k2b/ui";
 import type { JSX } from "solid-js";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
@@ -24,11 +24,11 @@ const PRIORITY_LABEL: Record<string, string> = {
   low: "Low",
 };
 
-const PRIORITY_CLASS: Record<string, string> = {
-  urgent: "text-red-500",
-  high: "text-orange-500",
-  medium: "text-amber-500",
-  low: "text-blue-500",
+const PRIORITY_COLOR: Record<string, string> = {
+  urgent: "#ef4444",
+  high: "#f97316",
+  medium: "#eab308",
+  low: "#3b82f6",
 };
 
 const buildItemHref = (baseUrl: string, itemId: string) => `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}item=${itemId}`;
@@ -89,7 +89,7 @@ export default function ItemsTable(props: Props) {
   ];
 
   return (
-    <div class="paper overflow-hidden" style="view-transition-name: spaces-items-table">
+    <DataTable.Panel class="overflow-hidden [view-transition-name:spaces-items-table]">
       <DataTable
         rows={props.items}
         columns={tableColumns}
@@ -118,16 +118,9 @@ export default function ItemsTable(props: Props) {
             return (
               <CellLink href={href} class="block text-secondary" tabIndex={-1}>
                 {column ? (
-                  <span
-                    class={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 ${
-                      item.completedAt
-                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        : "bg-[var(--ui-surface-subtle)] text-secondary"
-                    }`}
-                  >
-                    {column.color && <span class="h-2 w-2 rounded-full" style={`background-color:${column.color}`} />}
-                    <span>{column.name}</span>
-                  </span>
+                  <Tag size="sm" color={item.completedAt ? "#10b981" : column.color}>
+                    {column.name}
+                  </Tag>
                 ) : (
                   "—"
                 )}
@@ -145,14 +138,9 @@ export default function ItemsTable(props: Props) {
             return (
               <CellLink href={href} class="block" tabIndex={-1}>
                 {item.priority ? (
-                  <span
-                    class={`inline-flex items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 ${
-                      PRIORITY_CLASS[item.priority] ?? "text-dimmed"
-                    }`}
-                  >
-                    <i class="ti ti-flag text-sm" />
-                    <span>{PRIORITY_LABEL[item.priority]}</span>
-                  </span>
+                  <Tag size="sm" color={PRIORITY_COLOR[item.priority]} icon="ti ti-flag">
+                    {PRIORITY_LABEL[item.priority]}
+                  </Tag>
                 ) : (
                   <span class="text-dimmed">—</span>
                 )}
@@ -194,10 +182,9 @@ export default function ItemsTable(props: Props) {
                 {item.tags && item.tags.length > 0 ? (
                   <>
                     {item.tags.slice(0, 2).map((tag) => (
-                      <span class="inline-flex min-w-0 items-center gap-1 rounded-md bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-secondary">
-                        <span class="h-1.5 w-1.5 shrink-0 rounded-full" style={`background-color:${tag.color}`} />
-                        <span class="max-w-20 truncate">{tag.name}</span>
-                      </span>
+                      <Tag size="sm" color={tag.color} class="max-w-24">
+                        {tag.name}
+                      </Tag>
                     ))}
                     {item.tags.length > 2 && <span class="shrink-0 text-dimmed">+{item.tags.length - 2}</span>}
                   </>
@@ -224,6 +211,6 @@ export default function ItemsTable(props: Props) {
           return "";
         }}
       />
-    </div>
+    </DataTable.Panel>
   );
 }

@@ -1,8 +1,22 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, ButtonLink, Dropdown, type DropdownItem, IconButton, MarkdownView, prompts, Tooltip, toast } from "@k2b/ui";
+import {
+  Button,
+  ButtonLink,
+  Disclosure,
+  Dropdown,
+  type DropdownItem,
+  IconButton,
+  MarkdownView,
+  MultiSelectInput,
+  prompts,
+  Select,
+  Tag,
+  Tooltip,
+  toast,
+} from "@k2b/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
@@ -50,13 +64,6 @@ const PRIORITY_OPTIONS = [
   { value: "low", label: "Low", icon: "ti ti-arrow-down", color: "#3b82f6" },
 ] as const;
 
-const PRIORITY_DROPDOWN_OPTIONS = PRIORITY_OPTIONS.map((priority) => ({
-  value: priority.value,
-  label: priority.label,
-  icon: priority.icon,
-  color: priority.color,
-}));
-
 // =============================================================================
 // Helper Components
 // =============================================================================
@@ -93,234 +100,6 @@ function SectionHeader(props: { title: string; onEdit?: () => void; editLabel?: 
   );
 }
 
-/** Inline editable field with dropdown */
-function EditableDropdown(props: {
-  label: string;
-  icon: string;
-  value: string | null;
-  options: Array<{
-    value: string;
-    label: string;
-    icon?: string;
-    color?: string;
-  }>;
-  onChange: (value: string | null) => void;
-  loading?: boolean;
-  allowClear?: boolean;
-  readOnly?: boolean;
-}) {
-  const selectedOption = () => props.options.find((o) => o.value === props.value);
-
-  const dropdownElements = (): DropdownItem[] => {
-    const items: DropdownItem[] = props.options.map((option) => ({
-      element: (
-        <button
-          type="button"
-          class="k2b-dropdown__item"
-          role="menuitemradio"
-          aria-checked={props.value === option.value}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            props.onChange(option.value);
-          }}
-        >
-          <Show when={option.color}>
-            <div class="w-3 h-3 rounded-full shrink-0" style={`background-color: ${option.color}`} />
-          </Show>
-          <Show when={option.icon && !option.color}>
-            <i class={`${option.icon} ${props.value === option.value ? "text-primary" : "text-dimmed"}`} />
-          </Show>
-          <span class="flex-1 truncate text-left">{option.label}</span>
-          <Show when={props.value === option.value}>
-            <i class="ti ti-check text-primary" />
-          </Show>
-        </button>
-      ),
-    }));
-
-    if (props.allowClear && props.value) {
-      items.push({
-        items: [
-          {
-            icon: "ti ti-x",
-            label: "Clear",
-            variant: "danger" as const,
-            action: () => props.onChange(null),
-          },
-        ],
-      });
-    }
-
-    return items;
-  };
-
-  const trigger = (
-    <Button type="button" variant="secondary" size="sm" class="w-full [&_.k2b-button__label]:w-full">
-      <Show when={props.loading}>
-        <i class="ti ti-loader-2 animate-spin text-dimmed" />
-      </Show>
-      <Show when={!props.loading}>
-        <Show when={selectedOption()?.color}>
-          <div class="w-3 h-3 rounded-full" style={`background-color: ${selectedOption()!.color}`} />
-        </Show>
-        <Show when={selectedOption()?.icon && !selectedOption()?.color}>
-          <i class={`${selectedOption()!.icon}`} style={selectedOption()?.color ? `color: ${selectedOption()!.color}` : ""} />
-        </Show>
-        <Show when={!selectedOption()}>
-          <i class={`${props.icon} text-dimmed`} />
-        </Show>
-      </Show>
-      <span class={`flex-1 truncate text-left ${selectedOption() ? "" : "text-dimmed"}`}>
-        {selectedOption()?.label ?? `No ${props.label}`}
-      </span>
-      <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" />
-    </Button>
-  );
-
-  return (
-    <div>
-      <h3 class="section-label mb-1">{props.label}</h3>
-      <Show
-        when={!props.readOnly}
-        fallback={
-          <div class="flex min-h-8 items-center gap-2 text-xs text-secondary">
-            <Show when={selectedOption()?.color}>
-              <span class="h-2.5 w-2.5 shrink-0 rounded-full" style={`background-color: ${selectedOption()!.color}`} />
-            </Show>
-            <Show when={selectedOption()?.icon && !selectedOption()?.color}>
-              <i class={`${selectedOption()!.icon} text-dimmed`} />
-            </Show>
-            <span>{selectedOption()?.label ?? `No ${props.label}`}</span>
-          </div>
-        }
-      >
-        <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="12rem" />
-      </Show>
-    </div>
-  );
-}
-
-/** Multi-select tags dropdown */
-function TagsDropdown(props: {
-  tags: SpaceTag[];
-  selectedIds: string[];
-  onChange: (ids: string[]) => void;
-  loading?: boolean;
-  readOnly?: boolean;
-}) {
-  const [localSelection, setLocalSelection] = createSignal<string[]>([...props.selectedIds]);
-
-  const selectedTags = () => props.tags.filter((t) => localSelection().includes(t.id));
-
-  const toggleTag = (id: string) => {
-    setLocalSelection((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
-  };
-
-  const handleClose = () => {
-    // Only send IDs that exist in the current tags list (filters out stale/deleted tags)
-    const validTagIds = new Set(props.tags.map((t) => t.id));
-    const local = localSelection().filter((id) => validTagIds.has(id));
-    const original = props.selectedIds;
-    const hasChanges = local.length !== original.length || local.some((v) => !original.includes(v));
-    if (hasChanges) {
-      props.onChange(local);
-    }
-  };
-
-  const dropdownElements = (): DropdownItem[] => {
-    if (props.tags.length === 0) {
-      return [
-        {
-          element: <div class="px-3 py-2 text-sm text-dimmed">No tags available</div>,
-        },
-      ];
-    }
-
-    const items: DropdownItem[] = props.tags.map((tag) => ({
-      element: (
-        <button
-          type="button"
-          class="k2b-dropdown__item"
-          role="menuitemcheckbox"
-          aria-checked={localSelection().includes(tag.id)}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            toggleTag(tag.id);
-          }}
-        >
-          <div
-            class={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-              localSelection().includes(tag.id)
-                ? "border-[var(--ui-action-primary-border)] bg-[var(--ui-action-primary-surface)] text-[var(--ui-action-primary-text)]"
-                : "border-[var(--ui-field-border)] bg-[var(--ui-field)]"
-            }`}
-          >
-            <Show when={localSelection().includes(tag.id)}>
-              <i class="ti ti-check text-xs" />
-            </Show>
-          </div>
-          <div class="w-3 h-3 rounded-full shrink-0" style={`background-color: ${tag.color}`} />
-          <span class="flex-1 truncate text-left">{tag.name}</span>
-        </button>
-      ),
-    }));
-
-    if (localSelection().length > 0) {
-      items.push({
-        items: [
-          {
-            icon: "ti ti-x",
-            label: "Clear all",
-            variant: "danger" as const,
-            action: () => setLocalSelection([]),
-          },
-        ],
-      });
-    }
-
-    return items;
-  };
-
-  const trigger = (
-    <Button type="button" variant="secondary" size="sm" class="w-full [&_.k2b-button__label]:w-full">
-      <Show when={props.loading}>
-        <i class="ti ti-loader-2 animate-spin text-dimmed" />
-      </Show>
-      <Show when={!props.loading}>
-        <i class="ti ti-tags text-dimmed" />
-      </Show>
-      <span class={`flex-1 truncate text-left ${selectedTags().length > 0 ? "" : "text-dimmed"}`}>
-        {selectedTags().length > 0 ? `${selectedTags().length} Tags` : "No Tags"}
-      </span>
-      <i class="ti ti-chevron-down shrink-0 text-xs text-dimmed" />
-    </Button>
-  );
-
-  return (
-    <Show
-      when={!props.readOnly}
-      fallback={
-        <div class="flex min-h-8 flex-wrap items-center gap-1.5">
-          <Show when={selectedTags().length > 0} fallback={<span class="text-xs text-secondary">No tags</span>}>
-            <For each={selectedTags()}>
-              {(tag) => (
-                <span class="inline-flex items-center gap-1 text-xs text-secondary">
-                  <span class="h-2 w-2 rounded-full" style={`background-color:${tag.color}`} />
-                  {tag.name}
-                </span>
-              )}
-            </For>
-          </Show>
-        </div>
-      }
-    >
-      <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="13rem" onClose={handleClose} />
-    </Show>
-  );
-}
-
 /** Assignees section with add/remove functionality */
 function AssigneesSection(props: {
   spaceId: string;
@@ -351,6 +130,16 @@ function AssigneesSection(props: {
  */
 export default function ItemDetailPanel(props: Props) {
   const [commentsPage, setCommentsPage] = createSignal(props.initialCommentsPage);
+  const [selectedPriorityValue, setSelectedPriorityValue] = createSignal<string | null>(props.item.priority);
+  const [selectedTagIds, setSelectedTagIds] = createSignal(props.item.tags?.map((tag) => tag.id) ?? []);
+  let selectedItemId = props.item.id;
+
+  createEffect(() => {
+    if (props.item.id === selectedItemId) return;
+    selectedItemId = props.item.id;
+    setSelectedPriorityValue(props.item.priority);
+    setSelectedTagIds(props.item.tags?.map((tag) => tag.id) ?? []);
+  });
   const isGeneratedOccurrence = () => Boolean(props.recurringContext && !props.recurringContext.isOverride);
   const canEditItem = () => props.canWrite && !isGeneratedOccurrence();
   const scheduleStart = () => props.recurringContext?.startsAt ?? props.item.startsAt;
@@ -434,6 +223,40 @@ export default function ItemDetailPanel(props: Props) {
     onSuccess: handleItemUpdated,
     onError: (err) => prompts.error(err.message),
   });
+
+  let previousPriority = selectedPriorityValue();
+  const priorityMutation = mutations.create<SpaceItem, string | null>({
+    mutation: (priority) => patchItem({ priority }),
+    onSuccess: handleItemUpdated,
+    onError: (err) => {
+      setSelectedPriorityValue(previousPriority);
+      prompts.error(err.message);
+    },
+  });
+
+  const updatePriority = (priority: string | null) => {
+    if (priorityMutation.loading()) return;
+    previousPriority = selectedPriorityValue();
+    setSelectedPriorityValue(priority);
+    priorityMutation.mutate(priority);
+  };
+
+  let previousTagIds = selectedTagIds();
+  const tagsMutation = mutations.create<SpaceItem, string[]>({
+    mutation: (tagIds) => patchItem({ tagIds }),
+    onSuccess: handleItemUpdated,
+    onError: (err) => {
+      setSelectedTagIds(previousTagIds);
+      prompts.error(err.message);
+    },
+  });
+
+  const updateTags = (tagIds: string[]) => {
+    if (tagsMutation.loading()) return;
+    previousTagIds = selectedTagIds();
+    setSelectedTagIds(tagIds);
+    tagsMutation.mutate(tagIds);
+  };
 
   const completeMutation = mutations.create<boolean, boolean>({
     mutation: async (completed: boolean) => {
@@ -539,6 +362,8 @@ export default function ItemDetailPanel(props: Props) {
 
   const isLoading = () =>
     updateMutation.loading() ||
+    priorityMutation.loading() ||
+    tagsMutation.loading() ||
     completeMutation.loading() ||
     duplicateMutation.loading() ||
     deleteMutation.loading() ||
@@ -592,6 +417,7 @@ export default function ItemDetailPanel(props: Props) {
   };
 
   const scheduleTitle = () => (isEvent() ? "Event Time" : "Deadline");
+  const selectedPriority = () => PRIORITY_OPTIONS.find((option) => option.value === selectedPriorityValue());
 
   return (
     <div class="flex h-full min-h-0 flex-col" style="view-transition-name: detail-panel">
@@ -785,26 +611,61 @@ export default function ItemDetailPanel(props: Props) {
           <section class="detail-section">
             <h3 class="detail-section-label">Classify</h3>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <EditableDropdown
-                label="Priority"
-                icon="ti ti-flag"
-                value={props.item.priority}
-                options={PRIORITY_DROPDOWN_OPTIONS}
-                onChange={(v) => updateMutation.mutate({ priority: v })}
-                loading={isLoading()}
-                allowClear
-                readOnly={!canEditItem()}
-              />
-              <div>
-                <h3 class="section-label mb-1">Tags</h3>
-                <TagsDropdown
-                  tags={props.tags}
-                  selectedIds={props.item.tags?.map((t) => t.id) ?? []}
-                  onChange={(ids) => updateMutation.mutate({ tagIds: ids })}
-                  loading={isLoading()}
-                  readOnly={!canEditItem()}
+              <Show
+                when={canEditItem()}
+                fallback={
+                  <div>
+                    <h4 class="section-label mb-1">Priority</h4>
+                    <Show when={selectedPriority()} fallback={<span class="text-xs text-secondary">No priority</span>}>
+                      {(priority) => (
+                        <Tag color={priority().color} icon={priority().icon}>
+                          {priority().label}
+                        </Tag>
+                      )}
+                    </Show>
+                  </div>
+                }
+              >
+                <Select
+                  label="Priority"
+                  placeholder="No priority"
+                  icon="ti ti-flag"
+                  value={selectedPriorityValue}
+                  options={PRIORITY_OPTIONS.map((option) => ({ id: option.value, ...option }))}
+                  onValueChange={updatePriority}
+                  disabled={isLoading()}
+                  clearable
                 />
-              </div>
+              </Show>
+              <Show
+                when={canEditItem()}
+                fallback={
+                  <div>
+                    <h4 class="section-label mb-1">Tags</h4>
+                    <div class="flex min-h-8 flex-wrap items-center gap-1.5">
+                      <Show when={(props.item.tags?.length ?? 0) > 0} fallback={<span class="text-xs text-secondary">No tags</span>}>
+                        {props.item.tags?.map((tag) => (
+                          <Tag color={tag.color} size="sm">
+                            {tag.name}
+                          </Tag>
+                        ))}
+                      </Show>
+                    </div>
+                  </div>
+                }
+              >
+                <MultiSelectInput
+                  label="Tags"
+                  placeholder="No tags"
+                  searchPlaceholder="Search tags..."
+                  icon="ti ti-tags"
+                  value={selectedTagIds}
+                  options={props.tags.map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
+                  onValueChange={updateTags}
+                  disabled={isLoading()}
+                  clearable
+                />
+              </Show>
             </div>
           </section>
         </Show>
@@ -841,13 +702,7 @@ export default function ItemDetailPanel(props: Props) {
           </section>
         </Show>
 
-        <details class="detail-section group/details">
-          <summary class="focus-ui flex cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--ui-radius-control)] text-sm font-medium text-primary">
-            <span class="inline-flex items-center gap-2">
-              <i class="ti ti-info-circle text-dimmed" /> Item information
-            </span>
-            <i class="ti ti-chevron-down text-xs text-dimmed transition-transform group-open/details:rotate-180" />
-          </summary>
+        <Disclosure summary="Item information" icon="ti ti-info-circle" class="detail-section">
           <dl class="detail-facts mt-3">
             <dt class="detail-fact-key">Created</dt>
             <dd>{dates.formatDateTime(props.item.createdAt)}</dd>
@@ -856,7 +711,7 @@ export default function ItemDetailPanel(props: Props) {
             <dt class="detail-fact-key">ID</dt>
             <dd class="break-all font-mono text-dimmed">{props.item.id}</dd>
           </dl>
-        </details>
+        </Disclosure>
       </div>
     </div>
   );

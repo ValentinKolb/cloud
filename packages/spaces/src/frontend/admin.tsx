@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@k2b/ui";
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid, StatusBadge } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
@@ -69,16 +69,11 @@ export default ssr<AuthContext>(async (c) => {
           <StatCell label="Access entries" value={totalPermissions} sub={search ? "in search" : "across all spaces"} />
         </StatGrid>
 
-        <section class="paper overflow-hidden" style="view-transition-name: admin-spaces-table">
-          <div class="flex flex-col gap-2 px-3 py-2">
-            <div>
-              <h2 class="text-xs font-semibold text-primary">Spaces</h2>
-              <p class="text-[10px] text-dimmed">
-                {spaces.items.length} of {spaces.total} spaces
-              </p>
-            </div>
+        <DataTable.Panel class="min-w-0 [view-transition-name:admin-spaces-table]">
+          <DataTable.Header title="Spaces" subtitle={`${spaces.items.length} of ${spaces.total} spaces`} />
+          <DataTable.Controls>
             <SearchBar action="/admin/spaces" value={search} placeholder="Search spaces by name..." ariaLabel="Search spaces" />
-          </div>
+          </DataTable.Controls>
           <DataTable
             rows={spaces.items}
             columns={columns}
@@ -110,24 +105,24 @@ export default ssr<AuthContext>(async (c) => {
               }
               if (col.id === "permissions") {
                 return (
-                  <span
-                    class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                      space.permissionCount === 0
-                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                        : "bg-[var(--ui-surface-muted)] text-secondary"
-                    }`}
-                  >
-                    {space.permissionCount} access {space.permissionCount === 1 ? "entry" : "entries"}
-                  </span>
+                  <StatusBadge
+                    tone={space.permissionCount === 0 ? "error" : "neutral"}
+                    variant="chip"
+                    icon={space.permissionCount === 0 ? "ti ti-lock-off" : "ti ti-users"}
+                    label={`${space.permissionCount} access ${space.permissionCount === 1 ? "entry" : "entries"}`}
+                  />
                 );
               }
               if (col.id === "actions") return <AdminSpaceActions spaceId={space.id} spaceName={space.name} />;
               return "";
             }}
           />
-        </section>
-
-        <Pagination currentPage={spaces.page} totalPages={totalPages} baseUrl={baseUrl} />
+          {totalPages > 1 ? (
+            <DataTable.Footer>
+              <Pagination currentPage={spaces.page} totalPages={totalPages} baseUrl={baseUrl} />
+            </DataTable.Footer>
+          ) : null}
+        </DataTable.Panel>
       </div>
     </AdminLayout>
   );

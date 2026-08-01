@@ -1,66 +1,12 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, IconButton, prompts, toast } from "@k2b/ui";
-import { createSignal, For, Show } from "solid-js";
+import { prompts, TagEditor, toast } from "@k2b/ui";
+import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceTag } from "@/contracts";
-import { NameColorForm } from "./NameColorForm";
 import { readErrorMessage } from "./utils";
-
-function TagRow(props: { tag: SpaceTag; onEdit: () => void; onDelete: () => void }) {
-  return (
-    <div class="group/tag flex items-center gap-2 py-0.5">
-      <span class="w-4 h-4 rounded-full shrink-0" style={`background-color: ${props.tag.color}`} />
-      <span class="flex-1 text-sm truncate">{props.tag.name}</span>
-      <div class="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/tag:opacity-100 sm:group-focus-within/tag:opacity-100">
-        <IconButton label={`Edit ${props.tag.name}`} size="sm" onClick={props.onEdit} class="h-7 w-7" title="Edit tag">
-          <i class="ti ti-pencil text-sm" />
-        </IconButton>
-        <IconButton
-          label={`Delete ${props.tag.name}`}
-          size="sm"
-          onClick={props.onDelete}
-          class="h-7 w-7 hover:text-red-600 dark:hover:text-red-400"
-          title="Delete tag"
-        >
-          <i class="ti ti-x text-sm" />
-        </IconButton>
-      </div>
-    </div>
-  );
-}
-
-function AddTagButton(props: { onSave: (data: { name: string; color: string }) => void; loading: boolean }) {
-  const [isOpen, setIsOpen] = createSignal(false);
-
-  return (
-    <Show
-      when={isOpen()}
-      fallback={
-        <Button type="button" variant="ghost" size="sm" onClick={() => setIsOpen(true)} class="self-start">
-          <i class="ti ti-plus" />
-          <span>Add tag</span>
-        </Button>
-      }
-    >
-      <NameColorForm
-        mode="create"
-        nameLabel="Name"
-        namePlaceholder="Tag name"
-        createLabel="Create"
-        onSave={(data) => {
-          props.onSave(data);
-          setIsOpen(false);
-        }}
-        onCancel={() => setIsOpen(false)}
-        loading={props.loading}
-      />
-    </Show>
-  );
-}
 
 export function TagsSection(props: { spaceId: string; tags: SpaceTag[]; onWorkspaceChange?: () => void }) {
   const [tags, setTags] = createSignal([...props.tags]);
-  const [editingId, setEditingId] = createSignal<string | null>(null);
 
   const createMut = mutations.create({
     mutation: async (data: { name: string; color: string }) => {
@@ -78,7 +24,6 @@ export function TagsSection(props: { spaceId: string; tags: SpaceTag[]; onWorksp
       toast.success("Tag created");
       props.onWorkspaceChange?.();
     },
-    onError: (err) => prompts.error(err.message),
   });
 
   const updateMut = mutations.create({
@@ -94,11 +39,9 @@ export function TagsSection(props: { spaceId: string; tags: SpaceTag[]; onWorksp
     },
     onSuccess: (updated) => {
       setTags(tags().map((t) => (t.id === (updated as SpaceTag).id ? (updated as SpaceTag) : t)));
-      setEditingId(null);
       toast.success("Tag updated");
       props.onWorkspaceChange?.();
     },
-    onError: (err) => prompts.error(err.message),
   });
 
   const deleteMut = mutations.create<SpaceTag | null, SpaceTag>({
@@ -123,33 +66,29 @@ export function TagsSection(props: { spaceId: string; tags: SpaceTag[]; onWorksp
       toast.success("Tag deleted");
       props.onWorkspaceChange?.();
     },
-    onError: (err) => prompts.error(err.message),
   });
 
-  return (
-    <div class="flex flex-col gap-1">
-      <For each={tags()}>
-        {(tag) => (
-          <Show
-            when={editingId() === tag.id}
-            fallback={<TagRow tag={tag} onEdit={() => setEditingId(tag.id)} onDelete={() => deleteMut.mutate(tag)} />}
-          >
-            <NameColorForm
-              mode="edit"
-              initialName={tag.name}
-              initialColor={tag.color}
-              nameLabel="Name"
-              namePlaceholder="Tag name"
-              createLabel="Create"
-              onSave={(data) => updateMut.mutate({ id: tag.id, ...data })}
-              onCancel={() => setEditingId(null)}
-              loading={updateMut.loading()}
-            />
-          </Show>
-        )}
-      </For>
+  const throwMutationError = (error: Error | null) => {
+    if (error) throw error;
+  };
 
-      <AddTagButton onSave={(data) => createMut.mutate(data)} loading={createMut.loading()} />
-    </div>
+  return (
+    <TagEditor
+      items={tags()}
+      defaultColor="#3b82f6"
+      disabled={createMut.loading() || updateMut.loading() || deleteMut.loading()}
+      onCreate={async (value) => {
+        await createMut.mutate(value);
+        throwMutationError(createMut.error());
+      }}
+      onUpdate={async (tag, value) => {
+        await updateMut.mutate({ id: tag.id, ...value });
+        throwMutationError(updateMut.error());
+      }}
+      onDelete={async (tag) => {
+        await deleteMut.mutate(tag);
+        throwMutationError(deleteMut.error());
+      }}
+    />
   );
 }
