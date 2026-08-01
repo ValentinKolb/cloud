@@ -1,4 +1,17 @@
-import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import {
+  type Accessor,
+  createContext,
+  createEffect,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+  useContext,
+} from "solid-js";
+import { PanelHeader } from "../layout/PanelHeader";
 import Placeholder from "../surfaces/Placeholder";
 
 export type DataTableColumn<T> = {
@@ -38,6 +51,10 @@ export type DataTableFooter<T> = {
 export type DataTableProps<T> = {
   rows: readonly T[];
   columns: readonly DataTableColumn<T>[];
+  /** Accessible name for a standalone table region. Defaults to "Data table". */
+  ariaLabel?: string;
+  /** ID of a visible heading that labels the table region. Takes precedence over ariaLabel. */
+  ariaLabelledBy?: string;
   getRowId?: (row: T) => string;
   /** Current server-side ordering, or null when the default applies. */
   sort?: DataTableSort | null;
@@ -68,6 +85,38 @@ export type DataTableProps<T> = {
   tableClass?: string;
   scrollPreserveKey?: string | false;
 };
+
+export type DataTablePanelProps = {
+  children: JSX.Element;
+  class?: string;
+};
+
+export type DataTableHeaderProps = {
+  title: string;
+  subtitle?: string;
+  children?: JSX.Element;
+  as?: "h1" | "h2" | "h3";
+  size?: "sm" | "md";
+  class?: string;
+};
+
+export type DataTableControlsProps = {
+  children: JSX.Element;
+  class?: string;
+};
+
+export type DataTablePanelFooterProps = {
+  children: JSX.Element;
+  class?: string;
+};
+
+type DataTablePanelContextValue = {
+  headingId: string;
+  hasHeading: Accessor<boolean>;
+  registerHeading: () => void;
+};
+
+const DataTablePanelContext = createContext<DataTablePanelContextValue>();
 
 const defaultRender = (value: unknown): JSX.Element => {
   if (value === null || value === undefined || value === "") return "—";
@@ -106,11 +155,11 @@ const rowInteractiveSelector = [
 ].join(",");
 
 const isNestedRowControl = (event: Event): boolean =>
-  event.target instanceof Element &&
-  event.target.closest(rowInteractiveSelector) !== event.currentTarget;
+  event.target instanceof Element && event.target.closest(rowInteractiveSelector) !== event.currentTarget;
 
-export default function DataTable<T>(props: DataTableProps<T>) {
+function DataTableRoot<T>(props: DataTableProps<T>) {
   const [hoveredColumn, setHoveredColumn] = createSignal<number | null>(null);
+  const panel = useContext(DataTablePanelContext);
   let scrollRef: HTMLDivElement | undefined;
   let loadMoreRef: HTMLDivElement | undefined;
   let hasMore = false;
@@ -120,6 +169,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
   const isInteractive = () => !!props.onRowClick || !!props.onRowDoubleClick;
   const shouldHoverRows = () => props.hoverRows ?? isInteractive();
   const shouldRenderLoadMoreSentinel = () => !!props.onLoadMore;
+  const labelledBy = () => props.ariaLabelledBy ?? (panel?.hasHeading() ? panel.headingId : undefined);
   const cellContentClass = () => props.cellContentClass ?? "k2b-data-table__cell-text";
   const tableClass = () => props.tableClass ?? "k2b-data-table";
   const columnHighlighted = (index: number) =>
@@ -267,10 +317,12 @@ export default function DataTable<T>(props: DataTableProps<T>) {
       <div
         ref={scrollRef}
         role="region"
-        aria-label="Data table"
+        aria-label={labelledBy() ? undefined : (props.ariaLabel ?? "Data table")}
+        aria-labelledby={labelledBy()}
         tabIndex={0}
         class={`k2b-table-wrap ${props.class ?? ""}`}
         data-density={props.density === "compact" ? "compact" : undefined}
+        data-has-footer={props.footer ? "true" : undefined}
         data-surface={props.class ? undefined : "paper"}
         data-scroll-preserve={props.scrollPreserveKey || undefined}
         onScroll={maybeLoadMore}
@@ -389,3 +441,60 @@ export default function DataTable<T>(props: DataTableProps<T>) {
     </Show>
   );
 }
+
+const DataTablePanel = (props: DataTablePanelProps): JSX.Element => {
+  const headingId = `k2b-data-table-${createUniqueId()}-heading`;
+  const [hasHeading, setHasHeading] = createSignal(false);
+  const context: DataTablePanelContextValue = {
+    headingId,
+    hasHeading,
+    registerHeading: () => setHasHeading(true),
+  };
+
+  return (
+    <DataTablePanelContext.Provider value={context}>
+      <section class={`k2b-data-panel ${props.class ?? ""}`}>{props.children}</section>
+    </DataTablePanelContext.Provider>
+  );
+};
+
+const DataTableHeader = (props: DataTableHeaderProps): JSX.Element => {
+  const panel = useContext(DataTablePanelContext);
+  panel?.registerHeading();
+
+  return (
+    <div class={`k2b-data-panel__header ${props.class ?? ""}`}>
+      <PanelHeader
+        title={<span id={panel?.headingId}>{props.title}</span>}
+        subtitle={props.subtitle}
+        actions={props.children}
+        as={props.as}
+        size={props.size}
+      />
+    </div>
+  );
+};
+
+const DataTableControls = (props: DataTableControlsProps): JSX.Element => (
+  <div class={`k2b-data-panel__controls ${props.class ?? ""}`}>{props.children}</div>
+);
+
+const DataTablePanelFooter = (props: DataTablePanelFooterProps): JSX.Element => (
+  <footer class={`k2b-data-panel__footer ${props.class ?? ""}`}>{props.children}</footer>
+);
+
+type DataTableComponent = {
+  <T>(props: DataTableProps<T>): JSX.Element;
+  Panel: (props: DataTablePanelProps) => JSX.Element;
+  Header: (props: DataTableHeaderProps) => JSX.Element;
+  Controls: (props: DataTableControlsProps) => JSX.Element;
+  Footer: (props: DataTablePanelFooterProps) => JSX.Element;
+};
+
+const DataTable = DataTableRoot as DataTableComponent;
+DataTable.Panel = DataTablePanel;
+DataTable.Header = DataTableHeader;
+DataTable.Controls = DataTableControls;
+DataTable.Footer = DataTablePanelFooter;
+
+export default DataTable;

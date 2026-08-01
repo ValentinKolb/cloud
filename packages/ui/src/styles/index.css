@@ -1342,10 +1342,33 @@
   gap: 0.5rem;
 }
 
+/* Compound DataTable panels keep controls as children instead of JSX-valued
+   props. The padding completes the same px-3 py-2 header rhythm as DataPanel. */
+.k2b-ui .k2b-data-panel__controls {
+  @apply flex min-w-0 flex-col;
+  gap: 0.5rem;
+  padding: 0 0.75rem 0.5rem;
+}
+
 /* Cloud: `px-3 py-2`, inheriting colour and size — the port shrank the footer
    to 0.6875rem muted text, which is not what pagination controls expect. */
 .k2b-ui .k2b-data-panel__footer {
   padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--k2b-border);
+}
+
+/* Pagination already sits inside the panel's padded footer. Its standalone
+   top offset would otherwise create a double gap below the table. */
+.k2b-ui .k2b-data-panel__footer > .k2b-pagination {
+  padding-top: 0;
+}
+
+/* A table summary footer already separates the data from panel controls. */
+.k2b-ui
+  .k2b-data-panel
+  > .k2b-table-wrap[data-has-footer="true"]
+  + .k2b-data-panel__footer {
+  border-top: 0;
 }
 
 .k2b-ui .k2b-panel-dialog-frame {
@@ -3534,6 +3557,14 @@
   border-radius: var(--k2b-radius-surface);
   background: var(--k2b-surface);
   box-shadow: var(--k2b-shadow-surface);
+}
+
+/* The panel already owns the enclosing surface. A directly nested table only
+   contributes its header and row separators, avoiding a doubled frame. */
+.k2b-ui .k2b-data-panel > .k2b-table-wrap[data-surface="paper"] {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .k2b-ui .k2b-data-table {

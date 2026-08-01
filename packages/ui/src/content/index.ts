@@ -28,7 +28,11 @@ export { default as CodeDisplay } from "./CodeDisplay";
 
 export type {
   DataTableColumn,
+  DataTableControlsProps,
   DataTableFooter,
+  DataTableHeaderProps,
+  DataTablePanelFooterProps,
+  DataTablePanelProps,
   DataTableProps,
   DataTableRenderCell,
   DataTableRenderHeader,

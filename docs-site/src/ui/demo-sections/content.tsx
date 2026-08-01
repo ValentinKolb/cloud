@@ -13,6 +13,7 @@ import {
   DocSection,
   FileBrowserPanel,
   type FileSource,
+  FilterChip,
   Lightbox,
   LogEntriesTable,
   MarkdownEditor,
@@ -20,16 +21,18 @@ import {
   Pagination,
   PdfPreview,
   RangePicker,
+  StatusBadge,
   StructuredDataPreview,
   TemplateEditor,
   TemplatePreview,
   TemplateSampleData,
+  TextInput,
 } from "@k2b/ui";
 import { createMemo, createSignal, Show } from "solid-js";
 import { DemoCard } from "../DemoCard";
-import { DemoGrid, type DemoSection } from "./types";
 import { PaginationDemo } from "./layout";
 import { CalendarDemo } from "./surfaces";
+import { DemoGrid, type DemoSection } from "./types";
 
 const ChartDemo = () => (
   <DemoCard
@@ -119,7 +122,7 @@ const TableDemo = () => (
       { kind: "component", name: "DataTable", from: "@k2b/ui" },
       { kind: "component", name: "Pagination", from: "@k2b/ui" },
     ]}
-    description="Exact typed records with server-owned sorting, callback composition, selection, totals, and URL pagination."
+    description="The basic form renders exact typed records. Sorting, selection, totals, and pagination stay application-owned."
     code={`<DataTable
   rows={rows}
   columns={columns}
@@ -143,6 +146,165 @@ const TableDemo = () => (
     <Pagination currentPage={2} totalPages={6} baseUrl="?page=" />
   </DemoCard>
 );
+
+type OrderRow = {
+  id: string;
+  customer: string;
+  status: "new" | "shipped" | "delivered";
+  items: number;
+  total: number;
+};
+
+const orderRows: OrderRow[] = [
+  { id: "ord-1", customer: "Alice Becker", status: "delivered", items: 3, total: 129.9 },
+  { id: "ord-2", customer: "Bob Schmidt", status: "shipped", items: 1, total: 42.5 },
+  { id: "ord-3", customer: "Cara Müller", status: "new", items: 5, total: 219.99 },
+];
+
+const orderColumns: DataTableColumn<OrderRow>[] = [
+  { id: "customer", header: "Customer", value: "customer" },
+  { id: "status", header: "Status", value: "status" },
+  { id: "items", header: "Items", value: "items", align: "right" },
+  { id: "total", header: "Total", value: "total", align: "right" },
+  { id: "actions", header: "Settings", align: "right" },
+];
+
+const orderStatus = {
+  new: { label: "New", tone: "running" },
+  shipped: { label: "Shipped", tone: "warning" },
+  delivered: { label: "Delivered", tone: "ok" },
+} as const;
+
+const ProfessionalTableDemo = () => {
+  const [query, setQuery] = createSignal("");
+  const [statuses, setStatuses] = createSignal<string[]>([]);
+  const filteredRows = createMemo(() => {
+    const normalizedQuery = query().trim().toLowerCase();
+    const selectedStatuses = new Set(statuses());
+    return orderRows.filter(
+      (row) =>
+        (normalizedQuery.length === 0 || row.customer.toLowerCase().includes(normalizedQuery)) &&
+        (selectedStatuses.size === 0 || selectedStatuses.has(row.status)),
+    );
+  });
+  const totals = createMemo(() =>
+    filteredRows().reduce(
+      (result, row) => ({ items: result.items + row.items, total: result.total + row.total }),
+      { items: 0, total: 0 },
+    ),
+  );
+
+  return (
+    <DemoCard
+      id="tables-professional"
+      chip={[
+        { kind: "component", name: "DataTable", from: "@k2b/ui" },
+        { kind: "component", name: "FilterChip", from: "@k2b/ui" },
+        { kind: "component", name: "TextInput", from: "@k2b/ui" },
+      ]}
+      description="The professional composition adds a labelled panel, actions, search, filters, and pagination without moving data ownership into the component."
+      code={`const [query, setQuery] = createSignal("");
+
+<DataTable.Panel>
+  <DataTable.Header title="Orders" subtitle={\`\${filteredRows().length} of \${total} rows\`}>
+    <Button size="sm" variant="subtle"><i class="ti ti-settings" />Settings</Button>
+  </DataTable.Header>
+
+  <DataTable.Controls>
+    <TextInput aria-label="Search orders" value={query()} onValueChange={setQuery} icon="ti ti-search" />
+    <FilterChip label="Status" icon="ti ti-filter" value={statuses()} onValueChange={setStatuses} options={statusOptions} />
+  </DataTable.Controls>
+
+  <DataTable
+    rows={filteredRows()}
+    columns={columns}
+    footer={{ values: { customer: "Total", items: totals().items, total: totals().total } }}
+    renderCell={({ row, col, value, render }) => {
+      if (col.id === "status") return <StatusBadge {...statusFor(row.status)} />;
+      if (col.id === "actions") return <Button size="sm" variant="subtle">Open</Button>;
+      return col.id === "total" ? formatCurrency(value) : render(value);
+    }}
+  />
+
+  <DataTable.Footer>
+    <Pagination currentPage={1} totalPages={6} baseUrl="?page=" />
+  </DataTable.Footer>
+</DataTable.Panel>`}
+    >
+      <DataTable.Panel>
+        <DataTable.Header title="Orders" subtitle={`${filteredRows().length} of ${orderRows.length} rows`}>
+          <Button size="sm" variant="subtle">
+            <i class="ti ti-settings" aria-hidden="true" /> Settings
+          </Button>
+        </DataTable.Header>
+        <DataTable.Controls>
+          <TextInput
+            aria-label="Search orders"
+            value={query()}
+            onValueChange={setQuery}
+            icon="ti ti-search"
+            placeholder="Search orders..."
+            clearable
+          />
+          <div class="ui-demo-row">
+            <FilterChip
+              label="Status"
+              icon="ti ti-filter"
+              value={statuses()}
+              onValueChange={setStatuses}
+              options={[
+                {
+                  multiple: true,
+                  options: [
+                    { value: "new", label: "New", color: "#3b82f6" },
+                    { value: "shipped", label: "Shipped", color: "#f59e0b" },
+                    { value: "delivered", label: "Delivered", color: "#10b981" },
+                  ],
+                },
+              ]}
+            />
+          </div>
+        </DataTable.Controls>
+        <DataTable
+          rows={filteredRows()}
+          columns={orderColumns}
+          getRowId={(row) => row.id}
+          footer={{
+            values: {
+              customer: "Total",
+              items: totals().items,
+              total: totals().total,
+            },
+            renderCell: ({ col, value, render }) => {
+              if (col.id === "status" || col.id === "actions") return null;
+              if (col.id === "total") return `€${Number(value).toFixed(2)}`;
+              return render(value);
+            },
+          }}
+          renderCell={({ row, col, value, render }) => {
+            if (col.id === "customer") return <strong>{row.customer}</strong>;
+            if (col.id === "status") {
+              const status = orderStatus[row.status];
+              return <StatusBadge label={status.label} tone={status.tone} icon={null} />;
+            }
+            if (col.id === "total") return `€${Number(value).toFixed(2)}`;
+            if (col.id === "actions") {
+              return (
+                <Button size="sm" variant="subtle">
+                  Open
+                </Button>
+              );
+            }
+            return render(value);
+          }}
+        />
+        <DataTable.Footer>
+          <Pagination currentPage={1} totalPages={6} baseUrl="?page=" />
+        </DataTable.Footer>
+      </DataTable.Panel>
+    </DemoCard>
+  );
+};
 
 const CodeDemo = () => (
   <DemoCard
@@ -472,6 +634,7 @@ const demos: DemoSection = {
   tables: () => (
     <DemoGrid columns="one">
       <TableDemo />
+      <ProfessionalTableDemo />
     </DemoGrid>
   ),
   calendar: () => <DemoGrid columns="one"><CalendarDemo /></DemoGrid>,

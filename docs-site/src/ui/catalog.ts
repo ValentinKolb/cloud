@@ -141,7 +141,7 @@ const portableSections = [
     icon: "ti ti-file-description",
     pages: [
       page("charts", "Charts", "ti ti-chart-line", "Typed responsive charts and interactive state timelines."),
-      page("tables", "DataTable", "ti ti-table", "Exact records with sorting, selection, footers, and incremental loading."),
+      page("tables", "DataTable", "ti ti-table", "Basic records and professional panels with search, filters, actions, and pagination."),
       page("calendar", "Calendar", "ti ti-calendar-month", "Controlled generic calendar navigation and items."),
       page("pagination", "Pagination", "ti ti-arrow-right", "Server-friendly href pagination with compact page windows."),
       page("code", "Code", "ti ti-code", "Selectable source with language-aware highlighting and copy."),

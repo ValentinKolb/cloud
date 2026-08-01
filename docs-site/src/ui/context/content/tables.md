@@ -6,7 +6,10 @@
 
 Use it for records with consistent fields, comparable values, and column headings.
 
-Use `StructuredDataPreview` for one small metadata object. Use `DataPanel` when the table also needs a title, count, search, filters, loading state, or pagination.
+Use `StructuredDataPreview` for one small metadata object. Wrap the table in
+`DataTable.Panel` when it also needs a title, count, search, filters, actions,
+or pagination. The standalone `DataPanel` export remains available for panels
+whose content is not a table.
 
 ## Import
 
@@ -31,6 +34,46 @@ Each column has a stable `id`, a `header`, and usually a `value` key or function
 Pass `getRowId` when selection or stable row identity matters. Use `selectedRowId` for a selected record, not the row index.
 
 The default cell renderer displays missing values as an em dash, dates with the current locale, and booleans as Yes or No.
+
+## Professional composition
+
+The basic `DataTable` stays valid on its own. The compound panel adds only
+presentation and accessible structure; it does not own query or pagination
+state.
+
+```tsx
+<DataTable.Panel>
+  <DataTable.Header
+    title="Orders"
+    subtitle={`${rows.length} of ${total} rows`}
+  >
+    <Button size="sm" variant="subtle">Settings</Button>
+  </DataTable.Header>
+
+  <DataTable.Controls>
+    <TextInput
+      aria-label="Search orders"
+      value={query()}
+      onValueChange={setQuery}
+    />
+    <StatusFilter />
+  </DataTable.Controls>
+
+  <DataTable rows={rows} columns={columns} />
+
+  <DataTable.Footer>
+    <Pagination currentPage={page} totalPages={pages} baseUrl="?page=" />
+  </DataTable.Footer>
+</DataTable.Panel>
+```
+
+`DataTable.Header` accepts primitive `title` and `subtitle` props. Its children
+are actions. `Controls` and `Footer` accept ordinary child composition, so
+search, filters, settings, bulk actions, and pagination remain replaceable.
+
+The header automatically labels the nested table region. For a standalone
+table, use `ariaLabel`; use `ariaLabelledBy` when an existing visible heading
+already owns the label.
 
 `DataTableRenderCell` receives `row`, `col`, the resolved `value`, and a
 `render` callback for the default presentation. `DataTableRenderHeader`

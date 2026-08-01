@@ -135,6 +135,7 @@ describe("@k2b/ui Cloud content contract", () => {
         getRowId: (row) => row.id,
         selectedRowId: "one",
         renderCell: ({ col, value, render }) => (col.id === "name" ? String(value).toUpperCase() : render(value)),
+        footer: { values: { name: "Total", count: 3 } },
         scrollPreserveKey: "people",
       }),
     );
@@ -145,6 +146,48 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html).toContain('data-scroll-preserve="people"');
     expect(html).toContain('tabindex="0"');
     expect(html).toContain('data-selected="true"');
+    expect(html).toContain('data-has-footer="true"');
+    expect(html).toContain("Total");
+  });
+
+  test("composes a labelled professional DataTable panel without component-valued props", () => {
+    type Row = { id: string; name: string };
+    const html = renderToString(() => (
+      <DataTable.Panel>
+        <DataTable.Header title="Orders" subtitle="1 of 1 rows">
+          <button type="button">Settings</button>
+        </DataTable.Header>
+        <DataTable.Controls>
+          <input aria-label="Search orders" />
+        </DataTable.Controls>
+        <DataTable<Row>
+          rows={[{ id: "one", name: "Ada" }]}
+          columns={[{ id: "name", header: "Name", value: "name" }]}
+          getRowId={(row) => row.id}
+        />
+        <DataTable.Footer>Page 1 of 1</DataTable.Footer>
+      </DataTable.Panel>
+    ));
+
+    const headingId = html.match(/id="(k2b-data-table-[^"]+-heading)"/)?.[1];
+    expect(headingId).toBeTruthy();
+    expect(html).toContain(`aria-labelledby="${headingId}"`);
+    expect(html).not.toContain('aria-label="Data table"');
+    expect(html).toContain("k2b-data-panel__controls");
+    expect(html).toContain("Settings");
+    expect(html).toContain("Page 1 of 1");
+  });
+
+  test("lets standalone DataTable regions override their accessible name", () => {
+    const html = renderToString(() =>
+      DataTable({
+        ariaLabel: "Project orders",
+        rows: [{ id: "one" }],
+        columns: [{ id: "id", header: "ID", value: "id" }],
+      }),
+    );
+
+    expect(html).toContain('aria-label="Project orders"');
   });
 
   test("keeps SSR navigation and observability content defaults", () => {
