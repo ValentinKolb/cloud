@@ -1,15 +1,4 @@
-import {
-  AppWorkspace,
-  ColorInput,
-  Dropdown,
-  NumberInput,
-  prompts,
-  SegmentedControl,
-  Select,
-  Slider,
-  Switch,
-  Tooltip,
-} from "@valentinkolb/cloud/ui";
+import { AppWorkspace, ColorInput, Dropdown, NumberInput, prompts, SegmentedControl, Select, Slider, Switch, Tooltip } from "@k2b/ui";
 import { files as fileTools, images as imageTools } from "@k2b/stdlib/browser";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -704,7 +693,7 @@ export default function ImageProcessor() {
               label="Format"
               icon="ti ti-file-type-jpg"
               value={fmt}
-              onChange={(v) => setFmt(v as ExportFormat)}
+              onValueChange={(v) => setFmt(v as ExportFormat)}
               options={[
                 { id: "webp", label: "WebP" },
                 { id: "jpeg", label: "JPEG" },
@@ -715,7 +704,7 @@ export default function ImageProcessor() {
               <Slider
                 label="Quality"
                 value={qual}
-                onChange={setQual}
+                onValueChange={setQual}
                 min={0.1}
                 max={1}
                 step={0.05}
@@ -729,7 +718,7 @@ export default function ImageProcessor() {
                 label="Max width"
                 placeholder="Auto"
                 value={mw}
-                onChange={(value) => setMw(value ?? undefined)}
+                onValueChange={(value) => setMw(value ?? undefined)}
                 min={1}
                 allowNegative={false}
                 showSteppers={false}
@@ -739,7 +728,7 @@ export default function ImageProcessor() {
                 label="Max height"
                 placeholder="Auto"
                 value={mh}
-                onChange={(value) => setMh(value ?? undefined)}
+                onValueChange={(value) => setMh(value ?? undefined)}
                 min={1}
                 allowNegative={false}
                 showSteppers={false}
@@ -934,8 +923,8 @@ export default function ImageProcessor() {
                 { value: "arrow", label: "Arrow", icon: "ti ti-arrow-up-right" },
               ]}
               value={markupShape}
-              onChange={setMarkupShape}
-              ariaLabel="Shape type"
+              onValueChange={setMarkupShape}
+              aria-label="Shape type"
             />
           </div>
         </div>
@@ -959,7 +948,7 @@ export default function ImageProcessor() {
               )}
             </For>
             <Tooltip content="Custom color">
-              <ColorInput compact label="Custom color" value={markupColor} onChange={setMarkupColor} />
+              <ColorInput compact label="Custom color" value={markupColor} onValueChange={setMarkupColor} />
             </Tooltip>
           </div>
         </div>
@@ -967,7 +956,7 @@ export default function ImageProcessor() {
         <Slider
           label={markupTool() === "text" ? "Text size" : "Size"}
           value={markupSize}
-          onChange={setMarkupSize}
+          onValueChange={setMarkupSize}
           min={markupSizeRange().min}
           max={markupSizeRange().max}
           step={1}
@@ -1244,8 +1233,8 @@ export default function ImageProcessor() {
                 { value: "markup", label: "Markup", icon: "ti ti-pencil" },
               ]}
               value={editorMode}
-              onChange={changeEditorMode}
-              ariaLabel="Editor mode"
+              onValueChange={changeEditorMode}
+              aria-label="Editor mode"
             />
           </Show>
         </header>
@@ -1442,7 +1431,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Rotation"
                       value={() => adj().freeRotation}
-                      onChange={(v) => setAdj("freeRotation", v)}
+                      onValueChange={(v) => setAdj("freeRotation", v)}
                       min={-180}
                       max={180}
                       step={0.5}
@@ -1451,8 +1440,8 @@ export default function ImageProcessor() {
                       formatValue={(v) => `${v > 0 ? "+" : ""}${v}\u00b0`}
                     />
                     <div class="grid grid-cols-2 gap-2">
-                      <Switch label="Flip H" value={() => adj().flipH} onChange={(v) => setAdj("flipH", v)} />
-                      <Switch label="Flip V" value={() => adj().flipV} onChange={(v) => setAdj("flipV", v)} />
+                      <Switch label="Flip H" value={() => adj().flipH} onValueChange={(v) => setAdj("flipH", v)} />
+                      <Switch label="Flip V" value={() => adj().flipV} onValueChange={(v) => setAdj("flipV", v)} />
                     </div>
                   </div>
 
@@ -1467,7 +1456,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Brightness"
                       value={() => adj().brightness}
-                      onChange={(v) => setAdj("brightness", v)}
+                      onValueChange={(v) => setAdj("brightness", v)}
                       min={0.5}
                       max={1.5}
                       step={0.01}
@@ -1478,7 +1467,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Contrast"
                       value={() => adj().contrast}
-                      onChange={(v) => setAdj("contrast", v)}
+                      onValueChange={(v) => setAdj("contrast", v)}
                       min={0.5}
                       max={2}
                       step={0.01}
@@ -1489,7 +1478,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Saturation"
                       value={() => adj().saturation}
-                      onChange={(v) => setAdj("saturation", v)}
+                      onValueChange={(v) => setAdj("saturation", v)}
                       min={0}
                       max={2}
                       step={0.01}
@@ -1500,7 +1489,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Hue"
                       value={() => adj().hueRotate}
-                      onChange={(v) => setAdj("hueRotate", v)}
+                      onValueChange={(v) => setAdj("hueRotate", v)}
                       min={0}
                       max={360}
                       step={1}
@@ -1510,7 +1499,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Blur"
                       value={() => adj().blur}
-                      onChange={(v) => setAdj("blur", v)}
+                      onValueChange={(v) => setAdj("blur", v)}
                       min={0}
                       max={10}
                       step={0.1}
@@ -1520,7 +1509,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Sepia"
                       value={() => adj().sepia}
-                      onChange={(v) => setAdj("sepia", v)}
+                      onValueChange={(v) => setAdj("sepia", v)}
                       min={0}
                       max={1}
                       step={0.01}
@@ -1530,7 +1519,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Vignette"
                       value={() => adj().vignette}
-                      onChange={(v) => setAdj("vignette", v)}
+                      onValueChange={(v) => setAdj("vignette", v)}
                       min={0}
                       max={1}
                       step={0.01}
@@ -1540,7 +1529,7 @@ export default function ImageProcessor() {
                     <Slider
                       label="Grain"
                       value={() => adj().grain}
-                      onChange={(v) => setAdj("grain", v)}
+                      onValueChange={(v) => setAdj("grain", v)}
                       min={0}
                       max={0.5}
                       step={0.01}

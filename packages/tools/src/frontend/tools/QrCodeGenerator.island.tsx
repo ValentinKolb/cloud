@@ -3,7 +3,7 @@ import { createMemo, createSignal, Match, Show, Switch } from "solid-js";
 // depends on the optional peer `lean-qr`. Use the subpath import; this
 // app declares lean-qr as a direct dep so it's installed in the container.
 import { qr } from "@k2b/stdlib/qr";
-import { ColorInput, CopyButton, DateTimePicker, Select, Slider, SwitchInput, TextInput } from "@valentinkolb/cloud/ui";
+import { ColorInput, CopyButton, DateTimePicker, Select, Slider, Switch as Toggle, TextInput } from "@k2b/ui";
 
 type Mode = "text" | "wifi" | "email" | "tel" | "vcard" | "event";
 
@@ -192,7 +192,7 @@ export default function QrCodeGenerator() {
             label="Content type"
             icon="ti ti-qrcode"
             value={mode}
-            onChange={(value) => setMode(value as Mode)}
+            onValueChange={(value) => setMode(value as Mode)}
             options={[
               { id: "text", label: "Text or URL", icon: "ti ti-link" },
               { id: "wifi", label: "WiFi network", icon: "ti ti-wifi" },
@@ -214,7 +214,7 @@ export default function QrCodeGenerator() {
                   multiline
                   lines={4}
                   value={text}
-                  onInput={setText}
+                  onValueChange={setText}
                 />
               </Match>
 
@@ -225,7 +225,7 @@ export default function QrCodeGenerator() {
                   placeholder="MyNetwork"
                   icon="ti ti-wifi"
                   value={wifiSsid}
-                  onInput={setWifiSsid}
+                  onValueChange={setWifiSsid}
                   required
                 />
                 <TextInput
@@ -234,7 +234,7 @@ export default function QrCodeGenerator() {
                   placeholder="Network password"
                   icon="ti ti-lock"
                   value={wifiPassword}
-                  onInput={setWifiPassword}
+                  onValueChange={setWifiPassword}
                   password
                 />
                 <div class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
@@ -242,7 +242,7 @@ export default function QrCodeGenerator() {
                     label="Encryption"
                     icon="ti ti-shield-lock"
                     value={wifiEncryption}
-                    onChange={setWifiEncryption}
+                    onValueChange={setWifiEncryption}
                     options={[
                       { id: "WPA", label: "WPA / WPA2" },
                       { id: "WEP", label: "WEP" },
@@ -250,7 +250,7 @@ export default function QrCodeGenerator() {
                     ]}
                   />
                   <div class="flex h-9.5 items-center">
-                    <SwitchInput label="Hidden network" value={wifiHidden} onChange={setWifiHidden} />
+                    <Toggle label="Hidden network" value={wifiHidden} onValueChange={setWifiHidden} />
                   </div>
                 </div>
               </Match>
@@ -262,7 +262,7 @@ export default function QrCodeGenerator() {
                   placeholder="recipient@example.com"
                   icon="ti ti-mail"
                   value={emailTo}
-                  onInput={setEmailTo}
+                  onValueChange={setEmailTo}
                   required
                 />
                 <TextInput
@@ -270,7 +270,7 @@ export default function QrCodeGenerator() {
                   placeholder="Email subject"
                   icon="ti ti-text-caption"
                   value={emailSubject}
-                  onInput={setEmailSubject}
+                  onValueChange={setEmailSubject}
                 />
                 <TextInput
                   label="Body"
@@ -278,7 +278,7 @@ export default function QrCodeGenerator() {
                   icon="ti ti-align-left"
                   multiline
                   value={emailBody}
-                  onInput={setEmailBody}
+                  onValueChange={setEmailBody}
                 />
               </Match>
 
@@ -289,7 +289,7 @@ export default function QrCodeGenerator() {
                   placeholder="+49 123 456 7890"
                   icon="ti ti-phone"
                   value={telNumber}
-                  onInput={setTelNumber}
+                  onValueChange={setTelNumber}
                   required
                 />
               </Match>
@@ -301,27 +301,39 @@ export default function QrCodeGenerator() {
                     placeholder="Jane"
                     icon="ti ti-user"
                     value={vcFirstName}
-                    onInput={setVcFirstName}
+                    onValueChange={setVcFirstName}
                     required
                   />
-                  <TextInput label="Last name" placeholder="Doe" value={vcLastName} onInput={setVcLastName} />
+                  <TextInput label="Last name" placeholder="Doe" value={vcLastName} onValueChange={setVcLastName} />
                 </div>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <TextInput label="Organization" placeholder="Acme Inc." icon="ti ti-building" value={vcOrg} onInput={setVcOrg} />
-                  <TextInput label="Title" placeholder="Software Engineer" icon="ti ti-briefcase" value={vcTitle} onInput={setVcTitle} />
+                  <TextInput label="Organization" placeholder="Acme Inc." icon="ti ti-building" value={vcOrg} onValueChange={setVcOrg} />
+                  <TextInput
+                    label="Title"
+                    placeholder="Software Engineer"
+                    icon="ti ti-briefcase"
+                    value={vcTitle}
+                    onValueChange={setVcTitle}
+                  />
                 </div>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <TextInput label="Phone" placeholder="+49 123 456 7890" icon="ti ti-phone" value={vcPhone} onInput={setVcPhone} />
-                  <TextInput label="Email" placeholder="jane@example.com" icon="ti ti-mail" value={vcEmail} onInput={setVcEmail} />
+                  <TextInput label="Phone" placeholder="+49 123 456 7890" icon="ti ti-phone" value={vcPhone} onValueChange={setVcPhone} />
+                  <TextInput label="Email" placeholder="jane@example.com" icon="ti ti-mail" value={vcEmail} onValueChange={setVcEmail} />
                 </div>
-                <TextInput label="Website" placeholder="https://example.com" icon="ti ti-world" value={vcWebsite} onInput={setVcWebsite} />
+                <TextInput
+                  label="Website"
+                  placeholder="https://example.com"
+                  icon="ti ti-world"
+                  value={vcWebsite}
+                  onValueChange={setVcWebsite}
+                />
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <TextInput label="Street" placeholder="123 Main St" icon="ti ti-map-pin" value={vcStreet} onInput={setVcStreet} />
-                  <TextInput label="City" placeholder="Berlin" value={vcCity} onInput={setVcCity} />
+                  <TextInput label="Street" placeholder="123 Main St" icon="ti ti-map-pin" value={vcStreet} onValueChange={setVcStreet} />
+                  <TextInput label="City" placeholder="Berlin" value={vcCity} onValueChange={setVcCity} />
                 </div>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <TextInput label="ZIP code" placeholder="10115" value={vcZip} onInput={setVcZip} />
-                  <TextInput label="Country" placeholder="Germany" value={vcCountry} onInput={setVcCountry} />
+                  <TextInput label="ZIP code" placeholder="10115" value={vcZip} onValueChange={setVcZip} />
+                  <TextInput label="Country" placeholder="Germany" value={vcCountry} onValueChange={setVcCountry} />
                 </div>
               </Match>
 
@@ -331,7 +343,7 @@ export default function QrCodeGenerator() {
                   placeholder="Team meeting"
                   icon="ti ti-calendar-event"
                   value={evTitle}
-                  onInput={setEvTitle}
+                  onValueChange={setEvTitle}
                   required
                 />
                 <TextInput
@@ -340,11 +352,16 @@ export default function QrCodeGenerator() {
                   placeholder="Room 42 or https://meet.example.com"
                   icon="ti ti-map-pin"
                   value={evLocation}
-                  onInput={setEvLocation}
+                  onValueChange={setEvLocation}
                 />
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <DateTimePicker label="Start" value={() => evStart() || null} onChange={(value) => setEvStart(value ?? "")} clearable />
-                  <DateTimePicker label="End" value={() => evEnd() || null} onChange={(value) => setEvEnd(value ?? "")} clearable />
+                  <DateTimePicker
+                    label="Start"
+                    value={() => evStart() || null}
+                    onValueChange={(value) => setEvStart(value ?? "")}
+                    clearable
+                  />
+                  <DateTimePicker label="End" value={() => evEnd() || null} onValueChange={(value) => setEvEnd(value ?? "")} clearable />
                 </div>
                 <TextInput
                   label="Description"
@@ -352,7 +369,7 @@ export default function QrCodeGenerator() {
                   icon="ti ti-align-left"
                   multiline
                   value={evDescription}
-                  onInput={setEvDescription}
+                  onValueChange={setEvDescription}
                 />
               </Match>
             </Switch>
@@ -420,7 +437,7 @@ export default function QrCodeGenerator() {
                 description="Higher levels remain readable after more damage."
                 icon="ti ti-shield-check"
                 value={ecLevel}
-                onChange={setEcLevel}
+                onValueChange={setEcLevel}
                 options={[
                   { id: "L", label: "Low (~7%)" },
                   { id: "M", label: "Medium (~15%)" },
@@ -428,22 +445,22 @@ export default function QrCodeGenerator() {
                   { id: "H", label: "High (~30%)" },
                 ]}
               />
-              <ColorInput label="Foreground" description="QR module color." value={fgColor} onChange={setFgColor} />
+              <ColorInput label="Foreground" description="QR module color." value={fgColor} onValueChange={setFgColor} />
               <ColorInput
                 label="Background"
                 description="Color behind the QR code."
                 value={bgColor}
-                onChange={setBgColor}
+                onValueChange={setBgColor}
                 transparent
-                isTransparent={transparentBg}
-                onTransparentChange={setTransparentBg}
+                transparentValue={transparentBg}
+                onTransparentValueChange={setTransparentBg}
               />
             </div>
             <Slider
               label="PNG export size"
               description="Resolution used for PNG downloads."
               value={size}
-              onChange={setSize}
+              onValueChange={setSize}
               min={100}
               max={1000}
               step={50}

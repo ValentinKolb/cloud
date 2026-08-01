@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, type JSX } from "solid-js";
 import { password as pwdGen } from "@k2b/stdlib";
 import { clipboard } from "@k2b/stdlib/browser";
-import { SegmentedControl, Slider, Switch } from "@valentinkolb/cloud/ui";
+import { SegmentedControl, Slider, Switch } from "@k2b/ui";
 
 type PasswordMode = "random" | "memorable" | "pin";
 
@@ -31,7 +31,7 @@ const RangeField = (props: {
   <Slider
     label={props.label}
     value={props.value}
-    onChange={props.onChange}
+    onValueChange={props.onChange}
     min={props.min}
     max={props.max}
     step={props.step ?? 1}
@@ -46,7 +46,7 @@ const ToggleRow = (props: { children: JSX.Element; columns?: string }) => (
 const InlineToggle = (props: { label: string; value: () => boolean; onChange: (value: boolean) => void }) => (
   <div class="flex items-center gap-3">
     <span class="text-sm text-secondary">{props.label}</span>
-    <Switch value={props.value} onChange={props.onChange} />
+    <Switch value={props.value} onValueChange={props.onChange} />
   </div>
 );
 
@@ -145,8 +145,8 @@ export default function PasswordGenerator() {
     <div class="flex flex-col gap-5">
       <SegmentedControl
         value={mode}
-        onChange={setMode}
-        ariaLabel="Password type"
+        onValueChange={setMode}
+        aria-label="Password type"
         options={[
           { value: "random", label: "Random", icon: "ti ti-arrows-shuffle" },
           { value: "memorable", label: "Memorable", icon: "ti ti-bulb" },

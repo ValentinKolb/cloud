@@ -1,4 +1,4 @@
-import { Chart, CopyButton } from "@valentinkolb/cloud/ui";
+import { Chart, CopyButton } from "@k2b/ui";
 import { batch, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { ToolCodeBlock } from "./ToolOutput";

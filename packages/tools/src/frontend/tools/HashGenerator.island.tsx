@@ -1,6 +1,6 @@
 import { createSignal, createEffect } from "solid-js";
 import { crypto } from "@k2b/stdlib";
-import { CopyButton, TextInput } from "@valentinkolb/cloud/ui";
+import { CopyButton, TextInput } from "@k2b/ui";
 import { ToolCodeBlock } from "./ToolOutput";
 
 export default function HashGenerator() {
@@ -41,7 +41,7 @@ export default function HashGenerator() {
           multiline
           icon="ti ti-text-caption"
           value={input}
-          onInput={setInput}
+          onValueChange={setInput}
         />
       </div>
 

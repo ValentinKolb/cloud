@@ -1,5 +1,5 @@
 import { createSignal, batch } from "solid-js";
-import { ColorInput, CopyButton, TextInput } from "@valentinkolb/cloud/ui";
+import { ColorInput, CopyButton, TextInput } from "@k2b/ui";
 
 // Conversion helpers
 
@@ -172,7 +172,7 @@ export default function ColorConverter() {
             <ColorInput
               label="Color Picker"
               value={pickerColor}
-              onChange={(v) => {
+              onValueChange={(v) => {
                 setPickerColor(v);
                 syncFrom("picker");
               }}
@@ -189,7 +189,7 @@ export default function ColorConverter() {
               placeholder="#000000"
               icon="ti ti-hash"
               value={hex}
-              onInput={(v) => {
+              onValueChange={(v) => {
                 setHex(v);
                 syncFrom("hex");
               }}
@@ -208,7 +208,7 @@ export default function ColorConverter() {
               placeholder="255, 255, 255"
               icon="ti ti-palette"
               value={rgb}
-              onInput={(v) => {
+              onValueChange={(v) => {
                 setRgb(v);
                 syncFrom("rgb");
               }}
@@ -227,7 +227,7 @@ export default function ColorConverter() {
               placeholder="0, 100%, 50%"
               icon="ti ti-color-swatch"
               value={hsl}
-              onInput={(v) => {
+              onValueChange={(v) => {
                 setHsl(v);
                 syncFrom("hsl");
               }}

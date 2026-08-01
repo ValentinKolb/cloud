@@ -1,4 +1,4 @@
-import { TextInput } from "@valentinkolb/cloud/ui";
+import { TextInput } from "@k2b/ui";
 import { fuzzy } from "@k2b/stdlib";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { taskGroupOrder, taskGroups, tools, toolSearchText, type ToolDef, type ToolTaskGroup } from "./tools/registry";
@@ -55,10 +55,10 @@ export default function ToolCatalog() {
     <div class="flex flex-col gap-5">
       <TextInput
         type="search"
-        ariaLabel="Search tools"
+        aria-label="Search tools"
         icon="ti ti-search"
         value={query}
-        onInput={setQuery}
+        onValueChange={setQuery}
         onClear={() => setQuery("")}
         placeholder='What do you want to do? Try "resize image" or "random ID"'
         clearable

@@ -1,8 +1,6 @@
 import { createSignal } from "solid-js";
 import { crypto } from "@k2b/stdlib";
-import { CopyButton, TextInput } from "@valentinkolb/cloud/ui";
-import { SegmentedControl } from "@valentinkolb/cloud/ui";
-import { Switch } from "@valentinkolb/cloud/ui";
+import { CopyButton, SegmentedControl, Switch, TextInput } from "@k2b/ui";
 import { ToolCodeBlock } from "./ToolOutput";
 type Tab = "symmetric" | "asymmetric";
 const getErrorMessage = (error: unknown, fallback: string): string => {
@@ -108,7 +106,7 @@ export default function EncryptionTool() {
           { value: "asymmetric" as Tab, label: "Asymmetric", icon: "ti ti-keys" },
         ]}
         value={tab}
-        onChange={setTab}
+        onValueChange={setTab}
       />{" "}
       {/* Symmetric */}{" "}
       {tab() === "symmetric" && (
@@ -132,7 +130,7 @@ export default function EncryptionTool() {
               placeholder="Text or ciphertext..."
               multiline
               value={symPayload}
-              onInput={setSymPayload}
+              onValueChange={setSymPayload}
             />{" "}
             <TextInput
               label="Key / Password"
@@ -141,11 +139,11 @@ export default function EncryptionTool() {
               password
               icon="ti ti-key"
               value={symKey}
-              onInput={setSymKey}
+              onValueChange={setSymKey}
             />{" "}
             <div class="flex items-center gap-3">
               {" "}
-              <Switch label="Stretched (PBKDF2)" value={symStretched} onChange={setSymStretched} />{" "}
+              <Switch label="Stretched (PBKDF2)" value={symStretched} onValueChange={setSymStretched} />{" "}
               <span class="text-xs text-dimmed">{symStretched() ? "Slow, safe for passwords" : "Fast, for high-entropy keys"}</span>{" "}
             </div>{" "}
             <div class="flex items-center gap-2">
@@ -212,7 +210,7 @@ export default function EncryptionTool() {
               placeholder="Public key..."
               multiline
               value={asymPubKey}
-              onInput={setAsymPubKey}
+              onValueChange={setAsymPubKey}
             />{" "}
             <TextInput
               label="Private Key"
@@ -220,7 +218,7 @@ export default function EncryptionTool() {
               placeholder="Private key..."
               multiline
               value={asymPrivKey}
-              onInput={setAsymPrivKey}
+              onValueChange={setAsymPrivKey}
             />{" "}
           </div>{" "}
           {/* Encrypt/Decrypt */}{" "}
@@ -233,7 +231,7 @@ export default function EncryptionTool() {
               placeholder="Text to encrypt or ciphertext to decrypt..."
               multiline
               value={asymPayload}
-              onInput={setAsymPayload}
+              onValueChange={setAsymPayload}
             />{" "}
             <div class="flex items-center gap-2">
               {" "}

@@ -1,6 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppOverview } from "@valentinkolb/cloud/ui";
+import { AppOverview } from "@k2b/ui";
 import { toolsHelp } from "@/help";
 import { ssr } from "../config";
 import ToolsLayoutHelp from "./_components/help/ToolsLayoutHelp.island";

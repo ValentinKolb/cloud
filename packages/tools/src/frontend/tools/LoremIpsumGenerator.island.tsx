@@ -1,5 +1,5 @@
 import { createSignal, createMemo, createEffect } from "solid-js";
-import { SegmentedControl, Slider } from "@valentinkolb/cloud/ui";
+import { SegmentedControl, Slider } from "@k2b/ui";
 import { timed } from "@k2b/stdlib/solid";
 import { ToolCodeBlock } from "./ToolOutput";
 
@@ -192,14 +192,14 @@ export default function LoremIpsumGenerator() {
           { value: "words" as Mode, label: "Words" },
         ]}
         value={mode}
-        onChange={setMode}
+        onValueChange={setMode}
       />
       <div class="paper p-4 flex flex-col gap-3">
         <Slider
           label="Count"
           description={`Number of ${mode()} to generate`}
           value={count}
-          onChange={setCount}
+          onValueChange={setCount}
           min={1}
           max={maxCount()}
           step={1}

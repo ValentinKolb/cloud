@@ -1,4 +1,4 @@
-import { CopyButton, Slider } from "@valentinkolb/cloud/ui";
+import { CopyButton, Slider } from "@k2b/ui";
 import { createEffect, createSignal, For } from "solid-js";
 import { ToolCodeBlock } from "./ToolOutput";
 export default function UuidGenerator() {
@@ -26,7 +26,7 @@ export default function UuidGenerator() {
           label="Count"
           description="Number of UUIDs to generate at once"
           value={count}
-          onChange={setCount}
+          onValueChange={setCount}
           min={1}
           max={100}
           step={1}

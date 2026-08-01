@@ -1,6 +1,5 @@
 import { createSignal, createMemo } from "solid-js";
-import { TextInput } from "@valentinkolb/cloud/ui";
-import { TagsInput } from "@valentinkolb/cloud/ui";
+import { TagsInput, TextInput } from "@k2b/ui";
 import { ToolCodeBlock } from "./ToolOutput";
 
 export default function MailtoGenerator() {
@@ -66,7 +65,7 @@ export default function MailtoGenerator() {
           placeholder="recipient@example.com"
           icon="ti ti-mail"
           value={to}
-          onInput={setTo}
+          onValueChange={setTo}
           required
         />
         <TagsInput
@@ -75,7 +74,7 @@ export default function MailtoGenerator() {
           placeholder="Add CC address..."
           icon="ti ti-users"
           value={cc}
-          onChange={setCc}
+          onValueChange={setCc}
         />
         <TagsInput
           label="BCC"
@@ -83,7 +82,7 @@ export default function MailtoGenerator() {
           placeholder="Add BCC address..."
           icon="ti ti-user-off"
           value={bcc}
-          onChange={setBcc}
+          onValueChange={setBcc}
         />
         <TextInput
           label="Subject"
@@ -91,7 +90,7 @@ export default function MailtoGenerator() {
           placeholder="Email subject"
           icon="ti ti-text-caption"
           value={subject}
-          onInput={setSubject}
+          onValueChange={setSubject}
         />
         <TextInput
           label="Body"
@@ -99,7 +98,7 @@ export default function MailtoGenerator() {
           placeholder="Email body text..."
           multiline
           value={body}
-          onInput={setBody}
+          onValueChange={setBody}
         />
       </div>
 

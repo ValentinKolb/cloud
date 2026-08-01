@@ -1,10 +1,4 @@
-import {
-  isSpotlightShortcut,
-  openSpotlightSearch,
-  SpotlightButton,
-  SPOTLIGHT_SHORTCUT_TITLE,
-  type SpotlightButtonVariant,
-} from "@valentinkolb/cloud/ui";
+import { isSpotlightShortcut, openSpotlightSearch, SpotlightButton, SPOTLIGHT_SHORTCUT_TITLE, type SpotlightButtonVariant } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { fuzzy } from "@k2b/stdlib";
 import { onCleanup, onMount } from "solid-js";

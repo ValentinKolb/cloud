@@ -1,6 +1,6 @@
 import { createSignal, createMemo } from "solid-js";
 import { encoding } from "@k2b/stdlib";
-import { TextInput, SegmentedControl } from "@valentinkolb/cloud/ui";
+import { TextInput, SegmentedControl } from "@k2b/ui";
 import { ToolCodeBlock } from "./ToolOutput";
 
 type Direction = "encode" | "decode";
@@ -87,7 +87,7 @@ export default function EncodingTool() {
             },
           ]}
           value={direction}
-          onChange={setDirection}
+          onValueChange={setDirection}
         />
 
         {/* Format */}
@@ -98,7 +98,7 @@ export default function EncodingTool() {
             { value: "base32" as Format, label: "Base32" },
           ]}
           value={format}
-          onChange={setFormat}
+          onValueChange={setFormat}
         />
 
         <TextInput
@@ -111,7 +111,7 @@ export default function EncodingTool() {
           placeholder={direction() === "encode" ? "Text to encode..." : "Encoded data to decode..."}
           multiline
           value={input}
-          onInput={setInput}
+          onValueChange={setInput}
           error={error}
         />
       </div>
